@@ -264,6 +264,24 @@ The Todo capability exposes scope-bound `todo_list`, `todo_create`, and `todo_up
 
 Ralph Loop performs bounded continuation and strict verification before the Agent output is committed. Knowledge Writer creates pending proposals only and retains the existing Inbox, pipeline, evaluation, and promotion gates. Plugin Hooks stage an installed Skill's explicit manifest into the offline Sandbox and execute argv only. Public Xpert Apps reject all private automation middleware. See `docs/XPERT_AUTOMATION.md`.
 
+## Xpert Evaluation Runtime
+
+`XpertEvaluationExecutor` reuses the classic workflow runner in an internal capture mode and
+creates a `xpert_evaluation` RunRegistry parent. Every run fixes its DatasetVersion,
+XpertVersion or Authoring Proposal revision, workflow checksum, resource versions, model
+policy, seed and budget before any sample executes.
+
+Evaluation mode is read-only and fail-closed. It blocks waiting, Handoff, Automation,
+interactive approval, persistent writes, Browser, Client Tools, Sandbox writes and unsafe
+Toolset/Plugin capabilities. Knowledge queries are pinned to the active index observed when
+the run is created. External Xperts recurse through the same preflight.
+
+The executor persists work items and resumes only unfinished items after restart. Budget
+counters cover model calls, tool calls and actual or explicitly estimated tokens. Reports and
+checkpoints store only truncated outputs, safe citations, counts, timing and error summaries.
+Evaluator never approves a Proposal, writes an Xpert draft or publishes a version. See
+`docs/EVOAGENTX_EVALUATOR.md`.
+
 ## Data X Runtime
 
 `DataXStore` atomically persists project, source snapshot, import job, semantic model, indicator, immutable version, proposal, and result-artifact metadata. Each project owns a separate DuckDB file. Imported source bytes are fixed by SHA-256 and never exposed through API paths.

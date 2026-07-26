@@ -159,8 +159,8 @@ Benchmark、Core、Model、Storage 和 Workflow。
 | WorkFlowGenerator | `server/meta_agent/` | 分阶段规划、资源选择和校验，使用现有模型网关 |
 | Agent | `workflow_agent` + XpertDefinition/Version | 只生成配置和绑定，不创建第二套 Agent Runtime |
 | Tool/Toolkit | ToolsetVersion + RuntimeTool | 只引用固定资源，不导入上游工具 SDK |
-| Evaluator | 未来 Evaluation Store/Executor | 固定输入、版本、模型、资源和预算后运行 classic runner |
-| Benchmark | 未来 Dataset/Metric contract | 数据集许可证独立登记，代码执行进入 Sandbox |
+| Evaluator | `server/evaluations/` | 固定输入、版本、模型、资源和预算后运行 classic runner |
+| Benchmark | XpertEvaluationStore/DatasetVersion/metrics | 数据集版本化；代码执行继续被只读预检拒绝 |
 | Optimizer | 未来 Candidate Proposal | 只创建候选 Xpert/Prompt 草稿和评估报告 |
 | Memory | XpertContextStore/File Memory | 不迁移上游 Memory Manager |
 | HITL | ApprovalStore/WorkflowExecutionStore | 候选和发布继续人工审批 |
@@ -213,3 +213,17 @@ preflight 和 classic runner。
 来源基线仍固定为 `v0.1.4@aad19b912f640161ea07e8904d9237cd34fde5f1`。后续
 Evaluator 或 Optimizer 若需要逐文件复用，必须另行补充 SHA-256、版权头、第三方依赖
 和测试映射；本条适配记录不能作为整体引入 EvoAgentX 的授权。
+
+## 12. 第二次适配记录：Xpert Evaluator
+
+| 上游相对路径 | 判定 | 适配内容 | ModelMirror 实现 | 测试责任 |
+| --- | --- | --- | --- | --- |
+| `evoagentx/evaluators/evaluator.py` | `adapt` | 将目标执行与评分分离、批量聚合的概念 | `server/evaluations/executor.py`、`metrics.py` | executor 恢复、指标和基线比较 |
+| `evoagentx/evaluators/aflow_evaluator.py` | `rewrite` | 候选在同一数据与预算下比较的目标 | Evaluation Run snapshot/report | 预算、stale、win/tie/loss |
+| `evoagentx/benchmark/benchmark.py` | `adapt` | Dataset/Case/Metric 的边界 | `models.py`、`store.py` | revision、不可变版本、导入 |
+| `evoagentx/benchmark/metrics.py` | `adapt` | 独立指标接口与聚合概念 | `metrics.py` | exact/contains/schema/citation/judge |
+
+本次没有复制上游 evaluator 或 benchmark Runtime。ModelMirror 独立实现文件 Store、
+只读安全预检、classic runner capture、资源固定、预算、RunRegistry、API 和前端。
+EvoAgentX 中与 WorkFlow、AgentManager、任意代码 Benchmark 或第三方数据集耦合的实现
+未引入。详细契约见 [EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md)。

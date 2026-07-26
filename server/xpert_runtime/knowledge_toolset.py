@@ -123,7 +123,11 @@ class KnowledgeToolsetProvider:
                 chunk_id = str(call.arguments.get("chunk_id") or "").strip()
                 if not chunk_id:
                     raise ValueError("chunk_id is required.")
-                item = self.service.get_knowledge_chunk(kb_id, chunk_id)
+                item = self.service.get_knowledge_chunk(
+                    kb_id,
+                    chunk_id,
+                    version_id=self._fixed_version(call, kb_id),
+                )
                 return RuntimeToolResult(
                     output=json.dumps(item, ensure_ascii=False),
                     metadata={
@@ -138,7 +142,11 @@ class KnowledgeToolsetProvider:
                 chunk_id = str(call.arguments.get("chunk_id") or "").strip()
                 if not chunk_id:
                     raise ValueError("chunk_id is required.")
-                item = self.service.get_knowledge_chunk(kb_id, chunk_id)
+                item = self.service.get_knowledge_chunk(
+                    kb_id,
+                    chunk_id,
+                    version_id=self._fixed_version(call, kb_id),
+                )
                 anchor = {
                     "citation_id": f"citation_{chunk_id}",
                     "kb_id": kb_id,
@@ -247,6 +255,7 @@ class KnowledgeToolsetProvider:
                     kb_id,
                     query,
                     top_k=target_top_k,
+                    version_id=self._fixed_version(call, kb_id),
                 )
             except Exception as exc:
                 warnings.append(f"{kb_id}: {str(exc)[:180]}")
@@ -338,6 +347,11 @@ class KnowledgeToolsetProvider:
                 code="knowledge_scope_invalid",
             )
         return result
+
+    def _fixed_version(self, call: RuntimeToolCall, kb_id: str) -> str | None:
+        config = self._resource_configs(call).get(kb_id, {})
+        value = str(config.get("evaluation_version_id") or "").strip()
+        return value or None
 
     def _required_allowed_kb(self, call: RuntimeToolCall, allowed: list[str]) -> str:
         requested = str(call.arguments.get("kb_id") or "").strip()

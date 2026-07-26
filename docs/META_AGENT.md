@@ -102,7 +102,7 @@ curl http://localhost:5173/agents/meta-agent
    [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md)。
 2. `EVOAGENTX-META-PLANNER-01`：已完成，按上述固定契约生成当前
    WorkflowNodeKind、资源绑定边、Agent middleware 与发布配置。
-3. `EVOAGENTX-EVALUATOR-02`：增加任务数据集、可插拔指标、候选执行和基线对比。
+3. `EVOAGENTX-EVALUATOR-02`：已完成版本化数据集、只读候选执行、固定预算和基线对比。
 4. `EVOAGENTX-EVOLUTION-03`：先做 Prompt 优化，再做工作流结构优化；输出候选草稿与评估报告，必须人工批准后才能发布。
 
 完整路线见 [EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md)。
@@ -145,3 +145,13 @@ python -m pytest server/tests/test_meta_planner_v2.py server/tests/test_meta_age
 cd client
 npm.cmd run build
 ```
+
+## 候选评测
+
+Meta Planner V2 的 pending Proposal 可以从候选面板直接进入
+`/agents/evaluations`。入口固定当前 `proposal_id + revision`，评测运行会保存完整
+不可变快照；之后继续编辑 Proposal 只会把旧报告标记为 stale，不会改变已完成结果。
+
+Evaluator 只读运行候选并生成报告，不调用 Proposal approve，也不会创建 Xpert 草稿
+或发布版本。安全、预算和报告契约见
+[EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md)。

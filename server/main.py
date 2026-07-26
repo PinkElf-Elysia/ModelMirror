@@ -48,6 +48,19 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.evaluations import (
+        configure_xpert_evaluations,
+        get_xpert_evaluation_executor,
+        router as xpert_evaluations_router,
+    )
+except ModuleNotFoundError:
+    from evaluations import (
+        configure_xpert_evaluations,
+        get_xpert_evaluation_executor,
+        router as xpert_evaluations_router,
+    )
+
+try:
     from server.skills.api import (
         get_skill_draft_store,
         get_skill_manager,
@@ -646,6 +659,7 @@ app.include_router(runtime_authoring_router)
 app.include_router(toolsets_router)
 app.include_router(prompt_profiles_router)
 app.include_router(plugins_router)
+app.include_router(xpert_evaluations_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -3572,7 +3586,7 @@ async def _run_workflow_response(
     )
     execution_budget: XpertExecutionBudget | None = None
     raw_agent_config = run_metadata.get("xpert_agent_config")
-    if runtime_run_type in {"xpert", "xpert_app"} and isinstance(
+    if runtime_run_type in {"xpert", "xpert_app", "xpert_evaluation"} and isinstance(
         raw_agent_config, dict
     ):
         restored_budget = resume_state.get("execution_budget")
@@ -3585,6 +3599,26 @@ async def _run_workflow_response(
             max_concurrency=int(raw_agent_config.get("max_concurrency") or 4),
             recursion_limit=int(raw_agent_config.get("recursion_limit") or 1000),
             steps_used=restored_steps,
+            max_model_calls=(
+                int(raw_agent_config["max_model_calls"])
+                if raw_agent_config.get("max_model_calls") is not None
+                else None
+            ),
+            max_tool_calls=(
+                int(raw_agent_config["max_tool_calls"])
+                if raw_agent_config.get("max_tool_calls") is not None
+                else None
+            ),
+            model_calls=(
+                int(restored_budget.get("model_calls") or 0)
+                if isinstance(restored_budget, dict)
+                else 0
+            ),
+            tool_calls=(
+                int(restored_budget.get("tool_calls") or 0)
+                if isinstance(restored_budget, dict)
+                else 0
+            ),
         )
     task_state: dict[str, Any] = {
         "task_id": task_id,
@@ -4505,6 +4539,26 @@ async def _run_workflow_response(
                 raise PermissionError("Xpert App authoring tools are disabled.")
             if not matched_tool:
                 raise ValueError(f"MCP 工具未注册：{tool_name}")
+            if runtime_run_type == "xpert_evaluation":
+                blocked_evaluation_capabilities = {
+                    "memory_tools",
+                    "todo_tools",
+                    "sandbox_tools",
+                    "browser_tools",
+                    "client_tools",
+                    "office_tools",
+                    "automation_tools",
+                    "xpert_authoring_tools",
+                    "skill_creator_tools",
+                }
+                if capability_name in blocked_evaluation_capabilities:
+                    raise RuntimeMiddlewareFatalError(
+                        "Xpert evaluation blocks stateful or side-effect Runtime tools."
+                    )
+                if not matched_tool.read_only or matched_tool.sensitive:
+                    raise RuntimeMiddlewareFatalError(
+                        "Xpert evaluation only permits non-sensitive read-only tools."
+                    )
             if matched_tool.requires_approval or matched_tool.sensitive:
                 hitl_spec = (
                     middleware_spec(middleware_specs, "human_in_the_loop")
@@ -7300,6 +7354,12 @@ async def _run_workflow_response(
                                             1.0,
                                         ),
                                     ),
+                                    "evaluation_version_id": str(
+                                        resource_data.get(
+                                            "evaluationPinnedVersionId"
+                                        )
+                                        or ""
+                                    ).strip(),
                                 }
                             )
                         if knowledge_resource_configs:
@@ -9777,6 +9837,8 @@ async def _run_workflow_response(
                 "execution_budget": (
                     {
                         "steps_used": task_state["execution_budget"].steps_used,
+                        "model_calls": task_state["execution_budget"].model_calls,
+                        "tool_calls": task_state["execution_budget"].tool_calls,
                     }
                     if isinstance(
                         task_state.get("execution_budget"),
@@ -11957,6 +12019,225 @@ async def team_chat(payload: TeamChatRequest, request: Request):
     )
 
 
+def evaluation_citation_summary(value: Any) -> dict[str, list[str]]:
+    result: dict[str, set[str]] = {
+        "citation_ids": set(),
+        "chunk_ids": set(),
+        "document_names": set(),
+    }
+    stack = [value]
+    visited = 0
+    while stack and visited < 5_000:
+        visited += 1
+        current = stack.pop()
+        if isinstance(current, dict):
+            for key, item in current.items():
+                normalized = str(key).strip().casefold()
+                if normalized in {"citation_id", "citationid"} and item:
+                    result["citation_ids"].add(str(item)[:300])
+                elif normalized in {"chunk_id", "chunkid"} and item:
+                    result["chunk_ids"].add(str(item)[:300])
+                elif normalized in {
+                    "document_name",
+                    "documentname",
+                    "file_name",
+                    "filename",
+                    "source_name",
+                } and item:
+                    result["document_names"].add(str(item)[:500])
+                elif isinstance(item, (dict, list, tuple)):
+                    stack.append(item)
+        elif isinstance(current, (list, tuple)):
+            stack.extend(current)
+    return {
+        key: sorted(values)
+        for key, values in result.items()
+    }
+
+
+async def run_xpert_evaluation_target(
+    target: dict[str, Any],
+    case: dict[str, Any],
+    config: dict[str, Any],
+    parent_run_id: str | None,
+) -> dict[str, Any]:
+    workflow = WorkflowPayload.model_validate(target["workflow"])
+    history = [
+        {
+            "role": str(item.get("role") or "user"),
+            "content": str(item.get("content") or "")[:20_000],
+        }
+        for item in list(case.get("messages") or [])[-20:]
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+    ]
+    history_json = json.dumps(history, ensure_ascii=False)
+    message = str(case.get("message") or "")[:20_000]
+    inputs = {
+        str(target.get("input_variable") or "user_input"): message,
+        str(target.get("history_variable") or "conversation_history"): history_json,
+        "user_input": message,
+        "conversation_history": history_json,
+        "xpert_file_context": "",
+        "xpert_memory_context": "",
+    }
+    budget = dict(config.get("budget") or {})
+    agent_config = dict(target.get("agent_config") or {})
+    agent_config.update(
+        {
+            "max_concurrency": max(
+                1,
+                min(
+                    int(agent_config.get("max_concurrency") or 4),
+                    int(budget.get("max_concurrency") or 2),
+                ),
+            ),
+            "recursion_limit": int(agent_config.get("recursion_limit") or 1000),
+            "max_model_calls": int(budget.get("max_model_calls") or 16),
+            "max_tool_calls": int(budget.get("max_tool_calls") or 24),
+        }
+    )
+    source = dict(target.get("source") or {})
+    xpert = dict(target.get("xpert") or {})
+    runtime_metadata = {
+        "xpert_id": xpert.get("id"),
+        "xpert_slug": xpert.get("slug"),
+        "xpert_name": xpert.get("name"),
+        "xpert_version": source.get("version"),
+        "xpert_proposal_id": source.get("proposal_id"),
+        "xpert_proposal_revision": source.get("proposal_revision"),
+        "xpert_checksum": target.get("checksum"),
+        "xpert_agent_config": agent_config,
+        "xpert_features": {},
+        "evaluation_mode": "read_only",
+        "evaluation_target_id": target.get("target_id"),
+        "evaluation_resources": dict(target.get("resources") or {}),
+        "evaluation_seed": int(config.get("seed") or 0),
+        "memory_write_enabled": False,
+        "knowledge_write_enabled": False,
+    }
+    response = await _run_workflow_response(
+        WorkflowRunRequest(workflow=workflow, inputs=inputs),
+        None,
+        runtime_run_type="xpert_evaluation",
+        runtime_source_id=str(target.get("target_id") or ""),
+        runtime_metadata=runtime_metadata,
+        runtime_parent_run_id=parent_run_id,
+    )
+    task_id = str(
+        getattr(response, "headers", {}).get("X-ModelMirror-Runtime-Task-Id") or ""
+    )
+    runtime_run_id = str(
+        getattr(response, "headers", {}).get("X-ModelMirror-Runtime-Run-Id") or ""
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") != "workflow_end":
+        raise RuntimeError(
+            "Evaluation target attempted to wait for an interactive Runtime action."
+        )
+    output = str(final_event.get("final_output") or "")
+    usage: dict[str, Any] = {}
+    task_state = workflow_task_store.get(task_id)
+    execution_budget = (
+        task_state.get("execution_budget")
+        if isinstance(task_state, dict)
+        else None
+    )
+    if isinstance(execution_budget, XpertExecutionBudget):
+        usage.update(execution_budget.usage())
+    estimated_tokens = max(
+        1,
+        (
+            len(message)
+            + len(history_json)
+            + len(output)
+            + 3
+        )
+        // 4,
+    )
+    usage.update(
+        {
+            "estimated_tokens": estimated_tokens,
+            "token_estimate": True,
+        }
+    )
+    if estimated_tokens > int(budget.get("max_estimated_tokens") or 64_000):
+        raise RuntimeError(
+            "Evaluation estimated-token budget was exhausted for this target case."
+        )
+    citation_value: Any = {
+        "output": output,
+        "variables": final_event.get("variables") or {},
+    }
+    try:
+        citation_value["parsed_output"] = json.loads(output)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        pass
+    return {
+        "output": output,
+        "citations": evaluation_citation_summary(citation_value),
+        "usage": usage,
+        "runtime_run_id": runtime_run_id or None,
+    }
+
+
+async def run_xpert_evaluation_judge(
+    model_id: str,
+    user_input: str,
+    output: str,
+    rubric: str,
+) -> dict[str, Any]:
+    prompt = (
+        "Evaluate the assistant answer against the rubric. Return JSON only with "
+        'keys "score" (number 0-1), "passed" (boolean), and "reason" '
+        "(at most 500 characters). Do not include hidden reasoning.\n\n"
+        f"Rubric:\n{rubric[:4_000]}\n\n"
+        f"User input:\n{user_input[:20_000]}\n\n"
+        f"Assistant answer:\n{output[:20_000]}"
+    )
+    raw = await collect_chat_completion_text(
+        model_id,
+        [
+            ChatMessage(
+                role="system",
+                content=(
+                    "You are a strict evaluation scorer. Follow the JSON contract "
+                    "and provide only a short reader-facing reason."
+                ),
+            ),
+            ChatMessage(role="user", content=prompt),
+        ],
+        temperature=0,
+        max_tokens=700,
+    )
+    json_text = extract_json_object_text(raw)
+    if not json_text:
+        raise RuntimeError("Rubric judge did not return a JSON object.")
+    parsed = json.loads(json_text)
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Rubric judge returned an invalid JSON object.")
+    score = max(0.0, min(float(parsed.get("score") or 0.0), 1.0))
+    return {
+        "score": score,
+        "passed": bool(parsed.get("passed", score >= 0.5)),
+        "reason": str(parsed.get("reason") or "")[:500],
+    }
+
+
+configure_xpert_evaluations(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None,
+    xpert_store=get_xpert_store(),
+    proposal_store=authoring_proposal_store,
+    prompt_preflight=preview_xpert_for_publish,
+    toolset_store=toolset_store,
+    plugin_store=get_plugin_store(),
+    rag_service=get_rag_service(),
+    context_store=xpert_context_store,
+    target_runner=run_xpert_evaluation_target,
+    judge_runner=run_xpert_evaluation_judge,
+    run_registry=run_registry,
+)
+
+
 @app.on_event("startup")
 async def start_mcp_ttl_cleanup() -> None:
     await asyncio.to_thread(datax_service.recover_import_jobs)
@@ -11969,6 +12250,7 @@ async def start_mcp_ttl_cleanup() -> None:
         logger.warning("Toolset auto-start failed: %s", warning)
     get_pipeline_executor().start()
     get_evaluation_executor().start()
+    get_xpert_evaluation_executor().start()
     get_handoff_executor().start()
     get_goal_coordinator().start()
     get_approval_coordinator().start()
@@ -11980,6 +12262,7 @@ async def start_mcp_ttl_cleanup() -> None:
 async def shutdown_mcp_sessions() -> None:
     await get_pipeline_executor().stop()
     await get_evaluation_executor().stop()
+    await get_xpert_evaluation_executor().stop()
     if goal_coordinator is not None:
         await goal_coordinator.stop()
     if handoff_executor is not None:

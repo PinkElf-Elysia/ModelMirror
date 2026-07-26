@@ -29,6 +29,7 @@ import DataXInboxPage from "./pages/DataXInboxPage";
 import ToolsetsPage from "./pages/ToolsetsPage";
 import PromptProfilesPage from "./pages/PromptProfilesPage";
 import PluginsPage from "./pages/PluginsPage";
+import XpertEvaluationsPage from "./pages/XpertEvaluationsPage";
 
 export default function App() {
   return (
@@ -45,6 +46,8 @@ export default function App() {
       <Route element={<XpertAppPage />} path="/apps/:appSlug" />
       <Route element={<ConversationGoalsPage />} path="/agents/goals" />
       <Route element={<ConversationGoalsPage />} path="/agents/goals/:goalId" />
+      <Route element={<XpertEvaluationsPage />} path="/agents/evaluations" />
+      <Route element={<XpertEvaluationsPage />} path="/agents/evaluations/:runId" />
       <Route element={<AutomationsPage />} path="/agents/automations" />
       <Route element={<DataXHomePage />} path="/datax" />
       <Route element={<DataXInboxPage />} path="/datax/:projectId/inbox" />
