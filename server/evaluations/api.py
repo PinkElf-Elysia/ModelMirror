@@ -74,6 +74,14 @@ def get_xpert_evaluation_executor() -> XpertEvaluationExecutor:
     return _executor
 
 
+def get_xpert_evaluation_service() -> XpertEvaluationService:
+    return _require_service()
+
+
+def get_xpert_evaluation_store() -> XpertEvaluationStore:
+    return _require_store()
+
+
 def _require_store() -> XpertEvaluationStore:
     if _store is None:
         raise RuntimeError("Xpert Evaluator is not configured.")

@@ -1,6 +1,8 @@
 from .api import (
     configure_xpert_evaluations,
     get_xpert_evaluation_executor,
+    get_xpert_evaluation_service,
+    get_xpert_evaluation_store,
     router,
 )
 from .executor import XpertEvaluationExecutor
@@ -24,5 +26,7 @@ __all__ = [
     "configure_xpert_evaluations",
     "evaluate_case_metrics",
     "get_xpert_evaluation_executor",
+    "get_xpert_evaluation_service",
+    "get_xpert_evaluation_store",
     "router",
 ]

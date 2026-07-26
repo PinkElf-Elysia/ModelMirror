@@ -309,6 +309,25 @@ cd client
 npm.cmd run build
 ```
 
+### 8.3 EvoAgentX Prompt Evolution 护栏
+
+- Evolution 只能修改固定 revision 下选定的 `workflow_agent.rolePrompt`、
+  `promptSuffix` 或单个 Prompt Profile `template`，不得修改图结构、模型、资源或中间件。
+- DatasetVersion 必须按固定 seed 拆分优化集和验证集；验证集正文不得进入候选生成上下文。
+- optimizer 每代最多一次生成和一次 JSON 修复；候选必须保留模板变量、通过敏感信息与长样例复制检查。
+- 候选执行必须调用 Evaluator 的内部固定快照入口，继续使用只读 fail-closed 预检和相同预算。
+- 最终 Proposal 只能由独立验证集的非退化门禁创建。目标 revision 漂移时必须标记 stale，禁止写回。
+- `prompt_profile_update` 批准后只更新 Profile 草稿；Xpert/Profile 均禁止自动发布。
+- RunRegistry checkpoint 不得保存完整 Prompt、用例正文、模型输出全文、隐藏推理、工具结果或密钥。
+- `server/Dockerfile` 必须复制 `evolutions/`；修改 Evolution 时至少运行：
+
+```bash
+python -m pytest server/tests/test_xpert_evolutions.py server/tests/test_xpert_evaluations.py -q
+python -m pytest server/tests/test_xpert_runtime_authoring.py server/tests/test_meta_agent.py -q
+cd client
+npm.cmd run build
+```
+
 ## 9. MCP 开发规则
 
 MCP 原生集成属于后端进程管理和工具执行能力，开发时必须：
