@@ -1,4 +1,4 @@
-# EvoAgentX Prompt 受控进化
+# EvoAgentX 受控进化
 
 ## 1. 边界
 
@@ -96,5 +96,73 @@ Evaluator run ID、排名和最终门禁均持久化。容器重启后：
 selection 和 early-stop 概念。ModelMirror 独立实现 Store、模型网关、Evaluator、
 Runtime、日志、数据集和审批；未复制 EvoAgentX Runtime 或第三方优化器实现。
 
-下一步 `EVOAGENTX-EVOLUTION-03B` 只允许类型化的工作流结构 mutation，并继续
-使用同一 Evaluator 与人工审批门禁。
+## 9. 工作流结构进化
+
+`EVOAGENTX-EVOLUTION-03B` 在同一 Store、Executor、Evaluator 和 Proposal 审批路径上
+增加 `evolution_kind=structure`。它不允许模型输出代码或完整 workflow，只接受以下
+类型化操作：
+
+- `add/remove/replace_control_node`
+- `add/remove_control_edge`
+- `bind/unbind_resource`
+- `bind/unbind_middleware`
+
+候选局部 `ref` 只能引用同一候选中新建的节点。真实节点 ID、边 ID、位置和五类特殊绑定
+handle 均由确定性编译器生成。输入和输出节点受到保护；现有 Agent 的 Prompt、模型和输出
+契约不会被结构 mutation 改写。
+
+## 10. 能力快照与静态门禁
+
+Structure Run 固定 Meta Planner Capability Snapshot、用户授权范围和默认新增 Agent 模型。
+控制节点取 Workflow Registry 与 Evaluator 安全集合的交集。外部 Xpert、Knowledge、
+Toolset、Plugin 和 middleware 只有在用户显式授权后才可引用。
+
+每个候选在评测前依次经过：
+
+1. Mutation Pydantic Schema。
+2. Capability Snapshot 与授权检查。
+3. 确定性 mutation 编译。
+4. Registry 与 `validate_workflow_graph`。
+5. 资源版本、协作循环和名称冲突检查。
+6. 无副作用发布预检。
+7. Evaluator 只读安全预检。
+8. 结构 checksum 去重。
+
+静态失败候选保留安全 issue 摘要，但不会创建 Evaluation Run。候选图接口隐藏 Prompt、
+middleware config、工具输出和凭据，只返回结构、位置和 diff。
+
+## 11. 质量、成本与复杂度门禁
+
+训练集排名依次比较总分、失败数、模型调用、estimated token、P95 延迟、图复杂度和
+checksum。最多三个 finalist 与原始基线在隔离 Holdout 上比较。
+
+默认晋级要求：
+
+- 总分至少提升 `0.01`。
+- 任一有权重指标回退不超过 `0.02`。
+- 不新增失败、超时、预算耗尽或安全错误。
+- 新增节点不超过四个。
+- 模型调用、estimated token 和 P95 延迟相对基线的增加比例均不超过 `1.0`。
+
+通过后只创建 pending `xpert_update` Proposal，并附 mutation manifest、结构 diff、能力
+快照 hash 与评测报告。批准 Proposal 只更新 Xpert 草稿，仍需在 Studio 显式发布。
+
+## 12. 结构候选 API
+
+现有 Evolution API 通过 `evolution_kind` 保持 Prompt 请求兼容，并新增：
+
+```text
+GET /api/xpert-evolutions/runs/{run_id}/candidates/{candidate_id}/graph
+```
+
+容器重启后恢复代际、候选、子 Evaluation Run、排名和门禁。目标草稿 revision 变化时
+run 标记 `stale`，不创建 Proposal。
+
+## 13. 上游归因与路线收口
+
+结构搜索只适配 EvoAgentX `v0.1.4@aad19b9` 中 SEW/AFlow 的有界候选、代际选择和早停
+思想。ModelMirror 独立实现类型化 mutation、Workflow 编译、固定快照、Evaluator、
+Runtime 和审批；未复制动态图、代码生成、文件替换或 EvoAgentX Runtime。
+
+`EVOAGENTX-EVOLUTION-03B` 完成后暂停能力扩张。下一阶段只做进化收益、运行成本和技术债
+审计，以真实 Dataset 和运行报告决定是否继续引入其他优化器。

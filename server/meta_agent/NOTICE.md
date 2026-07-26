@@ -35,6 +35,18 @@ provider implementation. ModelMirror candidates execute through the existing
 read-only Xpert Evaluator and can only create revision-bound authoring
 proposals after an isolated validation gate.
 
+Structure Evolution independently adapts the bounded candidate search,
+evaluation feedback, selection, and early-stop concepts audited in:
+
+- `evoagentx/optimizers/sew_optimizer.py`
+- `evoagentx/optimizers/aflow_optimizer.py`
+
+It does not copy dynamic graph execution, Python code generation, file
+replacement, benchmark downloads, or EvoAgentX runtime objects. ModelMirror
+uses a fixed Pydantic mutation language, deterministic Workflow compiler,
+Capability Snapshot, read-only Evaluator, cost gate, and revision-bound
+Authoring Proposal.
+
 The adapted concepts are task decomposition, capability-aware workflow
 generation, and separate agent configuration generation. ModelMirror's
 implementation uses its own Pydantic contracts, Workflow Node Registry,

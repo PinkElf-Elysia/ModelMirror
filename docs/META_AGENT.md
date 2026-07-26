@@ -181,3 +181,17 @@ DatasetVersion 按 seed 进行 80/20 优化集与验证集拆分。候选生成�
 revision 变化会使结果变为 stale，并阻止 Proposal 创建。批准 Proposal 只更新草稿，
 发布仍需用户在 Studio 或 Prompt 页面显式完成。完整契约见
 [EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。
+
+## 工作流结构受控进化
+
+`EVOAGENTX-EVOLUTION-03B` 复用 Meta Planner Capability Snapshot，但不重新调用
+Meta Planner 生成完整 workflow。Optimizer 只能提出类型化 mutation，编译器负责稳定
+ID、布局、控制边和五类特殊资源绑定边。
+
+用户在 `/agents/evolution` 的“工作流结构”模式显式授权可生成节点、只读资源和安全
+中间件。未授权能力、交互等待、副作用工具、任意 Code、Handoff、Sandbox、Browser 和
+Automation 均在评测前 fail-closed。
+
+候选必须先通过 Registry、classic workflow validate、资源循环与冲突、发布预检和
+Evaluator 只读预检。静态失败保留 issue，不消耗评测预算。通过 Holdout 的质量、成本和
+复杂度门禁后只创建 pending `xpert_update` Proposal，批准后仍只更新草稿。

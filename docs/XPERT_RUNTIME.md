@@ -302,6 +302,26 @@ A changed target revision marks the run stale and prevents Proposal creation. Pr
 approval updates a draft only and cannot publish either an Xpert or Prompt Profile. See
 `docs/EVOAGENTX_EVOLUTION.md`.
 
+## Structure Evolution Runtime
+
+`evolution_kind=structure` uses the same persistent executor and Evaluator, but candidates
+are compiled from a fixed typed mutation language. The optimizer cannot submit a complete
+workflow or executable code. `StructureMutationCompiler` creates stable IDs, positions,
+control edges, and resource binding handles, then executes workflow, resource, publish, and
+Evaluator safety gates before any candidate receives an Evaluation Run.
+
+The run fixes the Xpert draft revision, Capability Snapshot, explicit resource scope,
+DatasetVersion, default model for newly added Agents, mutation limits, model policy, and
+budget. Existing Agent prompts, models, and output contracts remain immutable inside the
+search. Static failures are persisted as safe issue summaries and consume no evaluation
+budget.
+
+Final Holdout promotion compares quality, weighted metric regressions, failures, model
+calls, estimated tokens, P95 latency, and graph complexity. Passing creates one pending
+`xpert_update` Proposal containing a mutation manifest and safe structural diff. It never
+changes the draft or publishes a version without later human approval. See
+`docs/EVOAGENTX_EVOLUTION.md`.
+
 ## Data X Runtime
 
 `DataXStore` atomically persists project, source snapshot, import job, semantic model, indicator, immutable version, proposal, and result-artifact metadata. Each project owns a separate DuckDB file. Imported source bytes are fixed by SHA-256 and never exposed through API paths.
