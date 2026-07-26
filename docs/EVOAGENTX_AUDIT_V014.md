@@ -192,3 +192,24 @@ Benchmark、Core、Model、Storage 和 Workflow。
 
 Evaluator 必须在任何自动优化上线前提供固定基线、候选比较、预算统计和失败
 隔离。所有进化结果必须经过人工批准和现有 Xpert 发布流程。
+
+## 11. 首次适配记录：Meta Planner V2
+
+| 上游相对路径 | 判定 | 适配内容 | ModelMirror 实现 | 测试责任 |
+| --- | --- | --- | --- | --- |
+| `evoagentx/workflow/task_planning.py` | `adapt` | 任务拆分、依赖和输入输出契约的分层概念 | `server/meta_agent/schemas.py`、`server/meta_agent/meta_planner_v2.py` | `test_meta_planner_v2.py` 的 DAG、调用预算和修复测试 |
+| `evoagentx/workflow/workflow_generator.py` | `adapt` | 规划结果到工作流候选的独立编译阶段 | `server/meta_agent/meta_planner_v2.py`、Workflow Node Registry | 控制边、五类绑定边、授权和版本固定测试 |
+| `evoagentx/workflow/agent_generator.py` | `adapt` | Agent 配置与任务规划分离 | `MetaPlannerAgentBlueprint`、当前 `workflow_agent` 配置 | 默认模型、middleware 和资源配置测试 |
+
+此次适配没有复制上游源码。实现继续使用 ModelMirror 自有模型网关、Pydantic
+Schema、资源 Store、Authoring Proposal、Workflow validator、Xpert publish
+preflight 和 classic runner。
+
+对应公开接口为：
+
+- `GET /api/meta-agent/capabilities`
+- `POST /api/meta-agent/generate-xpert-candidate`
+
+来源基线仍固定为 `v0.1.4@aad19b912f640161ea07e8904d9237cd34fde5f1`。后续
+Evaluator 或 Optimizer 若需要逐文件复用，必须另行补充 SHA-256、版权头、第三方依赖
+和测试映射；本条适配记录不能作为整体引入 EvoAgentX 的授权。

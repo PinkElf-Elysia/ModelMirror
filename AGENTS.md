@@ -257,6 +257,31 @@ workflow-native 是实验线。经典工作流是 `/workflow` 默认入口。任
 python -m pytest server/tests/test_meta_agent.py -q
 ```
 
+### 8.1 EvoAgentX Meta Planner V2 护栏
+
+Meta Planner V2 只生成候选 Xpert，并使用 Authoring Proposal 作为唯一持久化来源：
+
+- Capability Snapshot 必须实时来自 Workflow Node Registry、Middleware Registry
+  和当前资源 Store；禁止在 Planner 内维护第二份可生成节点或资源 ID 清单。
+- Snapshot 只包含安全元数据和规范化 hash，不得包含凭据、完整 Tool Schema、知识正文、
+  Plugin/Skill 文件、工具输出或本地物理路径。
+- Sandbox、Browser、Client Tools、Automation、Authoring 等高风险能力默认不授权；
+  只有用户在当前请求中显式选择后才能进入模型可见 scope。
+- 单次候选生成最多三次模型调用：任务规划、能力编译、一次定向修复。禁止无界修复循环。
+- 不保存模型隐藏推理；只保存计划摘要、公开假设、选择理由、验证报告和安全统计。
+- 生成结果必须依次通过 Pydantic、Registry、workflow validate、特殊绑定边、资源版本、
+  冲突/循环和无副作用发布预检。
+- Create/Update 候选均写入 `AuthoringProposalStore`；更新必须固定 `base_revision`。
+- Planner、人工候选编辑和批准均不得创建发布版本或启动运行。批准只写 Xpert 草稿，
+  最终发布必须在 Studio 中显式完成。
+- 变更 Meta Planner V2 时至少运行：
+
+```bash
+python -m pytest server/tests/test_meta_planner_v2.py server/tests/test_meta_agent.py -q
+cd client
+npm.cmd run build
+```
+
 ## 9. MCP 开发规则
 
 MCP 原生集成属于后端进程管理和工具执行能力，开发时必须：

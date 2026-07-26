@@ -34,6 +34,9 @@ class WorkflowPaletteItem:
     tags: list[str] = field(default_factory=list)
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    planner_enabled: bool = True
+    planner_default_data: dict[str, Any] = field(default_factory=dict)
+    planner_config_constraints: dict[str, Any] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -45,6 +48,15 @@ class WorkflowPaletteItem:
             "tags": list(self.tags),
             "enabled": self.enabled,
             "metadata": dict(self.metadata),
+            "planner": {
+                "enabled": self.enabled and self.planner_enabled,
+                "default_data": {
+                    "kind": self.kind,
+                    "title": self.title,
+                    **dict(self.planner_default_data),
+                },
+                "config_constraints": dict(self.planner_config_constraints),
+            },
         }
 
 
@@ -330,6 +342,14 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="Expose a pinned published Xpert as a synchronous collaborator tool.",
                     category="resource",
                     tags=["xpert", "expert", "resource", "binding"],
+                    planner_default_data={
+                        "versionPolicy": "pinned",
+                        "pinnedVersion": None,
+                    },
+                    planner_config_constraints={
+                        "required": ["xpertId", "toolName"],
+                        "target_handle": "expert",
+                    },
                 ),
                 WorkflowPaletteItem(
                     kind="knowledge_base",
@@ -338,6 +358,11 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="Bind one knowledge base to the agent's read-only knowledge tools.",
                     category="resource",
                     tags=["knowledge", "rag", "resource", "binding"],
+                    planner_default_data={"topK": "5", "scoreThreshold": "0"},
+                    planner_config_constraints={
+                        "required": ["knowledgeBaseId"],
+                        "target_handle": "knowledge",
+                    },
                 ),
                 WorkflowPaletteItem(
                     kind="toolset_resource",
@@ -349,6 +374,14 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     ),
                     category="resource",
                     tags=["mcp", "toolset", "resource", "binding"],
+                    planner_default_data={
+                        "versionPolicy": "pinned",
+                        "pinnedVersion": None,
+                    },
+                    planner_config_constraints={
+                        "required": ["toolsetId"],
+                        "target_handle": "toolset",
+                    },
                 ),
                 WorkflowPaletteItem(
                     kind="plugin_resource",
@@ -360,6 +393,14 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     ),
                     category="resource",
                     tags=["plugin", "prompt", "skill", "toolset", "binding"],
+                    planner_default_data={
+                        "versionPolicy": "pinned",
+                        "pinnedVersion": None,
+                    },
+                    planner_config_constraints={
+                        "required": ["pluginId"],
+                        "target_handle": "plugin",
+                    },
                 ),
             ],
         )
@@ -403,6 +444,19 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="执行一个模型驱动的 Agent 步骤，并写入输出变量。",
                     category="tool",
                     tags=["workflow-agent", "agent"],
+                    planner_default_data={
+                        "toolMode": "none",
+                        "maxIterations": "6",
+                        "outputVariable": "agent_output",
+                    },
+                    planner_config_constraints={
+                        "required": [
+                            "modelId",
+                            "rolePrompt",
+                            "taskInput",
+                            "outputVariable",
+                        ],
+                    },
                 ),
                 WorkflowPaletteItem(
                     kind="agent_task",

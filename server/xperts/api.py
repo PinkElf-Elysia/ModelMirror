@@ -625,7 +625,7 @@ def _resolve_published_prompt_profiles(
     return resolved, issues
 
 
-def _validate_xpert_for_publish(
+def preview_xpert_for_publish(
     xpert: XpertDefinition,
 ) -> tuple[
     XpertValidationResult,
@@ -703,6 +703,10 @@ def _validate_xpert_for_publish(
         workflow,
         prompt_profiles,
     )
+
+
+# Compatibility for existing internal callers while the public service name is adopted.
+_validate_xpert_for_publish = preview_xpert_for_publish
 
 
 class XpertCreateRequest(BaseModel):

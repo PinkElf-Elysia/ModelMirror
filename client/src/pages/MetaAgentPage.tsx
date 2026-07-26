@@ -9,6 +9,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import MetaPlannerV2 from "../components/meta/MetaPlannerV2";
 import RuntimeApprovalPanel from "../components/runtime/RuntimeApprovalPanel";
 import BrowserSessionPanel from "../components/runtime/BrowserSessionPanel";
 import ClientToolPanel from "../components/runtime/ClientToolPanel";
@@ -882,6 +883,8 @@ export default function MetaAgentPage() {
           </div>
         </div>
       </header>
+
+      <MetaPlannerV2 />
 
       <div className="grid min-h-[760px] gap-5 xl:grid-cols-[320px_minmax(0,1fr)_380px]">
         <section className="surface-panel rounded-lg p-4">

@@ -211,7 +211,13 @@ class AuthoringProposalStore:
                     raise AuthoringProposalValidationError("Invalid proposal title.")
                 item.title = clean_title
             if payload is not None:
-                item.payload = self._validate_payload(payload)
+                next_payload = self._validate_payload(payload)
+                payload_changed = next_payload != item.payload
+                if item.source_type == "meta_planner" and payload_changed:
+                    report = next_payload.get("meta_planner_report")
+                    if isinstance(report, dict):
+                        report["human_modified"] = True
+                item.payload = next_payload
             if base_revision is not None:
                 if base_revision < 1:
                     raise AuthoringProposalValidationError(
