@@ -289,6 +289,9 @@ export default function XpertStudioPage() {
             <Link className="rounded-full border border-violet-300/25 bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100 transition hover:bg-violet-300/20" to={`/agents/evolution?xpert_id=${xpert.id}`}>
               优化 Prompt
             </Link>
+            <Link className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/20" to={`/agents/evolution?evolution_kind=structure&xpert_id=${xpert.id}`}>
+              优化结构
+            </Link>
             <button className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-hire-300/35" disabled={Boolean(busy)} onClick={() => void saveMetadata()} type="button">
               {busy === "metadata" ? "保存中..." : "保存信息"}
             </button>

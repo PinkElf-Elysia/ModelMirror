@@ -189,3 +189,8 @@ Evaluation Target 类型。
 
 Prompt 搜索、非退化门禁和 Proposal 契约见
 [EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。
+
+Structure Evolution 也复用该内部入口。候选只有在类型化 mutation 编译、Workflow
+校验、资源授权、发布预检和只读安全预检全部通过后才创建 Evaluation Run；静态失败
+候选不消耗评测预算。结构 finalist 的 Holdout 报告额外用于模型调用、Token、P95
+延迟和图复杂度门禁，Evaluator 本身仍不批准 Proposal 或修改草稿。

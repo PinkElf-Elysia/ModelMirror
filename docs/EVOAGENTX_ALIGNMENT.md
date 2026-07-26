@@ -167,7 +167,22 @@ Evaluator 不批准 Proposal、不写 Xpert 草稿、不发布版本。完整契
 
 完整契约见 [EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。
 
-### 下一步：`EVOAGENTX-EVOLUTION-03B`
+### `EVOAGENTX-EVOLUTION-03B`：已实现
 
-下一轮只开放类型化工作流结构 mutation。每个 mutation 必须先通过图、资源、
-循环和发布预检，再由同一 Evaluator 与固定基线比较；仍禁止自动批准和发布。
+结构进化继续复用同一 Evolution Store、Evaluator 和 Authoring Proposal：
+
+- 模型只输出九类类型化 mutation，不输出代码、完整 workflow 或任意 binding handle。
+- Capability Snapshot 与授权范围固定；只允许安全控制节点、只读资源和
+  Evaluator-safe middleware。
+- 编译器确定性生成节点、边、位置和资源绑定，并保护输入、输出及现有 Agent 契约。
+- 静态失败候选保留 issues，但不进入 Evaluator。
+- 训练和 Holdout 排名同时考虑质量、失败、模型调用、Token、P95 延迟和图复杂度。
+- 通过门禁后只创建 pending `xpert_update` Proposal，revision 漂移时标记 stale。
+
+完整契约见 [EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。
+
+### 下一步：进化收益与技术债审计
+
+Meta Planner、Evaluator、Prompt Evolution 和 Structure Evolution 已形成第一阶段闭环。
+暂停继续增加优化器或自动发布能力，先用真实 Dataset 审计质量提升、运行成本、稳定性、
+过拟合风险和维护负担，再决定后续路线。

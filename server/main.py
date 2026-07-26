@@ -12288,6 +12288,7 @@ configure_xpert_evolutions(
     proposal_store=authoring_proposal_store,
     optimizer_runner=run_xpert_evolution_optimizer,
     run_registry=run_registry,
+    capability_snapshot_builder=build_meta_planner_capability_snapshot,
 )
 
 

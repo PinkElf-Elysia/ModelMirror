@@ -16,6 +16,14 @@ import {
   TrendingUp,
   XCircle,
 } from "lucide-react";
+import {
+  Background,
+  Controls,
+  ReactFlow,
+  type Edge,
+  type Node,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
 import PageContainer from "../components/PageContainer";
 import { models } from "../data/models";
 import { getXpert, listXpertVersions, listXperts } from "../utils/xpertApi";
@@ -50,6 +58,8 @@ interface Candidate {
   checksum: string;
   fields: Record<string, string>;
   summary: string;
+  mutations?: Array<Record<string, unknown>>;
+  diff?: StructureDiff;
 }
 
 interface Ranking {
@@ -58,7 +68,69 @@ interface Ranking {
   failed_count: number;
   estimated_tokens: number;
   average_latency_ms: number;
+  p95_latency_ms?: number;
+  model_calls?: number;
+  node_count?: number;
+  edge_count?: number;
+  node_delta?: number;
   metrics: Record<string, number>;
+}
+
+interface StructureDiff {
+  added_nodes?: Array<{ node_id: string; kind: string; title: string }>;
+  removed_nodes?: Array<{ node_id: string; kind: string; title: string }>;
+  replaced_nodes?: Array<{ node_id: string; from_kind: string; to_kind: string }>;
+  added_edge_ids?: string[];
+  removed_edge_ids?: string[];
+  baseline_node_count?: number;
+  candidate_node_count?: number;
+  node_delta?: number;
+  baseline_edge_count?: number;
+  candidate_edge_count?: number;
+  edge_delta?: number;
+}
+
+interface StructureCapabilityItem {
+  id?: string;
+  kind?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  high_risk?: boolean;
+}
+
+interface EvolutionCapabilities {
+  structure?: {
+    operations: string[];
+    nodes: StructureCapabilityItem[];
+    middleware: StructureCapabilityItem[];
+    external_xperts: StructureCapabilityItem[];
+    knowledge_bases: StructureCapabilityItem[];
+    toolsets: StructureCapabilityItem[];
+    plugins: StructureCapabilityItem[];
+    default_scope?: {
+      allowed_node_kinds: string[];
+    };
+  };
+}
+
+interface CandidateGraph {
+  id: string;
+  title: string;
+  nodes: Array<{
+    id: string;
+    type: string;
+    position?: { x: number; y: number } | null;
+    data: Record<string, unknown>;
+  }>;
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
+  }>;
+  diff: StructureDiff;
 }
 
 interface EvolutionRun {
@@ -67,6 +139,7 @@ interface EvolutionRun {
   phase: string;
   target: {
     kind: "xpert" | "prompt_profile";
+    evolution_kind?: "prompt" | "structure";
     target_id: string;
     base_revision: number;
     name: string;
@@ -79,11 +152,19 @@ interface EvolutionRun {
     name: string;
   };
   request: {
+    evolution_kind?: "prompt" | "structure";
     generations: number;
     population_size: number;
     min_score_delta: number;
     max_metric_regression: number;
     model_policy: string;
+    gate?: {
+      min_score_delta: number;
+      max_metric_regression: number;
+      max_model_call_increase_ratio: number;
+      max_token_increase_ratio: number;
+      max_p95_latency_increase_ratio: number;
+    };
   };
   train_case_ids: string[];
   validation_case_ids: string[];
@@ -92,6 +173,11 @@ interface EvolutionRun {
     repair_used: boolean;
     candidates: Candidate[];
     ranking: Ranking[];
+    rejected_candidates?: Array<{
+      index: number;
+      summary: string;
+      issues: string[];
+    }>;
   }>;
   finalists: Array<{ candidate_id: string; checksum: string }>;
   report: {
@@ -108,6 +194,20 @@ interface EvolutionRun {
       score_delta?: number;
       metric_regressions?: Record<string, number>;
       new_failures?: boolean;
+      cost_regressions?: string[];
+      costs?: Record<string, {
+        baseline: number;
+        candidate: number;
+        limit: number;
+        exceeded: boolean;
+      }>;
+      complexity?: {
+        added_nodes: number;
+        removed_nodes: number;
+        node_delta: number;
+        candidate_node_count: number;
+        passed: boolean;
+      };
     };
   };
   warnings: string[];
@@ -119,7 +219,7 @@ interface EvolutionRun {
   completed_at?: number | null;
 }
 
-type TargetKind = "xpert" | "prompt_profile";
+type TargetKind = "xpert" | "prompt_profile" | "structure";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -157,8 +257,13 @@ export default function XpertEvolutionPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [targetKind, setTargetKind] = useState<TargetKind>(
-    searchParams.get("prompt_profile_id") ? "prompt_profile" : "xpert",
+    searchParams.get("evolution_kind") === "structure"
+      ? "structure"
+      : searchParams.get("prompt_profile_id")
+        ? "prompt_profile"
+        : "xpert",
   );
+  const [capabilities, setCapabilities] = useState<EvolutionCapabilities | null>(null);
   const [xperts, setXperts] = useState<XpertSummary[]>([]);
   const [profiles, setProfiles] = useState<PromptProfile[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
@@ -176,9 +281,23 @@ export default function XpertEvolutionPage() {
   const [modelPolicy, setModelPolicy] = useState<"snapshot" | "override">("snapshot");
   const [overrideModelId, setOverrideModelId] = useState(models[0]?.id ?? "");
   const [judgeModelId, setJudgeModelId] = useState(models[0]?.id ?? "");
+  const [defaultAgentModelId, setDefaultAgentModelId] = useState(models[0]?.id ?? "");
   const [generations, setGenerations] = useState(2);
   const [populationSize, setPopulationSize] = useState(4);
   const [seed, setSeed] = useState(42);
+  const [allowedNodeKinds, setAllowedNodeKinds] = useState<string[]>([]);
+  const [externalXpertIds, setExternalXpertIds] = useState<string[]>([]);
+  const [knowledgeBaseIds, setKnowledgeBaseIds] = useState<string[]>([]);
+  const [toolsetIds, setToolsetIds] = useState<string[]>([]);
+  const [pluginIds, setPluginIds] = useState<string[]>([]);
+  const [middlewareIds, setMiddlewareIds] = useState<string[]>([]);
+  const [allowedOperations, setAllowedOperations] = useState<string[]>([]);
+  const [maxOperations, setMaxOperations] = useState(4);
+  const [maxAddedNodes, setMaxAddedNodes] = useState(4);
+  const [maxRemovedNodes, setMaxRemovedNodes] = useState(4);
+  const [maxModelCallIncrease, setMaxModelCallIncrease] = useState(1);
+  const [maxTokenIncrease, setMaxTokenIncrease] = useState(1);
+  const [maxLatencyIncrease, setMaxLatencyIncrease] = useState(1);
   const [run, setRun] = useState<EvolutionRun | null>(null);
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
@@ -187,7 +306,7 @@ export default function XpertEvolutionPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    document.title = "模镜 - Prompt 受控进化";
+    document.title = "模镜 - Xpert 受控进化";
     void loadOptions();
   }, []);
 
@@ -260,16 +379,24 @@ export default function XpertEvolutionPage() {
 
   async function loadOptions() {
     try {
-      const [xpertPayload, profilePayload, datasetPayload, runPayload] = await Promise.all([
+      const [xpertPayload, profilePayload, datasetPayload, runPayload, capabilityPayload] = await Promise.all([
         listXperts({ limit: 200 }),
         requestJson<{ items: PromptProfile[] }>("/api/prompt-profiles?limit=200"),
         requestJson<{ items: Dataset[] }>("/api/xpert-evaluations/datasets"),
         requestJson<{ items: EvolutionRun[] }>("/api/xpert-evolutions/runs?limit=50"),
+        requestJson<EvolutionCapabilities>("/api/xpert-evolutions/capabilities"),
       ]);
       setXperts(xpertPayload.items);
       setProfiles(profilePayload.items ?? []);
       setDatasets(datasetPayload.items ?? []);
       setRuns(runPayload.items ?? []);
+      setCapabilities(capabilityPayload);
+      setAllowedNodeKinds((current) => current.length
+        ? current
+        : capabilityPayload.structure?.default_scope?.allowed_node_kinds ?? []);
+      setAllowedOperations((current) => current.length
+        ? current
+        : capabilityPayload.structure?.operations ?? []);
       setSelectedXpertId((current) => current || xpertPayload.items[0]?.id || "");
       setSelectedProfileId((current) => current || profilePayload.items?.[0]?.id || "");
       setHostXpertId((current) => current || xpertPayload.items.find((item) => item.published_version)?.id || "");
@@ -294,13 +421,15 @@ export default function XpertEvolutionPage() {
   }
 
   function requestPayload() {
-    const target = targetKind === "xpert" ? selectedXpert : selectedProfile;
+    const target = targetKind === "prompt_profile" ? selectedProfile : selectedXpert;
     if (!target) throw new Error("请选择进化目标");
     if (!datasetId || !datasetVersion) throw new Error("请选择已发布评测集版本");
+    const structure = targetKind === "structure";
     return {
-      target_kind: targetKind,
-      target_id: targetKind === "xpert" ? selectedXpert!.id : selectedProfile!.id,
-      target_revision: targetKind === "xpert" ? selectedXpert!.draft_revision : selectedProfile!.draft_revision,
+      evolution_kind: structure ? "structure" : "prompt",
+      target_kind: targetKind === "prompt_profile" ? "prompt_profile" : "xpert",
+      target_id: targetKind === "prompt_profile" ? selectedProfile!.id : selectedXpert!.id,
+      target_revision: targetKind === "prompt_profile" ? selectedProfile!.draft_revision : selectedXpert!.draft_revision,
       prompt_fields: targetKind === "xpert" ? promptFields : [],
       host_xpert_id: targetKind === "prompt_profile" ? hostXpertId : null,
       host_xpert_version: targetKind === "prompt_profile" ? hostVersion : null,
@@ -315,6 +444,28 @@ export default function XpertEvolutionPage() {
       population_size: populationSize,
       min_score_delta: 0.01,
       max_metric_regression: 0.02,
+      default_agent_model_id: structure ? defaultAgentModelId : null,
+      scope: structure ? {
+        allowed_node_kinds: allowedNodeKinds,
+        external_xpert_ids: externalXpertIds,
+        knowledge_base_ids: knowledgeBaseIds,
+        toolset_ids: toolsetIds,
+        plugin_ids: pluginIds,
+        middleware_ids: middlewareIds,
+      } : undefined,
+      mutation_policy: structure ? {
+        allowed_operations: allowedOperations,
+        max_operations_per_candidate: maxOperations,
+        max_added_nodes: maxAddedNodes,
+        max_removed_nodes: maxRemovedNodes,
+      } : undefined,
+      gate: structure ? {
+        min_score_delta: 0.01,
+        max_metric_regression: 0.02,
+        max_model_call_increase_ratio: maxModelCallIncrease,
+        max_token_increase_ratio: maxTokenIncrease,
+        max_p95_latency_increase_ratio: maxLatencyIncrease,
+      } : undefined,
       budget: {
         repetitions: 1,
         max_concurrency: 2,
@@ -381,9 +532,9 @@ export default function XpertEvolutionPage() {
       <header className="mb-5 flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-cyan-200">EvoAgentX Evolution</p>
-          <h1 className="mt-2 text-2xl font-semibold text-white">Prompt 受控进化</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-white">Xpert 受控进化</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            固定草稿与数据集，按同预算生成、评测和验证候选。通过非退化门禁后只创建待审批 Proposal。
+            固定草稿、能力快照与数据集，对 Prompt 或工作流结构执行有界搜索。通过质量、成本和安全门禁后只创建待审批 Proposal。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -415,15 +566,15 @@ export default function XpertEvolutionPage() {
           setSelectedCandidateId={setSelectedCandidateId}
         />
       ) : (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <main className="space-y-5">
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <main className="min-w-0 space-y-5">
             <section className="border border-white/10 bg-ink-950/55 p-4">
               <div className="mb-4 flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-cyan-200" />
                 <h2 className="text-sm font-semibold text-white">进化目标</h2>
               </div>
               <div className="mb-4 inline-flex border border-white/10 bg-black/20 p-1">
-                {(["xpert", "prompt_profile"] as TargetKind[]).map((kind) => (
+                {(["xpert", "prompt_profile", "structure"] as TargetKind[]).map((kind) => (
                   <button
                     className={`px-3 py-1.5 text-xs ${targetKind === kind ? "bg-cyan-300 text-slate-950" : "text-slate-400 hover:text-white"}`}
                     key={kind}
@@ -433,11 +584,15 @@ export default function XpertEvolutionPage() {
                     }}
                     type="button"
                   >
-                    {kind === "xpert" ? "Xpert Agent Prompt" : "Prompt Profile"}
+                    {kind === "xpert"
+                      ? "Xpert Agent Prompt"
+                      : kind === "prompt_profile"
+                        ? "Prompt Profile"
+                        : "工作流结构"}
                   </button>
                 ))}
               </div>
-              {targetKind === "xpert" ? (
+              {targetKind !== "prompt_profile" ? (
                 <>
                   <label className="block text-xs text-slate-400">
                     Xpert 草稿
@@ -445,7 +600,7 @@ export default function XpertEvolutionPage() {
                       {xperts.map((item) => <option key={item.id} value={item.id}>{item.name} · r{item.draft_revision}</option>)}
                     </select>
                   </label>
-                  <div className="mt-4">
+                  {targetKind === "xpert" ? <div className="mt-4">
                     <p className="text-xs text-slate-400">选择 1–3 个字段联合优化</p>
                     <div className="mt-2 grid gap-2 md:grid-cols-2">
                       {availablePromptFields.map((option) => {
@@ -468,7 +623,39 @@ export default function XpertEvolutionPage() {
                         );
                       })}
                     </div>
-                  </div>
+                  </div> : (
+                    <StructureScopePanel
+                      allowedNodeKinds={allowedNodeKinds}
+                      allowedOperations={allowedOperations}
+                      capabilities={capabilities}
+                      defaultAgentModelId={defaultAgentModelId}
+                      externalXpertIds={externalXpertIds}
+                      knowledgeBaseIds={knowledgeBaseIds}
+                      maxAddedNodes={maxAddedNodes}
+                      maxLatencyIncrease={maxLatencyIncrease}
+                      maxModelCallIncrease={maxModelCallIncrease}
+                      maxOperations={maxOperations}
+                      maxRemovedNodes={maxRemovedNodes}
+                      maxTokenIncrease={maxTokenIncrease}
+                      middlewareIds={middlewareIds}
+                      pluginIds={pluginIds}
+                      setAllowedNodeKinds={setAllowedNodeKinds}
+                      setAllowedOperations={setAllowedOperations}
+                      setDefaultAgentModelId={setDefaultAgentModelId}
+                      setExternalXpertIds={setExternalXpertIds}
+                      setKnowledgeBaseIds={setKnowledgeBaseIds}
+                      setMaxAddedNodes={setMaxAddedNodes}
+                      setMaxLatencyIncrease={setMaxLatencyIncrease}
+                      setMaxModelCallIncrease={setMaxModelCallIncrease}
+                      setMaxOperations={setMaxOperations}
+                      setMaxRemovedNodes={setMaxRemovedNodes}
+                      setMaxTokenIncrease={setMaxTokenIncrease}
+                      setMiddlewareIds={setMiddlewareIds}
+                      setPluginIds={setPluginIds}
+                      setToolsetIds={setToolsetIds}
+                      toolsetIds={toolsetIds}
+                    />
+                  )}
                 </>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -534,7 +721,9 @@ export default function XpertEvolutionPage() {
                   <input className="mt-2 w-full accent-cyan-300" max={5} min={2} onChange={(event) => setPopulationSize(Number(event.target.value))} type="range" value={populationSize} />
                 </label>
                 <div className="mt-4 border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-xs leading-5 text-emerald-100">
-                  验证分至少提升 1%，且任一指标不得回退超过 2%。不允许新增超时、预算或安全错误。
+                  {targetKind === "structure"
+                    ? "结构候选同时接受质量、模型调用、Token、P95 延迟与图复杂度门禁。静态失败候选保留报告，但不会消耗评测预算。"
+                    : "验证分至少提升 1%，且任一指标不得回退超过 2%。不允许新增超时、预算或安全错误。"}
                 </div>
               </div>
             </section>
@@ -586,7 +775,7 @@ export default function XpertEvolutionPage() {
             ) : null}
           </main>
 
-          <aside className="border border-white/10 bg-ink-950/55 p-4">
+          <aside className="min-w-0 border border-white/10 bg-ink-950/55 p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">最近运行</h2>
               <button className="text-slate-500 hover:text-white" onClick={() => void loadOptions()} title="刷新" type="button"><RefreshCw className="h-4 w-4" /></button>
@@ -627,6 +816,38 @@ function RunDetail({
   onRefresh: () => void;
   onCancel: () => void;
 }) {
+  const structure = run?.request.evolution_kind === "structure"
+    || run?.target.evolution_kind === "structure";
+  const [candidateGraph, setCandidateGraph] = useState<CandidateGraph | null>(null);
+  const [graphError, setGraphError] = useState("");
+
+  useEffect(() => {
+    if (!run || !structure || !selectedCandidate?.candidate_id) {
+      setCandidateGraph(null);
+      setGraphError("");
+      return;
+    }
+    let active = true;
+    void requestJson<CandidateGraph>(
+      `/api/xpert-evolutions/runs/${run.run_id}/candidates/${selectedCandidate.candidate_id}/graph`,
+    )
+      .then((payload) => {
+        if (active) {
+          setCandidateGraph(payload);
+          setGraphError("");
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          setCandidateGraph(null);
+          setGraphError(caught instanceof Error ? caught.message : "候选图加载失败");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [run?.run_id, selectedCandidate?.candidate_id, structure]);
+
   if (!run) {
     return <div className="flex min-h-64 items-center justify-center text-sm text-slate-500"><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />加载运行...</div>;
   }
@@ -639,6 +860,9 @@ function RunDetail({
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold text-white">{run.target.name}</h2>
             <span className={`border px-2 py-1 text-[11px] ${statusTone(run.status)}`}>{run.status}</span>
+            <span className="border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-slate-300">
+              {structure ? "工作流结构" : "Prompt"}
+            </span>
             {run.stale ? <span className="border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-[11px] text-amber-100">revision stale</span> : null}
           </div>
           <p className="mt-2 text-xs text-slate-400">
@@ -657,21 +881,27 @@ function RunDetail({
         </div>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-        <main className="space-y-5">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <main className="min-w-0 space-y-5">
           {run.generations.map((generation) => (
             <section className="border border-white/10 bg-ink-950/55 p-4" key={generation.generation}>
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-white">Generation {generation.generation}</h3>
-                  <p className="mt-1 text-[11px] text-slate-500">{generation.candidates.length} 个安全候选{generation.repair_used ? " · 使用一次 JSON 修复" : ""}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {generation.candidates.length} 个安全候选
+                    {generation.rejected_candidates?.length
+                      ? ` · ${generation.rejected_candidates.length} 个静态淘汰`
+                      : ""}
+                    {generation.repair_used ? " · 使用一次 JSON 修复" : ""}
+                  </p>
                 </div>
                 <TrendingUp className="h-4 w-4 text-cyan-200" />
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[680px] text-left text-xs">
                   <thead className="border-b border-white/10 text-slate-500">
-                    <tr><th className="py-2">排名</th><th>候选</th><th>训练分</th><th>失败</th><th>Tokens</th><th>延迟</th><th></th></tr>
+                    <tr><th className="py-2">排名</th><th>候选</th><th>训练分</th><th>失败</th><th>Tokens</th><th>{structure ? "节点" : "延迟"}</th><th></th></tr>
                   </thead>
                   <tbody>
                     {generation.ranking.map((ranking, index) => {
@@ -680,8 +910,9 @@ function RunDetail({
                         <tr className="border-b border-white/[0.06] text-slate-300" key={ranking.candidate_id}>
                           <td className="py-2 text-slate-500">#{index + 1}</td>
                           <td><p className="font-medium text-white">{ranking.candidate_id}</p><p className="max-w-sm truncate text-[10px] text-slate-500">{candidate?.summary}</p></td>
-                          <td>{score(ranking.score)}</td><td>{ranking.failed_count}</td><td>{ranking.estimated_tokens}</td><td>{Math.round(ranking.average_latency_ms)} ms</td>
-                          <td><button className="text-cyan-200 hover:text-cyan-100" onClick={() => setSelectedCandidateId(ranking.candidate_id)} type="button">查看 diff</button></td>
+                          <td>{score(ranking.score)}</td><td>{ranking.failed_count}</td><td>{ranking.estimated_tokens}</td>
+                          <td>{structure ? `${ranking.node_count ?? "-"} (${(ranking.node_delta ?? 0) >= 0 ? "+" : ""}${ranking.node_delta ?? 0})` : `${Math.round(ranking.average_latency_ms)} ms`}</td>
+                          <td><button className="text-cyan-200 hover:text-cyan-100" onClick={() => setSelectedCandidateId(ranking.candidate_id)} type="button">{structure ? "查看结构" : "查看 diff"}</button></td>
                         </tr>
                       );
                     })}
@@ -689,6 +920,19 @@ function RunDetail({
                   </tbody>
                 </table>
               </div>
+              {generation.rejected_candidates?.length ? (
+                <details className="mt-3 border-t border-white/10 pt-3 text-xs text-slate-400">
+                  <summary className="cursor-pointer text-amber-200">静态淘汰候选</summary>
+                  <div className="mt-2 space-y-2">
+                    {generation.rejected_candidates.map((item) => (
+                      <div className="bg-amber-300/[0.05] p-2" key={`${generation.generation}-${item.index}`}>
+                        <p className="font-medium text-slate-200">Candidate {item.index}: {item.summary || "无摘要"}</p>
+                        {item.issues.map((issue) => <p className="mt-1 text-amber-100" key={issue}>{issue}</p>)}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
             </section>
           ))}
 
@@ -703,7 +947,18 @@ function RunDetail({
                     <span>基线 {score(gate.baseline_score)}</span>
                     <span>候选 {score(gate.candidate_score)}</span>
                     <span>差值 {score(gate.score_delta)}</span>
+                    {gate.complexity ? <span>节点变化 {gate.complexity.node_delta >= 0 ? "+" : ""}{gate.complexity.node_delta}</span> : null}
                   </div>
+                  {gate.costs ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      {Object.entries(gate.costs).map(([name, value]) => (
+                        <div className={`p-2 text-[11px] ${value.exceeded ? "bg-rose-300/10 text-rose-100" : "bg-white/[0.04] text-slate-300"}`} key={name}>
+                          <p className="font-medium">{name}</p>
+                          <p className="mt-1">{Math.round(value.candidate)} / 限额 {Math.round(value.limit)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -730,23 +985,33 @@ function RunDetail({
           {run.error ? <div className="border border-rose-300/25 bg-rose-300/10 p-3 text-xs text-rose-100">{run.error}</div> : null}
         </main>
 
-        <aside className="border border-white/10 bg-ink-950/55 p-4">
+        <aside className="min-w-0 border border-white/10 bg-ink-950/55 p-4">
           <div className="mb-3 flex items-center gap-2">
             <GitCompareArrows className="h-4 w-4 text-violet-200" />
-            <h3 className="text-sm font-semibold text-white">Prompt Diff</h3>
+            <h3 className="text-sm font-semibold text-white">{structure ? "候选结构" : "Prompt Diff"}</h3>
           </div>
           <select className="mb-4 w-full border border-white/10 bg-ink-950 px-3 py-2 text-xs text-white" onChange={(event) => setSelectedCandidateId(event.target.value)} value={selectedCandidateId || selectedCandidate?.candidate_id || ""}>
             {run.generations.flatMap((generation) => generation.candidates).map((candidate) => <option key={candidate.candidate_id} value={candidate.candidate_id}>{candidate.candidate_id}</option>)}
           </select>
-          {selectedCandidate ? Object.entries(selectedCandidate.fields).map(([field, value]) => (
-            <div className="mb-4" key={field}>
-              <p className="mb-2 text-[11px] font-semibold text-cyan-200">{field}</p>
-              <p className="mb-1 text-[10px] uppercase text-slate-600">Baseline</p>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap border border-rose-300/15 bg-rose-300/[0.04] p-3 text-[11px] leading-5 text-slate-400">{run.target.baseline_prompts[field]}</pre>
-              <p className="mb-1 mt-3 text-[10px] uppercase text-slate-600">Candidate</p>
-              <pre className="max-h-64 overflow-auto whitespace-pre-wrap border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-[11px] leading-5 text-slate-200">{value}</pre>
-            </div>
-          )) : <p className="text-xs text-slate-500">候选生成后可查看差异。</p>}
+          {structure ? (
+            selectedCandidate ? (
+              <div className="space-y-4">
+                <StructureGraphPreview graph={candidateGraph} loading={!candidateGraph && !graphError} />
+                {graphError ? <p className="bg-rose-300/10 p-3 text-xs text-rose-100">{graphError}</p> : null}
+                <StructureDiffSummary candidate={selectedCandidate} />
+              </div>
+            ) : <p className="text-xs text-slate-500">安全候选生成后可查看结构。</p>
+          ) : (
+            selectedCandidate ? Object.entries(selectedCandidate.fields).map(([field, value]) => (
+              <div className="mb-4" key={field}>
+                <p className="mb-2 text-[11px] font-semibold text-cyan-200">{field}</p>
+                <p className="mb-1 text-[10px] uppercase text-slate-600">Baseline</p>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap border border-rose-300/15 bg-rose-300/[0.04] p-3 text-[11px] leading-5 text-slate-400">{run.target.baseline_prompts[field]}</pre>
+                <p className="mb-1 mt-3 text-[10px] uppercase text-slate-600">Candidate</p>
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap border border-emerald-300/15 bg-emerald-300/[0.04] p-3 text-[11px] leading-5 text-slate-200">{value}</pre>
+              </div>
+            )) : <p className="text-xs text-slate-500">候选生成后可查看差异。</p>
+          )}
         </aside>
       </div>
     </div>
@@ -765,4 +1030,342 @@ function promptOptions(xpert: XpertDefinition) {
       preview: String(data[field] ?? ""),
     }));
   });
+}
+
+function StructureScopePanel({
+  capabilities,
+  defaultAgentModelId,
+  setDefaultAgentModelId,
+  allowedNodeKinds,
+  setAllowedNodeKinds,
+  allowedOperations,
+  setAllowedOperations,
+  externalXpertIds,
+  setExternalXpertIds,
+  knowledgeBaseIds,
+  setKnowledgeBaseIds,
+  toolsetIds,
+  setToolsetIds,
+  pluginIds,
+  setPluginIds,
+  middlewareIds,
+  setMiddlewareIds,
+  maxOperations,
+  setMaxOperations,
+  maxAddedNodes,
+  setMaxAddedNodes,
+  maxRemovedNodes,
+  setMaxRemovedNodes,
+  maxModelCallIncrease,
+  setMaxModelCallIncrease,
+  maxTokenIncrease,
+  setMaxTokenIncrease,
+  maxLatencyIncrease,
+  setMaxLatencyIncrease,
+}: {
+  capabilities: EvolutionCapabilities | null;
+  defaultAgentModelId: string;
+  setDefaultAgentModelId: (value: string) => void;
+  allowedNodeKinds: string[];
+  setAllowedNodeKinds: (value: string[]) => void;
+  allowedOperations: string[];
+  setAllowedOperations: (value: string[]) => void;
+  externalXpertIds: string[];
+  setExternalXpertIds: (value: string[]) => void;
+  knowledgeBaseIds: string[];
+  setKnowledgeBaseIds: (value: string[]) => void;
+  toolsetIds: string[];
+  setToolsetIds: (value: string[]) => void;
+  pluginIds: string[];
+  setPluginIds: (value: string[]) => void;
+  middlewareIds: string[];
+  setMiddlewareIds: (value: string[]) => void;
+  maxOperations: number;
+  setMaxOperations: (value: number) => void;
+  maxAddedNodes: number;
+  setMaxAddedNodes: (value: number) => void;
+  maxRemovedNodes: number;
+  setMaxRemovedNodes: (value: number) => void;
+  maxModelCallIncrease: number;
+  setMaxModelCallIncrease: (value: number) => void;
+  maxTokenIncrease: number;
+  setMaxTokenIncrease: (value: number) => void;
+  maxLatencyIncrease: number;
+  setMaxLatencyIncrease: (value: number) => void;
+}) {
+  const structure = capabilities?.structure;
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="block text-xs text-slate-400">
+          新增 Agent 默认模型
+          <select className="mt-1 w-full border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white" onChange={(event) => setDefaultAgentModelId(event.target.value)} value={defaultAgentModelId}>
+            {models.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </label>
+        <div className="border border-cyan-300/20 bg-cyan-300/[0.05] p-3 text-xs leading-5 text-cyan-50">
+          现有 Agent 的 Prompt、模型和输出契约保持不变。新增节点 ID、绑定 handle 与布局由编译器生成。
+        </div>
+      </div>
+
+      <ScopeSelector
+        items={(structure?.nodes ?? []).map((item) => ({
+          id: item.kind ?? "",
+          label: item.title ?? item.kind ?? "",
+          description: item.description ?? "",
+        }))}
+        onChange={setAllowedNodeKinds}
+        selected={allowedNodeKinds}
+        title="可生成控制节点"
+      />
+      <ScopeSelector
+        items={(structure?.operations ?? []).map((item) => ({
+          id: item,
+          label: mutationLabel(item),
+          description: item,
+        }))}
+        onChange={setAllowedOperations}
+        selected={allowedOperations}
+        title="允许 Mutation"
+      />
+      <div className="grid gap-3 md:grid-cols-3">
+        <NumberControl label="单候选操作数" max={8} min={1} onChange={setMaxOperations} value={maxOperations} />
+        <NumberControl label="最多新增节点" max={4} min={0} onChange={setMaxAddedNodes} value={maxAddedNodes} />
+        <NumberControl label="最多删除节点" max={4} min={0} onChange={setMaxRemovedNodes} value={maxRemovedNodes} />
+      </div>
+
+      <div className="border-t border-white/10 pt-4">
+        <h3 className="text-xs font-semibold text-white">只读资源与安全中间件授权</h3>
+        <p className="mt-1 text-[11px] text-slate-500">资源默认不授权。只有此处选中的 ID 才能进入候选。</p>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <ScopeSelector compact items={resourceItems(structure?.external_xperts)} onChange={setExternalXpertIds} selected={externalXpertIds} title="外部 Xpert" />
+          <ScopeSelector compact items={resourceItems(structure?.knowledge_bases)} onChange={setKnowledgeBaseIds} selected={knowledgeBaseIds} title="知识库" />
+          <ScopeSelector compact items={resourceItems(structure?.toolsets)} onChange={setToolsetIds} selected={toolsetIds} title="Toolset" />
+          <ScopeSelector compact items={resourceItems(structure?.plugins)} onChange={setPluginIds} selected={pluginIds} title="Plugin" />
+          <ScopeSelector compact items={resourceItems(structure?.middleware)} onChange={setMiddlewareIds} selected={middlewareIds} title="Evaluator-safe 中间件" />
+        </div>
+      </div>
+
+      <div className="border-t border-white/10 pt-4">
+        <h3 className="text-xs font-semibold text-white">成本上浮门禁</h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <RatioControl label="模型调用" onChange={setMaxModelCallIncrease} value={maxModelCallIncrease} />
+          <RatioControl label="Estimated Tokens" onChange={setMaxTokenIncrease} value={maxTokenIncrease} />
+          <RatioControl label="P95 延迟" onChange={setMaxLatencyIncrease} value={maxLatencyIncrease} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScopeSelector({
+  title,
+  items,
+  selected,
+  onChange,
+  compact = false,
+}: {
+  title: string;
+  items: Array<{ id: string; label: string; description: string }>;
+  selected: string[];
+  onChange: (value: string[]) => void;
+  compact?: boolean;
+}) {
+  return (
+    <fieldset className="border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <legend className="px-1 text-xs font-semibold text-slate-200">{title}</legend>
+        {items.length ? (
+          <button
+            className="text-[10px] text-cyan-200 hover:text-cyan-100"
+            onClick={() => onChange(selected.length === items.length ? [] : items.map((item) => item.id))}
+            type="button"
+          >
+            {selected.length === items.length ? "清空" : "全选"}
+          </button>
+        ) : null}
+      </div>
+      <div className={`mt-2 ${compact ? "max-h-36" : "max-h-52"} space-y-1 overflow-auto`}>
+        {items.map((item) => {
+          const checked = selected.includes(item.id);
+          return (
+            <label className={`flex cursor-pointer items-start gap-2 p-2 ${checked ? "bg-cyan-300/10 text-white" : "text-slate-400 hover:bg-white/[0.04]"}`} key={item.id}>
+              <input
+                checked={checked}
+                className="mt-0.5 accent-cyan-300"
+                onChange={() => onChange(checked ? selected.filter((value) => value !== item.id) : [...selected, item.id])}
+                type="checkbox"
+              />
+              <span className="min-w-0">
+                <span className="block truncate text-xs">{item.label}</span>
+                {item.description ? <span className="mt-0.5 block truncate text-[10px] text-slate-500">{item.description}</span> : null}
+              </span>
+            </label>
+          );
+        })}
+        {!items.length ? <p className="p-2 text-[11px] text-slate-600">当前没有可授权资源</p> : null}
+      </div>
+    </fieldset>
+  );
+}
+
+function NumberControl({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block text-xs text-slate-400">
+      {label}
+      <input className="mt-1 w-full border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white" max={max} min={min} onChange={(event) => onChange(Number(event.target.value))} type="number" value={value} />
+    </label>
+  );
+}
+
+function RatioControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block text-xs text-slate-400">
+      {label}：+{Math.round(value * 100)}%
+      <input className="mt-2 w-full accent-cyan-300" max={3} min={0} onChange={(event) => onChange(Number(event.target.value))} step={0.25} type="range" value={value} />
+    </label>
+  );
+}
+
+function StructureGraphPreview({
+  graph,
+  loading,
+}: {
+  graph: CandidateGraph | null;
+  loading: boolean;
+}) {
+  const diff = graph?.diff ?? {};
+  const added = new Set((diff.added_nodes ?? []).map((item) => item.node_id));
+  const replaced = new Set((diff.replaced_nodes ?? []).map((item) => item.node_id));
+  const nodes: Node[] = (graph?.nodes ?? []).map((item) => ({
+    id: item.id,
+    position: item.position ?? { x: 0, y: 0 },
+    data: {
+      label: (
+        <div className="min-w-28">
+          <p className="truncate text-[11px] font-semibold">{String(item.data.title ?? item.data.label ?? item.type)}</p>
+          <p className="mt-1 text-[9px] opacity-70">{item.type}</p>
+        </div>
+      ),
+    },
+    style: {
+      background: added.has(item.id)
+        ? "rgba(34, 211, 238, 0.18)"
+        : replaced.has(item.id)
+          ? "rgba(167, 139, 250, 0.18)"
+          : "rgba(15, 23, 42, 0.96)",
+      border: `1px solid ${added.has(item.id) ? "rgba(103, 232, 249, 0.75)" : replaced.has(item.id) ? "rgba(196, 181, 253, 0.75)" : "rgba(255,255,255,0.14)"}`,
+      borderRadius: 6,
+      color: "#e2e8f0",
+      fontSize: 11,
+      padding: 8,
+      width: 150,
+    },
+  }));
+  const edges: Edge[] = (graph?.edges ?? []).map((item) => ({
+    id: item.id,
+    source: item.source,
+    target: item.target,
+    sourceHandle: item.sourceHandle ?? undefined,
+    targetHandle: item.targetHandle ?? undefined,
+    animated: (diff.added_edge_ids ?? []).includes(item.id),
+    style: {
+      stroke: (diff.added_edge_ids ?? []).includes(item.id) ? "#67e8f9" : "#64748b",
+    },
+  }));
+  return (
+    <div className="h-[360px] overflow-hidden border border-white/10 bg-slate-950">
+      {loading ? (
+        <div className="flex h-full items-center justify-center text-xs text-slate-500"><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />加载候选图</div>
+      ) : graph ? (
+        <ReactFlow
+          edges={edges}
+          elementsSelectable={false}
+          fitView
+          minZoom={0.35}
+          nodes={nodes}
+          nodesConnectable={false}
+          nodesDraggable={false}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="#334155" gap={18} size={1} />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      ) : (
+        <div className="flex h-full items-center justify-center text-xs text-slate-600">暂无候选图</div>
+      )}
+    </div>
+  );
+}
+
+function StructureDiffSummary({ candidate }: { candidate: Candidate }) {
+  const diff = candidate.diff ?? {};
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-cyan-300/[0.07] p-2 text-cyan-100"><p className="text-[10px] text-cyan-200/70">新增节点</p><p className="mt-1 font-semibold">{diff.added_nodes?.length ?? 0}</p></div>
+        <div className="bg-rose-300/[0.07] p-2 text-rose-100"><p className="text-[10px] text-rose-200/70">删除节点</p><p className="mt-1 font-semibold">{diff.removed_nodes?.length ?? 0}</p></div>
+        <div className="bg-violet-300/[0.07] p-2 text-violet-100"><p className="text-[10px] text-violet-200/70">替换节点</p><p className="mt-1 font-semibold">{diff.replaced_nodes?.length ?? 0}</p></div>
+      </div>
+      <details className="border-t border-white/10 pt-3" open>
+        <summary className="cursor-pointer font-medium text-slate-200">Mutation manifest</summary>
+        <div className="mt-2 space-y-1">
+          {(candidate.mutations ?? []).map((item, index) => (
+            <p className="bg-white/[0.03] p-2 font-mono text-[10px] text-slate-400" key={`${candidate.candidate_id}-${index}`}>
+              {index + 1}. {String(item.op ?? "mutation")}
+            </p>
+          ))}
+        </div>
+      </details>
+      {diff.removed_nodes?.length ? (
+        <div>
+          <p className="mb-1 text-[10px] text-slate-500">已删除</p>
+          {diff.removed_nodes.map((item) => <p className="truncate text-rose-100" key={item.node_id}>{item.title || item.node_id} ({item.kind})</p>)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function resourceItems(items: StructureCapabilityItem[] | undefined) {
+  return (items ?? []).map((item) => ({
+    id: item.id ?? "",
+    label: item.name ?? item.title ?? item.id ?? "",
+    description: item.description ?? "",
+  })).filter((item) => item.id);
+}
+
+function mutationLabel(operation: string) {
+  const labels: Record<string, string> = {
+    add_control_node: "新增控制节点",
+    remove_control_node: "删除控制节点",
+    replace_control_node: "替换控制节点",
+    add_control_edge: "新增控制边",
+    remove_control_edge: "删除控制边",
+    bind_resource: "绑定资源",
+    unbind_resource: "解绑资源",
+    bind_middleware: "绑定中间件",
+    unbind_middleware: "解绑中间件",
+  };
+  return labels[operation] ?? operation;
 }

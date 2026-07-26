@@ -328,6 +328,36 @@ cd client
 npm.cmd run build
 ```
 
+### 8.4 EvoAgentX Structure Evolution 护栏
+
+- Structure Evolution 只能接受 `server/evolutions/models.py` 定义的类型化 mutation；
+  不得执行模型生成的代码、任意 JSON Patch、任意节点 ID 或任意 binding handle。
+- Capability Snapshot、Xpert draft revision、DatasetVersion、资源版本、模型策略和预算必须在
+  run 创建时固定。未授权、消失或 Schema 漂移的资源必须在评测前阻断。
+- 输入和最终输出节点不可删除或替换；现有 Agent 的 Prompt、模型和输出契约不可由结构
+  mutation 修改。新增 Agent 只能使用用户固定的默认模型和编译器生成的安全初始配置。
+- 只允许 Evaluator-safe 控制节点、只读资源和安全中间件。Handoff、HITL、Human
+  Intervention、HTTP、直接 MCP、Code、Sandbox、Browser、Client Tools、Automation
+  与写入能力不得进入候选。
+- 特殊绑定边必须由编译器生成固定 `expert / knowledge / toolset / plugin / middleware`
+  handle，且不得进入控制流拓扑、变量可达性或普通节点调度。
+- 每个候选必须依次通过 mutation schema、授权、Registry、workflow validate、资源循环与
+  冲突、无副作用发布预检和 Evaluator 只读预检。静态失败候选可保留安全 issues，但不得
+  创建 Evaluation Run 或消耗评测预算。
+- Holdout 不得进入 optimizer 上下文。最终晋级除质量和指标门禁外，还必须满足模型调用、
+  estimated token、P95 延迟和图复杂度门禁。
+- 通过门禁后只能创建 pending `xpert_update` Proposal。目标 revision 漂移时必须标记
+  stale，禁止覆盖草稿或自动发布。
+- 候选图 API 不得返回 Prompt、middleware config、凭据、工具输出、数据集正文或隐藏推理。
+- 修改 Structure Evolution 时至少运行：
+
+```bash
+python -m pytest server/tests/test_xpert_structure_evolutions.py server/tests/test_xpert_evolutions.py -q
+python -m pytest server/tests/test_xpert_evaluations.py server/tests/test_meta_agent.py -q
+cd client
+npm.cmd run build
+```
+
 ## 9. MCP 开发规则
 
 MCP 原生集成属于后端进程管理和工具执行能力，开发时必须：

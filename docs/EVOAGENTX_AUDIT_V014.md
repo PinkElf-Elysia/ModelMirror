@@ -242,3 +242,18 @@ selection 与 early-stop 的分层概念，判定为 `adapt`。
 
 对应测试为 `server/tests/test_xpert_evolutions.py`，归因记录位于
 `server/meta_agent/NOTICE.md`。逐文件源码复用数量仍为零。
+
+## 14. 第四次适配记录：Structure Evolution
+
+本轮参考 `evoagentx/optimizers/sew_optimizer.py` 与 AFlow 相关模块中的有界候选、
+代际选择和评测反馈概念，判定为 `adapt/rewrite`。
+
+- 不复制动态图、Python 代码生成、文件替换、任意 operator 执行或上游 Runtime。
+- ModelMirror 使用固定九类 Pydantic mutation 和确定性 Workflow 编译器。
+- 能力来源固定为 Meta Planner Capability Snapshot，并再次与 Evaluator-safe 集合求交。
+- 静态门禁失败候选不进入 Evaluator，避免用执行预算验证本可确定拒绝的结构。
+- Holdout 排名新增模型调用、estimated token、P95 延迟和图复杂度门禁。
+- 最优结构只进入带 revision 的 `xpert_update` Proposal，禁止自动覆盖或发布。
+
+对应实现位于 `server/evolutions/mutations.py`、`service.py` 和 `executor.py`；
+测试位于 `server/tests/test_xpert_structure_evolutions.py`。逐文件源码复用数量仍为零。

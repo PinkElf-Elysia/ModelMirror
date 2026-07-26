@@ -34,6 +34,7 @@ def configure_xpert_evolutions(
     proposal_store: Any,
     optimizer_runner: OptimizerRunner,
     run_registry: Any,
+    capability_snapshot_builder: Any,
 ) -> XpertEvolutionExecutor:
     global _store, _service, _executor
     _store = XpertEvolutionStore(storage_dir)
@@ -44,6 +45,7 @@ def configure_xpert_evolutions(
         xpert_store=xpert_store,
         prompt_store=prompt_store,
         proposal_store=proposal_store,
+        capability_snapshot_builder=capability_snapshot_builder,
     )
     _executor = XpertEvolutionExecutor(
         _store,
@@ -126,6 +128,20 @@ async def get_run(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/runs/{run_id}/candidates/{candidate_id}/graph")
+async def get_candidate_graph(
+    run_id: str, candidate_id: str
+) -> dict[str, Any]:
+    try:
+        return await _to_thread(
+            _require_service().candidate_graph, run_id, candidate_id
+        )
+    except EvolutionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except EvolutionStateError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/runs/{run_id}/cancel")
 async def cancel_run(run_id: str) -> dict[str, Any]:
     try:
@@ -149,6 +165,7 @@ def _sanitize(run: dict[str, Any]) -> dict[str, Any]:
     target.pop("baseline_xpert", None)
     target.pop("baseline_snapshot", None)
     target.pop("baseline_profile", None)
+    target.pop("capability_snapshot", None)
     payload["target"] = target
     for generation in payload.get("generations") or []:
         for candidate in generation.get("candidates") or []:
