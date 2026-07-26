@@ -1,71 +1,116 @@
-# EvoAgentX 对齐审计
+# EvoAgentX 对齐总纲
 
-最后更新日期：2026-07-22
+最后更新日期：2026-07-25
 
-## 定位
+## 当前定位
 
-EvoAgentX 是 Xpert 三轮资源收尾后的下一条功能主线。ModelMirror 不把整个上游仓库作为运行时依赖，而是审计并选择性移植对元智能体、评估和自进化真正有价值的 MIT 模块。
+Xpert 对齐已在 ModelMirror `main@93e5cc38becc7fe4f89efa113310698e6eda1971`
+进入功能冻结。当前主线转向 EvoAgentX 的元规划、评估与候选进化能力，不再以
+Xpert 页面差异继续扩张功能。
 
-当前 `server/meta_agent/` 只实现了较早的 `goal -> sub_tasks -> inferred edges` 规划形态。此后 Workflow 已增加发布版本、资源绑定、Agent 级 middleware、Toolset、Knowledge、Goal、Handoff、Sandbox、Browser、Client Tool、Automation 和 Data X，导致 MetaAgent 生成能力明显落后于可执行画布。
+EvoAgentX 的唯一复用基线是：
 
-## 许可证与复用规则
+- 官方标签：`v0.1.4`
+- 官方提交：`aad19b912f640161ea07e8904d9237cd34fde5f1`
+- 许可证：MIT
+- 审计结论：[EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md)
+- Xpert 冻结快照：[XPERT_FREEZE.md](./XPERT_FREEZE.md)
 
-- 上游：`EvoAgentX/EvoAgentX`。
-- 许可证：MIT；正式移植前必须在本文件锁定具体 commit，并复核目标文件的版权头和依赖许可证。
-- 允许：选择性移植独立算法、数据结构和测试，并保留原版权、MIT License 与 NOTICE。
-- 禁止：未审计地复制整个仓库、把上游运行时直接嵌入服务、引入许可证不兼容依赖，或让 optimizer 直接修改线上版本。
-- Xpert AGPL 源码仍只作领域行为参考，不进入 EvoAgentX MIT 复用清单。
+本地主线副本只用于验证官方快照的文件差异。任何后续复用都必须从上述官方
+提交逐文件取材，并记录来源、许可证、内容摘要、适配方式和本地测试责任。
 
-## 审计矩阵
+## 为什么需要重建 MetaAgent
 
-| 能力域 | ModelMirror 当前状态 | 审计重点 | 预期产物 |
+当前 `server/meta_agent/` 仍主要实现早期的
+`goal -> sub_tasks -> inferred edges`：
+
+- 只能稳定生成基础控制流节点。
+- 不理解资源绑定边和 `targetHandle` 契约。
+- 不能完整选择 Agent middleware、Toolset、Plugin、Prompt 和知识资源。
+- 不固定已发布资源版本，也不生成发布预检所需配置。
+- 没有任务数据集、候选执行、基线比较和优化报告。
+
+与此同时，classic workflow 已支持可发布 Xpert、Goal、Handoff、资源绑定、
+Agent middleware、Toolset、Knowledge、Memory、Data X、Sandbox、Browser、
+Client Tools、Automation、Plugin 和 Prompt。MetaAgent 已明显落后于真实执行面。
+
+## 复用规则
+
+| 判定 | 含义 |
+| --- | --- |
+| `reuse` | 文件许可证和依赖均已审计，可在保留版权、NOTICE 和测试的前提下复用。 |
+| `adapt` | 借用可识别的算法或数据结构，但改写为 ModelMirror 契约。 |
+| `rewrite` | 只保留行为目标，基于 ModelMirror Runtime 独立实现。 |
+| `reject` | 不引入模块、依赖或运行时；继续使用 ModelMirror 现有能力。 |
+
+强制边界：
+
+- 不把整个 EvoAgentX 包作为 ModelMirror Runtime 依赖。
+- 不迁移其模型 Provider、RAG、Storage、HITL、Memory 或 Tool Runtime。
+- 不复制 Xpert AGPL 源码。
+- 不允许 Planner 或 Optimizer 发布 Xpert、覆盖人工草稿或修改不可变版本。
+- 不允许使用未锁定提交、来源不明的本地文件或未完成许可证审计的第三方实现。
+
+## 能力矩阵
+
+| 能力域 | ModelMirror 当前状态 | 审计判定 | 目标产物 |
 | --- | --- | --- | --- |
-| Workflow generation | 只能生成基础节点和简单边 | planner schema、节点选择、依赖推断、结构约束 | Meta Planner V2 |
-| Evaluation | RAG 有专门评估，通用 Xpert 缺任务级基准 | evaluator 接口、指标组合、candidate/baseline 比较 | 通用评估运行 |
-| Benchmark | 无统一 Xpert 任务集 | dataset schema、可重复运行、结果归档 | Benchmark Suite |
-| Prompt optimizer | 仅人工提示词编辑 | TextGrad/MIPRO 类优化接口与预算控制 | Prompt 候选提案 |
-| Workflow optimizer | 无结构进化 | SEW/AFlow 类候选生成、拓扑变异、安全校验 | Workflow 候选草稿 |
-| Memory | 已有会话/Xpert 文件记忆 | 是否存在可复用的反思与经验抽取模块 | 受审批经验候选 |
+| Workflow generation | 仅基础节点与 inferred edges | `adapt` | Meta Planner V2 |
+| Agent generation | 未覆盖当前 Agent 配置和绑定资源 | `adapt` | 可发布候选 Xpert 草稿 |
+| Task planning | 有 Goal DAG，但 MetaAgent 不生成当前完整图 | `adapt` | 结构化规划与依赖说明 |
+| Evaluator | RAG 有专项评估，通用 Xpert 缺任务级基线 | `adapt` | 固定版本 Evaluator |
+| Benchmark | 无统一任务数据集与预算报告 | `adapt` | Benchmark Suite |
+| Prompt optimizer | 仅人工编辑与版本化发布 | `rewrite` | Prompt 候选与对比报告 |
+| Workflow optimizer | 无受控结构进化 | `adapt/rewrite` | 结构候选 Xpert 草稿 |
+| Memory / RAG / Tool Runtime | 已有更完整 ModelMirror 实现 | `reject` | 继续复用现有 Runtime |
 
-## 阶段顺序
+## 交付顺序
 
-### 1. `EVOAGENTX-ALIGNMENT-AUDIT-01`
+### 1. `EVOAGENTX-META-PLANNER-01`
 
-- 锁定上游 commit、Python 版本、依赖树与许可证。
-- 逐文件标记 `reuse / adapt / rewrite / reject`。
-- 用 ModelMirror 当前 Workflow、XpertVersion、RunRegistry 与 Store 契约建立映射。
-- 建立最小 benchmark，确保移植前后可比较。
+Meta Planner V2 必须：
 
-### 2. `EVOAGENTX-META-PLANNER-01`
+- 从后端节点、middleware 和资源 Registry 读取真实能力，不维护第二套静态清单。
+- 生成完整控制流节点、资源绑定边和 middleware 绑定边。
+- 支持 External Xpert、Knowledge、Toolset、Plugin、Prompt 和发布配置。
+- 只生成带 revision 的候选 Xpert 草稿。
+- 依次通过 workflow validate、资源存在性、版本固定、循环检测和发布预检。
+- 返回计划摘要、关键假设、资源选择理由、warning 和结构化 validation issues。
+- 不返回隐藏推理过程，不自动运行或发布。
 
-- 生成当前完整 `WorkflowNodeKind`，包含 `external_xpert`、`knowledge_base`、未来 `toolset_resource` 和 Agent middleware。
-- 特殊绑定边使用 `targetHandle` 契约，不混入控制流。
-- 草稿必须通过 `validate_workflow_graph`、Xpert 发布预检和资源存在性检查。
-- Planner 只写候选 Xpert 草稿，不自动发布。
+### 2. `EVOAGENTX-EVALUATOR-02`
 
-### 3. `EVOAGENTX-EVALUATOR-02`
+- 建立版本化任务数据集、输入夹具、预期结果和可插拔指标。
+- 候选与基线固定同一 XpertVersion、模型、资源版本、输入和预算。
+- 记录质量、成本、延迟、工具调用和失败分布的安全摘要。
+- 失败候选不得覆盖草稿或进入发布流程。
 
-- 引入任务数据集、可插拔指标、候选执行、基线比较和预算统计。
-- 评估 run 必须固定 XpertVersion、模型和资源版本。
-- 结果保存安全摘要，不保存密钥或不必要的完整用户内容。
+### 3. `EVOAGENTX-EVOLUTION-03`
 
-### 4. `EVOAGENTX-EVOLUTION-03`
+- 第一阶段只生成 Prompt Profile / Agent prompt 候选。
+- 评估闭环稳定后，再开放节点、边、资源绑定和 middleware 的结构候选。
+- 每个候选必须附来源、变更说明、预算、评估报告和回退目标。
+- 只有人工批准后才能写入 Xpert 草稿；发布仍是独立显式操作。
 
-- 先优化 Prompt，再开放工作流结构变异。
-- 任何优化都必须生成候选草稿、变更说明和评估报告。
-- 只有人工批准后才能进入 Xpert 发布流程；线上版本保持不可变。
+## 固定评估护栏
 
-## 验收护栏
+- 同一比较必须固定数据集 revision、XpertVersion、模型 ID、资源版本和随机参数。
+- 候选与基线必须使用相同调用次数、token、工具调用、并发和超时预算。
+- 不得访问 `.env`、API key、Runtime Store 物理路径或公开 App token。
+- 评估输出只保存必要摘要；敏感输入、完整工具结果和内部 prompt 不进入审计报告。
+- 任何并发草稿编辑都使用 revision 冲突保护，禁止 last-write-wins 覆盖人工工作。
 
-- Meta Planner 生成的资源绑定边不参与控制流、变量传播和调度。
-- 候选运行与基线使用相同输入、版本和预算。
-- optimizer 不能访问 API key、`.env`、Runtime Store 物理路径或公开 App token。
-- 失败候选不得覆盖当前草稿；并发编辑使用 revision 冲突保护。
-- 所有移植代码都有上游 commit、源文件、许可证和本地测试映射。
+## 明确暂缓
 
-## 暂缓
-
-- 企业组织权限、多租户配额和远程插件市场。
-- GraphRAG 与知识图谱。
 - 无人工审核的持续自进化。
-- 直接替换 ModelMirror classic runner 或现有 React/FastAPI 架构。
+- 用 EvoAgentX 替换 classic workflow runner。
+- 迁移 EvoAgentX Provider、RAG、Memory、HITL、Storage 或 Tool Runtime。
+- GraphRAG、企业权限、多租户、远程插件市场和 Xpert UI 像素对齐。
+
+## 验收标准
+
+- 所有移植文件都有官方 commit、相对路径、SHA-256、许可证和本地测试映射。
+- Meta Planner 生成的绑定边不进入控制流拓扑或变量传播。
+- 候选草稿通过当前后端 Registry 和发布预检，而非测试专用静态 schema。
+- Evaluator 的候选与基线可重复执行且预算一致。
+- Planner、Evaluator 和 Optimizer 均不能静默发布、覆盖草稿或修改线上版本。

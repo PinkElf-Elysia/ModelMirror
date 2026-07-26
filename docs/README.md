@@ -2,7 +2,7 @@
 
 这里是 ModelMirror 的工程文档入口。文档目标是让新成员、人类开发者和其他大模型在不依赖聊天上下文的情况下理解项目结构、运行方式和关键约束。
 
-最后更新日期：2026-07-13
+最后更新日期：2026-07-25
 维护人：模镜团队
 
 ## 文档目录
@@ -19,6 +19,10 @@
 | [RAG_INTEGRATION.md](./RAG_INTEGRATION.md) | 本地 RAG 资料库、文档上传、向量检索、聊天引用和测试指南。 |
 | [XPERT_RUNTIME.md](./XPERT_RUNTIME.md) | Xpert 发布、Goal、Handoff、文件记忆、Knowledge Execute 与运行契约。 |
 | [XPERT_APP_API.md](./XPERT_APP_API.md) | Xpert App 部署、分享、兼容 API、凭据、配额和回滚。 |
+| [XPERT_FREEZE.md](./XPERT_FREEZE.md) | Xpert 冻结快照、维护边界、延期项、技术债和回归入口。 |
+| [EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md) | EvoAgentX 主线、Meta Planner、Evaluator 与候选进化路线。 |
+| [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md) | 官方 EvoAgentX v0.1.4 的逐模块来源、许可证和复用判定。 |
+| [META_AGENT.md](./META_AGENT.md) | 当前 MetaAgent 边界与 Meta Planner V2 固定契约。 |
 | [SKILL_INTEGRATION.md](./SKILL_INTEGRATION.md) | Skill 扩展包安装、管理、聊天注入和测试指南。 |
 | [workflow-native-design.md](./workflow-native-design.md) | 自研工作流 native 实验线的设计、API 契约和回退方案。 |
 | [THEME.md](./THEME.md) | “AI 牛马招聘会”主题、设计 token 和 UI 规范。 |
@@ -54,7 +58,9 @@ AI Agent：
 
 1. [../AGENTS.md](../AGENTS.md)
 2. [HARNESS_ENGINEERING.md](./HARNESS_ENGINEERING.md)
-3. 与任务相关的模块文档
+3. [REPOSITORY_FACTS.md](./REPOSITORY_FACTS.md)
+4. [XPERT_FREEZE.md](./XPERT_FREEZE.md)
+5. 与任务相关的模块文档
 
 ## 如何贡献文档
 

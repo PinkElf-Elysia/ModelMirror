@@ -2,8 +2,8 @@
 
 本文只记录可由当前仓库或可重复命令证明的事实。它不是产品需求文档，也不推断目标客户、用户故事或商业目标。
 
-基线日期：2026-07-23
-基线分支：`codex/xpert-agent-features-v1`
+基线日期：2026-07-25
+基线提交：`main@93e5cc38becc7fe4f89efa113310698e6eda1971`
 
 ## 1. 已证实事实
 
@@ -17,12 +17,15 @@
 | Toolset | 支持 MCP、OpenAPI/OData、内置 Provider、版本固定和工具语义 | `server/toolsets/`、`server/mcp/`、`client/src/pages/ToolsetsPage.tsx` |
 | Knowledge | 本地 RAG、双索引、Processor、Canvas、视觉、Evaluation、审批写入 | `server/rag/`、`client/src/pages/RagPage.tsx`、`client/src/pages/Knowledge*.tsx` |
 | Data X | 文件快照、DuckDB、语义模型、指标、受限查询与提案审批 | `server/datax/`、`client/src/pages/DataX*.tsx` |
+| Prompt / Plugin | Prompt Profile 支持不可变版本和斜杠命令；Plugin 是声明式本地资源包，不加载动态后端代码 | `server/prompts/`、`server/plugins/`、`client/src/pages/PromptsPage.tsx`、`client/src/pages/PluginsPage.tsx` |
 | 持久化 | 多数 Runtime/Xpert 元数据使用文件型 Store；RAG 使用 Chroma/FTS，Data X 使用 DuckDB | `server/xpert_runtime/`、`server/xperts/`、`server/rag/`、`server/datax/` |
 | 隔离服务 | Compose 包含 Browser 和 Sandbox sidecar；另有 new-api、server、client，可选 office-host | `docker-compose.yml` |
 | 前端验证 | 只有 `dev`、`build`、`preview` 脚本，没有独立 lint/test 脚本 | `client/package.json` |
 | 后端验证 | pytest 测试位于 `server/tests/` | `server/tests/`、`server/requirements.txt` |
 | CI | 仓库当前没有 `.github/workflows/` | 文件系统检查 |
 | PR 规范 | 仓库提供 PR 与 bug 模板 | `.github/pull_request_template.md`、`.github/ISSUE_TEMPLATE/bug_report.md` |
+| Xpert 路线 | 功能扩张已冻结，仅接受安全、致命缺陷、数据兼容和既有闭环回归 | `docs/XPERT_FREEZE.md`、`docs/XPERT_ALIGNMENT.md` |
+| EvoAgentX 路线 | 官方 `v0.1.4@aad19b912f640161ea07e8904d9237cd34fde5f1` 已完成来源和许可证审计；尚未复制上游代码 | `docs/EVOAGENTX_ALIGNMENT.md`、`docs/EVOAGENTX_AUDIT_V014.md`、`server/meta_agent/NOTICE.md` |
 
 ## 2. 稳定入口事实
 
@@ -40,16 +43,17 @@
 
 ## 3. 当前验证基线
 
-本分支在 Harness 更新前已实际完成：
+最近一次功能基线记录与本次纯文档审计的验证范围必须分开理解：
 
 | 验证 | 状态 | 结果 |
 | --- | --- | --- |
-| `cd client && npm.cmd run build` | 通过 | TypeScript 与 Vite 生产构建成功 |
-| `python -m pytest server/tests/ -q` | 通过 | 453 passed |
-| 后端 `py_compile` | 通过 | 目标 Python 模块语法检查成功 |
-| Docker Compose 重建 | 通过 | server 健康、client HTTP 200 |
+| 功能分支 `cd client && npm.cmd run build` | 历史通过 | 2026-07-23 Harness 记录：TypeScript 与 Vite 生产构建成功 |
+| 功能分支 `python -m pytest server/tests/ -q` | 历史通过 | 2026-07-23 Harness 记录：453 passed |
+| 本次 `python -m pytest server/tests/test_meta_agent.py -q` | 通过 | 4 passed；现有 FastAPI lifespan deprecation warnings 4 条 |
+| 本次 `git diff --check`、文档链接与敏感扫描 | 通过 | 无格式错误、断链、真实密钥或个人绝对路径 |
 
-这些结果只适用于记录时的分支内容。后续代码改动必须重新验证；纯文档改动至少执行 Diff、链接/命令核对和敏感扫描。
+历史结果不能证明当前分支。后续代码改动必须重新验证；本轮不修改生产代码，
+因此只执行 MetaAgent 定向基线、Diff、链接和敏感信息检查，不重建 Docker。
 
 ## 4. 已发现的文档债务
 
