@@ -1,5 +1,7 @@
 # workflow-native 自研工作流设计
 
+> 2026-07-23 Prompt/Plugin：新增 `plugin_resource`，通过 `plugin-binding -> plugin` 绑定一个 `workflow_agent`，不参与控制流、变量可达性或节点调度。Xpert 发布固定 Plugin 与直接 Prompt Profile 版本；运行时把 Plugin 编译为固定 Toolset、命名空间化 Skill、已注册中间件预设和私有命令。别名、工具或中间件冲突 fail-closed。Slash Command 仍执行当前 Xpert，SSE 事件类型不变。
+
 > 2026-07-23 Agent Features：Xpert 草稿和不可变版本已固定开场白、建议问题、会话标题/摘要、记忆回复、文件策略和 TTS/STT。会话摘要编译为输出 `workflow_agent` 的隐式 `context_compression`，文件关闭时附件不会进入运行或 Goal。`XpertAgentConfig` 的最大并发与递归限制约束整棵执行树；节点级工具预算仍是更窄的局部限制。Classic Workflow SSE 不新增事件类型。
 
 > 2026-07-23 Toolset Semantics：`workflow_agent` 已支持单工具或有界并行 `tools` 决策。并行批次只接受只读、`parallel_safe`、非敏感、非终点工具，并受并发、总调用数、决策轮次和嵌套深度预算约束。固定 Toolset 版本同时保存敏感、终点、Tool Memory 与公共 App 语义；敏感工具必须有 HITL，terminal 成功后直接成为最终输出。SSE 事件类型保持兼容。
@@ -58,6 +60,7 @@
 | `external_xpert` | `expert-binding -> expert` | 调用发布时固定版本的外部 Xpert；复用 classic runner，不通过 HTTP 回环 |
 | `knowledge_base` | `knowledge-binding -> knowledge` | 向目标 Agent 暴露限定知识库的 `knowledge_search/get/cite`；使用活动 Retrieval Profile |
 | `toolset_resource` | `toolset-binding -> toolset` | 调用发布时固定的 MCP/OpenAPI/OData Toolset 版本；工具 Schema、别名、默认参数和白名单来自不可变快照 |
+| `plugin_resource` | `plugin-binding -> plugin` | 编译固定 Plugin 版本内的 Prompt、Skill、Toolset 引用和中间件预设；不加载动态服务端代码 |
 | `runtime_middleware` | `middleware-binding -> middleware` | 编译目标 Agent 的 middleware pipeline |
 
 共同约束：
@@ -65,10 +68,12 @@
 - 同一资源节点只能绑定一个 `workflow_agent`，不得同时连接控制流边。
 - 绑定 Agent 必须启用 Runtime 工具模式；Tool Policy、HITL、Audit 和 checkpoint 继续生效。
 - OpenAPI/OData 写操作必须由目标 Agent 绑定的 HITL 中间件按工具名或 `*` 覆盖；测试、Xpert 发布和运行时均会重复检查。
+- Plugin 的工具名、Prompt 别名和同类中间件不得与目标 Agent 既有资源冲突；Plugin Toolset schema hash 必须与固定版本一致。
 - 资源节点不进入拓扑排序、变量声明、可达性检查和节点执行队列。
 - `external_xpert` 最大嵌套深度为 4，禁止自身调用和协作循环；公开 App 第一版禁止该资源。
 - `knowledge_base` 第一版只读。写入仍通过 Knowledge Proposal/Inbox、候选版本、Evaluation Gate 和 Promote。
 - `agent_handoff` / `handoff_router` 用于异步移交、后台执行和人工接管，不与同步 `external_xpert` 合并。
+- 公共 App 拒绝 `plugin_resource`；安全 Prompt Command 必须直接绑定 Xpert 并固定版本。
 
 ### 工作流节点分类
 

@@ -350,6 +350,17 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     category="resource",
                     tags=["mcp", "toolset", "resource", "binding"],
                 ),
+                WorkflowPaletteItem(
+                    kind="plugin_resource",
+                    icon="PLG",
+                    title="Plugin",
+                    description=(
+                        "Bind one immutable declarative Plugin version with its "
+                        "Prompt, Skill, Toolset, and middleware resources."
+                    ),
+                    category="resource",
+                    tags=["plugin", "prompt", "skill", "toolset", "binding"],
+                ),
             ],
         )
     )

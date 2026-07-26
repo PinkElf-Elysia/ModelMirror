@@ -46,6 +46,8 @@ server/rag/uploads/
 server/skills/installed/
 server/skills/tmp/
 server/xperts/storage/
+server/plugins/storage/
+server/prompts/storage/
 server/xpert_runtime/storage/
 server/datax/storage/
 server/toolsets/storage/

@@ -36,7 +36,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - 上下文：Xpert Chat 支持会话附件、文件理解、显式记忆和待确认记忆候选。
 - 运行观测：`/runtime` 聚合 MCP、Tool Registry、RunRegistry、Skill 和脱敏环境状态。
 - 设置：`/settings` 内嵌 newAPI 控制台。
-- 资源页：模型、智能体、MCP、Skill、提示词、专家团。
+- 资源页：模型、智能体、MCP/Toolset、Skill、版本化 Prompt Command、声明式 Plugin、专家团。
 - 平台自编写：私有 Xpert 可创建版本化 Xpert/Skill 提案；批准只写草稿，发布与安装必须由用户另行确认。
 
 稳定入口：
@@ -479,7 +479,23 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 - EvoAgentX 只允许选择性移植已锁定 commit 且许可证审计通过的 MIT 文件；必须保留版权和 NOTICE，并在 `docs/EVOAGENTX_ALIGNMENT.md` 记录来源。
 - EvoAgentX optimizer 或 planner 只能产生候选 Xpert 草稿与评估报告，不得静默发布、覆盖人工草稿或修改不可变线上版本。
 
-## 23. Git 规范
+## 23. Prompt Command 与声明式 Plugin 规则
+
+- Prompt Profile 草稿与不可变版本必须分离。Xpert 发布时必须把 `latest` 解析为具体 Profile 版本；后续草稿修改不得改变已发布 Xpert。
+- 第一版模板只允许 `{{args}}`。斜杠命令必须在模型调用前解析；未知命令不得调用模型，`//text` 必须按普通 `/text` 消息处理。
+- 会话可以保存用户输入的原始命令，但模型只能接收渲染后的当前任务。checkpoint、audit 和 App manifest 不得暴露模板正文。
+- `plugin_resource` 必须通过 `plugin-binding -> plugin` 绑定单个 `workflow_agent`；该边不得进入拓扑排序、变量传播、可达性检查或节点调度，也不得与控制流边混用。
+- Plugin ZIP 只能承载声明式 Prompt、Skill 文件、固定 Toolset 引用和已注册中间件预设。禁止动态 Python/Node 模块、初始化脚本、绝对路径、`..`、symlink、`.git` 和可疑隐藏路径。
+- Plugin Toolset 引用必须固定 `toolset_id + version + schema_hash`，且不得包含 Credential。schema 漂移、工具名、Prompt 别名或中间件冲突必须 fail-closed。
+- Plugin Skill 必须命名空间化并继续通过 `skills_runtime` 和无网 Sandbox 显式执行；导入或发布 Plugin 不得自动执行 Skill 脚本。
+- 公共 Xpert App/API 必须拒绝 `plugin_resource`。仅直接绑定、固定版本且 `public_app_allowed=true` 的 Prompt Profile 可作为 App 命令，manifest 只返回安全命令元数据。
+- `server/Dockerfile` 必须复制 `prompts/` 与 `plugins/`；新增后端包时必须用重建后的镜像验证真实 import，不能只依赖宿主机测试。
+- 修改该路径至少运行 `test_xpert_plugin_prompt.py`、`test_workflow_native_validate.py`、`test_workflow_resource_nodes.py`、`test_workflow_toolset_resource.py`、Xpert publish/App 回归和前端生产构建。
+- Plugin 上传包、Prompt/Plugin Store、生成 Skill、`.env`、API key、构建产物和 APK 不得提交。
+
+详细契约见 `docs/XPERT_PLUGIN_PROMPT.md`。
+
+## 24. Git 规范
 
 ### 自编写高风险路径
 
@@ -511,7 +527,7 @@ docs: 更新聊天图片输出 harness
 feature: 添加 MCP stdio 客户端管理器
 ```
 
-## 24. 交付格式
+## 25. 交付格式
 
 最终回复应包含：
 

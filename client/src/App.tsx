@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import AgentsPage from "./pages/AgentsPage";
 import ChatPage from "./pages/ChatPage";
-import ComingSoonPage from "./pages/ComingSoonPage";
 import ExpertTeamPage from "./pages/ExpertTeamPage";
 import McpBrowserPage from "./pages/McpBrowserPage";
 import MetaAgentPage from "./pages/MetaAgentPage";
@@ -28,6 +27,8 @@ import DataXHomePage from "./pages/DataXHomePage";
 import DataXProjectPage from "./pages/DataXProjectPage";
 import DataXInboxPage from "./pages/DataXInboxPage";
 import ToolsetsPage from "./pages/ToolsetsPage";
+import PromptProfilesPage from "./pages/PromptProfilesPage";
+import PluginsPage from "./pages/PluginsPage";
 
 export default function App() {
   return (
@@ -54,7 +55,8 @@ export default function App() {
       <Route element={<ToolsetsPage />} path="/toolsets" />
       <Route element={<SkillBrowserPage />} path="/skills" />
       <Route element={<RuntimeOpsPage />} path="/runtime" />
-      <Route element={<ComingSoonPage resource="prompts" />} path="/prompts" />
+      <Route element={<PromptProfilesPage />} path="/prompts" />
+      <Route element={<PluginsPage />} path="/plugins" />
       <Route element={<RagPage />} path="/rag" />
       <Route element={<KnowledgePipelineCanvasPage />} path="/rag/:kbId/pipeline" />
       <Route element={<KnowledgeEvaluationPage />} path="/rag/:kbId/evaluation" />

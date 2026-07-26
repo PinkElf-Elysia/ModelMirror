@@ -291,6 +291,7 @@ export default function XpertChatPage() {
   const openingMessage = versionFeatures?.opening.enabled
     ? versionFeatures.opening.message
     : "";
+  const commandProfiles = activeVersion?.prompt_profiles ?? [];
   const fileUploadEnabled = versionFeatures?.file_upload.enabled ?? true;
   const maxFilesPerRun = versionFeatures?.file_upload.max_files_per_run ?? 5;
   const allowedFileExtensions = (
@@ -983,6 +984,23 @@ export default function XpertChatPage() {
                     {openingQuestions.map((starter) => (
                       <button className="rounded-lg border border-white/10 bg-white/[0.04] p-3 text-left text-sm leading-5 text-slate-300 transition hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100" key={starter} onClick={() => void sendMessage(starter)} type="button">{starter}</button>
                     ))}
+                  </div>
+                ) : null}
+                {commandProfiles.length > 0 ? (
+                  <div className="mt-5 flex flex-wrap justify-center gap-2">
+                    {commandProfiles.flatMap((profile) =>
+                      profile.aliases.map((alias) => (
+                        <button
+                          className="rounded-md border border-violet-300/25 bg-violet-300/[0.08] px-3 py-2 text-xs text-violet-100 transition hover:bg-violet-300/15"
+                          key={`${profile.profile_id}-${alias}`}
+                          onClick={() => setInput(`/${alias} `)}
+                          title={profile.description}
+                          type="button"
+                        >
+                          /{alias} {profile.argument_hint ? `· ${profile.argument_hint}` : ""}
+                        </button>
+                      )),
+                    )}
                   </div>
                 ) : null}
               </div>

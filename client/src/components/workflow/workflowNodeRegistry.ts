@@ -195,7 +195,7 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
   {
     id: "resource",
     label: "资源",
-    description: "把已发布 Xpert 与知识库绑定为智能体可调用资源。",
+    description: "把已发布 Xpert、知识库、Toolset 与 Plugin 绑定为智能体可调用资源。",
     items: [
       {
         kind: "external_xpert",
@@ -217,6 +217,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         title: "MCP Toolset",
         description: "将已发布的固定版本 MCP Toolset 绑定到工作流智能体。",
         tags: ["mcp", "toolset", "resource", "binding"],
+      },
+      {
+        kind: "plugin_resource",
+        icon: "PL",
+        title: "Plugin",
+        description: "将已发布 Plugin 的 Prompt、Skill、Toolset 与中间件预设绑定到工作流智能体。",
+        tags: ["plugin", "prompt", "skill", "toolset", "resource", "binding"],
       },
     ],
   },

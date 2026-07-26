@@ -30,7 +30,7 @@ def is_middleware_binding_edge(edge: Any) -> bool:
     return str(getattr(edge, "targetHandle", None) or "").strip() == "middleware"
 
 
-RESOURCE_BINDING_HANDLES = {"expert", "knowledge", "toolset"}
+RESOURCE_BINDING_HANDLES = {"expert", "knowledge", "toolset", "plugin"}
 
 
 def is_resource_binding_edge(edge: Any) -> bool:

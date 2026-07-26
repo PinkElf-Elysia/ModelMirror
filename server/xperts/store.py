@@ -17,6 +17,11 @@ try:
 except ModuleNotFoundError:
     from workflow_native.schemas import NativeWorkflowDefinition
 
+try:
+    from server.prompts.models import ResolvedPromptProfile
+except ModuleNotFoundError:
+    from prompts.models import ResolvedPromptProfile
+
 
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -229,6 +234,7 @@ class XpertStore:
         release_notes: str = "",
         expected_revision: int | None = None,
         workflow_override: NativeWorkflowDefinition | None = None,
+        prompt_profiles_override: list[ResolvedPromptProfile] | None = None,
     ) -> XpertVersion:
         with self._lock:
             items = self._read_unlocked()
@@ -250,6 +256,10 @@ class XpertStore:
             workflow.title = item.name
             workflow.version = f"xpert-v{next_version}"
             published_features = item.draft.features.model_copy(deep=True)
+            published_prompt_profiles = [
+                profile.model_copy(deep=True)
+                for profile in (prompt_profiles_override or [])
+            ]
             if (
                 item.starters
                 and not published_features.opening.questions
@@ -265,6 +275,10 @@ class XpertStore:
                     "output_variable": item.draft.output_variable,
                     "agent_config": item.draft.agent_config.model_dump(mode="json"),
                     "features": published_features.model_dump(mode="json"),
+                    "prompt_profiles": [
+                        profile.model_dump(mode="json")
+                        for profile in published_prompt_profiles
+                    ],
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -279,6 +293,7 @@ class XpertStore:
                 output_variable=item.draft.output_variable,
                 agent_config=item.draft.agent_config.model_copy(deep=True),
                 features=published_features,
+                prompt_profiles=published_prompt_profiles,
                 release_notes=release_notes.strip()[:2000],
                 checksum=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
                 published_at=time.time(),

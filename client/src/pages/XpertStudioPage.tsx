@@ -8,6 +8,7 @@ import XpertFeatureSettings from "../components/xpert/XpertFeatureSettings";
 import {
   type XpertDefinition,
   type XpertFeatureConfig,
+  type PromptProfileBinding,
   type XpertValidationResult,
 } from "../types/xpert";
 import { type WorkflowDefinition } from "../types/workflow";
@@ -34,6 +35,14 @@ function formatDate(value: number) {
   }).format(new Date(value * 1000));
 }
 
+interface PromptProfileOption {
+  id: string;
+  name: string;
+  aliases: string[];
+  status: string;
+  published_version: number | null;
+}
+
 export default function XpertStudioPage() {
   const { xpertId = "" } = useParams();
   const [xpert, setXpert] = useState<XpertDefinition | null>(null);
@@ -44,6 +53,8 @@ export default function XpertStudioPage() {
   const [maxConcurrency, setMaxConcurrency] = useState(4);
   const [recursionLimit, setRecursionLimit] = useState(1000);
   const [features, setFeatures] = useState<XpertFeatureConfig | null>(null);
+  const [promptProfiles, setPromptProfiles] = useState<PromptProfileOption[]>([]);
+  const [promptBindings, setPromptBindings] = useState<PromptProfileBinding[]>([]);
   const [releaseNotes, setReleaseNotes] = useState("");
   const [validation, setValidation] = useState<XpertValidationResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +76,7 @@ export default function XpertStudioPage() {
         setMaxConcurrency(data.draft.agent_config?.max_concurrency ?? 4);
         setRecursionLimit(data.draft.agent_config?.recursion_limit ?? 1000);
         setFeatures(data.draft.features);
+        setPromptBindings(data.draft.prompt_profiles ?? []);
         document.title = `模镜 - ${data.name} Studio`;
       })
       .catch((caught) => {
@@ -77,6 +89,16 @@ export default function XpertStudioPage() {
       cancelled = true;
     };
   }, [xpertId]);
+
+  useEffect(() => {
+    void fetch("/api/prompt-profiles?status=published&limit=200")
+      .then(async (response) => {
+        const payload = await response.json() as { items?: PromptProfileOption[] };
+        if (!response.ok) throw new Error("Prompt Profile 加载失败");
+        setPromptProfiles(payload.items ?? []);
+      })
+      .catch(() => setPromptProfiles([]));
+  }, []);
 
   async function saveMetadata() {
     if (!xpert) return;
@@ -104,6 +126,7 @@ export default function XpertStudioPage() {
                 },
               }
             : xpert.draft.features,
+          prompt_profiles: promptBindings,
         },
       });
       setXpert(updated);
@@ -287,6 +310,77 @@ export default function XpertStudioPage() {
           value={features}
         />
       ) : null}
+
+      <section className="mb-5 rounded-lg border border-white/10 bg-white/[0.035] p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Prompt Command</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-400">绑定已发布 Profile；发布 Xpert 时会将 latest 固定为具体版本。</p>
+          </div>
+          <Link className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" to="/prompts">管理 Prompt Profile</Link>
+        </div>
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {promptProfiles.map((profile) => {
+            const binding = promptBindings.find((item) => item.profile_id === profile.id);
+            return (
+              <div className={`rounded-md border p-3 ${binding?.enabled ? "border-cyan-300/35 bg-cyan-300/[0.08]" : "border-white/10 bg-slate-950/45"}`} key={profile.id}>
+                <div className="flex items-start gap-3">
+                  <input
+                    checked={Boolean(binding?.enabled)}
+                    className="mt-1"
+                    onChange={(event) => {
+                      setPromptBindings((current) => {
+                        const rest = current.filter((item) => item.profile_id !== profile.id);
+                        if (!event.target.checked) return rest;
+                        return [...rest, {
+                          profile_id: profile.id,
+                          version_policy: "latest",
+                          pinned_version: null,
+                          enabled: true,
+                        }];
+                      });
+                    }}
+                    type="checkbox"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-xs font-semibold text-white">{profile.name}</p>
+                      <span className="text-[10px] text-slate-500">v{profile.published_version ?? "-"}</span>
+                    </div>
+                    <p className="mt-1 truncate text-[11px] text-cyan-100">{profile.aliases.map((alias) => `/${alias}`).join(" · ")}</p>
+                    {binding ? (
+                      <div className="mt-2 flex gap-2">
+                        <select
+                          className="h-8 rounded-md border border-white/10 bg-slate-950 px-2 text-[11px] text-white"
+                          onChange={(event) => setPromptBindings((current) => current.map((item) => item.profile_id === profile.id ? {
+                            ...item,
+                            version_policy: event.target.value as "latest" | "pinned",
+                            pinned_version: event.target.value === "pinned" ? profile.published_version : null,
+                          } : item))}
+                          value={binding.version_policy}
+                        >
+                          <option value="latest">发布时固定 latest</option>
+                          <option value="pinned">固定指定版本</option>
+                        </select>
+                        {binding.version_policy === "pinned" ? (
+                          <input
+                            className="h-8 w-24 rounded-md border border-white/10 bg-slate-950 px-2 text-[11px] text-white"
+                            min={1}
+                            onChange={(event) => setPromptBindings((current) => current.map((item) => item.profile_id === profile.id ? { ...item, pinned_version: Number(event.target.value) || null } : item))}
+                            type="number"
+                            value={binding.pinned_version ?? ""}
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {!promptProfiles.length ? <p className="rounded-md border border-dashed border-white/10 p-4 text-center text-xs text-slate-500">尚无已发布 Prompt Profile</p> : null}
+        </div>
+      </section>
 
       <section className="mb-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">

@@ -135,6 +135,7 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
     has_datax_runtime = False
     has_datax_write = False
     has_external_xpert = False
+    has_plugin_resource = False
     has_toolset_resource = False
     toolset_resource_issues: list[dict[str, str]] = []
     datax_project_ids: set[str] = set()
@@ -169,6 +170,8 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
         if kind == "external_xpert":
             has_external_xpert = True
             has_tool_call = True
+        if kind == "plugin_resource":
+            has_plugin_resource = True
         if kind == "toolset_resource":
             has_toolset_resource = True
             has_tool_call = True
@@ -342,6 +345,32 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
                 "message": "Public Xpert Apps cannot deploy external Xpert collaborators.",
             }
         )
+    if has_plugin_resource:
+        issues.append(
+            {
+                "code": "app_plugin_resource_forbidden",
+                "message": (
+                    "Public Xpert Apps cannot deploy declarative Plugin resources. "
+                    "Bind public-safe Prompt Profiles directly instead."
+                ),
+            }
+        )
+    unsafe_prompts = [
+        profile.name
+        for profile in version.prompt_profiles
+        if profile.source != "direct" or not profile.public_app_allowed
+    ]
+    if unsafe_prompts:
+        issues.append(
+            {
+                "code": "app_prompt_profile_not_public",
+                "message": (
+                    "Public Xpert Apps require every bound Prompt Profile to be "
+                    "direct and public_app_allowed: "
+                    + ", ".join(sorted(unsafe_prompts))
+                ),
+            }
+        )
     if has_toolset_resource:
         issues.extend(toolset_resource_issues)
     if has_dynamic_knowledge_read and not policy.allow_knowledge_read:
@@ -506,7 +535,19 @@ def _scoped_values(value: Any) -> list[str]:
     return list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
 
 
-def _public_app_payload(app: Any) -> dict:
+def _public_app_payload(app: Any, version: XpertVersion | None = None) -> dict:
+    commands = []
+    if version is not None:
+        commands = [
+            {
+                "name": profile.name,
+                "description": profile.description,
+                "aliases": list(profile.aliases),
+                "argument_hint": profile.argument_hint,
+            }
+            for profile in version.prompt_profiles
+            if profile.source == "direct" and profile.public_app_allowed
+        ]
     return {
         "slug": app.slug,
         "name": app.name,
@@ -515,6 +556,7 @@ def _public_app_payload(app: Any) -> dict:
         "version": app.pinned_version,
         "deployment_revision": app.deployment_revision,
         "visibility": app.visibility,
+        "commands": commands,
     }
 
 
@@ -829,8 +871,13 @@ async def get_public_xpert_app_manifest(
     grant: XpertAppAccessGrant | None = None
     try:
         app, grant = await _authorize_public_request(app_slug, authorization, share_token)
+        version = await asyncio.to_thread(
+            get_xpert_store().get_version,
+            app.xpert_id,
+            app.pinned_version,
+        )
         return JSONResponse(
-            content={"object": "xpert.app", **_public_app_payload(app)},
+            content={"object": "xpert.app", **_public_app_payload(app, version)},
             headers=_rate_headers(app, grant),
         )
     except XpertAppAuthenticationError:
