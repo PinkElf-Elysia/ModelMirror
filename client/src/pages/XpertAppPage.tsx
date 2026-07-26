@@ -246,6 +246,21 @@ export default function XpertAppPage() {
                   <button className="rounded-md border border-white/10 bg-white/[0.035] px-3 py-2 text-xs text-slate-200" onClick={() => setInput("请介绍你的能力和适用任务")} type="button">介绍你的能力</button>
                 )}
               </div>
+              {manifest.commands?.length ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {manifest.commands.map((command) => (
+                    <button
+                      className="rounded-md border border-violet-300/25 bg-violet-300/[0.08] px-3 py-2 text-xs text-violet-100"
+                      key={command.alias}
+                      onClick={() => setInput(`/${command.alias} `)}
+                      title={command.description}
+                      type="button"
+                    >
+                      /{command.alias} {command.argument_hint ? `· ${command.argument_hint}` : ""}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="mx-auto max-w-3xl space-y-4">

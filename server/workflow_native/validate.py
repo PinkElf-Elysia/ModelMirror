@@ -56,6 +56,8 @@ NODE_KIND_ALIASES = {
     "knowledge-base": "knowledge_base",
     "toolset_resource": "toolset_resource",
     "toolset-resource": "toolset_resource",
+    "plugin_resource": "plugin_resource",
+    "plugin-resource": "plugin_resource",
     "agent_task": "agent_task",
     "agent-task": "agent_task",
     "agent_handoff": "agent_handoff",
@@ -101,6 +103,7 @@ SUPPORTED_NODE_KINDS = {
     "external_xpert",
     "knowledge_base",
     "toolset_resource",
+    "plugin_resource",
     "agent_task",
     "agent_handoff",
     "handoff_router",
@@ -1180,6 +1183,38 @@ def validate_node_configuration(
                     ValidationIssue(
                         code="invalid_toolset_pinned_version",
                         message="Pinned Toolset resources require pinnedVersion >= 1.",
+                        node_id=node.id,
+                    )
+                )
+
+    if kind == "plugin_resource":
+        if not str(data.get("pluginId") or "").strip():
+            issues.append(
+                ValidationIssue(
+                    code="missing_plugin_resource_id",
+                    message="Plugin resource needs data.pluginId.",
+                    node_id=node.id,
+                )
+            )
+        version_policy = str(data.get("versionPolicy") or "latest").strip()
+        if version_policy not in {"latest", "pinned"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_plugin_version_policy",
+                    message="Plugin versionPolicy must be latest or pinned.",
+                    node_id=node.id,
+                )
+            )
+        if version_policy == "pinned":
+            try:
+                pinned_version = int(data.get("pinnedVersion"))
+            except (TypeError, ValueError):
+                pinned_version = 0
+            if pinned_version < 1:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_plugin_pinned_version",
+                        message="Pinned Plugin resources require pinnedVersion >= 1.",
                         node_id=node.id,
                     )
                 )
@@ -2506,12 +2541,14 @@ def validate_edges(
                 "expert": "external_xpert",
                 "knowledge": "knowledge_base",
                 "toolset": "toolset_resource",
+                "plugin": "plugin_resource",
             }.get(target_handle)
             expected_source_handle = {
                 "middleware": "middleware-binding",
                 "expert": "expert-binding",
                 "knowledge": "knowledge-binding",
                 "toolset": "toolset-binding",
+                "plugin": "plugin-binding",
             }.get(target_handle)
             if (
                 expected_source_kind is None
@@ -2536,6 +2573,7 @@ def validate_edges(
                 "expert-binding",
                 "knowledge-binding",
                 "toolset-binding",
+                "plugin-binding",
             }:
                 issues.append(
                     ValidationIssue(
@@ -2584,14 +2622,19 @@ def validate_edges(
             )
 
     for node_id, kind in kinds_by_id.items():
-        if kind not in {"external_xpert", "knowledge_base", "toolset_resource"}:
+        if kind not in {
+            "external_xpert",
+            "knowledge_base",
+            "toolset_resource",
+            "plugin_resource",
+        }:
             continue
         if node_id not in bindings_by_source:
             issues.append(
                 ValidationIssue(
                     code="missing_resource_binding",
                     message=(
-                        "External Xpert, Knowledge Base, and Toolset nodes must bind "
+                        "External Xpert, Knowledge Base, Toolset, and Plugin nodes must bind "
                         "to exactly one workflow_agent."
                     ),
                     node_id=node_id,
@@ -2631,6 +2674,7 @@ def validate_edges(
             "expert",
             "knowledge",
             "toolset",
+            "plugin",
         }:
             continue
         target = nodes_by_id.get(edge.target)
@@ -2642,7 +2686,7 @@ def validate_edges(
                 ValidationIssue(
                     code="resource_binding_requires_runtime_tool_mode",
                     message=(
-                        "Bound External Xpert, Knowledge, and Toolset resources require "
+                        "Bound External Xpert, Knowledge, Toolset, and Plugin resources require "
                         "workflow_agent toolMode=mcp_tools."
                     ),
                     node_id=target.id,
@@ -3184,7 +3228,12 @@ def is_middleware_binding_edge(edge: NativeWorkflowEdge) -> bool:
 
 
 def is_resource_binding_edge(edge: NativeWorkflowEdge) -> bool:
-    return str(edge.targetHandle or "").strip() in {"expert", "knowledge", "toolset"}
+    return str(edge.targetHandle or "").strip() in {
+        "expert",
+        "knowledge",
+        "toolset",
+        "plugin",
+    }
 
 
 def is_non_control_binding_edge(edge: NativeWorkflowEdge) -> bool:

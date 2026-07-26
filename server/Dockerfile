@@ -28,6 +28,8 @@ COPY registry ./registry
 COPY rag ./rag
 COPY datax ./datax
 COPY skills ./skills
+COPY prompts ./prompts
+COPY plugins ./plugins
 COPY xperts ./xperts
 COPY workflow_native ./workflow_native
 COPY xpert_runtime ./xpert_runtime

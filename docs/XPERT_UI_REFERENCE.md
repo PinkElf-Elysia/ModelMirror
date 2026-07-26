@@ -133,7 +133,7 @@ ModelMirror 当前已在本地 RAG 上完成只读 Knowledge Pipeline 元数据�
 
 截图中的工具集菜单有 Provider、内置、MCP、API 四个页签，示例包括对话 BI、对话数据库、指标管理、语义模型管理、规划、Tavily、SearchApi、电子邮件、Bing、钉钉、Slack、Discord、Serper。
 
-ModelMirror 已有 MCP Server、ToolRegistry、MCPToolsetProvider、Skill 页面和部分安装能力。后续应把这些入口收口为 Xpert 式 Toolset 资源模型，再补 MCP Runtime 运维和插件市场。
+ModelMirror 已完成 MCP/OpenAPI/OData/内置 Provider Toolset 的创建、凭据、发现、测试、发布和 Agent 绑定。`/plugins` 进一步提供可信本地声明式资源包，但明确不建设远程市场、计费、组织治理或动态代码插件。
 
 ## 智能体配置侧栏
 
@@ -197,7 +197,7 @@ ModelMirror 当前的 `NodeConfig` 已开始从节点表单收敛为 Xpert 式�
 - 数据库页：表列表、状态、版本、激活时间、消息。
 - 环境页：环境列表与变量表。
 
-ModelMirror 后续应先做 `XPERT-WORKSPACE-HUB-01`，再分步补 Runtime Ops，而不是直接散改每个页面。
+ModelMirror 已完成 Workspace Hub、Runtime Ops、版本化 `/prompts` 与声明式 `/plugins`。该 UI 映射以本地可信资源为边界，不复刻 Xpert 的远程插件市场。
 
 ## ModelMirror `/runtime` 第一版映射
 
@@ -230,7 +230,7 @@ ModelMirror 后续应先做 `XPERT-WORKSPACE-HUB-01`，再分步补 Runtime Ops�
 - 知识库：读取 `/api/rag/knowledge_bases`、`/api/rag/pipeline/assets`、`/api/rag/pipeline/artifacts`，展示知识库、FileAsset、Artifact 摘要。
 - MCP 工具集：读取 `/api/mcp/sessions` 与 `/api/registry/tools`，展示运行会话与全局工具注册表数量。
 - Skill：读取 `/api/skills/installed`，并结合本地 Skill 市场候选数据展示安装状态。
-- 提示词、环境：当前为规划中入口，分别指向 `/prompts` 与 `/settings`。
+- Prompt/Plugin：`/prompts` 管理版本化命令，`/plugins` 管理声明式本地包；环境仍指向 `/settings`。
 - 运行记录：读取 `/api/runtime/runs?limit=8`，展示 workflow/chat/agent/handoff 等最近 run 摘要。
 
 该页采用独立资源加载和软降级策略：任一资源 API 失败时，只在对应卡片显示“暂不可用”，不影响工作空间首页和其他入口。
@@ -259,11 +259,7 @@ ModelMirror 后续应先做 `XPERT-WORKSPACE-HUB-01`，再分步补 Runtime Ops�
 
 ## 下一步建议
 
-1. `XPERT-RUNTIME-OPS-01`：补齐 MCP Runtime 运维、插件/Skill 市场与环境观测。
-2. `XPERT-WORKSPACE-HUB-02`：在工作空间 Hub 上补资源创建入口、标签过滤与运行摘要。
-3. `XPERT-WORKFLOW-REGISTRY-API-01`：评估是否把前端节点 registry 升级为后端统一 registry API。
-4. `XPERT-STUDIO-PANEL-02`：逐项接入重试、备用模型、输出结构、记忆写入等真实执行语义。
-5. `XPERT-KNOWLEDGE-PIPELINE-03`：在 stage 草稿稳定后评估可编辑流水线草稿和执行观测。
+Xpert 功能增量到 `XPERT-PLUGIN-PROMPT-03` 为止。下一步只执行 `XPERT-ALIGNMENT-FREEZE-04` 缺口归档，随后切换到 `EVOAGENTX-ALIGNMENT-AUDIT-01`。远程市场、GraphRAG、企业治理与剩余像素级 UI 对齐进入冻结清单。
 
 ## ModelMirror `/rag` Draft Config Mapping
 

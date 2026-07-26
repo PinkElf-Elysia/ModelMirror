@@ -38,10 +38,16 @@ from .validation import validate_xpert_definition
 
 try:
     from server.rag.api import get_rag_service
+    from server.plugins.registry import get_plugin_store
+    from server.prompts import get_prompt_profile_store
+    from server.prompts.models import ResolvedPromptProfile
     from server.skills.api import get_skill_manager
     from server.workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
 except ModuleNotFoundError:
     from rag.api import get_rag_service
+    from plugins.registry import get_plugin_store
+    from prompts import get_prompt_profile_store
+    from prompts.models import ResolvedPromptProfile
     from skills.api import get_skill_manager
     from workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
 
@@ -139,6 +145,37 @@ def _prepare_published_resource_snapshot(
     for node in workflow.nodes:
         data = node.data if isinstance(node.data, dict) else {}
         kind = str(data.get("kind") or node.type or "")
+        if kind == "plugin_resource":
+            reference = str(data.get("pluginId") or "").strip()
+            try:
+                plugin = get_plugin_store().get_plugin(reference)
+                policy = str(data.get("versionPolicy") or "latest").strip()
+                version_number = (
+                    int(data.get("pinnedVersion") or 0)
+                    if policy == "pinned"
+                    else int(plugin.published_version or 0)
+                )
+                if plugin.status != "published" or version_number < 1:
+                    raise ValueError(
+                        f"Plugin must be published before Xpert publish: {reference}."
+                    )
+                snapshot = get_plugin_store().get_version(
+                    plugin.id, version_number
+                )
+                data["pluginId"] = plugin.id
+                data["pluginName"] = snapshot.name
+                data["versionPolicy"] = "pinned"
+                data["pinnedVersion"] = snapshot.version
+                node.data = data
+            except Exception as exc:
+                issues.append(
+                    ValidationIssue(
+                        code="xpert_plugin_resource_invalid",
+                        message=str(exc),
+                        node_id=node.id,
+                    )
+                )
+            continue
         if kind == "toolset_resource":
             reference = str(data.get("toolsetId") or "").strip()
             try:
@@ -356,6 +393,107 @@ def _prepare_published_resource_snapshot(
         except Exception:
             continue
 
+    middleware_ids_by_agent: dict[str, set[str]] = {}
+    for edge in workflow.edges:
+        if str(edge.targetHandle or "") != "middleware":
+            continue
+        source = nodes_by_id.get(edge.source)
+        if source is None:
+            continue
+        middleware_id = str(
+            (source.data or {}).get("runtimeMiddlewareId") or ""
+        ).strip()
+        if middleware_id:
+            middleware_ids_by_agent.setdefault(edge.target, set()).add(
+                middleware_id
+            )
+
+    for edge in workflow.edges:
+        if str(edge.targetHandle or "") != "plugin":
+            continue
+        resource = nodes_by_id.get(edge.source)
+        agent = nodes_by_id.get(edge.target)
+        if resource is None or agent is None:
+            continue
+        data = resource.data if isinstance(resource.data, dict) else {}
+        try:
+            snapshot = get_plugin_store().get_version(
+                str(data.get("pluginId") or ""),
+                int(data.get("pinnedVersion") or 0),
+            )
+            existing_names = names_by_agent.setdefault(edge.target, set())
+            inline_names = {
+                item.strip()
+                for item in re.split(
+                    r"[,\n]+",
+                    str(agent.data.get("toolNames") or ""),
+                )
+                if item.strip()
+            }
+            for reference in snapshot.toolsets:
+                try:
+                    from server.toolsets import get_toolset_service
+                except ModuleNotFoundError:
+                    from toolsets import get_toolset_service
+                toolset_snapshot = get_toolset_service().store.get_version(
+                    reference.toolset_id,
+                    reference.version,
+                )
+                if toolset_snapshot.schema_hash != reference.schema_hash:
+                    raise ValueError(
+                        f"Plugin Toolset schema hash changed: {reference.toolset_id}."
+                    )
+                prefix = toolset_snapshot.connection.tool_prefix
+                plugin_names = {
+                    (
+                        f"{prefix}_{tool.exposed_name}"
+                        if prefix
+                        else tool.exposed_name
+                    )
+                    for tool in toolset_snapshot.tools
+                    if tool.enabled
+                }
+                conflicts = sorted(
+                    existing_names.intersection(plugin_names)
+                    | inline_names.intersection(plugin_names)
+                )
+                if conflicts:
+                    issues.append(
+                        ValidationIssue(
+                            code="xpert_plugin_tool_name_conflict",
+                            message=(
+                                "Plugin Toolset names conflict for this "
+                                "workflow_agent: " + ", ".join(conflicts)
+                            ),
+                            node_id=resource.id,
+                        )
+                    )
+                existing_names.update(plugin_names)
+            middleware_ids = middleware_ids_by_agent.setdefault(
+                edge.target, set()
+            )
+            for preset in snapshot.middleware_presets:
+                if preset.middleware_id in middleware_ids:
+                    issues.append(
+                        ValidationIssue(
+                            code="xpert_plugin_middleware_conflict",
+                            message=(
+                                "Plugin middleware conflicts for this workflow_agent: "
+                                f"{preset.middleware_id}."
+                            ),
+                            node_id=resource.id,
+                        )
+                    )
+                middleware_ids.add(preset.middleware_id)
+        except Exception as exc:
+            issues.append(
+                ValidationIssue(
+                    code="xpert_plugin_dependency_invalid",
+                    message=str(exc),
+                    node_id=resource.id,
+                )
+            )
+
     def walk_dependencies(
         owner_id: str,
         owner_workflow: NativeWorkflowDefinition,
@@ -403,10 +541,101 @@ def _prepare_published_resource_snapshot(
     return workflow, issues
 
 
+def _resolve_published_prompt_profiles(
+    xpert: XpertDefinition,
+    workflow: NativeWorkflowDefinition,
+) -> tuple[list[ResolvedPromptProfile], list[ValidationIssue]]:
+    resolved: list[ResolvedPromptProfile] = []
+    issues: list[ValidationIssue] = []
+    prompt_store = get_prompt_profile_store()
+    plugin_store = get_plugin_store()
+
+    for binding in xpert.draft.prompt_profiles:
+        if not binding.enabled:
+            continue
+        try:
+            profile = prompt_store.get_profile(binding.profile_id)
+            version_number = (
+                int(binding.pinned_version or 0)
+                if binding.version_policy == "pinned"
+                else int(profile.published_version or 0)
+            )
+            if profile.status != "published" or version_number < 1:
+                raise ValueError(
+                    f"Prompt Profile must be published: {binding.profile_id}."
+                )
+            snapshot = prompt_store.get_version(profile.id, version_number)
+            resolved.append(
+                ResolvedPromptProfile(
+                    profile_id=profile.id,
+                    slug=profile.slug,
+                    version=snapshot.version,
+                    name=snapshot.name,
+                    description=snapshot.description,
+                    aliases=list(snapshot.aliases),
+                    template=snapshot.template,
+                    argument_hint=snapshot.argument_hint,
+                    public_app_allowed=snapshot.public_app_allowed,
+                    checksum=snapshot.checksum,
+                    source="direct",
+                )
+            )
+        except Exception as exc:
+            issues.append(
+                ValidationIssue(
+                    code="xpert_prompt_profile_invalid",
+                    message=str(exc),
+                )
+            )
+
+    for node in workflow.nodes:
+        data = node.data if isinstance(node.data, dict) else {}
+        if str(data.get("kind") or node.type or "") != "plugin_resource":
+            continue
+        try:
+            plugin_id = str(data.get("pluginId") or "").strip()
+            version_number = int(data.get("pinnedVersion") or 0)
+            snapshot = plugin_store.get_version(plugin_id, version_number)
+            resolved.extend(profile.model_copy(deep=True) for profile in snapshot.prompts)
+        except Exception as exc:
+            issues.append(
+                ValidationIssue(
+                    code="xpert_plugin_prompt_invalid",
+                    message=str(exc),
+                    node_id=node.id,
+                )
+            )
+
+    aliases: dict[str, str] = {}
+    for profile in resolved:
+        for alias in profile.aliases:
+            owner = aliases.get(alias)
+            if owner is not None:
+                issues.append(
+                    ValidationIssue(
+                        code="xpert_prompt_alias_conflict",
+                        message=(
+                            f"Prompt command alias '{alias}' is provided by both "
+                            f"{owner} and {profile.name}."
+                        ),
+                    )
+                )
+            else:
+                aliases[alias] = profile.name
+    return resolved, issues
+
+
 def _validate_xpert_for_publish(
     xpert: XpertDefinition,
-) -> tuple[XpertValidationResult, NativeWorkflowDefinition]:
+) -> tuple[
+    XpertValidationResult,
+    NativeWorkflowDefinition,
+    list[ResolvedPromptProfile],
+]:
     workflow, resource_issues = _prepare_published_resource_snapshot(xpert)
+    prompt_profiles, prompt_issues = _resolve_published_prompt_profiles(
+        xpert, workflow
+    )
     candidate = xpert.model_copy(deep=True)
     candidate.draft.workflow = workflow
     validation = _validate_installed_skills(
@@ -458,7 +687,12 @@ def _validate_xpert_for_publish(
                 ),
             )
         )
-    issues = [*validation.issues, *resource_issues, *feature_issues]
+    issues = [
+        *validation.issues,
+        *resource_issues,
+        *prompt_issues,
+        *feature_issues,
+    ]
     return (
         validation.model_copy(
             update={
@@ -467,6 +701,7 @@ def _validate_xpert_for_publish(
             }
         ),
         workflow,
+        prompt_profiles,
     )
 
 
@@ -665,7 +900,7 @@ async def update_xpert(xpert_id: str, payload: XpertUpdateRequest) -> XpertDefin
 async def validate_xpert(xpert_id: str) -> XpertValidationResult:
     try:
         xpert = await asyncio.to_thread(get_xpert_store().get_xpert, xpert_id)
-        validation, _ = await asyncio.to_thread(
+        validation, _, _ = await asyncio.to_thread(
             _validate_xpert_for_publish,
             xpert,
         )
@@ -679,7 +914,7 @@ async def publish_xpert(xpert_id: str, payload: XpertPublishRequest) -> XpertVer
     try:
         store = get_xpert_store()
         xpert = await asyncio.to_thread(store.get_xpert, xpert_id)
-        validation, workflow = await asyncio.to_thread(
+        validation, workflow, prompt_profiles = await asyncio.to_thread(
             _validate_xpert_for_publish,
             xpert,
         )
@@ -697,6 +932,7 @@ async def publish_xpert(xpert_id: str, payload: XpertPublishRequest) -> XpertVer
             release_notes=payload.release_notes,
             expected_revision=xpert.draft_revision,
             workflow_override=workflow,
+            prompt_profiles_override=prompt_profiles,
         )
     except HTTPException:
         raise

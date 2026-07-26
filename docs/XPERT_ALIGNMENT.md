@@ -1,5 +1,17 @@
 # Xpert 对齐总纲
 
+## 2026-07-23 增量：XPERT-PLUGIN-PROMPT-03
+
+Xpert 冻结前最后一轮功能增量已进入真实闭环：
+
+- `/prompts` 支持 Prompt Profile 草稿、revision、模板预览、不可变版本、归档和全局唯一命令别名。Xpert 发布会把 `latest` 固定为具体版本。
+- 已发布 Xpert Chat 支持 `/alias args`，保留原始用户命令并只向模型注入渲染后的当前任务；未知命令不会调用模型，`//text` 可转义为普通 `/text`。
+- `/plugins` 支持导入、校验和发布可信本地声明式 ZIP。Plugin 可聚合 Prompt、命名空间化 Skill、固定 Toolset 引用和已注册中间件预设，但不能加载动态后端代码或初始化脚本。
+- `plugin_resource -> workflow_agent` 使用专用非控制绑定边。运行时将固定 Plugin 版本编译到目标 Agent 的 Toolset、Skill、Sandbox Hook、中间件与私有命令；别名、工具或中间件冲突会阻断发布。
+- 公共 App 仅允许直接绑定且显式安全的 Prompt Command，manifest 隐藏模板；包含 Plugin 资源的 Xpert 仍 fail-closed。
+
+下一步只执行 `XPERT-ALIGNMENT-FREEZE-04`，归档已实现、延期与冻结项，然后正式进入 `EVOAGENTX-ALIGNMENT-AUDIT-01`。远程插件市场、动态代码插件、组织权限、计费与企业治理不再继续扩张。
+
 ## 2026-07-23 增量：XPERT-AGENT-FEATURES-02D
 
 Toolset 收尾路线的 Agent Features 已进入真实执行闭环：
@@ -12,7 +24,7 @@ Toolset 收尾路线的 Agent Features 已进入真实执行闭环：
 - TTS/STT 显式选择模型注册表中的 speech/transcription 模型，通过现有 OpenAI 兼容网关调用；不硬编码供应商 SDK，网关未配置时返回可操作错误。
 - `XpertAgentConfig.max_concurrency` 与 `recursion_limit` 是整个 Xpert 执行树的全局预算；`maxToolConcurrency`、`maxToolCalls`、`maxToolDepth` 和 `maxIterations` 仍是单个 Agent 工具循环的局部护栏。
 
-下一轮进入 `XPERT-PLUGIN-PROMPT-03`，完成可信本地插件清单与版本化 Prompt Profile 后冻结剩余 Xpert 对齐，转入 EvoAgentX 审计。企业 Provider 治理、远程市场和任意 Code Toolset 继续延期。
+该轮之后的 `XPERT-PLUGIN-PROMPT-03` 已完成；剩余 Xpert 工作只做冻结审计。企业 Provider 治理、远程市场和任意 Code Toolset 继续延期。
 
 ## 2026-07-23 增量：XPERT-TOOLSET-SEMANTICS-02C
 
@@ -291,18 +303,18 @@ EvoAgentX 曾只作为 `goal -> sub_tasks -> inferred edges` 的历史参考。X
 | 能力域 | 当前状态 | 已完成 | 当前边界 | 下一步 |
 | --- | --- | --- | --- | --- |
 | 工作空间资源 | 部分实现 | `/studio` 已作为 Xpert 式资源 Hub，聚合智能体、工作流、知识库、MCP、API 工具、Data X、Skill、提示词、环境、运行记录，并支持快速入口、标签过滤和运行摘要 | 当前不做 workspace 权限或通用资源创建编排；API 工具仍为待接入卡片，Data X 已进入真实工作台 | 基于真实使用反馈收敛聚合模型 |
-| Xpert Studio / 发布 | 部分实现 | classic `/workflow`、智能体配置侧栏、Xpert 草稿、不可变版本、聊天运行、Goal、自动 Handoff、文件/记忆、固定版本 App/API，以及外部 Xpert/知识库资源绑定 | 使用文件型 Store 和 classic runner；资源边不参与控制流；不做组织权限、多人协作或数据库迁移 | Toolset 资源绑定与 Prompt Profile 收尾 |
+| Xpert Studio / 发布 | 部分实现 | classic `/workflow`、智能体配置侧栏、Xpert 草稿、不可变版本、聊天运行、Goal、自动 Handoff、文件/记忆、固定版本 App/API、外部 Xpert/知识库资源，以及固定 Prompt/Plugin 绑定 | 使用文件型 Store 和 classic runner；资源边不参与控制流；不做组织权限、多人协作或数据库迁移 | `XPERT-ALIGNMENT-FREEZE-04` |
 | Runtime Middleware | 部分实现 | Agent 绑定、上下文压缩、结构化输出、Todo、工具选择、HITL、Sandbox/Skill、Browser、Client Tools、Scheduler、Ralph Loop、Knowledge Writer、Plugin Hooks、Xpert/Skill 自编写提案、类型化文件记忆、Office 实时自动化、Data X 指标工具 | 文件型单进程协调器；公开 App 禁止交互式、客户端、Office、自动化与自编写中间件，Data X 仅显式只读 | 真实使用反馈与契约收敛 |
 | Data X | 部分实现 | 文件快照、DuckDB 项目隔离、语义实体/连接、基础和派生指标、不可变发布版本、受限查询 DSL、词法/本地向量检索、提案审批、Agent 中间件和 App 只读门禁 | 文件数据源优先；单进程导入协调；不接外部数据库、不开放任意 SQL、写回数据或通用 Dashboard | 外部 SQL Connector、凭据保险箱和定时刷新按真实需求另行规划 |
 | Agent Task | 部分实现 | AgentTask API、MetaAgent 任务工作台、workflow `agent_task` 节点、可选文件持久化、Goal 步骤派发 | 单进程文件 Store，不是分布式任务队列 | 为文件与记忆任务补安全上下文 |
 | Handoff | 部分实现 | Handoff API、workflow `agent_handoff`、`handoff_router`、人工 Inbox、目标 Xpert 自动执行、同步结果回传、重试、死信与 Goal 协作 | 仅显式 `xpert:` 目标自动执行；单进程 lease，不做分布式调度 | 扩展文件与记忆上下文传递 |
 | RunRegistry / Trace | 部分实现 | workflow/xpert/chat/goal/agent_task/agent_handoff run、checkpoint、workflow/chat/Xpert/Goal 观测与 `/runtime` 运维总览 | 内存态，可观测索引，不是调度器；Goal 重启恢复会创建 recovery run | 为文件、记忆与知识执行提供护栏 |
-| Workflow Agent | 部分实现 | `workflow_agent` 节点、模型执行、Runtime Toolset、文件理解、结构化输出、类型化记忆召回/候选写回、失败重试、备用模型、异常策略、有界并行工具调用、全局执行预算和版本化会话功能 | 轻量 JSON 决策，不是 function calling；并行仅允许安全只读工具；音频依赖兼容网关 | `XPERT-PLUGIN-PROMPT-03` |
+| Workflow Agent | 部分实现 | `workflow_agent` 节点、模型执行、Runtime Toolset、文件理解、结构化输出、类型化记忆召回/候选写回、失败重试、备用模型、异常策略、有界并行工具调用、全局执行预算、版本化会话功能和固定 Prompt/Plugin 资源 | 轻量 JSON 决策，不是 function calling；并行仅允许安全只读工具；音频依赖兼容网关 | 冻结后转入 EvoAgentX Meta Planner 审计 |
 | Chat Toolset | 部分实现 | `/api/chat` 可选 MCP 工具模式，chat run 与 checkpoint | 默认关闭，不改变普通聊天；无自动 handoff | 补工具偏好、安全提示和观测 UI |
-| Toolset / MCP / API | 部分实现 | `/toolsets` 支持 MCP、OpenAPI 3.x、OData v4、Tavily 与 Todo；具备加密凭据、受控执行、工具 Schema/语义/测试、漂移诊断、不可变发布、Agent 绑定、有界并行、Tool Memory 和受控 App 只读开放 | 远程 ref、multipart、OData batch、任意 Code Toolset、企业 Provider 治理和浏览器 OAuth 暂缓 | 完成 Prompt/Plugin 收尾后冻结 |
-| Plugin / Skill | 部分实现 | `/skills`、安装运行时、Workspace Skill 草稿、审批后显式安装、Sandbox staging 与显式 Skill Plugin Hooks | Agent 只能提案；草稿安装不会覆盖既有 Skill；Hook 仅支持离线 manifest，不提供组织权限 | 基于真实 Skill 草稿与 Hook 使用反馈收敛协议 |
+| Toolset / MCP / API | 部分实现 | `/toolsets` 支持 MCP、OpenAPI 3.x、OData v4、Tavily 与 Todo；具备加密凭据、受控执行、工具 Schema/语义/测试、漂移诊断、不可变发布、Agent 绑定、有界并行、Tool Memory、Plugin 固定引用和受控 App 只读开放 | 远程 ref、multipart、OData batch、任意 Code Toolset、企业 Provider 治理和浏览器 OAuth 暂缓 | 冻结，不继续扩张 Provider 生态 |
+| Plugin / Skill | 部分实现 | `/plugins` 声明式 ZIP、不可变版本、Prompt/Skill/Toolset/中间件聚合、Plugin 资源绑定；另有 `/skills`、Workspace 草稿、Sandbox staging 与显式 Hook | 不加载动态后端代码；无远程市场、组织权限、计费；公共 App 禁止 Plugin | `XPERT-ALIGNMENT-FREEZE-04` |
 | Knowledge Pipeline | 已实现 | FileAsset/Artifact/Chunk/CitationAnchor、结构感知 Processor、General/QA/Summary、可执行 Graph、逐文档/逐视觉页恢复、图片与扫描 PDF 的 OCR/VLM、版本化 ingestion job、递归与父子分块、向量/FTS5 双索引、混合检索、Rerank、离线评估、Promotion Gate、Knowledge Toolset、审批写入、预览、激活/回滚 | 成熟 RAG 基础闭环完成；仍为本地单进程 worker，旧上传保留 legacy index；评估标签需人工维护；图片向量、版面坐标与 GraphRAG 暂缓 | 真实使用反馈与技术债审计 |
-| Prompt / Slash Command | 下一步 | 仅有提示词资源页雏形和聊天 prompt 使用 | 尚无版本化 Prompt Profile、Agent 绑定和 slash command | `XPERT-PLUGIN-PROMPT-03` 后冻结 Xpert 对齐 |
+| Prompt / Slash Command | 已实现 | `/prompts` 草稿、校验、预览、不可变版本、全局命令别名、Xpert 固定绑定、`/alias` 执行和 `//` 转义 | 模板仅允许 `{{args}}`；命令始终执行当前 Xpert；App 只开放直接绑定的安全 Profile | 冻结，按真实反馈收敛模板契约 |
 | Environment / Sandbox | 部分实现 | `/runtime` 已提供脱敏环境与依赖摘要，展示模型网关、OpenRouter、git/node/npm/npx/python 是否就绪 | 不展示密钥值，不编辑环境变量，不提供沙箱实例或文件工作区语义 | 评估 Xpert 式环境变量管理和沙箱资源模型 |
 | Memory / Logs / Monitor | 部分实现 | 会话记忆、四类 Xpert 文件记忆、三层召回、候选审批、revision 冲突、使用信号、RunRegistry events/checkpoints/audit 摘要 | 文件型单机 Store；不做向量记忆、跨 Xpert 私有共享或组织级审计 | 以召回质量和冲突率评估是否需要向量化 |
 

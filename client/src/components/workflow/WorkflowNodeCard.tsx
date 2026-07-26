@@ -128,6 +128,13 @@ const nodeMeta = {
     bg: "bg-amber-300/10",
     text: "text-amber-100",
   },
+  plugin_resource: {
+    icon: "PL",
+    label: "Plugin 资源",
+    border: "border-violet-300/40",
+    bg: "bg-violet-300/10",
+    text: "text-violet-100",
+  },
   agent_task: {
     icon: "▣",
     label: "Agent Task",
@@ -256,6 +263,13 @@ function outputName(data: WorkflowNode["data"]) {
         : "current";
     return `${data.toolsetId || "选择 Toolset"} -> ${version}`;
   }
+  if (data.kind === "plugin_resource") {
+    const version =
+      data.versionPolicy === "pinned"
+        ? `v${data.pinnedVersion ?? "?"}`
+        : "current";
+    return `${data.pluginId || "选择 Plugin"} -> ${version}`;
+  }
   if (data.kind === "agent_task") {
     return `${data.assignedAgent ?? "workflow-planner"} → ${data.outputVariable ?? "agent_task_id"}`;
   }
@@ -312,7 +326,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             className="!h-3 !w-3 !border-2 !border-surface-900 !bg-indigo-300"
             id="middleware"
             position={Position.Left}
-            style={{ top: "88%" }}
+            style={{ top: "94%" }}
             title="绑定 Agent 中间件"
             type="target"
           />
@@ -320,7 +334,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             className="!h-3 !w-3 !border-2 !border-surface-900 !bg-blue-300"
             id="expert"
             position={Position.Left}
-            style={{ top: "40%" }}
+            style={{ top: "38%" }}
             title="绑定外部 Xpert"
             type="target"
           />
@@ -328,7 +342,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             className="!h-3 !w-3 !border-2 !border-surface-900 !bg-teal-300"
             id="knowledge"
             position={Position.Left}
-            style={{ top: "56%" }}
+            style={{ top: "52%" }}
             title="绑定知识库"
             type="target"
           />
@@ -336,8 +350,16 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             className="!h-3 !w-3 !border-2 !border-surface-900 !bg-amber-300"
             id="toolset"
             position={Position.Left}
-            style={{ top: "72%" }}
+            style={{ top: "66%" }}
             title="绑定 Toolset"
+            type="target"
+          />
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-violet-300"
+            id="plugin"
+            position={Position.Left}
+            style={{ top: "80%" }}
+            title="绑定 Plugin"
             type="target"
           />
         </>
@@ -346,6 +368,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           "external_xpert",
           "knowledge_base",
           "toolset_resource",
+          "plugin_resource",
         ].includes(data.kind) ? (
         <Handle
           className="!h-3 !w-3 !border-2 !border-surface-900 !bg-slate-200"
@@ -445,6 +468,14 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           id="toolset-binding"
           position={Position.Right}
           title="绑定到 workflow_agent 的 toolset 入口"
+          type="source"
+        />
+      ) : data.kind === "plugin_resource" ? (
+        <Handle
+          className="!h-3 !w-3 !border-2 !border-surface-900 !bg-violet-300"
+          id="plugin-binding"
+          position={Position.Right}
+          title="绑定到 workflow_agent 的 plugin 入口"
           type="source"
         />
       ) : data.kind !== "output" ? (

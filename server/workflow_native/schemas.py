@@ -24,6 +24,7 @@ NativeNodeKind = Literal[
     "external_xpert",
     "knowledge_base",
     "toolset_resource",
+    "plugin_resource",
     "agent_task",
     "agent_handoff",
     "handoff_router",

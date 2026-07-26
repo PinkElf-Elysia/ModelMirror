@@ -6,6 +6,27 @@ import {
 
 export type XpertStatus = "draft" | "published" | "archived";
 
+export interface PromptProfileBinding {
+  profile_id: string;
+  version_policy: "latest" | "pinned";
+  pinned_version: number | null;
+  enabled: boolean;
+}
+
+export interface ResolvedPromptProfile {
+  profile_id: string;
+  slug: string;
+  version: number;
+  name: string;
+  description: string;
+  aliases: string[];
+  argument_hint: string;
+  public_app_allowed: boolean;
+  source: "direct" | "plugin";
+  source_plugin_id?: string | null;
+  source_plugin_version?: number | null;
+}
+
 export interface XpertFeatureConfig {
   opening: {
     enabled: boolean;
@@ -74,6 +95,7 @@ export interface XpertDraft {
     recursion_limit: number;
   };
   features: XpertFeatureConfig;
+  prompt_profiles: PromptProfileBinding[];
 }
 
 export interface XpertVersion {
@@ -88,6 +110,7 @@ export interface XpertVersion {
     recursion_limit: number;
   } | null;
   features?: XpertFeatureConfig | null;
+  prompt_profiles?: ResolvedPromptProfile[];
   release_notes: string;
   checksum: string;
   published_at: number;
@@ -338,4 +361,10 @@ export interface XpertAppManifest {
   version: number;
   deployment_revision: number;
   visibility: "unlisted";
+  commands?: Array<{
+    alias: string;
+    name: string;
+    description: string;
+    argument_hint: string;
+  }>;
 }

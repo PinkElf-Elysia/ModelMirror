@@ -295,3 +295,15 @@ The ReAct-Lite contract accepts one `tool` or an ordered `tools` batch. Parallel
 Run memory remains inside one Agent execution. Conversation memory is available only to private Xpert conversations, persists a redacted normalized summary of at most 8 KB, and can be listed or archived through the conversation API. Public App calls always downgrade memory to run scope.
 
 Public Apps may deploy a fixed Toolset only when `allow_tools` is enabled, a Tool Policy is bound, and every enabled tool is read-only, non-sensitive, explicitly public, and not conversation-memory scoped. Provider credentials remain server-side and never enter the manifest or public response.
+
+## Prompt Command And Declarative Plugin Runtime
+
+`PromptProfileStore` persists editable Prompt drafts and immutable published versions. A Profile fixes one to five aliases, the `{{args}}` template, argument hint, tags, and App policy. Xpert publication resolves every enabled `latest` binding to a concrete Prompt version. Later draft edits and releases do not change an existing XpertVersion.
+
+The Xpert run boundary parses slash commands before invoking the classic workflow runner. `/alias raw arguments` renders only the fixed Profile template and then executes the current published Xpert; it never starts another workflow or replaces the Xpert role prompt. The conversation retains the original user command while the model receives the rendered task. Unknown commands fail before model execution, and a leading `//` escapes one slash.
+
+`PluginStore` imports trusted local ZIP packages containing `modelmirror-plugin.json`. A published Plugin version fixes its package checksum, embedded Prompt snapshots, namespace-installed Skill IDs, Toolset version/schema-hash references, and registered middleware presets. Packages cannot load Python/Node modules or initialization scripts. Skill scripts remain explicit Sandbox operations.
+
+`plugin_resource` is a non-control binding to one `workflow_agent`. At runtime its fixed version is compiled into the Agent Toolset, Skill resolver, middleware pipeline, and private Prompt alias map. Toolset, Skill, middleware, and Prompt execution retain their existing Policy, HITL, Audit, Sandbox, and checkpoint boundaries. Name or middleware conflicts fail validation instead of silently overriding a resource.
+
+Public Apps reject `plugin_resource`. They may expose only directly bound fixed Prompt Profiles marked `public_app_allowed`; manifests list safe command metadata and never include template content. See `docs/XPERT_PLUGIN_PROMPT.md`.

@@ -9,6 +9,11 @@ try:
 except ModuleNotFoundError:
     from workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
 
+try:
+    from server.prompts.models import PromptProfileBinding, ResolvedPromptProfile
+except ModuleNotFoundError:
+    from prompts.models import PromptProfileBinding, ResolvedPromptProfile
+
 
 XpertStatus = Literal["draft", "published", "archived"]
 
@@ -103,6 +108,10 @@ class XpertDraft(BaseModel):
     output_variable: str = Field(default="agent_output", min_length=1, max_length=128)
     agent_config: XpertAgentConfig = Field(default_factory=XpertAgentConfig)
     features: XpertFeatureConfig = Field(default_factory=XpertFeatureConfig)
+    prompt_profiles: list[PromptProfileBinding] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
 
 class XpertVersion(BaseModel):
@@ -116,6 +125,7 @@ class XpertVersion(BaseModel):
     agent_config: XpertAgentConfig | None = None
     # Legacy versions preserve their existing chat behavior.
     features: XpertFeatureConfig | None = None
+    prompt_profiles: list[ResolvedPromptProfile] = Field(default_factory=list)
     release_notes: str = ""
     checksum: str
     published_at: float

@@ -57,6 +57,25 @@ except ModuleNotFoundError:
     from skills.api import get_skill_draft_store, get_skill_manager, router as skills_router
 
 try:
+    from server.plugins.api import router as plugins_router
+    from server.plugins.registry import get_plugin_store
+    from server.prompts import (
+        PromptProfileValidationError,
+        get_prompt_profile_store,
+        prompt_profiles_router,
+        resolve_prompt_command,
+    )
+except ModuleNotFoundError:
+    from plugins.api import router as plugins_router
+    from plugins.registry import get_plugin_store
+    from prompts import (
+        PromptProfileValidationError,
+        get_prompt_profile_store,
+        prompt_profiles_router,
+        resolve_prompt_command,
+    )
+
+try:
     from server.xperts import (
         XpertAppAccessGrant,
         XpertAppDefinition,
@@ -615,6 +634,8 @@ app.include_router(runtime_client_tool_router)
 app.include_router(runtime_automation_router)
 app.include_router(runtime_authoring_router)
 app.include_router(toolsets_router)
+app.include_router(prompt_profiles_router)
+app.include_router(plugins_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -2732,12 +2753,21 @@ async def prepare_published_xpert_run(
     require_published: bool = True,
     include_xpert_memory: bool = True,
     allow_memory_write: bool = True,
+    allow_plugin_prompts: bool = True,
+    public_prompts_only: bool = False,
 ) -> PreparedXpertRun:
     store = get_xpert_store()
     xpert = await asyncio.to_thread(store.resolve_xpert, reference)
     if require_published and xpert.status != "published":
         raise ValueError("Xpert must be published before it can run.")
     version = await asyncio.to_thread(store.get_version, xpert.id, payload.version)
+    command = resolve_prompt_command(
+        payload.message,
+        version.prompt_profiles,
+        allow_plugin=allow_plugin_prompts,
+        require_public=public_prompts_only,
+    )
+    effective_message = command.effective_message
     features = (
         version.features.model_copy(deep=True)
         if version.features is not None
@@ -2822,7 +2852,7 @@ async def prepare_published_xpert_run(
         xpert_memories = await asyncio.to_thread(
             xpert_context_store.search_memories,
             xpert.id,
-            payload.message,
+            effective_message,
             scope="xpert",
             limit=10,
             record_recall=False,
@@ -2832,7 +2862,7 @@ async def prepare_published_xpert_run(
         conversation_memories = await asyncio.to_thread(
             xpert_context_store.search_memories,
             xpert.id,
-            payload.message,
+            effective_message,
             scope="conversation",
             conversation_id=conversation_id,
             limit=10,
@@ -2841,7 +2871,7 @@ async def prepare_published_xpert_run(
     memory_reply: tuple[str, str, float] | None = None
     if features.memory_reply.enabled:
         memory_reply = deterministic_memory_reply(
-            payload.message,
+            effective_message,
             [*conversation_memories, *xpert_memories],
             min_confidence=features.memory_reply.min_confidence,
         )
@@ -2906,9 +2936,9 @@ async def prepare_published_xpert_run(
     )
 
     inputs = {
-        version.input_variable: payload.message,
+        version.input_variable: effective_message,
         version.history_variable: history_json,
-        "user_input": payload.message,
+        "user_input": effective_message,
         "conversation_history": history_json,
         "xpert_file_context": file_context,
         "xpert_memory_context_xpert": (
@@ -2929,6 +2959,16 @@ async def prepare_published_xpert_run(
             "xpert_version": version.version,
             "xpert_draft_revision": version.draft_revision,
             "xpert_checksum": version.checksum,
+            "prompt_command": (
+                {
+                    "alias": command.alias,
+                    "profile_id": command.profile_id,
+                    "profile_version": command.profile_version,
+                    "source": command.source,
+                }
+                if command.alias
+                else None
+            ),
             "xpert_agent_config": (
                 version.agent_config.model_dump(mode="json")
                 if version.agent_config is not None
@@ -3535,6 +3575,42 @@ async def _run_workflow_response(
                 max_tokens=max_tokens,
             )
 
+        def bound_plugin_snapshots(node_id: str) -> list[tuple[Any, Any]]:
+            snapshots: list[tuple[Any, Any]] = []
+            for resource_node in bound_resource_nodes(
+                nodes_by_id,
+                payload.workflow.edges,
+                node_id,
+                "plugin",
+            ):
+                data = (
+                    resource_node.data
+                    if isinstance(resource_node.data, dict)
+                    else {}
+                )
+                plugin_id = str(data.get("pluginId") or "").strip()
+                plugin = get_plugin_store().get_plugin(plugin_id)
+                policy = str(data.get("versionPolicy") or "latest").strip()
+                if policy == "pinned":
+                    version_number = int(data.get("pinnedVersion") or 0)
+                else:
+                    version_number = int(plugin.published_version or 0)
+                    if plugin.status != "published":
+                        raise RuntimeMiddlewareFatalError(
+                            f"Bound Plugin must be published: {plugin_id}"
+                        )
+                if version_number < 1:
+                    raise RuntimeMiddlewareFatalError(
+                        f"Bound Plugin must be published: {plugin_id}"
+                    )
+                snapshots.append(
+                    (
+                        resource_node,
+                        get_plugin_store().get_version(plugin.id, version_number),
+                    )
+                )
+            return snapshots
+
         def agent_middleware_specs(node_id: str) -> list[RuntimeMiddlewareSpec]:
             specs = [
                 *workflow_runtime_context["global_middleware_specs"],
@@ -3544,6 +3620,91 @@ async def _run_workflow_response(
                     node_id,
                 ),
             ]
+            plugin_snapshots = bound_plugin_snapshots(node_id)
+            configured_ids = {item.middleware_id for item in specs}
+            plugin_skill_ids: list[str] = []
+            for resource_node, plugin in plugin_snapshots:
+                plugin_skill_ids.extend(plugin.installed_skill_ids)
+                skill_id_by_slug = {
+                    skill.slug: installed_id
+                    for skill, installed_id in zip(
+                        plugin.skills,
+                        plugin.installed_skill_ids,
+                        strict=False,
+                    )
+                }
+                for preset in plugin.middleware_presets:
+                    if preset.middleware_id in configured_ids:
+                        raise RuntimeMiddlewareFatalError(
+                            "Plugin middleware conflicts with another bound middleware: "
+                            f"{preset.middleware_id}"
+                        )
+                    if runtime_middleware_registry.get(preset.middleware_id) is None:
+                        raise RuntimeMiddlewareFatalError(
+                            f"Plugin middleware is not registered: {preset.middleware_id}"
+                        )
+                    config = dict(preset.config)
+                    if preset.middleware_id in {"skills_runtime", "plugin_hooks"}:
+                        requested = [
+                            item.strip()
+                            for item in re.split(
+                                r"[,\n]+",
+                                str(config.get("skill_ids") or ""),
+                            )
+                            if item.strip()
+                        ]
+                        mapped = [
+                            skill_id_by_slug.get(item, item)
+                            for item in requested
+                        ]
+                        if not mapped:
+                            mapped = list(plugin.installed_skill_ids)
+                        config["skill_ids"] = ",".join(mapped)
+                    specs.append(
+                        RuntimeMiddlewareSpec(
+                            node_id=(
+                                f"{resource_node.id}:plugin:"
+                                f"{plugin.version}:{preset.middleware_id}"
+                            ),
+                            middleware_id=preset.middleware_id,
+                            priority=preset.priority,
+                            binding="plugin",
+                            config=config,
+                        )
+                    )
+                    configured_ids.add(preset.middleware_id)
+            if plugin_skill_ids:
+                existing_skills = middleware_spec(specs, "skills_runtime")
+                if existing_skills is None:
+                    specs.append(
+                        RuntimeMiddlewareSpec(
+                            node_id=f"{node_id}:plugin-skills",
+                            middleware_id="skills_runtime",
+                            priority=120,
+                            binding="plugin",
+                            config={
+                                "skill_ids": ",".join(
+                                    dict.fromkeys(plugin_skill_ids)
+                                ),
+                                "auto_discover": False,
+                            },
+                        )
+                    )
+                else:
+                    existing = [
+                        item.strip()
+                        for item in re.split(
+                            r"[,\n]+",
+                            str(existing_skills.config.get("skill_ids") or ""),
+                        )
+                        if item.strip()
+                    ]
+                    existing_skills.config = {
+                        **existing_skills.config,
+                        "skill_ids": ",".join(
+                            dict.fromkeys([*existing, *plugin_skill_ids])
+                        ),
+                    }
             node = nodes_by_id.get(node_id)
             node_data = node.data if node is not None and isinstance(node.data, dict) else {}
             if (
@@ -7083,6 +7244,31 @@ async def _run_workflow_response(
                                     "schema_hash": snapshot.schema_hash,
                                 }
                             )
+                        for plugin_node, plugin in bound_plugin_snapshots(node.id):
+                            for reference in plugin.toolsets:
+                                snapshot = toolset_store.get_version(
+                                    reference.toolset_id,
+                                    reference.version,
+                                )
+                                if snapshot.schema_hash != reference.schema_hash:
+                                    raise ValueError(
+                                        "Plugin Toolset schema hash changed: "
+                                        f"{reference.toolset_id}"
+                                    )
+                                toolset_resources.append(
+                                    {
+                                        "node_id": plugin_node.id,
+                                        "plugin_id": str(
+                                            (plugin_node.data or {}).get("pluginId")
+                                            or ""
+                                        ),
+                                        "plugin_version": plugin.version,
+                                        "toolset_id": reference.toolset_id,
+                                        "name": snapshot.name,
+                                        "pinned_version": reference.version,
+                                        "schema_hash": reference.schema_hash,
+                                    }
+                                )
                         if toolset_resources:
                             bound_tools = (
                                 await workflow_published_toolset_provider.list_tools(
@@ -7127,10 +7313,11 @@ async def _run_workflow_response(
                             or knowledge_write_enabled
                             or external_xpert_tools
                             or toolset_resources
+                            or bound_plugin_snapshots(node.id)
                         ):
                             if tool_mode != "mcp_tools":
                                 raise ValueError(
-                                    "Bound knowledge, external Xpert, and Toolset resources require Runtime tool mode."
+                                    "Bound knowledge, external Xpert, Toolset, and Plugin resources require Runtime tool mode."
                                 )
                         if knowledge_read_enabled or knowledge_write_enabled:
                             if not 1 <= len(knowledge_base_ids) <= 5:
@@ -10713,6 +10900,8 @@ async def run_published_xpert(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except XpertContextValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PromptProfileValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except XpertStoreError as exc:
@@ -10741,6 +10930,8 @@ async def run_deployed_xpert_app(
         require_published=False,
         include_xpert_memory=app.policy.allow_xpert_memory,
         allow_memory_write=False,
+        allow_plugin_prompts=False,
+        public_prompts_only=True,
     )
     return await _run_workflow_response(
         prepared.request,
@@ -11710,7 +11901,7 @@ async def list_workflow_node_registry():
 
 @app.get("/api/workflow/resource-options", response_model=dict[str, Any])
 async def list_workflow_resource_options(
-    kind: Literal["external_xpert", "knowledge_base", "toolset"],
+    kind: Literal["external_xpert", "knowledge_base", "toolset", "plugin"],
 ):
     if kind == "external_xpert":
         items = await asyncio.to_thread(
@@ -11756,6 +11947,37 @@ async def list_workflow_resource_options(
                     ),
                 }
                 for item in toolset_store.list_toolsets()
+            ],
+        }
+    if kind == "plugin":
+        plugins = await asyncio.to_thread(
+            get_plugin_store().list_plugins,
+            status=None,
+            search="",
+            limit=200,
+        )
+        return {
+            "kind": kind,
+            "items": [
+                {
+                    "id": item.id,
+                    "slug": item.slug,
+                    "name": item.name,
+                    "description": item.description,
+                    "status": item.status,
+                    "published_version": item.published_version,
+                    "prompt_count": (
+                        len(
+                            get_plugin_store().get_version(
+                                item.id,
+                                int(item.published_version),
+                            ).prompts
+                        )
+                        if item.published_version
+                        else 0
+                    ),
+                }
+                for item in plugins
             ],
         }
 
