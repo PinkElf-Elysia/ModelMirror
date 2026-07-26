@@ -476,8 +476,17 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 - `XpertAgentConfig.max_concurrency` 与 `recursion_limit` 约束整个 Xpert 执行树。节点级 `maxToolConcurrency`、`maxToolCalls`、`maxToolDepth` 和 `maxIterations` 只能收紧局部工具循环。
 - 修改这些能力至少运行 `test_xpert_agent_features.py`、`test_xpert_publish.py`、`test_xpert_context.py`、`test_xpert_file_memory.py`、workflow agent、Toolset/App 回归和前端生产构建。
 
-- EvoAgentX 只允许选择性移植已锁定 commit 且许可证审计通过的 MIT 文件；必须保留版权和 NOTICE，并在 `docs/EVOAGENTX_ALIGNMENT.md` 记录来源。
-- EvoAgentX optimizer 或 planner 只能产生候选 Xpert 草稿与评估报告，不得静默发布、覆盖人工草稿或修改不可变线上版本。
+### Xpert 冻结与 EvoAgentX 来源护栏
+
+- Xpert 功能面已在 `main@93e5cc38becc7fe4f89efa113310698e6eda1971` 冻结。当前状态以 `docs/XPERT_FREEZE.md` 为准；截图差异、目录补齐和像素对齐不得单独启动功能轮次。
+- 冻结后只接受安全修复、致命缺陷、数据兼容和已实现闭环回归。延期能力必须先修改冻结文档并获得明确任务授权。
+- EvoAgentX 的唯一复用基线是官方 `v0.1.4@aad19b912f640161ea07e8904d9237cd34fde5f1`。本地无 Git 副本只能用于差异验证，不得作为提交来源。
+- EvoAgentX 只能逐文件选择性移植。每个文件必须在 `docs/EVOAGENTX_AUDIT_V014.md` 或后续台账中记录官方相对路径、commit、SHA-256、许可证、第三方依赖、`reuse/adapt/rewrite/reject` 判定和本地测试映射。
+- 不得把整个 EvoAgentX 包、Provider、RAG、Storage、HITL、Memory 或 Tool Runtime 作为运行依赖引入。复用代码必须保留原版权、MIT License 和 NOTICE。
+- Planner 只能生成带 revision 的候选 Xpert 草稿，并依次通过 workflow validate、资源存在性、循环检测和发布预检；不得运行、发布或覆盖人工草稿。
+- Evaluator 的候选与基线必须固定同一数据集 revision、XpertVersion、模型、资源版本、输入、随机参数和调用/token/工具/并发/超时预算。
+- Optimizer 只能产生候选草稿、变更说明与评估报告。任何 Prompt 或结构进化都必须人工批准后才能写入草稿，发布仍是独立显式操作。
+- 审计和评测不得读取或记录 `.env`、API key、Runtime Store 物理路径、完整工具结果、公开 App token 或不必要的完整用户内容。
 
 ## 23. Prompt Command 与声明式 Plugin 规则
 

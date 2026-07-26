@@ -1,5 +1,22 @@
 # Xpert 对齐总纲
 
+## 2026-07-25 当前路线：Xpert 正式冻结
+
+Xpert 功能扩张已在
+`main@93e5cc38becc7fe4f89efa113310698e6eda1971` 正式冻结。本页保留此前的
+逐轮增量作为历史记录，但其中按当时上下文写下的“下一步”不再代表当前优先级。
+
+当前唯一权威状态与维护边界见：
+
+- [XPERT_FREEZE.md](./XPERT_FREEZE.md)：稳定能力、维护项、延期项、不采用项和回归入口。
+- [EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md)：冻结后的功能主线。
+- [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md)：官方
+  `EvoAgentX v0.1.4` 的逐模块复用审计。
+
+冻结后只接受安全修复、致命缺陷、数据兼容和既有闭环回归。GraphRAG、企业权限、
+多租户、远程市场、动态插件、更多 Provider 和 UI 像素对齐均进入延期清单。
+下一项功能增量固定为 `EVOAGENTX-META-PLANNER-01`。
+
 ## 2026-07-23 增量：XPERT-PLUGIN-PROMPT-03
 
 Xpert 冻结前最后一轮功能增量已进入真实闭环：
@@ -10,7 +27,9 @@ Xpert 冻结前最后一轮功能增量已进入真实闭环：
 - `plugin_resource -> workflow_agent` 使用专用非控制绑定边。运行时将固定 Plugin 版本编译到目标 Agent 的 Toolset、Skill、Sandbox Hook、中间件与私有命令；别名、工具或中间件冲突会阻断发布。
 - 公共 App 仅允许直接绑定且显式安全的 Prompt Command，manifest 隐藏模板；包含 Plugin 资源的 Xpert 仍 fail-closed。
 
-下一步只执行 `XPERT-ALIGNMENT-FREEZE-04`，归档已实现、延期与冻结项，然后正式进入 `EVOAGENTX-ALIGNMENT-AUDIT-01`。远程插件市场、动态代码插件、组织权限、计费与企业治理不再继续扩张。
+该轮之后的 `XPERT-ALIGNMENT-FREEZE-04` 与
+`EVOAGENTX-ALIGNMENT-AUDIT-01` 已完成；此处保留为历史交付记录。远程插件市场、
+动态代码插件、组织权限、计费与企业治理不再继续扩张。
 
 ## 2026-07-23 增量：XPERT-AGENT-FEATURES-02D
 
@@ -69,8 +88,10 @@ Xpert 对齐进入收尾阶段。当前优先补齐真实画布语义，而不�
 1. `XPERT-RESOURCE-NODES-01`：新增 `external_xpert` 与 `knowledge_base` 资源节点，通过 `expert` / `knowledge` 特殊绑定边向单个 `workflow_agent` 提供同步协作者工具和限定知识工具。绑定边不参与控制流、变量传播或节点调度；外部 Xpert 在发布时固定不可变版本，知识库继续消费活动索引。
 2. `XPERT-TOOLSET-RUNTIME-02`：按 MCP、API、工具语义、Agent Features 四轮补齐完整 Toolset；MCP 02A 已进入真实运行闭环。
 3. `XPERT-PLUGIN-PROMPT-03`：交付可信本地插件清单与版本化 Prompt Profile 的编辑、发布、Agent 绑定和斜杠命令最小闭环，不建设远程市场、计费或组织权限。
-4. `XPERT-ALIGNMENT-FREEZE-04`：形成 Xpert 已实现、延期与冻结清单；GraphRAG、企业权限、多租户、市场治理和剩余 UI 像素对齐暂缓。
-5. `EVOAGENTX-ALIGNMENT-AUDIT-01`：转向 EvoAgentX 元智能体、评估、benchmark、optimizer、自进化和记忆模块审计，并从审计过的 MIT 代码中选择性移植。
+4. `XPERT-ALIGNMENT-FREEZE-04`：已完成；冻结清单见
+   [XPERT_FREEZE.md](./XPERT_FREEZE.md)。
+5. `EVOAGENTX-ALIGNMENT-AUDIT-01`：已完成；官方来源、许可证与模块判定见
+   [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md)。
 
 资源绑定与异步协作保持两条清晰路径：`external_xpert` 是 Agent 在 ReAct 中同步调用的固定版本协作者；`agent_handoff` / `handoff_router` 仍是任务移交、后台执行、等待和人工接管机制。公开 Xpert App 第一版禁止外部专家资源，知识资源继续受只读策略约束。
 
@@ -283,13 +304,20 @@ classic `/workflow` 节点库元数据已从纯前端 registry 推进为后端�
 
 ## 对齐原则
 
-模镜接下来以 `C:\Users\21547\Downloads\xpert-main\xpert-main` 和真实 Xpert 前端界面作为主要参考源，采用“领域模型对齐 + 原生实现改写”的策略推进。项目继续保留现有 React、FastAPI、Pydantic、pytest 架构，不迁移 Xpert 的 Nx、NestJS、Angular 主框架，也不整文件复制上游源码。
+历史 Xpert 对齐采用“领域模型与交互证据参考 + ModelMirror 原生实现改写”；
+项目继续保留 React、FastAPI、Pydantic、pytest 架构，不迁移 Xpert 的
+Nx、NestJS、Angular 主框架，也不复制 AGPL 实现。冻结后不再使用本地源码路径
+或截图差异驱动新功能。
 
-EvoAgentX 曾只作为 `goal -> sub_tasks -> inferred edges` 的历史参考。Xpert 三轮资源收尾完成后，项目将正式切换到 EvoAgentX 审计主线：先锁定上游 commit、许可证和复用清单，再逐步补 Meta Planner V2、评估基准、自进化提案与工作流结构进化。MIT 代码允许选择性移植，但必须保留版权与 NOTICE；任何进化结果只能形成候选 Xpert 草稿和评估报告，不能静默修改线上发布版本。
+EvoAgentX 主线已锁定官方
+`v0.1.4@aad19b912f640161ea07e8904d9237cd34fde5f1`。后续按 Meta Planner V2、
+Evaluator、Prompt 候选和工作流结构候选顺序推进。MIT 代码只允许在逐文件审计后
+选择性移植并保留版权与 NOTICE；任何结果只能形成候选 Xpert 草稿和评估报告，
+不能静默修改线上发布版本。
 
-## 对齐主线
+## 历史对齐主线
 
-长期主线按产品骨架排序，而不是按单个节点或单个 API 随机扩展：
+以下产品骨架解释 Xpert 能力如何形成，不再代表当前开发排期：
 
 1. 工作空间资源：统一呈现智能体、知识库、MCP 工具集、API 工具、Skill、提示词、环境、运行记录。
 2. Xpert Studio 画布：对齐智能体画布、节点库、右侧配置面板、预览/发布/运行入口。
@@ -303,16 +331,16 @@ EvoAgentX 曾只作为 `goal -> sub_tasks -> inferred edges` 的历史参考。X
 | 能力域 | 当前状态 | 已完成 | 当前边界 | 下一步 |
 | --- | --- | --- | --- | --- |
 | 工作空间资源 | 部分实现 | `/studio` 已作为 Xpert 式资源 Hub，聚合智能体、工作流、知识库、MCP、API 工具、Data X、Skill、提示词、环境、运行记录，并支持快速入口、标签过滤和运行摘要 | 当前不做 workspace 权限或通用资源创建编排；API 工具仍为待接入卡片，Data X 已进入真实工作台 | 基于真实使用反馈收敛聚合模型 |
-| Xpert Studio / 发布 | 部分实现 | classic `/workflow`、智能体配置侧栏、Xpert 草稿、不可变版本、聊天运行、Goal、自动 Handoff、文件/记忆、固定版本 App/API、外部 Xpert/知识库资源，以及固定 Prompt/Plugin 绑定 | 使用文件型 Store 和 classic runner；资源边不参与控制流；不做组织权限、多人协作或数据库迁移 | `XPERT-ALIGNMENT-FREEZE-04` |
+| Xpert Studio / 发布 | 稳定冻结 | classic `/workflow`、智能体配置侧栏、Xpert 草稿、不可变版本、聊天运行、Goal、自动 Handoff、文件/记忆、固定版本 App/API、外部 Xpert/知识库资源，以及固定 Prompt/Plugin 绑定 | 使用文件型 Store 和 classic runner；资源边不参与控制流；不做组织权限、多人协作或数据库迁移 | 仅安全、缺陷与兼容维护 |
 | Runtime Middleware | 部分实现 | Agent 绑定、上下文压缩、结构化输出、Todo、工具选择、HITL、Sandbox/Skill、Browser、Client Tools、Scheduler、Ralph Loop、Knowledge Writer、Plugin Hooks、Xpert/Skill 自编写提案、类型化文件记忆、Office 实时自动化、Data X 指标工具 | 文件型单进程协调器；公开 App 禁止交互式、客户端、Office、自动化与自编写中间件，Data X 仅显式只读 | 真实使用反馈与契约收敛 |
 | Data X | 部分实现 | 文件快照、DuckDB 项目隔离、语义实体/连接、基础和派生指标、不可变发布版本、受限查询 DSL、词法/本地向量检索、提案审批、Agent 中间件和 App 只读门禁 | 文件数据源优先；单进程导入协调；不接外部数据库、不开放任意 SQL、写回数据或通用 Dashboard | 外部 SQL Connector、凭据保险箱和定时刷新按真实需求另行规划 |
 | Agent Task | 部分实现 | AgentTask API、MetaAgent 任务工作台、workflow `agent_task` 节点、可选文件持久化、Goal 步骤派发 | 单进程文件 Store，不是分布式任务队列 | 为文件与记忆任务补安全上下文 |
 | Handoff | 部分实现 | Handoff API、workflow `agent_handoff`、`handoff_router`、人工 Inbox、目标 Xpert 自动执行、同步结果回传、重试、死信与 Goal 协作 | 仅显式 `xpert:` 目标自动执行；单进程 lease，不做分布式调度 | 扩展文件与记忆上下文传递 |
 | RunRegistry / Trace | 部分实现 | workflow/xpert/chat/goal/agent_task/agent_handoff run、checkpoint、workflow/chat/Xpert/Goal 观测与 `/runtime` 运维总览 | 内存态，可观测索引，不是调度器；Goal 重启恢复会创建 recovery run | 为文件、记忆与知识执行提供护栏 |
-| Workflow Agent | 部分实现 | `workflow_agent` 节点、模型执行、Runtime Toolset、文件理解、结构化输出、类型化记忆召回/候选写回、失败重试、备用模型、异常策略、有界并行工具调用、全局执行预算、版本化会话功能和固定 Prompt/Plugin 资源 | 轻量 JSON 决策，不是 function calling；并行仅允许安全只读工具；音频依赖兼容网关 | 冻结后转入 EvoAgentX Meta Planner 审计 |
+| Workflow Agent | 稳定冻结 | `workflow_agent` 节点、模型执行、Runtime Toolset、文件理解、结构化输出、类型化记忆召回/候选写回、失败重试、备用模型、异常策略、有界并行工具调用、全局执行预算、版本化会话功能和固定 Prompt/Plugin 资源 | 轻量 JSON 决策，不是 function calling；并行仅允许安全只读工具；音频依赖兼容网关 | `EVOAGENTX-META-PLANNER-01` 只增强候选生成，不替换 Runtime |
 | Chat Toolset | 部分实现 | `/api/chat` 可选 MCP 工具模式，chat run 与 checkpoint | 默认关闭，不改变普通聊天；无自动 handoff | 补工具偏好、安全提示和观测 UI |
 | Toolset / MCP / API | 部分实现 | `/toolsets` 支持 MCP、OpenAPI 3.x、OData v4、Tavily 与 Todo；具备加密凭据、受控执行、工具 Schema/语义/测试、漂移诊断、不可变发布、Agent 绑定、有界并行、Tool Memory、Plugin 固定引用和受控 App 只读开放 | 远程 ref、multipart、OData batch、任意 Code Toolset、企业 Provider 治理和浏览器 OAuth 暂缓 | 冻结，不继续扩张 Provider 生态 |
-| Plugin / Skill | 部分实现 | `/plugins` 声明式 ZIP、不可变版本、Prompt/Skill/Toolset/中间件聚合、Plugin 资源绑定；另有 `/skills`、Workspace 草稿、Sandbox staging 与显式 Hook | 不加载动态后端代码；无远程市场、组织权限、计费；公共 App 禁止 Plugin | `XPERT-ALIGNMENT-FREEZE-04` |
+| Plugin / Skill | 稳定冻结 | `/plugins` 声明式 ZIP、不可变版本、Prompt/Skill/Toolset/中间件聚合、Plugin 资源绑定；另有 `/skills`、Workspace 草稿、Sandbox staging 与显式 Hook | 不加载动态后端代码；无远程市场、组织权限、计费；公共 App 禁止 Plugin | 仅安全、缺陷与兼容维护 |
 | Knowledge Pipeline | 已实现 | FileAsset/Artifact/Chunk/CitationAnchor、结构感知 Processor、General/QA/Summary、可执行 Graph、逐文档/逐视觉页恢复、图片与扫描 PDF 的 OCR/VLM、版本化 ingestion job、递归与父子分块、向量/FTS5 双索引、混合检索、Rerank、离线评估、Promotion Gate、Knowledge Toolset、审批写入、预览、激活/回滚 | 成熟 RAG 基础闭环完成；仍为本地单进程 worker，旧上传保留 legacy index；评估标签需人工维护；图片向量、版面坐标与 GraphRAG 暂缓 | 真实使用反馈与技术债审计 |
 | Prompt / Slash Command | 已实现 | `/prompts` 草稿、校验、预览、不可变版本、全局命令别名、Xpert 固定绑定、`/alias` 执行和 `//` 转义 | 模板仅允许 `{{args}}`；命令始终执行当前 Xpert；App 只开放直接绑定的安全 Profile | 冻结，按真实反馈收敛模板契约 |
 | Environment / Sandbox | 部分实现 | `/runtime` 已提供脱敏环境与依赖摘要，展示模型网关、OpenRouter、git/node/npm/npx/python 是否就绪 | 不展示密钥值，不编辑环境变量，不提供沙箱实例或文件工作区语义 | 评估 Xpert 式环境变量管理和沙箱资源模型 |
@@ -343,6 +371,9 @@ EvoAgentX 曾只作为 `goal -> sub_tasks -> inferred edges` 的历史参考。X
 - 运维与市场：MCP Runtime 运维、插件市场、技能市场、提示词工作流、环境变量面板。
 
 ## 分阶段路线
+
+以下五阶段是 Xpert 对齐形成当前能力面的历史建设路线，不再是未来功能排期。
+当前路线以本页顶部冻结声明和 EvoAgentX 文档为准。
 
 ### 阶段 1：资源与导航归拢
 
