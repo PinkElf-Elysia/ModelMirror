@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
 import PageContainer from "../components/PageContainer";
 
 interface PromptVersion {
@@ -44,6 +46,7 @@ function splitValues(value: string) {
 }
 
 export default function PromptProfilesPage() {
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState<PromptProfile[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState<PromptProfile | null>(null);
@@ -55,7 +58,8 @@ export default function PromptProfilesPage() {
   async function load(selectId?: string) {
     const payload = await request<{ items: PromptProfile[] }>("/api/prompt-profiles?limit=200");
     setItems(payload.items);
-    const nextId = selectId || selectedId || payload.items[0]?.id || "";
+    const requestedId = searchParams.get("profile_id") ?? "";
+    const nextId = selectId || selectedId || requestedId || payload.items[0]?.id || "";
     setSelectedId(nextId);
     setDraft(payload.items.find((item) => item.id === nextId) ?? null);
   }
@@ -216,6 +220,7 @@ export default function PromptProfilesPage() {
               ) : <p className="text-xs text-slate-500">发布后会在这里保留固定模板与命令别名。</p>}
             </div>
             <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
+              <Link className="rounded-md border border-violet-300/25 bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100" to={`/agents/evolution?prompt_profile_id=${draft.id}`}>优化模板</Link>
               <button className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white" disabled={Boolean(busy)} onClick={() => void saveProfile()} type="button">保存草稿</button>
               <button className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white" disabled={Boolean(busy)} onClick={() => void action("validate")} type="button">校验</button>
               <button className="rounded-md bg-emerald-300 px-3 py-2 text-xs font-semibold text-slate-950" disabled={Boolean(busy)} onClick={() => void action("publish")} type="button">发布版本</button>
@@ -225,6 +230,16 @@ export default function PromptProfilesPage() {
           </section>
         ) : null}
       </div>
+      {draft ? (
+        <div className="mt-5">
+          <AuthoringProposalPanel
+            kindPrefix="prompt_profile"
+            onApplied={() => void load(draft.id)}
+            targetId={draft.id}
+            title="Prompt 进化提案"
+          />
+        </div>
+      ) : null}
     </PageContainer>
   );
 }

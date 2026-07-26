@@ -155,3 +155,29 @@ Meta Planner V2 的 pending Proposal 可以从候选面板直接进入
 Evaluator 只读运行候选并生成报告，不调用 Proposal approve，也不会创建 Xpert 草稿
 或发布版本。安全、预算和报告契约见
 [EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md)。
+
+## Prompt 受控进化
+
+`EVOAGENTX-EVOLUTION-03A` 在 Evaluator 之上增加了有界 Prompt 搜索，但不扩展
+Meta Planner 的发布权限。入口为：
+
+- `GET /api/xpert-evolutions/capabilities`
+- `POST /api/xpert-evolutions/preflight`
+- `GET/POST /api/xpert-evolutions/runs`
+- `GET /api/xpert-evolutions/runs/{run_id}`
+- `POST /api/xpert-evolutions/runs/{run_id}/cancel`
+
+Xpert 模式一次只固定一个草稿 revision，并最多联合优化三个
+`workflow_agent.rolePrompt` 或 `promptSuffix` 字段。Prompt Profile 模式固定 Profile
+草稿 revision 和一个已发布 XpertVersion 作为评测宿主，只优化单一 `{{args}}`
+模板。节点、边、模型、资源绑定和中间件均不允许变化。
+
+DatasetVersion 按 seed 进行 80/20 优化集与验证集拆分。候选生成器只能看到优化集的
+安全失败摘要；最终排名只使用独立验证集。少于五条用例时允许共享样例，但运行、
+报告和 Proposal 都会标记高过拟合风险。
+
+只有验证集总分提升、单指标没有越过退化上限且没有新增超时、预算或安全错误时，
+系统才创建 pending `xpert_update` 或 `prompt_profile_update` Proposal。运行期间目标
+revision 变化会使结果变为 stale，并阻止 Proposal 创建。批准 Proposal 只更新草稿，
+发布仍需用户在 Studio 或 Prompt 页面显式完成。完整契约见
+[EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。

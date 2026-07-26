@@ -174,3 +174,18 @@ npm.cmd run build
 
 变更安全预检或 runner capture 时，还必须覆盖 Toolset、Knowledge、Data X、
 Authoring、App 和 RunRegistry 回归。
+
+## 11. Evolution 内部复用
+
+Prompt Evolution 通过 Evaluator 的内部固定快照入口复用相同的只读安全预检、
+执行预算、指标和报告计算。它不会创建临时 Authoring Proposal，也不会扩展公开
+Evaluation Target 类型。
+
+- 每代训练评测只接收固定 DatasetVersion 的优化集。
+- 最终基线与 finalist 比较只接收验证集。
+- 每个临时快照固定 workflow、资源、模型策略和 checksum。
+- Evolution 取消时同时取消当前子评测；重启后跳过已经完成的子评测工作项。
+- Evaluator 仍不审批 Proposal、不写草稿、不发布版本。
+
+Prompt 搜索、非退化门禁和 Proposal 契约见
+[EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。

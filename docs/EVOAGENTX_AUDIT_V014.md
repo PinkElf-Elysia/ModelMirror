@@ -227,3 +227,18 @@ Evaluator 或 Optimizer 若需要逐文件复用，必须另行补充 SHA-256、
 只读安全预检、classic runner capture、资源固定、预算、RunRegistry、API 和前端。
 EvoAgentX 中与 WorkFlow、AgentManager、任意代码 Benchmark 或第三方数据集耦合的实现
 未引入。详细契约见 [EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md)。
+
+## 13. 第三次适配记录：Prompt Evolution
+
+本轮参考 `evoagentx/optimizers/evoprompt_optimizer.py` 中 population、mutation、
+selection 与 early-stop 的分层概念，判定为 `adapt`。
+
+- 未复制 EvoPrompt Runtime、日志、Benchmark、模型 Provider 或候选对象。
+- ModelMirror 使用自有 `XpertEvolutionStore` 持久化代际状态。
+- 候选执行继续由 `server/evaluations/` 的只读安全快照和固定预算完成。
+- 训练与验证数据按固定 seed 隔离，optimizer 不读取验证集。
+- 最优候选只有通过非退化门禁后才进入 `AuthoringProposalStore`。
+- 新增 `prompt_profile_update` 仍受草稿 revision 和显式发布边界约束。
+
+对应测试为 `server/tests/test_xpert_evolutions.py`，归因记录位于
+`server/meta_agent/NOTICE.md`。逐文件源码复用数量仍为零。

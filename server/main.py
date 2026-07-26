@@ -51,13 +51,30 @@ try:
     from server.evaluations import (
         configure_xpert_evaluations,
         get_xpert_evaluation_executor,
+        get_xpert_evaluation_service,
+        get_xpert_evaluation_store,
         router as xpert_evaluations_router,
     )
 except ModuleNotFoundError:
     from evaluations import (
         configure_xpert_evaluations,
         get_xpert_evaluation_executor,
+        get_xpert_evaluation_service,
+        get_xpert_evaluation_store,
         router as xpert_evaluations_router,
+    )
+
+try:
+    from server.evolutions import (
+        configure_xpert_evolutions,
+        get_xpert_evolution_executor,
+        router as xpert_evolutions_router,
+    )
+except ModuleNotFoundError:
+    from evolutions import (
+        configure_xpert_evolutions,
+        get_xpert_evolution_executor,
+        router as xpert_evolutions_router,
     )
 
 try:
@@ -660,6 +677,7 @@ app.include_router(toolsets_router)
 app.include_router(prompt_profiles_router)
 app.include_router(plugins_router)
 app.include_router(xpert_evaluations_router)
+app.include_router(xpert_evolutions_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -772,6 +790,7 @@ authoring_service = AuthoringService(
     authoring_proposal_store,
     get_xpert_store(),
     get_skill_draft_store(),
+    get_prompt_profile_store(),
     xpert_preflight=preview_xpert_for_publish,
 )
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
@@ -12072,6 +12091,9 @@ async def run_xpert_evaluation_target(
     ]
     history_json = json.dumps(history, ensure_ascii=False)
     message = str(case.get("message") or "")[:20_000]
+    input_template = str(target.get("input_template") or "")
+    if input_template:
+        message = re.sub(r"{{\s*args\s*}}", message, input_template)[:20_000]
     inputs = {
         str(target.get("input_variable") or "user_input"): message,
         str(target.get("history_variable") or "conversation_history"): history_json,
@@ -12238,6 +12260,37 @@ configure_xpert_evaluations(
 )
 
 
+async def run_xpert_evolution_optimizer(
+    model_id: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    return await collect_chat_completion_text(
+        model_id,
+        [
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=user_prompt),
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+configure_xpert_evolutions(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None,
+    evaluation_store=get_xpert_evaluation_store(),
+    evaluation_service=get_xpert_evaluation_service(),
+    evaluation_executor=get_xpert_evaluation_executor(),
+    xpert_store=get_xpert_store(),
+    prompt_store=get_prompt_profile_store(),
+    proposal_store=authoring_proposal_store,
+    optimizer_runner=run_xpert_evolution_optimizer,
+    run_registry=run_registry,
+)
+
+
 @app.on_event("startup")
 async def start_mcp_ttl_cleanup() -> None:
     await asyncio.to_thread(datax_service.recover_import_jobs)
@@ -12251,6 +12304,7 @@ async def start_mcp_ttl_cleanup() -> None:
     get_pipeline_executor().start()
     get_evaluation_executor().start()
     get_xpert_evaluation_executor().start()
+    get_xpert_evolution_executor().start()
     get_handoff_executor().start()
     get_goal_coordinator().start()
     get_approval_coordinator().start()
@@ -12262,6 +12316,7 @@ async def start_mcp_ttl_cleanup() -> None:
 async def shutdown_mcp_sessions() -> None:
     await get_pipeline_executor().stop()
     await get_evaluation_executor().stop()
+    await get_xpert_evolution_executor().stop()
     await get_xpert_evaluation_executor().stop()
     if goal_coordinator is not None:
         await goal_coordinator.stop()

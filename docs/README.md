@@ -21,6 +21,7 @@
 | [XPERT_APP_API.md](./XPERT_APP_API.md) | Xpert App 部署、分享、兼容 API、凭据、配额和回滚。 |
 | [XPERT_FREEZE.md](./XPERT_FREEZE.md) | Xpert 冻结快照、维护边界、延期项、技术债和回归入口。 |
 | [EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md) | EvoAgentX 主线、Meta Planner、Evaluator 与候选进化路线。 |
+| [EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md) | Prompt 候选搜索、Holdout、非退化门禁与审批边界。 |
 | [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md) | 官方 EvoAgentX v0.1.4 的逐模块来源、许可证和复用判定。 |
 | [EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md) | 版本化 Xpert 评测集、只读执行、固定预算与基线报告契约。 |
 | [META_AGENT.md](./META_AGENT.md) | 当前 MetaAgent 边界与 Meta Planner V2 固定契约。 |

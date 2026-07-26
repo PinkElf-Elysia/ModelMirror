@@ -25,6 +25,16 @@ audited in:
 - `evoagentx/benchmark/benchmark.py`
 - `evoagentx/benchmark/metrics.py`
 
+Prompt Evolution independently adapts the bounded mutation, selection, and
+early-stop concepts audited in:
+
+- `evoagentx/optimizers/evoprompt_optimizer.py`
+
+It does not copy EvoPrompt's runtime, logging, benchmark integration, or model
+provider implementation. ModelMirror candidates execute through the existing
+read-only Xpert Evaluator and can only create revision-bound authoring
+proposals after an isolated validation gate.
+
 The adapted concepts are task decomposition, capability-aware workflow
 generation, and separate agent configuration generation. ModelMirror's
 implementation uses its own Pydantic contracts, Workflow Node Registry,
@@ -43,5 +53,6 @@ Canonical audit and roadmap:
 
 - `docs/EVOAGENTX_AUDIT_V014.md`
 - `docs/EVOAGENTX_ALIGNMENT.md`
+- `docs/EVOAGENTX_EVOLUTION.md`
 - `docs/META_AGENT.md`
 - `docs/XPERT_FREEZE.md`

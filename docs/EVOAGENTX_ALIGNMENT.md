@@ -152,7 +152,22 @@ Meta Planner V2 必须：
 Evaluator 不批准 Proposal、不写 Xpert 草稿、不发布版本。完整契约见
 [EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md)。
 
-### 下一步：`EVOAGENTX-EVOLUTION-03A`
+### `EVOAGENTX-EVOLUTION-03A`：已实现
 
-下一轮只生成 Prompt 候选，在同一 DatasetVersion、目标快照和固定预算下比较。
-排名结果必须写成带差异与评估报告的 Authoring Proposal，并继续禁止自动批准或发布。
+`EVOAGENTX-EVOLUTION-03A` 已形成受控闭环：
+
+- 固定 Xpert 或 Prompt Profile 草稿 revision、DatasetVersion、模型策略、seed 和预算。
+- Xpert 模式仅修改最多三个 `workflow_agent.rolePrompt/promptSuffix` 字段。
+- Profile 模式只修改 `template`，并使用固定 XpertVersion 作为评测宿主。
+- 五条及以上用例采用互斥 80/20 Holdout；小数据集显式标记过拟合风险。
+- 每代候选由有界 JSON 生成和最多一次修复产生，并经过变量保持、敏感信息和样例复制检查。
+- 训练与验证均复用现有 Evaluator 内部固定快照入口，不扩展公开 Evaluation Target。
+- 验证集总分提升、单指标非退化和错误不增加后，才创建 pending Authoring Proposal。
+- Proposal 批准只更新草稿，发布继续由用户显式完成。
+
+完整契约见 [EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。
+
+### 下一步：`EVOAGENTX-EVOLUTION-03B`
+
+下一轮只开放类型化工作流结构 mutation。每个 mutation 必须先通过图、资源、
+循环和发布预检，再由同一 Evaluator 与固定基线比较；仍禁止自动批准和发布。

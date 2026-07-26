@@ -21,6 +21,7 @@ RuntimeRunType = Literal[
     "automation",
     "meta_planner",
     "xpert_evaluation",
+    "xpert_evolution",
 ]
 RuntimeRunStatus = Literal[
     "pending",

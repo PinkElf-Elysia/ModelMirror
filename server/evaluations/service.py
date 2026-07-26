@@ -268,6 +268,127 @@ class XpertEvaluationService:
             "warnings": list(dict.fromkeys(warnings)),
         }
 
+    def snapshot_xpert_draft(
+        self,
+        xpert: XpertDefinition,
+        *,
+        source: dict[str, Any],
+        label: str,
+        model_policy: str,
+        override_model_id: str | None,
+        target_id: str,
+        input_template: str | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Create an internal read-only snapshot without a temporary proposal."""
+        validation, workflow, prompt_profiles = self.prompt_preflight(xpert)
+        errors = [
+            issue.message
+            for issue in validation.issues
+            if getattr(issue, "severity", "error") == "error"
+        ]
+        if errors:
+            raise EvaluationStateError(
+                "Evolution candidate cannot be evaluated: " + "; ".join(errors[:10])
+            )
+        workflow = workflow.model_copy(deep=True)
+        if model_policy == "override":
+            clean_model = str(override_model_id or "").strip()
+            if not clean_model:
+                raise EvaluationStateError("Override model is required.")
+            for node in workflow.nodes:
+                data = node.data if isinstance(node.data, dict) else {}
+                node_kind = str(data.get("kind") or node.type or "")
+                if node_kind in {"llm", "workflow_agent"}:
+                    data["modelId"] = clean_model
+                    node.data = data
+        issues, warnings, resources = self._safe_preflight(
+            workflow,
+            recursion_path=(xpert.id,),
+        )
+        graph_validation = validate_workflow_graph(workflow)
+        issues.extend(
+            {
+                "code": issue.code,
+                "message": issue.message,
+                "node_id": issue.node_id,
+            }
+            for issue in graph_validation.issues
+            if issue.severity == "error"
+        )
+        if issues:
+            raise EvaluationStateError(
+                "Evaluation safety preflight failed: "
+                + "; ".join(str(item["message"]) for item in issues[:10])
+            )
+        snapshot = {
+            "target_id": str(target_id)[:240],
+            "label": str(label)[:160],
+            "source": copy.deepcopy(source),
+            "xpert": {
+                "id": xpert.id,
+                "slug": xpert.slug,
+                "name": xpert.name,
+                "description": xpert.description,
+            },
+            "workflow": workflow.model_dump(mode="json"),
+            "input_variable": xpert.draft.input_variable,
+            "history_variable": xpert.draft.history_variable,
+            "output_variable": xpert.draft.output_variable,
+            "agent_config": (
+                xpert.draft.agent_config.model_dump(mode="json")
+                if xpert.draft.agent_config is not None
+                else None
+            ),
+            "features": (
+                xpert.draft.features.model_dump(mode="json")
+                if xpert.draft.features is not None
+                else None
+            ),
+            "prompt_profiles": [
+                item.model_dump(mode="json") for item in prompt_profiles
+            ],
+            "input_template": str(input_template or "")[:20_000] or None,
+            "checksum": self._checksum(
+                {
+                    "workflow": workflow.model_dump(mode="json"),
+                    "source": source,
+                    "resources": resources,
+                    "model_policy": model_policy,
+                    "override_model_id": override_model_id,
+                    "input_template": input_template,
+                }
+            ),
+            "resources": resources,
+            "warnings": warnings,
+            "created_at": time.time(),
+        }
+        return snapshot, warnings
+
+    def create_run_from_snapshots(
+        self,
+        *,
+        dataset_version: dict[str, Any],
+        cases: list[dict[str, Any]],
+        baseline: dict[str, Any] | None,
+        candidates: list[dict[str, Any]],
+        config: dict[str, Any],
+        warnings: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Internal optimizer entry that keeps public Evaluation targets unchanged."""
+        if not candidates:
+            raise EvaluationStateError("At least one candidate snapshot is required.")
+        selected = [copy.deepcopy(item) for item in cases]
+        if not selected:
+            raise EvaluationStateError("No evaluation cases were selected.")
+        return self.store.create_run(
+            dataset_version=copy.deepcopy(dataset_version),
+            cases=selected,
+            baseline=copy.deepcopy(baseline),
+            candidates=copy.deepcopy(candidates),
+            config=copy.deepcopy(config),
+            warnings=list(dict.fromkeys(warnings or [])),
+        )
+
     def create_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         dataset = self.store.get_dataset_version(
             str(payload["dataset_id"]),

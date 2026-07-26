@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 
 interface ProposalSummary {
   proposal_id: string;
-  kind: "xpert_create" | "xpert_update" | "skill_create" | "skill_update";
+  kind:
+    | "xpert_create"
+    | "xpert_update"
+    | "prompt_profile_update"
+    | "skill_create"
+    | "skill_update";
   title: string;
   status: "pending" | "approved" | "rejected" | "cancelled" | "conflict";
   revision: number;
@@ -35,7 +40,7 @@ export default function AuthoringProposalPanel({
   targetId,
   title = "自编写提案",
 }: {
-  kindPrefix?: "xpert" | "skill";
+  kindPrefix?: "xpert" | "prompt_profile" | "skill";
   onApplied?: () => void;
   targetId?: string;
   title?: string;
@@ -153,7 +158,7 @@ export default function AuthoringProposalPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">{title}</h2>
           <p className="mt-1 text-xs text-slate-400">
-            Agent 只能提交版本化提案；批准后仍不会自动发布 Xpert 或安装 Skill。
+            Agent 只能提交版本化提案；批准后仍不会自动发布 Xpert、Prompt 或安装 Skill。
           </p>
         </div>
         <div className="flex items-center gap-2">

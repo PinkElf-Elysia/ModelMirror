@@ -13,6 +13,7 @@ from typing import Any, Literal
 ProposalKind = Literal[
     "xpert_create",
     "xpert_update",
+    "prompt_profile_update",
     "skill_create",
     "skill_update",
 ]
@@ -98,6 +99,7 @@ class AuthoringProposalStore:
         if kind not in {
             "xpert_create",
             "xpert_update",
+            "prompt_profile_update",
             "skill_create",
             "skill_update",
         }:

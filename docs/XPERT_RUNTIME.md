@@ -282,6 +282,26 @@ checkpoints store only truncated outputs, safe citations, counts, timing and err
 Evaluator never approves a Proposal, writes an Xpert draft or publishes a version. See
 `docs/EVOAGENTX_EVALUATOR.md`.
 
+## Prompt Evolution Runtime
+
+`XpertEvolutionExecutor` is a persistent, bounded optimizer layered on the internal
+Evaluator snapshot entry. A run fixes one Xpert or Prompt Profile draft revision, one
+DatasetVersion, a deterministic train/validation split, model policy and execution budget.
+It never changes the workflow graph, model selection, resource bindings or middleware.
+
+Each generation creates deduplicated Prompt candidates, evaluates them with the same
+read-only safety preflight and budget, and records only hashes, scores, lengths and safe
+errors in checkpoints. Candidate generation receives training-case failure summaries only.
+Finalists are compared with the original Prompt on the validation split; the validation
+cases are never included in optimizer context.
+
+The non-degradation gate requires a minimum total-score improvement, limits every weighted
+metric regression and rejects new failures, timeouts, budget exhaustion or safety errors.
+Passing creates one pending Authoring Proposal. Failing produces a `no_improvement` report.
+A changed target revision marks the run stale and prevents Proposal creation. Proposal
+approval updates a draft only and cannot publish either an Xpert or Prompt Profile. See
+`docs/EVOAGENTX_EVOLUTION.md`.
+
 ## Data X Runtime
 
 `DataXStore` atomically persists project, source snapshot, import job, semantic model, indicator, immutable version, proposal, and result-artifact metadata. Each project owns a separate DuckDB file. Imported source bytes are fixed by SHA-256 and never exposed through API paths.

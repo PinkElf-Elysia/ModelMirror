@@ -6,11 +6,13 @@ from collections.abc import Callable
 from typing import Any
 
 try:
+    from server.prompts.store import PromptProfileStore
     from server.skills.draft_store import WorkspaceSkillDraftStore
     from server.xperts.models import XpertDefinition, XpertDraft
     from server.xperts.store import XpertStore, default_xpert_workflow
     from server.xperts.validation import validate_xpert_definition
 except ModuleNotFoundError:
+    from prompts.store import PromptProfileStore
     from skills.draft_store import WorkspaceSkillDraftStore
     from xperts.models import XpertDefinition, XpertDraft
     from xperts.store import XpertStore, default_xpert_workflow
@@ -28,18 +30,30 @@ class AuthoringService:
     """Validates and applies approved proposals to draft-only resource layers."""
 
     XPERT_PATCH_FIELDS = {"name", "description", "tags", "starters", "draft"}
+    PROMPT_PROFILE_PATCH_FIELDS = {
+        "name",
+        "slug",
+        "description",
+        "aliases",
+        "template",
+        "argument_hint",
+        "tags",
+        "public_app_allowed",
+    }
 
     def __init__(
         self,
         proposal_store: AuthoringProposalStore,
         xpert_store: XpertStore,
         skill_draft_store: WorkspaceSkillDraftStore,
+        prompt_profile_store: PromptProfileStore | None = None,
         *,
         xpert_preflight: Callable[[XpertDefinition], Any] | None = None,
     ) -> None:
         self.proposal_store = proposal_store
         self.xpert_store = xpert_store
         self.skill_draft_store = skill_draft_store
+        self.prompt_profile_store = prompt_profile_store
         self.xpert_preflight = xpert_preflight
         self._apply_lock = threading.RLock()
 
@@ -180,6 +194,41 @@ class AuthoringService:
             result = self._validate_xpert_candidate(candidate)
             return {"resource_kind": "xpert", "node_count": result.node_count}
 
+        if proposal.kind == "prompt_profile_update":
+            if self.prompt_profile_store is None:
+                raise AuthoringProposalValidationError(
+                    "Prompt Profile authoring is not configured."
+                )
+            target_id = proposal.target_id or str(payload.get("profile_id") or "")
+            if not target_id:
+                raise AuthoringProposalValidationError(
+                    "Target Prompt Profile is required."
+                )
+            current = self.prompt_profile_store.get_profile(target_id)
+            if proposal.base_revision != current.draft_revision:
+                raise AuthoringProposalConflictError(
+                    "Target Prompt Profile changed after this proposal was created."
+                )
+            patch = dict(payload.get("patch") or {})
+            unknown = sorted(set(patch) - self.PROMPT_PROFILE_PATCH_FIELDS)
+            if unknown:
+                raise AuthoringProposalValidationError(
+                    "Unsupported Prompt Profile patch fields: " + ", ".join(unknown)
+                )
+            if not patch:
+                raise AuthoringProposalValidationError(
+                    "Prompt Profile patch cannot be empty."
+                )
+            if "template" in patch:
+                PromptProfileStore._validate_template(patch["template"])
+            if "aliases" in patch:
+                PromptProfileStore._clean_aliases(patch["aliases"])
+            return {
+                "resource_kind": "prompt_profile",
+                "profile_id": current.id,
+                "base_revision": current.draft_revision,
+            }
+
         skill = dict(payload.get("skill") or payload)
         target_draft = None
         if proposal.kind == "skill_update":
@@ -249,6 +298,19 @@ class AuthoringService:
             target_id = proposal.target_id or str(payload.get("xpert_id") or "")
             item = self.xpert_store.update_xpert(
                 target_id, dict(payload.get("patch") or {})
+            )
+            return item.id
+
+        if proposal.kind == "prompt_profile_update":
+            if self.prompt_profile_store is None:
+                raise AuthoringProposalValidationError(
+                    "Prompt Profile authoring is not configured."
+                )
+            target_id = proposal.target_id or str(payload.get("profile_id") or "")
+            item = self.prompt_profile_store.update_profile(
+                target_id,
+                revision=int(proposal.base_revision or 0),
+                patch=dict(payload.get("patch") or {}),
             )
             return item.id
 
