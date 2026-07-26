@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 try:
@@ -33,10 +34,13 @@ class AuthoringService:
         proposal_store: AuthoringProposalStore,
         xpert_store: XpertStore,
         skill_draft_store: WorkspaceSkillDraftStore,
+        *,
+        xpert_preflight: Callable[[XpertDefinition], Any] | None = None,
     ) -> None:
         self.proposal_store = proposal_store
         self.xpert_store = xpert_store
         self.skill_draft_store = skill_draft_store
+        self.xpert_preflight = xpert_preflight
         self._apply_lock = threading.RLock()
 
     def validate(self, proposal_id: str, *, revision: int) -> AuthoringProposal:
@@ -112,6 +116,17 @@ class AuthoringService:
 
     def _validate_payload(self, proposal: AuthoringProposal) -> dict[str, Any]:
         payload = proposal.payload
+        if proposal.source_type == "meta_planner":
+            report = payload.get("meta_planner_report")
+            if isinstance(report, dict) and not report.get("human_modified"):
+                planner_validation = report.get("validation")
+                if (
+                    isinstance(planner_validation, dict)
+                    and not planner_validation.get("valid", False)
+                ):
+                    raise AuthoringProposalValidationError(
+                        "Meta Planner candidate requires human edits before approval."
+                    )
         if proposal.kind == "xpert_create":
             name = str(payload.get("name") or "").strip()
             if not name:
@@ -133,11 +148,7 @@ class AuthoringService:
                 created_at=time.time(),
                 updated_at=time.time(),
             )
-            result = validate_xpert_definition(candidate)
-            if not result.valid:
-                raise AuthoringProposalValidationError(
-                    "; ".join(issue.message for issue in result.issues[:10])
-                )
+            result = self._validate_xpert_candidate(candidate)
             return {"resource_kind": "xpert", "node_count": result.node_count}
 
         if proposal.kind == "xpert_update":
@@ -166,11 +177,7 @@ class AuthoringService:
                 candidate.starters = list(patch["starters"] or [])
             if "draft" in patch:
                 candidate.draft = XpertDraft.model_validate(patch["draft"])
-            result = validate_xpert_definition(candidate)
-            if not result.valid:
-                raise AuthoringProposalValidationError(
-                    "; ".join(issue.message for issue in result.issues[:10])
-                )
+            result = self._validate_xpert_candidate(candidate)
             return {"resource_kind": "xpert", "node_count": result.node_count}
 
         skill = dict(payload.get("skill") or payload)
@@ -210,6 +217,17 @@ class AuthoringService:
                 normalized["skill_markdown"], normalized["files"]
             ),
         }
+
+    def _validate_xpert_candidate(self, candidate: XpertDefinition) -> Any:
+        if self.xpert_preflight is None:
+            result = validate_xpert_definition(candidate)
+        else:
+            result, _, _ = self.xpert_preflight(candidate)
+        if not result.valid:
+            raise AuthoringProposalValidationError(
+                "; ".join(issue.message for issue in result.issues[:10])
+            )
+        return result
 
     def _apply(self, proposal: AuthoringProposal) -> str:
         payload = proposal.payload

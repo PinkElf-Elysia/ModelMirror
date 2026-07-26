@@ -5,7 +5,9 @@
 
 ## 定位
 
-元智能体工作台用于把自然语言目标拆解为可编辑的经典工作流/Xpert 草稿。当前模块能生成基础节点和 inferred edges，也能进入 AgentTask、Handoff、RunRegistry 与 Xpert 草稿链路；但它尚不能可靠生成后续新增的资源绑定、中间件、知识能力和完整发布契约。
+元智能体工作台用于把自然语言目标拆解为可编辑的经典工作流/Xpert 草稿。Meta Planner V2
+已经可以从实时 Registry 编译 `workflow_agent`、资源绑定、中间件和发布预检所需配置；
+旧生成器仍保留用于兼容经典工作流导入与既有 AgentTask/Handoff 操作。
 
 早期实现参考 EvoAgentX 的 `goal -> sub_tasks -> inferred edges` 规划形态，归因保留在 `server/meta_agent/NOTICE.md`。Xpert 已在 `main@93e5cc38becc7fe4f89efa113310698e6eda1971` 冻结，EvoAgentX 官方 `v0.1.4@aad19b912f640161ea07e8904d9237cd34fde5f1` 的源码审计也已完成。Meta Planner V2 是冻结后的第一项功能增量：生成当前完整节点、资源绑定与中间件，而不是继续输出过时的 `agent` 长链。
 
@@ -25,7 +27,9 @@
 - 生成接口依赖模型网关；测试必须 mock `collect_chat_completion_text`，不能请求真实模型。
 - 前端负责提交目标、展示任务拆解、创建 AgentTask 记录、展示任务工作台和导入经典画布。
 - HandoffExecutor 与 GoalCoordinator 已能执行固定版本 Xpert；元智能体生成器本身仍只负责规划和草稿，不直接发布、不静默调度，也不具备自进化评估闭环。
-- 当前 generator 对 `external_xpert`、`knowledge_base`、Agent 级 middleware、Toolset 资源和知识画布配置的生成能力滞后，进入 EvoAgentX 审计后的首批修复范围。
+- V2 已覆盖 `external_xpert`、`knowledge_base`、Agent 级 middleware、Toolset、
+  Plugin 与 Prompt Profile；任意新增节点或资源必须先进入后端 Registry，不能只修改
+  Planner prompt。
 - Docker 镜像必须复制 `server/meta_agent/`，否则 `server/main.py` 导入会失败。
 
 ## Meta Planner V2 契约
@@ -96,9 +100,48 @@ curl http://localhost:5173/agents/meta-agent
 
 1. `EVOAGENTX-ALIGNMENT-AUDIT-01`：已完成，见
    [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md)。
-2. `EVOAGENTX-META-PLANNER-01`：按上述固定契约生成当前完整
+2. `EVOAGENTX-META-PLANNER-01`：已完成，按上述固定契约生成当前
    WorkflowNodeKind、资源绑定边、Agent middleware 与发布配置。
 3. `EVOAGENTX-EVALUATOR-02`：增加任务数据集、可插拔指标、候选执行和基线对比。
 4. `EVOAGENTX-EVOLUTION-03`：先做 Prompt 优化，再做工作流结构优化；输出候选草稿与评估报告，必须人工批准后才能发布。
 
 完整路线见 [EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md)。
+
+## Meta Planner V2 已实现契约
+
+`EVOAGENTX-META-PLANNER-01` 已将元智能体从单次工作流生成器升级为候选 Xpert
+规划闭环，同时保留原 `POST /api/meta-agent/generate-workflow` 兼容入口。
+
+新增入口：
+
+- `GET /api/meta-agent/capabilities`
+- `POST /api/meta-agent/generate-xpert-candidate`
+
+执行顺序固定为：
+
+1. 任务规划：生成 1–8 个带依赖和输入输出契约的任务。
+2. 能力编译：从实时 Capability Snapshot 中选择真实节点、资源和中间件。
+3. 定向修复：本地确定性门禁失败时，最多调用模型修复一次。
+
+同次请求模型调用总数最多为 3。系统只保存计划摘要、公开假设、选择理由、快照
+hash、验证结果和安全统计，不保存隐藏推理。
+
+候选统一写入现有 `AuthoringProposalStore`：
+
+- 创建模式生成 `xpert_create`。
+- 更新模式生成 `xpert_update` 并固定目标 `base_revision`。
+- 人工编辑使用 Proposal revision 乐观并发控制。
+- 批准只创建或更新 Xpert 草稿，不创建发布版本，也不触发运行。
+- 发布仍由用户在 Xpert Studio 中显式完成。
+
+前端 `/agents/meta-agent` 复用受控 `WorkflowEditor` 编辑候选，刷新或容器重启后
+可恢复 pending Proposal。高风险中间件默认不进入模型授权范围，只有用户显式勾选后
+才会进入 Capability Snapshot scope。
+
+Meta Planner V2 的最小回归命令：
+
+```bash
+python -m pytest server/tests/test_meta_planner_v2.py server/tests/test_meta_agent.py -q
+cd client
+npm.cmd run build
+```

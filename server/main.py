@@ -97,6 +97,7 @@ try:
         configure_xpert_app_runtime,
         get_xpert_context_store,
         get_xpert_store,
+        preview_xpert_for_publish,
         router as xperts_router,
         xpert_apps_router,
     )
@@ -122,6 +123,7 @@ except ModuleNotFoundError:
         configure_xpert_app_runtime,
         get_xpert_context_store,
         get_xpert_store,
+        preview_xpert_for_publish,
         router as xperts_router,
         xpert_apps_router,
     )
@@ -135,6 +137,10 @@ try:
     from server.meta_agent import (
         MetaAgentGenerateRequest,
         MetaAgentGenerateResponse,
+        MetaPlannerGenerateRequest,
+        MetaPlannerGenerateResponse,
+        MetaPlannerV2Service,
+        build_capability_snapshot,
         build_meta_agent_prompt,
         build_workflow_from_plan,
         extract_json_object_text,
@@ -147,6 +153,10 @@ except ModuleNotFoundError:
     from meta_agent import (
         MetaAgentGenerateRequest,
         MetaAgentGenerateResponse,
+        MetaPlannerGenerateRequest,
+        MetaPlannerGenerateResponse,
+        MetaPlannerV2Service,
+        build_capability_snapshot,
         build_meta_agent_prompt,
         build_workflow_from_plan,
         extract_json_object_text,
@@ -748,6 +758,7 @@ authoring_service = AuthoringService(
     authoring_proposal_store,
     get_xpert_store(),
     get_skill_draft_store(),
+    xpert_preflight=preview_xpert_for_publish,
 )
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
     authoring_service, "xpert"
@@ -2671,6 +2682,166 @@ async def stream_workflow_llm_messages(
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def build_meta_planner_capability_snapshot():
+    xpert_store = get_xpert_store()
+    published_summaries = xpert_store.list_xperts(status="published", limit=200)
+    published_xperts = [
+        xpert_store.get_xpert(item.id) for item in published_summaries
+    ]
+    observed_model_ids = {"deepseek/deepseek-chat"}
+    for xpert in published_xperts:
+        for node in xpert.draft.workflow.nodes:
+            model_id = str((node.data or {}).get("modelId") or "").strip()
+            if model_id:
+                observed_model_ids.add(model_id)
+        for version in xpert.versions:
+            for node in version.workflow.nodes:
+                model_id = str((node.data or {}).get("modelId") or "").strip()
+                if model_id:
+                    observed_model_ids.add(model_id)
+
+    rag_service = get_rag_service()
+    knowledge_bases = []
+    for knowledge_base in rag_service.list_knowledge_bases():
+        item = dict(knowledge_base)
+        try:
+            active = rag_service.get_active_pipeline_version(item["id"])
+        except Exception:
+            active = None
+        item["active_version_id"] = active.get("version_id") if active else None
+        knowledge_bases.append(item)
+
+    return build_capability_snapshot(
+        workflow_registry=workflow_node_registry,
+        middleware_registry=runtime_middleware_registry,
+        external_xperts=published_xperts,
+        knowledge_bases=knowledge_bases,
+        toolsets=toolset_store.list_toolsets(status="published", limit=500),
+        plugins=get_plugin_store().list_plugins(status="published", limit=500),
+        prompt_profiles=get_prompt_profile_store().list_profiles(
+            status="published", limit=500
+        ),
+        model_ids=observed_model_ids,
+    )
+
+
+@app.get("/api/meta-agent/capabilities")
+async def get_meta_planner_capabilities():
+    return build_meta_planner_capability_snapshot().model_dump(mode="json")
+
+
+@app.post(
+    "/api/meta-agent/generate-xpert-candidate",
+    response_model=MetaPlannerGenerateResponse,
+)
+async def generate_meta_planner_xpert_candidate(
+    payload: MetaPlannerGenerateRequest,
+    request: Request,
+):
+    if not get_llm_gateway_config()[0]:
+        return JSONResponse(
+            status_code=500,
+            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
+        )
+    try:
+        rate_limit_or_raise(client_ip(request))
+        validate_plain_message(payload.goal)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
+
+    target = None
+    if payload.mode == "update":
+        if not payload.target_xpert_id:
+            return JSONResponse(
+                status_code=422,
+                content={"error": "Update mode requires target_xpert_id."},
+            )
+        try:
+            target = get_xpert_store().get_xpert(payload.target_xpert_id)
+        except XpertNotFoundError as exc:
+            return JSONResponse(status_code=404, content={"error": str(exc)})
+    elif payload.target_xpert_id:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "Create mode cannot set target_xpert_id."},
+        )
+
+    run = await run_registry.create_run(
+        "meta_planner",
+        f"Meta Planner: {payload.goal[:80]}",
+        status="running",
+        source_id=payload.target_xpert_id,
+        metadata={
+            "mode": payload.mode,
+            "planner_model_id": payload.planner_model_id,
+            "default_agent_model_id": payload.default_agent_model_id,
+            "max_agents": payload.max_agents,
+        },
+    )
+    await run_registry.record_checkpoint(
+        run.run_id,
+        event_type="meta_planner.started",
+        title="Meta Planner started",
+        metadata={"mode": payload.mode},
+    )
+
+    async def complete(
+        model_id: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> str:
+        return await collect_chat_completion_text(
+            model_id,
+            [
+                ChatMessage(role="system", content=system_prompt),
+                ChatMessage(role="user", content=user_prompt),
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    try:
+        snapshot = build_meta_planner_capability_snapshot()
+        service = MetaPlannerV2Service(
+            authoring_service=authoring_service,
+            preflight=preview_xpert_for_publish,
+            completion=complete,
+        )
+        response = await service.generate(
+            payload,
+            snapshot,
+            target=target,
+            source_run_id=run.run_id,
+        )
+        await run_registry.record_checkpoint(
+            run.run_id,
+            event_type="meta_planner.completed",
+            title="Meta Planner candidate created",
+            summary=f"Proposal {response.proposal_id}",
+            metadata={
+                "proposal_id": response.proposal_id,
+                "repair_used": response.repair_used,
+                "valid": bool(response.validation.get("valid")),
+                "snapshot_hash": response.capability_snapshot_hash,
+            },
+        )
+        await run_registry.update_run(
+            run.run_id,
+            status="completed",
+            metadata={"proposal_id": response.proposal_id},
+        )
+        return response
+    except ValueError as exc:
+        await run_registry.update_run(run.run_id, status="failed", error=str(exc)[:500])
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+    except Exception as exc:
+        logger.exception("Meta Planner V2 candidate generation failed")
+        await run_registry.update_run(run.run_id, status="failed", error=str(exc)[:500])
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @app.post("/api/meta-agent/generate-workflow", response_model=MetaAgentGenerateResponse)

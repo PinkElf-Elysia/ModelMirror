@@ -32,7 +32,8 @@ EvoAgentX 的唯一复用基线是：
 
 与此同时，classic workflow 已支持可发布 Xpert、Goal、Handoff、资源绑定、
 Agent middleware、Toolset、Knowledge、Memory、Data X、Sandbox、Browser、
-Client Tools、Automation、Plugin 和 Prompt。MetaAgent 已明显落后于真实执行面。
+Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选生成与当前
+执行面的主要契约；评测、基线比较和进化收益证明仍未实现。
 
 ## 复用规则
 
@@ -55,9 +56,9 @@ Client Tools、Automation、Plugin 和 Prompt。MetaAgent 已明显落后于真�
 
 | 能力域 | ModelMirror 当前状态 | 审计判定 | 目标产物 |
 | --- | --- | --- | --- |
-| Workflow generation | 仅基础节点与 inferred edges | `adapt` | Meta Planner V2 |
-| Agent generation | 未覆盖当前 Agent 配置和绑定资源 | `adapt` | 可发布候选 Xpert 草稿 |
-| Task planning | 有 Goal DAG，但 MetaAgent 不生成当前完整图 | `adapt` | 结构化规划与依赖说明 |
+| Workflow generation | V2 已生成当前 Agent DAG 与五类绑定边 | `adapt` | Meta Planner V2 已交付 |
+| Agent generation | V2 已覆盖当前 Agent 配置、资源与 middleware | `adapt` | 候选 Xpert 草稿已交付 |
+| Task planning | V2 已生成 1–8 个带依赖与契约的任务 | `adapt` | 结构化规划已交付 |
 | Evaluator | RAG 有专项评估，通用 Xpert 缺任务级基线 | `adapt` | 固定版本 Evaluator |
 | Benchmark | 无统一任务数据集与预算报告 | `adapt` | Benchmark Suite |
 | Prompt optimizer | 仅人工编辑与版本化发布 | `rewrite` | Prompt 候选与对比报告 |
@@ -114,3 +115,27 @@ Meta Planner V2 必须：
 - 候选草稿通过当前后端 Registry 和发布预检，而非测试专用静态 schema。
 - Evaluator 的候选与基线可重复执行且预算一致。
 - Planner、Evaluator 和 Optimizer 均不能静默发布、覆盖草稿或修改线上版本。
+
+## 当前交付状态
+
+### `EVOAGENTX-META-PLANNER-01`：已实现
+
+- 已上线安全 Capability Snapshot，聚合 Workflow Node Registry、Middleware
+  Registry、已发布 Xpert/Toolset/Plugin/Prompt Profile、知识库和安全模型标签。
+- 已实现任务规划、能力编译和一次定向修复，单次生成最多三次模型调用。
+- 已实现 `workflow_agent` DAG，以及 `expert`、`knowledge`、`toolset`、`plugin`、
+  `middleware` 五类特殊绑定边的确定性编译。
+- 已实现资源版本固定、授权检查、变量与控制流校验、协作循环和名称冲突检查。
+- 已复用 Authoring Proposal 作为唯一候选存储；支持 Create/Update、revision 冲突、
+  刷新恢复、画布编辑、预检和批准写入草稿。
+- 已提取并复用 Xpert 发布预检；预检不创建版本、不修改 Store。
+- 旧 `generate-workflow` 接口继续兼容。
+
+本轮采用 `adapt`，只借鉴 EvoAgentX `task_planning.py`、
+`workflow_generator.py`、`agent_generator.py` 的分层概念。没有复制上游源码，也没有
+引入 EvoAgentX Provider、RAG、Store、Workflow Runtime 或其他运行时依赖。
+
+### 下一步：`EVOAGENTX-EVALUATOR-02`
+
+下一轮进入版本化评测集、固定基线与候选快照、可插拔指标、预算约束和退化报告。
+Evaluator 仍只能评价候选，不得写入 Xpert 草稿或发布版本。
