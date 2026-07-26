@@ -22,6 +22,7 @@
 | [XPERT_FREEZE.md](./XPERT_FREEZE.md) | Xpert 冻结快照、维护边界、延期项、技术债和回归入口。 |
 | [EVOAGENTX_ALIGNMENT.md](./EVOAGENTX_ALIGNMENT.md) | EvoAgentX 主线、Meta Planner、Evaluator 与候选进化路线。 |
 | [EVOAGENTX_AUDIT_V014.md](./EVOAGENTX_AUDIT_V014.md) | 官方 EvoAgentX v0.1.4 的逐模块来源、许可证和复用判定。 |
+| [EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md) | 版本化 Xpert 评测集、只读执行、固定预算与基线报告契约。 |
 | [META_AGENT.md](./META_AGENT.md) | 当前 MetaAgent 边界与 Meta Planner V2 固定契约。 |
 | [SKILL_INTEGRATION.md](./SKILL_INTEGRATION.md) | Skill 扩展包安装、管理、聊天注入和测试指南。 |
 | [workflow-native-design.md](./workflow-native-design.md) | 自研工作流 native 实验线的设计、API 契约和回退方案。 |

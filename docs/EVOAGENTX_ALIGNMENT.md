@@ -33,7 +33,8 @@ EvoAgentX 的唯一复用基线是：
 与此同时，classic workflow 已支持可发布 Xpert、Goal、Handoff、资源绑定、
 Agent middleware、Toolset、Knowledge、Memory、Data X、Sandbox、Browser、
 Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选生成与当前
-执行面的主要契约；评测、基线比较和进化收益证明仍未实现。
+执行面的主要契约；Evaluator 已补齐版本化评测、固定预算和基线比较。当前尚未
+实现的是 Prompt 与结构候选的受控进化。
 
 ## 复用规则
 
@@ -59,8 +60,8 @@ Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选�
 | Workflow generation | V2 已生成当前 Agent DAG 与五类绑定边 | `adapt` | Meta Planner V2 已交付 |
 | Agent generation | V2 已覆盖当前 Agent 配置、资源与 middleware | `adapt` | 候选 Xpert 草稿已交付 |
 | Task planning | V2 已生成 1–8 个带依赖与契约的任务 | `adapt` | 结构化规划已交付 |
-| Evaluator | RAG 有专项评估，通用 Xpert 缺任务级基线 | `adapt` | 固定版本 Evaluator |
-| Benchmark | 无统一任务数据集与预算报告 | `adapt` | Benchmark Suite |
+| Evaluator | 已支持只读安全的固定版本/Proposal 快照评测 | `adapt` | Evaluator 已交付 |
+| Benchmark | 已支持版本化数据集、固定预算和基线报告 | `adapt` | Dataset/Report 已交付 |
 | Prompt optimizer | 仅人工编辑与版本化发布 | `rewrite` | Prompt 候选与对比报告 |
 | Workflow optimizer | 无受控结构进化 | `adapt/rewrite` | 结构候选 Xpert 草稿 |
 | Memory / RAG / Tool Runtime | 已有更完整 ModelMirror 实现 | `reject` | 继续复用现有 Runtime |
@@ -135,7 +136,23 @@ Meta Planner V2 必须：
 `workflow_generator.py`、`agent_generator.py` 的分层概念。没有复制上游源码，也没有
 引入 EvoAgentX Provider、RAG、Store、Workflow Runtime 或其他运行时依赖。
 
-### 下一步：`EVOAGENTX-EVALUATOR-02`
+### `EVOAGENTX-EVALUATOR-02`：已实现
 
-下一轮进入版本化评测集、固定基线与候选快照、可插拔指标、预算约束和退化报告。
-Evaluator 仍只能评价候选，不得写入 Xpert 草稿或发布版本。
+- 已实现 revision 化数据集草稿、JSON/CSV/会话导入和不可变版本发布。
+- 已固定 XpertVersion、Authoring Proposal revision、workflow、资源版本、
+  Knowledge 活动索引、模型策略、seed 和预算。
+- 已实现只读安全预检，副作用、等待、写入工具和不安全 Plugin 均 fail-closed。
+- 已复用 classic workflow runner，以 `xpert_evaluation` 根 run 运行并捕获最终输出、
+  Citation 和安全 usage。
+- 已实现 exact、contains、JSON Schema、Citation 和严格 JSON LLM Judge。
+- 已实现重启恢复、取消、并发/超时/模型调用/工具调用/token/输出预算。
+- 已实现基线 delta、win/tie/loss、延迟、错误和资源 warning 报告。
+- 已实现 `/agents/evaluations` 工作台，以及 Meta Planner 候选和 Studio 版本入口。
+
+Evaluator 不批准 Proposal、不写 Xpert 草稿、不发布版本。完整契约见
+[EVOAGENTX_EVALUATOR.md](./EVOAGENTX_EVALUATOR.md)。
+
+### 下一步：`EVOAGENTX-EVOLUTION-03A`
+
+下一轮只生成 Prompt 候选，在同一 DatasetVersion、目标快照和固定预算下比较。
+排名结果必须写成带差异与评估报告的 Authoring Proposal，并继续禁止自动批准或发布。

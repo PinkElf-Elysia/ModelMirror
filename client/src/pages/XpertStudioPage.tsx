@@ -237,6 +237,14 @@ export default function XpertStudioPage() {
               <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-2 py-0.5 font-semibold text-hire-100">
                 {xpert.published_version ? `已发布 v${xpert.published_version}` : "未发布"}
               </span>
+              {xpert.published_version ? (
+                <Link
+                  className="rounded-full border border-violet-300/25 bg-violet-300/10 px-2 py-0.5 font-semibold text-violet-100 hover:bg-violet-300/15"
+                  to={`/agents/evaluations?xpert_id=${xpert.id}&version=${xpert.published_version}`}
+                >
+                  版本回归评测
+                </Link>
+              ) : null}
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(220px,0.7fr)_minmax(320px,1.3fr)]">
               <input className="h-11 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-lg font-semibold text-white outline-none focus:border-hire-300/60" maxLength={120} onChange={(event) => setName(event.target.value)} value={name} />

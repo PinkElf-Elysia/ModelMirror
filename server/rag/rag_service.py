@@ -2534,17 +2534,28 @@ class RagService:
         *,
         top_k: int = 5,
         retrieval: dict[str, Any] | None = None,
+        version_id: str | None = None,
     ) -> dict[str, Any]:
-        """Retrieve from the active namespace without generating an answer."""
+        """Retrieve from an active or explicitly fixed namespace."""
 
         metadata = self._read_metadata()
         self._ensure_kb_exists(metadata, kb_id)
-        active_version_id = metadata["pipeline_active_versions"].get(kb_id)
+        active_version_id = (
+            str(version_id)
+            if version_id
+            else metadata["pipeline_active_versions"].get(kb_id)
+        )
         version = (
             metadata["pipeline_versions"].get(active_version_id)
             if active_version_id
             else None
         )
+        if version_id and (
+            not isinstance(version, dict) or str(version.get("kb_id") or "") != kb_id
+        ):
+            raise PipelineVersionNotFoundError(
+                "Fixed knowledge pipeline version was not found."
+            )
         namespace = str(version.get("namespace") or kb_id) if isinstance(version, dict) else kb_id
         config = self._retrieval_config_for_version(
             version if isinstance(version, dict) else None,
@@ -2564,17 +2575,33 @@ class RagService:
         result["version_id"] = version_id
         return result
 
-    def get_knowledge_chunk(self, kb_id: str, chunk_id: str) -> dict[str, Any]:
-        """Read one chunk from the active namespace only."""
+    def get_knowledge_chunk(
+        self,
+        kb_id: str,
+        chunk_id: str,
+        *,
+        version_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one chunk from an active or explicitly fixed namespace."""
 
         metadata = self._read_metadata()
         self._ensure_kb_exists(metadata, kb_id)
-        active_version_id = metadata["pipeline_active_versions"].get(kb_id)
+        active_version_id = (
+            str(version_id)
+            if version_id
+            else metadata["pipeline_active_versions"].get(kb_id)
+        )
         version = (
             metadata["pipeline_versions"].get(active_version_id)
             if active_version_id
             else None
         )
+        if version_id and (
+            not isinstance(version, dict) or str(version.get("kb_id") or "") != kb_id
+        ):
+            raise PipelineVersionNotFoundError(
+                "Fixed knowledge pipeline version was not found."
+            )
         namespace = str(version.get("namespace") or kb_id) if isinstance(version, dict) else kb_id
         chunk = self.vector_store.get_chunk(namespace, chunk_id)
         if chunk is None:

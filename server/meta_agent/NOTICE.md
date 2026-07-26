@@ -17,6 +17,14 @@ files:
 - `evoagentx/workflow/workflow_generator.py`
 - `evoagentx/workflow/agent_generator.py`
 
+Xpert Evaluator independently adapts the separation and aggregation concepts
+audited in:
+
+- `evoagentx/evaluators/evaluator.py`
+- `evoagentx/evaluators/aflow_evaluator.py`
+- `evoagentx/benchmark/benchmark.py`
+- `evoagentx/benchmark/metrics.py`
+
 The adapted concepts are task decomposition, capability-aware workflow
 generation, and separate agent configuration generation. ModelMirror's
 implementation uses its own Pydantic contracts, Workflow Node Registry,

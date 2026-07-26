@@ -772,6 +772,17 @@ export default function MetaPlannerV2() {
                   </label>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
+                      className="rounded-md border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-300/15"
+                      onClick={() =>
+                        navigate(
+                          `/agents/evaluations?proposal_id=${proposal.proposal_id}&proposal_revision=${proposal.revision}`,
+                        )
+                      }
+                      type="button"
+                    >
+                      评测候选
+                    </button>
+                    <button
                       className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5"
                       disabled={isSaving}
                       onClick={() => void saveCandidate()}

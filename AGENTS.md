@@ -17,7 +17,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 本文件是模镜仓库内 AI Agent、人类开发者和自动化任务的项目级操作说明。任何代码生成、重构、测试、提交和发布都必须优先遵守本文档。
 
-最后更新日期：2026-07-23
+最后更新日期：2026-07-25
 维护人：模镜团队
 
 ## 1. 项目边界
@@ -278,6 +278,33 @@ Meta Planner V2 只生成候选 Xpert，并使用 Authoring Proposal 作为唯�
 
 ```bash
 python -m pytest server/tests/test_meta_planner_v2.py server/tests/test_meta_agent.py -q
+cd client
+npm.cmd run build
+```
+
+### 8.2 EvoAgentX Evaluator 护栏
+
+- Dataset 草稿必须使用 revision，Evaluation Run 只能引用不可变 DatasetVersion。
+- 基线和候选必须在创建 run 时固定 XpertVersion 或 Authoring Proposal revision、
+  workflow checksum、资源版本、模型策略、seed 和预算。
+- 评测只能使用 classic runner 的内部只读 capture；不得通过 HTTP 回环或复制第二套
+  Workflow Runtime。
+- 安全预检必须 fail-closed 拒绝等待、Handoff、Automation、HITL、Memory/Todo/
+  Knowledge/Data X/Authoring 写入、Browser、Client Tools、Sandbox 写入和不安全 Plugin。
+- Toolset 仅允许固定版本中 `read_only=true` 且 `sensitive=false` 的工具。External
+  Xpert 必须固定版本并递归通过同一预检。
+- Knowledge 查询必须固定 run 创建时的活动索引版本，不能在运行中漂移到新索引。
+- 预算必须覆盖 repetitions、并发、单用例超时、模型调用、工具调用、token 和输出长度。
+  usage 缺失时允许保守估算，但报告必须明确标记。
+- 重启恢复只能重跑未完成 work item；已完成项、终态工具和报告不得重复生成。
+- Evaluator 只能生成报告；不得批准 Proposal、写 Xpert 草稿、发布版本或改变线上资源。
+- `server/Dockerfile` 必须复制 `evaluations/`；新增后端包不能只依赖宿主机挂载或 pytest
+  的仓库根路径，必须通过重建镜像验证真实 import。
+- 修改 Evaluator 时至少运行：
+
+```bash
+python -m pytest server/tests/test_xpert_evaluations.py -q
+python -m pytest server/tests/test_meta_agent.py server/tests/test_xpert_publish.py -q
 cd client
 npm.cmd run build
 ```

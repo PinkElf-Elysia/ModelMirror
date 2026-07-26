@@ -31,6 +31,7 @@ COPY skills ./skills
 COPY prompts ./prompts
 COPY plugins ./plugins
 COPY xperts ./xperts
+COPY evaluations ./evaluations
 COPY workflow_native ./workflow_native
 COPY xpert_runtime ./xpert_runtime
 COPY client_extension ./client_extension
