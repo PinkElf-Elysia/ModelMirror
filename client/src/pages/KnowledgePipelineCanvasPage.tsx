@@ -19,6 +19,10 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import {
+  DEFAULT_EMBEDDING_MODEL_ID,
+  embeddingModelOptions,
+} from "../data/modelOptions";
 import { models } from "../data/models";
 
 type GraphNodeKind =
@@ -157,8 +161,12 @@ const NODE_META: Record<
 
 const nodeTypes = { knowledgeNode: KnowledgePipelineNode };
 const visionModels = models
-  .filter((model) => model.active && model.input_modalities.includes("image"))
-  .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+  .filter(
+    (model) =>
+      model.active &&
+      model.categories.includes("chat") &&
+      model.input_modalities.includes("image"),
+  );
 
 function KnowledgePipelineNode({ data, selected }: NodeProps<GraphFlowNode>) {
   const meta = NODE_META[data.kind];
@@ -727,7 +735,12 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
           <SeparatorField label="子段标识符" value={config.child_separators} onChange={(value) => onChange({ child_separators: value })} />
         </>
       ) : null}
-      {kind === "embedding" ? <TextField label="Embedding 模型" value={String(config.model || "")} onChange={(value) => onChange({ model: value })} /> : null}
+      {kind === "embedding" ? (
+        <EmbeddingModelField
+          value={String(config.model || DEFAULT_EMBEDDING_MODEL_ID)}
+          onChange={(value) => onChange({ model: value })}
+        />
+      ) : null}
       {kind === "dual_index" ? (
         <div className="space-y-2"><ReadOnlyField label="向量索引" value="enabled" /><ReadOnlyField label="全文索引" value="SQLite FTS5 · enabled" /></div>
       ) : null}
@@ -763,7 +776,7 @@ function defaultConfig(kind: GraphNodeKind): Record<string, unknown> {
   if (kind === "structured_processor") return { parser: "structured_local_parser", mode: "general", failure_policy: "continue_on_error", max_generated_items: 20, extract_title: true, preserve_tables: true, preserve_code_blocks: true, remove_repeated_headers_footers: true };
   if (kind === "recursive_chunker") return { strategy: "recursive_character", chunk_size: 500, chunk_overlap: 50, separators: ["\n\n", "\n", ". ", " ", ""] };
   if (kind === "parent_child_chunker") return { strategy: "parent_child", parent_chunk_size: 1500, parent_chunk_overlap: 100, child_chunk_size: 400, child_chunk_overlap: 50, parent_separators: ["\n\n", "\n", ". ", " ", ""], child_separators: ["\n\n", "\n", ". ", " ", ""] };
-  if (kind === "embedding") return { model: "text-embedding-3-small" };
+  if (kind === "embedding") return { model: DEFAULT_EMBEDDING_MODEL_ID };
   if (kind === "dual_index") return { vector_enabled: true, fulltext_enabled: true };
   if (kind === "retrieval") return { mode: "hybrid", vector_weight: 0.7, fulltext_weight: 0.3, top_k: 5, score_threshold: 0, candidate_multiplier: 4, rerank_enabled: false, rerank_provider: "auto", rerank_top_n: 5 };
   if (kind === "image_understanding") return { enabled: true, provider: "openai_compatible_vlm", vision_model_id: "", pdf_page_strategy: "auto", render_dpi: 144, max_pages: 100, max_image_edge: 2048, failure_policy: "continue_on_error" };
@@ -772,6 +785,31 @@ function defaultConfig(kind: GraphNodeKind): Record<string, unknown> {
 
 function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return <label className="block text-xs font-semibold text-slate-300">{label}<input className="mt-2 w-full rounded-md border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" onChange={(event) => onChange(event.target.value)} value={value} /></label>;
+}
+
+function EmbeddingModelField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const hasCurrentValue = embeddingModelOptions.some(
+    (option) => option.id === value,
+  );
+  return (
+    <label className="block text-xs font-semibold text-slate-300">
+      Embedding 模型
+      <select
+        className="mt-2 w-full rounded-md border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        {!hasCurrentValue && value ? (
+          <option value={value}>{value}（当前配置）</option>
+        ) : null}
+        {embeddingModelOptions.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.name} · {option.provider}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {

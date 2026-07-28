@@ -40,6 +40,7 @@ Thumbs.db
 # Dify / Docker persistent data
 docker-data/
 new-api-data/
+omniroute-data/
 volumes/
 server/rag/storage/
 server/rag/uploads/

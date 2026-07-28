@@ -143,9 +143,9 @@ const plannerModelOptions = models
   .slice(0, 120);
 
 const defaultPlannerModel =
-  plannerModelOptions.find((model) => model.id === "deepseek/deepseek-chat")?.id ??
+  plannerModelOptions.find((model) => model.id === "openai/gpt-5.6-sol")?.id ??
   plannerModelOptions[0]?.id ??
-  "deepseek/deepseek-chat";
+  "openai/gpt-5.6-sol";
 
 function compactName(value: string) {
   return value.replace(/_/g, " ");

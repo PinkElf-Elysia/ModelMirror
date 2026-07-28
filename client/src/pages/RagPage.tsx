@@ -1,6 +1,10 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import {
+  DEFAULT_EMBEDDING_MODEL_ID,
+  embeddingModelOptions,
+} from "../data/modelOptions";
 
 interface KnowledgeBase {
   id: string;
@@ -274,7 +278,16 @@ interface PipelineVersionQueryResponse {
 }
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const SUPPORTED_EXTENSIONS = [".txt", ".md", ".markdown", ".pdf"];
+const SUPPORTED_EXTENSIONS = [
+  ".txt",
+  ".md",
+  ".markdown",
+  ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+];
 
 function separatorLabel(value: unknown) {
   if (value === "\n\n") return "\\n\\n";
@@ -339,7 +352,9 @@ function draftEditsFromResponse(draft: PipelineDraftResponse): PipelineDraftEdit
     childChunkSize: String(chunker.child_chunk_size ?? 400),
     childChunkOverlap: String(chunker.child_chunk_overlap ?? 50),
     childSeparators: separatorsToText(chunker.child_separators),
-    embeddingModel: String(draft.embedding_profile?.model ?? "text-embedding-3-small"),
+    embeddingModel: String(
+      draft.embedding_profile?.model ?? DEFAULT_EMBEDDING_MODEL_ID,
+    ),
     retrievalMode,
     vectorWeight: String(numericProfileValue(retrieval, "vector_weight", 0.7)),
     fulltextWeight: String(numericProfileValue(retrieval, "fulltext_weight", 0.3)),
@@ -439,7 +454,7 @@ function validateFile(file: File) {
     lowerName.endsWith(extension),
   );
   if (!isSupported) {
-    return "仅支持 TXT、Markdown 和 PDF 文档。";
+    return "仅支持 TXT、Markdown、PDF、PNG、JPEG 和 WebP 文件。";
   }
   if (file.size > MAX_FILE_BYTES) {
     return "文件过大，请上传 10MB 以内的文档。";
@@ -488,7 +503,7 @@ export default function RagPage() {
     childChunkSize: "",
     childChunkOverlap: "",
     childSeparators: "",
-    embeddingModel: "",
+    embeddingModel: DEFAULT_EMBEDDING_MODEL_ID,
     retrievalMode: "hybrid",
     vectorWeight: "0.7",
     fulltextWeight: "0.3",
@@ -1061,7 +1076,7 @@ export default function RagPage() {
             本地 RAG 已接管资料库：上传文档后自动解析、切块、向量化，面试间可以直接引用。
           </p>
           <div className="mt-4 rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
-            支持 TXT、Markdown、PDF，单文件上限 10MB。
+            支持 TXT、Markdown、PDF 和常见图片，单文件上限 10MB。
           </div>
         </div>
       }
@@ -1558,14 +1573,29 @@ export default function RagPage() {
                                 </label>
                                 <label className="block">
                                   <span className="text-xs font-medium text-slate-300">Embedding 模型</span>
-                                  <input
+                                  <select
                                     className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50"
                                     onChange={(event) => setPipelineDraftEdits((current) => ({
                                       ...current,
                                       embeddingModel: event.target.value,
                                     }))}
                                     value={pipelineDraftEdits.embeddingModel}
-                                  />
+                                  >
+                                    {!embeddingModelOptions.some(
+                                      (option) =>
+                                        option.id ===
+                                        pipelineDraftEdits.embeddingModel,
+                                    ) && pipelineDraftEdits.embeddingModel ? (
+                                      <option value={pipelineDraftEdits.embeddingModel}>
+                                        {pipelineDraftEdits.embeddingModel}（当前配置）
+                                      </option>
+                                    ) : null}
+                                    {embeddingModelOptions.map((option) => (
+                                      <option key={option.id} value={option.id}>
+                                        {option.name} · {option.provider}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </label>
                               </div>
 

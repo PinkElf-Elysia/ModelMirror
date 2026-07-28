@@ -26,6 +26,7 @@ export const inputModalityOptions: Option<InputModality>[] = [
   { value: "image", label: "图片", icon: "图" },
   { value: "audio", label: "音频", icon: "音" },
   { value: "video", label: "视频", icon: "影" },
+  { value: "file", label: "文件", icon: "档" },
 ];
 
 export const contextQuickOptions = [

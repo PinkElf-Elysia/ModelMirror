@@ -74,6 +74,41 @@ services:
       retries: 5
       start_period: 10s
 
+  omniroute:
+    image: diegosouzapw/omniroute:3.8.48@sha256:badb560971fdc23c2fb84b3e8695116239ff215b4cca4b07076201a8efae7f0d
+    container_name: modelmirror-omniroute
+    profiles:
+      - omniroute
+    restart: unless-stopped
+    stop_grace_period: 40s
+    ports:
+      - "127.0.0.1:20128:20128"
+    volumes:
+      - omniroute-data:/app/data
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "20128"
+      JWT_SECRET: ${OMNIROUTE_JWT_SECRET:-}
+      API_KEY_SECRET: ${OMNIROUTE_API_KEY_SECRET:-}
+      INITIAL_PASSWORD: ${OMNIROUTE_INITIAL_PASSWORD:-}
+      STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY:-}
+      OMNIROUTE_WS_BRIDGE_SECRET: ${OMNIROUTE_WS_BRIDGE_SECRET:-}
+      REQUIRE_API_KEY: "true"
+      ALLOW_API_KEY_REVEAL: "false"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const required=['JWT_SECRET','API_KEY_SECRET','INITIAL_PASSWORD','STORAGE_ENCRYPTION_KEY','OMNIROUTE_WS_BRIDGE_SECRET'];if(required.some(k=>!process.env[k]))process.exit(1);fetch('http://localhost:20128/api/monitoring/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+
   new-api:
     image: calciumion/new-api:latest
     container_name: modelmirror-new-api
@@ -81,7 +116,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./new-api-data:/data
+      - ${MODELMIRROR_DATA_ROOT:-.}/new-api-data:/data
     environment:
       TZ: Asia/Shanghai
     healthcheck:
@@ -107,10 +142,15 @@ services:
       new-api:
         condition: service_healthy
     env_file:
-      - path: ./server/.env
+      - path: ${MODELMIRROR_DATA_ROOT:-.}/server/.env
         required: false
     environment:
       LLM_GATEWAY_URL: http://new-api:3000/v1/chat/completions
+      OMNIROUTE_BASE_URL: http://omniroute:20128
+      OMNIROUTE_ENABLED: ${OMNIROUTE_ENABLED:-false}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
+      MODEL_ROUTER_DEFAULT: ${MODEL_ROUTER_DEFAULT:-newapi}
+      OMNIROUTE_BUDGET_HEADERS_ENABLED: ${OMNIROUTE_BUDGET_HEADERS_ENABLED:-false}
       RAG_STORAGE_DIR: /app/rag/storage
       RAG_UPLOAD_DIR: /app/rag/uploads
       CHROMA_DB_PATH: /app/rag/storage/chroma_db
@@ -130,13 +170,13 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./server/rag/storage:/app/rag/storage
-      - ./server/rag/uploads:/app/rag/uploads
-      - ./server/skills/installed:/app/skills/installed
-      - ./server/xperts/storage:/app/xperts/storage
-      - ./server/xpert_runtime/storage:/app/xpert_runtime/storage
-      - ./server/datax/storage:/app/datax/storage
-      - ./server/toolsets/storage:/app/toolsets/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/rag/storage:/app/rag/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/rag/uploads:/app/rag/uploads
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/skills/installed:/app/skills/installed
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/xperts/storage:/app/xperts/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/xpert_runtime/storage:/app/xpert_runtime/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/datax/storage:/app/datax/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/toolsets/storage:/app/toolsets/storage
       - sandbox_socket:/run/modelmirror-sandbox
       - sandbox_workspaces:/app/sandbox-workspaces:ro
       - browser_socket:/run/modelmirror-browser
@@ -193,6 +233,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  omniroute-data:
   sandbox_socket:
   sandbox_workspaces:
   browser_socket:
