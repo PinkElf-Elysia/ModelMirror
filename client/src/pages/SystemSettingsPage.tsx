@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PageContainer from "../components/PageContainer";
+import ModelServiceConnections from "../components/settings/ModelServiceConnections";
+import SmartRoutingSettings from "../components/settings/SmartRoutingSettings";
 
 const DEFAULT_NEWAPI_WEB_URL = "http://localhost:3000";
 
@@ -35,13 +37,16 @@ export default function SystemSettingsPage() {
       <header className="mb-6 overflow-hidden rounded-lg border border-hire-300/20 bg-[linear-gradient(135deg,rgba(67,20,7,0.74),rgba(6,9,22,0.92)_52%,rgba(8,51,68,0.48))] p-6 shadow-prism">
         <p className="text-sm font-semibold text-hire-100">系统设置</p>
         <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">
-          外部网关与集成管理
+          模型服务与智能调度
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-          工作流默认使用模镜自研经典画布。newAPI 控制台在这里以内嵌方式接入，
-          用于统一管理模型渠道、API Key 和调用策略，让对话与工作流可以共享同一层网关。
+          在这里完成模型服务连接、智能调度和上下文优化。日常使用无需理解底层网关；
+          newAPI 控制台仍作为高级渠道管理入口保留。
         </p>
       </header>
+
+      <ModelServiceConnections />
+      <SmartRoutingSettings />
 
       <section className="overflow-hidden rounded-lg border border-white/10 bg-ink-950/82 shadow-prism">
         <div className="flex flex-col gap-3 border-b border-white/10 bg-white/[0.035] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">

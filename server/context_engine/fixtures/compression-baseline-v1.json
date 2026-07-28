@@ -1,0 +1,27 @@
+{
+  "version": "modelmirror-compression-baseline-v1",
+  "protected_content": [
+    "system_messages",
+    "latest_user_message",
+    "tool_schemas",
+    "code_blocks",
+    "json",
+    "xml",
+    "urls",
+    "citation_markers",
+    "file_sources"
+  ],
+  "stage_order": [
+    "tool_output_filtering",
+    "redundancy_folding",
+    "rag_deduplication",
+    "history_summary"
+  ],
+  "fallback_conditions": [
+    "structure_damage",
+    "missing_protected_marker",
+    "saved_ratio_below_0.10",
+    "unexpected_error"
+  ],
+  "auto_trigger_ratio": 0.8
+}

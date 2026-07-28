@@ -437,7 +437,7 @@ async def test_omniroute_empty_success_stream_becomes_explicit_error(
 
     assert response.status_code == 200
     assert response.text.count("event: route_receipt") == 1
-    assert "上游候选没有生成正文" in response.text
+    assert "模型服务返回了成功状态，但没有生成正文" in response.text
     assert response.text.rstrip().endswith("data: [DONE]")
 
 
@@ -462,4 +462,4 @@ async def test_routing_options_rejected_for_default_gateway(
     )
 
     assert response.status_code == 400
-    assert "仅适用于 OmniRoute" in response.json()["error"]
+    assert "仅适用于智能调度" in response.json()["error"]

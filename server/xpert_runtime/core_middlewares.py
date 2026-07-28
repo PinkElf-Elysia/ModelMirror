@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import json
-import math
 import re
-import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from jsonschema import Draft202012Validator
+
+try:
+    from server.context_engine import (
+        estimate_messages_tokens,
+        estimate_text_tokens,
+        optimize_context,
+    )
+except ModuleNotFoundError:
+    from context_engine import (
+        estimate_messages_tokens,
+        estimate_text_tokens,
+        optimize_context,
+    )
 
 from .middleware import AgentMiddleware
 from .models import MiddlewareContext, ModelCallRequest
@@ -113,23 +124,6 @@ def middleware_spec(
     )
 
 
-def estimate_text_tokens(text: str) -> int:
-    """Conservative tokenizer-free estimate for mixed CJK and Latin text."""
-
-    if not text:
-        return 0
-    cjk_count = len(re.findall(r"[\u3400-\u9fff\uf900-\ufaff]", text))
-    non_cjk_count = max(0, len(text) - cjk_count)
-    return cjk_count + math.ceil(non_cjk_count / 4)
-
-
-def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
-    return sum(
-        4 + estimate_text_tokens(str(message.get("content") or ""))
-        for message in messages
-    )
-
-
 def build_context_compression_middleware(
     spec: RuntimeMiddlewareSpec,
 ) -> AgentMiddleware:
@@ -137,125 +131,69 @@ def build_context_compression_middleware(
         request: ModelCallRequest,
         context: MiddlewareContext,
     ) -> dict[str, Any] | None:
-        started_at = time.perf_counter()
         config = spec.config
         max_context_tokens = _int(config.get("max_context_tokens"), 24_000, 2_048, 200_000)
         trigger_ratio = _float(config.get("trigger_ratio"), 0.8, 0.5, 0.95)
         keep_recent = _int(config.get("keep_recent_messages"), 8, 2, 40)
         summary_max_tokens = _int(config.get("summary_max_tokens"), 1_500, 256, 4_000)
         max_tool_output_chars = _int(config.get("max_tool_output_chars"), 4_000, 500, 20_000)
-        messages = _truncate_tool_messages(request.messages, max_tool_output_chars)
-        before_tokens = estimate_messages_tokens(messages)
-        if before_tokens < int(max_context_tokens * trigger_ratio):
-            if messages != request.messages:
-                return {"messages": messages}
-            return None
-
-        system_messages = [message for message in messages if message.get("role") == "system"][:1]
-        non_system = [message for message in messages if message.get("role") != "system"]
-        recent = non_system[-keep_recent:]
-        omitted = non_system[:-keep_recent]
         existing_summary = str(context.metadata.get("conversation_summary") or "").strip()
         summary_boundary = str(
             context.metadata.get("conversation_summary_through_message_id") or ""
         ).strip()
-        if existing_summary and summary_boundary:
-            boundary_index = next(
-                (
-                    index
-                    for index, message in enumerate(omitted)
-                    if str(message.get("message_id") or "") == summary_boundary
-                ),
-                None,
-            )
-            if boundary_index is not None:
-                omitted = omitted[boundary_index + 1 :]
-            elif any(
-                str(message.get("message_id") or "") == summary_boundary
-                for message in recent
-            ):
-                omitted = []
-
-        def compressed_messages(summary: str) -> list[dict[str, Any]]:
-            summary_message = (
-                [
-                    {
-                        "role": "system",
-                        "content": f"Conversation summary (derived):\n{summary}",
-                    }
-                ]
-                if summary
-                else []
-            )
-            return [*system_messages, *summary_message, *recent]
-
-        if not omitted:
-            if not existing_summary:
-                return {"messages": messages}
-            prepared = compressed_messages(existing_summary)
-            context.metadata["context_compression"] = {
-                "before_tokens": before_tokens,
-                "after_tokens": estimate_messages_tokens(prepared),
-                "summarized_messages": 0,
-                "reused_summary": True,
-                "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-            }
-            return {"messages": prepared}
-
         summarizer = context.metadata.get("middleware_model_text")
-        if not callable(summarizer):
+        summary_model_id = str(config.get("summary_model_id") or request.model_id).strip()
+        persist_summary = context.metadata.get("persist_conversation_summary")
+        optimization = await optimize_context(
+            request.messages,
+            profile="standard",
+            max_context_tokens=max_context_tokens,
+            max_output_tokens=0,
+            safety_margin_tokens=0,
+            trigger_ratio=trigger_ratio,
+            keep_recent_messages=keep_recent,
+            max_tool_output_chars=max_tool_output_chars,
+            summary_model_id=summary_model_id,
+            summary_max_tokens=summary_max_tokens,
+            summarizer=summarizer if callable(summarizer) else None,
+            existing_summary=existing_summary,
+            summary_boundary=summary_boundary,
+            persist_summary=persist_summary if callable(persist_summary) else None,
+        )
+        report = optimization.report
+        context.metadata["context_compression"] = {
+            **report.as_dict(),
+            "before_tokens": report.original_tokens,
+            "after_tokens": report.final_tokens,
+            "summarized_messages": report.summarized_messages,
+            "reused_summary": report.reused_summary,
+        }
+        if report.fallback_reason in {"summary_failed", "summary_unavailable"}:
             context.metadata.setdefault("middleware_warnings", []).append(
                 "context_compression summarizer is unavailable"
+                if report.fallback_reason == "summary_unavailable"
+                else "context_compression failed: summary unavailable"
             )
-            return {"messages": compressed_messages(existing_summary)}
-
-        summary_model_id = str(config.get("summary_model_id") or request.model_id).strip()
-        source_text = "\n\n".join(
-            f"{str(message.get('role') or 'unknown')}: {str(message.get('content') or '')}"
-            for message in omitted
-        )
-        summary_prompt = (
-            "Summarize the older conversation context for another model. Preserve decisions, "
-            "constraints, identifiers, unfinished tasks, and user preferences. Do not invent facts.\n\n"
-            + (f"Existing summary:\n{existing_summary}\n\n" if existing_summary else "")
-            + f"Older messages:\n{source_text}"
-        )
-        try:
-            summary = (
-                await summarizer(
-                    summary_model_id,
-                    [{"role": "user", "content": summary_prompt}],
-                    summary_max_tokens,
-                )
-            ).strip()
-        except Exception as exc:
-            context.metadata.setdefault("middleware_warnings", []).append(
-                f"context_compression failed: {str(exc)[:160]}"
-            )
-            return {"messages": compressed_messages(existing_summary)}
-        if not summary:
-            return {"messages": compressed_messages(existing_summary)}
-
-        persist_summary = context.metadata.get("persist_conversation_summary")
-        if callable(persist_summary):
-            try:
-                await persist_summary(
-                    summary,
-                    summary_model_id,
-                    str(omitted[-1].get("message_id") or "") or None,
-                )
-            except Exception as exc:
-                context.metadata.setdefault("middleware_warnings", []).append(
-                    f"context_compression persistence failed: {str(exc)[:160]}"
-                )
-        context.metadata["context_compression"] = {
-            "before_tokens": before_tokens,
-            "after_tokens": estimate_messages_tokens(compressed_messages(summary)),
-            "summarized_messages": len(omitted),
-            "reused_summary": False,
-            "duration_ms": round((time.perf_counter() - started_at) * 1000, 2),
-        }
-        return {"messages": compressed_messages(summary)}
+            if report.original_tokens >= int(max_context_tokens * trigger_ratio):
+                system_messages = [
+                    message
+                    for message in request.messages
+                    if message.get("role") == "system"
+                ]
+                non_system = [
+                    message
+                    for message in request.messages
+                    if message.get("role") != "system"
+                ]
+                return {
+                    "messages": [
+                        *system_messages,
+                        *non_system[-keep_recent:],
+                    ]
+                }
+        if optimization.messages != request.messages:
+            return {"messages": optimization.messages}
+        return None
 
     return AgentMiddleware(name="context_compression", before_model=before_model)
 
@@ -396,21 +334,6 @@ def middleware_config_schema(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("structured_output schema_json must be a JSON object.")
     Draft202012Validator.check_schema(schema)
     return schema
-
-
-def _truncate_tool_messages(
-    messages: list[dict[str, Any]],
-    max_chars: int,
-) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    for message in messages:
-        copied = dict(message)
-        if copied.get("role") in {"tool", "assistant"}:
-            content = str(copied.get("content") or "")
-            if len(content) > max_chars:
-                copied["content"] = content[:max_chars] + "\n[tool output truncated]"
-        result.append(copied)
-    return result
 
 
 def _extract_json_text(text: str) -> str:

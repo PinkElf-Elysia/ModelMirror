@@ -21,7 +21,8 @@ class ModelCandidate(BaseModel):
     input_modalities: list[str] = Field(default_factory=lambda: ["text"])
     output_modalities: list[str] = Field(default_factory=lambda: ["text"])
     capabilities: list[str] = Field(default_factory=list)
-    source: Literal["omniroute", "bundled"] = "omniroute"
+    source: Literal["native", "omniroute", "bundled"] = "omniroute"
+    connection_id: str | None = None
     invocable: bool = True
     availability: Availability = "live"
     free: bool | None = None
@@ -39,7 +40,7 @@ class RouteCandidate(BaseModel):
 
 
 class ModelCatalogResponse(BaseModel):
-    source: Literal["omniroute", "bundled"]
+    source: Literal["native", "omniroute", "bundled", "mixed"]
     router_status: RouterStatus
     stale: bool
     synced_at: str | None

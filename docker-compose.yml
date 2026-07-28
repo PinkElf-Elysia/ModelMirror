@@ -151,6 +151,12 @@ services:
       OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
       MODEL_ROUTER_DEFAULT: ${MODEL_ROUTER_DEFAULT:-newapi}
       OMNIROUTE_BUDGET_HEADERS_ENABLED: ${OMNIROUTE_BUDGET_HEADERS_ENABLED:-false}
+      MODEL_ROUTER_ENGINE: ${MODEL_ROUTER_ENGINE:-}
+      MODEL_ROUTER_CANARY_PERCENT: ${MODEL_ROUTER_CANARY_PERCENT:-0}
+      MODEL_ROUTER_TENANT_ID: ${MODEL_ROUTER_TENANT_ID:-local}
+      MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE: ${MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE:-false}
+      MODEL_ROUTER_STORAGE_DIR: /app/model_router/storage
+      MODELMIRROR_DEFAULT_TENANT_ID: ${MODELMIRROR_DEFAULT_TENANT_ID:-local}
       RAG_STORAGE_DIR: /app/rag/storage
       RAG_UPLOAD_DIR: /app/rag/uploads
       CHROMA_DB_PATH: /app/rag/storage/chroma_db
@@ -177,6 +183,7 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/server/xpert_runtime/storage:/app/xpert_runtime/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/datax/storage:/app/datax/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/toolsets/storage:/app/toolsets/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/model_router/storage:/app/model_router/storage
       - sandbox_socket:/run/modelmirror-sandbox
       - sandbox_workspaces:/app/sandbox-workspaces:ro
       - browser_socket:/run/modelmirror-browser

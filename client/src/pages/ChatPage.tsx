@@ -73,6 +73,15 @@ interface ChatMessage {
 
 const STREAM_UI_UPDATE_INTERVAL_MS = 80;
 
+function defaultRoutingMode(
+  modelId: string,
+): "fast" | "balanced" | "quality" | "cheap" | "reliable" | "offline" {
+  if (modelId === "auto/fast") return "fast";
+  if (modelId === "auto/cheap") return "cheap";
+  if (modelId === "auto/smart" || modelId === "auto/coding") return "quality";
+  return "balanced";
+}
+
 function createStreamingUiScheduler(
   update: () => void,
   interval = STREAM_UI_UPDATE_INTERVAL_MS,
@@ -267,11 +276,14 @@ function createId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function defaultAdvancedParams(maxTokenLimit = 2048): ChatAdvancedParams {
+function defaultAdvancedParams(
+  maxTokenLimit = 2048,
+  defaultMaxTokens = 2048,
+): ChatAdvancedParams {
   return {
     temperature: 0.7,
     topP: 1,
-    maxTokens: Math.min(2048, maxTokenLimit),
+    maxTokens: Math.min(defaultMaxTokens, maxTokenLimit),
     seed: "",
     stopSequences: "",
   };
@@ -456,19 +468,69 @@ function markdownComponents(
   };
 }
 
+const routeReasonLabels: Record<string, string> = {
+  preference_pool_fallback: "放宽非必要偏好后找到可用模型",
+  soft_budget_cheapest_fallback: "预算不足时选择了最低成本候选",
+  last_known_good: "优先选择本会话近期成功的模型",
+  half_open_probe: "正在小流量验证已恢复的模型",
+  mode_auto: "综合质量、速度与费用",
+  mode_fast: "优先响应速度",
+  mode_quality: "优先回答质量",
+  mode_cheap: "优先降低费用",
+  mode_reliable: "优先近期稳定性",
+  mode_offline: "优先本地可用性与配额",
+  output_limit_reached: "回答达到最大输出长度，内容可能不完整",
+};
+
+const compressionStageLabels: Record<string, string> = {
+  tool_output_filtering: "工具输出整理",
+  redundancy_folding: "重复内容折叠",
+  caveman_redundancy: "冗余语句压缩",
+  rag_deduplication: "资料片段去重",
+  cross_message_deduplication: "跨消息重复内容去重",
+  history_summary: "旧对话摘要",
+};
+
+const budgetStatusLabels: Record<string, string> = {
+  not_set: "未设置单次预算",
+  settled: "已按实际用量结算",
+  covered_by_reservation: "用量缺失，费用仍在预留上限内",
+  released: "调用未完成，预算预留已释放",
+  unavailable: "当前模型无法可靠估价",
+  over_limit: "上游用量超过预留，请检查服务计费",
+};
+
 function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
   const costLabel =
     receipt.cost_kind === "unavailable" || receipt.response_cost_usd == null
-      ? "成本待网关结算"
+      ? "成本暂不可用"
       : `$${receipt.response_cost_usd.toFixed(6)} ${
           receipt.cost_kind === "estimated" ? "估算" : "实际"
         }`;
   const tokenTotal = receipt.tokens?.total;
+  const compression = receipt.compression;
+  const savedPercent =
+    compression?.applied && compression.saved_ratio != null
+      ? Math.round(compression.saved_ratio * 100)
+      : 0;
+  const engineLabel =
+    receipt.engine === "native"
+      ? "本地调度"
+      : receipt.engine === "shadow"
+        ? "对照观察"
+        : receipt.engine
+          ? "稳定调度"
+          : null;
 
   return (
     <div className="mt-4 border-t border-white/10 pt-3 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-hire-100">路由回执</span>
+        {engineLabel ? (
+          <span className="rounded-full border border-hire-300/20 bg-hire-300/10 px-2 py-1 text-hire-100">
+            {engineLabel}
+          </span>
+        ) : null}
         {receipt.provider ? (
           <span className="rounded-full border border-white/10 bg-white/[0.055] px-2 py-1 text-slate-300">
             {receipt.provider}
@@ -507,6 +569,54 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
           </dd>
         </div>
       </dl>
+      {receipt.reason_codes?.includes("output_limit_reached") ? (
+        <p className="mt-2 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-amber-100">
+          回答已达到最大输出长度。内容可能不完整，可在“高级参数”中调高最大输出 Token 后重试。
+        </p>
+      ) : null}
+      {savedPercent > 0 ? (
+        <p className="mt-2 text-emerald-200">
+          已节省约 {savedPercent}% 上下文，回答内容保持完整。
+        </p>
+      ) : compression?.fallback_reason ? (
+        <p className="mt-2 text-slate-300">
+          为保证内容完整，本次未压缩。
+        </p>
+      ) : null}
+      {receipt.reason_codes?.length ||
+      compression?.stages?.length ||
+      receipt.budget?.status ? (
+        <details className="mt-2 text-slate-400">
+          <summary className="cursor-pointer select-none text-slate-300">
+            查看运行详情
+          </summary>
+          <div className="mt-2 space-y-1 rounded-lg border border-white/10 bg-black/10 p-2">
+            {receipt.reason_codes?.length ? (
+              <p>
+                选择依据：
+                {receipt.reason_codes
+                  .map((code) => routeReasonLabels[code] ?? code)
+                  .join("；")}
+              </p>
+            ) : null}
+            {compression?.stages?.length ? (
+              <p>
+                优化阶段：
+                {compression.stages
+                  .map((stage) => compressionStageLabels[stage] ?? stage)
+                  .join("、")}
+              </p>
+            ) : null}
+            {receipt.budget?.status ? (
+              <p>
+                预算状态：
+                {budgetStatusLabels[receipt.budget.status] ??
+                  receipt.budget.status}
+              </p>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
@@ -634,7 +744,6 @@ export default function ChatPage() {
   const decodedModelId = useMemo(() => decodeModelId(modelId), [modelId]);
   const isFederationRoute = decodedModelId === federationRouteId;
   const isOmniAutoRoute =
-    searchParams.get("gateway") === "omniroute" &&
     (decodedModelId === "auto" || decodedModelId.startsWith("auto/"));
   const model = useMemo(
     () => {
@@ -674,6 +783,12 @@ export default function ChatPage() {
   const maxTokenLimit = model
     ? Math.min(128000, Math.max(1, model.context_length))
     : 2048;
+  const defaultMaxTokens = isOmniAutoRoute ? 8192 : 2048;
+  const advancedParamsKey = model
+    ? advancedParamsStorageKey(
+        isOmniAutoRoute ? `smart-router-v2:${decodedModelId}` : model.id,
+      )
+    : "";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
@@ -710,11 +825,14 @@ export default function ChatPage() {
   const [agentDefaultModelNotice, setAgentDefaultModelNotice] = useState("");
   const [routingMode, setRoutingMode] = useState<
     "fast" | "balanced" | "quality" | "cheap" | "reliable" | "offline"
-  >("balanced");
+  >(() => defaultRoutingMode(decodedModelId));
   const [routingBudget, setRoutingBudget] = useState("");
   const [routingBudgetFallback, setRoutingBudgetFallback] = useState<
     "strict" | "cheapest"
   >("cheapest");
+  const [compressionMode, setCompressionMode] = useState<
+    "auto" | "off" | "standard" | "strong"
+  >("auto");
   const routingSessionId = useMemo(
     () => (isOmniAutoRoute ? getOrCreateRoutingSessionId(decodedModelId) : ""),
     [decodedModelId, isOmniAutoRoute],
@@ -758,7 +876,8 @@ export default function ChatPage() {
     if (!isOmniAutoRoute) return;
     setRuntimeToolsEnabled(false);
     setSelectedKnowledgeBaseId("");
-  }, [isOmniAutoRoute]);
+    setRoutingMode(defaultRoutingMode(decodedModelId));
+  }, [decodedModelId, isOmniAutoRoute]);
 
   useEffect(() => {
     if (window.matchMedia("(min-width: 1024px)").matches) {
@@ -836,8 +955,8 @@ export default function ChatPage() {
   useEffect(() => {
     if (!model) return;
 
-    const defaults = defaultAdvancedParams(maxTokenLimit);
-    const raw = window.localStorage.getItem(advancedParamsStorageKey(model.id));
+    const defaults = defaultAdvancedParams(maxTokenLimit, defaultMaxTokens);
+    const raw = window.localStorage.getItem(advancedParamsKey);
     if (!raw) {
       setAdvancedParams(defaults);
       return;
@@ -856,7 +975,7 @@ export default function ChatPage() {
     } catch {
       setAdvancedParams(defaults);
     }
-  }, [maxTokenLimit, model]);
+  }, [advancedParamsKey, defaultMaxTokens, maxTokenLimit, model]);
 
   async function addImageFiles(files: File[]) {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
@@ -1084,6 +1203,7 @@ export default function ChatPage() {
     }
 
     let pendingAssistantDelta = "";
+    let receivedAssistantDelta = false;
     const flushAssistantDelta = () => {
       if (!pendingAssistantDelta) return;
       const delta = pendingAssistantDelta;
@@ -1147,7 +1267,7 @@ export default function ChatPage() {
       await fetchChatStream({
         modelId: isOmniAutoRoute ? decodedModelId : model.id,
         messages: apiMessages,
-        gateway: isOmniAutoRoute ? "omniroute" : "default",
+        gateway: isOmniAutoRoute ? "auto" : "default",
         routing: isOmniAutoRoute
           ? {
               session_id: routingSessionId,
@@ -1159,6 +1279,7 @@ export default function ChatPage() {
                   : routingBudgetFallback,
             }
           : undefined,
+        compression: isOmniAutoRoute ? { mode: compressionMode } : undefined,
         temperature: advancedParams.temperature,
         topP: advancedParams.topP,
         maxTokens: advancedParams.maxTokens,
@@ -1197,6 +1318,7 @@ export default function ChatPage() {
             }
           : undefined,
         onDelta: (delta) => {
+          receivedAssistantDelta = true;
           pendingAssistantDelta += delta;
           assistantUiUpdate.schedule();
         },
@@ -1233,8 +1355,12 @@ export default function ChatPage() {
           item.id === assistantId
             ? {
                 ...item,
-                content: "抱歉，模型暂时无法响应，请稍后重试。",
-                displayContent: "抱歉，模型暂时无法响应，请稍后重试。",
+                content: receivedAssistantDelta
+                  ? item.content
+                  : "抱歉，模型暂时无法响应，请稍后重试。",
+                displayContent: receivedAssistantDelta
+                  ? item.displayContent
+                  : "抱歉，模型暂时无法响应，请稍后重试。",
               }
             : item,
         ),
@@ -1299,19 +1425,19 @@ export default function ChatPage() {
     };
 
     setAdvancedParams(normalizedParams);
-    if (model) {
+    if (advancedParamsKey) {
       window.localStorage.setItem(
-        advancedParamsStorageKey(model.id),
+        advancedParamsKey,
         JSON.stringify(normalizedParams),
       );
     }
   }
 
   function resetAdvancedParams() {
-    const defaults = defaultAdvancedParams(maxTokenLimit);
+    const defaults = defaultAdvancedParams(maxTokenLimit, defaultMaxTokens);
     setAdvancedParams(defaults);
-    if (model) {
-      window.localStorage.removeItem(advancedParamsStorageKey(model.id));
+    if (advancedParamsKey) {
+      window.localStorage.removeItem(advancedParamsKey);
     }
   }
 
@@ -1342,7 +1468,7 @@ export default function ChatPage() {
   const supportsImageInput =
     omniRouteSupportsImage || model.input_modalities.includes("image");
   const providerName = isOmniAutoRoute
-    ? "OmniRoute"
+    ? "智能调度"
     : deriveProviderFromModel(model);
   const displayCandidateName = isOmniAutoRoute
     ? `${decodedModelId} 智能路由`
@@ -1350,7 +1476,7 @@ export default function ChatPage() {
     ? "模型联邦智能路由器"
     : agentInterview?.agentName ?? model.name;
   const displayCandidateDescription = isOmniAutoRoute
-    ? "OmniRoute 会按当前模式、预算和渠道健康状态选择实际回答模型，完成后展示路由回执。"
+    ? "模镜会按当前模式、预算和服务健康状态选择实际回答模型，完成后展示路由回执。"
     : isFederationRoute
     ? "智能路由功能正在紧锣密鼓开发中，当前将使用默认模型为您服务。"
     : agentInterview?.expertise ?? model.description;
@@ -1383,7 +1509,7 @@ export default function ChatPage() {
               ) : null}
               {isOmniAutoRoute ? (
                 <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-3 py-1.5 text-xs font-semibold text-brand-100">
-                  OmniRoute · {decodedModelId}
+                  智能调度 · {decodedModelId}
                 </span>
               ) : isFederationRoute ? (
                 <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1.5 text-xs font-semibold text-hire-100">
@@ -1482,7 +1608,7 @@ export default function ChatPage() {
                 <div>
                   <p className="text-xs font-semibold text-brand-100">路由控制</p>
                   <p className="mt-1 text-xs leading-5 text-slate-400">
-                    设置只作用于本次 OmniRoute 会话。
+                    设置只作用于本次智能调度会话。
                   </p>
                 </div>
                 <label className="block text-xs font-semibold text-slate-300">
@@ -1540,6 +1666,28 @@ export default function ChatPage() {
                   >
                     <option value="cheapest">改用最低成本候选</option>
                     <option value="strict">严格拒绝并返回 402</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-300">
+                  上下文优化
+                  <select
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
+                    disabled={isSending}
+                    onChange={(event) =>
+                      setCompressionMode(
+                        event.target.value as
+                          | "auto"
+                          | "off"
+                          | "standard"
+                          | "strong",
+                      )
+                    }
+                    value={compressionMode}
+                  >
+                    <option value="auto">自动推荐</option>
+                    <option value="off">关闭</option>
+                    <option value="standard">标准</option>
+                    <option value="strong">强力</option>
                   </select>
                 </label>
               </div>
@@ -1629,7 +1777,7 @@ export default function ChatPage() {
                     </h2>
                     <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
                       {isOmniAutoRoute
-                        ? "描述任务后，OmniRoute 会选择实际模型，并在回答末尾给出供应方、Token、成本与请求编号。"
+                        ? "描述任务后，模镜会选择实际模型，并在回答末尾给出服务、Token、成本与请求编号。"
                         : isFederationRoute
                         ? "先由默认模型代班回答。后续路由上线后，会自动按任务挑选更合适的候选人。"
                         : agentInterview

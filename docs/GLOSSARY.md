@@ -34,6 +34,9 @@
 | Fusion | Model Fusion | 多模型并行回答后由裁判模型综合。 | 专家团。 |
 | AI Team | AI Team | 多智能体串行或协作处理任务。 | 专家团。 |
 | 自动路由 | Auto Routing | 根据用户需求匹配最合适的智能体。 | `/api/route-agent`。 |
+| 智能调度 | Model Routing | 在满足权限、能力、预算和健康约束后，为 `auto/*` 选择实际回答模型。 | `/chat/auto`、`server/model_router/`。 |
+| 上下文优化 | Context Optimization | 在保护系统提示、最新问题和结构化内容的前提下，减少重复的历史、RAG 与工具内容。 | `server/context_engine/`、聊天路由回执。 |
+| 本地试运行 | Native Canary | 按稳定会话哈希逐步启用原生调度，支持随时回到稳定模式。 | 设置页智能调度。 |
 | Prompt Engineering | Prompt Engineering | 设计高质量模型输入的方法。 | 提示词助手、超级提示词模式。 |
 | localStorage | localStorage | 浏览器本地键值存储。 | 偏好模型、高级参数、工作流草稿。 |
 | FastAPI | FastAPI | Python Web 框架。 | 后端 API 服务。 |

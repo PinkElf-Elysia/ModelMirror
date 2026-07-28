@@ -91,7 +91,10 @@ def update_stream_state(line: str, state: dict[str, Any]) -> None:
     if not stripped.startswith("data:"):
         return
     data = stripped[5:].strip()
-    if not data or data == "[DONE]":
+    if not data:
+        return
+    if data == "[DONE]":
+        state["_done_observed"] = True
         return
     try:
         payload = json.loads(data)
@@ -109,6 +112,9 @@ def update_stream_state(line: str, state: dict[str, Any]) -> None:
         for choice in choices:
             if not isinstance(choice, dict):
                 continue
+            finish_reason = choice.get("finish_reason")
+            if isinstance(finish_reason, str) and finish_reason.strip():
+                state["finish_reason"] = finish_reason.strip()
             candidate = choice.get("delta") or choice.get("message")
             if not isinstance(candidate, dict):
                 continue

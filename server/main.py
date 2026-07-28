@@ -527,6 +527,30 @@ except ModuleNotFoundError:
         update_stream_state,
     )
 
+try:
+    from server.model_router import (
+        NoEligibleCandidateError,
+        get_model_router_service,
+        get_native_router_engine,
+        infer_task_tags,
+        models_router as model_catalog_router,
+        router as model_router_router,
+    )
+except ModuleNotFoundError:
+    from model_router import (
+        NoEligibleCandidateError,
+        get_model_router_service,
+        get_native_router_engine,
+        infer_task_tags,
+        models_router as model_catalog_router,
+        router as model_router_router,
+    )
+
+try:
+    from server.context_engine import estimate_messages_tokens, optimize_context
+except ModuleNotFoundError:
+    from context_engine import estimate_messages_tokens, optimize_context
+
 load_dotenv()
 
 
@@ -668,7 +692,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=[
         "X-ModelMirror-Actual-Model",
@@ -697,6 +721,8 @@ app.include_router(prompt_profiles_router)
 app.include_router(plugins_router)
 app.include_router(xpert_evaluations_router)
 app.include_router(xpert_evolutions_router)
+app.include_router(model_router_router)
+app.include_router(model_catalog_router)
 app.include_router(omniroute_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -984,6 +1010,10 @@ class ChatRoutingOptions(BaseModel):
     budget_fallback: Literal["strict", "cheapest"] | None = None
 
 
+class ChatCompressionOptions(BaseModel):
+    mode: Literal["auto", "off", "standard", "strong"] = "auto"
+
+
 class ChatRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     messages: list[ChatMessage] = Field(min_length=1, max_length=80)
@@ -996,8 +1026,9 @@ class ChatRequest(BaseModel):
     tool_names: str = Field(default="", max_length=2_000)
     max_tool_iterations: int = Field(default=5, ge=1, le=20)
     prompt_suffix: str = Field(default="", max_length=4_000)
-    gateway: Literal["default", "omniroute"] = "default"
+    gateway: Literal["default", "auto", "omniroute"] = "default"
     routing: ChatRoutingOptions | None = None
+    compression: ChatCompressionOptions | None = None
 
 
 class AgentRecord(BaseModel):
@@ -1764,13 +1795,39 @@ async def collect_chat_completion_text(
     *,
     temperature: float = 0.7,
     max_tokens: int = 2048,
+    gateway_url: str | None = None,
+    gateway_key: str | None = None,
 ) -> str:
-    url, key = get_llm_gateway_config()
+    if gateway_url is not None:
+        url = gateway_url
+        key = gateway_key or ""
+    else:
+        url, key = get_llm_gateway_config()
     if not url:
         raise RuntimeError(LLM_GATEWAY_NOT_CONFIGURED_MESSAGE)
+    configured_profile = os.getenv(
+        "CHAT_TOOL_CONTEXT_COMPRESSION_MODE", "auto"
+    ).strip().lower()
+    optimization = await optimize_context(
+        chat_messages_json(messages),
+        profile=(
+            configured_profile
+            if configured_profile in {"auto", "off", "standard", "strong"}
+            else "auto"
+        ),
+        max_context_tokens=max(
+            2_048,
+            int(os.getenv("CHAT_TOOL_CONTEXT_MAX_TOKENS", "128000")),
+        ),
+        max_output_tokens=max_tokens,
+    )
+    prepared_messages = [
+        ChatMessage.model_validate(message)
+        for message in optimization.messages
+    ]
     request_payload = build_chat_payload_from_messages(
         model_id,
-        messages,
+        prepared_messages,
         stream=False,
         temperature=temperature,
         max_tokens=max_tokens,
@@ -1803,6 +1860,9 @@ async def stream_chat_toolset_text(
     runtime_context: MiddlewareContext,
     run_id: str | None = None,
     audit_store: InMemoryToolAuditStore | None = None,
+    model_id_override: str | None = None,
+    gateway_url: str | None = None,
+    gateway_key: str | None = None,
 ) -> AsyncIterator[str]:
     requested_tools = parse_chat_tool_names(payload.tool_names)
     all_tools = await workflow_mcp_provider.list_tools()
@@ -1846,10 +1906,12 @@ async def stream_chat_toolset_text(
     for iteration_index in range(payload.max_tool_iterations):
         raw_response = (
             await collect_chat_completion_text(
-                payload.model_id,
+                model_id_override or payload.model_id,
                 messages,
                 temperature=payload.temperature,
                 max_tokens=payload.max_tokens,
+                gateway_url=gateway_url,
+                gateway_key=gateway_key,
             )
         ).strip()
         decision = extract_json_decision(raw_response)
@@ -13361,11 +13423,33 @@ async def disconnect_mcp_server(session_id: str):
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
     omniroute_settings = get_omniroute_settings()
+    native_router_engine = get_native_router_engine()
+    native_router_policy = get_model_router_service().get_policy()
+    auto_gateway_requested = payload.gateway == "auto"
+    canary_native = (
+        auto_gateway_requested
+        and native_router_policy.engine == "native_canary"
+        and native_router_engine.stable_canary_selected(
+            payload.routing.session_id if payload.routing else None,
+            native_router_policy.canary_percent,
+        )
+    )
+    use_native_router = auto_gateway_requested and (
+        native_router_policy.engine == "native" or canary_native
+    )
+    shadow_native_router = (
+        auto_gateway_requested and native_router_policy.engine == "shadow"
+    )
     use_omniroute = payload.gateway == "omniroute" or (
+        auto_gateway_requested and not use_native_router
+    ) or (
         payload.gateway == "default"
         and omniroute_settings.default_router == "omniroute"
     )
-    if use_omniroute:
+    if use_native_router:
+        url = ""
+        key = ""
+    elif use_omniroute:
         url = omniroute_settings.chat_completions_url
         key = omniroute_settings.api_key
     else:
@@ -13375,12 +13459,12 @@ async def chat(payload: ChatRequest, request: Request):
             status_code=503,
             content={
                 "error": (
-                    "OmniRoute 尚未启用或未配置后端专用 API Key，"
-                    "请返回模型招聘会选择默认网关候选人。"
+                    "当前稳定调度服务尚未配置。请在系统设置检查服务状态，"
+                    "或返回模型招聘会选择普通候选人。"
                 )
             },
         )
-    if not url:
+    if not url and not use_native_router:
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -13389,11 +13473,12 @@ async def chat(payload: ChatRequest, request: Request):
     try:
         rate_limit_or_raise(client_ip(request))
         if payload.routing is not None and (
-            not use_omniroute or not is_omniroute_auto_model(payload.model_id)
+            not (use_omniroute or use_native_router)
+            or not is_omniroute_auto_model(payload.model_id)
         ):
             raise HTTPException(
                 status_code=400,
-                detail="路由模式和预算参数仅适用于 OmniRoute 的 auto/* 路由。",
+                detail="路由模式和预算参数仅适用于智能调度的 auto/* 路由。",
             )
         if (
             payload.routing is not None
@@ -13413,20 +13498,20 @@ async def chat(payload: ChatRequest, request: Request):
             raise HTTPException(
                 status_code=501,
                 detail=(
-                    "当前固定的 OmniRoute 3.8.48 镜像不会执行逐请求预算头，"
-                    "为避免隐式超支，本次请求已拒绝。请清空预算，或在完成"
-                    " 3.8.49+ 镜像审计后显式启用预算头。"
+                    "当前稳定模式不能可靠执行单次预算，为避免隐式超支，"
+                    "本次请求已拒绝。请清空预算，或在系统设置中完成连接"
+                    "测试后启用“本地试运行”。"
                 ),
             )
         if use_omniroute and payload.tool_mode != "none":
             raise HTTPException(
                 status_code=400,
-                detail="OmniRoute MVP 暂不与 Runtime MCP 工具模式组合使用。",
+                detail="智能调度暂不与 Runtime MCP 工具模式组合使用。",
             )
         validate_multimodal_content(
             payload.model_id,
             payload.messages,
-            trust_gateway_catalog=use_omniroute,
+            trust_gateway_catalog=use_omniroute or use_native_router,
         )
         validate_content(payload.messages)
     except HTTPException as exc:
@@ -13439,6 +13524,158 @@ async def chat(payload: ChatRequest, request: Request):
         return JSONResponse(
             status_code=500,
             content={"error": "后端校验请求时出错，请查看服务日志。"},
+        )
+
+    native_plan = None
+    native_target_index = 0
+    native_fallback_attempts = 0
+    native_attempt_started_at = 0.0
+    native_current_failure_recorded = False
+    if use_native_router or shadow_native_router:
+        requested_mode = payload.routing.mode if payload.routing else None
+        native_mode = native_router_engine.mode_for_request(
+            payload.model_id,
+            requested_mode,
+            native_router_policy.default_mode,
+        )
+        required_input_modalities = {"text"}
+        if any(
+            message_has_image(message.content) for message in payload.messages
+        ):
+            required_input_modalities.add("image")
+        preferred_tags: set[str] = set()
+        route_suffix = (
+            payload.model_id.lower().removeprefix("auto/").split(":", 1)[0]
+        )
+        if route_suffix in {"vision", "coding", "reasoning", "multimodal"}:
+            preferred_tags.add(route_suffix)
+        latest_user_text = next(
+            (
+                message_text(message.content)
+                for message in reversed(payload.messages)
+                if message.role == "user"
+            ),
+            "",
+        )
+        if not preferred_tags:
+            preferred_tags.update(infer_task_tags(latest_user_text))
+            if not preferred_tags:
+                preferred_tags.add("general")
+        try:
+            planning_messages = chat_messages_json(payload.messages)
+            if use_native_router:
+                planning_optimization = await optimize_context(
+                    planning_messages,
+                    profile=(
+                        payload.compression.mode
+                        if payload.compression is not None
+                        else native_router_policy.compression_mode
+                    ),
+                    max_context_tokens=128_000,
+                    max_output_tokens=payload.max_tokens,
+                )
+                planning_messages = planning_optimization.messages
+            native_plan = await native_router_engine.plan(
+                mode=native_mode,
+                session_id=payload.routing.session_id if payload.routing else None,
+                estimated_input_tokens=estimate_messages_tokens(
+                    planning_messages
+                ),
+                max_output_tokens=payload.max_tokens,
+                required_input_modalities=required_input_modalities,
+                required_capabilities=(
+                    {"tools"} if payload.tool_mode == "mcp_tools" else set()
+                ),
+                preferred_tags=preferred_tags,
+                budget_usd=payload.routing.budget_usd if payload.routing else None,
+                budget_fallback=(
+                    payload.routing.budget_fallback
+                    if payload.routing and payload.routing.budget_fallback
+                    else "cheapest"
+                ),
+                audit_engine="native" if use_native_router else "shadow",
+            )
+        except NoEligibleCandidateError as exc:
+            if use_native_router:
+                return JSONResponse(
+                    status_code=(
+                        402
+                        if exc.code == "strict_budget_exceeded"
+                        else 422
+                        if exc.code == "context_limit_exceeded"
+                        else 503
+                    ),
+                    content={"error": str(exc), "code": exc.code},
+                )
+            logger.info("Native shadow decision unavailable: %s", exc.code)
+        except Exception:
+            if use_native_router:
+                logger.exception("Native router planning failed")
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": "智能调度暂时无法生成可用路线，请检查模型服务连接。",
+                        "code": "native_router_unavailable",
+                    },
+                )
+            logger.exception("Native shadow decision failed")
+
+    if use_native_router and native_plan is not None:
+        first_native_target = native_plan.targets[0]
+        url = first_native_target.chat_completions_url
+        key = first_native_target.api_key
+
+    upstream_chat_payload = payload
+    native_compression_report: dict[str, Any] | None = None
+    if use_native_router and native_plan is not None:
+        compression_mode = (
+            payload.compression.mode
+            if payload.compression is not None
+            else native_router_policy.compression_mode
+        )
+        optimization = await optimize_context(
+            chat_messages_json(payload.messages),
+            profile=compression_mode,
+            max_context_tokens=(
+                native_plan.targets[0].context_length or 128_000
+            ),
+            max_output_tokens=payload.max_tokens,
+        )
+        native_compression_report = optimization.report.as_dict()
+        record_compression = getattr(
+            get_model_router_service().repository,
+            "record_compression_run",
+            None,
+        )
+        if callable(record_compression):
+            record_compression(
+                get_model_router_service().tenant_id,
+                request_id=native_plan.decision_id or None,
+                profile=optimization.report.profile,
+                original_tokens=optimization.report.original_tokens,
+                final_tokens=optimization.report.final_tokens,
+                fidelity_status=optimization.report.fidelity_status,
+                fallback_reason=optimization.report.fallback_reason,
+            )
+        if not optimization.report.fits_context:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error": (
+                        "当前对话仍超过候选模型的上下文限制。"
+                        "请减少附件、清理较早历史，或选择更长上下文模型。"
+                    ),
+                    "code": "context_limit_exceeded",
+                    "compression": native_compression_report,
+                },
+            )
+        upstream_chat_payload = payload.model_copy(
+            update={
+                "messages": [
+                    ChatMessage.model_validate(message)
+                    for message in optimization.messages
+                ]
+            }
         )
 
     runtime_pipeline = None
@@ -13469,9 +13706,13 @@ async def chat(payload: ChatRequest, request: Request):
 
     client = httpx.AsyncClient(**llm_client_kwargs())
     actual_model_id = (
-        omniroute_model_for_request(payload.model_id, payload.routing)
-        if use_omniroute
-        else payload.model_id
+        native_plan.targets[0].model_id
+        if use_native_router and native_plan is not None
+        else (
+            omniroute_model_for_request(payload.model_id, payload.routing)
+            if use_omniroute
+            else payload.model_id
+        )
     )
     fallback_notice = ""
 
@@ -13574,6 +13815,7 @@ async def chat(payload: ChatRequest, request: Request):
             accumulated_chunks: list[str] = []
             runtime_status = "completed"
             runtime_error: str | None = None
+            tool_stream_started_at = time.perf_counter()
             try:
                 async for delta in stream_chat_toolset_text(
                     payload,
@@ -13581,13 +13823,82 @@ async def chat(payload: ChatRequest, request: Request):
                     runtime_context=runtime_context,
                     run_id=chat_run.run_id,
                     audit_store=chat_audit_store,
+                    model_id_override=(
+                        actual_model_id if use_native_router else None
+                    ),
+                    gateway_url=url if use_native_router else None,
+                    gateway_key=key if use_native_router else None,
                 ):
                     accumulated_chunks.append(delta)
                     yield chat_sse_delta(delta)
                     await asyncio.sleep(0)
+                if use_native_router and native_plan is not None:
+                    selected_target = native_plan.targets[0]
+                    elapsed_ms = (
+                        time.perf_counter() - tool_stream_started_at
+                    ) * 1000
+                    native_router_engine.record_outcome(
+                        native_plan,
+                        selected_target,
+                        success=True,
+                        latency_ms=elapsed_ms,
+                        outcome="success",
+                    )
+                    tool_actual_cost, tool_budget_status = (
+                        native_router_engine.settle_budget(
+                            native_plan,
+                            selected_target,
+                            input_tokens=None,
+                            output_tokens=None,
+                        )
+                    )
+                    yield route_receipt_sse(
+                        {
+                            "requested_model": payload.model_id,
+                            "actual_model": selected_target.model_id,
+                            "provider": selected_target.connection_name,
+                            "strategy": native_plan.mode,
+                            "engine": "native",
+                            "reason_codes": list(native_plan.reason_codes),
+                            "latency_ms": round(elapsed_ms, 2),
+                            "tokens": {
+                                "input": None,
+                                "output": None,
+                                "total": None,
+                            },
+                            "response_cost_usd": tool_actual_cost,
+                            "cost_kind": (
+                                "actual"
+                                if tool_actual_cost is not None
+                                else "unavailable"
+                            ),
+                            "fallback_attempts": 0,
+                            "cache_hit": None,
+                            "request_id": native_plan.decision_id
+                            or runtime_task_id,
+                            "budget": {
+                                "limit_usd": native_plan.budget_usd,
+                                "mode": native_plan.budget_fallback,
+                                "status": tool_budget_status,
+                            },
+                            "compression": native_compression_report,
+                            "version": "2",
+                        }
+                    )
             except Exception as exc:
                 runtime_status = "error"
                 runtime_error = str(exc)
+                if use_native_router and native_plan is not None:
+                    native_router_engine.record_outcome(
+                        native_plan,
+                        native_plan.targets[0],
+                        success=False,
+                        latency_ms=(
+                            time.perf_counter() - tool_stream_started_at
+                        )
+                        * 1000,
+                        outcome="tool_runtime_error",
+                    )
                 logger.warning("Runtime chat toolset failed: %s", exc)
                 await record_chat_checkpoint(
                     chat_run.run_id,
@@ -13619,6 +13930,7 @@ async def chat(payload: ChatRequest, request: Request):
                         )
                     except Exception as update_exc:
                         logger.warning("Chat runtime run completion update failed: %s", update_exc)
+                yield b"data: [DONE]\n\n"
                 await client.aclose()
                 await finalize_runtime(
                     runtime_status,
@@ -13667,8 +13979,48 @@ async def chat(payload: ChatRequest, request: Request):
         gateway_url: str = url,
         gateway_key: str = key,
     ) -> httpx.Response:
-        request_payload = build_upstream_payload(payload, model_id)
+        request_payload = build_upstream_payload(upstream_chat_payload, model_id)
         if runtime_pipeline is None or runtime_context is None:
+            return await send_prepared_to_upstream(
+                model_id,
+                request_payload,
+                gateway_url=gateway_url,
+                gateway_key=gateway_key,
+            )
+
+        if use_native_router:
+            try:
+                prepared = await runtime_pipeline.before_model(
+                    ModelCallRequest(
+                        model_id=model_id,
+                        messages=chat_messages_json(upstream_chat_payload.messages),
+                        params={
+                            "temperature": upstream_chat_payload.temperature,
+                            "top_p": upstream_chat_payload.top_p,
+                            "max_tokens": upstream_chat_payload.max_tokens,
+                            "seed": upstream_chat_payload.seed,
+                            "stop": upstream_chat_payload.stop,
+                            "stream": True,
+                        },
+                    ),
+                    runtime_context,
+                )
+                runtime_payload = upstream_chat_payload.model_copy(
+                    update={
+                        "messages": [
+                            ChatMessage.model_validate(message)
+                            for message in prepared.messages
+                        ]
+                    }
+                )
+                request_payload = build_upstream_payload(
+                    runtime_payload, model_id
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Native runtime chat prepare failed; using original payload: %s",
+                    exc,
+                )
             return await send_prepared_to_upstream(
                 model_id,
                 request_payload,
@@ -13680,18 +14032,18 @@ async def chat(payload: ChatRequest, request: Request):
         try:
             runtime_request = ModelCallRequest(
                 model_id=model_id,
-                messages=chat_messages_json(payload.messages),
+                messages=chat_messages_json(upstream_chat_payload.messages),
                 params={
-                    "temperature": payload.temperature,
-                    "top_p": payload.top_p,
-                    "max_tokens": payload.max_tokens,
-                    "seed": payload.seed,
-                    "stop": payload.stop,
+                    "temperature": upstream_chat_payload.temperature,
+                    "top_p": upstream_chat_payload.top_p,
+                    "max_tokens": upstream_chat_payload.max_tokens,
+                    "seed": upstream_chat_payload.seed,
+                    "stop": upstream_chat_payload.stop,
                     "stream": True,
                 },
             )
             prepared = await runtime_pipeline.before_model(runtime_request, runtime_context)
-            runtime_payload = payload.model_copy(
+            runtime_payload = upstream_chat_payload.model_copy(
                 update={
                     "messages": [
                         ChatMessage.model_validate(message)
@@ -13738,8 +14090,73 @@ async def chat(payload: ChatRequest, request: Request):
             gateway_key=gateway_key,
         )
 
+    async def send_initial_response() -> httpx.Response:
+        nonlocal actual_model_id
+        nonlocal native_target_index
+        nonlocal native_fallback_attempts
+        nonlocal native_attempt_started_at
+        nonlocal native_current_failure_recorded
+        if not use_native_router or native_plan is None:
+            return await send_to_upstream(actual_model_id)
+
+        last_error: Exception | None = None
+        for index, target in enumerate(native_plan.targets):
+            native_target_index = index
+            native_fallback_attempts = index
+            actual_model_id = target.model_id
+            native_attempt_started_at = time.perf_counter()
+            native_current_failure_recorded = False
+            try:
+                candidate_response = await send_to_upstream(
+                    target.model_id,
+                    gateway_url=target.chat_completions_url,
+                    gateway_key=target.api_key,
+                )
+            except (httpx.TimeoutException, httpx.HTTPError) as exc:
+                last_error = exc
+                native_router_engine.record_outcome(
+                    native_plan,
+                    target,
+                    success=False,
+                    latency_ms=(time.perf_counter() - native_attempt_started_at)
+                    * 1000,
+                    outcome="transport_error",
+                )
+                native_current_failure_recorded = True
+                if index + 1 < len(native_plan.targets):
+                    continue
+                raise
+
+            retryable_status = candidate_response.status_code in {
+                401,
+                402,
+                403,
+                408,
+                409,
+                425,
+                429,
+            } or candidate_response.status_code >= 500
+            if retryable_status:
+                native_router_engine.record_outcome(
+                    native_plan,
+                    target,
+                    success=False,
+                    latency_ms=(time.perf_counter() - native_attempt_started_at)
+                    * 1000,
+                    outcome=f"http_{candidate_response.status_code}",
+                )
+                native_current_failure_recorded = True
+                if index + 1 < len(native_plan.targets):
+                    await candidate_response.aread()
+                    await candidate_response.aclose()
+                    continue
+            return candidate_response
+        if last_error is not None:
+            raise last_error
+        raise httpx.ConnectError("No native dispatch target was available.")
+
     try:
-        response = await send_to_upstream(actual_model_id)
+        response = await send_initial_response()
     except httpx.TimeoutException:
         logger.exception("OpenRouter request timed out model=%s", actual_model_id)
         await finalize_runtime("error", actual_model_id, error="timeout")
@@ -13768,11 +14185,15 @@ async def chat(payload: ChatRequest, request: Request):
             body[:500].decode("utf-8", errors="replace"),
         )
 
-        if not use_omniroute and should_fallback_gateway_to_openrouter(
+        if (
+            not use_omniroute
+            and not use_native_router
+            and should_fallback_gateway_to_openrouter(
             response.status_code,
             message,
             data,
             url,
+            )
         ):
             try:
                 response = await send_to_upstream(
@@ -13825,6 +14246,7 @@ async def chat(payload: ChatRequest, request: Request):
 
         if (
             not use_omniroute
+            and not use_native_router
             and response.status_code >= 400
             and should_fallback_model(
                 response.status_code,
@@ -13881,6 +14303,19 @@ async def chat(payload: ChatRequest, request: Request):
                     content={"error": f"{message}；兜底模型也暂不可用：{fallback_message}"},
                 )
         elif response.status_code >= 400:
+            if (
+                use_native_router
+                and native_plan is not None
+                and not native_current_failure_recorded
+            ):
+                native_router_engine.record_outcome(
+                    native_plan,
+                    native_plan.targets[native_target_index],
+                    success=False,
+                    latency_ms=(time.perf_counter() - native_attempt_started_at)
+                    * 1000,
+                    outcome=f"http_{response.status_code}",
+                )
             await finalize_runtime("error", actual_model_id, error=message)
             await client.aclose()
             return JSONResponse(
@@ -13894,6 +14329,335 @@ async def chat(payload: ChatRequest, request: Request):
     if use_omniroute and payload.routing is not None and payload.routing.mode:
         omniroute_header_state.setdefault("decision", payload.routing.mode)
     omniroute_stream_state: dict[str, Any] = {}
+
+    async def stream_native_response():
+        nonlocal actual_model_id
+        nonlocal native_target_index
+        nonlocal native_fallback_attempts
+        nonlocal native_attempt_started_at
+        current_response: httpx.Response | None = response
+        accumulated_chunks: list[str] = []
+        final_state: dict[str, Any] = {}
+        runtime_status = "error"
+        runtime_error: str | None = None
+        terminal_error_emitted = False
+        selected_target = native_plan.targets[native_target_index]
+
+        while native_target_index < len(native_plan.targets):
+            selected_target = native_plan.targets[native_target_index]
+            actual_model_id = selected_target.model_id
+            if current_response is None:
+                native_attempt_started_at = time.perf_counter()
+                try:
+                    current_response = await send_to_upstream(
+                        selected_target.model_id,
+                        gateway_url=selected_target.chat_completions_url,
+                        gateway_key=selected_target.api_key,
+                    )
+                except (httpx.TimeoutException, httpx.HTTPError) as exc:
+                    runtime_error = "transport_error"
+                    logger.warning(
+                        "Native fallback connection failed model=%s error=%s",
+                        selected_target.model_id,
+                        exc,
+                    )
+                    native_router_engine.record_outcome(
+                        native_plan,
+                        selected_target,
+                        success=False,
+                        latency_ms=(
+                            time.perf_counter() - native_attempt_started_at
+                        )
+                        * 1000,
+                        outcome="transport_error",
+                    )
+                    native_target_index += 1
+                    native_fallback_attempts = native_target_index
+                    continue
+                if current_response.status_code >= 400:
+                    status_code = current_response.status_code
+                    runtime_error = f"http_{status_code}"
+                    await current_response.aread()
+                    await current_response.aclose()
+                    current_response = None
+                    native_router_engine.record_outcome(
+                        native_plan,
+                        selected_target,
+                        success=False,
+                        latency_ms=(
+                            time.perf_counter() - native_attempt_started_at
+                        )
+                        * 1000,
+                        outcome=f"http_{status_code}",
+                    )
+                    native_target_index += 1
+                    native_fallback_attempts = native_target_index
+                    continue
+            state: dict[str, Any] = {}
+            pending: list[bytes] = []
+            candidate_chunks: list[str] = []
+            buffer = ""
+            content_started = False
+            stream_transport_finished = False
+            deferred_done = False
+            stream_exception: Exception | None = None
+            try:
+                async for chunk in current_response.aiter_text():
+                    if not chunk:
+                        continue
+                    buffer += chunk
+                    lines = buffer.splitlines(keepends=True)
+                    if buffer.endswith("\n") or buffer.endswith("\r"):
+                        complete_lines = lines
+                        buffer = ""
+                    else:
+                        complete_lines = lines[:-1]
+                        buffer = lines[-1] if lines else buffer
+
+                    for line in complete_lines:
+                        update_stream_state(line, state)
+                        if line.lstrip().startswith(":"):
+                            continue
+                        if line.strip() == "data: [DONE]":
+                            deferred_done = True
+                            continue
+                        if deferred_done and not line.strip():
+                            continue
+                        candidate_chunks.extend(sse_delta_text(line))
+                        encoded = line.encode("utf-8")
+                        if not content_started:
+                            pending.append(encoded)
+                            if state.get("content_observed"):
+                                content_started = True
+                                for pending_line in pending:
+                                    yield pending_line
+                                pending.clear()
+                        else:
+                            yield encoded
+                    await asyncio.sleep(0)
+                stream_transport_finished = True
+            except Exception as exc:
+                stream_exception = exc
+                logger.warning(
+                    "Native routed stream failed model=%s error=%s",
+                    selected_target.model_id,
+                    exc,
+                )
+            finally:
+                if buffer:
+                    update_stream_state(buffer, state)
+                    if buffer.strip() == "data: [DONE]":
+                        deferred_done = True
+                    elif not buffer.lstrip().startswith(":"):
+                        candidate_chunks.extend(sse_delta_text(buffer))
+                        encoded = buffer.encode("utf-8")
+                        if not content_started:
+                            pending.append(encoded)
+                            if state.get("content_observed"):
+                                content_started = True
+                                for pending_line in pending:
+                                    yield pending_line
+                                pending.clear()
+                        else:
+                            yield encoded
+                await current_response.aclose()
+                current_response = None
+
+            elapsed_ms = (
+                time.perf_counter() - native_attempt_started_at
+            ) * 1000
+            finish_reason = str(state.get("finish_reason") or "").strip()
+            stream_completed = stream_transport_finished and bool(
+                deferred_done
+                or state.get("_done_observed")
+                or finish_reason
+            )
+            if content_started:
+                accumulated_chunks.extend(candidate_chunks)
+                final_state = state
+                if stream_completed:
+                    runtime_status = (
+                        "output_limit"
+                        if finish_reason == "length"
+                        else "completed"
+                    )
+                    native_router_engine.record_outcome(
+                        native_plan,
+                        selected_target,
+                        success=True,
+                        latency_ms=elapsed_ms,
+                        outcome=(
+                            "output_limit"
+                            if runtime_status == "output_limit"
+                            else "success"
+                        ),
+                    )
+                else:
+                    runtime_error = "stream interrupted"
+                    native_router_engine.record_outcome(
+                        native_plan,
+                        selected_target,
+                        success=False,
+                        latency_ms=elapsed_ms,
+                        outcome="stream_interrupted",
+                    )
+                    error_payload = {
+                        "error": {
+                            "message": "模型服务连接中断，请稍后重试。"
+                        }
+                    }
+                    yield (
+                        f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+                    ).encode("utf-8")
+                    terminal_error_emitted = True
+                break
+
+            outcome = "empty_stream" if stream_exception is None else "stream_error"
+            native_router_engine.record_outcome(
+                native_plan,
+                selected_target,
+                success=False,
+                latency_ms=elapsed_ms,
+                outcome=outcome,
+            )
+            native_target_index += 1
+            native_fallback_attempts = native_target_index
+            if native_target_index >= len(native_plan.targets):
+                runtime_error = outcome
+                final_state = state
+                error_payload = {
+                    "error": {
+                        "message": (
+                            "智能调度已尝试可用候选，但模型没有返回正文。"
+                            "请检查模型服务连接或稍后重试。"
+                        )
+                    }
+                }
+                yield (
+                    f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+                ).encode("utf-8")
+                terminal_error_emitted = True
+                break
+
+            current_response = None
+
+        if (
+            runtime_status not in {"completed", "output_limit"}
+            and not terminal_error_emitted
+        ):
+            error_payload = {
+                "error": {
+                    "message": "智能调度候选暂时不可用，请检查模型服务连接后重试。"
+                }
+            }
+            yield (
+                f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
+            ).encode("utf-8")
+
+        tokens_in = final_state.get("tokens_in")
+        tokens_out = final_state.get("tokens_out")
+        tokens_total = final_state.get("tokens_total")
+        if tokens_total is None and isinstance(tokens_in, int) and isinstance(
+            tokens_out, int
+        ):
+            tokens_total = tokens_in + tokens_out
+        has_usage = any(
+            isinstance(value, int) and value > 0
+            for value in (tokens_in, tokens_out, tokens_total)
+        )
+        upstream_completed = runtime_status in {"completed", "output_limit"}
+        if upstream_completed:
+            actual_cost, budget_status = native_router_engine.settle_budget(
+                native_plan,
+                selected_target,
+                input_tokens=tokens_in if isinstance(tokens_in, int) else None,
+                output_tokens=tokens_out if isinstance(tokens_out, int) else None,
+            )
+        else:
+            actual_cost = None
+            budget_status = (
+                "released" if native_plan.budget_usd is not None else "not_set"
+            )
+        estimated_cost = (
+            selected_target.estimated_request_cost
+            if has_usage and upstream_completed
+            else None
+        )
+        response_cost = actual_cost if actual_cost is not None else estimated_cost
+        receipt_reason_codes = list(native_plan.reason_codes)
+        if runtime_status == "output_limit":
+            receipt_reason_codes.append("output_limit_reached")
+        receipt = {
+            "requested_model": payload.model_id,
+            "actual_model": selected_target.model_id,
+            "provider": selected_target.connection_name,
+            "strategy": native_plan.mode,
+            "engine": "native",
+            "reason_codes": receipt_reason_codes,
+            "latency_ms": round(
+                (time.perf_counter() - native_attempt_started_at) * 1000,
+                2,
+            ),
+            "tokens": {
+                "input": tokens_in,
+                "output": tokens_out,
+                "total": tokens_total,
+            },
+            "response_cost_usd": response_cost,
+            "cost_kind": (
+                "actual"
+                if actual_cost is not None
+                else "estimated"
+                if estimated_cost is not None
+                else "unavailable"
+            ),
+            "fallback_attempts": native_fallback_attempts,
+            "cache_hit": None,
+            "request_id": native_plan.decision_id or runtime_task_id,
+            "budget": {
+                "limit_usd": (
+                    payload.routing.budget_usd if payload.routing else None
+                ),
+                "mode": (
+                    payload.routing.budget_fallback
+                    if payload.routing and payload.routing.budget_fallback
+                    else None
+                ),
+                "status": budget_status,
+            },
+            "compression": native_compression_report
+            or {
+                "applied": False,
+                "profile": "off",
+                "original_tokens": None,
+                "final_tokens": None,
+                "saved_tokens": None,
+                "saved_ratio": None,
+                "fidelity_status": "not_needed",
+                "fallback_reason": None,
+            },
+            "version": "2",
+        }
+        yield route_receipt_sse(receipt)
+        yield b"data: [DONE]\n\n"
+        await client.aclose()
+        await finalize_runtime(
+            runtime_status,
+            selected_target.model_id,
+            "".join(accumulated_chunks),
+            runtime_error,
+        )
+
+    if use_native_router and native_plan is not None:
+        return StreamingResponse(
+            stream_native_response(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-ModelMirror-Actual-Model": actual_model_id,
+            },
+        )
 
     async def stream_response():
         buffer = ""
@@ -13977,8 +14741,8 @@ async def chat(payload: ChatRequest, request: Request):
                     empty_error = {
                         "error": {
                             "message": (
-                                "OmniRoute 返回了成功状态，但上游候选没有生成正文。"
-                                "请检查该候选的认证状态，或在 OmniRoute 中停用未认证供应商。"
+                                "模型服务返回了成功状态，但没有生成正文。"
+                                "请在系统设置中重新测试对应连接，并停用未完成认证的服务。"
                             )
                         }
                     }

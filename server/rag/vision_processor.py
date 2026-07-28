@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,7 @@ MAX_IMAGE_PIXELS = 40_000_000
 DEFAULT_MAX_IMAGE_EDGE = 2048
 DEFAULT_RENDER_DPI = 144
 DEFAULT_MAX_PAGES = 100
+_PDFIUM_RENDER_LOCK = threading.Lock()
 
 
 class VisionProcessingError(RuntimeError):
@@ -357,22 +359,33 @@ class VisionUnderstandingService:
         else:
             import pypdfium2 as pdfium
 
-            document = pdfium.PdfDocument(str(path))
-            try:
-                if page_number < 1 or page_number > len(document):
-                    raise VisionProcessingError("PDF page number is out of range.")
-                page = document[page_number - 1]
+            # PDFium can segfault when separate documents render concurrently in
+            # worker threads. Keep the native renderer serialized; VLM requests
+            # remain concurrent under the service semaphore.
+            with _PDFIUM_RENDER_LOCK:
+                document = pdfium.PdfDocument(str(path))
                 try:
-                    scale = float(config.get("render_dpi", DEFAULT_RENDER_DPI)) / 72.0
-                    bitmap = page.render(scale=scale)
+                    if page_number < 1 or page_number > len(document):
+                        raise VisionProcessingError(
+                            "PDF page number is out of range."
+                        )
+                    page = document[page_number - 1]
                     try:
-                        image = bitmap.to_pil().copy()
+                        scale = (
+                            float(
+                                config.get("render_dpi", DEFAULT_RENDER_DPI)
+                            )
+                            / 72.0
+                        )
+                        bitmap = page.render(scale=scale)
+                        try:
+                            image = bitmap.to_pil().copy()
+                        finally:
+                            bitmap.close()
                     finally:
-                        bitmap.close()
+                        page.close()
                 finally:
-                    page.close()
-            finally:
-                document.close()
+                    document.close()
         image = image.convert("RGB")
         image.thumbnail((max_edge, max_edge))
         output = io.BytesIO()

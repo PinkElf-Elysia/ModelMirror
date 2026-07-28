@@ -15,6 +15,11 @@ from typing import Any
 
 import httpx
 
+try:
+    from server.context_engine import optimize_context
+except ModuleNotFoundError:
+    from context_engine import optimize_context
+
 from .document_parser import DocumentParseError, parse_document, supported_extensions
 from .document_processor import ProcessedDocument, StructuredDocumentProcessor
 from .embedder import EmbeddingClient, EmbeddingError
@@ -38,6 +43,13 @@ from .vision_processor import (
     VisionProcessingError,
     VisionUnderstandingService,
 )
+
+
+def _safe_env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return max(minimum, default)
 
 
 class RagError(RuntimeError):
@@ -2885,6 +2897,32 @@ class RagService:
 
         context = "\n\n".join(
             f"[来源：{result.document_name}]\n{result.context_text}" for result in results
+        )
+        configured_profile = (
+            os.getenv("RAG_CONTEXT_COMPRESSION_MODE", "auto").strip().lower()
+        )
+        context_optimization = await optimize_context(
+            [
+                {
+                    "role": "assistant",
+                    "content": context,
+                    "metadata": {"kind": "rag_context"},
+                }
+            ],
+            profile=(
+                configured_profile
+                if configured_profile in {"auto", "off", "standard", "strong"}
+                else "auto"
+            ),
+            max_context_tokens=_safe_env_int(
+                "RAG_CONTEXT_MAX_TOKENS", 32_000, minimum=2_048
+            ),
+            max_output_tokens=_safe_env_int(
+                "RAG_MAX_TOKENS", 1_200
+            ),
+        )
+        context = str(
+            context_optimization.messages[0].get("content") or context
         )
         prompt = (
             "请仅依据<context>中的资料回答用户问题。如果资料不足，请明确说明不知道。"
