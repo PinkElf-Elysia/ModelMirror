@@ -1,0 +1,203 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+import { execFileSync } from "node:child_process";
+
+const CATALOG_URL =
+  "https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest";
+const TARGET_PATH = path.resolve("client/src/data/models.ts");
+const ARRAY_MARKER = "const rawCatalogModels: RawCatalogModel[] = ";
+const ARRAY_END_MARKER = "const CURRENT_TIME_SECONDS";
+const ALLOWED_INPUT_MODALITIES = new Set([
+  "text",
+  "image",
+  "audio",
+  "video",
+  "file",
+]);
+
+const AUTHOR_NAMES = new Map([
+  ["anthropic", "Anthropic"],
+  ["openai", "OpenAI"],
+  ["moonshotai", "MoonshotAI"],
+  ["google", "Google"],
+  ["x-ai", "xAI"],
+  ["qwen", "Qwen"],
+  ["deepseek", "DeepSeek"],
+  ["mistralai", "Mistral AI"],
+  ["meta-llama", "Meta"],
+  ["microsoft", "Microsoft"],
+  ["nvidia", "NVIDIA"],
+  ["minimax", "MiniMax"],
+  ["openrouter", "OpenRouter"],
+]);
+
+function readInputPath() {
+  const index = process.argv.indexOf("--input");
+  return index >= 0 ? process.argv[index + 1] : "";
+}
+
+function providerSlug(modelId) {
+  return String(modelId ?? "")
+    .replace(/^~/, "")
+    .split("/", 1)[0]
+    .trim()
+    .toLowerCase();
+}
+
+function fallbackAuthorName(slug) {
+  return slug
+    .split(/[-_]/g)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function parseExpirationDate(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
+}
+
+function pricePerMillion(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed * 1_000_000 : 0;
+}
+
+async function loadCatalog() {
+  const inputPath = readInputPath();
+  if (inputPath) {
+    return JSON.parse(await fs.readFile(path.resolve(inputPath), "utf8"));
+  }
+  const response = await fetch(CATALOG_URL, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`OpenRouter catalog request failed: HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+function parseCatalogModels(source) {
+  const start = source.indexOf(ARRAY_MARKER);
+  const end = source.indexOf(ARRAY_END_MARKER, start);
+  if (start < 0 || end < 0) {
+    throw new Error("Unable to locate rawCatalogModels in models.ts");
+  }
+  const rawJson = source
+    .slice(start + ARRAY_MARKER.length, end)
+    .replace(/;\s*$/, "");
+  return JSON.parse(rawJson);
+}
+
+function parseExistingAuthors(...sources) {
+  const authors = new Map();
+  for (const source of sources) {
+    for (const model of parseCatalogModels(source)) {
+      const slug = providerSlug(model.id);
+      if (slug && model.model_author && !authors.has(slug)) {
+        authors.set(slug, model.model_author);
+      }
+    }
+  }
+  return authors;
+}
+
+function loadBaselineSnapshot() {
+  try {
+    return execFileSync(
+      "git",
+      ["show", "HEAD:client/src/data/models.ts"],
+      { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+    );
+  } catch {
+    return "";
+  }
+}
+
+function normalizeModel(model, existingAuthors) {
+  const slug = providerSlug(model.id);
+  const inputModalities = Array.isArray(model.architecture?.input_modalities)
+    ? model.architecture.input_modalities
+        .map((value) => String(value))
+        .filter((value) => ALLOWED_INPUT_MODALITIES.has(value))
+    : [];
+  const outputModalities = Array.isArray(model.architecture?.output_modalities)
+    ? model.architecture.output_modalities.map((value) => String(value))
+    : [];
+
+  return {
+    id: String(model.id),
+    canonical_slug: String(model.canonical_slug || model.id),
+    name: String(model.name || model.id),
+    raw_description: String(model.description || ""),
+    context_length: Math.max(0, Number(model.context_length) || 0),
+    pricing: {
+      input: pricePerMillion(model.pricing?.prompt),
+      output: pricePerMillion(model.pricing?.completion),
+    },
+    input_modalities: inputModalities,
+    output_modalities: outputModalities,
+    tokenizer: String(model.architecture?.tokenizer || "Other"),
+    supported_parameters: Array.isArray(model.supported_parameters)
+      ? model.supported_parameters.map((value) => String(value))
+      : [],
+    created: Math.max(0, Number(model.created) || 0),
+    expiration_date: parseExpirationDate(model.expiration_date),
+    model_author:
+      AUTHOR_NAMES.get(slug) ||
+      existingAuthors.get(slug) ||
+      fallbackAuthorName(slug) ||
+      "Unknown",
+  };
+}
+
+async function main() {
+  const source = await fs.readFile(TARGET_PATH, "utf8");
+  const baselineSource = loadBaselineSnapshot();
+  const existingAuthors = parseExistingAuthors(
+    source,
+    ...(baselineSource ? [baselineSource] : []),
+  );
+  const payload = await loadCatalog();
+  if (!Array.isArray(payload.data)) {
+    throw new Error("OpenRouter catalog response is missing data[]");
+  }
+
+  const liveModels = payload.data
+    .filter((model) => model && typeof model.id === "string")
+    .map((model) => normalizeModel(model, existingAuthors));
+  const retainedModels = baselineSource ? parseCatalogModels(baselineSource) : [];
+  const mergedById = new Map(retainedModels.map((model) => [model.id, model]));
+  for (const model of liveModels) mergedById.set(model.id, model);
+  const normalized = [...mergedById.values()]
+    .sort(
+      (left, right) =>
+        right.created - left.created || left.id.localeCompare(right.id),
+    );
+
+  const start = source.indexOf(ARRAY_MARKER);
+  const end = source.indexOf(ARRAY_END_MARKER, start);
+  const generatedAt = new Date().toISOString();
+  const header = source
+    .slice(0, start)
+    .replace(
+      /\/\/ Generated[^\r\n]*/,
+      `// Merged with OpenRouter model catalog on ${generatedAt}.`,
+    )
+    .replace(/\/\/ Source:[^\r\n]*/, `// Source: ${CATALOG_URL}`);
+  const nextSource =
+    header +
+    ARRAY_MARKER +
+    JSON.stringify(normalized, null, 2) +
+    ";\n\n" +
+    source.slice(end);
+
+  await fs.writeFile(TARGET_PATH, nextSource, "utf8");
+  process.stdout.write(
+    `Updated ${path.relative(process.cwd(), TARGET_PATH)} with ${normalized.length} models (${liveModels.length} live, ${normalized.length - liveModels.length} retained from snapshot).\n`,
+  );
+}
+
+await main();

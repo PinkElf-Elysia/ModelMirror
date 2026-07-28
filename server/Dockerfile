@@ -38,6 +38,7 @@ COPY xpert_runtime ./xpert_runtime
 COPY client_extension ./client_extension
 COPY office_addin ./office_addin
 COPY meta_agent ./meta_agent
+COPY omniroute ./omniroute
 
 EXPOSE 8000
 

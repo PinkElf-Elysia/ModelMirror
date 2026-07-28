@@ -6,8 +6,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  chatModelOptions,
+  DEFAULT_CHAT_MODEL_ID,
+} from "../data/modelOptions";
 
-export const DEFAULT_CHAT_MODEL_ID = "openai/gpt-4o-mini";
+export { DEFAULT_CHAT_MODEL_ID };
 
 const STORAGE_KEY = "modelmirror-preferred-model-id";
 
@@ -32,10 +36,16 @@ function readInitialState(): ModelPreferenceState {
   }
 
   const storedModelId = window.localStorage.getItem(STORAGE_KEY);
+  const hasValidStoredModel = Boolean(
+    storedModelId &&
+      chatModelOptions.some((model) => model.id === storedModelId),
+  );
 
   return {
-    preferredModelId: storedModelId || DEFAULT_CHAT_MODEL_ID,
-    hasPreferredModel: Boolean(storedModelId),
+    preferredModelId: hasValidStoredModel
+      ? storedModelId!
+      : DEFAULT_CHAT_MODEL_ID,
+    hasPreferredModel: hasValidStoredModel,
   };
 }
 

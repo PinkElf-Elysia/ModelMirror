@@ -45,11 +45,11 @@ interface TeamAgentOutput {
 
 const savedTeamStorageKey = "modelmirror-expert-teams";
 const defaultFusionIds = [
-  "openai/gpt-4o-mini",
-  "deepseek/deepseek-chat",
-  "google/gemini-2.5-flash",
-  "anthropic/claude-sonnet-4",
-  "qwen/qwen-2.5-72b-instruct",
+  "openai/gpt-5.6-sol",
+  "anthropic/claude-opus-5",
+  "anthropic/claude-fable-5",
+  "moonshotai/kimi-k3",
+  "google/gemini-3.6-flash",
 ];
 
 function isLikelyChatModel(model: (typeof models)[number]) {

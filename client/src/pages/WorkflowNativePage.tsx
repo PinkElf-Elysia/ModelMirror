@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import { DEFAULT_CHAT_MODEL_ID } from "../context/ModelPreferenceContext";
 import type {
   NativeValidateResponse,
   NativeWorkflowDefinition,
@@ -34,7 +35,7 @@ function createNativeSample(withCycle = false): NativeWorkflowDefinition {
           kind: "llm",
           title: "LLM",
           description: "Draft a response from the input.",
-          modelId: "openai/gpt-4o-mini",
+          modelId: DEFAULT_CHAT_MODEL_ID,
           prompt: "请基于 {{user_input}} 给出清晰回答。",
           outputVariable: "llm_output",
         },

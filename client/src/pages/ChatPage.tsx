@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ReactMarkdown from "react-markdown";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
@@ -12,7 +19,10 @@ import {
 } from "../components/FederationRouterCard";
 import PromptSidebar from "../components/PromptSidebar";
 import ResourceNav from "../components/ResourceNav";
-import { useModelPreference } from "../context/ModelPreferenceContext";
+import {
+  DEFAULT_CHAT_MODEL_ID,
+  useModelPreference,
+} from "../context/ModelPreferenceContext";
 import { models } from "../data/models";
 import { recruitmentTheme } from "../theme/recruitmentTheme";
 import { compressImage } from "../utils/compressImage";
@@ -35,6 +45,7 @@ import {
   type ChatMessageContent,
   type ChatRuntimeMeta,
   type ChatRole,
+  type RouteReceipt,
 } from "../utils/fetchChatStream";
 
 interface UploadedImage {
@@ -57,6 +68,49 @@ interface ChatMessage {
   content: ChatMessageContent;
   displayContent: string;
   images?: UploadedImage[];
+  routeReceipt?: RouteReceipt;
+}
+
+const STREAM_UI_UPDATE_INTERVAL_MS = 80;
+
+function createStreamingUiScheduler(
+  update: () => void,
+  interval = STREAM_UI_UPDATE_INTERVAL_MS,
+) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let animationFrame: number | null = null;
+  let lastUpdateAt = 0;
+
+  const runUpdate = () => {
+    lastUpdateAt = performance.now();
+    update();
+  };
+
+  return {
+    schedule() {
+      if (timer !== null || animationFrame !== null) return;
+      const elapsed = performance.now() - lastUpdateAt;
+      const delay = Math.max(0, interval - elapsed);
+      timer = setTimeout(() => {
+        timer = null;
+        animationFrame = window.requestAnimationFrame(() => {
+          animationFrame = null;
+          runUpdate();
+        });
+      }, delay);
+    },
+    flush() {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      }
+      runUpdate();
+    },
+  };
 }
 
 interface KnowledgeBase {
@@ -227,6 +281,21 @@ function advancedParamsStorageKey(modelId: string) {
   return `modelmirror-chat-params:${modelId}`;
 }
 
+function routingSessionStorageKey(modelId: string) {
+  return `modelmirror-omniroute-session:${modelId}`;
+}
+
+function getOrCreateRoutingSessionId(modelId: string) {
+  const key = routingSessionStorageKey(modelId);
+  const existing = window.sessionStorage.getItem(key);
+  if (existing) return existing;
+  const sessionId = `mm-${createId()}`
+    .replace(/[^A-Za-z0-9._:-]/g, "")
+    .slice(0, 128);
+  window.sessionStorage.setItem(key, sessionId);
+  return sessionId;
+}
+
 function parseStopSequences(value: string) {
   return value
     .split(",")
@@ -387,7 +456,62 @@ function markdownComponents(
   };
 }
 
-function MessageBubble({
+function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
+  const costLabel =
+    receipt.cost_kind === "unavailable" || receipt.response_cost_usd == null
+      ? "成本待网关结算"
+      : `$${receipt.response_cost_usd.toFixed(6)} ${
+          receipt.cost_kind === "estimated" ? "估算" : "实际"
+        }`;
+  const tokenTotal = receipt.tokens?.total;
+
+  return (
+    <div className="mt-4 border-t border-white/10 pt-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-hire-100">路由回执</span>
+        {receipt.provider ? (
+          <span className="rounded-full border border-white/10 bg-white/[0.055] px-2 py-1 text-slate-300">
+            {receipt.provider}
+          </span>
+        ) : null}
+        {receipt.actual_model ? (
+          <span className="max-w-full break-all rounded-full border border-brand-300/20 bg-brand-300/10 px-2 py-1 text-brand-100">
+            {receipt.actual_model}
+          </span>
+        ) : null}
+      </div>
+      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 sm:grid-cols-4">
+        <div>
+          <dt>费用</dt>
+          <dd className="mt-0.5 text-slate-200">{costLabel}</dd>
+        </div>
+        <div>
+          <dt>Token</dt>
+          <dd className="mt-0.5 text-slate-200">
+            {tokenTotal == null ? "未返回" : tokenTotal.toLocaleString("zh-CN")}
+          </dd>
+        </div>
+        <div>
+          <dt>延迟</dt>
+          <dd className="mt-0.5 text-slate-200">
+            {receipt.latency_ms == null ? "未返回" : `${receipt.latency_ms} ms`}
+          </dd>
+        </div>
+        <div>
+          <dt>请求</dt>
+          <dd
+            className="mt-0.5 truncate text-slate-200"
+            title={receipt.request_id ?? ""}
+          >
+            {receipt.request_id || "未返回"}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+const MessageBubble = memo(function MessageBubble({
   message,
   isSending,
   onImageClick,
@@ -494,10 +618,13 @@ function MessageBubble({
             <span className="h-2 w-2 animate-pulse rounded-full bg-brand-300 shadow-[0_0_16px_rgba(34,211,238,0.7)]" />
           </span>
         ) : null}
+        {!isUser && message.routeReceipt ? (
+          <RouteReceiptCard receipt={message.routeReceipt} />
+        ) : null}
       </div>
     </div>
   );
-}
+});
 
 export default function ChatPage() {
   const { modelId } = useParams();
@@ -506,9 +633,12 @@ export default function ChatPage() {
   const { setPreferredModelId } = useModelPreference();
   const decodedModelId = useMemo(() => decodeModelId(modelId), [modelId]);
   const isFederationRoute = decodedModelId === federationRouteId;
+  const isOmniAutoRoute =
+    searchParams.get("gateway") === "omniroute" &&
+    (decodedModelId === "auto" || decodedModelId.startsWith("auto/"));
   const model = useMemo(
     () => {
-      if (isFederationRoute) {
+      if (isFederationRoute || isOmniAutoRoute) {
         return (
           models.find((item) => item.id === federationFallbackModelId) ??
           models.find((item) => item.id === "openai/gpt-4o") ??
@@ -518,8 +648,12 @@ export default function ChatPage() {
 
       return models.find((item) => item.id === decodedModelId);
     },
-    [decodedModelId, isFederationRoute],
+    [decodedModelId, isFederationRoute, isOmniAutoRoute],
   );
+  const omniRouteSupportsImage =
+    isOmniAutoRoute &&
+    (decodedModelId === "auto/vision" ||
+      decodedModelId.startsWith("auto/multimodal"));
   const agentInterview = useMemo<AgentInterviewPayload | null>(() => {
     const agentId = searchParams.get("agentId");
     const stored = readAgentInterview(agentId);
@@ -574,10 +708,22 @@ export default function ChatPage() {
   const [isLoadingSkills, setIsLoadingSkills] = useState(false);
   const [modelSwitchNotice, setModelSwitchNotice] = useState("");
   const [agentDefaultModelNotice, setAgentDefaultModelNotice] = useState("");
+  const [routingMode, setRoutingMode] = useState<
+    "fast" | "balanced" | "quality" | "cheap" | "reliable" | "offline"
+  >("balanced");
+  const [routingBudget, setRoutingBudget] = useState("");
+  const [routingBudgetFallback, setRoutingBudgetFallback] = useState<
+    "strict" | "cheapest"
+  >("cheapest");
+  const routingSessionId = useMemo(
+    () => (isOmniAutoRoute ? getOrCreateRoutingSessionId(decodedModelId) : ""),
+    [decodedModelId, isOmniAutoRoute],
+  );
   const chatSectionRef = useRef<HTMLElement>(null);
   const messageViewportRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoFollowStreamRef = useRef(true);
 
   const openLightbox = useCallback(
     (src: string, meta?: Partial<LightboxItem>) => {
@@ -595,10 +741,24 @@ export default function ChatPage() {
       ? `模镜面试间 - ${agentInterview.agentName}`
       : isFederationRoute
         ? "模镜面试间 - 模型联邦智能路由器"
+      : isOmniAutoRoute
+        ? `模镜面试间 - ${decodedModelId}`
       : model
         ? `模镜面试间 - ${model.name}`
         : "模镜 - AI 牛马招聘会";
-  }, [agentInterview, isFederationRoute, model]);
+  }, [
+    agentInterview,
+    decodedModelId,
+    isFederationRoute,
+    isOmniAutoRoute,
+    model,
+  ]);
+
+  useEffect(() => {
+    if (!isOmniAutoRoute) return;
+    setRuntimeToolsEnabled(false);
+    setSelectedKnowledgeBaseId("");
+  }, [isOmniAutoRoute]);
 
   useEffect(() => {
     if (window.matchMedia("(min-width: 1024px)").matches) {
@@ -650,14 +810,20 @@ export default function ChatPage() {
   }, [decodedModelId]);
 
   useEffect(() => {
-    scrollMessagesToBottom("smooth");
-  }, [messages, isSending]);
+    if (!autoFollowStreamRef.current) return;
+    const animationFrame = window.requestAnimationFrame(() => {
+      const viewport = messageViewportRef.current;
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    });
+
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [messages]);
 
   useEffect(() => {
-    if (model && !isFederationRoute) {
+    if (model && !isFederationRoute && !isOmniAutoRoute) {
       setPreferredModelId(model.id);
     }
-  }, [isFederationRoute, model, setPreferredModelId]);
+  }, [isFederationRoute, isOmniAutoRoute, model, setPreferredModelId]);
 
   useEffect(() => {
     const notice = window.sessionStorage.getItem(AGENT_DEFAULT_MODEL_NOTICE_KEY);
@@ -839,12 +1005,16 @@ export default function ChatPage() {
     const images = overrideText ? [] : uploadedImages;
     if ((!rawText && images.length === 0) || isSending || !model) return;
 
-    if (images.length > 0 && !model.input_modalities.includes("image")) {
+    if (
+      images.length > 0 &&
+      !omniRouteSupportsImage &&
+      !model.input_modalities.includes("image")
+    ) {
       setError("当前候选人不接视觉岗面试，请切换支持图片输入的候选人");
       return;
     }
 
-    if (selectedKnowledgeBaseId && images.length > 0) {
+    if (!isOmniAutoRoute && selectedKnowledgeBaseId && images.length > 0) {
       setError("知识库检索模式暂不支持图片问题，请先移除图片或取消知识库选择。");
       return;
     }
@@ -901,6 +1071,7 @@ export default function ChatPage() {
       { role: "user", content: userContent },
     ];
 
+    autoFollowStreamRef.current = true;
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setInput("");
     if (!overrideText) setUploadedImages([]);
@@ -912,9 +1083,30 @@ export default function ChatPage() {
       setRuntimeObservationError("");
     }
 
+    let pendingAssistantDelta = "";
+    const flushAssistantDelta = () => {
+      if (!pendingAssistantDelta) return;
+      const delta = pendingAssistantDelta;
+      pendingAssistantDelta = "";
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content:
+                  typeof message.content === "string"
+                    ? message.content + delta
+                    : delta,
+                displayContent: message.displayContent + delta,
+              }
+            : message,
+        ),
+      );
+    };
+    const assistantUiUpdate = createStreamingUiScheduler(flushAssistantDelta);
     let activeRuntimeMeta: ChatRuntimeMeta | null = null;
     try {
-      if (selectedKnowledgeBaseId && rawText) {
+      if (!isOmniAutoRoute && selectedKnowledgeBaseId && rawText) {
         const ragQuestion = activeSkillContent
           ? `请遵循以下 Skill 说明回答，并结合知识库检索结果。\n\n${activeSkillContent}\n\n用户问题：${rawText}`
           : rawText;
@@ -943,9 +1135,30 @@ export default function ChatPage() {
         return;
       }
 
+      const parsedRoutingBudget = routingBudget.trim()
+        ? Number(routingBudget)
+        : undefined;
+      const validRoutingBudget =
+        parsedRoutingBudget != null &&
+        Number.isFinite(parsedRoutingBudget) &&
+        parsedRoutingBudget > 0
+          ? parsedRoutingBudget
+          : undefined;
       await fetchChatStream({
-        modelId: model.id,
+        modelId: isOmniAutoRoute ? decodedModelId : model.id,
         messages: apiMessages,
+        gateway: isOmniAutoRoute ? "omniroute" : "default",
+        routing: isOmniAutoRoute
+          ? {
+              session_id: routingSessionId,
+              mode: routingMode,
+              budget_usd: validRoutingBudget,
+              budget_fallback:
+                validRoutingBudget == null
+                  ? undefined
+                  : routingBudgetFallback,
+            }
+          : undefined,
         temperature: advancedParams.temperature,
         topP: advancedParams.topP,
         maxTokens: advancedParams.maxTokens,
@@ -953,7 +1166,12 @@ export default function ChatPage() {
           ? Number(advancedParams.seed)
           : undefined,
         stop: parseStopSequences(advancedParams.stopSequences),
-        toolMode: runtimeToolsEnabled ? "mcp_tools" : "none",
+        toolMode:
+          isOmniAutoRoute
+            ? "none"
+            : runtimeToolsEnabled
+              ? "mcp_tools"
+              : "none",
         toolNames: runtimeToolNames,
         maxToolIterations: Math.min(
           20,
@@ -966,23 +1184,25 @@ export default function ChatPage() {
           setRuntimeObservation(null);
           setRuntimeObservationError("");
         },
+        onRouteReceipt: isOmniAutoRoute
+          ? (receipt) => {
+              assistantUiUpdate.flush();
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantId
+                    ? { ...message, routeReceipt: receipt }
+                    : message,
+                ),
+              );
+            }
+          : undefined,
         onDelta: (delta) => {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantId
-                ? {
-                    ...message,
-                    content:
-                      typeof message.content === "string"
-                        ? message.content + delta
-                        : delta,
-                    displayContent: message.displayContent + delta,
-                  }
-                : message,
-            ),
-          );
+          pendingAssistantDelta += delta;
+          assistantUiUpdate.schedule();
         },
+        onMessageEnd: () => assistantUiUpdate.flush(),
       });
+      assistantUiUpdate.flush();
       if (activeRuntimeMeta) {
         await loadRuntimeObservation(activeRuntimeMeta);
       }
@@ -999,6 +1219,7 @@ export default function ChatPage() {
         ),
       );
     } catch (streamError) {
+      assistantUiUpdate.flush();
       if (activeRuntimeMeta) {
         await loadRuntimeObservation(activeRuntimeMeta);
       }
@@ -1019,6 +1240,7 @@ export default function ChatPage() {
         ),
       );
     } finally {
+      assistantUiUpdate.flush();
       setIsSending(false);
     }
   }
@@ -1052,7 +1274,12 @@ export default function ChatPage() {
     setModelSwitchNotice("已切换当前使用模型；切换模型后对话上下文可能不兼容。");
     setError("");
 
-    const queryString = searchParams.toString();
+    const nextSearchParams = new URLSearchParams(searchParams);
+    if (isOmniAutoRoute) {
+      nextSearchParams.delete("gateway");
+      nextSearchParams.delete("profile");
+    }
+    const queryString = nextSearchParams.toString();
     navigate(
       `/chat/${encodeURIComponent(nextModelId)}${queryString ? `?${queryString}` : ""}`,
     );
@@ -1112,12 +1339,19 @@ export default function ChatPage() {
     (input.trim().length > 0 || uploadedImages.length > 0) &&
     !isSending &&
     !isUploadingImage;
-  const supportsImageInput = model.input_modalities.includes("image");
-  const providerName = deriveProviderFromModel(model);
-  const displayCandidateName = isFederationRoute
+  const supportsImageInput =
+    omniRouteSupportsImage || model.input_modalities.includes("image");
+  const providerName = isOmniAutoRoute
+    ? "OmniRoute"
+    : deriveProviderFromModel(model);
+  const displayCandidateName = isOmniAutoRoute
+    ? `${decodedModelId} 智能路由`
+    : isFederationRoute
     ? "模型联邦智能路由器"
     : agentInterview?.agentName ?? model.name;
-  const displayCandidateDescription = isFederationRoute
+  const displayCandidateDescription = isOmniAutoRoute
+    ? "OmniRoute 会按当前模式、预算和渠道健康状态选择实际回答模型，完成后展示路由回执。"
+    : isFederationRoute
     ? "智能路由功能正在紧锣密鼓开发中，当前将使用默认模型为您服务。"
     : agentInterview?.expertise ?? model.description;
 
@@ -1147,7 +1381,11 @@ export default function ChatPage() {
                   {agentInterview.department}
                 </span>
               ) : null}
-              {isFederationRoute ? (
+              {isOmniAutoRoute ? (
+                <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-3 py-1.5 text-xs font-semibold text-brand-100">
+                  OmniRoute · {decodedModelId}
+                </span>
+              ) : isFederationRoute ? (
                 <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1.5 text-xs font-semibold text-hire-100">
                   默认模型代班：{model.name}
                 </span>
@@ -1159,7 +1397,7 @@ export default function ChatPage() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
               {displayCandidateDescription}
             </p>
-            {isFederationRoute ? (
+            {isFederationRoute && !isOmniAutoRoute ? (
               <div className="mt-4 rounded-lg border border-hire-300/25 bg-hire-300/10 px-4 py-3 text-sm leading-6 text-hire-50">
                 智能路由功能正在紧锣密鼓开发中，当前将使用默认模型为您服务。
               </div>
@@ -1189,24 +1427,30 @@ export default function ChatPage() {
           ) : null}
 
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-300 md:mt-0 md:justify-end">
-            <label className="flex items-center gap-2 rounded-full border border-hire-300/25 bg-hire-300/10 px-3 py-1.5 text-hire-50">
-              <span className="font-semibold">当前使用模型</span>
-              <select
-                className="max-w-[220px] bg-transparent text-xs font-semibold text-white outline-none"
-                onChange={(event) => handleModelChange(event.target.value)}
-                value={model.id}
-              >
-                {models.map((item) => (
-                  <option
-                    className="bg-slate-950 text-white"
-                    key={item.id}
-                    value={item.id}
-                  >
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {isOmniAutoRoute ? (
+              <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-3 py-1.5 font-semibold text-hire-50">
+                调用 {decodedModelId}
+              </span>
+            ) : (
+              <label className="flex items-center gap-2 rounded-full border border-hire-300/25 bg-hire-300/10 px-3 py-1.5 text-hire-50">
+                <span className="font-semibold">当前使用模型</span>
+                <select
+                  className="max-w-[220px] bg-transparent text-xs font-semibold text-white outline-none"
+                  onChange={(event) => handleModelChange(event.target.value)}
+                  value={model.id}
+                >
+                  {models.map((item) => (
+                    <option
+                      className="bg-slate-950 text-white"
+                      key={item.id}
+                      value={item.id}
+                    >
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5">
               {providerName}
             </span>
@@ -1233,20 +1477,97 @@ export default function ChatPage() {
                 ? "这场面试会带上智能体的完整岗位人设。刷新页面后会重新开始。"
                 : "当前对话只在本页会话中保留。刷新页面后会重新开始。"}
             </p>
-            <div className="mt-5 grid grid-cols-2 gap-3 text-sm lg:grid-cols-1">
-              <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
-                <p className="text-xs text-slate-400">输入薪资</p>
-                <p className="mt-1 font-semibold text-white">
-                  ¥{model.price_cny.input.toFixed(2)}
+            {isOmniAutoRoute ? (
+              <div className="mt-5 space-y-3 rounded-lg border border-brand-300/20 bg-brand-300/[0.065] p-3">
+                <div>
+                  <p className="text-xs font-semibold text-brand-100">路由控制</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    设置只作用于本次 OmniRoute 会话。
+                  </p>
+                </div>
+                <label className="block text-xs font-semibold text-slate-300">
+                  调度模式
+                  <select
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
+                    disabled={isSending}
+                    onChange={(event) =>
+                      setRoutingMode(
+                        event.target.value as
+                          | "fast"
+                          | "balanced"
+                          | "quality"
+                          | "cheap"
+                          | "reliable"
+                          | "offline",
+                      )
+                    }
+                    value={routingMode}
+                  >
+                    <option value="balanced">均衡</option>
+                    <option value="fast">速度优先</option>
+                    <option value="quality">质量优先</option>
+                    <option value="cheap">成本优先</option>
+                    <option value="reliable">稳定优先</option>
+                    <option value="offline">离线优先</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-300">
+                  单次预算上限（USD，可选）
+                  <input
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
+                    disabled={isSending}
+                    inputMode="decimal"
+                    max="1000"
+                    min="0.000001"
+                    onChange={(event) => setRoutingBudget(event.target.value)}
+                    placeholder="例如 0.05"
+                    step="0.000001"
+                    type="number"
+                    value={routingBudget}
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-300">
+                  超预算处理
+                  <select
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
+                    disabled={isSending || !routingBudget.trim()}
+                    onChange={(event) =>
+                      setRoutingBudgetFallback(
+                        event.target.value as "strict" | "cheapest",
+                      )
+                    }
+                    value={routingBudgetFallback}
+                  >
+                    <option value="cheapest">改用最低成本候选</option>
+                    <option value="strict">严格拒绝并返回 402</option>
+                  </select>
+                </label>
+              </div>
+            ) : null}
+            {isOmniAutoRoute ? (
+              <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3 text-sm">
+                <p className="text-xs text-slate-400">结算方式</p>
+                <p className="mt-1 font-semibold text-white">按实际路由模型计费</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  最终费用以回答下方的路由回执为准。
                 </p>
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
-                <p className="text-xs text-slate-400">输出薪资</p>
-                <p className="mt-1 font-semibold text-white">
-                  ¥{model.price_cny.output.toFixed(2)}
-                </p>
+            ) : (
+              <div className="mt-5 grid grid-cols-2 gap-3 text-sm lg:grid-cols-1">
+                <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
+                  <p className="text-xs text-slate-400">输入薪资</p>
+                  <p className="mt-1 font-semibold text-white">
+                    ¥{model.price_cny.input.toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
+                  <p className="text-xs text-slate-400">输出薪资</p>
+                  <p className="mt-1 font-semibold text-white">
+                    ¥{model.price_cny.output.toFixed(2)}
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
             <div className="mt-4 rounded-lg border border-white/10 bg-[linear-gradient(135deg,rgba(36,217,255,0.10),rgba(124,58,237,0.08))] p-3">
               <p className="text-xs text-slate-400">输入模态</p>
               <p className="mt-2 text-sm font-semibold text-white">
@@ -1280,6 +1601,14 @@ export default function ChatPage() {
 
               <div
                 className="flex-1 overflow-y-auto px-4 py-5 sm:px-6"
+                onScroll={(event) => {
+                  const viewport = event.currentTarget;
+                  autoFollowStreamRef.current =
+                    viewport.scrollHeight -
+                      viewport.scrollTop -
+                      viewport.clientHeight <
+                    96;
+                }}
                 ref={messageViewportRef}
               >
                 {messages.length === 0 ? (
@@ -1290,14 +1619,18 @@ export default function ChatPage() {
                       src="/logo.png"
                     />
                     <h2 className="mt-5 text-xl font-semibold text-white">
-                      {isFederationRoute
+                      {isOmniAutoRoute
+                        ? "智能调度员已就绪"
+                        : isFederationRoute
                         ? "智能路由调度员正在候场..."
                         : agentInterview
                         ? `正在等待 ${agentInterview.agentName} 入场...`
                         : recruitmentTheme.interviewWaiting}
                     </h2>
                     <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
-                      {isFederationRoute
+                      {isOmniAutoRoute
+                        ? "描述任务后，OmniRoute 会选择实际模型，并在回答末尾给出供应方、Token、成本与请求编号。"
+                        : isFederationRoute
                         ? "先由默认模型代班回答。后续路由上线后，会自动按任务挑选更合适的候选人。"
                         : agentInterview
                         ? "向这位 AI 专家描述你的任务，系统会自动带上他的完整简历和工作方式。"
@@ -1324,7 +1657,7 @@ export default function ChatPage() {
                   <span>{error}</span>
                   <button
                     className="w-fit rounded-full border border-rose-200/30 bg-rose-200/10 px-3 py-1.5 text-xs font-semibold text-rose-50 transition hover:bg-rose-200/20"
-                    onClick={() => handleModelChange("deepseek/deepseek-chat")}
+                    onClick={() => handleModelChange(DEFAULT_CHAT_MODEL_ID)}
                     type="button"
                   >
                     切换至国内可用模型
@@ -1347,11 +1680,19 @@ export default function ChatPage() {
                     <span className="shrink-0 text-hire-100">知识库</span>
                     <select
                       className="min-w-0 flex-1 rounded-full border border-white/10 bg-ink-950/80 px-3 py-2 text-xs font-semibold text-white outline-none transition focus:border-hire-300/50 focus:ring-4 focus:ring-hire-300/10"
-                      disabled={isSending || isLoadingKnowledgeBases}
+                      disabled={
+                        isSending ||
+                        isLoadingKnowledgeBases ||
+                        isOmniAutoRoute
+                      }
                       onChange={(event) => setSelectedKnowledgeBaseId(event.target.value)}
                       value={selectedKnowledgeBaseId}
                     >
-                      <option value="">不使用知识库，直接面试</option>
+                      <option value="">
+                        {isOmniAutoRoute
+                          ? "智能调度暂不组合知识库"
+                          : "不使用知识库，直接面试"}
+                      </option>
                       {knowledgeBases.map((kb) => (
                         <option className="bg-slate-950 text-white" key={kb.id} value={kb.id}>
                           {kb.name}（{kb.document_count} 份文档）
@@ -1402,14 +1743,16 @@ export default function ChatPage() {
                         Runtime 工具模式 Beta
                       </p>
                       <p className="mt-1 text-xs leading-5 text-slate-400">
-                        开启后，聊天会按 JSON 决策调用已注册 MCP 工具；默认关闭。
+                        {isOmniAutoRoute
+                          ? "智能调度暂不与本地 MCP 工具循环组合使用。"
+                          : "开启后，聊天会按 JSON 决策调用已注册 MCP 工具；默认关闭。"}
                       </p>
                     </div>
                     <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
                       <input
                         checked={runtimeToolsEnabled}
                         className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
-                        disabled={isSending}
+                        disabled={isSending || isOmniAutoRoute}
                         onChange={(event) =>
                           setRuntimeToolsEnabled(event.target.checked)
                         }

@@ -508,6 +508,25 @@ except ModuleNotFoundError:
         use_execution_budget,
     )
 
+try:
+    from server.omniroute import (
+        build_route_receipt,
+        get_omniroute_settings,
+        parse_omniroute_headers,
+        route_receipt_sse,
+        router as omniroute_router,
+        update_stream_state,
+    )
+except ModuleNotFoundError:
+    from omniroute import (
+        build_route_receipt,
+        get_omniroute_settings,
+        parse_omniroute_headers,
+        route_receipt_sse,
+        router as omniroute_router,
+        update_stream_state,
+    )
+
 load_dotenv()
 
 
@@ -678,6 +697,7 @@ app.include_router(prompt_profiles_router)
 app.include_router(plugins_router)
 app.include_router(xpert_evaluations_router)
 app.include_router(xpert_evolutions_router)
+app.include_router(omniroute_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -945,6 +965,25 @@ class ChatMessage(BaseModel):
     content: ChatContent
 
 
+class ChatRoutingOptions(BaseModel):
+    session_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    mode: Literal[
+        "fast",
+        "balanced",
+        "quality",
+        "cheap",
+        "reliable",
+        "offline",
+    ] | None = None
+    budget_usd: float | None = Field(default=None, gt=0, le=1000)
+    budget_fallback: Literal["strict", "cheapest"] | None = None
+
+
 class ChatRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     messages: list[ChatMessage] = Field(min_length=1, max_length=80)
@@ -957,6 +996,8 @@ class ChatRequest(BaseModel):
     tool_names: str = Field(default="", max_length=2_000)
     max_tool_iterations: int = Field(default=5, ge=1, le=20)
     prompt_suffix: str = Field(default="", max_length=4_000)
+    gateway: Literal["default", "omniroute"] = "default"
+    routing: ChatRoutingOptions | None = None
 
 
 class AgentRecord(BaseModel):
@@ -1269,7 +1310,12 @@ def validate_image_url(url: str) -> None:
         )
 
 
-def validate_multimodal_content(model_id: str, messages: list[ChatMessage]) -> None:
+def validate_multimodal_content(
+    model_id: str,
+    messages: list[ChatMessage],
+    *,
+    trust_gateway_catalog: bool = False,
+) -> None:
     has_image = False
 
     for message in messages:
@@ -1288,7 +1334,11 @@ def validate_multimodal_content(model_id: str, messages: list[ChatMessage]) -> N
             has_image = True
             validate_image_url(part.image_url.url)
 
-    if has_image and not model_supports_image_input(model_id):
+    if (
+        has_image
+        and not trust_gateway_catalog
+        and not model_supports_image_input(model_id)
+    ):
         raise HTTPException(
             status_code=400,
             detail="当前模型不支持图片输入，请切换支持多模态的模型。",
@@ -1467,6 +1517,52 @@ def llm_gateway_headers(key: str) -> dict[str, str]:
         "X-Title": title,
         "X-OpenRouter-Title": title,
     }
+
+
+def is_omniroute_auto_model(model_id: str) -> bool:
+    return model_id == "auto" or model_id.startswith("auto/")
+
+
+def omniroute_model_for_request(
+    model_id: str,
+    routing: ChatRoutingOptions | None,
+) -> str:
+    """Map UI presets to v3.8.x auto aliases while retaining header controls.
+
+    OmniRoute 3.8.48 publishes the aliases but does not apply
+    X-OmniRoute-Mode. Later releases support the header. Sending the matching
+    alias makes the intent effective on both contracts without copying the
+    router's scoring algorithm.
+    """
+
+    if model_id != "auto" or routing is None or routing.mode is None:
+        return model_id
+    return {
+        "balanced": "auto",
+        "fast": "auto/fast",
+        "quality": "auto/smart",
+        "cheap": "auto/cheap",
+        "reliable": "auto/lkgp",
+        "offline": "auto/offline",
+    }[routing.mode]
+
+
+def omniroute_routing_headers(
+    routing: ChatRoutingOptions | None,
+) -> dict[str, str]:
+    if routing is None:
+        return {}
+    headers: dict[str, str] = {}
+    if routing.mode is not None:
+        headers["X-OmniRoute-Mode"] = routing.mode
+    if routing.budget_usd is not None:
+        headers["X-OmniRoute-Budget"] = format(routing.budget_usd, ".12g")
+    if routing.budget_fallback is not None:
+        headers["X-OmniRoute-Budget-Fallback"] = routing.budget_fallback
+    if routing.session_id is not None:
+        headers["X-OmniRoute-Session-Id"] = routing.session_id
+        headers["X-Session-Id"] = routing.session_id
+    return headers
 
 
 def openrouter_headers() -> dict[str, str]:
@@ -13264,7 +13360,26 @@ async def disconnect_mcp_server(session_id: str):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
-    url, key = get_llm_gateway_config()
+    omniroute_settings = get_omniroute_settings()
+    use_omniroute = payload.gateway == "omniroute" or (
+        payload.gateway == "default"
+        and omniroute_settings.default_router == "omniroute"
+    )
+    if use_omniroute:
+        url = omniroute_settings.chat_completions_url
+        key = omniroute_settings.api_key
+    else:
+        url, key = get_llm_gateway_config()
+    if use_omniroute and not omniroute_settings.configured:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": (
+                    "OmniRoute 尚未启用或未配置后端专用 API Key，"
+                    "请返回模型招聘会选择默认网关候选人。"
+                )
+            },
+        )
     if not url:
         return JSONResponse(
             status_code=500,
@@ -13273,7 +13388,46 @@ async def chat(payload: ChatRequest, request: Request):
 
     try:
         rate_limit_or_raise(client_ip(request))
-        validate_multimodal_content(payload.model_id, payload.messages)
+        if payload.routing is not None and (
+            not use_omniroute or not is_omniroute_auto_model(payload.model_id)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="路由模式和预算参数仅适用于 OmniRoute 的 auto/* 路由。",
+            )
+        if (
+            payload.routing is not None
+            and payload.routing.budget_fallback is not None
+            and payload.routing.budget_usd is None
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="设置超预算处理方式时必须同时提供预算上限。",
+            )
+        if (
+            use_omniroute
+            and payload.routing is not None
+            and payload.routing.budget_usd is not None
+            and not omniroute_settings.budget_headers_enabled
+        ):
+            raise HTTPException(
+                status_code=501,
+                detail=(
+                    "当前固定的 OmniRoute 3.8.48 镜像不会执行逐请求预算头，"
+                    "为避免隐式超支，本次请求已拒绝。请清空预算，或在完成"
+                    " 3.8.49+ 镜像审计后显式启用预算头。"
+                ),
+            )
+        if use_omniroute and payload.tool_mode != "none":
+            raise HTTPException(
+                status_code=400,
+                detail="OmniRoute MVP 暂不与 Runtime MCP 工具模式组合使用。",
+            )
+        validate_multimodal_content(
+            payload.model_id,
+            payload.messages,
+            trust_gateway_catalog=use_omniroute,
+        )
         validate_content(payload.messages)
     except HTTPException as exc:
         return JSONResponse(
@@ -13314,7 +13468,11 @@ async def chat(payload: ChatRequest, request: Request):
         logger.warning("Xpert runtime chat setup failed; falling back direct path: %s", exc)
 
     client = httpx.AsyncClient(**llm_client_kwargs())
-    actual_model_id = payload.model_id
+    actual_model_id = (
+        omniroute_model_for_request(payload.model_id, payload.routing)
+        if use_omniroute
+        else payload.model_id
+    )
     fallback_notice = ""
 
     async def finalize_runtime(
@@ -13490,11 +13648,14 @@ async def chat(payload: ChatRequest, request: Request):
         gateway_key: str = key,
     ) -> httpx.Response:
         logger.info("Sending chat request to model=%s gateway=%s", model_id, gateway_url)
+        request_headers = llm_gateway_headers(gateway_key)
+        if use_omniroute and gateway_url == url:
+            request_headers.update(omniroute_routing_headers(payload.routing))
         return await client.send(
             client.build_request(
                 "POST",
                 gateway_url,
-                headers=llm_gateway_headers(gateway_key),
+                headers=request_headers,
                 json=request_payload,
             ),
             stream=True,
@@ -13607,7 +13768,7 @@ async def chat(payload: ChatRequest, request: Request):
             body[:500].decode("utf-8", errors="replace"),
         )
 
-        if should_fallback_gateway_to_openrouter(
+        if not use_omniroute and should_fallback_gateway_to_openrouter(
             response.status_code,
             message,
             data,
@@ -13662,12 +13823,16 @@ async def chat(payload: ChatRequest, request: Request):
                     },
                 )
 
-        if response.status_code >= 400 and should_fallback_model(
-            response.status_code,
-            message,
-            data,
-            actual_model_id,
-            payload.messages,
+        if (
+            not use_omniroute
+            and response.status_code >= 400
+            and should_fallback_model(
+                response.status_code,
+                message,
+                data,
+                actual_model_id,
+                payload.messages,
+            )
         ):
             fallback_model_id = fallback_model_for(payload.messages)
             if any(message_has_image(message.content) for message in payload.messages) and not model_supports_image_input(fallback_model_id):
@@ -13723,11 +13888,20 @@ async def chat(payload: ChatRequest, request: Request):
                 content={"error": message},
             )
 
+    omniroute_header_state = (
+        parse_omniroute_headers(response.headers) if use_omniroute else {}
+    )
+    if use_omniroute and payload.routing is not None and payload.routing.mode:
+        omniroute_header_state.setdefault("decision", payload.routing.mode)
+    omniroute_stream_state: dict[str, Any] = {}
+
     async def stream_response():
         buffer = ""
         accumulated_chunks: list[str] = []
         runtime_status = "completed"
         runtime_error: str | None = None
+        stream_completed = False
+        deferred_done = False
         try:
             if fallback_notice:
                 payload_json = json.dumps(
@@ -13751,11 +13925,19 @@ async def chat(payload: ChatRequest, request: Request):
                     buffer = lines[-1] if lines else buffer
 
                 for line in complete_lines:
+                    if use_omniroute:
+                        update_stream_state(line, omniroute_stream_state)
                     if line.lstrip().startswith(":"):
+                        continue
+                    if use_omniroute and line.strip() == "data: [DONE]":
+                        deferred_done = True
+                        continue
+                    if use_omniroute and deferred_done and not line.strip():
                         continue
                     accumulated_chunks.extend(sse_delta_text(line))
                     yield line.encode("utf-8")
                 await asyncio.sleep(0)
+            stream_completed = True
         except httpx.HTTPError:
             runtime_status = "error"
             runtime_error = "stream interrupted"
@@ -13771,9 +13953,40 @@ async def chat(payload: ChatRequest, request: Request):
                 'data: {"error":{"message":"后端转发流式响应时出错，请查看服务日志。"}}\n\n'
             ).encode("utf-8")
         finally:
-            if buffer and not buffer.lstrip().startswith(":"):
-                accumulated_chunks.extend(sse_delta_text(buffer))
-                yield buffer.encode("utf-8")
+            if buffer:
+                if use_omniroute:
+                    update_stream_state(buffer, omniroute_stream_state)
+                if buffer.lstrip().startswith(":"):
+                    pass
+                elif use_omniroute and buffer.strip() == "data: [DONE]":
+                    deferred_done = True
+                else:
+                    accumulated_chunks.extend(sse_delta_text(buffer))
+                    yield buffer.encode("utf-8")
+
+            if use_omniroute and stream_completed and runtime_status == "completed":
+                receipt = build_route_receipt(
+                    requested_model=payload.model_id,
+                    header_state=omniroute_header_state,
+                    stream_state=omniroute_stream_state,
+                )
+                yield route_receipt_sse(receipt)
+                if not omniroute_stream_state.get("content_observed"):
+                    runtime_status = "error"
+                    runtime_error = "empty upstream response"
+                    empty_error = {
+                        "error": {
+                            "message": (
+                                "OmniRoute 返回了成功状态，但上游候选没有生成正文。"
+                                "请检查该候选的认证状态，或在 OmniRoute 中停用未认证供应商。"
+                            )
+                        }
+                    }
+                    yield (
+                        f"data: {json.dumps(empty_error, ensure_ascii=False)}\n\n"
+                    ).encode("utf-8")
+            if deferred_done:
+                yield b"data: [DONE]\n\n"
             await response.aclose()
             await client.aclose()
             await finalize_runtime(
@@ -13789,6 +14002,8 @@ async def chat(payload: ChatRequest, request: Request):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-ModelMirror-Actual-Model": actual_model_id,
+            "X-ModelMirror-Actual-Model": (
+                omniroute_header_state.get("actual_model") or actual_model_id
+            ),
         },
     )

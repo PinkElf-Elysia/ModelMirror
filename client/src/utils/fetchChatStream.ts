@@ -25,9 +25,39 @@ export interface ChatRuntimeMeta {
   toolMode: string;
 }
 
+export type ChatGateway = "default" | "omniroute";
+
+export interface ChatRoutingOptions {
+  session_id?: string;
+  mode?: "fast" | "balanced" | "quality" | "cheap" | "reliable" | "offline";
+  budget_usd?: number;
+  budget_fallback?: "strict" | "cheapest";
+}
+
+export interface RouteReceipt {
+  requested_model: string;
+  actual_model?: string | null;
+  provider?: string | null;
+  strategy?: string | null;
+  latency_ms?: number | null;
+  tokens?: {
+    input?: number | null;
+    output?: number | null;
+    total?: number | null;
+  };
+  response_cost_usd?: number | null;
+  cost_kind: "actual" | "estimated" | "unavailable";
+  fallback_attempts?: number;
+  cache_hit?: boolean | null;
+  request_id?: string | null;
+  version?: string | null;
+}
+
 interface FetchChatStreamOptions {
   modelId: string;
   messages: ChatApiMessage[];
+  gateway?: ChatGateway;
+  routing?: ChatRoutingOptions;
   temperature?: number;
   topP?: number;
   maxTokens?: number;
@@ -39,6 +69,8 @@ interface FetchChatStreamOptions {
   promptSuffix?: string;
   signal?: AbortSignal;
   onRuntimeMeta?: (meta: ChatRuntimeMeta) => void;
+  onRouteReceipt?: (receipt: RouteReceipt) => void;
+  onMessageEnd?: () => void;
   onDelta: (text: string) => void;
 }
 
@@ -173,20 +205,47 @@ function readStreamError(payload: unknown) {
   return "";
 }
 
-function handleSseEvent(eventText: string, onDelta: (text: string) => void) {
+function handleSseEvent(
+  eventText: string,
+  onDelta: (text: string) => void,
+  onRouteReceipt?: (receipt: RouteReceipt) => void,
+  onMessageEnd?: () => void,
+) {
+  const eventName = eventText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("event:"))
+    ?.slice(6)
+    .trim();
   const dataLines = eventText
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trim());
 
+  if (eventName === "message_end") {
+    onMessageEnd?.();
+    return;
+  }
+
   for (const data of dataLines) {
-    if (!data || data === "[DONE]") continue;
+    if (!data) continue;
+    if (data === "[DONE]") {
+      onMessageEnd?.();
+      continue;
+    }
 
     let payload: unknown;
     try {
       payload = JSON.parse(data) as unknown;
     } catch {
+      continue;
+    }
+
+    if (eventName === "route_receipt") {
+      if (onRouteReceipt && payload && typeof payload === "object") {
+        onRouteReceipt(payload as RouteReceipt);
+      }
       continue;
     }
 
@@ -203,6 +262,8 @@ function handleSseEvent(eventText: string, onDelta: (text: string) => void) {
 export async function fetchChatStream({
   modelId,
   messages,
+  gateway = "default",
+  routing,
   temperature = 0.7,
   topP,
   maxTokens = 2048,
@@ -214,6 +275,8 @@ export async function fetchChatStream({
   promptSuffix = "",
   signal,
   onRuntimeMeta,
+  onRouteReceipt,
+  onMessageEnd,
   onDelta,
 }: FetchChatStreamOptions) {
   const response = await fetch("/api/chat", {
@@ -222,6 +285,8 @@ export async function fetchChatStream({
     body: JSON.stringify({
       model_id: modelId,
       messages,
+      gateway,
+      routing,
       temperature,
       top_p: topP,
       max_tokens: maxTokens,
@@ -270,6 +335,12 @@ export async function fetchChatStream({
 
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  let messageEnded = false;
+  const emitMessageEnd = () => {
+    if (messageEnded) return;
+    messageEnded = true;
+    onMessageEnd?.();
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -281,7 +352,7 @@ export async function fetchChatStream({
 
     for (const eventText of events) {
       try {
-        handleSseEvent(eventText, onDelta);
+        handleSseEvent(eventText, onDelta, onRouteReceipt, emitMessageEnd);
       } catch (error) {
         console.error("ModelMirror chat stream event failed", error);
         throw error;
@@ -292,10 +363,11 @@ export async function fetchChatStream({
   buffer += decoder.decode();
   if (buffer.trim()) {
     try {
-      handleSseEvent(buffer, onDelta);
+      handleSseEvent(buffer, onDelta, onRouteReceipt, emitMessageEnd);
     } catch (error) {
       console.error("ModelMirror chat stream tail failed", error);
       throw error;
     }
   }
+  emitMessageEnd();
 }
