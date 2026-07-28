@@ -164,7 +164,10 @@ export default function ModelListPage() {
     setSearchTerm("");
   }
 
-  const activeFilterCount = countActiveFilters(filters);
+  const hasSearchTerm = searchTerm.trim().length > 0;
+  const hasActiveCriteria = hasSearchTerm || !isDefaultFilters(filters);
+  const activeFilterCount =
+    countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
   const readyFilteredCount = filteredModels.filter(
     (model) => model.interaction_status === "ready",
   ).length;
@@ -252,7 +255,7 @@ export default function ModelListPage() {
               />
             </label>
 
-            {!isDefaultFilters(filters) ? (
+            {hasActiveCriteria ? (
               <button
                 className="h-12 rounded-full border border-white/10 bg-white/[0.07] px-5 text-sm font-semibold text-slate-100 transition duration-200 hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 active:scale-[0.98]"
                 onClick={clearFilters}
@@ -286,7 +289,6 @@ export default function ModelListPage() {
             matchingCount={filteredModels.length}
             modelAuthorOptions={modelAuthorOptions}
             onChange={setFilters}
-            onClear={clearFilters}
             seriesOptions={seriesOptions}
             totalCount={models.length}
           />

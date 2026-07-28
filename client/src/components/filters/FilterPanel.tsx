@@ -25,7 +25,6 @@ interface FilterPanelProps {
   seriesOptions: Option<string>[];
   totalCount: number;
   onChange: (filters: ModelFilterState) => void;
-  onClear: () => void;
 }
 
 interface AccordionSectionProps {
@@ -90,9 +89,9 @@ export default function FilterPanel({
   seriesOptions,
   totalCount,
   onChange,
-  onClear,
 }: FilterPanelProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [desktopOpen, setDesktopOpen] = useState(true);
 
   function update<K extends keyof ModelFilterState>(
     key: K,
@@ -101,17 +100,12 @@ export default function FilterPanel({
     onChange({ ...filters, [key]: value });
   }
 
-  function handleClear() {
-    onClear();
-    setMobileOpen(false);
-  }
-
   const providerRadioOptions = [
     { value: "all" as const, label: "全部" },
     ...providerOptions,
   ];
 
-  const panelContent = (
+  const panelContent = (onDismiss: () => void) => (
     <div className="surface-panel overflow-hidden rounded-lg">
       <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -123,8 +117,8 @@ export default function FilterPanel({
           </p>
         </div>
         <button
-          className="w-fit rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
-          onClick={handleClear}
+          className="w-fit rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100 active:scale-[0.98]"
+          onClick={onDismiss}
           type="button"
         >
           撤下招工牌
@@ -300,14 +294,32 @@ export default function FilterPanel({
                 </button>
               </div>
               <div className="max-h-[calc(84vh-3.5rem)] overflow-y-auto p-3">
-                {panelContent}
+                {panelContent(() => setMobileOpen(false))}
               </div>
             </div>
           </div>
         ) : null}
       </div>
 
-      <div className="hidden lg:block">{panelContent}</div>
+      <div className="hidden lg:block">
+        {desktopOpen ? (
+          panelContent(() => setDesktopOpen(false))
+        ) : (
+          <button
+            aria-expanded="false"
+            className="surface-panel flex w-full items-center justify-between gap-3 rounded-lg px-4 py-3 text-left transition hover:border-hire-300/30 hover:bg-white/[0.055]"
+            onClick={() => setDesktopOpen(true)}
+            type="button"
+          >
+            <span className="text-sm font-semibold text-slate-300">
+              招工牌已撤下
+            </span>
+            <span className="text-xs font-semibold text-hire-100">
+              重新展开岗位筛选
+            </span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
