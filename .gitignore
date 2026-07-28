@@ -52,6 +52,7 @@ server/prompts/storage/
 server/xpert_runtime/storage/
 server/datax/storage/
 server/toolsets/storage/
+server/model_router/storage/
 server/mcp/installed/
 server/workflow_sandboxes/
 server/office_host/certs/

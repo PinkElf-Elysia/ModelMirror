@@ -1,12 +1,18 @@
 # OmniRoute 侧车集成
 
-OmniRoute 作为可选路由侧车接入“模型招聘会”。默认聊天仍走
-newAPI/OpenRouter；只有显式选择 OmniRoute 模型或 `auto/*` 路由时才进入
-侧车。
+OmniRoute 作为可选路由侧车和回退路径接入“模型招聘会”。默认聊天仍走
+newAPI/OpenRouter；`auto/*` 的实际引擎由本地策略决定，可处于
+`sidecar → shadow → native_canary → native`。当前原生阶段 0–4 的实现、
+用户契约和门禁见 [MODEL_ROUTER_NATIVE.md](./MODEL_ROUTER_NATIVE.md)。
 
-侧车现在被定位为兼容层、能力验证环境和故障隔离边界，不再作为长期产品
-形态。后续路线由“持续加深侧车集成”调整为“从侧车验证逐步收敛到稳定的
-ModelMirror 本地原生实现”。
+> **进度冻结（2026-07-28）**：本地路由仅完成初步验收，尚未定级为稳定
+> 原生实现。暂停一切原生增量和新的 OmniRoute 行为对齐；仅继续缺陷修复
+> 与回归验证。侧车必须保留为兼容层、能力验证环境和故障隔离边界，
+> `native` 不得设为默认。冻结期间转向与本模块解耦的其他产品优化，后续
+> 是否继续原生化必须由项目维护人完成全面检验后明确决定。
+
+长期方向仍是从侧车验证逐步收敛到稳定的 ModelMirror 本地原生实现，但这
+只是保留的架构方向，不代表当前排期、稳定性承诺或删除侧车的授权。
 
 ## 供应链固定
 
@@ -160,10 +166,18 @@ OmniRoute 内建立多个边界清晰的候选组合；ModelMirror 不在本地�
 OmniRoute 运行、能纳入 ModelMirror 的测试与权限边界、对未来多租户没有
 结构性阻碍。否则只参考行为和接口，不复制实现。
 
-## 回退
+## 侧车回退
 
-设置 `OMNIROUTE_ENABLED=false`、`MODEL_ROUTER_DEFAULT=newapi`，重新创建
-后端，然后停止侧车：
+原生调度紧急回退时先显式设置 `MODEL_ROUTER_ENGINE=sidecar` 并重新创建
+后端。该值会只读覆盖 SQLite 策略，不删除任何原生记录：
+
+```powershell
+docker compose -p modelmirror up -d --force-recreate server
+curl.exe http://localhost:8000/api/router/status
+```
+
+若需要完全关闭 auto 侧车能力，再设置 `OMNIROUTE_ENABLED=false`、
+`MODEL_ROUTER_DEFAULT=newapi`，重新创建后端并停止侧车：
 
 ```powershell
 docker compose -p modelmirror --profile omniroute stop omniroute

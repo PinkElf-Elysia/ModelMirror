@@ -59,7 +59,7 @@ export default function FederationRouterCard() {
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
           <Link
             className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(251,146,60,0.22)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
-            to="/chat/auto?gateway=omniroute"
+            to="/chat/auto"
           >
             交给智能路由
           </Link>

@@ -6,7 +6,7 @@ from .catalog import OmniRouteCatalogService
 from .config import get_omniroute_settings
 from .schemas import ModelCatalogResponse, RouterStatusResponse
 
-router = APIRouter(prefix="/api/models", tags=["omniroute"])
+router = APIRouter(prefix="/api/omniroute", tags=["omniroute-diagnostics"])
 catalog_service = OmniRouteCatalogService(get_omniroute_settings)
 
 

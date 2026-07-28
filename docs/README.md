@@ -17,6 +17,8 @@
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | 开发、生产、Docker、日志和运维建议。 |
 | [MCP_INTEGRATION.md](./MCP_INTEGRATION.md) | MCP stdio 集成、REST API、前端交互和测试指南。 |
 | [RAG_INTEGRATION.md](./RAG_INTEGRATION.md) | 本地 RAG 资料库、文档上传、向量检索、聊天引用和测试指南。 |
+| [MODEL_ROUTER_NATIVE.md](./MODEL_ROUTER_NATIVE.md) | 原生智能调度、上下文优化、灰度门禁、预算审计与回退指南。 |
+| [OMNIROUTE_INTEGRATION.md](./OMNIROUTE_INTEGRATION.md) | OmniRoute 侧车兼容层、供应链固定与历史经验教训。 |
 | [XPERT_RUNTIME.md](./XPERT_RUNTIME.md) | Xpert 发布、Goal、Handoff、文件记忆、Knowledge Execute 与运行契约。 |
 | [XPERT_APP_API.md](./XPERT_APP_API.md) | Xpert App 部署、分享、兼容 API、凭据、配额和回滚。 |
 | [XPERT_FREEZE.md](./XPERT_FREEZE.md) | Xpert 冻结快照、维护边界、延期项、技术债和回归入口。 |

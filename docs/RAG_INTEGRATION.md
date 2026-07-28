@@ -37,7 +37,7 @@ data_source -> image_understanding -> structured_processor
             -> embedding -> dual_index -> retrieval
 ```
 
-- PDF 页面由 `pypdfium2`/PDFium 渲染，图片由 Pillow 解码；上传校验真实格式、声明 MIME、损坏文件、10MB 文件限制和 40MP 解压像素限制。
+- PDF 页面由 `pypdfium2`/PDFium 渲染，图片由 Pillow 解码；上传校验真实格式、声明 MIME、损坏文件、10MB 文件限制和 40MP 解压像素限制。PDFium 原生渲染在进程内串行执行，避免多页 worker 同时渲染时的原生崩溃；后续 VLM 请求仍按配置并发。
 - `pdf_page_strategy=auto` 选择文字少于 80 字符或图片覆盖率至少 12% 的页面；画布预览可临时使用全页策略。
 - VLM 沿用现有 LLM Gateway/OpenRouter，不新增供应商 SDK。严格 JSON 输出转换为 OCR、视觉描述、表格和图表块，并继续经过 General/QA/Summary Processor。
 - Job 新增 `vision` stage，候选版本固定 `vision_profile`。逐页缓存以 source/config hash 隔离，失败页可重试，重启后可恢复。

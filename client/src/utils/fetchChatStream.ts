@@ -25,7 +25,7 @@ export interface ChatRuntimeMeta {
   toolMode: string;
 }
 
-export type ChatGateway = "default" | "omniroute";
+export type ChatGateway = "default" | "auto" | "omniroute";
 
 export interface ChatRoutingOptions {
   session_id?: string;
@@ -34,11 +34,17 @@ export interface ChatRoutingOptions {
   budget_fallback?: "strict" | "cheapest";
 }
 
+export interface ChatCompressionOptions {
+  mode?: "auto" | "off" | "standard" | "strong";
+}
+
 export interface RouteReceipt {
   requested_model: string;
   actual_model?: string | null;
   provider?: string | null;
   strategy?: string | null;
+  engine?: "sidecar" | "shadow" | "native_canary" | "native" | string | null;
+  reason_codes?: string[];
   latency_ms?: number | null;
   tokens?: {
     input?: number | null;
@@ -50,6 +56,22 @@ export interface RouteReceipt {
   fallback_attempts?: number;
   cache_hit?: boolean | null;
   request_id?: string | null;
+  budget?: {
+    limit_usd?: number | null;
+    mode?: "strict" | "cheapest" | null;
+    status?: string | null;
+  };
+  compression?: {
+    applied?: boolean;
+    profile?: "auto" | "off" | "standard" | "strong" | string;
+    original_tokens?: number | null;
+    final_tokens?: number | null;
+    saved_tokens?: number | null;
+    saved_ratio?: number | null;
+    fidelity_status?: string | null;
+    fallback_reason?: string | null;
+    stages?: string[];
+  };
   version?: string | null;
 }
 
@@ -58,6 +80,7 @@ interface FetchChatStreamOptions {
   messages: ChatApiMessage[];
   gateway?: ChatGateway;
   routing?: ChatRoutingOptions;
+  compression?: ChatCompressionOptions;
   temperature?: number;
   topP?: number;
   maxTokens?: number;
@@ -205,6 +228,26 @@ function readStreamError(payload: unknown) {
   return "";
 }
 
+function readFinishReason(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("choices" in payload)) {
+    return "";
+  }
+  const choices = payload.choices;
+  if (!Array.isArray(choices)) return "";
+  for (const choice of choices) {
+    if (
+      choice &&
+      typeof choice === "object" &&
+      "finish_reason" in choice &&
+      typeof choice.finish_reason === "string" &&
+      choice.finish_reason
+    ) {
+      return choice.finish_reason;
+    }
+  }
+  return "";
+}
+
 function handleSseEvent(
   eventText: string,
   onDelta: (text: string) => void,
@@ -256,6 +299,7 @@ function handleSseEvent(
 
     const delta = readDelta(payload);
     if (delta) onDelta(delta);
+    if (readFinishReason(payload)) onMessageEnd?.();
   }
 }
 
@@ -264,6 +308,7 @@ export async function fetchChatStream({
   messages,
   gateway = "default",
   routing,
+  compression,
   temperature = 0.7,
   topP,
   maxTokens = 2048,
@@ -287,6 +332,7 @@ export async function fetchChatStream({
       messages,
       gateway,
       routing,
+      compression,
       temperature,
       top_p: topP,
       max_tokens: maxTokens,
@@ -369,5 +415,9 @@ export async function fetchChatStream({
       throw error;
     }
   }
-  emitMessageEnd();
+  if (!messageEnded) {
+    throw new Error(
+      "流式响应在完成标记到达前中断。已保留收到的内容，请检查模型服务连接后重试。",
+    );
+  }
 }

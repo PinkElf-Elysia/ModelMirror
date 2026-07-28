@@ -1,0 +1,38 @@
+{
+  "source": {
+    "project": "diegosouzapw/OmniRoute",
+    "release": "v3.8.49",
+    "commit": "36f8fd10052f",
+    "kind": "behavior-reference",
+    "source_code_copied": false
+  },
+  "score_factors": {
+    "health": 0.2,
+    "quota": 0.15,
+    "cost_inverse": 0.15,
+    "latency_inverse": 0.12,
+    "task_fit": 0.08,
+    "stability": 0.05,
+    "tier_priority": 0.05,
+    "tier_affinity": 0.05,
+    "specificity_match": 0.05,
+    "context_affinity": 0.05,
+    "connection_density": 0.05,
+    "reset_window_affinity": 0.0
+  },
+  "public_modes": [
+    "auto",
+    "fast",
+    "quality",
+    "cheap",
+    "reliable",
+    "offline"
+  ],
+  "invariants": [
+    "hard_constraints_never_fail_open",
+    "shadow_does_not_send_a_second_request",
+    "retry_only_before_visible_output",
+    "empty_stream_is_failure",
+    "lkgp_is_tenant_connection_model_scoped"
+  ]
+}

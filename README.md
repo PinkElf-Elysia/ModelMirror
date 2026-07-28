@@ -2,12 +2,13 @@
 
 模镜是一个 AI 资源浏览与协作平台，面向模型、智能体、MCP、Skill、提示词、工作流、RAG 和聊天场景。项目主题是“AI 牛马招聘会”：把模型与智能体看成候选人，把工具和能力看成岗位技能，让用户可以快速发现、比较、调用和组合 AI 能力。
 
-最后更新日期：2026-07-13
+最后更新日期：2026-07-27
 维护人：模镜团队
 
 ## 当前能力
 
 - 模型招聘会：模型筛选、价格展示、能力标签和聊天入口。
+- 智能调度：`/chat/auto` 支持六种策略、稳定会话灰度、健康熔断、预算回执和上下文优化；默认仍可回退 OmniRoute 侧车。
 - 面试间：OpenAI 兼容流式聊天、图片输入、高级参数、提示词助手、模型输出图片预览。
 - 图片生成模型：支持 `content` 多模态 parts、`delta.images` / `message.images`、`image_url` 和 `data:image/...` 输出；前端会转成图片卡片并接入 Lightbox 放大与下载。
 - AI 人才市场：智能体角色浏览、面试入口、专家团能力。
@@ -109,4 +110,6 @@ curl -N -X POST http://localhost:8000/api/chat ^
 
 ## 文档
 
-项目文档入口见 [docs/README.md](docs/README.md)。开发前请先阅读 [AGENTS.md](AGENTS.md) 和 [docs/HARNESS_ENGINEERING.md](docs/HARNESS_ENGINEERING.md)。
+项目文档入口见 [docs/README.md](docs/README.md)。原生调度的状态、门禁和回退见
+[docs/MODEL_ROUTER_NATIVE.md](docs/MODEL_ROUTER_NATIVE.md)。开发前请先阅读
+[AGENTS.md](AGENTS.md) 和 [docs/HARNESS_ENGINEERING.md](docs/HARNESS_ENGINEERING.md)。
