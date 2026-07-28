@@ -16,6 +16,7 @@ from .schemas import (
 )
 
 CATALOG_VERSION = "omniroute-v3.8.48-runtime"
+VERIFIED_SPEECH_MODEL_IDS = {"microsoft/mai-voice-2"}
 
 CURATED_ROUTES: tuple[tuple[str, str, str], ...] = (
     ("auto", "智能调度", "按任务、质量、成本与可用性自动选择模型"),
@@ -47,6 +48,68 @@ def _capabilities(value: Any, input_modalities: list[str], model_type: str) -> l
     return list(dict.fromkeys(result))
 
 
+def _operations(
+    input_modalities: list[str],
+    output_modalities: list[str],
+) -> list[str]:
+    inputs = set(input_modalities)
+    outputs = set(output_modalities)
+    operations: list[str] = []
+    if "transcription" in outputs:
+        operations.append("transcribe")
+    if "speech" in outputs:
+        operations.append("synthesize_speech")
+    if "audio" in outputs:
+        operations.append("generate_audio")
+    if "video" in outputs:
+        operations.append("generate_video")
+    if "embeddings" in outputs:
+        operations.append("embed")
+    if "rerank" in outputs:
+        operations.append("rerank")
+    if "audio" in inputs and "text" in outputs:
+        operations.append("analyze_audio")
+    if "video" in inputs and "text" in outputs:
+        operations.append("analyze_video")
+    if "text" in inputs and ({"text", "image"} & outputs):
+        operations.append("chat")
+    return list(dict.fromkeys(operations)) or ["chat"]
+
+
+def _primary_operation(operations: list[str]) -> str:
+    priority = (
+        "transcribe",
+        "synthesize_speech",
+        "generate_audio",
+        "generate_video",
+        "embed",
+        "rerank",
+        "chat",
+        "analyze_audio",
+        "analyze_video",
+    )
+    return next(
+        (operation for operation in priority if operation in operations),
+        "chat",
+    )
+
+
+def _interaction(
+    primary_operation: str,
+    invocation_id: str,
+) -> tuple[str, str]:
+    if primary_operation in {"chat", "transcribe"}:
+        return "ready", "chat"
+    if (
+        primary_operation == "synthesize_speech"
+        and invocation_id in VERIFIED_SPEECH_MODEL_IDS
+    ):
+        return "ready", "chat"
+    if primary_operation in {"embed", "rerank"}:
+        return "ready", "rag"
+    return "planned", "planned"
+
+
 def normalize_model(raw: dict[str, Any]) -> ModelCandidate | None:
     invocation_id = str(raw.get("id") or "").strip()
     if not invocation_id:
@@ -57,6 +120,12 @@ def normalize_model(raw: dict[str, Any]) -> ModelCandidate | None:
     model_type = str(raw.get("type") or "chat")
     input_modalities = _string_list(raw.get("input_modalities"), ["text"])
     output_modalities = _string_list(raw.get("output_modalities"), ["text"])
+    operations = _operations(input_modalities, output_modalities)
+    primary_operation = _primary_operation(operations)
+    interaction_status, ui_entrypoint = _interaction(
+        primary_operation,
+        invocation_id,
+    )
     free_value = raw.get("free")
     if not isinstance(free_value, bool):
         free_value = raw.get("is_free") if isinstance(raw.get("is_free"), bool) else None
@@ -79,6 +148,10 @@ def normalize_model(raw: dict[str, Any]) -> ModelCandidate | None:
         ),
         input_modalities=input_modalities,
         output_modalities=output_modalities,
+        operations=operations,
+        primary_operation=primary_operation,
+        interaction_status=interaction_status,
+        ui_entrypoint=ui_entrypoint,
         capabilities=_capabilities(raw.get("capabilities"), input_modalities, model_type),
         invocable=model_type == "chat",
         availability="live" if model_type == "chat" else "disabled",

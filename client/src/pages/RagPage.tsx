@@ -237,6 +237,17 @@ interface PipelineVersion {
   block_count?: number;
   qa_count?: number;
   summary_count?: number;
+  source_summary: Array<{
+    source_id: string;
+    source_kind: string;
+    filename: string;
+  }>;
+  document_results: Array<{
+    source_id: string;
+    status: string;
+    chunk_count: number;
+    vision_status?: string;
+  }>;
   processor_profile?: Record<string, unknown>;
   warnings?: string[];
   job_id: string;
@@ -542,9 +553,31 @@ export default function RagPage() {
     [knowledgeBases, selectedKbId],
   );
 
-  const pipelineChunkCount = useMemo(
-    () => pipelineArtifacts.reduce((total, artifact) => total + artifact.chunk_count, 0),
-    [pipelineArtifacts],
+  const activePipelineVersion = useMemo(
+    () =>
+      pipelineVersions.find(
+        (version) =>
+          version.version_id === activePipelineVersionId || version.active,
+      ) ?? null,
+    [activePipelineVersionId, pipelineVersions],
+  );
+
+  const activeDocumentChunkCounts = useMemo(
+    () =>
+      new Map(
+        (activePipelineVersion?.document_results ?? [])
+          .filter(
+            (result) =>
+              result.status === "completed" && result.chunk_count > 0,
+          )
+          .map(
+            (result): [string, number] => [
+              result.source_id,
+              result.chunk_count,
+            ],
+          ),
+      ),
+    [activePipelineVersion],
   );
 
   const selectedPipelineJob = useMemo(
@@ -1293,11 +1326,8 @@ export default function RagPage() {
                     ) : (
                       <>
                         <div className="rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
-                          草稿执行会生成隔离的候选索引。候选完成后先预览，再由你人工激活或回滚。
-                        </div>
-
-                        <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-300/10 p-3 text-xs leading-5 text-sky-100">
-                          保存草稿本身不会改变检索。只有显式激活候选版本后，RAG、聊天和知识引用节点才会切换索引。
+                          <span className="font-semibold">使用须知：</span>
+                          保存草稿不会改变检索。执行后会生成隔离的候选索引，预览并手动激活后，RAG、聊天和知识引用才会切换；激活旧版本即可回滚。
                         </div>
 
                         <div className="mt-3 flex flex-col gap-3 rounded-lg border border-white/10 bg-ink-950/35 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1372,8 +1402,15 @@ export default function RagPage() {
                               <p className="mt-3 text-2xl font-semibold text-white">
                                 {stage.item_count}
                               </p>
+                              {stage.kind === "chunker" ? (
+                                <p className="mt-1 text-[10px] font-medium text-slate-500">
+                                  个预处理结构块
+                                </p>
+                              ) : null}
                               <p className="mt-2 min-h-10 text-xs leading-5 text-slate-400">
-                                {stage.summary}
+                                {stage.kind === "chunker"
+                                  ? "执行后会按当前配置生成候选索引片段；此处不是当前激活索引数量。"
+                                  : stage.summary}
                               </p>
                               {stage.config ? (
                                 <dl className="mt-3 space-y-1 border-t border-white/10 pt-3 text-[11px] text-slate-400">
@@ -1400,7 +1437,7 @@ export default function RagPage() {
                               <div>
                                 <p className="text-sm font-semibold text-white">草稿配置</p>
                                 <p className="mt-1 text-xs leading-5 text-slate-400">
-                                  执行草稿时固定处理器、分块、Embedding 与检索配置；保存本身不切换活动索引。
+                                  执行时固定处理器、分块、Embedding 与检索配置。
                                 </p>
                               </div>
                               <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] font-semibold text-slate-300">
@@ -1712,7 +1749,18 @@ export default function RagPage() {
                                 处理器：{pipelineDraftEdits.processorMode} · {pipelineDraftEdits.processorFailurePolicy === "strict" ? "严格阻断" : "逐文档容错"}
                               </div>
                               <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 sm:col-span-2">
-                                图像理解仍为 planned/disabled，占位展示但不可启用。
+                                {pipelineDraft?.stages.some(
+                                  (stage) =>
+                                    stage.kind === "image_understanding" &&
+                                    stage.config?.enabled === true,
+                                )
+                                  ? `图像理解已启用 · ${
+                                      pipelineDraft.stages.find(
+                                        (stage) =>
+                                          stage.kind === "image_understanding",
+                                      )?.config?.vision_model_id ?? "已配置模型"
+                                    }`
+                                  : "图像理解未启用；图片和扫描 PDF 需启用后再执行流水线。"}
                               </div>
                             </div>
                           </div>
@@ -2023,7 +2071,7 @@ export default function RagPage() {
                         <div className="mt-3 grid gap-3 sm:grid-cols-3">
                           <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              FileAssets
+                              资料文件
                             </p>
                             <p className="mt-2 text-lg font-semibold text-white">
                               {pipelineAssets.length}
@@ -2031,7 +2079,7 @@ export default function RagPage() {
                           </div>
                           <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Artifacts
+                              文档产物
                             </p>
                             <p className="mt-2 text-lg font-semibold text-white">
                               {pipelineArtifacts.length}
@@ -2039,18 +2087,23 @@ export default function RagPage() {
                           </div>
                           <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              Chunks
+                              当前索引片段
                             </p>
                             <p className="mt-2 text-lg font-semibold text-white">
-                              {pipelineChunkCount}
+                              {activePipelineVersion?.chunk_count ?? "尚未激活"}
                             </p>
+                            {activePipelineVersion ? (
+                              <p className="mt-1 text-[10px] text-slate-500">
+                                激活版本 v{activePipelineVersion.version}
+                              </p>
+                            ) : null}
                           </div>
                         </div>
 
                         <div className="mt-4">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-xs font-semibold text-slate-300">
-                              最近 Artifacts
+                              最近文档产物
                             </p>
                             <button
                               className="text-xs font-semibold text-hire-100 transition hover:text-hire-50"
@@ -2083,7 +2136,7 @@ export default function RagPage() {
                                     </p>
                                   </div>
                                   <p className="text-xs font-semibold text-hire-100">
-                                    {artifact.chunk_count} chunks
+                                    {artifact.chunk_count} 个预处理结构块
                                   </p>
                                 </div>
                               ))}
@@ -2127,10 +2180,21 @@ export default function RagPage() {
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
                               <h4 className="font-semibold text-white">{document.filename}</h4>
-                              {document.ingestion_status === "pipeline_required" ? <span className="rounded-full border border-violet-300/25 bg-violet-300/10 px-2 py-0.5 text-[10px] font-semibold text-violet-100">需要执行知识流水线</span> : null}
+                              {activeDocumentChunkCounts.has(document.id) ? (
+                                <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+                                  已加入当前索引
+                                </span>
+                              ) : document.ingestion_status === "pipeline_required" ? (
+                                <span className="rounded-full border border-violet-300/25 bg-violet-300/10 px-2 py-0.5 text-[10px] font-semibold text-violet-100">
+                                  等待流水线处理
+                                </span>
+                              ) : null}
                             </div>
                             <p className="mt-1 text-xs text-slate-400">
-                              {document.chunk_count} 个片段 · {formatFileSize(document.size)} ·{" "}
+                              {activeDocumentChunkCounts.has(document.id)
+                                ? `当前索引 ${activeDocumentChunkCounts.get(document.id)} 个片段`
+                                : `${document.chunk_count} 个片段`}{" "}
+                              · {formatFileSize(document.size)} ·{" "}
                               {formatDate(document.created_at)}
                             </p>
                           </div>

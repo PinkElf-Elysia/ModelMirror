@@ -1,7 +1,11 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import { useModelPreference } from "../context/ModelPreferenceContext";
-import { type Capability, type Model } from "../data/models";
+import {
+  type Capability,
+  type Model,
+  type ModelOperation,
+} from "../data/models";
 import {
   getRecruitmentCapability,
   getRecruitmentTag,
@@ -83,6 +87,18 @@ function formatContextLength(contextLength: number) {
   return `${Math.round(contextLength / 1000)}K`;
 }
 
+const operationLabels: Record<ModelOperation, string> = {
+  chat: "对话面试",
+  transcribe: "音频转文字",
+  synthesize_speech: "文字转语音",
+  generate_audio: "音频生成",
+  analyze_audio: "音频理解",
+  analyze_video: "视频理解",
+  generate_video: "视频生成",
+  embed: "向量检索",
+  rerank: "检索重排",
+};
+
 const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
   const { setPreferredModelId } = useModelPreference();
   const isFree = model.price_cny.input === 0 && model.price_cny.output === 0;
@@ -97,6 +113,15 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
   const regionSensitive =
     !domesticFriendly &&
     includesProviderKeyword(identity, restrictedProviderKeywords);
+  const canChat =
+    model.active &&
+    model.interaction_status === "ready" &&
+    model.ui_entrypoint === "chat";
+  const canUseInRag =
+    model.active &&
+    model.interaction_status === "ready" &&
+    model.ui_entrypoint === "rag";
+  const operationLabel = operationLabels[model.primary_operation];
 
   return (
     <article className="group relative isolate flex h-full min-h-[340px] flex-col overflow-hidden rounded-lg border border-hire-300/20 bg-ink-950/76 p-0 shadow-prism backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/90 hover:shadow-[0_0_0_1px_rgba(251,146,60,0.32),0_20px_46px_rgba(124,45,18,0.22)]">
@@ -106,7 +131,11 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
       <div className="relative border-b border-hire-300/20 bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))] px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <span className="rounded-full border border-hire-200/30 bg-hire-400/15 px-3 py-1 text-xs font-semibold text-hire-100">
-            {talentStats.urgent ? "急聘" : "可预约面试"}
+            {model.interaction_status !== "ready"
+              ? "交互待适配"
+              : talentStats.urgent
+                ? "急聘"
+                : "可预约面试"}
           </span>
           <span className="text-xs font-medium text-hire-100">
             人气值 {talentStats.popularity}
@@ -134,16 +163,52 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
           </p>
         </div>
 
-        <Link
-          className="shrink-0 rounded-full bg-hire-300 px-3.5 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
-          onClick={() => setPreferredModelId(model.id)}
-          to={`/chat/${encodeURIComponent(model.id)}`}
-        >
-          立即面试
-        </Link>
+        {canChat ? (
+          <Link
+            className="shrink-0 rounded-full bg-hire-300 px-3.5 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+            onClick={() => {
+              if (model.primary_operation === "chat") {
+                setPreferredModelId(model.id);
+              }
+            }}
+            to={`/chat/${encodeURIComponent(model.id)}`}
+          >
+            {model.primary_operation === "transcribe"
+              ? "开始转录"
+              : model.primary_operation === "synthesize_speech"
+                ? "生成语音"
+                : "立即面试"}
+          </Link>
+        ) : canUseInRag ? (
+          <Link
+            className="shrink-0 rounded-full border border-hire-300/35 bg-hire-300/10 px-3.5 py-2 text-sm font-semibold text-hire-100 transition duration-200 hover:border-hire-300/60 hover:bg-hire-300/15 active:scale-[0.98]"
+            to="/rag"
+          >
+            用于资料库
+          </Link>
+        ) : (
+          <button
+            className="shrink-0 cursor-not-allowed rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 text-sm font-semibold text-slate-400"
+            disabled
+            title={`${operationLabel}入口尚未适配`}
+            type="button"
+          >
+            交互待适配
+          </button>
+        )}
       </div>
 
       <div className="relative mt-5 flex flex-wrap gap-2 px-5">
+        <span
+          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+            model.interaction_status === "ready"
+              ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
+              : "border-slate-400/20 bg-slate-400/10 text-slate-300"
+          }`}
+        >
+          {operationLabel}
+          {model.interaction_status === "planned" ? " · 待适配" : ""}
+        </span>
         {model.tags.map((tag) => (
           <span
             className={`rounded-full border px-2.5 py-1 text-xs font-medium ${

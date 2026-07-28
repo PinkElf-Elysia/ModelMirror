@@ -68,10 +68,86 @@ def test_catalog_normalization_uses_root_and_deduplicates_ids() -> None:
     assert models[0].invocation_id == "openai/gpt-4o"
     assert models[0].provider == "openai"
     assert models[0].input_modalities == ["text", "image"]
+    assert models[0].output_modalities == ["text"]
+    assert models[0].operations == ["chat"]
+    assert models[0].primary_operation == "chat"
+    assert models[0].interaction_status == "ready"
+    assert models[0].ui_entrypoint == "chat"
     assert "vision" in models[0].capabilities
     assert models[1].invocation_id == "openai/dall-e-3"
     assert models[1].invocable is False
     assert models[1].availability == "disabled"
+
+
+def test_catalog_operations_route_specialized_models_to_adapted_ui() -> None:
+    models = normalize_models(
+        {
+            "data": [
+                {
+                    "id": "openai/whisper-1",
+                    "input_modalities": ["audio"],
+                    "output_modalities": ["transcription"],
+                },
+                {
+                    "id": "microsoft/mai-voice-2",
+                    "input_modalities": ["text"],
+                    "output_modalities": ["speech"],
+                },
+                {
+                    "id": "example/unverified-voice",
+                    "input_modalities": ["text"],
+                    "output_modalities": ["speech"],
+                },
+                {
+                    "id": "example/video-generator",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["video"],
+                },
+                {
+                    "id": "openai/text-embedding-3-small",
+                    "input_modalities": ["text"],
+                    "output_modalities": ["embeddings"],
+                },
+                {
+                    "id": "example/audio-analyst",
+                    "input_modalities": ["text", "audio"],
+                    "output_modalities": ["text"],
+                },
+            ]
+        }
+    )
+
+    by_id = {model.invocation_id: model for model in models}
+    transcription = by_id["openai/whisper-1"]
+    assert transcription.operations == ["transcribe"]
+    assert transcription.primary_operation == "transcribe"
+    assert transcription.interaction_status == "ready"
+    assert transcription.ui_entrypoint == "chat"
+
+    speech = by_id["microsoft/mai-voice-2"]
+    assert speech.operations == ["synthesize_speech"]
+    assert speech.primary_operation == "synthesize_speech"
+    assert speech.interaction_status == "ready"
+    assert speech.ui_entrypoint == "chat"
+
+    unverified_speech = by_id["example/unverified-voice"]
+    assert unverified_speech.operations == ["synthesize_speech"]
+    assert unverified_speech.interaction_status == "planned"
+    assert unverified_speech.ui_entrypoint == "planned"
+
+    video = by_id["example/video-generator"]
+    assert video.operations == ["generate_video"]
+    assert video.ui_entrypoint == "planned"
+
+    embedding = by_id["openai/text-embedding-3-small"]
+    assert embedding.operations == ["embed"]
+    assert embedding.interaction_status == "ready"
+    assert embedding.ui_entrypoint == "rag"
+
+    audio = by_id["example/audio-analyst"]
+    assert audio.operations == ["analyze_audio", "chat"]
+    assert audio.primary_operation == "chat"
+    assert audio.ui_entrypoint == "chat"
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,7 @@ COPY client_extension ./client_extension
 COPY office_addin ./office_addin
 COPY meta_agent ./meta_agent
 COPY omniroute ./omniroute
+COPY multimodal ./multimodal
 COPY model_router ./model_router
 COPY context_engine ./context_engine
 

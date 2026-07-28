@@ -7,6 +7,19 @@ from pydantic import BaseModel, Field
 
 RouterStatus = Literal["online", "stale", "offline", "disabled"]
 Availability = Literal["live", "degraded", "offline", "disabled"]
+ModelOperation = Literal[
+    "chat",
+    "transcribe",
+    "synthesize_speech",
+    "generate_audio",
+    "analyze_audio",
+    "analyze_video",
+    "generate_video",
+    "embed",
+    "rerank",
+]
+InteractionStatus = Literal["ready", "planned", "unsupported"]
+UiEntrypoint = Literal["chat", "rag", "multimodal", "planned"]
 
 
 class ModelCandidate(BaseModel):
@@ -20,6 +33,10 @@ class ModelCandidate(BaseModel):
     max_output_tokens: int | None = None
     input_modalities: list[str] = Field(default_factory=lambda: ["text"])
     output_modalities: list[str] = Field(default_factory=lambda: ["text"])
+    operations: list[ModelOperation] = Field(default_factory=lambda: ["chat"])
+    primary_operation: ModelOperation = "chat"
+    interaction_status: InteractionStatus = "ready"
+    ui_entrypoint: UiEntrypoint = "chat"
     capabilities: list[str] = Field(default_factory=list)
     source: Literal["native", "omniroute", "bundled"] = "omniroute"
     connection_id: str | None = None

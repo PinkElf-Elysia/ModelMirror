@@ -551,6 +551,11 @@ try:
 except ModuleNotFoundError:
     from context_engine import estimate_messages_tokens, optimize_context
 
+try:
+    from server.multimodal import router as multimodal_router
+except ModuleNotFoundError:
+    from multimodal import router as multimodal_router
+
 load_dotenv()
 
 
@@ -724,6 +729,7 @@ app.include_router(xpert_evolutions_router)
 app.include_router(model_router_router)
 app.include_router(model_catalog_router)
 app.include_router(omniroute_router)
+app.include_router(multimodal_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)

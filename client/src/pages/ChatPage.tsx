@@ -19,6 +19,8 @@ import {
 } from "../components/FederationRouterCard";
 import PromptSidebar from "../components/PromptSidebar";
 import ResourceNav from "../components/ResourceNav";
+import SpeechWorkspace from "../components/SpeechWorkspace";
+import TranscriptionWorkspace from "../components/TranscriptionWorkspace";
 import {
   DEFAULT_CHAT_MODEL_ID,
   useModelPreference,
@@ -737,6 +739,33 @@ const MessageBubble = memo(function MessageBubble({
 });
 
 export default function ChatPage() {
+  const { modelId } = useParams();
+  const decodedModelId = decodeModelId(modelId);
+  const transcriptionModel = models.find(
+    (item) =>
+      item.id === decodedModelId &&
+      item.primary_operation === "transcribe" &&
+      item.interaction_status === "ready",
+  );
+
+  if (transcriptionModel) {
+    return <TranscriptionWorkspace model={transcriptionModel} />;
+  }
+
+  const speechModel = models.find(
+    (item) =>
+      item.id === decodedModelId &&
+      item.primary_operation === "synthesize_speech" &&
+      item.interaction_status === "ready",
+  );
+  if (speechModel) {
+    return <SpeechWorkspace model={speechModel} />;
+  }
+
+  return <ChatConversationPage />;
+}
+
+function ChatConversationPage() {
   const { modelId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

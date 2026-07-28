@@ -184,7 +184,7 @@ export default function AgentsPage() {
         <div>
           <p className="text-sm font-semibold text-white">资源分区</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            AI 人才市场收录 215 位带完整岗位人设的智能体专家。
+            AI 人才市场收录 {agents.length} 位带完整岗位人设的智能体专家。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
             <p className="text-xs text-slate-400">当前可面试</p>
@@ -203,14 +203,14 @@ export default function AgentsPage() {
             <div className="min-w-0">
               <div className="max-w-4xl">
                 <p className="text-sm font-semibold text-hire-200">
-                  215 位 AI 专家现场递简历
+                  {agents.length} 位 AI 专家现场递简历
                 </p>
                 <h1 className="mt-3 max-w-4xl text-4xl font-semibold tracking-normal text-white sm:text-6xl">
                   AI 人才市场
                   <span className="block text-hire-100">开源专家等你来招</span>
                 </h1>
                 <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-                  来源于 agency-agents-zh 的 215 个中文智能体角色，按部门、专长和场景筛选。看中哪位专家，就带进面试间直接开聊。
+                  来源于 agency-agents-zh 的最新中文智能体快照，按部门、专长和任务场景筛选。看中哪位专家，就带进面试间直接开聊。
                 </p>
               </div>
             </div>

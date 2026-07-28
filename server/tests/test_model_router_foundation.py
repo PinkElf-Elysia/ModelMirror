@@ -60,7 +60,7 @@ def test_schema_and_credentials_are_tenant_scoped_and_persistent(
     assert restarted.resolve_api_key("local", created.id) == "sk-test-secret-value"
 
     with sqlite3.connect(restarted.database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_disable_restore_and_policy_persist_without_delete(tmp_path: Path) -> None:

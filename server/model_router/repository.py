@@ -22,7 +22,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 DEFAULT_TENANT_ID = "local"
 
 
@@ -142,10 +142,14 @@ class SQLiteRouterRepository:
             session_id_hash TEXT,
             engine TEXT NOT NULL,
             strategy TEXT NOT NULL,
+            operation TEXT NOT NULL DEFAULT 'chat',
             selected_connection_id TEXT,
             selected_model_id TEXT,
             reason_codes_json TEXT NOT NULL DEFAULT '[]',
             outcome TEXT,
+            input_bytes INTEGER,
+            output_bytes INTEGER,
+            media_seconds REAL,
             budget_limit_usd REAL,
             reserved_cost_usd REAL,
             settled_cost_usd REAL,
@@ -223,6 +227,22 @@ class SQLiteRouterRepository:
                 "budget_status": (
                     "ALTER TABLE router_decisions "
                     "ADD COLUMN budget_status TEXT"
+                ),
+                "operation": (
+                    "ALTER TABLE router_decisions "
+                    "ADD COLUMN operation TEXT NOT NULL DEFAULT 'chat'"
+                ),
+                "input_bytes": (
+                    "ALTER TABLE router_decisions "
+                    "ADD COLUMN input_bytes INTEGER"
+                ),
+                "output_bytes": (
+                    "ALTER TABLE router_decisions "
+                    "ADD COLUMN output_bytes INTEGER"
+                ),
+                "media_seconds": (
+                    "ALTER TABLE router_decisions "
+                    "ADD COLUMN media_seconds REAL"
                 ),
             }
             for column, statement in decision_migrations.items():
@@ -621,6 +641,8 @@ class SQLiteRouterRepository:
         model_id: str | None,
         reason_codes: list[str],
         outcome: str | None = None,
+        operation: str = "chat",
+        input_bytes: int | None = None,
         budget_limit_usd: float | None = None,
         reserved_cost_usd: float | None = None,
     ) -> str:
@@ -630,11 +652,11 @@ class SQLiteRouterRepository:
             connection.execute(
                 """
                 INSERT INTO router_decisions (
-                    id, tenant_id, session_id_hash, engine, strategy,
+                    id, tenant_id, session_id_hash, engine, strategy, operation,
                     selected_connection_id, selected_model_id,
-                    reason_codes_json, outcome, budget_limit_usd,
+                    reason_codes_json, outcome, input_bytes, budget_limit_usd,
                     reserved_cost_usd, budget_status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     decision_id,
@@ -642,10 +664,12 @@ class SQLiteRouterRepository:
                     session_id_hash,
                     engine,
                     strategy,
+                    operation,
                     connection_id,
                     model_id,
                     json.dumps(reason_codes, ensure_ascii=False),
                     outcome,
+                    max(0, int(input_bytes)) if input_bytes is not None else None,
                     budget_limit_usd,
                     reserved_cost_usd,
                     "reserved" if budget_limit_usd is not None else None,
@@ -653,6 +677,49 @@ class SQLiteRouterRepository:
                 ),
             )
         return decision_id
+
+    def update_routing_decision_usage(
+        self,
+        tenant_id: str,
+        decision_id: str,
+        *,
+        outcome: str,
+        media_seconds: float | None,
+        settled_cost_usd: float | None,
+        cost_status: str,
+        output_bytes: int | None = None,
+    ) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE router_decisions
+                SET outcome = ?, media_seconds = ?,
+                    settled_cost_usd = ?, budget_status = ?,
+                    output_bytes = COALESCE(?, output_bytes)
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (
+                    outcome,
+                    (
+                        max(0.0, float(media_seconds))
+                        if media_seconds is not None
+                        else None
+                    ),
+                    (
+                        max(0.0, float(settled_cost_usd))
+                        if settled_cost_usd is not None
+                        else None
+                    ),
+                    cost_status,
+                    (
+                        max(0, int(output_bytes))
+                        if output_bytes is not None
+                        else None
+                    ),
+                    self._tenant_id(tenant_id),
+                    decision_id,
+                ),
+            )
 
     def update_routing_decision_outcome(
         self, tenant_id: str, decision_id: str, outcome: str
@@ -753,7 +820,9 @@ class SQLiteRouterRepository:
         with self._lock, self._connect() as connection:
             decision_rows = connection.execute(
                 """
-                SELECT d.id, d.engine, d.strategy, d.selected_model_id,
+                SELECT d.id, d.engine, d.strategy, d.operation,
+                    d.selected_model_id, d.input_bytes, d.output_bytes,
+                    d.media_seconds,
                     d.reason_codes_json, d.outcome, d.budget_limit_usd,
                     d.reserved_cost_usd, d.settled_cost_usd,
                     d.budget_status, d.created_at,
@@ -853,8 +922,12 @@ class SQLiteRouterRepository:
                     "id": row["id"],
                     "engine": row["engine"],
                     "strategy": row["strategy"],
+                    "operation": row["operation"],
                     "model_id": row["selected_model_id"],
                     "connection_name": row["connection_name"],
+                    "input_bytes": row["input_bytes"],
+                    "output_bytes": row["output_bytes"],
+                    "media_seconds": row["media_seconds"],
                     "reason_codes": json.loads(
                         str(row["reason_codes_json"] or "[]")
                     ),
