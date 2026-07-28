@@ -1,5 +1,43 @@
 # Third-party notices
 
+## agency-agents-zh
+
+- Project: `jnMetaCode/agency-agents-zh`
+- License: MIT
+- Vendored content: 268 Chinese agent role definitions and prompts
+- Fixed source commit: `2ecfabf8e944ccdfed63ad8c44d5241290af6977`
+- Generated snapshots: `client/src/data/agents.ts` and
+  `server/data/agents.json`
+- Reproducible importer: `scripts/update-agency-agents.mjs`
+
+ModelMirror preserves each role's upstream path and commit-pinned source URL.
+The local importer adds ModelMirror-specific department metadata, user-facing
+task scenarios and capability tags; it does not change the upstream prompt
+body.
+
+### MIT License
+
+Copyright (c) 2025 Michael Sitarzewski (original English version)
+Copyright (c) 2026 jnMetaCode (Chinese translation and localization)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 ## OmniRoute
 
 - Project: `diegosouzapw/OmniRoute`

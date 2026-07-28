@@ -26,6 +26,19 @@ function isDefaultFilters(filters: ModelFilterState) {
   return JSON.stringify(filters) === JSON.stringify(defaultFilterState);
 }
 
+function createDefaultFilters(): ModelFilterState {
+  return {
+    ...defaultFilterState,
+    inputModalities: [],
+    contextRange: { ...defaultFilterState.contextRange },
+    promptPriceCnyRange: { ...defaultFilterState.promptPriceCnyRange },
+    series: [],
+    categories: [],
+    supportedParameters: [],
+    modelAuthors: [],
+  };
+}
+
 function countActiveFilters(filters: ModelFilterState) {
   let count = 0;
 
@@ -49,7 +62,7 @@ function countActiveFilters(filters: ModelFilterState) {
 
 export default function ModelListPage() {
   const [filters, setFilters] =
-    useState<ModelFilterState>(defaultFilterState);
+    useState<ModelFilterState>(createDefaultFilters);
   const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
@@ -147,10 +160,17 @@ export default function ModelListPage() {
   }, [filters, searchTerm]);
 
   function clearFilters() {
-    setFilters(defaultFilterState);
+    setFilters(createDefaultFilters());
+    setSearchTerm("");
   }
 
-  const activeFilterCount = countActiveFilters(filters);
+  const hasSearchTerm = searchTerm.trim().length > 0;
+  const hasActiveCriteria = hasSearchTerm || !isDefaultFilters(filters);
+  const activeFilterCount =
+    countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
+  const readyFilteredCount = filteredModels.filter(
+    (model) => model.interaction_status === "ready",
+  ).length;
   const featuredModels = filteredModels.slice(0, 2);
   const galleryModels = filteredModels.slice(featuredModels.length);
 
@@ -161,12 +181,12 @@ export default function ModelListPage() {
         <div>
           <p className="text-sm font-semibold text-white">资源分区</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            模型招聘会展示可直接进入面试间的大模型候选人。
+            浏览模型能力，并进入当前已适配的对话或资料库入口。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">当前可面试</p>
+            <p className="text-xs text-slate-400">当前可使用</p>
             <p className="mt-1 text-sm font-semibold text-hire-100">
-              {filteredModels.length} / {models.length}
+              {readyFilteredCount} / {filteredModels.length}
             </p>
           </div>
         </div>
@@ -201,9 +221,9 @@ export default function ModelListPage() {
               <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 text-center text-xs">
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-hire-100">
-                    {filteredModels.length}
+                    {readyFilteredCount}
                   </p>
-                  <p className="mt-1 truncate text-slate-400">可面试</p>
+                  <p className="mt-1 truncate text-slate-400">可使用</p>
                 </div>
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-accent-100">
@@ -235,7 +255,7 @@ export default function ModelListPage() {
               />
             </label>
 
-            {!isDefaultFilters(filters) ? (
+            {hasActiveCriteria ? (
               <button
                 className="h-12 rounded-full border border-white/10 bg-white/[0.07] px-5 text-sm font-semibold text-slate-100 transition duration-200 hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 active:scale-[0.98]"
                 onClick={clearFilters}
@@ -256,11 +276,11 @@ export default function ModelListPage() {
               </p>
             </div>
             <p className="text-sm text-slate-400">
-              当前可面试{" "}
+              当前展示{" "}
               <span className="font-semibold text-white">
                 {filteredModels.length}
               </span>{" "}
-              位候选人
+              位候选人，其中 {readyFilteredCount} 位已有入口
             </p>
           </div>
 
@@ -269,7 +289,6 @@ export default function ModelListPage() {
             matchingCount={filteredModels.length}
             modelAuthorOptions={modelAuthorOptions}
             onChange={setFilters}
-            onClear={clearFilters}
             seriesOptions={seriesOptions}
             totalCount={models.length}
           />

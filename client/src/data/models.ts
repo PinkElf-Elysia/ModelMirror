@@ -15,6 +15,27 @@ export type Capability =
   | "reasoning";
 
 export type InputModality = "text" | "image" | "audio" | "video" | "file";
+export type OutputModality =
+  | "text"
+  | "image"
+  | "audio"
+  | "speech"
+  | "transcription"
+  | "video"
+  | "embeddings"
+  | "rerank";
+export type ModelOperation =
+  | "chat"
+  | "transcribe"
+  | "synthesize_speech"
+  | "generate_audio"
+  | "analyze_audio"
+  | "analyze_video"
+  | "generate_video"
+  | "embed"
+  | "rerank";
+export type InteractionStatus = "ready" | "planned" | "unsupported";
+export type ModelUiEntrypoint = "chat" | "rag" | "multimodal" | "planned";
 export type Category = string;
 export type SupportedParameter = string;
 export type PricingTier = "free" | "low" | "medium" | "high";
@@ -37,6 +58,11 @@ export interface Model {
   pricing_tier: PricingTier;
   capabilities: Capability[];
   input_modalities: InputModality[];
+  output_modalities: OutputModality[];
+  operations: ModelOperation[];
+  primary_operation: ModelOperation;
+  interaction_status: InteractionStatus;
+  ui_entrypoint: ModelUiEntrypoint;
   series: string;
   categories: Category[];
   supported_parameters: SupportedParameter[];
@@ -56,7 +82,7 @@ interface RawCatalogModel {
   context_length: number;
   pricing: { input: number; output: number };
   input_modalities: InputModality[];
-  output_modalities: string[];
+  output_modalities: OutputModality[];
   tokenizer: string;
   supported_parameters: SupportedParameter[];
   created: number;
@@ -17245,6 +17271,69 @@ function describeCategories(categories: Category[]) {
   return categories.slice(0, 3).map((category) => labels[category] ?? category).join("、") || "通用";
 }
 
+const VERIFIED_SPEECH_MODEL_IDS = new Set(["microsoft/mai-voice-2"]);
+
+function inferOperations(raw: RawCatalogModel): ModelOperation[] {
+  const operations = new Set<ModelOperation>();
+  const inputs = new Set(raw.input_modalities);
+  const outputs = new Set(raw.output_modalities);
+
+  if (outputs.has("transcription")) operations.add("transcribe");
+  if (outputs.has("speech")) operations.add("synthesize_speech");
+  if (outputs.has("audio")) operations.add("generate_audio");
+  if (outputs.has("video")) operations.add("generate_video");
+  if (outputs.has("embeddings")) operations.add("embed");
+  if (outputs.has("rerank")) operations.add("rerank");
+  if (inputs.has("audio") && outputs.has("text")) operations.add("analyze_audio");
+  if (inputs.has("video") && outputs.has("text")) operations.add("analyze_video");
+  if (
+    inputs.has("text") &&
+    (outputs.has("text") || outputs.has("image"))
+  ) {
+    operations.add("chat");
+  }
+
+  return operations.size > 0 ? Array.from(operations) : ["chat"];
+}
+
+function primaryOperation(operations: ModelOperation[]): ModelOperation {
+  const priority: ModelOperation[] = [
+    "transcribe",
+    "synthesize_speech",
+    "generate_audio",
+    "generate_video",
+    "embed",
+    "rerank",
+    "chat",
+    "analyze_audio",
+    "analyze_video",
+  ];
+  return priority.find((operation) => operations.includes(operation)) ?? "chat";
+}
+
+function interactionForOperation(
+  operation: ModelOperation,
+  modelId: string,
+): {
+  status: InteractionStatus;
+  entrypoint: ModelUiEntrypoint;
+} {
+  if (
+    operation === "chat" ||
+    operation === "transcribe" ||
+    (
+      operation === "synthesize_speech" &&
+      VERIFIED_SPEECH_MODEL_IDS.has(modelId)
+    )
+  ) {
+    return { status: "ready", entrypoint: "chat" };
+  }
+  if (operation === "embed" || operation === "rerank") {
+    return { status: "ready", entrypoint: "rag" };
+  }
+  return { status: "planned", entrypoint: "planned" };
+}
+
 function buildChineseDescription(raw: RawCatalogModel, categories: Category[], active: boolean, priceCny: Model["price_cny"]) {
   const inputs = describeModalities(raw.input_modalities);
   const outputs = describeModalities(raw.output_modalities);
@@ -17260,6 +17349,9 @@ function enrichModel(raw: RawCatalogModel): Model {
   const price_cny = { input: toCny(raw.pricing.input), output: toCny(raw.pricing.output) };
   const capabilities = inferCapabilities(raw);
   const categories = inferCategories(raw, capabilities);
+  const operations = inferOperations(raw);
+  const primary_operation = primaryOperation(operations);
+  const interaction = interactionForOperation(primary_operation, raw.id);
   return {
     id: raw.id,
     name: raw.name,
@@ -17272,6 +17364,11 @@ function enrichModel(raw: RawCatalogModel): Model {
     pricing_tier: getPricingTier(raw.pricing.input),
     capabilities,
     input_modalities: raw.input_modalities,
+    output_modalities: raw.output_modalities,
+    operations,
+    primary_operation,
+    interaction_status: interaction.status,
+    ui_entrypoint: interaction.entrypoint,
     series: inferSeries(raw),
     categories,
     supported_parameters: raw.supported_parameters,
