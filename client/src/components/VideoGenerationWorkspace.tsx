@@ -13,6 +13,8 @@ import ResourceNav from "./ResourceNav";
 
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_FIRST_FRAME_BYTES = 10 * 1024 * 1024;
+const MAX_REFERENCE_IMAGE_BYTES = 30 * 1024 * 1024;
+const MAX_REFERENCE_IMAGE_COUNT = 3;
 const POLL_DELAYS = [30_000, 60_000, 120_000] as const;
 const ACTIVE_STATUSES = new Set<VideoJobStatus>(["queued", "running"]);
 const FIRST_FRAME_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
@@ -25,15 +27,31 @@ type VideoJobStatus =
   | "cancelled"
   | "expired";
 
+type ProviderOptionValue = string | number | boolean;
+
+interface VideoProviderOption {
+  key: string;
+  label: string;
+  type: "text" | "number" | "boolean" | "select";
+  options: string[];
+  min: number | null;
+  max: number | null;
+  default: ProviderOptionValue | null;
+}
+
 interface VideoModelProfile {
   model_id: string;
   operation: "analyze_video" | "generate_video";
   supported_resolutions: string[];
   supported_aspect_ratios: string[];
   supported_durations: number[];
+  supported_frame_types: ("first_frame" | "last_frame")[];
   supports_first_frame: boolean;
+  supports_reference_images: boolean;
+  max_reference_images: number | null;
   supports_generated_audio: boolean;
   supports_seed: boolean;
+  provider_options: VideoProviderOption[];
   pricing_skus: Record<string, string>;
   interaction_status: "ready" | "planned" | "unsupported";
 }
@@ -57,6 +75,9 @@ interface VideoJob {
     aspect_ratio: string | null;
     generate_audio: boolean;
     has_first_frame: boolean;
+    has_last_frame: boolean;
+    reference_image_count: number;
+    provider_option_keys: string[];
   };
   usage: {
     cost_usd: number | null;
@@ -77,6 +98,12 @@ interface VideoJobListResponse {
 
 interface VideoGenerationWorkspaceProps {
   model: Model;
+}
+
+interface SelectedReferenceImage {
+  id: string;
+  file: File;
+  previewUrl: string;
 }
 
 const statusPresentation: Record<
@@ -196,17 +223,17 @@ function estimatedCost(
     duration,
     resolution,
     generateAudio,
-    hasFirstFrame,
+    imageInputCount,
   }: {
     duration: number | null;
     resolution: string;
     generateAudio: boolean;
-    hasFirstFrame: boolean;
+    imageInputCount: number;
   },
 ) {
   if (duration === null || !resolution) return null;
   const resolutionKey = resolution.toLowerCase();
-  const mode = hasFirstFrame ? "image_to_video" : "text_to_video";
+  const mode = imageInputCount > 0 ? "image_to_video" : "text_to_video";
   const dollarKeys = [
     generateAudio
       ? `duration_seconds_with_audio_${resolutionKey}`
@@ -236,10 +263,11 @@ function estimatedCost(
     if (cents !== null) perSecond = cents / 100;
   }
   if (perSecond === null) return null;
-  const imageInputCents = hasFirstFrame
-    ? (pricingNumber(profile, "cents_per_image_input") ?? 0)
-    : 0;
-  return perSecond * duration + imageInputCents / 100;
+  const imageInputCents =
+    imageInputCount > 0
+      ? (pricingNumber(profile, "cents_per_image_input") ?? 0)
+      : 0;
+  return perSecond * duration + (imageInputCents * imageInputCount) / 100;
 }
 
 function defaultResolution(
@@ -256,7 +284,7 @@ function defaultResolution(
         duration,
         resolution,
         generateAudio: false,
-        hasFirstFrame: false,
+        imageInputCount: 0,
       }),
     }))
     .filter(
@@ -279,15 +307,31 @@ function newIdempotencyKey() {
   return `video-${randomPart}`;
 }
 
-function validateFirstFrame(file: File) {
+function validateGenerationImage(file: File, label: string) {
   if (!FIRST_FRAME_EXTENSIONS.has(fileExtension(file))) {
-    return "首帧只支持 JPEG、PNG 和 WebP 图片。";
+    return `${label}只支持 JPEG、PNG 和 WebP 图片。`;
   }
   if (file.size <= 0) return "这张图片没有可读取的内容。";
   if (file.size > MAX_FIRST_FRAME_BYTES) {
-    return "首帧图片超过 10 MiB，请压缩后重试。";
+    return `${label}超过 10 MiB，请压缩后重试。`;
   }
   return "";
+}
+
+function generationModeLabel({
+  hasFirstFrame,
+  hasLastFrame,
+  referenceImageCount,
+}: {
+  hasFirstFrame: boolean;
+  hasLastFrame: boolean;
+  referenceImageCount: number;
+}) {
+  if (referenceImageCount > 0) return "参考图生成";
+  if (hasFirstFrame && hasLastFrame) return "首尾帧生成";
+  if (hasFirstFrame) return "首帧图生视频";
+  if (hasLastFrame) return "尾帧引导生成";
+  return "文字生成视频";
 }
 
 export default function VideoGenerationWorkspace({
@@ -298,6 +342,7 @@ export default function VideoGenerationWorkspace({
     useState<VideoCatalogResponse["status"]>("online");
   const [catalogStale, setCatalogStale] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [jobs, setJobs] = useState<VideoJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [prompt, setPrompt] = useState("");
@@ -308,6 +353,18 @@ export default function VideoGenerationWorkspace({
   const [seed, setSeed] = useState("");
   const [firstFrame, setFirstFrame] = useState<File | null>(null);
   const [firstFrameUrl, setFirstFrameUrl] = useState("");
+  const [lastFrame, setLastFrame] = useState<File | null>(null);
+  const [lastFrameUrl, setLastFrameUrl] = useState("");
+  const [referenceImages, setReferenceImages] = useState<
+    SelectedReferenceImage[]
+  >([]);
+  const [providerOptionValues, setProviderOptionValues] = useState<
+    Record<string, ProviderOptionValue>
+  >({});
+  const [providerOptionKeys, setProviderOptionKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -320,6 +377,10 @@ export default function VideoGenerationWorkspace({
   const [pollWarnings, setPollWarnings] = useState<Record<string, string>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState("");
   const firstFrameInputRef = useRef<HTMLInputElement>(null);
+  const lastFrameInputRef = useRef<HTMLInputElement>(null);
+  const referenceInputRef = useRef<HTMLInputElement>(null);
+  const referenceReplaceIndexRef = useRef<number | null>(null);
+  const referenceImagesRef = useRef<SelectedReferenceImage[]>([]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const idempotencyKeyRef = useRef("");
   const jobsRef = useRef<VideoJob[]>([]);
@@ -339,6 +400,19 @@ export default function VideoGenerationWorkspace({
   }, [ignoredIds]);
 
   useEffect(() => {
+    referenceImagesRef.current = referenceImages;
+  }, [referenceImages]);
+
+  useEffect(
+    () => () => {
+      referenceImagesRef.current.forEach((item) =>
+        URL.revokeObjectURL(item.previewUrl),
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
     document.title = `生成视频 · ${model.name} · 模镜`;
   }, [model.name]);
 
@@ -352,6 +426,16 @@ export default function VideoGenerationWorkspace({
     return () => URL.revokeObjectURL(nextUrl);
   }, [firstFrame]);
 
+  useEffect(() => {
+    if (!lastFrame) {
+      setLastFrameUrl("");
+      return undefined;
+    }
+    const nextUrl = URL.createObjectURL(lastFrame);
+    setLastFrameUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [lastFrame]);
+
   const loadJobs = useCallback(async () => {
     const response = await fetch("/api/multimodal/video/jobs");
     const payload = await readJson<VideoJobListResponse>(
@@ -361,46 +445,98 @@ export default function VideoGenerationWorkspace({
     setJobs(payload.jobs);
   }, []);
 
+  const loadCatalog = useCallback(
+    async (signal?: AbortSignal, refresh = false) => {
+      const response = await fetch(
+        `/api/multimodal/video/models${refresh ? "?refresh=true" : ""}`,
+        { signal },
+      );
+      const payload = await readJson<VideoCatalogResponse>(
+        response,
+        "暂时无法读取视频模型能力。",
+      );
+      const nextProfile =
+        payload.profiles.find(
+          (item) =>
+            item.model_id === model.id &&
+            item.operation === "generate_video",
+        ) ?? null;
+      setCatalogStatus(payload.status);
+      setCatalogStale(payload.stale);
+      setProfile(nextProfile);
+      if (!nextProfile) return payload;
+
+      const sortedDurations = [...nextProfile.supported_durations].sort(
+        (left, right) => left - right,
+      );
+      const fallbackDuration = sortedDurations[0] ?? null;
+      setDuration((current) =>
+        current !== null &&
+        nextProfile.supported_durations.includes(current)
+          ? current
+          : fallbackDuration,
+      );
+      setResolution((current) =>
+        nextProfile.supported_resolutions.includes(current)
+          ? current
+          : defaultResolution(nextProfile, fallbackDuration),
+      );
+      setAspectRatio((current) =>
+        nextProfile.supported_aspect_ratios.includes(current)
+          ? current
+          : nextProfile.supported_aspect_ratios.includes("16:9")
+            ? "16:9"
+            : (nextProfile.supported_aspect_ratios[0] ?? ""),
+      );
+
+      const supportsFirst =
+        nextProfile.supports_first_frame ||
+        nextProfile.supported_frame_types.includes("first_frame");
+      const supportsLast =
+        nextProfile.supported_frame_types.includes("last_frame");
+      if (!supportsFirst) setFirstFrame(null);
+      if (!supportsLast) setLastFrame(null);
+      setReferenceImages((current) => {
+        const limit = Math.min(
+          MAX_REFERENCE_IMAGE_COUNT,
+          nextProfile.max_reference_images ?? 0,
+        );
+        const keep = nextProfile.supports_reference_images
+          ? current.slice(0, limit)
+          : [];
+        current.slice(keep.length).forEach((item) => {
+          URL.revokeObjectURL(item.previewUrl);
+        });
+        return keep;
+      });
+
+      const definitions = new Map(
+        nextProfile.provider_options.map((option) => [option.key, option]),
+      );
+      setProviderOptionValues((current) =>
+        Object.fromEntries(
+          nextProfile.provider_options.map((option) => [
+            option.key,
+            current[option.key] ?? "",
+          ]),
+        ),
+      );
+      setProviderOptionKeys(
+        (current) =>
+          new Set([...current].filter((key) => definitions.has(key))),
+      );
+      return payload;
+    },
+    [model.id],
+  );
+
   useEffect(() => {
     const controller = new AbortController();
     setCatalogLoading(true);
     setJobsLoading(true);
     setError("");
 
-    void fetch("/api/multimodal/video/models", {
-      signal: controller.signal,
-    })
-      .then((response) =>
-        readJson<VideoCatalogResponse>(
-          response,
-          "暂时无法读取视频模型能力。",
-        ),
-      )
-      .then((payload) => {
-        if (controller.signal.aborted) return;
-        const nextProfile =
-          payload.profiles.find(
-            (item) =>
-              item.model_id === model.id &&
-              item.operation === "generate_video",
-          ) ?? null;
-        setCatalogStatus(payload.status);
-        setCatalogStale(payload.stale);
-        setProfile(nextProfile);
-        if (nextProfile) {
-          const nextDuration =
-            [...nextProfile.supported_durations].sort(
-              (left, right) => left - right,
-            )[0] ?? null;
-          setDuration(nextDuration);
-          setResolution(defaultResolution(nextProfile, nextDuration));
-          setAspectRatio(
-            nextProfile.supported_aspect_ratios.includes("16:9")
-              ? "16:9"
-              : (nextProfile.supported_aspect_ratios[0] ?? ""),
-          );
-        }
-      })
+    void loadCatalog(controller.signal)
       .catch((requestError) => {
         if (controller.signal.aborted) return;
         setProfile(null);
@@ -430,7 +566,7 @@ export default function VideoGenerationWorkspace({
       });
 
     return () => controller.abort();
-  }, [loadJobs, model.id]);
+  }, [loadCatalog, loadJobs]);
 
   const updateJob = useCallback((job: VideoJob) => {
     setJobs((current) => mergeJob(current, job));
@@ -552,7 +688,7 @@ export default function VideoGenerationWorkspace({
 
   function chooseFirstFrame(file: File | undefined) {
     if (!file || submitting) return;
-    const validationError = validateFirstFrame(file);
+    const validationError = validateGenerationImage(file, "首帧图片");
     if (validationError) {
       setError(validationError);
       return;
@@ -566,12 +702,150 @@ export default function VideoGenerationWorkspace({
     event.target.value = "";
   }
 
+  function chooseLastFrame(file: File | undefined) {
+    if (!file || submitting) return;
+    const validationError = validateGenerationImage(file, "尾帧图片");
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    setLastFrame(file);
+    markFormChanged();
+  }
+
+  function handleLastFrameInput(event: ChangeEvent<HTMLInputElement>) {
+    chooseLastFrame(event.target.files?.[0]);
+    event.target.value = "";
+  }
+
+  function handleReferenceInput(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || submitting) return;
+    const validationError = validateGenerationImage(file, "参考图");
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    const replaceIndex = referenceReplaceIndexRef.current;
+    referenceReplaceIndexRef.current = null;
+    setReferenceImages((current) => {
+      const nextBytes =
+        current.reduce((total, item) => total + item.file.size, 0) -
+        (replaceIndex === null
+          ? 0
+          : (current[replaceIndex]?.file.size ?? 0)) +
+        file.size;
+      if (nextBytes > MAX_REFERENCE_IMAGE_BYTES) {
+        setError("参考图合计超过 30 MiB，请压缩或移除图片后重试。");
+        return current;
+      }
+      const nextItem: SelectedReferenceImage = {
+        id:
+          typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+      };
+      if (replaceIndex !== null && current[replaceIndex]) {
+        const next = [...current];
+        URL.revokeObjectURL(next[replaceIndex].previewUrl);
+        next[replaceIndex] = nextItem;
+        return next;
+      }
+      const limit = Math.min(
+        MAX_REFERENCE_IMAGE_COUNT,
+        profile?.max_reference_images ?? 0,
+      );
+      if (current.length >= limit) {
+        URL.revokeObjectURL(nextItem.previewUrl);
+        setError(`当前模型最多使用 ${limit} 张参考图。`);
+        return current;
+      }
+      return [...current, nextItem];
+    });
+    markFormChanged();
+  }
+
+  function removeReferenceImage(index: number) {
+    setReferenceImages((current) => {
+      const item = current[index];
+      if (!item) return current;
+      URL.revokeObjectURL(item.previewUrl);
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
+    markFormChanged();
+  }
+
+  function moveReferenceImage(index: number, direction: -1 | 1) {
+    setReferenceImages((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+    markFormChanged();
+  }
+
+  function updateProviderOption(
+    key: string,
+    value: ProviderOptionValue,
+    enabled = true,
+  ) {
+    setProviderOptionValues((current) => ({ ...current, [key]: value }));
+    setProviderOptionKeys((current) => {
+      const next = new Set(current);
+      if (enabled && !(typeof value === "string" && !value.trim())) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    });
+    markFormChanged();
+  }
+
+  const supportsFirstFrame = Boolean(
+    profile?.supports_first_frame ||
+      profile?.supported_frame_types.includes("first_frame"),
+  );
+  const supportsLastFrame = Boolean(
+    profile?.supported_frame_types.includes("last_frame"),
+  );
+  const referenceLimit = Math.min(
+    MAX_REFERENCE_IMAGE_COUNT,
+    profile?.max_reference_images ?? 0,
+  );
+  const providerPayload = useMemo(() => {
+    const payload: Record<string, ProviderOptionValue> = {};
+    for (const key of providerOptionKeys) {
+      const value = providerOptionValues[key];
+      if (value !== undefined && !(typeof value === "string" && !value.trim())) {
+        payload[key] = value;
+      }
+    }
+    return payload;
+  }, [providerOptionKeys, providerOptionValues]);
+  const providerOptionCount = Object.keys(providerPayload).length;
+  const imageInputCount =
+    Number(Boolean(firstFrame)) +
+    Number(Boolean(lastFrame)) +
+    referenceImages.length;
+  const enhancedInputsSelected =
+    Boolean(lastFrame) ||
+    referenceImages.length > 0 ||
+    providerOptionCount > 0;
+  const capabilityRefreshRequired =
+    catalogStale && enhancedInputsSelected;
+
   const estimate = profile
     ? estimatedCost(profile, {
         duration,
         resolution,
         generateAudio,
-        hasFirstFrame: Boolean(firstFrame),
+        imageInputCount,
       })
     : null;
 
@@ -583,7 +857,33 @@ export default function VideoGenerationWorkspace({
     prompt.trim().length <= MAX_PROMPT_CHARS &&
     duration !== null &&
     Boolean(resolution) &&
+    !capabilityRefreshRequired &&
     !submitting;
+
+  async function refreshCapabilities() {
+    setCatalogRefreshing(true);
+    setError("");
+    setNotice("");
+    try {
+      const payload = await loadCatalog(undefined, true);
+      markFormChanged();
+      if (payload.stale) {
+        setError(
+          "仍无法取得最新模型能力。请关闭尾帧、参考图或高级设置后提交，或稍后重试。",
+        );
+      } else {
+        setNotice("模型能力已刷新，已移除当前不再支持的设置。");
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "模型能力刷新失败，请稍后重试。",
+      );
+    } finally {
+      setCatalogRefreshing(false);
+    }
+  }
 
   async function submitJob() {
     if (!profile || !canSubmit) return;
@@ -606,6 +906,13 @@ export default function VideoGenerationWorkspace({
     form.append("generate_audio", String(generateAudio));
     if (seed.trim()) form.append("seed", seed.trim());
     if (firstFrame) form.append("first_frame", firstFrame, firstFrame.name);
+    if (lastFrame) form.append("last_frame", lastFrame, lastFrame.name);
+    referenceImages.forEach((item) => {
+      form.append("reference_images", item.file, item.file.name);
+    });
+    if (providerOptionCount > 0) {
+      form.append("provider_options", JSON.stringify(providerPayload));
+    }
 
     setSubmitting(true);
     setError("");
@@ -833,63 +1140,248 @@ export default function VideoGenerationWorkspace({
                   </label>
                 </div>
 
-                {profile.supports_first_frame ? (
-                  <div>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-200">
-                          首帧图片（可选）
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-slate-400">
-                          添加后将使用图片生成视频。支持 JPEG、PNG、WebP，最大 10 MiB。
-                        </p>
-                      </div>
-                      <input
-                        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        disabled={submitting}
-                        onChange={handleFirstFrameInput}
-                        ref={firstFrameInputRef}
-                        type="file"
-                      />
-                      <button
-                        className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={submitting}
-                        onClick={() => firstFrameInputRef.current?.click()}
-                        type="button"
-                      >
-                        {firstFrame ? "替换首帧" : "选择首帧"}
-                      </button>
+                {supportsFirstFrame ||
+                supportsLastFrame ||
+                (profile.supports_reference_images && referenceLimit > 0) ? (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-200">
+                        画面引导（可选）
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        只显示当前模型已确认支持的图片用途。单张最大 10 MiB，支持 JPEG、PNG、WebP。
+                      </p>
                     </div>
-                    {firstFrame ? (
-                      <div className="mt-4 flex flex-col gap-4 rounded-lg bg-white/[0.045] p-4 sm:flex-row sm:items-center">
-                        {firstFrameUrl ? (
-                          <img
-                            alt="首帧预览"
-                            className="aspect-video w-full rounded-lg bg-black object-contain sm:w-48"
-                            src={firstFrameUrl}
-                          />
-                        ) : null}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-white">
-                            {firstFrame.name}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">
-                            {fileExtension(firstFrame).toUpperCase()} ·{" "}
-                            {formatBytes(firstFrame.size)}
-                          </p>
-                          <button
-                            className="mt-3 rounded-full border border-rose-300/25 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/10"
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {supportsFirstFrame ? (
+                        <div className="rounded-lg bg-white/[0.045] p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-white">
+                                首帧
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-slate-400">
+                                决定视频开始时的画面。
+                              </p>
+                            </div>
+                            <input
+                              accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              disabled={submitting}
+                              onChange={handleFirstFrameInput}
+                              ref={firstFrameInputRef}
+                              type="file"
+                            />
+                            <button
+                              className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={submitting}
+                              onClick={() => firstFrameInputRef.current?.click()}
+                              type="button"
+                            >
+                              {firstFrame ? "替换首帧" : "选择首帧"}
+                            </button>
+                          </div>
+                          {firstFrame ? (
+                            <div className="mt-3 flex min-w-0 items-center gap-3">
+                              {firstFrameUrl ? (
+                                <img
+                                  alt="首帧预览"
+                                  className="h-20 w-28 shrink-0 rounded-md bg-black object-contain"
+                                  src={firstFrameUrl}
+                                />
+                              ) : null}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-medium text-slate-200">
+                                  {firstFrame.name}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-400">
+                                  {formatBytes(firstFrame.size)}
+                                </p>
+                                <button
+                                  className="mt-2 text-xs font-semibold text-rose-200 hover:text-rose-100"
+                                  disabled={submitting}
+                                  onClick={() => {
+                                    setFirstFrame(null);
+                                    markFormChanged();
+                                  }}
+                                  type="button"
+                                >
+                                  移除首帧
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {supportsLastFrame ? (
+                        <div className="rounded-lg bg-white/[0.045] p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-white">
+                                尾帧
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-slate-400">
+                                约束视频结束时的画面。
+                              </p>
+                            </div>
+                            <input
+                              accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              disabled={submitting}
+                              onChange={handleLastFrameInput}
+                              ref={lastFrameInputRef}
+                              type="file"
+                            />
+                            <button
+                              className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={submitting}
+                              onClick={() => lastFrameInputRef.current?.click()}
+                              type="button"
+                            >
+                              {lastFrame ? "替换尾帧" : "选择尾帧"}
+                            </button>
+                          </div>
+                          {lastFrame ? (
+                            <div className="mt-3 flex min-w-0 items-center gap-3">
+                              {lastFrameUrl ? (
+                                <img
+                                  alt="尾帧预览"
+                                  className="h-20 w-28 shrink-0 rounded-md bg-black object-contain"
+                                  src={lastFrameUrl}
+                                />
+                              ) : null}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-medium text-slate-200">
+                                  {lastFrame.name}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-400">
+                                  {formatBytes(lastFrame.size)}
+                                </p>
+                                <button
+                                  className="mt-2 text-xs font-semibold text-rose-200 hover:text-rose-100"
+                                  disabled={submitting}
+                                  onClick={() => {
+                                    setLastFrame(null);
+                                    markFormChanged();
+                                  }}
+                                  type="button"
+                                >
+                                  移除尾帧
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {profile.supports_reference_images &&
+                    referenceLimit > 0 ? (
+                      <div className="rounded-lg bg-white/[0.045] p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">
+                              风格／角色参考图
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-slate-400">
+                              用于保持人物、物体或风格一致，可排序，最多 {referenceLimit} 张。
+                            </p>
+                          </div>
+                          <input
+                            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                            className="hidden"
                             disabled={submitting}
+                            onChange={handleReferenceInput}
+                            ref={referenceInputRef}
+                            type="file"
+                          />
+                          <button
+                            className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={
+                              submitting ||
+                              referenceImages.length >= referenceLimit
+                            }
                             onClick={() => {
-                              setFirstFrame(null);
-                              markFormChanged();
+                              referenceReplaceIndexRef.current = null;
+                              referenceInputRef.current?.click();
                             }}
                             type="button"
                           >
-                            移除首帧
+                            添加参考图 {referenceImages.length}/{referenceLimit}
                           </button>
                         </div>
+                        {referenceImages.length > 0 ? (
+                          <ol className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            {referenceImages.map((item, index) => (
+                              <li
+                                className="min-w-0 rounded-lg bg-ink-950/65 p-3"
+                                key={item.id}
+                              >
+                                <img
+                                  alt={`参考图 ${index + 1}`}
+                                  className="aspect-video w-full rounded-md bg-black object-contain"
+                                  src={item.previewUrl}
+                                />
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                  <span className="truncate text-xs text-slate-300">
+                                    {index + 1}/{referenceLimit} ·{" "}
+                                    {formatBytes(item.file.size)}
+                                  </span>
+                                  <div className="flex shrink-0 items-center gap-1">
+                                    <button
+                                      aria-label={`将参考图 ${index + 1} 前移`}
+                                      className="rounded-md px-2 py-1 text-xs text-slate-300 hover:bg-white/[0.08] disabled:opacity-30"
+                                      disabled={submitting || index === 0}
+                                      onClick={() =>
+                                        moveReferenceImage(index, -1)
+                                      }
+                                      type="button"
+                                    >
+                                      ←
+                                    </button>
+                                    <button
+                                      aria-label={`将参考图 ${index + 1} 后移`}
+                                      className="rounded-md px-2 py-1 text-xs text-slate-300 hover:bg-white/[0.08] disabled:opacity-30"
+                                      disabled={
+                                        submitting ||
+                                        index === referenceImages.length - 1
+                                      }
+                                      onClick={() =>
+                                        moveReferenceImage(index, 1)
+                                      }
+                                      type="button"
+                                    >
+                                      →
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="mt-2 flex gap-3 text-xs font-semibold">
+                                  <button
+                                    className="text-brand-200 hover:text-brand-100"
+                                    disabled={submitting}
+                                    onClick={() => {
+                                      referenceReplaceIndexRef.current = index;
+                                      referenceInputRef.current?.click();
+                                    }}
+                                    type="button"
+                                  >
+                                    替换
+                                  </button>
+                                  <button
+                                    className="text-rose-200 hover:text-rose-100"
+                                    disabled={submitting}
+                                    onClick={() => removeReferenceImage(index)}
+                                    type="button"
+                                  >
+                                    移除
+                                  </button>
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -931,6 +1423,195 @@ export default function VideoGenerationWorkspace({
                     </label>
                   ) : null}
                 </div>
+
+                {profile.provider_options.length > 0 ? (
+                  <details
+                    className="rounded-lg bg-white/[0.04]"
+                    onToggle={(event) =>
+                      setAdvancedOpen(event.currentTarget.open)
+                    }
+                    open={advancedOpen}
+                  >
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-sm font-semibold text-slate-200 marker:hidden">
+                      <span>
+                        高级设置
+                        {providerOptionCount > 0 ? (
+                          <span className="ml-2 rounded-full bg-brand-300/15 px-2 py-0.5 text-xs text-brand-100">
+                            已启用 {providerOptionCount} 项
+                          </span>
+                        ) : null}
+                      </span>
+                      <span aria-hidden="true" className="text-slate-400">
+                        {advancedOpen ? "收起" : "展开"}
+                      </span>
+                    </summary>
+                    <div className="space-y-4 border-t border-white/10 px-4 py-4">
+                      <p className="text-xs leading-5 text-slate-400">
+                        这里只显示实时目录和本地安全定义共同确认的参数。未修改的选项不会发送给供应商。
+                      </p>
+                      {profile.provider_options.map((option) => {
+                        const value =
+                          providerOptionValues[option.key] ?? "";
+                        const enabled = providerOptionKeys.has(option.key);
+                        if (option.type === "boolean") {
+                          return (
+                            <label
+                              className="block text-sm font-medium text-slate-200"
+                              key={option.key}
+                            >
+                              {option.label}
+                              <select
+                                className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10"
+                                disabled={submitting}
+                                onChange={(event) => {
+                                  if (!event.target.value) {
+                                    updateProviderOption(
+                                      option.key,
+                                      "",
+                                      false,
+                                    );
+                                    return;
+                                  }
+                                  updateProviderOption(
+                                    option.key,
+                                    event.target.value === "true",
+                                  );
+                                }}
+                                value={enabled ? String(Boolean(value)) : ""}
+                              >
+                                <option value="">
+                                  使用模型默认值
+                                  {option.default === true
+                                    ? "（开启）"
+                                    : option.default === false
+                                      ? "（关闭）"
+                                      : ""}
+                                </option>
+                                <option value="true">开启</option>
+                                <option value="false">关闭</option>
+                              </select>
+                            </label>
+                          );
+                        }
+                        if (option.type === "select") {
+                          return (
+                            <label
+                              className="block text-sm font-medium text-slate-200"
+                              key={option.key}
+                            >
+                              {option.label}
+                              <select
+                                className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10"
+                                disabled={submitting}
+                                onChange={(event) =>
+                                  event.target.value
+                                    ? updateProviderOption(
+                                        option.key,
+                                        event.target.value,
+                                      )
+                                    : updateProviderOption(
+                                        option.key,
+                                        "",
+                                        false,
+                                      )
+                                }
+                                value={enabled ? String(value) : ""}
+                              >
+                                <option value="">使用模型默认值</option>
+                                {option.options.map((item) => (
+                                  <option key={item} value={item}>
+                                    {item}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          );
+                        }
+                        return (
+                          <label
+                            className="block text-sm font-medium text-slate-200"
+                            key={option.key}
+                          >
+                            {option.label}
+                            <input
+                              className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10"
+                              disabled={submitting}
+                              max={option.max ?? undefined}
+                              maxLength={
+                                option.type === "text" ? 2_000 : undefined
+                              }
+                              min={option.min ?? undefined}
+                              onChange={(event) => {
+                                const nextValue =
+                                  option.type === "number"
+                                    ? Number(event.target.value)
+                                    : event.target.value;
+                                updateProviderOption(
+                                  option.key,
+                                  nextValue,
+                                  event.target.value.length > 0,
+                                );
+                              }}
+                              placeholder={
+                                option.type === "text"
+                                  ? option.default
+                                    ? `可选，模型默认：${String(option.default)}`
+                                    : "可选，留空则不发送"
+                                  : option.default !== null
+                                    ? `模型默认：${String(option.default)}`
+                                    : "输入数值"
+                              }
+                              type={
+                                option.type === "number" ? "number" : "text"
+                              }
+                              value={String(value)}
+                            />
+                          </label>
+                        );
+                      })}
+                      {providerOptionCount > 0 ? (
+                        <button
+                          className="text-xs font-semibold text-slate-300 hover:text-white"
+                          disabled={submitting}
+                          onClick={() => {
+                            setProviderOptionKeys(new Set());
+                            setProviderOptionValues(
+                              Object.fromEntries(
+                                profile.provider_options.map((option) => [
+                                  option.key,
+                                  "",
+                                ]),
+                              ),
+                            );
+                            markFormChanged();
+                          }}
+                          type="button"
+                        >
+                          恢复默认设置
+                        </button>
+                      ) : null}
+                    </div>
+                  </details>
+                ) : null}
+
+                {capabilityRefreshRequired ? (
+                  <div
+                    className="flex flex-col gap-3 rounded-lg border border-amber-300/25 bg-amber-300/[0.08] px-4 py-3 text-sm leading-6 text-amber-100 sm:flex-row sm:items-center sm:justify-between"
+                    role="status"
+                  >
+                    <span>
+                      尾帧、参考图和高级设置需要最新能力目录确认，请刷新后再提交。
+                    </span>
+                    <button
+                      className="shrink-0 rounded-full border border-amber-200/30 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={catalogRefreshing}
+                      onClick={() => void refreshCapabilities()}
+                      type="button"
+                    >
+                      {catalogRefreshing ? "正在刷新…" : "刷新模型能力"}
+                    </button>
+                  </div>
+                ) : null}
 
                 {error ? (
                   <div
@@ -1001,7 +1682,11 @@ export default function VideoGenerationWorkspace({
                 <div>
                   <dt className="text-slate-400">方式</dt>
                   <dd className="mt-1 font-medium text-slate-100">
-                    {firstFrame ? "首帧图生视频" : "文字生成视频"}
+                    {generationModeLabel({
+                      hasFirstFrame: Boolean(firstFrame),
+                      hasLastFrame: Boolean(lastFrame),
+                      referenceImageCount: referenceImages.length,
+                    })}
                   </dd>
                 </div>
                 <div>
@@ -1012,6 +1697,26 @@ export default function VideoGenerationWorkspace({
                       .join(" · ") || "等待模型能力"}
                   </dd>
                 </div>
+                {lastFrame ||
+                referenceImages.length > 0 ||
+                providerOptionCount > 0 ? (
+                  <div>
+                    <dt className="text-slate-400">增强设置</dt>
+                    <dd className="mt-1 leading-6 text-slate-300">
+                      {[
+                        lastFrame ? "使用尾帧" : "",
+                        referenceImages.length
+                          ? `${referenceImages.length} 张参考图`
+                          : "",
+                        providerOptionCount
+                          ? `${providerOptionCount} 项高级设置`
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
             </div>
             <div className="rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-5">
@@ -1019,7 +1724,7 @@ export default function VideoGenerationWorkspace({
                 内容与隐私提示
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-300">
-                视频生成不支持零数据保留。提示词和首帧会交给模型供应商处理，供应商可能按自身政策临时保留内容。模镜只保存任务元数据，不保存提示词、首帧或视频正文。
+                视频生成不支持零数据保留。提示词、引导帧、参考图和高级参数值会交给模型供应商处理，供应商可能按自身政策临时保留内容。模镜只保存任务元数据、图片数量和高级参数名称，不保存这些内容或视频正文。
               </p>
             </div>
           </aside>
@@ -1114,6 +1819,20 @@ export default function VideoGenerationWorkspace({
                           <span>{formatCost(job)}</span>
                           {job.parameters.has_first_frame ? (
                             <span>使用首帧</span>
+                          ) : null}
+                          {job.parameters.has_last_frame ? (
+                            <span>使用尾帧</span>
+                          ) : null}
+                          {job.parameters.reference_image_count > 0 ? (
+                            <span>
+                              {job.parameters.reference_image_count} 张参考图
+                            </span>
+                          ) : null}
+                          {job.parameters.provider_option_keys.length > 0 ? (
+                            <span>
+                              {job.parameters.provider_option_keys.length}{" "}
+                              项高级设置
+                            </span>
                           ) : null}
                           {job.parameters.generate_audio ? (
                             <span>包含音频</span>

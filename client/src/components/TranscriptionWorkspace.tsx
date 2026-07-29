@@ -11,7 +11,7 @@ import type { Model } from "../data/models";
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
 
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const ACCEPTED_EXTENSIONS = new Set([
   "wav",
   "mp3",
@@ -21,7 +21,7 @@ const ACCEPTED_EXTENSIONS = new Set([
   "webm",
   "aac",
 ]);
-const AUDIO_ACCEPT = [
+export const AUDIO_ACCEPT = [
   ".wav",
   ".mp3",
   ".flac",
@@ -38,7 +38,7 @@ const AUDIO_ACCEPT = [
   "audio/aac",
 ].join(",");
 
-const LANGUAGE_OPTIONS = [
+export const LANGUAGE_OPTIONS = [
   { value: "auto", label: "自动识别" },
   { value: "zh", label: "中文" },
   { value: "en", label: "英语" },
@@ -57,7 +57,7 @@ type TranscriptionStatus =
   | "failed"
   | "cancelled";
 
-interface TranscriptionUsage {
+export interface TranscriptionUsage {
   audio_seconds: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
@@ -66,7 +66,7 @@ interface TranscriptionUsage {
   cost_kind: "actual" | "estimated" | "unavailable";
 }
 
-interface TranscriptionResponse {
+export interface TranscriptionResponse {
   text: string;
   requested_model: string;
   actual_model: string;
@@ -79,23 +79,23 @@ interface TranscriptionWorkspaceProps {
   model: Model;
 }
 
-interface ProgressUpdate {
+export interface ProgressUpdate {
   phase: "uploading" | "processing";
   percent: number;
 }
 
-function formatBytes(bytes: number) {
+export function formatBytes(bytes: number) {
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
   }
   return `${Math.max(1, Math.round(bytes / 1024))} KiB`;
 }
 
-function fileExtension(file: File) {
+export function fileExtension(file: File) {
   return file.name.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function validateAudioFile(file: File) {
+export function validateAudioFile(file: File) {
   if (!ACCEPTED_EXTENSIONS.has(fileExtension(file))) {
     return "请选择 WAV、MP3、FLAC、M4A、OGG、WebM 或 AAC 音频。";
   }
@@ -134,7 +134,35 @@ function responseErrorMessage(payload: unknown, status: number) {
   return "转录没有完成，请检查连接后重试。";
 }
 
-function requestTranscription({
+let traditionalToSimplifiedPromise:
+  | Promise<(text: string) => string>
+  | null = null;
+
+async function normalizedTranscription(
+  response: TranscriptionResponse,
+  language: string,
+) {
+  if (!["auto", "zh"].includes(language)) return response;
+  const text = response.text ?? "";
+  const containsHan = /[\u3400-\u9fff]/.test(text);
+  const containsJapaneseKana = /[\u3040-\u30ff]/.test(text);
+  if (!containsHan || containsJapaneseKana) return response;
+  traditionalToSimplifiedPromise ??= import("opencc-js/t2cn").then(
+    ({ default: OpenCC }) =>
+      OpenCC.Converter({
+        from: "t",
+        to: "cn",
+      }),
+  );
+  const traditionalToSimplified =
+    await traditionalToSimplifiedPromise;
+  return {
+    ...response,
+    text: traditionalToSimplified(text),
+  };
+}
+
+export function requestTranscription({
   file,
   language,
   modelId,
@@ -173,11 +201,20 @@ function requestTranscription({
     xhr.upload.onload = () => {
       onProgress({ phase: "processing", percent: 92 });
     };
-    xhr.onload = () => {
+    xhr.onload = async () => {
       cleanup();
       const payload = responsePayload(xhr);
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(payload as TranscriptionResponse);
+        try {
+          resolve(
+            await normalizedTranscription(
+              payload as TranscriptionResponse,
+              language,
+            ),
+          );
+        } catch {
+          resolve(payload as TranscriptionResponse);
+        }
         return;
       }
       reject(new Error(responseErrorMessage(payload, xhr.status)));

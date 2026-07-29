@@ -125,6 +125,16 @@ def update_stream_state(line: str, state: dict[str, Any]) -> None:
                 state["content_observed"] = True
             if candidate.get("images"):
                 state["content_observed"] = True
+            audio = candidate.get("audio")
+            if isinstance(audio, dict):
+                audio_data = audio.get("data")
+                transcript = audio.get("transcript")
+                if (
+                    (isinstance(audio_data, str) and audio_data)
+                    or (isinstance(transcript, str) and transcript)
+                ):
+                    state["content_observed"] = True
+                    state["audio_observed"] = True
 
     usage = payload.get("usage")
     if not isinstance(usage, dict):

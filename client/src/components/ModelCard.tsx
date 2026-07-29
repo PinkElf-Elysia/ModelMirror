@@ -106,7 +106,7 @@ const ModelCard = memo(function ModelCard({
   confirmedVideoOperations = [],
   videoCatalogStale = false,
 }: ModelCardProps) {
-  const { setPreferredModelId } = useModelPreference();
+  const { preferredModelId, setPreferredModelId } = useModelPreference();
   const isFree = model.price_cny.input === 0 && model.price_cny.output === 0;
   const talentStats = getTalentStats(model);
   const providerName = deriveProviderFromModel(model);
@@ -143,6 +143,14 @@ const ModelCard = memo(function ModelCard({
     model.interaction_status === "ready" ||
     canAnalyzeVideo ||
     canGenerateVideo;
+  const isTranscriptionModel =
+    model.primary_operation === "transcribe" &&
+    model.operations.includes("transcribe");
+  const primaryChatPath = isTranscriptionModel
+    ? `/chat/${encodeURIComponent(
+        preferredModelId,
+      )}?media=audio&sttModel=${encodeURIComponent(model.id)}`
+    : `/chat/${encodeURIComponent(model.id)}`;
 
   return (
     <article className="group relative isolate flex h-full min-h-[340px] flex-col overflow-hidden rounded-lg border border-hire-300/20 bg-ink-950/76 p-0 shadow-prism backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/90 hover:shadow-[0_0_0_1px_rgba(251,146,60,0.32),0_20px_46px_rgba(124,45,18,0.22)]">
@@ -214,13 +222,21 @@ const ModelCard = memo(function ModelCard({
                     setPreferredModelId(model.id);
                   }
                 }}
-                to={`/chat/${encodeURIComponent(model.id)}`}
+                to={primaryChatPath}
               >
-                {model.primary_operation === "transcribe"
-                  ? "开始转录"
+                {isTranscriptionModel
+                  ? "用于聊天转写"
                   : model.primary_operation === "synthesize_speech"
                     ? "生成语音"
                     : "立即面试"}
+              </Link>
+            ) : null}
+            {isTranscriptionModel ? (
+              <Link
+                className="text-center text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-hire-100"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=transcribe`}
+              >
+                仅转录文件
               </Link>
             ) : null}
           </div>

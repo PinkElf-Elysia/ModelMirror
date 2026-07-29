@@ -22,7 +22,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 DEFAULT_TENANT_ID = "local"
 
 
@@ -187,6 +187,9 @@ class SQLiteRouterRepository:
             generate_audio INTEGER NOT NULL DEFAULT 0,
             seed INTEGER,
             has_first_frame INTEGER NOT NULL DEFAULT 0,
+            has_last_frame INTEGER NOT NULL DEFAULT 0,
+            reference_image_count INTEGER NOT NULL DEFAULT 0,
+            provider_option_keys TEXT NOT NULL DEFAULT '[]',
             cost_usd REAL,
             cost_kind TEXT NOT NULL DEFAULT 'unavailable',
             error_code TEXT,
@@ -278,6 +281,31 @@ class SQLiteRouterRepository:
             }
             for column, statement in decision_migrations.items():
                 if column not in decision_columns:
+                    connection.execute(statement)
+            video_job_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(video_jobs)"
+                ).fetchall()
+            }
+            video_job_migrations = {
+                "has_last_frame": (
+                    "ALTER TABLE video_jobs "
+                    "ADD COLUMN has_last_frame INTEGER NOT NULL DEFAULT 0"
+                ),
+                "reference_image_count": (
+                    "ALTER TABLE video_jobs "
+                    "ADD COLUMN reference_image_count "
+                    "INTEGER NOT NULL DEFAULT 0"
+                ),
+                "provider_option_keys": (
+                    "ALTER TABLE video_jobs "
+                    "ADD COLUMN provider_option_keys "
+                    "TEXT NOT NULL DEFAULT '[]'"
+                ),
+            }
+            for column, statement in video_job_migrations.items():
+                if column not in video_job_columns:
                     connection.execute(statement)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -556,6 +584,9 @@ class SQLiteRouterRepository:
         generate_audio: bool,
         seed: int | None,
         has_first_frame: bool,
+        has_last_frame: bool = False,
+        reference_image_count: int = 0,
+        provider_option_keys: list[str] | None = None,
     ) -> tuple[dict[str, object], bool]:
         """Atomically claim an idempotency key before a paid upstream call."""
 
@@ -575,6 +606,13 @@ class SQLiteRouterRepository:
             int(generate_audio),
             seed,
             int(has_first_frame),
+            int(has_last_frame),
+            max(0, int(reference_image_count)),
+            json.dumps(
+                sorted(set(provider_option_keys or [])),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ),
             now,
             now,
         )
@@ -585,8 +623,11 @@ class SQLiteRouterRepository:
                     id, tenant_id, idempotency_key_hash, connection_id,
                     requested_model, provider, status, duration, resolution,
                     aspect_ratio, generate_audio, seed, has_first_frame,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    has_last_frame, reference_image_count,
+                    provider_option_keys, created_at, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 values,
             )

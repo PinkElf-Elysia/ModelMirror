@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Model } from "../data/models";
+import {
+  DEFAULT_SPEECH_VOICE,
+  generateSpeechAudio,
+} from "../utils/speechAudio";
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
 
 const MAX_TEXT_CHARS = 4_000;
-const VERIFIED_VOICE = "en-US-Harper:MAI-Voice-2";
 
 type SpeechStatus =
   | "idle"
@@ -26,33 +29,6 @@ interface SpeechWorkspaceProps {
   model: Model;
 }
 
-async function responseErrorMessage(response: Response) {
-  try {
-    const payload = (await response.json()) as {
-      detail?: { message?: unknown };
-    };
-    if (
-      typeof payload.detail?.message === "string" &&
-      payload.detail.message.trim()
-    ) {
-      return payload.detail.message;
-    }
-  } catch {
-    // Upstream details are intentionally not exposed by the backend.
-  }
-  if (response.status === 402) {
-    return "模型服务余额不足，请检查 OpenRouter 账户。";
-  }
-  if (response.status === 429) {
-    return "语音生成服务当前请求较多，请稍后重试。";
-  }
-  return "语音没有生成完成，请检查连接后重试。";
-}
-
-function headerValue(response: Response, name: string) {
-  return response.headers.get(name)?.trim() ?? "";
-}
-
 function formatBytes(bytes: number | null) {
   if (bytes === null) return "未提供";
   if (bytes >= 1024 * 1024) {
@@ -63,7 +39,7 @@ function formatBytes(bytes: number | null) {
 
 export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
   const [text, setText] = useState("");
-  const [voice, setVoice] = useState(VERIFIED_VOICE);
+  const [voice, setVoice] = useState(DEFAULT_SPEECH_VOICE);
   const [speed, setSpeed] = useState(1);
   const [status, setStatus] = useState<SpeechStatus>("idle");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -109,54 +85,20 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
     setError("");
 
     try {
-      const response = await fetch("/api/multimodal/speech", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model_id: model.id,
-          input: text.trim(),
-          voice,
-          response_format: "mp3",
-          speed,
-        }),
+      const result = await generateSpeechAudio({
+        modelId: model.id,
+        input: text.trim(),
+        voice,
+        speed,
         signal: controller.signal,
       });
-      if (!response.ok) {
-        throw new Error(await responseErrorMessage(response));
-      }
-      const contentType = headerValue(response, "content-type")
-        .split(";", 1)[0]
-        .toLowerCase();
-      if (contentType !== "audio/mpeg") {
-        throw new Error("语音服务没有返回标准 MP3，请稍后重试。");
-      }
-      const nextBlob = await response.blob();
-      if (nextBlob.size <= 0) {
-        throw new Error("语音服务没有返回可播放的内容，请稍后重试。");
-      }
-      const outputBytesHeader = Number(
-        headerValue(response, "x-modelmirror-output-bytes"),
-      );
-      const rawCostKind = headerValue(
-        response,
-        "x-modelmirror-cost-kind",
-      );
-      const costKind: SpeechReceipt["costKind"] =
-        rawCostKind === "actual" || rawCostKind === "estimated"
-          ? rawCostKind
-          : "unavailable";
-      setAudioBlob(nextBlob);
+      setAudioBlob(result.blob);
       setReceipt({
-        requestId: headerValue(response, "x-modelmirror-request-id"),
-        actualModel:
-          headerValue(response, "x-modelmirror-actual-model") || model.id,
-        provider:
-          headerValue(response, "x-modelmirror-provider") || "openrouter",
-        costKind,
-        outputBytes:
-          Number.isFinite(outputBytesHeader) && outputBytesHeader > 0
-            ? outputBytesHeader
-            : nextBlob.size,
+        requestId: result.requestId,
+        actualModel: result.actualModel,
+        provider: result.provider,
+        costKind: result.costKind,
+        outputBytes: result.outputBytes,
       });
       setStatus("succeeded");
     } catch (requestError) {
@@ -277,7 +219,7 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                     }}
                     value={voice}
                   >
-                    <option value={VERIFIED_VOICE}>
+                    <option value={DEFAULT_SPEECH_VOICE}>
                       Harper · MAI-Voice-2（已验证）
                     </option>
                   </select>

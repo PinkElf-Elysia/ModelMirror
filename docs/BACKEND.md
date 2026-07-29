@@ -52,6 +52,10 @@ server/
 | `OMNIROUTE_ENABLED` / `OMNIROUTE_API_KEY` | 可选侧车兼容。 |
 | `MULTIMODAL_VIDEO_ANALYSIS_ENABLED` | 视频理解入口，默认关闭。 |
 | `MULTIMODAL_VIDEO_GENERATION_ENABLED` | 视频生成入口，默认关闭。 |
+| `MULTIMODAL_CHAT_AUDIO_ENABLED` | Chat 音频附件与直接理解，默认关闭。 |
+| `MULTIMODAL_MICROPHONE_ENABLED` | 录音完成后提交，默认关闭。 |
+| `MULTIMODAL_STREAMING_AUDIO_ENABLED` | 已验证模型的原生流式语音输出，默认关闭。 |
+| `MULTIMODAL_CHAT_VIDEO_ENABLED` | Chat 本地视频附件，默认关闭。 |
 | `RAG_STORAGE_DIR` / `RAG_UPLOAD_DIR` | RAG 持久化位置。 |
 | `CHROMA_DB_PATH` | Chroma 目录。 |
 | `XPERT_STORAGE_DIR` / `AGENT_TASK_STORAGE_DIR` | Agent Studio 与 Runtime 兼容存储路径。 |
@@ -77,13 +81,16 @@ server/
 
 - `POST /api/multimodal/transcriptions`
 - `POST /api/multimodal/speech`
-- `GET /api/multimodal/video/models`
+- `POST /api/multimodal/chat/attachments`
+- `DELETE /api/multimodal/chat/attachments/{attachment_id}`
+- `GET /api/multimodal/audio/models`
+- `GET /api/multimodal/video/models`，`refresh=true` 强制重新确认实时能力。
 - `POST /api/multimodal/video/analysis`
 - `/api/multimodal/video/jobs*`：提交、列表、刷新、内容代理和删除本地记录。
 
 STT/TTS 与视频完整契约见
-[MULTIMODAL_FORMAT_AUDIT.md](./MULTIMODAL_FORMAT_AUDIT.md)。视频生成不复用
-`/api/chat` SSE。
+[MULTIMODAL_FORMAT_AUDIT.md](./MULTIMODAL_FORMAT_AUDIT.md)。音视频附件可进入
+Chat，但视频生成仍使用独立异步任务，不复用 `/api/chat` SSE。
 
 ### 工作流、RAG 与 Agent
 

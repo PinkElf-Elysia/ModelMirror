@@ -130,7 +130,10 @@ curl http://localhost:5173/studio
 
 - 前端：回退镜像或静态产物，不迁移业务数据。
 - 后端：回退镜像；schema 变更必须保证旧数据仍可读取。
-- 视频：将两个 `MULTIMODAL_VIDEO_*_ENABLED` 设为 `false`，保留任务元数据。
+- 视频生成或分析：将两个 `MULTIMODAL_VIDEO_*_ENABLED` 设为 `false`，保留任务元数据。
+- Chat 音视频：分别关闭 `MULTIMODAL_CHAT_AUDIO_ENABLED`、
+  `MULTIMODAL_MICROPHONE_ENABLED`、`MULTIMODAL_STREAMING_AUDIO_ENABLED`
+  和 `MULTIMODAL_CHAT_VIDEO_ENABLED`；独立 STT、TTS、视频分析及旧视频任务不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
 - 可选 profile 故障不得通过删除核心数据解决。

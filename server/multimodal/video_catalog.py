@@ -22,6 +22,16 @@ VIDEO_CATALOG_TTL_SECONDS = 300.0
 VIDEO_CATALOG_STALE_SECONDS = 1_800.0
 
 
+class VideoProviderOption(BaseModel):
+    key: str
+    label: str
+    type: Literal["text", "number", "boolean", "select"]
+    options: list[str] = Field(default_factory=list)
+    min: float | None = None
+    max: float | None = None
+    default: str | int | float | bool | None = None
+
+
 class VideoModelProfile(BaseModel):
     model_id: str
     operation: Literal["analyze_video", "generate_video"]
@@ -31,11 +41,46 @@ class VideoModelProfile(BaseModel):
     supported_resolutions: list[str] = Field(default_factory=list)
     supported_aspect_ratios: list[str] = Field(default_factory=list)
     supported_durations: list[int] = Field(default_factory=list)
+    supported_frame_types: list[
+        Literal["first_frame", "last_frame"]
+    ] = Field(default_factory=list)
     supports_first_frame: bool = False
+    supports_reference_images: bool = False
+    max_reference_images: int | None = None
     supports_generated_audio: bool = False
     supports_seed: bool = False
+    provider_options: list[VideoProviderOption] = Field(
+        default_factory=list
+    )
     pricing_skus: dict[str, str] = Field(default_factory=dict)
     interaction_status: Literal["ready", "planned", "unsupported"] = "planned"
+
+
+REFERENCE_IMAGE_AUDIT: dict[str, int] = {
+    "bytedance/seedance-2.0-fast": 3,
+}
+
+PROVIDER_OPTION_AUDIT: dict[
+    str, tuple[str, tuple[VideoProviderOption, ...]]
+] = {
+    "google/veo-3.1-lite": (
+        "google-vertex",
+        (
+            VideoProviderOption(
+                key="negativePrompt",
+                label="排除内容",
+                type="text",
+                default="",
+            ),
+            VideoProviderOption(
+                key="enhancePrompt",
+                label="自动增强提示词",
+                type="boolean",
+                default=True,
+            ),
+        ),
+    ),
+}
 
 
 class VideoModelCatalogResponse(BaseModel):
@@ -195,6 +240,8 @@ class VideoCatalogService:
                 model_id = str(item.get("id") or "").strip()
                 if not model_id:
                     continue
+                frame_types = self._frame_types(item)
+                reference_limit = REFERENCE_IMAGE_AUDIT.get(model_id)
                 profiles.append(
                     VideoModelProfile(
                         model_id=model_id,
@@ -208,9 +255,19 @@ class VideoCatalogService:
                         supported_durations=self._integers(
                             item.get("supported_durations")
                         ),
-                        supports_first_frame=self._supports_first_frame(item),
+                        supported_frame_types=frame_types,
+                        supports_first_frame=(
+                            "first_frame" in frame_types
+                        ),
+                        supports_reference_images=(
+                            reference_limit is not None
+                        ),
+                        max_reference_images=reference_limit,
                         supports_generated_audio=self._supports_audio(item),
                         supports_seed=self._supports_seed(item),
+                        provider_options=self._provider_options(
+                            model_id, item
+                        ),
                         pricing_skus=self._pricing(item.get("pricing_skus")),
                         interaction_status="planned",
                     )
@@ -342,25 +399,37 @@ class VideoCatalogService:
         }
 
     @staticmethod
-    def _supports_first_frame(item: dict[str, Any]) -> bool:
-        frame_types = {
-            value.lower()
+    def _frame_types(
+        item: dict[str, Any],
+    ) -> list[Literal["first_frame", "last_frame"]]:
+        allowed = {"first_frame", "last_frame"}
+        return [
+            value
             for value in VideoCatalogService._strings(
                 item.get("supported_frame_images")
             )
-        }
-        parameters = {
-            value.lower()
-            for value in VideoCatalogService._strings(
+            if value in allowed
+        ]
+
+    @staticmethod
+    def _provider_options(
+        model_id: str,
+        item: dict[str, Any],
+    ) -> list[VideoProviderOption]:
+        audited = PROVIDER_OPTION_AUDIT.get(model_id)
+        if audited is None:
+            return []
+        _, definitions = audited
+        live_allowed = set(
+            VideoCatalogService._strings(
                 item.get("allowed_passthrough_parameters")
-                or item.get("supported_parameters")
             )
-        }
-        return bool(
-            item.get("supports_first_frame")
-            or "first_frame" in frame_types
-            or "frame_images" in parameters
         )
+        return [
+            option.model_copy(deep=True)
+            for option in definitions
+            if option.key in live_allowed
+        ]
 
     @staticmethod
     def _supports_audio(item: dict[str, Any]) -> bool:
