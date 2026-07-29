@@ -306,7 +306,7 @@ export default function XpertEvolutionPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    document.title = "模镜 - Xpert 受控进化";
+    document.title = "模镜 - 智能体受控优化";
     void loadOptions();
   }, []);
 
@@ -331,7 +331,7 @@ export default function XpertEvolutionPage() {
         const available = promptOptions(item);
         setPromptFields((current) => current.filter((field) => available.some((option) => option.key === field)));
       })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "Xpert 加载失败"));
+      .catch((caught) => setError(caught instanceof Error ? caught.message : "智能体加载失败"));
   }, [selectedXpertId]);
 
   useEffect(() => {
@@ -532,7 +532,7 @@ export default function XpertEvolutionPage() {
       <header className="mb-5 flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase text-cyan-200">EvoAgentX Evolution</p>
-          <h1 className="mt-2 text-2xl font-semibold text-white">Xpert 受控进化</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-white">智能体受控优化</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-400">
             固定草稿、能力快照与数据集，对 Prompt 或工作流结构执行有界搜索。通过质量、成本和安全门禁后只创建待审批 Proposal。
           </p>
@@ -585,7 +585,7 @@ export default function XpertEvolutionPage() {
                     type="button"
                   >
                     {kind === "xpert"
-                      ? "Xpert Agent Prompt"
+                      ? "智能体 Agent Prompt"
                       : kind === "prompt_profile"
                         ? "Prompt Profile"
                         : "工作流结构"}
@@ -595,7 +595,7 @@ export default function XpertEvolutionPage() {
               {targetKind !== "prompt_profile" ? (
                 <>
                   <label className="block text-xs text-slate-400">
-                    Xpert 草稿
+                    智能体草稿
                     <select className="mt-1 w-full border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white" onChange={(event) => setSelectedXpertId(event.target.value)} value={selectedXpertId}>
                       {xperts.map((item) => <option key={item.id} value={item.id}>{item.name} · r{item.draft_revision}</option>)}
                     </select>
@@ -666,7 +666,7 @@ export default function XpertEvolutionPage() {
                     </select>
                   </label>
                   <label className="block text-xs text-slate-400">
-                    固定评测宿主 Xpert
+                    固定评测宿主智能体
                     <select className="mt-1 w-full border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white" onChange={(event) => setHostXpertId(event.target.value)} value={hostXpertId}>
                       {xperts.filter((item) => item.published_version).map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.published_version}</option>)}
                     </select>
@@ -1138,7 +1138,7 @@ function StructureScopePanel({
         <h3 className="text-xs font-semibold text-white">只读资源与安全中间件授权</h3>
         <p className="mt-1 text-[11px] text-slate-500">资源默认不授权。只有此处选中的 ID 才能进入候选。</p>
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <ScopeSelector compact items={resourceItems(structure?.external_xperts)} onChange={setExternalXpertIds} selected={externalXpertIds} title="外部 Xpert" />
+          <ScopeSelector compact items={resourceItems(structure?.external_xperts)} onChange={setExternalXpertIds} selected={externalXpertIds} title="外部智能体" />
           <ScopeSelector compact items={resourceItems(structure?.knowledge_bases)} onChange={setKnowledgeBaseIds} selected={knowledgeBaseIds} title="知识库" />
           <ScopeSelector compact items={resourceItems(structure?.toolsets)} onChange={setToolsetIds} selected={toolsetIds} title="Toolset" />
           <ScopeSelector compact items={resourceItems(structure?.plugins)} onChange={setPluginIds} selected={pluginIds} title="Plugin" />

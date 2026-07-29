@@ -422,7 +422,7 @@ export default function NodePalette() {
                 流水线阶段
               </h3>
               <p className="mt-0.5 text-xs leading-5 text-slate-500">
-                与 Xpert 菜单对齐的草稿入口，暂不创建节点。
+                智能体资源草稿入口，当前不会直接创建工作流节点。
               </p>
             </div>
             {filteredKnowledgePlaceholders.length === 0 ? (

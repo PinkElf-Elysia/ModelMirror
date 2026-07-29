@@ -21,6 +21,8 @@ import PromptSidebar from "../components/PromptSidebar";
 import ResourceNav from "../components/ResourceNav";
 import SpeechWorkspace from "../components/SpeechWorkspace";
 import TranscriptionWorkspace from "../components/TranscriptionWorkspace";
+import VideoAnalysisWorkspace from "../components/VideoAnalysisWorkspace";
+import VideoGenerationWorkspace from "../components/VideoGenerationWorkspace";
 import {
   DEFAULT_CHAT_MODEL_ID,
   useModelPreference,
@@ -38,6 +40,7 @@ import {
 import {
   AGENT_DEFAULT_MODEL_NOTICE_KEY,
   type AgentInterviewPayload,
+  clearAgentInterview,
   readAgentInterview,
 } from "../utils/agentInterview";
 import { deriveProviderFromModel } from "../utils/userFriendlyText";
@@ -740,7 +743,35 @@ const MessageBubble = memo(function MessageBubble({
 
 export default function ChatPage() {
   const { modelId } = useParams();
+  const [searchParams] = useSearchParams();
   const decodedModelId = decodeModelId(modelId);
+  const requestedOperation = searchParams.get("operation");
+  const videoAnalysisModel = models.find(
+    (item) =>
+      item.id === decodedModelId &&
+      item.operations.includes("analyze_video"),
+  );
+
+  if (
+    requestedOperation === "analyze_video" &&
+    videoAnalysisModel
+  ) {
+    return <VideoAnalysisWorkspace model={videoAnalysisModel} />;
+  }
+
+  const videoGenerationModel = models.find(
+    (item) =>
+      item.id === decodedModelId &&
+      item.operations.includes("generate_video"),
+  );
+
+  if (
+    requestedOperation === "generate_video" &&
+    videoGenerationModel
+  ) {
+    return <VideoGenerationWorkspace model={videoGenerationModel} />;
+  }
+
   const transcriptionModel = models.find(
     (item) =>
       item.id === decodedModelId &&
@@ -768,7 +799,7 @@ export default function ChatPage() {
 function ChatConversationPage() {
   const { modelId } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { setPreferredModelId } = useModelPreference();
   const decodedModelId = useMemo(() => decodeModelId(modelId), [modelId]);
   const isFederationRoute = decodedModelId === federationRouteId;
@@ -1440,6 +1471,27 @@ function ChatConversationPage() {
     );
   }
 
+  function exitAgentInterview() {
+    if (isSending) return;
+
+    clearAgentInterview();
+    const nextSearchParams = new URLSearchParams(searchParams);
+    [
+      "agentId",
+      "agentPrompt",
+      "agentName",
+      "agentDepartment",
+      "agentExpertise",
+    ].forEach((key) => nextSearchParams.delete(key));
+    setSearchParams(nextSearchParams, { replace: true });
+    setMessages([]);
+    setUploadedImages([]);
+    setError("");
+    setAgentDefaultModelNotice("");
+    setRuntimeMeta(null);
+    setRuntimeObservation(null);
+  }
+
   function handleAdvancedParamsChange(nextParams: ChatAdvancedParams) {
     const normalizedParams: ChatAdvancedParams = {
       ...nextParams,
@@ -1532,9 +1584,24 @@ function ChatConversationPage() {
                 {agentInterview ? "专家已入场" : "候选人已入场"}
               </span>
               {agentInterview ? (
-                <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-3 py-1.5 text-xs font-semibold text-brand-100">
-                  {agentInterview.department}
-                </span>
+                <>
+                  <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-3 py-1.5 text-xs font-semibold text-brand-100">
+                    {agentInterview.department}
+                  </span>
+                  <button
+                    className="rounded-full border border-white/15 bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-brand-300/45 hover:bg-brand-300/10 hover:text-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isSending}
+                    onClick={exitAgentInterview}
+                    title={
+                      isSending
+                        ? "请等待当前回答完成后再退出专家模式"
+                        : "清空当前专家对话，继续直接与所选模型聊天"
+                    }
+                    type="button"
+                  >
+                    退出专家模式
+                  </button>
+                </>
               ) : null}
               {isOmniAutoRoute ? (
                 <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-3 py-1.5 text-xs font-semibold text-brand-100">

@@ -1,6 +1,11 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import {
+  getFriendlyRunStatusLabel,
+  getFriendlyRunTypeLabel,
+  replaceLegacyAgentTerms,
+} from "../utils/userFriendlyText";
 
 type Loadable<T> = {
   data: T;
@@ -119,12 +124,12 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
 
 const runTypeFilters: Array<{ label: string; value: RuntimeFilter }> = [
   { label: "全部类型", value: "all" },
-  { label: "workflow", value: "workflow" },
-  { label: "workflow_agent", value: "workflow_agent" },
-  { label: "agent_task", value: "agent_task" },
-  { label: "agent_handoff", value: "agent_handoff" },
-  { label: "chat", value: "chat" },
-  { label: "goal", value: "goal" },
+  { label: "工作流", value: "workflow" },
+  { label: "工作流智能体", value: "workflow_agent" },
+  { label: "智能体任务", value: "agent_task" },
+  { label: "智能体交接", value: "agent_handoff" },
+  { label: "聊天", value: "chat" },
+  { label: "长期目标", value: "goal" },
 ];
 
 const statusFilters: Array<{ label: string; value: StatusFilter }> = [
@@ -669,7 +674,7 @@ export default function RuntimeOpsPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1 text-xs font-semibold text-hire-100">
-                Xpert Runtime Ops Beta
+                智能体运行诊断 Beta
               </span>
               <span className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-xs text-slate-300">
                 只读观测，不改变运行协议
@@ -1068,14 +1073,16 @@ export default function RuntimeOpsPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-white">
-                          {run.title || run.run_type}
+                          {replaceLegacyAgentTerms(
+                            run.title || getFriendlyRunTypeLabel(run.run_type),
+                          )}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
-                          {run.run_type} · {shortId(run.run_id)}
+                          {getFriendlyRunTypeLabel(run.run_type)} · {shortId(run.run_id)}
                         </p>
                       </div>
                       <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass(run.status)}`}>
-                        {run.status}
+                        {getFriendlyRunStatusLabel(run.status)}
                       </span>
                     </div>
                     <p className="mt-2 line-clamp-1 text-xs text-slate-400">

@@ -159,7 +159,7 @@ export default function PromptProfilesPage() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Prompt Runtime</p>
           <h1 className="mt-2 text-2xl font-semibold text-white">Prompt Command</h1>
-          <p className="mt-1 max-w-3xl text-sm text-slate-400">编辑、发布并将固定版本命令绑定到 Xpert。命令模板只接受 <code>{"{{args}}"}</code>。</p>
+          <p className="mt-1 max-w-3xl text-sm text-slate-400">编辑、发布并将固定版本命令绑定到智能体。命令模板只接受 <code>{"{{args}}"}</code>。</p>
         </div>
         <button className="rounded-md bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void createProfile()} type="button">新建 Prompt</button>
       </header>
@@ -196,7 +196,7 @@ export default function PromptProfilesPage() {
             <label className="block text-xs text-slate-400">模板<textarea className="mt-1 min-h-44 w-full rounded-md border border-white/10 bg-white/[0.04] p-3 font-mono text-sm leading-6 text-white" value={draft.template} onChange={(event) => setDraft({ ...draft, template: event.target.value })} /></label>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-xs text-slate-400">标签<input className="mt-1 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-white" value={draft.tags.join(", ")} onChange={(event) => setDraft({ ...draft, tags: splitValues(event.target.value) })} /></label>
-              <label className="flex items-center gap-2 self-end rounded-md border border-white/10 bg-white/[0.035] px-3 py-3 text-xs text-slate-300"><input checked={draft.public_app_allowed} onChange={(event) => setDraft({ ...draft, public_app_allowed: event.target.checked })} type="checkbox" />允许安全 Xpert App 使用</label>
+              <label className="flex items-center gap-2 self-end rounded-md border border-white/10 bg-white/[0.035] px-3 py-3 text-xs text-slate-300"><input checked={draft.public_app_allowed} onChange={(event) => setDraft({ ...draft, public_app_allowed: event.target.checked })} type="checkbox" />允许安全 Agent App 使用</label>
             </div>
             <div className="rounded-md border border-white/10 bg-black/20 p-3">
               <label className="text-xs text-slate-400">预览参数<input className="mt-1 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-white" value={previewArgs} onChange={(event) => setPreviewArgs(event.target.value)} /></label>

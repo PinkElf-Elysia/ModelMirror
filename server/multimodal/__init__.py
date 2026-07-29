@@ -1,4 +1,10 @@
-from .api import configure_transcription_service, router
+from .api import (
+    configure_transcription_service,
+    configure_video_analysis_service,
+    configure_video_catalog_service,
+    configure_video_job_service,
+    router,
+)
 from .stt import (
     MAX_AUDIO_BYTES,
     MultimodalServiceError,
@@ -14,5 +20,8 @@ __all__ = [
     "TranscriptionResult",
     "TranscriptionService",
     "configure_transcription_service",
+    "configure_video_analysis_service",
+    "configure_video_catalog_service",
+    "configure_video_job_service",
     "router",
 ]

@@ -22,6 +22,7 @@ import PageContainer from "../components/PageContainer";
 import {
   DEFAULT_EMBEDDING_MODEL_ID,
   embeddingModelOptions,
+  rerankModelOptions,
 } from "../data/modelOptions";
 import { models } from "../data/models";
 
@@ -752,6 +753,12 @@ function NodeConfig({ node, onChange }: { node: GraphFlowNode; onChange: (patch:
           <NumberField label="Score 阈值 (%)" min={0} max={100} value={Math.round(Number(config.score_threshold || 0) * 100)} onChange={(value) => onChange({ score_threshold: value / 100 })} />
           <ToggleField label="启用 Rerank" checked={Boolean(config.rerank_enabled)} onChange={(value) => onChange({ rerank_enabled: value })} />
           <SelectField label="Rerank Provider" value={String(config.rerank_provider || "auto")} options={["auto", "api", "llm", "none"]} onChange={(value) => onChange({ rerank_provider: value })} />
+          {config.rerank_enabled ? (
+            <RerankModelField
+              value={String(config.rerank_model || "")}
+              onChange={(value) => onChange({ rerank_model: value })}
+            />
+          ) : null}
         </>
       ) : null}
       {kind === "image_understanding" ? (
@@ -778,7 +785,7 @@ function defaultConfig(kind: GraphNodeKind): Record<string, unknown> {
   if (kind === "parent_child_chunker") return { strategy: "parent_child", parent_chunk_size: 1500, parent_chunk_overlap: 100, child_chunk_size: 400, child_chunk_overlap: 50, parent_separators: ["\n\n", "\n", ". ", " ", ""], child_separators: ["\n\n", "\n", ". ", " ", ""] };
   if (kind === "embedding") return { model: DEFAULT_EMBEDDING_MODEL_ID };
   if (kind === "dual_index") return { vector_enabled: true, fulltext_enabled: true };
-  if (kind === "retrieval") return { mode: "hybrid", vector_weight: 0.7, fulltext_weight: 0.3, top_k: 5, score_threshold: 0, candidate_multiplier: 4, rerank_enabled: false, rerank_provider: "auto", rerank_top_n: 5 };
+  if (kind === "retrieval") return { mode: "hybrid", vector_weight: 0.7, fulltext_weight: 0.3, top_k: 5, score_threshold: 0, candidate_multiplier: 4, rerank_enabled: false, rerank_provider: "auto", rerank_model: "", rerank_top_n: 5 };
   if (kind === "image_understanding") return { enabled: true, provider: "openai_compatible_vlm", vision_model_id: "", pdf_page_strategy: "auto", render_dpi: 144, max_pages: 100, max_image_edge: 2048, failure_policy: "continue_on_error" };
   return {};
 }
@@ -808,6 +815,35 @@ function EmbeddingModelField({ value, onChange }: { value: string; onChange: (va
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function RerankModelField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const hasCurrentValue = rerankModelOptions.some(
+    (option) => option.id === value,
+  );
+  return (
+    <label className="block text-xs font-semibold text-slate-300">
+      Rerank 模型
+      <select
+        className="mt-2 w-full rounded-md border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white"
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        <option value="">使用服务端默认模型</option>
+        {!hasCurrentValue && value ? (
+          <option value={value}>{value}（当前配置）</option>
+        ) : null}
+        {rerankModelOptions.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.name}
+          </option>
+        ))}
+      </select>
+      <span className="mt-1.5 block font-normal leading-5 text-slate-500">
+        专用 API 可直接选择；LLM JSON 建议使用服务端默认模型。
+      </span>
     </label>
   );
 }

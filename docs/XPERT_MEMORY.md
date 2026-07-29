@@ -1,6 +1,6 @@
 # Xpert Files and Memory
 
-Last updated: 2026-07-11
+Last updated: 2026-07-28
 
 ## Purpose
 
@@ -19,7 +19,9 @@ This contract defines the ModelMirror-native file-understanding and durable-memo
 - Model context: 10,000 characters per file and 30,000 characters total.
 - Archive keeps the internal artifact so a previously started Goal can resolve its explicit reference, while new conversation runs cannot select it.
 
-Files are not embedded, indexed, or attached to a knowledge base. Knowledge promotion is a separate explicit operation planned for the versioned Knowledge Pipeline executor.
+Conversation files are not automatically embedded, indexed, or attached to a knowledge
+base. Knowledge writes use a separate explicit Inbox → candidate version → Evaluation
+Gate → promote flow; ordinary file upload never bypasses that approval boundary.
 
 ## Memory Contract
 

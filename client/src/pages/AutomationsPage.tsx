@@ -283,16 +283,16 @@ export default function AutomationsPage() {
       <header className="mb-4 flex flex-col gap-3 border-b border-white/10 pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.14em] text-hire-200">
-            Xpert Automation Beta
+            智能体自动化 Beta
           </div>
           <h1 className="mt-2 text-2xl font-semibold text-white">自动化工作台</h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
-            将已发布 Xpert 固定到具体版本，按单次、间隔或 Cron 触发；支持预算、重试、死信与人工等待恢复。
+            将已发布智能体固定到具体版本，按单次、间隔或 Cron 触发；支持预算、重试、死信与人工等待恢复。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-semibold text-slate-200" to="/agents/studio">
-            管理 Xpert
+            管理智能体
           </Link>
           <button className="rounded-lg bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950" onClick={() => setShowCreate((value) => !value)} type="button">
             {showCreate ? "收起创建" : "新建自动化"}
@@ -307,7 +307,7 @@ export default function AutomationsPage() {
           <div className="space-y-3">
             <label className="block text-xs font-semibold text-slate-400">名称<input className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-sm text-white outline-none focus:border-hire-300/40" onChange={(event) => setName(event.target.value)} value={name} /></label>
             <label className="block text-xs font-semibold text-slate-400">执行指令<textarea className="mt-1 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-ink-950/60 p-3 text-sm leading-6 text-white outline-none focus:border-hire-300/40" onChange={(event) => setPrompt(event.target.value)} value={prompt} /></label>
-            <label className="block text-xs font-semibold text-slate-400">目标已发布 Xpert<select className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-sm text-white" onChange={(event) => setTargetXpertId(event.target.value)} value={targetXpertId}>{xperts.map((xpert) => <option key={xpert.id} value={xpert.id}>{xpert.name} · v{xpert.published_version}</option>)}</select></label>
+            <label className="block text-xs font-semibold text-slate-400">目标已发布智能体<select className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-sm text-white" onChange={(event) => setTargetXpertId(event.target.value)} value={targetXpertId}>{xperts.map((xpert) => <option key={xpert.id} value={xpert.id}>{xpert.name} · v{xpert.published_version}</option>)}</select></label>
           </div>
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2">{(["once", "interval", "cron"] as const).map((type) => <button className={`h-9 rounded-lg border text-xs font-semibold ${triggerType === type ? "border-hire-300/40 bg-hire-300/10 text-hire-100" : "border-white/10 bg-white/[0.04] text-slate-400"}`} key={type} onClick={() => setTriggerType(type)} type="button">{type === "once" ? "单次" : type === "interval" ? "间隔" : "Cron"}</button>)}</div>

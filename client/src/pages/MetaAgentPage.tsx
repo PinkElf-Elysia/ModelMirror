@@ -648,7 +648,7 @@ export default function MetaAgentPage() {
     if (automatic && handoff.status === "accepted") {
       return (
         <p className="mt-2 text-[11px] text-cyan-200">
-          目标 Xpert 正在执行，完成后会自动回写结果。
+          目标智能体正在执行，完成后会自动回写结果。
         </p>
       );
     }
@@ -854,7 +854,7 @@ export default function MetaAgentPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-hire-100">
-              Xpert 对齐任务工作台 Beta
+              智能体任务工作台 Beta
             </p>
             <h1 className="mt-2 text-3xl font-semibold text-white sm:text-4xl">
               元智能体工作台
@@ -1188,7 +1188,7 @@ export default function MetaAgentPage() {
                   Handoff Inbox Beta
                 </p>
                 <p className="mt-1 text-xs text-slate-400">
-                  人工处理与 Xpert 自动协作
+                  人工处理与智能体自动协作
                 </p>
               </div>
               <button
@@ -1261,7 +1261,7 @@ export default function MetaAgentPage() {
                         </p>
                         {handoff.target_agent.startsWith("xpert:") ? (
                           <span className="mt-1 inline-flex rounded-md border border-violet-300/25 bg-violet-300/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-100">
-                            Xpert 自动执行
+                            智能体自动执行
                           </span>
                         ) : null}
                       </div>
@@ -1289,7 +1289,7 @@ export default function MetaAgentPage() {
                           } 条自编写提案待审核
                         </span>
                         <span className="flex gap-2">
-                          <Link to="/agents/studio">Xpert</Link>
+                          <Link to="/agents/studio">Agent Studio</Link>
                           <Link to="/skills?tab=proposals">Skill</Link>
                         </span>
                       </div>

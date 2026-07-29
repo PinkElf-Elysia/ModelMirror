@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -17,6 +18,22 @@ from .stt import (
     TranscriptionService,
 )
 from .tts import SpeechResult, SpeechService
+from .video_analysis import (
+    MAX_VIDEO_BYTES,
+    VideoAnalysisResult,
+    VideoAnalysisService,
+)
+from .video_catalog import (
+    VideoCatalogService,
+    VideoModelCatalogResponse,
+)
+from .video_jobs import (
+    MAX_FIRST_FRAME_BYTES,
+    VideoJob,
+    VideoJobDeleteResult,
+    VideoJobList,
+    VideoJobService,
+)
 
 
 class TranscriptionUsageResponse(BaseModel):
@@ -45,9 +62,30 @@ class SpeechRequest(BaseModel):
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
 
 
+class VideoAnalysisUsageResponse(BaseModel):
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    cost_usd: float | None = None
+    cost_kind: str
+
+
+class VideoAnalysisResponse(BaseModel):
+    text: str
+    requested_model: str
+    actual_model: str
+    provider: str
+    request_id: str
+    source_kind: Literal["file", "url"]
+    usage: VideoAnalysisUsageResponse
+
+
 router = APIRouter(prefix="/api/multimodal", tags=["multimodal"])
 _transcription_service: TranscriptionService | None = None
 _speech_service: SpeechService | None = None
+_video_catalog_service: VideoCatalogService | None = None
+_video_analysis_service: VideoAnalysisService | None = None
+_video_job_service: VideoJobService | None = None
 
 
 def configure_transcription_service(
@@ -76,6 +114,201 @@ def get_speech_service() -> SpeechService:
     if _speech_service is None:
         _speech_service = SpeechService(get_model_router_service())
     return _speech_service
+
+
+def configure_video_catalog_service(
+    service: VideoCatalogService | None,
+) -> None:
+    global _video_catalog_service
+    _video_catalog_service = service
+
+
+def get_video_catalog_service() -> VideoCatalogService:
+    global _video_catalog_service
+    if _video_catalog_service is None:
+        _video_catalog_service = VideoCatalogService(
+            get_model_router_service()
+        )
+    return _video_catalog_service
+
+
+def configure_video_analysis_service(
+    service: VideoAnalysisService | None,
+) -> None:
+    global _video_analysis_service
+    _video_analysis_service = service
+
+
+def get_video_analysis_service() -> VideoAnalysisService:
+    global _video_analysis_service
+    if _video_analysis_service is None:
+        _video_analysis_service = VideoAnalysisService(
+            get_model_router_service(),
+            get_video_catalog_service(),
+        )
+    return _video_analysis_service
+
+
+def configure_video_job_service(service: VideoJobService | None) -> None:
+    global _video_job_service
+    _video_job_service = service
+
+
+def get_video_job_service() -> VideoJobService:
+    global _video_job_service
+    if _video_job_service is None:
+        _video_job_service = VideoJobService(
+            get_model_router_service(),
+            get_video_catalog_service(),
+        )
+    return _video_job_service
+
+
+@router.get("/video/models", response_model=VideoModelCatalogResponse)
+async def get_video_models() -> VideoModelCatalogResponse:
+    return await get_video_catalog_service().get_catalog()
+
+
+@router.post(
+    "/video/analysis",
+    response_model=VideoAnalysisResponse,
+)
+async def analyze_video(
+    model_id: str = Form(...),
+    prompt: str = Form(...),
+    source_type: Literal["file", "url"] = Form(...),
+    file: UploadFile | None = File(default=None),
+    video_url: str | None = Form(default=None),
+) -> VideoAnalysisResponse:
+    try:
+        content = (
+            await file.read(MAX_VIDEO_BYTES + 1)
+            if file is not None
+            else None
+        )
+        result = await get_video_analysis_service().analyze(
+            model_id=model_id,
+            prompt=prompt,
+            source_type=source_type,
+            filename=file.filename if file is not None else None,
+            content_type=file.content_type if file is not None else None,
+            content=content,
+            video_url=video_url,
+        )
+        return _video_analysis_response(result)
+    except MultimodalServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    finally:
+        if file is not None:
+            await file.close()
+
+
+@router.post("/video/jobs", response_model=VideoJob)
+async def create_video_job(
+    model_id: str = Form(...),
+    prompt: str = Form(...),
+    idempotency_key: str = Form(...),
+    duration: int | None = Form(default=None),
+    resolution: str | None = Form(default=None),
+    aspect_ratio: str | None = Form(default=None),
+    generate_audio: bool = Form(default=False),
+    seed: int | None = Form(default=None),
+    first_frame: UploadFile | None = File(default=None),
+) -> VideoJob:
+    try:
+        content = (
+            await first_frame.read(MAX_FIRST_FRAME_BYTES + 1)
+            if first_frame is not None
+            else None
+        )
+        return await get_video_job_service().create(
+            model_id=model_id,
+            prompt=prompt,
+            idempotency_key=idempotency_key,
+            duration=duration,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            generate_audio=generate_audio,
+            seed=seed,
+            first_frame_filename=(
+                first_frame.filename if first_frame is not None else None
+            ),
+            first_frame_content_type=(
+                first_frame.content_type
+                if first_frame is not None
+                else None
+            ),
+            first_frame_content=content,
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+    finally:
+        if first_frame is not None:
+            await first_frame.close()
+
+
+@router.get("/video/jobs", response_model=VideoJobList)
+async def list_video_jobs(limit: int = 50) -> VideoJobList:
+    try:
+        return get_video_job_service().list(limit=limit)
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/video/jobs/{job_id}", response_model=VideoJob)
+async def get_video_job(job_id: str) -> VideoJob:
+    try:
+        return get_video_job_service().get(job_id)
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/video/jobs/{job_id}/refresh", response_model=VideoJob)
+async def refresh_video_job(job_id: str) -> VideoJob:
+    try:
+        return await get_video_job_service().refresh(job_id)
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/video/jobs/{job_id}/content")
+async def get_video_job_content(
+    job_id: str,
+    index: int = 0,
+) -> StreamingResponse:
+    try:
+        content = await get_video_job_service().content(
+            job_id, index=index
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+    headers = {
+        "Content-Disposition": (
+            f'attachment; filename="modelmirror-video-{index + 1}.mp4"'
+        ),
+        "X-Content-Type-Options": "nosniff",
+    }
+    if content.content_length is not None:
+        headers["Content-Length"] = str(content.content_length)
+    return StreamingResponse(
+        content.chunks,
+        media_type=content.media_type,
+        headers=headers,
+    )
+
+
+@router.delete(
+    "/video/jobs/{job_id}",
+    response_model=VideoJobDeleteResult,
+)
+async def delete_video_job(job_id: str) -> VideoJobDeleteResult:
+    try:
+        return get_video_job_service().delete(job_id)
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.post(
@@ -159,4 +392,31 @@ def _speech_response(result: SpeechResult) -> Response:
         content=result.content,
         media_type="audio/mpeg",
         headers=headers,
+    )
+
+
+def _video_analysis_response(
+    result: VideoAnalysisResult,
+) -> VideoAnalysisResponse:
+    return VideoAnalysisResponse(
+        text=result.text,
+        requested_model=result.requested_model,
+        actual_model=result.actual_model,
+        provider=result.provider,
+        request_id=result.request_id,
+        source_kind=result.source_kind,
+        usage=VideoAnalysisUsageResponse(
+            input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            total_tokens=result.usage.total_tokens,
+            cost_usd=result.usage.cost_usd,
+            cost_kind=result.usage.cost_kind,
+        ),
+    )
+
+
+def _http_error(exc: MultimodalServiceError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": exc.message},
     )

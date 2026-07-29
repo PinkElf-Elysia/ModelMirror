@@ -200,7 +200,7 @@ export default function XpertAppPage() {
       <main className="museum-grid flex min-h-screen items-center justify-center bg-ink-950 px-4 text-slate-100">
         <section className="w-full max-w-md rounded-lg border border-white/10 bg-surface-900/95 p-6">
           <Link className="text-sm font-semibold text-hire-100" to="/models">模镜 ModelMirror</Link>
-          <h1 className="mt-6 text-xl font-semibold text-white">打开未列出的 Xpert App</h1>
+          <h1 className="mt-6 text-xl font-semibold text-white">打开未列出的 Agent App</h1>
           <p className="mt-2 text-sm leading-6 text-slate-400">请使用完整分享链接，或粘贴 App 分享 token。</p>
           <input
             autoComplete="off"
@@ -226,7 +226,7 @@ export default function XpertAppPage() {
               <h1 className="truncate text-lg font-semibold text-white">{manifest.name}</h1>
               <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.07] px-2 py-0.5 text-[10px] font-semibold text-emerald-100">v{manifest.version}</span>
             </div>
-            <p className="mt-1 line-clamp-2 max-w-3xl text-xs leading-5 text-slate-400">{manifest.description || "已发布的模镜 Xpert App"}</p>
+            <p className="mt-1 line-clamp-2 max-w-3xl text-xs leading-5 text-slate-400">{manifest.description || "已发布的模镜 Agent App"}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button className="rounded-md border border-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/[0.05]" onClick={() => { setMessages([]); localStorage.removeItem(historyKey(appSlug)); }} type="button">清空对话</button>
@@ -293,7 +293,7 @@ export default function XpertAppPage() {
               />
               <button className="h-12 rounded-md bg-hire-300 px-5 text-sm font-semibold text-ink-950 hover:bg-hire-200 disabled:opacity-50" disabled={running || !input.trim()} onClick={() => void sendMessage()} type="button">{running ? "运行中..." : "发送"}</button>
             </div>
-            <p className="mt-2 text-center text-[10px] text-slate-600">由模镜 Xpert App 提供，聊天历史仅保存在当前浏览器。</p>
+            <p className="mt-2 text-center text-[10px] text-slate-600">由模镜 Agent App 提供，聊天历史仅保存在当前浏览器。</p>
           </div>
         </footer>
       </div>

@@ -73,7 +73,7 @@ export default function XpertFeatureSettings({ onChange, value }: Props) {
         <div>
           <h2 className="text-sm font-semibold text-white">会话功能</h2>
           <p className="mt-1 text-xs leading-5 text-slate-400">
-            配置会随 Xpert 版本发布并固定，旧版本不会被草稿修改影响。
+            配置会随智能体版本发布并固定，旧版本不会被草稿修改影响。
           </p>
         </div>
         <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-2 py-1 text-[11px] font-semibold text-hire-100">

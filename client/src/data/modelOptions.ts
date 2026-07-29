@@ -30,3 +30,15 @@ export const embeddingModelOptions = [
       provider: model.provider,
     })),
 ];
+
+export const rerankModelOptions = models
+  .filter(
+    (model) =>
+      model.active &&
+      model.output_modalities.includes("rerank"),
+  )
+  .map((model) => ({
+    id: model.id,
+    name: model.name,
+    provider: model.provider,
+  }));

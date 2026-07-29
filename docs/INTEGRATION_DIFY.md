@@ -1,177 +1,81 @@
-# Dify 集成方案详解
+# Dify 历史集成与兼容状态
 
-## 为什么选择 Dify
+> **状态：历史/归档。** 本文不再是安装、架构或主路径指南。当前
+> `/workflow` 使用 classic React Flow，`/rag` 使用 ModelMirror 本地知识系统。
+> 当前部署见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
-Dify 已经提供成熟的工作流引擎、知识库 RAG、应用发布和调试能力。模镜当前的核心价值是“AI 资源发现与组合入口”，因此稳定版本选择集成 Dify，而不是在主路径上立即自研替代。
+最后校准日期：2026-07-28
+原方案日期：2026-06-10
 
-这次 P0 回退后，原则更明确：`/workflow` 和 `/rag` 保持 Dify 稳定入口，自研功能只能在独立实验路由中逐步验证。
+## 当前事实
 
-## 集成架构
+仓库仍保留：
 
-```mermaid
-flowchart LR
-  Browser["用户浏览器"] --> MM["模镜 React SPA"]
-  MM --> WF["/workflow<br/>Dify iframe"]
-  MM --> RAG["/rag<br/>Dify iframe"]
-  WF --> DifyWeb["Dify Web<br/>VITE_DIFY_WEB_URL"]
-  RAG --> DifyWeb
-  MM --> API["FastAPI /api/dify/*"]
-  API --> DifyAPI["Dify API<br/>DIFY_API_BASE_URL"]
-```
+- `server/api/dify_proxy.py`
+- `/api/dify/*`
+- `client/src/components/dify/DifyWorkspaceFrame.tsx`
+- `client/src/pages/WorkflowEditorPage.tsx`
+- `DIFY_API_BASE_URL`、`DIFY_API_KEY` 和 `VITE_DIFY_WEB_URL` 示例
 
-## 前端 iframe
+但：
 
-组件：
+- `client/src/App.tsx` 没有把 Dify iframe 挂载到 `/workflow` 或 `/rag`。
+- `docker-compose.yml` 没有 Dify 服务或 Dify 健康依赖。
+- 默认启动、测试和人工验收不要求 Dify。
+- legacy `/api/dify/health` 不能作为 ModelMirror 平台健康门禁。
+
+这些文件属于待独立审计清理的 compatibility surface。删除前需要确认没有私有部署
+或外部调用方依赖，不能在普通文档整理中直接移除。
+
+## 历史方案
+
+2026-06-10 的回退版本曾采用：
 
 ```text
-client/src/components/dify/DifyWorkspaceFrame.tsx
+/workflow -> Dify Web iframe
+/rag      -> Dify Web iframe
+/api/dify/* -> Dify App API proxy
 ```
 
-页面：
+当时这样做是为了在一次失败的大规模重写后恢复可用入口。该决策解决了当时的
+P0，但后续 classic 工作流、本地 RAG、Knowledge Pipeline、Agent Runtime 与
+Data X 已逐步形成 ModelMirror 原生闭环，因此“Dify 是稳定主路径”的结论已经
+失效。
 
-- `client/src/pages/WorkflowEditorPage.tsx`
-- `client/src/pages/RagPage.tsx`
+失败背景见
+[postmortem-workflow-rewrite.md](./postmortem-workflow-rewrite.md)，后续原生建设
+结果见 [workflow-native-design.md](./workflow-native-design.md) 和
+[RAG_INTEGRATION.md](./RAG_INTEGRATION.md)。
 
-环境变量：
+## 如需临时兼容
+
+只有在明确知道调用方仍依赖 legacy 代理时，才配置：
 
 ```bash
-VITE_DIFY_WEB_URL=http://localhost:3000
+DIFY_API_BASE_URL=http://localhost:5001/v1
+DIFY_API_KEY=app-your-dify-api-key
 ```
 
-iframe URL 会附加：
-
-```text
-?embed=true&hide_nav=true&source=modelmirror
-```
-
-这些参数用于表达嵌入意图；是否生效取决于 Dify Web 当前版本。若 Dify 不支持隐藏导航，仍可作为完整 iframe 工作台使用。
-
-## 后端代理
-
-文件：
-
-```text
-server/api/dify_proxy.py
-```
-
-挂载：
-
-```python
-from api.dify_proxy import router as dify_router
-app.include_router(dify_router)
-```
-
-### GET `/api/dify/health`
-
-检查本地配置：
+可检查：
 
 ```bash
 curl http://localhost:8000/api/dify/health
 ```
 
-### GET `/api/dify/apps`
+注意：
 
-转发到 Dify App 列表接口，需 `DIFY_API_KEY`。
+- 这不会把 `/workflow` 或 `/rag` 切回 Dify。
+- 不要把 `DIFY_API_KEY` 放入前端。
+- 通用代理可能扩大外部 API 面，公网部署前必须独立审计授权和错误脱敏。
+- 模镜没有为当前 Dify 版本提供持续兼容承诺或自动化回归。
 
-### POST `/api/dify/workflow/run`
+## 清理门禁
 
-转发到：
+未来删除 legacy Dify 代码前必须：
 
-```text
-POST {DIFY_API_BASE_URL}/workflows/run
-```
+1. 扫描所有代码、环境示例、私有部署说明和外部调用方。
+2. 为 `/workflow`、`/rag`、Compose、设置页和后端启动运行回归。
+3. 从环境示例、`server/main.py` 和第三方声明中同步移除无效引用。
+4. 单独提交，提供无需迁移业务数据的回退方案。
 
-默认注入：
-
-```json
-{"response_mode":"streaming"}
-```
-
-### 通用代理
-
-```text
-/api/dify/{path:path}
-```
-
-用于临时补齐其他 Dify API。使用时需谨慎，避免把 Dify 内部错误直接暴露给用户。
-
-## Dify 部署步骤
-
-1. 按 Dify 官方文档启动社区版 Docker Compose。
-2. 打开 `http://localhost:3000` 完成初始化。
-3. 创建模镜工作空间。
-4. 创建应用或工作流，启用 API 访问。
-5. 复制 App API Key 到 `server/.env`：
-
-```bash
-DIFY_API_BASE_URL=http://localhost:5001/v1
-DIFY_API_KEY=app-your-key
-```
-
-6. 前端 `.env`：
-
-```bash
-VITE_DIFY_WEB_URL=http://localhost:3000
-```
-
-## 模型路由打通
-
-在 Dify 中配置 OpenAI Compatible Provider：
-
-- Base URL：`https://openrouter.ai/api/v1`
-- API Key：使用服务端 OpenRouter Key 或 Dify 专用 Key
-- Model：按 Dify 后台支持方式添加
-
-这样 Dify 工作流内部调用模型时，也能通过同一模型网关走 OpenRouter。
-
-## postMessage 和主题注入
-
-当前实现只做 iframe 嵌入和新窗口 fallback，尚未实现复杂 postMessage 协议。
-
-未来可扩展：
-
-- 模镜向 Dify iframe 发送跳转事件。
-- Dify 完成工作流保存后通知模镜刷新侧边栏。
-- 通过 CSS 变量或 Dify 配置同步模镜主题色。
-
-## 常见问题
-
-### iframe 空白
-
-检查：
-
-```bash
-curl -I http://localhost:3000
-```
-
-如果 Dify 设置了 `X-Frame-Options` 或 CSP 禁止嵌入，可点击页面中的“新窗口打开”。
-
-### `/api/dify/health` 返回 missing_api_key
-
-说明 `DIFY_API_KEY` 未配置。填写 `server/.env` 后重启后端。
-
-### 工作流运行 401
-
-检查 Dify App API Key 是否属于当前应用，且是否包含工作流运行权限。
-
-### Dify API 地址不对
-
-确认：
-
-```bash
-DIFY_API_BASE_URL=http://localhost:5001/v1
-```
-
-不要把 Web 地址 `http://localhost:3000` 填到后端 API 变量里。
-
-## 未来替代路线
-
-自研路线见 [retry-plan-workflow-native.md](./retry-plan-workflow-native.md)。核心原则：
-
-- 不替换 `/workflow` 和 `/rag`。
-- 先做设计和测试。
-- 自研版本使用独立路由。
-- 每个节点能力逐个交付。
-
-最后更新日期：2026-06-10  
-维护人：模镜团队
+在完成上述门禁前，状态是“代码保留但不推广”，不是“稳定集成”。

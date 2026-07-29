@@ -195,13 +195,13 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
   {
     id: "resource",
     label: "资源",
-    description: "把已发布 Xpert、知识库、Toolset 与 Plugin 绑定为智能体可调用资源。",
+    description: "把已发布智能体、知识库、Toolset 与 Plugin 绑定为当前智能体可调用资源。",
     items: [
       {
         kind: "external_xpert",
         icon: "XP",
-        title: "外部 Xpert",
-        description: "将已发布 Xpert 作为同步协作者工具绑定到工作流智能体。",
+        title: "外部智能体",
+        description: "将已发布智能体作为同步协作者工具绑定到工作流智能体。",
         tags: ["xpert", "expert", "resource", "binding"],
       },
       {

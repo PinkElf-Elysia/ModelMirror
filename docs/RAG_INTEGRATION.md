@@ -2,7 +2,12 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-07-16
+最后更新日期：2026-07-28
+
+> **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
+> 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
+> Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
+> 只代表当时状态。
 
 ## 2026-07-16 增量：离线检索评估与 Promotion Gate
 
@@ -145,7 +150,9 @@ POST /api/rag/pipeline/versions/{version_id}/query
 
 父子分段只索引子段。召回后回答上下文使用父段，引用仍指向命中子段。向量与全文索引必须同时成功，候选版本才可 ready；任一失败会同时清理两个候选索引，不切换 active version。旧索引不自动迁移，继续使用 vector-only legacy 路径。
 
-本实现对齐 Xpert 的领域配置，并以本地 Dify 1.14.1 验证分块和检索异常行为；未复制 AGPL 或许可证不明确的容器实现。GraphRAG、实体关系、社区摘要与图检索暂缓。
+本实现曾以 Xpert 领域配置和本地 Dify 1.14.1 作为分块、检索异常的行为样本；
+它们不是当前运行依赖。项目未复制 AGPL 或许可证不明确的容器实现。GraphRAG、
+实体关系、社区摘要与图检索暂缓。
 
 ## 2026-07-12 增量：版本化 Knowledge Pipeline 执行
 
@@ -197,7 +204,11 @@ curl "http://localhost:8000/api/rag/pipeline/draft?kb_id=kb_xxx"
 }
 ```
 
-四个 stage 固定为 `data_source`、`processor`、`chunker`、`image_understanding`。前三者实时从现有 RAG metadata 派生；`image_understanding` 当前为 `planned` / disabled 占位，不调用视觉模型。该 API 不返回本地文件绝对路径、完整 chunk 文本、embedding、prompt 或密钥，也不会改变上传、切分、向量化、检索和 `/api/rag/query` 行为。
+该 2026-07-09 版本的四个 stage 为 `data_source`、`processor`、`chunker`、
+`image_understanding`；当时 `image_understanding` 仍是 `planned` /
+disabled 占位。它已在 2026-07-15 升级为可选真实阶段，当前状态以前文
+“图像与扫描 PDF 知识理解”为准。安全响应仍不返回本地文件绝对路径、完整
+chunk 文本、embedding、prompt 或密钥。
 
 ## 2026-07-08 增量：Workflow CitationAnchor 节点
 
@@ -212,11 +223,13 @@ Classic workflow 已新增 `knowledge_citation` 节点，复用本地 RAG Knowle
 
 ## 1. 概述
 
-本地 RAG 模块提供一个最小可用的知识库能力：
+本地 RAG 模块提供版本化知识库能力：
 
 - 创建和删除知识库。
-- 上传 TXT、Markdown、PDF 文档。
-- 自动解析、分段、向量化并写入索引。
+- 上传 TXT、Markdown、PDF、PNG、JPEG 和 WebP；图片与扫描 PDF 需要执行
+  含视觉阶段的知识流水线。
+- 结构化解析、分段、Embedding，并原子构建向量与 FTS5 候选索引。
+- 预览、评测并人工激活候选版本，支持回滚。
 - 基于知识库检索片段并生成回答。
 - 在面试间选择知识库，让回答附带引用来源。
 

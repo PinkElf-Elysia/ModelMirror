@@ -4,6 +4,7 @@ import PageContainer from "../components/PageContainer";
 import {
   DEFAULT_EMBEDDING_MODEL_ID,
   embeddingModelOptions,
+  rerankModelOptions,
 } from "../data/modelOptions";
 
 interface KnowledgeBase {
@@ -1729,7 +1730,26 @@ export default function RagPage() {
                               {pipelineDraftEdits.rerankEnabled ? (
                                 <div className="mt-3 grid gap-3 sm:grid-cols-3">
                                   <label className="block"><span className="text-xs font-medium text-slate-300">Provider</span><select className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, rerankProvider: event.target.value as PipelineDraftEdits["rerankProvider"] }))} value={pipelineDraftEdits.rerankProvider}><option value="auto">自动</option><option value="api">专用 API</option><option value="llm">LLM JSON</option></select></label>
-                                  <label className="block"><span className="text-xs font-medium text-slate-300">模型（可选）</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, rerankModel: event.target.value }))} value={pipelineDraftEdits.rerankModel} /></label>
+                                  <label className="block">
+                                    <span className="text-xs font-medium text-slate-300">Rerank 模型</span>
+                                    <select
+                                      className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50"
+                                      onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, rerankModel: event.target.value }))}
+                                      value={pipelineDraftEdits.rerankModel}
+                                    >
+                                      <option value="">使用服务端默认模型</option>
+                                      {!rerankModelOptions.some((option) => option.id === pipelineDraftEdits.rerankModel) && pipelineDraftEdits.rerankModel ? (
+                                        <option value={pipelineDraftEdits.rerankModel}>
+                                          {pipelineDraftEdits.rerankModel}（当前配置）
+                                        </option>
+                                      ) : null}
+                                      {rerankModelOptions.map((option) => (
+                                        <option key={option.id} value={option.id}>
+                                          {option.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
                                   <label className="block"><span className="text-xs font-medium text-slate-300">Rerank Top-N</span><input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/50" min={1} max={50} onChange={(event) => setPipelineDraftEdits((current) => ({ ...current, rerankTopN: event.target.value }))} type="number" value={pipelineDraftEdits.rerankTopN} /></label>
                                 </div>
                               ) : null}

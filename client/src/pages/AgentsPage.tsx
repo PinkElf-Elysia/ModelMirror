@@ -25,10 +25,10 @@ const platformCapabilities: PlatformCapability[] = [
   {
     id: "xpert-automations",
     icon: "AT",
-    title: "Xpert 自动化",
-    summary: "按单次、间隔或 Cron 调度已发布 Xpert，并在失败后重试或进入死信。",
+    title: "智能体自动化",
+    summary: "按单次、间隔或 Cron 调度已发布智能体，并在失败后重试或进入死信。",
     detail:
-      "每条自动化固定 Xpert 发布版本，支持预算、并发与重叠策略；审批和客户端等待可以在后台恢复。",
+      "每条自动化固定智能体发布版本，支持预算、并发与重叠策略；审批和客户端等待可以在后台恢复。",
     tag: "后台执行 · Beta",
     eta: "已开放自动化工作台",
   },
@@ -36,16 +36,16 @@ const platformCapabilities: PlatformCapability[] = [
     id: "conversation-goals",
     icon: "GL",
     title: "长期 Goal",
-    summary: "把对话目标拆成可审核的依赖计划，并由已发布 Xpert 持续协作执行。",
+    summary: "把对话目标拆成可审核的依赖计划，并由已发布智能体持续协作执行。",
     detail:
-      "选择 Planner Xpert 自动生成计划，人工确认步骤和依赖后启动。支持暂停、恢复、失败重试、改派与最终结果汇总。",
+      "选择规划智能体自动生成计划，人工确认步骤和依赖后启动。支持暂停、恢复、失败重试、改派与最终结果汇总。",
     tag: "长期任务 · Beta",
     eta: "已开放规划、执行与恢复工作台",
   },
   {
     id: "xpert-studio",
     icon: "XP",
-    title: "Xpert Studio",
+    title: "Agent Studio",
     summary: "创建、版本化发布并直接运行可组合的智能体应用。",
     detail:
       "复用经典工作流内核，把模型、Toolset、知识、中间件与 Handoff 组合成不可变发布版本。",

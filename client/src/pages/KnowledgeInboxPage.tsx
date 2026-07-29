@@ -284,7 +284,7 @@ export default function KnowledgeInboxPage() {
                 </label>
 
                 <div className="grid gap-3 border-y border-white/10 py-4 text-xs text-slate-400 sm:grid-cols-2 xl:grid-cols-3">
-                  <p>来源 Xpert：<span className="text-slate-200">{selected.source_xpert_id || "-"}</span></p>
+                  <p>来源智能体：<span className="text-slate-200">{selected.source_xpert_id || "-"}</span></p>
                   <p>Goal / Handoff：<span className="text-slate-200">{selected.source_goal_id || selected.source_handoff_id || "-"}</span></p>
                   <p>Run：<span className="font-mono text-slate-200">{selected.source_run_id || "-"}</span></p>
                   <p>Job：<span className="font-mono text-slate-200">{selected.job_id || "-"}</span></p>

@@ -351,8 +351,8 @@ function createNodeData(
   if (kind === "external_xpert") {
     return {
       kind,
-      title: "外部 Xpert",
-      description: "将已发布 Xpert 作为当前智能体的同步协作者工具。",
+      title: "外部智能体",
+      description: "将已发布智能体作为当前智能体的同步协作者工具。",
       xpertId: "",
       toolName: "external_expert",
       versionPolicy: "current_published",
@@ -756,7 +756,7 @@ function HandoffExecutionConfig({
 
   return (
     <ConfigSection
-      description="人工目标进入 Inbox；已发布 Xpert 可被自动领取并执行。"
+      description="人工目标进入 Inbox；已发布智能体可自动领取并执行。"
       title="移交执行"
     >
       <Field label="执行方式">
@@ -782,20 +782,20 @@ function HandoffExecutionConfig({
             人工移交
           </option>
           <option className="bg-slate-950" value="xpert_auto">
-            自动执行已发布 Xpert
+            自动执行已发布智能体
           </option>
         </select>
       </Field>
 
       {automatic ? (
-        <Field label="目标 Xpert">
+        <Field label="目标智能体">
           <select
             className={textInputClass()}
             onChange={(event) => update({ targetAgent: event.target.value })}
             value={data.targetAgent ?? ""}
           >
             <option className="bg-slate-950" value="">
-              {publishedXperts.length ? "选择已发布 Xpert" : "暂无已发布 Xpert"}
+              {publishedXperts.length ? "选择已发布智能体" : "暂无已发布智能体"}
             </option>
             {publishedXperts.map((xpert) => (
               <option
@@ -828,7 +828,7 @@ function HandoffExecutionConfig({
         <>
           <ConfigSwitch
             checked={waitForCompletion}
-            description="等待目标 Xpert 完成，并把结果写入下游变量。关闭后源工作流立即继续。"
+            description="等待目标智能体完成，并把结果写入下游变量。关闭后源工作流立即继续。"
             label="等待执行结果"
             onChange={(checked) =>
               update({ waitForCompletion: checked ? "true" : "false" })
@@ -951,7 +951,7 @@ function AgentStudioPanel({
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-brand-300/25 bg-brand-300/10 px-3 py-2 text-xs leading-5 text-brand-50">
-        Xpert 对齐配置侧栏第一版：本轮只保存配置草稿，真实执行仍沿用当前节点语义。
+        智能体配置侧栏：当前保存配置草稿，实际执行继续沿用当前节点语义。
       </div>
 
       <ConfigSection
@@ -1403,9 +1403,9 @@ function AgentStudioPanel({
             onChange={(event) => update({ memoryReadScope: event.target.value })}
             value={data.memoryReadScope ?? "both"}
           >
-            <option className="bg-slate-950" value="both">{"\u4f1a\u8bdd + Xpert"}</option>
+            <option className="bg-slate-950" value="both">{"\u4f1a\u8bdd + \u667a\u80fd\u4f53"}</option>
             <option className="bg-slate-950" value="conversation">{"\u4ec5\u5f53\u524d\u4f1a\u8bdd"}</option>
-            <option className="bg-slate-950" value="xpert">{"\u4ec5 Xpert \u957f\u671f\u8bb0\u5fc6"}</option>
+            <option className="bg-slate-950" value="xpert">{"\u4ec5\u667a\u80fd\u4f53\u957f\u671f\u8bb0\u5fc6"}</option>
           </select>
         </Field>
         <ConfigSwitch
@@ -1470,7 +1470,7 @@ function AgentStudioPanel({
             </div>
           ) : (
             <p className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] px-3 py-3 text-xs leading-5 text-slate-400">
-              从节点库拖入外部 Xpert、知识库、Toolset 或 Plugin，再用专用端口绑定到当前智能体。
+              从节点库拖入外部智能体、知识库、Toolset 或 Plugin，再用专用端口绑定到当前智能体。
             </p>
           )}
         </ConfigSection>
@@ -1543,10 +1543,10 @@ function ResourceNodeConfig({
   if (data.kind === "external_xpert") {
     return (
       <ConfigSection
-        description="发布 Xpert 时会把当前发布版本解析为不可变固定版本。"
-        title="外部 Xpert"
+        description="发布智能体时会把当前发布版本解析为不可变固定版本。"
+        title="外部智能体"
       >
-        <Field label="已发布 Xpert">
+        <Field label="已发布智能体">
           <select
             className={textInputClass()}
             onChange={(event) => {
@@ -1565,7 +1565,7 @@ function ResourceNodeConfig({
             value={data.xpertId ?? ""}
           >
             <option className="bg-slate-950" value="">
-              选择外部 Xpert
+              选择外部智能体
             </option>
             {options.map((item) => (
               <option
@@ -1635,7 +1635,7 @@ function ResourceNodeConfig({
   if (data.kind === "toolset_resource") {
     return (
       <ConfigSection
-        description="草稿可跟随当前发布版本；发布 Xpert 时会解析并固定不可变 Toolset 版本。"
+        description="草稿可跟随当前发布版本；发布智能体时会解析并固定不可变 Toolset 版本。"
         title="MCP Toolset"
       >
         <Field label="已发布 Toolset">
@@ -1726,7 +1726,7 @@ function ResourceNodeConfig({
   if (data.kind === "plugin_resource") {
     return (
       <ConfigSection
-        description="草稿可跟随当前发布版本；发布 Xpert 时会解析并固定不可变 Plugin 版本。"
+        description="草稿可跟随当前发布版本；发布智能体时会解析并固定不可变 Plugin 版本。"
         title="Plugin 资源"
       >
         <Field label="已发布 Plugin">
@@ -1934,7 +1934,7 @@ function NodeConfig({
         const response = await fetch("/api/xperts?status=published&limit=200");
         const payload = (await response.json()) as XpertListResponse;
         if (!response.ok || !Array.isArray(payload.items)) {
-          throw new Error("已发布 Xpert 列表暂时不可用。");
+          throw new Error("已发布智能体列表暂时不可用。");
         }
         if (!cancelled) {
           setPublishedXperts(payload.items);
@@ -1944,7 +1944,7 @@ function NodeConfig({
         if (!cancelled) {
           setPublishedXperts([]);
           setPublishedXpertsError(
-            error instanceof Error ? error.message : "已发布 Xpert 列表加载失败。",
+            error instanceof Error ? error.message : "已发布智能体列表加载失败。",
           );
         }
       }
@@ -2616,7 +2616,7 @@ function NodeConfig({
       {data.kind === "agent_handoff" ? (
         <>
           <div className="rounded-lg border border-purple-300/25 bg-purple-300/10 px-3 py-2 text-xs leading-5 text-purple-50">
-            读取已有 Agent Task 并创建 Handoff。人工目标进入 Inbox，显式 Xpert 目标可自动执行并回传结果。
+            读取已有 Agent Task 并创建 Handoff。人工目标进入 Inbox，指定智能体目标可自动执行并回传结果。
           </div>
           <Field label="任务 ID 变量">
             <input
@@ -2658,7 +2658,7 @@ function NodeConfig({
       {data.kind === "handoff_router" ? (
         <>
           <div className="rounded-lg border border-fuchsia-300/25 bg-fuchsia-300/10 px-3 py-2 text-xs leading-5 text-fuchsia-50">
-            读取上游智能体输出并创建任务。可投递到人工 Inbox，也可调用已发布 Xpert 完成协作。
+            读取上游智能体输出并创建任务。可投递到人工 Inbox，也可调用已发布智能体完成协作。
           </div>
           <Field label="来源变量">
             <input
@@ -3425,7 +3425,7 @@ function WorkflowCanvas({
     try {
       if (onSave) {
         await onSave(savedDefinition);
-        setSaveNotice("Xpert 草稿已保存");
+        setSaveNotice("智能体草稿已保存");
       } else {
         saveStoredWorkflow(savedDefinition);
         setSaveNotice("已保存到本地草稿箱");
@@ -3457,7 +3457,7 @@ function WorkflowCanvas({
           .find((node) => node.data.kind === "output")
           ?.data.outputVariable?.trim() || "agent_output";
       const created = await createXpert({
-        name: title.trim() || "未命名 Xpert",
+        name: title.trim() || "未命名智能体",
         description: "由经典工作流草稿转换。",
         tags: ["workflow-import"],
       });
@@ -3473,7 +3473,7 @@ function WorkflowCanvas({
       navigate(`/agents/studio/${created.id}`);
     } catch (error) {
       setSaveNotice(
-        error instanceof Error ? error.message : "转换 Xpert 草稿失败，请稍后重试",
+        error instanceof Error ? error.message : "转换智能体草稿失败，请稍后重试",
       );
       window.setTimeout(() => setSaveNotice(""), 2600);
     } finally {
@@ -3610,7 +3610,7 @@ function WorkflowCanvas({
                 onClick={() => void convertToXpertDraft()}
                 type="button"
               >
-                {isConverting ? "转换中..." : "转为 Xpert 草稿"}
+                {isConverting ? "转换中..." : "转为智能体草稿"}
               </button>
             ) : null}
             <button

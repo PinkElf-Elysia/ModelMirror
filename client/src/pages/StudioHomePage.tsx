@@ -5,6 +5,11 @@ import PageContainer from "../components/PageContainer";
 import { agents } from "../data/agents";
 import { mcpProjects } from "../data/mcpProjects";
 import { skillProjects } from "../data/skillProjects";
+import {
+  getFriendlyRunStatusLabel,
+  getFriendlyRunTypeLabel,
+  replaceLegacyAgentTerms,
+} from "../utils/userFriendlyText";
 
 type WorkspaceCategory =
   | "all"
@@ -177,7 +182,7 @@ const tagFilters: Array<{ key: ResourceTag; label: string }> = [
   { key: "creatable", label: "可创建" },
   { key: "observable", label: "可观测" },
   { key: "planned", label: "待接入" },
-  { key: "xpert", label: "Xpert 对齐" },
+  { key: "xpert", label: "智能体可用" },
 ];
 
 const quickActions: QuickAction[] = [
@@ -188,25 +193,25 @@ const quickActions: QuickAction[] = [
     label: "打开 Data X",
   },
   {
-    title: "Xpert 自动化",
-    description: "按单次、间隔或 Cron 调度固定版本 Xpert，处理重试、预算与死信。",
+    title: "智能体自动化",
+    description: "按单次、间隔或 Cron 调度固定版本智能体，处理重试、预算与死信。",
     href: "/agents/automations",
     label: "打开自动化工作台",
   },
   {
     title: "长期 Goal",
-    description: "审核 Planner 生成的依赖计划，暂停、恢复并追踪多 Xpert 协作执行。",
+    description: "审核规划智能体生成的依赖计划，暂停、恢复并追踪多智能体协作执行。",
     href: "/agents/goals",
     label: "打开 Goal 工作台",
   },
   {
-    title: "创建 Xpert",
+    title: "创建智能体",
     description: "从默认 Agent 工作流开始，保存草稿并发布不可变版本。",
     href: "/agents/studio/new",
-    label: "新建 Xpert",
+    label: "新建智能体",
   },
   {
-    title: "我的 Xpert",
+    title: "我的智能体",
     description: "管理草稿、发布版本，并进入独立聊天页运行。",
     href: "/agents/studio",
     label: "打开 Studio",
@@ -398,7 +403,7 @@ function WorkspaceSidebar() {
     <div>
       <p className="text-sm font-semibold text-white">工作空间</p>
       <p className="mt-2 text-sm leading-6 text-slate-400">
-        先把资源入口、运行状态和近期对齐任务收拢到一个工作台，再逐步补齐 Xpert Studio、Toolset、知识流水线和 Runtime Ops。
+        集中查看智能体、工作流、知识库、工具、模型服务与近期运行状态。
       </p>
       <div className="mt-4 space-y-2">
         <Link
@@ -411,7 +416,7 @@ function WorkspaceSidebar() {
           className="block rounded-lg border border-hire-300/25 bg-hire-300/10 px-3 py-2 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/20"
           to="/agents/studio"
         >
-          打开 Xpert Studio
+          打开 Agent Studio
         </Link>
         <Link
           className="block rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10"
@@ -458,7 +463,7 @@ export default function StudioHomePage() {
   );
 
   useEffect(() => {
-    document.title = "模镜 - Xpert 工作空间";
+    document.title = "模镜 - 组织工作空间";
   }, []);
 
   useEffect(() => {
@@ -605,10 +610,10 @@ export default function StudioHomePage() {
         metricLabel: "工作流入口",
         primaryAction: { href: "/workflow", label: "打开画布" },
         secondaryAction: { href: "/agents/meta-agent", label: "生成草稿" },
-        status: "部分实现",
+        status: "可运行",
         tags: ["runnable", "creatable", "observable", "xpert"],
         title: "工作流",
-        tone: "partial",
+        tone: "ready",
       },
       {
         category: "knowledge",
@@ -627,10 +632,10 @@ export default function StudioHomePage() {
         loading: knowledgeBases.loading || fileAssets.loading || artifacts.loading,
         metricLabel: "知识库",
         primaryAction: { href: "/rag", label: "管理知识库" },
-        status: "部分实现",
+        status: "可运行",
         tags: ["runnable", "creatable", "observable", "xpert"],
         title: "知识库",
-        tone: "partial",
+        tone: "ready",
       },
       {
         category: "mcp",
@@ -650,25 +655,25 @@ export default function StudioHomePage() {
         metricLabel: "已注册工具",
         primaryAction: { href: "/toolsets", label: "管理 Toolset" },
         secondaryAction: { href: "/runtime", label: "查看运维" },
-        status: "部分实现",
+        status: "可运行",
         tags: ["runnable", "creatable", "observable", "xpert"],
         title: "MCP 工具集",
-        tone: "partial",
+        tone: "ready",
       },
       {
         category: "api_tools",
-        count: "规划中",
-        description: "对齐 Xpert API 工具集资源。当前保留入口，不创建不可运行配置。",
+        count: "可配置",
+        description: "通过 Toolset 管理 API 与 HTTP 工具，并复用于智能体和工作流。",
         icon: "API",
         id: "api-tools",
         items: ["OpenAPI 工具集", "鉴权配置", "请求模板", "响应 schema"],
         metricLabel: "API 工具",
-        primaryAction: { disabled: true, label: "待接入" },
-        secondaryAction: { href: "/runtime", label: "看运行态" },
-        status: "待接入",
-        tags: ["planned", "xpert"],
+        primaryAction: { href: "/toolsets", label: "管理 Toolset" },
+        secondaryAction: { href: "/runtime", label: "查看运行" },
+        status: "可配置",
+        tags: ["runnable", "creatable", "observable", "xpert"],
         title: "API 工具",
-        tone: "planned",
+        tone: "ready",
       },
       {
         category: "database",
@@ -716,7 +721,7 @@ export default function StudioHomePage() {
       {
         category: "prompts",
         count: "可发布",
-        description: "版本化 Prompt Command 与声明式 Plugin，支持固定版本绑定 Xpert。",
+        description: "版本化 Prompt Command 与声明式 Plugin，支持固定版本绑定智能体。",
         icon: "PR",
         id: "prompts",
         items: ["Prompt Profile 草稿与版本", "/命令与 // 转义", "Plugin 资源包"],
@@ -731,16 +736,16 @@ export default function StudioHomePage() {
       {
         category: "environment",
         count: "Default",
-        description: "环境变量、模型网关和运行依赖入口，后续对齐 Xpert 环境页。",
+        description: "模型服务连接、环境变量和运行依赖入口。",
         icon: "ENV",
         id: "environment",
         items: ["OpenRouter / newAPI 网关", "Docker runtime", "MCP / Skill 依赖"],
         metricLabel: "当前环境",
         primaryAction: { href: "/settings", label: "进入设置" },
-        status: "规划中",
-        tags: ["planned", "observable", "xpert"],
+        status: "可配置",
+        tags: ["runnable", "observable", "xpert"],
         title: "环境",
-        tone: "planned",
+        tone: "ready",
       },
       {
         category: "runs",
@@ -751,7 +756,10 @@ export default function StudioHomePage() {
         id: "runs",
         items: runtimeRuns.error
           ? []
-          : runtimeRuns.data.map((run) => `${run.run_type} · ${run.status}`),
+          : runtimeRuns.data.map(
+              (run) =>
+                `${getFriendlyRunTypeLabel(run.run_type)} · ${getFriendlyRunStatusLabel(run.status)}`,
+            ),
         loading: runtimeRuns.loading,
         metricLabel: "最近运行",
         primaryAction: { href: "/runtime", label: "打开运维" },
@@ -805,7 +813,7 @@ export default function StudioHomePage() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1 text-xs font-semibold text-hire-100">
-                Xpert 对齐工作空间 Beta
+                资源与运行总览
               </span>
               <span className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-xs text-slate-300">
                 只读聚合视图
@@ -815,7 +823,7 @@ export default function StudioHomePage() {
               组织工作空间
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              聚合可发布 Xpert、工作流、知识库、工具集、Skill、环境和运行记录。Xpert Studio 现在承载草稿、版本发布与直接运行闭环。
+              从这里进入 Agent Studio、工作流、知识库、工具集、模型服务和运行诊断；所有卡片都指向当前可操作入口。
             </p>
           </div>
           <label className="relative block w-full max-w-sm">
@@ -843,7 +851,7 @@ export default function StudioHomePage() {
               常用入口集中在这里，减少在多个资源页之间来回找入口。
             </p>
           </div>
-          <span className="text-xs text-slate-500">当前不创建新的后端资源模型</span>
+          <span className="text-xs text-slate-500">入口状态来自当前模块与运行数据</span>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {quickActions.map((action) => (
@@ -971,14 +979,16 @@ export default function StudioHomePage() {
                     >
                       <div className="flex items-center justify-between gap-3">
                         <p className="truncate text-xs font-semibold text-white">
-                          {run.title || run.run_type}
+                          {replaceLegacyAgentTerms(
+                            run.title || getFriendlyRunTypeLabel(run.run_type),
+                          )}
                         </p>
                         <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.055] px-2 py-0.5 text-[11px] text-slate-300">
-                          {run.status}
+                          {getFriendlyRunStatusLabel(run.status)}
                         </span>
                       </div>
                       <p className="mt-2 text-xs text-slate-500">
-                        {run.run_type} · {formatRunTime(run.updated_at ?? run.created_at)}
+                        {getFriendlyRunTypeLabel(run.run_type)} · {formatRunTime(run.updated_at ?? run.created_at)}
                       </p>
                     </article>
                   ))}
@@ -998,12 +1008,12 @@ export default function StudioHomePage() {
           </section>
 
           <section className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
-            <h2 className="text-sm font-semibold text-white">下一步对齐</h2>
+            <h2 className="text-sm font-semibold text-white">推荐操作</h2>
             <ol className="mt-3 space-y-2 text-xs leading-5 text-slate-400">
-              <li>1. 评估节点注册表后端化，减少前后端元数据漂移。</li>
-              <li>2. 接入智能体侧栏中的重试、备用模型和输出结构语义。</li>
-              <li>3. 推进知识流水线草稿的可编辑与运行观测。</li>
-              <li>4. 补齐 Runtime Ops 的失败摘要、环境状态和重试入口。</li>
+              <li>1. 在 Agent Studio 创建或发布智能体版本。</li>
+              <li>2. 在工作流画布组合智能体、知识库与 Toolset。</li>
+              <li>3. 在知识库运行流水线并检查引用结果。</li>
+              <li>4. 在运行诊断查看失败摘要和待处理审批。</li>
             </ol>
           </section>
         </aside>

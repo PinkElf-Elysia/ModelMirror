@@ -297,8 +297,8 @@ export default function XpertAppDeploymentPanel({ xpert }: Props) {
           <h3 className="text-xs font-semibold text-white">执行边界</h3>
           <div className="mt-3 space-y-2">
             <PolicyToggle checked={app.policy.allow_tools} label="允许 MCP 工具" onChange={(checked) => setApp({ ...app, policy: { ...app.policy, allow_tools: checked } })} />
-            <PolicyToggle checked={app.policy.allow_handoffs} label="允许 Xpert Handoff" onChange={(checked) => setApp({ ...app, policy: { ...app.policy, allow_handoffs: checked } })} />
-            <PolicyToggle checked={app.policy.allow_xpert_memory} label="允许读取 Xpert 记忆" onChange={(checked) => setApp({ ...app, policy: { ...app.policy, allow_xpert_memory: checked } })} />
+            <PolicyToggle checked={app.policy.allow_handoffs} label="允许智能体任务交接" onChange={(checked) => setApp({ ...app, policy: { ...app.policy, allow_handoffs: checked } })} />
+            <PolicyToggle checked={app.policy.allow_xpert_memory} label="允许读取智能体记忆" onChange={(checked) => setApp({ ...app, policy: { ...app.policy, allow_xpert_memory: checked } })} />
             <PolicyToggle checked={app.policy.allow_knowledge_read} label="允许只读知识工具" onChange={(checked) => setApp({ ...app, policy: { ...app.policy, allow_knowledge_read: checked } })} />
             <PolicyToggle checked={app.policy.allow_datax_read} label="允许只读 Data X 指标" onChange={(checked) => setApp({ ...app, policy: { ...app.policy, allow_datax_read: checked } })} />
           </div>

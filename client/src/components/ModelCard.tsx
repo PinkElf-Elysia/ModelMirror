@@ -18,6 +18,8 @@ import {
 
 interface ModelCardProps {
   model: Model;
+  confirmedVideoOperations?: ModelOperation[];
+  videoCatalogStale?: boolean;
 }
 
 const capabilityIcons: Record<Capability, { icon: string; label: string }> = {
@@ -99,7 +101,11 @@ const operationLabels: Record<ModelOperation, string> = {
   rerank: "检索重排",
 };
 
-const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
+const ModelCard = memo(function ModelCard({
+  model,
+  confirmedVideoOperations = [],
+  videoCatalogStale = false,
+}: ModelCardProps) {
   const { setPreferredModelId } = useModelPreference();
   const isFree = model.price_cny.input === 0 && model.price_cny.output === 0;
   const talentStats = getTalentStats(model);
@@ -122,6 +128,21 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
     model.interaction_status === "ready" &&
     model.ui_entrypoint === "rag";
   const operationLabel = operationLabels[model.primary_operation];
+  const canAnalyzeVideo =
+    model.active && confirmedVideoOperations.includes("analyze_video");
+  const canGenerateVideo =
+    model.active && confirmedVideoOperations.includes("generate_video");
+  const confirmedVideoLabels = confirmedVideoOperations
+    .filter(
+      (operation) =>
+        operation === "analyze_video" ||
+        operation === "generate_video",
+    )
+    .map((operation) => operationLabels[operation]);
+  const isInteractionReady =
+    model.interaction_status === "ready" ||
+    canAnalyzeVideo ||
+    canGenerateVideo;
 
   return (
     <article className="group relative isolate flex h-full min-h-[340px] flex-col overflow-hidden rounded-lg border border-hire-300/20 bg-ink-950/76 p-0 shadow-prism backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/90 hover:shadow-[0_0_0_1px_rgba(251,146,60,0.32),0_20px_46px_rgba(124,45,18,0.22)]">
@@ -131,7 +152,7 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
       <div className="relative border-b border-hire-300/20 bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))] px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <span className="rounded-full border border-hire-200/30 bg-hire-400/15 px-3 py-1 text-xs font-semibold text-hire-100">
-            {model.interaction_status !== "ready"
+            {!isInteractionReady
               ? "交互待适配"
               : talentStats.urgent
                 ? "急聘"
@@ -163,22 +184,46 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
           </p>
         </div>
 
-        {canChat ? (
-          <Link
-            className="shrink-0 rounded-full bg-hire-300 px-3.5 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
-            onClick={() => {
-              if (model.primary_operation === "chat") {
-                setPreferredModelId(model.id);
-              }
-            }}
-            to={`/chat/${encodeURIComponent(model.id)}`}
-          >
-            {model.primary_operation === "transcribe"
-              ? "开始转录"
-              : model.primary_operation === "synthesize_speech"
-                ? "生成语音"
-                : "立即面试"}
-          </Link>
+        {canAnalyzeVideo || canGenerateVideo || canChat ? (
+          <div className="flex shrink-0 flex-col items-stretch gap-2">
+            {canAnalyzeVideo ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=analyze_video`}
+              >
+                分析视频
+              </Link>
+            ) : null}
+            {canGenerateVideo ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=generate_video`}
+              >
+                生成视频
+              </Link>
+            ) : null}
+            {canChat ? (
+              <Link
+                className={`rounded-full px-3.5 py-2 text-center text-sm font-semibold transition duration-200 active:scale-[0.98] ${
+                  canAnalyzeVideo || canGenerateVideo
+                    ? "border border-hire-300/35 bg-ink-950/70 text-hire-100 hover:bg-hire-300/10"
+                    : "bg-hire-300 text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] hover:bg-hire-200"
+                }`}
+                onClick={() => {
+                  if (model.primary_operation === "chat") {
+                    setPreferredModelId(model.id);
+                  }
+                }}
+                to={`/chat/${encodeURIComponent(model.id)}`}
+              >
+                {model.primary_operation === "transcribe"
+                  ? "开始转录"
+                  : model.primary_operation === "synthesize_speech"
+                    ? "生成语音"
+                    : "立即面试"}
+              </Link>
+            ) : null}
+          </div>
         ) : canUseInRag ? (
           <Link
             className="shrink-0 rounded-full border border-hire-300/35 bg-hire-300/10 px-3.5 py-2 text-sm font-semibold text-hire-100 transition duration-200 hover:border-hire-300/60 hover:bg-hire-300/15 active:scale-[0.98]"
@@ -190,10 +235,16 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
           <button
             className="shrink-0 cursor-not-allowed rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 text-sm font-semibold text-slate-400"
             disabled
-            title={`${operationLabel}入口尚未适配`}
+            title={
+              confirmedVideoLabels.length > 0
+                ? `${confirmedVideoLabels.join("、")}能力已确认`
+                : `${operationLabel}入口尚未适配`
+            }
             type="button"
           >
-            交互待适配
+            {confirmedVideoLabels.length > 0
+              ? `${confirmedVideoLabels.join("、")}已确认`
+              : "交互待适配"}
           </button>
         )}
       </div>
@@ -201,14 +252,23 @@ const ModelCard = memo(function ModelCard({ model }: ModelCardProps) {
       <div className="relative mt-5 flex flex-wrap gap-2 px-5">
         <span
           className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-            model.interaction_status === "ready"
+            isInteractionReady
               ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
               : "border-slate-400/20 bg-slate-400/10 text-slate-300"
           }`}
         >
           {operationLabel}
-          {model.interaction_status === "planned" ? " · 待适配" : ""}
+          {!isInteractionReady ? " · 待适配" : ""}
         </span>
+        {confirmedVideoLabels.map((label) => (
+          <span
+            className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-medium text-sky-100"
+            key={label}
+          >
+            {label}已确认
+            {videoCatalogStale ? " · 缓存目录" : ""}
+          </span>
+        ))}
         {model.tags.map((tag) => (
           <span
             className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
