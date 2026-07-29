@@ -289,6 +289,10 @@ class AudioCatalogService:
             cache_key="environment:openrouter",
         )
 
+    @classmethod
+    def chat_completions_url(cls, target: OpenRouterTarget) -> str:
+        return cls._api_url(target.base_url, "chat/completions")
+
     @staticmethod
     def _response(
         cached: _CachedAudioCatalog,
