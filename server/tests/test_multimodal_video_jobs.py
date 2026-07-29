@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from fastapi import FastAPI
@@ -24,6 +24,7 @@ from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 from server.multimodal.video_catalog import (
     VideoModelCatalogResponse,
     VideoModelProfile,
+    VideoProviderOption,
 )
 from server.multimodal.video_jobs import (
     OpenRouterVideoJobAdapter,
@@ -69,17 +70,42 @@ class StubCatalog:
         supports_first_frame: bool = True,
         supports_generated_audio: bool = True,
         supports_seed: bool = True,
+        model_id: str = "google/veo-test",
+        supports_last_frame: bool = True,
+        supports_reference_images: bool = False,
+        max_reference_images: int | None = None,
+        provider_options: list[VideoProviderOption] | None = None,
+        catalog_status: Literal[
+            "online", "stale", "offline", "disabled"
+        ] = "online",
     ) -> None:
         self.router = router
+        self.force_requests: list[bool] = []
+        self.catalog_status = catalog_status
         self.profile = VideoModelProfile(
-            model_id="google/veo-test",
+            model_id=model_id,
             operation="generate_video",
             supported_resolutions=["720p", "1080p"],
             supported_aspect_ratios=["16:9", "9:16"],
             supported_durations=[5, 8],
+            supported_frame_types=[
+                *(
+                    ["first_frame"]
+                    if supports_first_frame
+                    else []
+                ),
+                *(
+                    ["last_frame"]
+                    if supports_last_frame
+                    else []
+                ),
+            ],
             supports_first_frame=supports_first_frame,
+            supports_reference_images=supports_reference_images,
+            max_reference_images=max_reference_images,
             supports_generated_audio=supports_generated_audio,
             supports_seed=supports_seed,
+            provider_options=provider_options or [],
             interaction_status="planned",
         )
 
@@ -87,11 +113,16 @@ class StubCatalog:
     def _enabled(_: str) -> bool:
         return True
 
-    async def get_catalog(self) -> VideoModelCatalogResponse:
+    async def get_catalog(
+        self,
+        *,
+        force: bool = False,
+    ) -> VideoModelCatalogResponse:
+        self.force_requests.append(force)
         return VideoModelCatalogResponse(
             source="openrouter",
-            status="online",
-            stale=False,
+            status=self.catalog_status,
+            stale=self.catalog_status == "stale",
             synced_at="2026-07-29T00:00:00+00:00",
             profiles=[self.profile],
         )
@@ -230,6 +261,207 @@ async def test_submit_claims_idempotency_before_single_upstream_call(
     assert "data:image" not in dump
     assert "upstream_private_1" in dump
     assert operation == "generate_video"
+
+
+@pytest.mark.asyncio
+async def test_submit_maps_first_and_last_frames_without_persisting_media(
+    tmp_path: Path,
+) -> None:
+    service, adapter = job_service(tmp_path)
+
+    job = await service.create(
+        model_id="google/veo-test",
+        prompt="Keep the subject between these exact endpoints",
+        first_frame_filename="first.png",
+        first_frame_content_type="image/png",
+        first_frame_content=PNG,
+        last_frame_filename="last.png",
+        last_frame_content_type="image/png",
+        last_frame_content=PNG + b"-last",
+        idempotency_key="first-last-0001",
+    )
+
+    frames = adapter.submit_calls[0]["frame_images"]
+    assert isinstance(frames, list)
+    assert [frame["frame_type"] for frame in frames] == [
+        "first_frame",
+        "last_frame",
+    ]
+    assert job.parameters.has_first_frame is True
+    assert job.parameters.has_last_frame is True
+    with sqlite3.connect(
+        service.router_service.repository.database_path
+    ) as connection:
+        dump = "\n".join(connection.iterdump())
+    assert "exact endpoints" not in dump
+    assert "data:image" not in dump
+
+
+@pytest.mark.asyncio
+async def test_submit_maps_three_audited_reference_images(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    service = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            model_id="bytedance/seedance-2.0-fast",
+            supports_reference_images=True,
+            max_reference_images=3,
+        ),
+        adapter=adapter,
+    )
+
+    job = await service.create(
+        model_id="bytedance/seedance-2.0-fast",
+        prompt="Preserve these three character references",
+        reference_image_filenames=["one.png", "two.png", "three.png"],
+        reference_image_content_types=[
+            "image/png",
+            "image/png",
+            "image/png",
+        ],
+        reference_image_contents=[
+            PNG + b"-one",
+            PNG + b"-two",
+            PNG + b"-three",
+        ],
+        idempotency_key="three-references-0001",
+    )
+
+    references = adapter.submit_calls[0]["input_references"]
+    assert isinstance(references, list)
+    assert len(references) == 3
+    assert all(
+        reference["image_url"]["url"].startswith(
+            "data:image/png;base64,"
+        )
+        for reference in references
+    )
+    assert job.parameters.reference_image_count == 3
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="bytedance/seedance-2.0-fast",
+            prompt="This must not be submitted",
+            reference_image_filenames=[f"{index}.png" for index in range(4)],
+            reference_image_content_types=["image/png"] * 4,
+            reference_image_contents=[PNG] * 4,
+            idempotency_key="four-references-0001",
+        )
+    assert caught.value.code == "too_many_reference_images"
+    assert len(adapter.submit_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_options_require_fresh_audited_capability(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="google/veo-3.1-lite",
+        provider_options=[
+            VideoProviderOption(
+                key="negativePrompt",
+                label="排除内容",
+                type="text",
+            ),
+            VideoProviderOption(
+                key="enhancePrompt",
+                label="自动增强提示词",
+                type="boolean",
+            ),
+        ],
+    )
+    service = VideoJobService(
+        router_instance,
+        catalog,
+        adapter=adapter,
+    )
+
+    job = await service.create(
+        model_id="google/veo-3.1-lite",
+        prompt="A clean studio product shot",
+        provider_options={
+            "negativePrompt": "watermark-secret-value",
+            "enhancePrompt": True,
+        },
+        idempotency_key="provider-options-0001",
+    )
+
+    assert catalog.force_requests == [True]
+    assert adapter.submit_calls[0]["provider"] == {
+        "options": {
+            "google-vertex": {
+                "parameters": {
+                    "negativePrompt": "watermark-secret-value",
+                    "enhancePrompt": True,
+                }
+            }
+        }
+    }
+    assert job.parameters.provider_option_keys == [
+        "enhancePrompt",
+        "negativePrompt",
+    ]
+    with sqlite3.connect(
+        service.router_service.repository.database_path
+    ) as connection:
+        dump = "\n".join(connection.iterdump())
+    assert "watermark-secret-value" not in dump
+    assert "clean studio" not in dump.lower()
+    assert "negativePrompt" in dump
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="google/veo-3.1-lite",
+            prompt="No paid request",
+            provider_options={"arbitrary": {"nested": True}},
+            idempotency_key="invalid-provider-options-0001",
+        )
+    assert caught.value.code == "provider_option_unavailable"
+    assert len(adapter.submit_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_options_reject_stale_capability_before_submit(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="google/veo-3.1-lite",
+        provider_options=[
+            VideoProviderOption(
+                key="enhancePrompt",
+                label="自动增强提示词",
+                type="boolean",
+            )
+        ],
+        catalog_status="stale",
+    )
+    service = VideoJobService(
+        router_instance,
+        catalog,
+        adapter=adapter,
+    )
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="google/veo-3.1-lite",
+            prompt="Do not create a paid task",
+            provider_options={"enhancePrompt": True},
+            idempotency_key="stale-provider-options-0001",
+        )
+
+    assert caught.value.code == "provider_options_not_verified"
+    assert catalog.force_requests == [True]
+    assert adapter.submit_calls == []
 
 
 @pytest.mark.asyncio
@@ -399,6 +631,78 @@ async def test_invalid_first_frame_magic_is_rejected(
 
 
 @pytest.mark.asyncio
+async def test_api_accepts_last_frame_and_repeated_reference_images(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    service = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            model_id="bytedance/seedance-2.0-fast",
+            supports_reference_images=True,
+            max_reference_images=3,
+        ),
+        adapter=adapter,
+    )
+    configure_video_job_service(service)
+    app = FastAPI()
+    app.include_router(router)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            created = await client.post(
+                "/api/multimodal/video/jobs",
+                data={
+                    "model_id": "bytedance/seedance-2.0-fast",
+                    "prompt": "Animate between frames and references",
+                    "idempotency_key": "api-enhanced-video-0001",
+                },
+                files=[
+                    (
+                        "last_frame",
+                        ("last.png", PNG + b"-last", "image/png"),
+                    ),
+                    (
+                        "reference_images",
+                        ("one.png", PNG + b"-one", "image/png"),
+                    ),
+                    (
+                        "reference_images",
+                        ("two.png", PNG + b"-two", "image/png"),
+                    ),
+                ],
+            )
+            malformed = await client.post(
+                "/api/multimodal/video/jobs",
+                data={
+                    "model_id": "bytedance/seedance-2.0-fast",
+                    "prompt": "Do not submit",
+                    "idempotency_key": "api-invalid-options-0001",
+                    "provider_options": "[\"arbitrary\"]",
+                },
+            )
+    finally:
+        configure_video_job_service(None)
+
+    assert created.status_code == 200
+    assert created.json()["parameters"]["has_last_frame"] is True
+    assert created.json()["parameters"]["reference_image_count"] == 2
+    payload = adapter.submit_calls[0]
+    assert payload["frame_images"][0]["frame_type"] == "last_frame"
+    assert len(payload["input_references"]) == 2
+    assert malformed.status_code == 422
+    assert (
+        malformed.json()["detail"]["code"]
+        == "invalid_provider_options"
+    )
+    assert len(adapter.submit_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_api_lists_streams_and_removes_only_local_record(
     tmp_path: Path,
 ) -> None:
@@ -499,6 +803,65 @@ def test_repository_enforces_video_job_tenant_isolation(
     assert repository.get_video_job("tenant-a", "local_b") is None
     assert repository.delete_video_job("tenant-b", "local_a") is False
     assert repository.count_schema_tenant_columns()["video_jobs"] is True
+
+
+def test_repository_migrates_existing_video_jobs_without_data_loss(
+    tmp_path: Path,
+) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    database_path = tmp_path / "router.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE video_jobs (
+                id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                idempotency_key_hash TEXT NOT NULL,
+                decision_id TEXT,
+                connection_id TEXT,
+                requested_model TEXT NOT NULL,
+                actual_model TEXT,
+                provider TEXT NOT NULL DEFAULT 'openrouter',
+                upstream_job_id TEXT,
+                generation_id TEXT,
+                status TEXT NOT NULL,
+                duration INTEGER,
+                resolution TEXT,
+                aspect_ratio TEXT,
+                generate_audio INTEGER NOT NULL DEFAULT 0,
+                seed INTEGER,
+                has_first_frame INTEGER NOT NULL DEFAULT 0,
+                cost_usd REAL,
+                cost_kind TEXT NOT NULL DEFAULT 'unavailable',
+                error_code TEXT,
+                output_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, id),
+                UNIQUE (tenant_id, idempotency_key_hash)
+            );
+            INSERT INTO video_jobs (
+                id, tenant_id, idempotency_key_hash, requested_model,
+                provider, status, has_first_frame, created_at, updated_at
+            ) VALUES (
+                'local_existing', 'local', 'existing-hash',
+                'provider/video', 'openrouter', 'queued', 1,
+                '2026-07-29T00:00:00+00:00',
+                '2026-07-29T00:00:00+00:00'
+            );
+            PRAGMA user_version = 6;
+            """
+        )
+
+    repository = SQLiteRouterRepository(tmp_path)
+    row = repository.get_video_job("local", "local_existing")
+    assert row is not None
+    assert row["has_first_frame"] == 1
+    assert row["has_last_frame"] == 0
+    assert row["reference_image_count"] == 0
+    assert row["provider_option_keys"] == "[]"
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 @pytest.mark.asyncio

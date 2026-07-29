@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -42,6 +43,7 @@ from .video_catalog import (
 )
 from .video_jobs import (
     MAX_FIRST_FRAME_BYTES,
+    MAX_REFERENCE_IMAGE_COUNT,
     VideoJob,
     VideoJobDeleteResult,
     VideoJobList,
@@ -286,7 +288,10 @@ async def delete_chat_attachment(
 
 
 @router.get("/video/models", response_model=VideoModelCatalogResponse)
-async def get_video_models(response: Response) -> VideoModelCatalogResponse:
+async def get_video_models(
+    response: Response,
+    refresh: bool = False,
+) -> VideoModelCatalogResponse:
     response.headers["X-ModelMirror-Chat-Video-Enabled"] = (
         "true"
         if os.getenv("MULTIMODAL_CHAT_VIDEO_ENABLED", "false")
@@ -295,7 +300,7 @@ async def get_video_models(response: Response) -> VideoModelCatalogResponse:
         in {"1", "true", "yes", "on"}
         else "false"
     )
-    return await get_video_catalog_service().get_catalog()
+    return await get_video_catalog_service().get_catalog(force=refresh)
 
 
 @router.post(
@@ -346,13 +351,32 @@ async def create_video_job(
     generate_audio: bool = Form(default=False),
     seed: int | None = Form(default=None),
     first_frame: UploadFile | None = File(default=None),
+    last_frame: UploadFile | None = File(default=None),
+    reference_images: list[UploadFile] | None = File(default=None),
+    provider_options: str | None = Form(default=None),
 ) -> VideoJob:
+    reference_files = reference_images or []
     try:
-        content = (
+        if len(reference_files) > MAX_REFERENCE_IMAGE_COUNT:
+            raise MultimodalServiceError(
+                "too_many_reference_images",
+                "参考图最多 3 张，请移除多余图片后重试。",
+                status_code=422,
+            )
+        first_content = (
             await first_frame.read(MAX_FIRST_FRAME_BYTES + 1)
             if first_frame is not None
             else None
         )
+        last_content = (
+            await last_frame.read(MAX_FIRST_FRAME_BYTES + 1)
+            if last_frame is not None
+            else None
+        )
+        reference_contents = [
+            await image.read(MAX_FIRST_FRAME_BYTES + 1)
+            for image in reference_files
+        ]
         return await get_video_job_service().create(
             model_id=model_id,
             prompt=prompt,
@@ -370,13 +394,35 @@ async def create_video_job(
                 if first_frame is not None
                 else None
             ),
-            first_frame_content=content,
+            first_frame_content=first_content,
+            last_frame_filename=(
+                last_frame.filename if last_frame is not None else None
+            ),
+            last_frame_content_type=(
+                last_frame.content_type
+                if last_frame is not None
+                else None
+            ),
+            last_frame_content=last_content,
+            reference_image_filenames=[
+                image.filename or "reference"
+                for image in reference_files
+            ],
+            reference_image_content_types=[
+                image.content_type for image in reference_files
+            ],
+            reference_image_contents=reference_contents,
+            provider_options=_provider_options(provider_options),
         )
     except MultimodalServiceError as exc:
         raise _http_error(exc) from exc
     finally:
         if first_frame is not None:
             await first_frame.close()
+        if last_frame is not None:
+            await last_frame.close()
+        for image in reference_files:
+            await image.close()
 
 
 @router.get("/video/jobs", response_model=VideoJobList)
@@ -542,6 +588,33 @@ def _video_analysis_response(
             cost_kind=result.usage.cost_kind,
         ),
     )
+
+
+def _provider_options(raw: str | None) -> dict[str, object] | None:
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    if len(value) > 4_000:
+        raise MultimodalServiceError(
+            "invalid_provider_options",
+            "高级参数内容过长，请关闭高级设置后重试。",
+            status_code=422,
+        )
+    try:
+        payload = json.loads(value)
+    except ValueError as exc:
+        raise MultimodalServiceError(
+            "invalid_provider_options",
+            "高级参数格式无效，请刷新模型能力后重试。",
+            status_code=422,
+        ) from exc
+    if not isinstance(payload, dict):
+        raise MultimodalServiceError(
+            "invalid_provider_options",
+            "高级参数必须是键值设置，请刷新模型能力后重试。",
+            status_code=422,
+        )
+    return payload
 
 
 def _http_error(exc: MultimodalServiceError) -> HTTPException:

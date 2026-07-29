@@ -40,7 +40,15 @@ STT、TTS 和视频能力依赖 OpenRouter。视频入口默认关闭，完成�
 ```bash
 MULTIMODAL_VIDEO_ANALYSIS_ENABLED=true
 MULTIMODAL_VIDEO_GENERATION_ENABLED=true
+MULTIMODAL_CHAT_AUDIO_ENABLED=true
+MULTIMODAL_MICROPHONE_ENABLED=true
+MULTIMODAL_STREAMING_AUDIO_ENABLED=true
+MULTIMODAL_CHAT_VIDEO_ENABLED=true
 ```
+
+Chat 开关只控制主聊天页的音视频附件、录音和原生语音输出；独立
+STT/TTS/视频工作区仍由各自能力开关控制。首次启用建议先测试上传转写、回答朗读、
+视频辅助理解，再测试可能产生较高费用的视频生成。
 
 启动：
 

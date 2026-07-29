@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import re
@@ -20,12 +21,18 @@ except ModuleNotFoundError:
     from model_router.service import ModelRouterService
 
 from .stt import MultimodalServiceError, OpenRouterTarget
-from .video_catalog import VideoCatalogService, VideoModelProfile
+from .video_catalog import (
+    PROVIDER_OPTION_AUDIT,
+    VideoCatalogService,
+    VideoModelProfile,
+)
 
 
 logger = logging.getLogger("modelmirror.multimodal")
 
 MAX_FIRST_FRAME_BYTES = 10 * 1024 * 1024
+MAX_REFERENCE_IMAGE_COUNT = 3
+MAX_REFERENCE_IMAGE_BYTES = 30 * 1024 * 1024
 MAX_VIDEO_GENERATION_PROMPT_CHARS = 4_000
 MAX_IDEMPOTENCY_KEY_CHARS = 128
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
@@ -64,6 +71,9 @@ class VideoJobParameters(BaseModel):
     aspect_ratio: str | None = None
     generate_audio: bool = False
     has_first_frame: bool = False
+    has_last_frame: bool = False
+    reference_image_count: int = 0
+    provider_option_keys: list[str] = Field(default_factory=list)
 
 
 class VideoJobUsage(BaseModel):
@@ -397,6 +407,13 @@ class VideoJobService:
         first_frame_filename: str | None = None,
         first_frame_content_type: str | None = None,
         first_frame_content: bytes | None = None,
+        last_frame_filename: str | None = None,
+        last_frame_content_type: str | None = None,
+        last_frame_content: bytes | None = None,
+        reference_image_filenames: list[str] | None = None,
+        reference_image_content_types: list[str | None] | None = None,
+        reference_image_contents: list[bytes] | None = None,
+        provider_options: dict[str, object] | None = None,
     ) -> VideoJob:
         self._ensure_enabled()
         clean_model = self._model_id(model_id)
@@ -417,7 +434,25 @@ class VideoJobService:
             first_frame_content_type,
             first_frame_content,
         )
-        profile = await self._profile(clean_model)
+        last_frame_data_url = self._last_frame(
+            last_frame_filename,
+            last_frame_content_type,
+            last_frame_content,
+        )
+        reference_data_urls = self._reference_images(
+            reference_image_filenames,
+            reference_image_content_types,
+            reference_image_contents,
+        )
+        profile = await self._profile(
+            clean_model,
+            force=bool(provider_options),
+        )
+        provider_payload, provider_option_keys = self._provider_payload(
+            clean_model,
+            profile,
+            provider_options,
+        )
         self._validate_parameters(
             profile,
             duration=duration,
@@ -426,6 +461,8 @@ class VideoJobService:
             generate_audio=generate_audio,
             seed=seed,
             has_first_frame=frame_data_url is not None,
+            has_last_frame=last_frame_data_url is not None,
+            reference_image_count=len(reference_data_urls),
         )
         target = self.catalog_service.resolve_target()
         job_id = f"local_{uuid.uuid4().hex}"
@@ -443,6 +480,9 @@ class VideoJobService:
                 generate_audio=generate_audio,
                 seed=seed,
                 has_first_frame=frame_data_url is not None,
+                has_last_frame=last_frame_data_url is not None,
+                reference_image_count=len(reference_data_urls),
+                provider_option_keys=provider_option_keys,
             )
         )
         if not created:
@@ -455,6 +495,11 @@ class VideoJobService:
                 input_bytes=(
                     len(clean_prompt.encode("utf-8"))
                     + len(first_frame_content or b"")
+                    + len(last_frame_content or b"")
+                    + sum(
+                        len(content)
+                        for content in (reference_image_contents or [])
+                    )
                 ),
             )
         except MultimodalServiceError as exc:
@@ -479,14 +524,35 @@ class VideoJobService:
             payload["generate_audio"] = True
         if seed is not None:
             payload["seed"] = seed
+        frame_images: list[dict[str, object]] = []
         if frame_data_url:
-            payload["frame_images"] = [
+            frame_images.append(
                 {
                     "type": "image_url",
                     "image_url": {"url": frame_data_url},
                     "frame_type": "first_frame",
                 }
+            )
+        if last_frame_data_url:
+            frame_images.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": last_frame_data_url},
+                    "frame_type": "last_frame",
+                }
+            )
+        if frame_images:
+            payload["frame_images"] = frame_images
+        if reference_data_urls:
+            payload["input_references"] = [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_url},
+                }
+                for data_url in reference_data_urls
             ]
+        if provider_payload is not None:
+            payload["provider"] = provider_payload
         try:
             upstream = await self.adapter.submit(target, payload)
             changes = self._upstream_changes(
@@ -569,10 +635,21 @@ class VideoJobService:
             raise self._not_found()
         return VideoJobDeleteResult(removed=True)
 
-    async def _profile(self, model_id: str) -> VideoModelProfile:
-        catalog = await self.catalog_service.get_catalog()
+    async def _profile(
+        self,
+        model_id: str,
+        *,
+        force: bool = False,
+    ) -> VideoModelProfile:
+        catalog = await self.catalog_service.get_catalog(force=force)
         if catalog.status == "disabled":
             self._ensure_enabled()
+        if force and (catalog.status != "online" or catalog.stale):
+            raise MultimodalServiceError(
+                "provider_options_not_verified",
+                "暂时无法重新确认高级参数，请关闭高级设置后提交，或稍后刷新能力。",
+                status_code=503,
+            )
         if catalog.status == "offline":
             raise MultimodalServiceError(
                 "video_catalog_unavailable",
@@ -601,6 +678,8 @@ class VideoJobService:
         generate_audio: bool,
         seed: int | None,
         has_first_frame: bool,
+        has_last_frame: bool,
+        reference_image_count: int,
     ) -> None:
         if duration is not None and (
             duration <= 0
@@ -632,12 +711,35 @@ class VideoJobService:
                 "所选模型不支持这个画面比例，请使用模型提供的比例选项。",
                 status_code=422,
             )
-        if has_first_frame and not profile.supports_first_frame:
+        if has_first_frame and (
+            "first_frame" not in profile.supported_frame_types
+            and not profile.supports_first_frame
+        ):
             raise MultimodalServiceError(
                 "first_frame_unsupported",
                 "所选模型不支持首帧图片，请移除图片或更换模型。",
                 status_code=422,
             )
+        if (
+            has_last_frame
+            and "last_frame" not in profile.supported_frame_types
+        ):
+            raise MultimodalServiceError(
+                "last_frame_unsupported",
+                "所选模型不支持尾帧图片，请移除尾帧或更换模型。",
+                status_code=422,
+            )
+        if reference_image_count:
+            max_references = profile.max_reference_images or 0
+            if (
+                not profile.supports_reference_images
+                or reference_image_count > max_references
+            ):
+                raise MultimodalServiceError(
+                    "reference_images_unsupported",
+                    "所选模型不支持这些参考图，请减少数量或更换模型。",
+                    status_code=422,
+                )
         if generate_audio and not profile.supports_generated_audio:
             raise MultimodalServiceError(
                 "generated_audio_unsupported",
@@ -708,6 +810,196 @@ class VideoJobService:
             )
         encoded = base64.b64encode(content).decode("ascii")
         return f"data:{media_type};base64,{encoded}"
+
+    @classmethod
+    def _last_frame(
+        cls,
+        filename: str | None,
+        content_type: str | None,
+        content: bytes | None,
+    ) -> str | None:
+        return cls._additional_image(
+            filename,
+            content_type,
+            content,
+            label="尾帧",
+            code_prefix="last_frame",
+        )
+
+    @classmethod
+    def _reference_images(
+        cls,
+        filenames: list[str] | None,
+        content_types: list[str | None] | None,
+        contents: list[bytes] | None,
+    ) -> list[str]:
+        names = filenames or []
+        types = content_types or []
+        payloads = contents or []
+        if not names and not types and not payloads:
+            return []
+        if len(names) != len(types) or len(names) != len(payloads):
+            raise MultimodalServiceError(
+                "invalid_reference_images",
+                "参考图数据不完整，请重新选择图片。",
+                status_code=422,
+            )
+        if len(names) > MAX_REFERENCE_IMAGE_COUNT:
+            raise MultimodalServiceError(
+                "too_many_reference_images",
+                "参考图最多 3 张，请移除多余图片后重试。",
+                status_code=422,
+            )
+        if sum(len(content) for content in payloads) > MAX_REFERENCE_IMAGE_BYTES:
+            raise MultimodalServiceError(
+                "reference_images_too_large",
+                "参考图合计不能超过 30 MiB，请压缩后重试。",
+                status_code=413,
+            )
+        result: list[str] = []
+        for filename, content_type, content in zip(
+            names,
+            types,
+            payloads,
+            strict=True,
+        ):
+            data_url = cls._additional_image(
+                filename,
+                content_type,
+                content,
+                label="参考图",
+                code_prefix="reference_image",
+            )
+            if data_url is not None:
+                result.append(data_url)
+        return result
+
+    @classmethod
+    def _additional_image(
+        cls,
+        filename: str | None,
+        content_type: str | None,
+        content: bytes | None,
+        *,
+        label: str,
+        code_prefix: str,
+    ) -> str | None:
+        supplied = (
+            filename is not None
+            or content_type is not None
+            or content is not None
+        )
+        if not supplied:
+            return None
+        if not filename or content is None:
+            raise MultimodalServiceError(
+                f"invalid_{code_prefix}",
+                f"{label}图片不完整，请重新选择 JPEG、PNG 或 WebP 图片。",
+                status_code=422,
+            )
+        if not content:
+            raise MultimodalServiceError(
+                f"empty_{code_prefix}",
+                f"{label}图片为空，请重新选择图片。",
+                status_code=422,
+            )
+        if len(content) > MAX_FIRST_FRAME_BYTES:
+            raise MultimodalServiceError(
+                f"{code_prefix}_too_large",
+                f"{label}图片不能超过 10 MiB，请压缩后重试。",
+                status_code=413,
+            )
+        suffix = Path(filename).suffix.lower().lstrip(".")
+        image_profile = FIRST_FRAME_FORMATS.get(suffix)
+        if image_profile is None:
+            raise MultimodalServiceError(
+                f"unsupported_{code_prefix}_format",
+                f"{label}只支持 JPEG、PNG 和 WebP 图片。",
+                status_code=422,
+            )
+        media_type, allowed_types = image_profile
+        clean_type = (content_type or "").split(";", 1)[0].strip().lower()
+        if clean_type and clean_type not in allowed_types:
+            raise MultimodalServiceError(
+                f"{code_prefix}_type_mismatch",
+                f"{label}扩展名与文件类型不一致，请重新导出后重试。",
+                status_code=422,
+            )
+        if not cls._matches_image_signature(suffix, content):
+            raise MultimodalServiceError(
+                f"invalid_{code_prefix}",
+                f"{label}内容无效或与扩展名不一致，请重新导出后重试。",
+                status_code=422,
+            )
+        encoded = base64.b64encode(content).decode("ascii")
+        return f"data:{media_type};base64,{encoded}"
+
+    @staticmethod
+    def _provider_payload(
+        model_id: str,
+        profile: VideoModelProfile,
+        values: dict[str, object] | None,
+    ) -> tuple[dict[str, object] | None, list[str]]:
+        if not values:
+            return None, []
+        if not isinstance(values, dict) or len(values) > 8:
+            raise MultimodalServiceError(
+                "invalid_provider_options",
+                "高级参数格式无效，请关闭高级设置后重试。",
+                status_code=422,
+            )
+        audited = PROVIDER_OPTION_AUDIT.get(model_id)
+        if audited is None:
+            raise MultimodalServiceError(
+                "provider_options_unsupported",
+                "所选模型没有经过验证的高级参数，请关闭高级设置。",
+                status_code=422,
+            )
+        provider_slug, _ = audited
+        live_definitions = {
+            option.key: option for option in profile.provider_options
+        }
+        normalized: dict[str, object] = {}
+        for key, value in values.items():
+            if key not in live_definitions:
+                raise MultimodalServiceError(
+                    "provider_option_unavailable",
+                    "模型当前不再支持所选高级参数，请刷新能力后重试。",
+                    status_code=422,
+                )
+            definition = live_definitions[key]
+            if definition.type == "text":
+                if not isinstance(value, str) or len(value) > 2_000:
+                    raise MultimodalServiceError(
+                        "invalid_provider_option_value",
+                        f"“{definition.label}”必须是 2,000 字符以内的文本。",
+                        status_code=422,
+                    )
+                normalized[key] = value.strip()
+            elif definition.type == "boolean":
+                if not isinstance(value, bool):
+                    raise MultimodalServiceError(
+                        "invalid_provider_option_value",
+                        f"“{definition.label}”必须使用开或关。",
+                        status_code=422,
+                    )
+                normalized[key] = value
+            else:
+                raise MultimodalServiceError(
+                    "provider_option_not_implemented",
+                    "该高级参数尚未完成安全适配，请关闭后重试。",
+                    status_code=422,
+                )
+        return (
+            {
+                "options": {
+                    provider_slug: {
+                        "parameters": normalized,
+                    }
+                }
+            },
+            sorted(normalized),
+        )
 
     @staticmethod
     def _matches_image_signature(suffix: str, content: bytes) -> bool:
@@ -1014,6 +1306,13 @@ class VideoJobService:
                 ),
                 generate_audio=bool(row.get("generate_audio")),
                 has_first_frame=bool(row.get("has_first_frame")),
+                has_last_frame=bool(row.get("has_last_frame")),
+                reference_image_count=max(
+                    0, int(row.get("reference_image_count") or 0)
+                ),
+                provider_option_keys=VideoJobService._stored_option_keys(
+                    row.get("provider_option_keys")
+                ),
             ),
             usage=VideoJobUsage(
                 cost_usd=(
@@ -1037,6 +1336,23 @@ class VideoJobService:
                 else None
             ),
             output_count=max(0, int(row.get("output_count") or 0)),
+        )
+
+    @staticmethod
+    def _stored_option_keys(raw: object) -> list[str]:
+        try:
+            values = json.loads(str(raw or "[]"))
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(values, list):
+            return []
+        return sorted(
+            {
+                value
+                for value in values
+                if isinstance(value, str)
+                and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", value)
+            }
         )
 
     @staticmethod

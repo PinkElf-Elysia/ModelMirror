@@ -72,16 +72,30 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                 json={
                     "data": [
                         {
-                            "id": "google/veo-test",
+                            "id": "google/veo-3.1-lite",
                             "supported_resolutions": ["720p", "1080p"],
                             "supported_aspect_ratios": ["16:9", "9:16"],
                             "supported_durations": [5, 8],
-                            "supported_frame_images": ["first_frame"],
+                            "supported_frame_images": [
+                                "first_frame",
+                                "last_frame",
+                            ],
+                            "allowed_passthrough_parameters": [
+                                "negativePrompt",
+                                "enhancePrompt",
+                                "personGeneration",
+                            ],
                             "generate_audio": True,
                             "seed": True,
                             "pricing_skus": {
                                 "per-video-second": "0.5"
                             },
+                        },
+                        {
+                            "id": "bytedance/seedance-2.0-fast",
+                            "supported_resolutions": ["720p"],
+                            "supported_aspect_ratios": ["16:9"],
+                            "supported_durations": [5],
                         }
                     ]
                 },
@@ -118,24 +132,41 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 2
+    assert len(result.profiles) == 3
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
     generation = next(
-        item for item in result.profiles if item.operation == "generate_video"
+        item
+        for item in result.profiles
+        if item.model_id == "google/veo-3.1-lite"
+    )
+    reference_model = next(
+        item
+        for item in result.profiles
+        if item.model_id == "bytedance/seedance-2.0-fast"
     )
     assert analysis.model_id == "google/gemini-video-test"
     assert analysis.supported_input_sources == ["file", "url"]
     assert analysis.interaction_status == "ready"
-    assert generation.model_id == "google/veo-test"
+    assert generation.model_id == "google/veo-3.1-lite"
     assert generation.supported_resolutions == ["720p", "1080p"]
     assert generation.supported_durations == [5, 8]
     assert generation.supports_first_frame is True
+    assert generation.supported_frame_types == [
+        "first_frame",
+        "last_frame",
+    ]
+    assert [option.key for option in generation.provider_options] == [
+        "negativePrompt",
+        "enhancePrompt",
+    ]
     assert generation.supports_generated_audio is True
     assert generation.supports_seed is True
     assert generation.pricing_skus["per-video-second"] == "0.5"
     assert generation.interaction_status == "planned"
+    assert reference_model.supports_reference_images is True
+    assert reference_model.max_reference_images == 3
     assert all(
         request.headers["authorization"]
         == "Bearer video-catalog-secret"
@@ -199,7 +230,10 @@ async def test_video_catalog_api_does_not_expose_credentials(
     monkeypatch.setenv("MULTIMODAL_VIDEO_ANALYSIS_ENABLED", "true")
     monkeypatch.setenv("MULTIMODAL_VIDEO_GENERATION_ENABLED", "false")
 
-    def handler(_: Request) -> Response:
+    requests: list[Request] = []
+
+    def handler(request: Request) -> Response:
+        requests.append(request)
         return Response(
             200,
             json={
@@ -228,6 +262,9 @@ async def test_video_catalog_api_does_not_expose_credentials(
             base_url="http://test",
         ) as client:
             response = await client.get("/api/multimodal/video/models")
+            refreshed = await client.get(
+                "/api/multimodal/video/models?refresh=true"
+            )
     finally:
         configure_video_catalog_service(None)
 
@@ -237,3 +274,6 @@ async def test_video_catalog_api_does_not_expose_credentials(
     )
     assert "video-catalog-secret" not in response.text
     assert "openrouter.ai" not in response.text
+    assert refreshed.status_code == 200
+    assert refreshed.json()["status"] == "online"
+    assert len(requests) == 2
