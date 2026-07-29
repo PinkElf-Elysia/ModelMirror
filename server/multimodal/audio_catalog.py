@@ -67,6 +67,7 @@ class AudioModelCatalogResponse(BaseModel):
     status: Literal["online", "stale", "offline", "disabled"]
     stale: bool
     synced_at: str | None
+    microphone_enabled: bool = False
     profiles: list[AudioChatProfile] = Field(default_factory=list)
 
 
@@ -109,6 +110,9 @@ class AudioCatalogService:
                 status="disabled",
                 stale=False,
                 synced_at=None,
+                microphone_enabled=self._enabled(
+                    "MULTIMODAL_MICROPHONE_ENABLED"
+                ),
                 profiles=[],
             )
 
@@ -148,6 +152,9 @@ class AudioCatalogService:
                     status="offline",
                     stale=False,
                     synced_at=None,
+                    microphone_enabled=self._enabled(
+                        "MULTIMODAL_MICROPHONE_ENABLED"
+                    ),
                     profiles=[],
                 )
 
@@ -304,6 +311,9 @@ class AudioCatalogService:
             status="stale" if stale else "online",
             stale=stale,
             synced_at=cached.synced_at,
+            microphone_enabled=AudioCatalogService._enabled(
+                "MULTIMODAL_MICROPHONE_ENABLED"
+            ),
             profiles=[item.model_copy(deep=True) for item in cached.profiles],
         )
 

@@ -38,6 +38,25 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## opencc-js
+
+- Project: `nk2028/opencc-js`
+- Package: `opencc-js@1.4.1`
+- License: MIT
+- Bundled dictionary data: `nk2028/opencc-data@1.4.1`
+- Dictionary license: Apache License 2.0
+- Integration boundary: the browser loads the `t2cn` converter only after an
+  automatic or Chinese speech-to-text result contains Han characters. It is
+  used only to normalize Traditional Chinese transcription output to
+  Simplified Chinese.
+
+The package's MIT license and the incorporated `opencc-data` Apache 2.0
+license are preserved in the upstream package referenced by
+`client/package-lock.json`:
+
+- <https://github.com/nk2028/opencc-js/blob/v1.4.1/LICENSE>
+- <https://github.com/nk2028/opencc-js/blob/v1.4.1/THIRD_PARTY_LICENSES.md>
+
 ## OmniRoute
 
 - Project: `diegosouzapw/OmniRoute`

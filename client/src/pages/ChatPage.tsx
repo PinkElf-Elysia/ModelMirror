@@ -13,6 +13,9 @@ import AdvancedParamsPanel, {
   type ChatAdvancedParams,
 } from "../components/AdvancedParamsPanel";
 import BrandLogo from "../components/BrandLogo";
+import ChatAudioComposer, {
+  QuickTranscriptionControl,
+} from "../components/ChatAudioComposer";
 import {
   federationFallbackModelId,
   federationRouteId,
@@ -57,6 +60,15 @@ interface UploadedImage {
   id: string;
   name: string;
   url: string;
+}
+
+interface DirectAudioSend {
+  attachmentId: string;
+  audioName: string;
+}
+
+interface ChatAudioFeatures {
+  microphone_enabled: boolean;
 }
 
 type LightboxKind = ExtractedImageKind | "upload";
@@ -852,6 +864,14 @@ function ChatConversationPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
+  const [audioComposerOpen, setAudioComposerOpen] = useState(
+    () => searchParams.get("media") === "audio",
+  );
+  const [audioComposerSource, setAudioComposerSource] = useState<
+    "upload" | "record"
+  >("upload");
+  const [chatAudioFeatures, setChatAudioFeatures] =
+    useState<ChatAudioFeatures | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
@@ -901,6 +921,7 @@ function ChatConversationPage() {
   const messageViewportRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const autoFollowStreamRef = useRef(true);
 
   const openLightbox = useCallback(
@@ -938,6 +959,26 @@ function ChatConversationPage() {
     setSelectedKnowledgeBaseId("");
     setRoutingMode(defaultRoutingMode(decodedModelId));
   }, [decodedModelId, isOmniAutoRoute]);
+
+  useEffect(() => {
+    if (searchParams.get("media") === "audio") {
+      setAudioComposerOpen(true);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/multimodal/audio/models", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as ChatAudioFeatures;
+      })
+      .then((features) => {
+        if (features) setChatAudioFeatures(features);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (window.matchMedia("(min-width: 1024px)").matches) {
@@ -1040,6 +1081,10 @@ function ChatConversationPage() {
   async function addImageFiles(files: File[]) {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
+    if (audioComposerOpen) {
+      setError("本轮只能选择图片或音频中的一种附件，请先关闭语音输入。");
+      return;
+    }
 
     setError("");
     setIsUploadingImage(true);
@@ -1179,10 +1224,40 @@ function ChatConversationPage() {
     }
   }
 
-  async function sendMessage(overrideText?: string) {
-    const rawText = (overrideText ?? input).trim();
-    const images = overrideText ? [] : uploadedImages;
-    if ((!rawText && images.length === 0) || isSending || !model) return;
+  async function sendMessage(
+    overrideText?: string,
+    directAudio?: DirectAudioSend,
+  ): Promise<boolean> {
+    const requestedText = (overrideText ?? input).trim();
+    const rawText =
+      directAudio && !requestedText
+        ? "请理解并概括这段音频。"
+        : requestedText;
+    const images = overrideText || directAudio ? [] : uploadedImages;
+    if (
+      (!rawText && images.length === 0 && !directAudio) ||
+      isSending ||
+      !model
+    ) {
+      return false;
+    }
+
+    if (directAudio) {
+      if (isOmniAutoRoute) {
+        setError("智能调度需先把音频转成文字，确认后再发送。");
+        return false;
+      }
+      if (selectedKnowledgeBaseId || selectedSkillId || runtimeToolsEnabled) {
+        setError(
+          "音频直接理解暂不与知识库、Skill 或 MCP 工具组合，请先转成文字。",
+        );
+        return false;
+      }
+      if (images.length > 0) {
+        setError("本轮只能选择图片或音频中的一种附件。");
+        return false;
+      }
+    }
 
     if (
       images.length > 0 &&
@@ -1190,12 +1265,12 @@ function ChatConversationPage() {
       !model.input_modalities.includes("image")
     ) {
       setError("当前候选人不接视觉岗面试，请切换支持图片输入的候选人");
-      return;
+      return false;
     }
 
     if (!isOmniAutoRoute && selectedKnowledgeBaseId && images.length > 0) {
       setError("知识库检索模式暂不支持图片问题，请先移除图片或取消知识库选择。");
-      return;
+      return false;
     }
 
     let activeSkillContent = "";
@@ -1204,16 +1279,26 @@ function ChatConversationPage() {
         activeSkillContent = await loadSkillContent(selectedSkillId);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Skill 内容加载失败");
-        return;
+        return false;
       }
     }
 
-    const userContent = buildUserContent(rawText, images, superPromptMode);
+    const userContent: ChatMessageContent = directAudio
+      ? [
+          { type: "text", text: rawText },
+          {
+            type: "input_audio",
+            attachment_id: directAudio.attachmentId,
+          },
+        ]
+      : buildUserContent(rawText, images, superPromptMode);
     const userMessage: ChatMessage = {
       id: createId(),
       role: "user",
       content: userContent,
-      displayContent: rawText,
+      displayContent: directAudio
+        ? `${rawText}\n\n🎙️ ${directAudio.audioName}`
+        : rawText,
       images,
     };
     const assistantId = createId();
@@ -1285,6 +1370,7 @@ function ChatConversationPage() {
     };
     const assistantUiUpdate = createStreamingUiScheduler(flushAssistantDelta);
     let activeRuntimeMeta: ChatRuntimeMeta | null = null;
+    let completed = false;
     try {
       if (!isOmniAutoRoute && selectedKnowledgeBaseId && rawText) {
         const ragQuestion = activeSkillContent
@@ -1312,7 +1398,8 @@ function ChatConversationPage() {
               : message,
           ),
         );
-        return;
+        completed = true;
+        return true;
       }
 
       const parsedRoutingBudget = routingBudget.trim()
@@ -1365,18 +1452,16 @@ function ChatConversationPage() {
           setRuntimeObservation(null);
           setRuntimeObservationError("");
         },
-        onRouteReceipt: isOmniAutoRoute
-          ? (receipt) => {
-              assistantUiUpdate.flush();
-              setMessages((current) =>
-                current.map((message) =>
-                  message.id === assistantId
-                    ? { ...message, routeReceipt: receipt }
-                    : message,
-                ),
-              );
-            }
-          : undefined,
+        onRouteReceipt: (receipt) => {
+          assistantUiUpdate.flush();
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId
+                ? { ...message, routeReceipt: receipt }
+                : message,
+            ),
+          );
+        },
         onDelta: (delta) => {
           receivedAssistantDelta = true;
           pendingAssistantDelta += delta;
@@ -1400,6 +1485,7 @@ function ChatConversationPage() {
             : message,
         ),
       );
+      completed = true;
     } catch (streamError) {
       assistantUiUpdate.flush();
       if (activeRuntimeMeta) {
@@ -1425,16 +1511,80 @@ function ChatConversationPage() {
             : item,
         ),
       );
+      completed = false;
     } finally {
       assistantUiUpdate.flush();
+      if (directAudio) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === userMessage.id
+              ? { ...message, content: rawText }
+              : message,
+          ),
+        );
+      }
       setIsSending(false);
     }
+    return completed;
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     void sendMessage();
+  }
+
+  function openAudioComposer(source: "upload" | "record") {
+    if (uploadedImages.length > 0) {
+      setError("本轮只能选择图片或音频中的一种附件，请先移除图片。");
+      return;
+    }
+    setAudioComposerSource(source);
+    setAudioComposerOpen(true);
+    setError("");
+  }
+
+  function closeAudioComposer() {
+    setAudioComposerOpen(false);
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("media");
+    nextSearchParams.delete("sttModel");
+    setSearchParams(nextSearchParams, { replace: true });
+  }
+
+  function transcriptForChat(transcript: string) {
+    const cleanPrompt = input.trim();
+    return cleanPrompt
+      ? `${cleanPrompt}\n\n音频转写：\n${transcript}`
+      : transcript;
+  }
+
+  function fillTranscript(transcript: string) {
+    setInput(transcriptForChat(transcript));
+    setError("");
+  }
+
+  function fillQuickTranscript(transcript: string) {
+    const cleanTranscript = transcript.trim();
+    if (!cleanTranscript) return;
+    setInput((current) =>
+      current.trim()
+        ? `${current.trimEnd()} ${cleanTranscript}`
+        : cleanTranscript,
+    );
+    setError("");
+    window.requestAnimationFrame(() => messageInputRef.current?.focus());
+  }
+
+  async function sendTranscript(transcript: string) {
+    return sendMessage(transcriptForChat(transcript));
+  }
+
+  async function sendDirectAudio(
+    attachmentId: string,
+    audioName: string,
+  ) {
+    return sendMessage(undefined, { attachmentId, audioName });
   }
 
   function handlePaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
@@ -1548,6 +1698,13 @@ function ChatConversationPage() {
     !isUploadingImage;
   const supportsImageInput =
     omniRouteSupportsImage || model.input_modalities.includes("image");
+  const directAudioBlockedReason = selectedKnowledgeBaseId
+    ? "当前已选择知识库，请先转成文字后再发送。"
+    : selectedSkillId
+      ? "当前已选择 Skill，请先转成文字后再发送。"
+      : runtimeToolsEnabled
+        ? "MCP 工具模式需先把音频转成文字。"
+        : undefined;
   const providerName = isOmniAutoRoute
     ? "智能调度"
     : deriveProviderFromModel(model);
@@ -2153,6 +2310,23 @@ function ChatConversationPage() {
                       : "border-white/10 bg-white/[0.055] focus-within:border-brand-300/50 focus-within:ring-4 focus-within:ring-brand-300/10"
                   }`}
                 >
+                  {audioComposerOpen ? (
+                    <ChatAudioComposer
+                      currentModelId={isOmniAutoRoute ? decodedModelId : model.id}
+                      directBlockedReason={directAudioBlockedReason}
+                      initialSource={audioComposerSource}
+                      initialTranscriptionModelId={
+                        searchParams.get("sttModel") ?? undefined
+                      }
+                      isAutoRoute={isOmniAutoRoute}
+                      isSending={isSending}
+                      onClose={closeAudioComposer}
+                      onFillTranscript={fillTranscript}
+                      onSendDirectAudio={sendDirectAudio}
+                      onSendTranscript={sendTranscript}
+                      prompt={input}
+                    />
+                  ) : null}
                   {uploadedImages.length > 0 ? (
                     <div className="flex flex-wrap gap-2 border-b border-white/10 px-2 pb-3">
                       {uploadedImages.map((image) => (
@@ -2185,11 +2359,12 @@ function ChatConversationPage() {
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
                     placeholder={recruitmentTheme.chatPlaceholder}
+                    ref={messageInputRef}
                     value={input}
                   />
 
                   <div className="flex flex-col gap-3 px-2 pb-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <input
                         accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
                         className="hidden"
@@ -2202,20 +2377,65 @@ function ChatConversationPage() {
                         type="file"
                       />
                       <button
-                        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-slate-200 transition hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={isSending || isUploadingImage}
+                        className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={
+                          isSending ||
+                          isUploadingImage ||
+                          audioComposerOpen
+                        }
                         onClick={() => fileInputRef.current?.click()}
                         title="上传图片"
                         type="button"
                       >
-                        附
+                        图片
                       </button>
+                      <button
+                        className={`rounded-full border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          audioComposerOpen &&
+                          audioComposerSource === "upload"
+                            ? "border-brand-300/45 bg-brand-300/12 text-brand-100"
+                            : "border-white/10 bg-white/[0.06] text-slate-200 hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100"
+                        }`}
+                        disabled={
+                          isSending ||
+                          isUploadingImage ||
+                          uploadedImages.length > 0
+                        }
+                        onClick={() => openAudioComposer("upload")}
+                        type="button"
+                      >
+                        音频
+                      </button>
+                      {chatAudioFeatures?.microphone_enabled ? (
+                        <QuickTranscriptionControl
+                          currentModelId={
+                            isOmniAutoRoute ? decodedModelId : model.id
+                          }
+                          directBlockedReason={directAudioBlockedReason}
+                          disabled={
+                            isSending ||
+                            isUploadingImage ||
+                            uploadedImages.length > 0
+                          }
+                          enabled
+                          isAutoRoute={isOmniAutoRoute}
+                          onError={setError}
+                          onSendDirectAudio={sendDirectAudio}
+                          onTranscript={fillQuickTranscript}
+                        />
+                      ) : null}
                       <p className="text-xs text-slate-400">
                         {isUploadingImage
                           ? "正在压缩图片..."
+                          : audioComposerOpen
+                            ? "语音只在本页临时处理"
                           : supportsImageInput
-                            ? "支持上传、粘贴、拖拽图片"
-                            : "当前候选人不接视觉岗面试"}
+                            ? chatAudioFeatures?.microphone_enabled
+                              ? "麦克风可直接转成文字"
+                              : "可上传图片或音频"
+                            : chatAudioFeatures?.microphone_enabled
+                              ? "麦克风可直接转成文字"
+                              : "可上传音频"}
                       </p>
                     </div>
                     <button

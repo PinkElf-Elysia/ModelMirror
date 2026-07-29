@@ -12,7 +12,14 @@ export interface ChatImagePart {
   };
 }
 
-export type ChatMessageContent = string | Array<ChatTextPart | ChatImagePart>;
+export interface ChatInputAudioPart {
+  type: "input_audio";
+  attachment_id: string;
+}
+
+export type ChatMessageContent =
+  | string
+  | Array<ChatTextPart | ChatImagePart | ChatInputAudioPart>;
 
 export interface ChatApiMessage {
   role: ChatRole;

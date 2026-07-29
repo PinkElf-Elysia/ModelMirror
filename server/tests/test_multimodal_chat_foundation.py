@@ -203,6 +203,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MULTIMODAL_CHAT_AUDIO_ENABLED", "true")
+    monkeypatch.setenv("MULTIMODAL_MICROPHONE_ENABLED", "true")
     service = AudioCatalogService(
         openrouter_service(tmp_path),
         client_factory=lambda: httpx.AsyncClient(
@@ -225,6 +226,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
 
     assert response.status_code == 200
     assert response.json()["profiles"]
+    assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text
     assert "openrouter.ai" not in response.text
 
