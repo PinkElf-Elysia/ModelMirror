@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
@@ -11,6 +15,15 @@ try:
 except ModuleNotFoundError:
     from model_router.api import get_model_router_service
 
+from .audio_catalog import (
+    AudioCatalogService,
+    AudioModelCatalogResponse,
+)
+from .chat_attachments import (
+    ChatAttachmentDeleteResponse,
+    ChatAttachmentResponse,
+    ChatAttachmentStore,
+)
 from .stt import (
     MAX_AUDIO_BYTES,
     MultimodalServiceError,
@@ -80,9 +93,35 @@ class VideoAnalysisResponse(BaseModel):
     usage: VideoAnalysisUsageResponse
 
 
-router = APIRouter(prefix="/api/multimodal", tags=["multimodal"])
+@asynccontextmanager
+async def _multimodal_lifespan(_: object) -> AsyncIterator[None]:
+    enabled = any(
+        os.getenv(name, "false").strip().lower()
+        in {"1", "true", "yes", "on"}
+        for name in (
+            "MULTIMODAL_CHAT_AUDIO_ENABLED",
+            "MULTIMODAL_CHAT_VIDEO_ENABLED",
+        )
+    )
+    store = get_chat_attachment_store() if enabled else None
+    if store is not None:
+        await asyncio.to_thread(store.cleanup_expired)
+    try:
+        yield
+    finally:
+        if store is not None and _chat_attachment_store is store:
+            configure_chat_attachment_store(None)
+
+
+router = APIRouter(
+    prefix="/api/multimodal",
+    tags=["multimodal"],
+    lifespan=_multimodal_lifespan,
+)
 _transcription_service: TranscriptionService | None = None
 _speech_service: SpeechService | None = None
+_audio_catalog_service: AudioCatalogService | None = None
+_chat_attachment_store: ChatAttachmentStore | None = None
 _video_catalog_service: VideoCatalogService | None = None
 _video_analysis_service: VideoAnalysisService | None = None
 _video_job_service: VideoJobService | None = None
@@ -114,6 +153,42 @@ def get_speech_service() -> SpeechService:
     if _speech_service is None:
         _speech_service = SpeechService(get_model_router_service())
     return _speech_service
+
+
+def configure_audio_catalog_service(
+    service: AudioCatalogService | None,
+) -> None:
+    global _audio_catalog_service
+    _audio_catalog_service = service
+
+
+def get_audio_catalog_service() -> AudioCatalogService:
+    global _audio_catalog_service
+    if _audio_catalog_service is None:
+        _audio_catalog_service = AudioCatalogService(
+            get_model_router_service()
+        )
+    return _audio_catalog_service
+
+
+def configure_chat_attachment_store(
+    store: ChatAttachmentStore | None,
+) -> None:
+    global _chat_attachment_store
+    current = _chat_attachment_store
+    _chat_attachment_store = store
+    if current is not None and current is not store:
+        current.close()
+
+
+def get_chat_attachment_store() -> ChatAttachmentStore:
+    global _chat_attachment_store
+    if _chat_attachment_store is None:
+        router_service = get_model_router_service()
+        _chat_attachment_store = ChatAttachmentStore(
+            tenant_id=router_service.tenant_id
+        )
+    return _chat_attachment_store
 
 
 def configure_video_catalog_service(
@@ -162,6 +237,52 @@ def get_video_job_service() -> VideoJobService:
             get_video_catalog_service(),
         )
     return _video_job_service
+
+
+@router.get("/audio/models", response_model=AudioModelCatalogResponse)
+async def get_audio_models() -> AudioModelCatalogResponse:
+    return await get_audio_catalog_service().get_catalog()
+
+
+@router.post(
+    "/chat/attachments",
+    response_model=ChatAttachmentResponse,
+)
+async def create_chat_attachment(
+    kind: Literal["audio", "video"] = Form(...),
+    file: UploadFile = File(...),
+) -> ChatAttachmentResponse:
+    limit = MAX_AUDIO_BYTES if kind == "audio" else MAX_VIDEO_BYTES
+    try:
+        content = await file.read(limit + 1)
+        store = get_chat_attachment_store()
+        return await asyncio.to_thread(
+            store.create,
+            kind=kind,
+            filename=file.filename or kind,
+            content_type=file.content_type,
+            content=content,
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+    finally:
+        await file.close()
+
+
+@router.delete(
+    "/chat/attachments/{attachment_id}",
+    response_model=ChatAttachmentDeleteResponse,
+)
+async def delete_chat_attachment(
+    attachment_id: str,
+) -> ChatAttachmentDeleteResponse:
+    try:
+        return await asyncio.to_thread(
+            get_chat_attachment_store().delete,
+            attachment_id,
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.get("/video/models", response_model=VideoModelCatalogResponse)
