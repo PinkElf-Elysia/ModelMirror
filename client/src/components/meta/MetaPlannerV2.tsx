@@ -138,7 +138,7 @@ function candidateFromProposal(proposal: AuthoringProposal): CandidateXpert {
       ? (proposal.payload.patch as Record<string, unknown> | undefined)
       : proposal.payload;
   if (!source || typeof source !== "object" || !source.draft) {
-    throw new Error("候选提案缺少可编辑的 Xpert 草稿。");
+    throw new Error("候选提案缺少可编辑的智能体草稿。");
   }
   return source as unknown as CandidateXpert;
 }
@@ -207,7 +207,7 @@ const capabilityGroups: Array<{
   {
     key: "external_xpert_ids",
     source: "external_xperts",
-    title: "外部 Xpert",
+    title: "外部智能体",
     hint: "固定已发布版本的同步协作者",
   },
   {
@@ -365,7 +365,7 @@ export default function MetaPlannerV2() {
       return;
     }
     if (mode === "update" && !targetXpertId) {
-      setError("更新模式必须选择目标 Xpert。");
+      setError("更新模式必须选择目标智能体。");
       return;
     }
     setIsGenerating(true);
@@ -502,7 +502,7 @@ export default function MetaPlannerV2() {
       setProposal(next);
       if (action === "approve") {
         if (!next.applied_resource_id) {
-          throw new Error("提案已批准，但未返回目标 Xpert ID。");
+          throw new Error("提案已批准，但未返回目标智能体 ID。");
         }
         navigate(`/agents/studio/${next.applied_resource_id}`);
         return;
@@ -536,7 +536,7 @@ export default function MetaPlannerV2() {
             </div>
             <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-400">
               任务规划、能力编译与一次定向修复。结果只进入审批提案，批准后也仅写入
-              Xpert 草稿。
+              智能体草稿。
             </p>
           </div>
           <div className="text-right text-xs text-slate-500">
@@ -561,14 +561,14 @@ export default function MetaPlannerV2() {
                   onClick={() => setMode(item)}
                   type="button"
                 >
-                  {item === "create" ? "创建 Xpert" : "更新 Xpert"}
+                  {item === "create" ? "创建智能体" : "更新智能体"}
                 </button>
               ))}
             </div>
 
             {mode === "update" ? (
               <label className="mt-3 block">
-                <span className="text-xs font-semibold text-slate-300">目标 Xpert</span>
+                <span className="text-xs font-semibold text-slate-300">目标智能体</span>
                 <select
                   className="mt-2 h-10 w-full rounded-md border border-white/10 bg-slate-950 px-3 text-sm text-white"
                   onChange={(event) => setTargetXpertId(event.target.value)}
@@ -589,7 +589,7 @@ export default function MetaPlannerV2() {
               <textarea
                 className="mt-2 min-h-32 w-full resize-y rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm leading-6 text-white outline-none focus:border-cyan-300/45"
                 onChange={(event) => setGoal(event.target.value)}
-                placeholder="例如：构建一个研究、事实核查与审稿协作的 Xpert"
+                placeholder="例如：构建一个负责研究、事实核查与审稿协作的智能体"
                 value={goal}
               />
             </label>
@@ -656,7 +656,7 @@ export default function MetaPlannerV2() {
               onClick={() => void generateCandidate()}
               type="button"
             >
-              {isGenerating ? "三阶段生成中..." : "生成候选 Xpert"}
+              {isGenerating ? "三阶段生成中..." : "生成候选智能体"}
             </button>
           </div>
 
@@ -878,7 +878,7 @@ export default function MetaPlannerV2() {
           ) : (
             <div className="flex min-h-[540px] items-center justify-center rounded-lg border border-dashed border-white/10 bg-white/[0.02] p-8 text-center">
               <div>
-                <p className="text-base font-semibold text-white">尚未生成候选 Xpert</p>
+                <p className="text-base font-semibold text-white">尚未生成候选智能体</p>
                 <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">
                   选择能力授权范围后生成。高风险中间件不会默认进入模型可见范围。
                 </p>

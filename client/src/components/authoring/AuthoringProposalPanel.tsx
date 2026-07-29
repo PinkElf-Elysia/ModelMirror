@@ -158,7 +158,7 @@ export default function AuthoringProposalPanel({
         <div>
           <h2 className="text-sm font-semibold text-white">{title}</h2>
           <p className="mt-1 text-xs text-slate-400">
-            Agent 只能提交版本化提案；批准后仍不会自动发布 Xpert、Prompt 或安装 Skill。
+            智能体只能提交版本化提案；批准后仍不会自动发布智能体、Prompt 或安装 Skill。
           </p>
         </div>
         <div className="flex items-center gap-2">

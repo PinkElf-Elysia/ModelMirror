@@ -174,7 +174,7 @@ export default function DataXInboxPage() {
             <section className="min-w-0 border-t border-white/10 pt-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-xs font-semibold text-slate-300">提案标题<input className="mt-1 block w-full rounded-md border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white disabled:opacity-60" disabled={selected.status !== "pending"} onChange={(event) => setTitle(event.target.value)} value={title} /></label>
-                <div className="text-xs text-slate-500"><p>来源 Xpert</p><p className="mt-2 font-mono text-slate-300">{selected.source_xpert_id || "-"}</p><p className="mt-1 font-mono text-[10px]">run {selected.source_run_id || "-"}</p></div>
+                <div className="text-xs text-slate-500"><p>来源智能体</p><p className="mt-2 font-mono text-slate-300">{selected.source_xpert_id || "-"}</p><p className="mt-1 font-mono text-[10px]">run {selected.source_run_id || "-"}</p></div>
               </div>
               <label className="mt-4 block text-xs font-semibold text-slate-300">指标草稿 JSON<textarea className="mt-1 min-h-[390px] w-full rounded-md border border-white/10 bg-ink-950 p-3 font-mono text-xs leading-5 text-slate-200 disabled:opacity-60" disabled={selected.status !== "pending"} onChange={(event) => setPayloadText(event.target.value)} spellCheck={false} value={payloadText} /></label>
               <label className="mt-4 block text-xs font-semibold text-slate-300">审批说明<textarea className="mt-1 min-h-20 w-full rounded-md border border-white/10 bg-ink-950 p-3 text-sm text-slate-200 disabled:opacity-60" disabled={selected.status !== "pending"} onChange={(event) => setReason(event.target.value)} value={reason} /></label>

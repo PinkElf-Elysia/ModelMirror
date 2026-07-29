@@ -2,14 +2,15 @@
 
 模镜是一个 AI 资源浏览与协作平台，面向模型、智能体、MCP、Skill、提示词、工作流、RAG 和聊天场景。项目主题是“AI 牛马招聘会”：把模型与智能体看成候选人，把工具和能力看成岗位技能，让用户可以快速发现、比较、调用和组合 AI 能力。
 
-最后更新日期：2026-07-27
+最后更新日期：2026-07-28
 维护人：模镜团队
 
 ## 当前能力
 
 - 模型招聘会：模型筛选、价格展示、能力标签和聊天入口。
 - 智能调度：`/chat/auto` 支持六种策略、稳定会话灰度、健康熔断、预算回执和上下文优化；默认仍可回退 OmniRoute 侧车。
-- 面试间：OpenAI 兼容流式聊天、图片输入、高级参数、提示词助手、模型输出图片预览。
+- 面试间：OpenAI 兼容流式聊天、图片输入、高级参数、提示词助手、模型输出图片预览，以及自适应 STT、TTS 和视频工作区。
+- 视频闭环：支持 MP4/MPEG/MOV/WebM 文件或 HTTPS/YouTube URL 分析，并通过独立异步任务完成文生视频、首帧图生视频、恢复、播放与下载。
 - 图片生成模型：支持 `content` 多模态 parts、`delta.images` / `message.images`、`image_url` 和 `data:image/...` 输出；前端会转成图片卡片并接入 Lightbox 放大与下载。
 - AI 人才市场：智能体角色浏览、面试入口、专家团能力。
 - MCP 工具：原生 stdio MCP 客户端、多会话管理和工具注册表。
@@ -17,22 +18,23 @@
 - 工作流：`/workflow` 使用经典自研 React Flow 画布；`/workflow-native` 保留实验线。
 - RAG：`/rag` 使用本地 RAG 资料库，支持文档上传、切分、向量检索和聊天引用。
 - Data X：`/datax` 支持 CSV/XLSX/Parquet 快照、语义模型、版本化指标、受限分析和指标提案审批。
-- Xpert Studio：创建草稿、发布不可变版本，并通过 Goal、Handoff、文件、记忆与 Knowledge Pipeline 组合执行。
-- Xpert App/API：把已发布版本固定部署为未列出分享 App，并提供带密钥、配额和回滚的 OpenAI 兼容接口。
+- Agent Studio：创建智能体草稿、发布不可变版本，并通过 Goal、Handoff、文件、记忆与 Knowledge Pipeline 组合执行。
+- Agent App/API：把已发布版本固定部署为未列出分享 App，并提供带密钥、配额和回滚的 OpenAI 兼容接口。
 - newAPI：`/settings` 以内嵌 iframe 接入 newAPI 控制台，后端可优先走 OpenAI 兼容网关。
 
 ## 技术栈
 
 - 前端：React + TypeScript + Tailwind CSS + Vite + React Router + ReactMarkdown + @xyflow/react。
 - 后端：FastAPI + Pydantic + httpx + ChromaDB + DuckDB + MCP Python SDK。
-- 本地部署：Docker Compose，包含 `client`、`server`、`new-api` 服务。
+- 本地部署：Docker Compose 默认包含 `client`、`server`、`new-api`、
+  `browser` 和 `sandbox`；OmniRoute 与 Office host 使用可选 profile。
 
 ## 快速启动
 
 复制环境变量示例并填写密钥：
 
 ```bash
-copy .env.example server\.env
+copy server\.env.example server\.env
 ```
 
 推荐通过 newAPI 管理模型渠道：
@@ -113,3 +115,6 @@ curl -N -X POST http://localhost:8000/api/chat ^
 项目文档入口见 [docs/README.md](docs/README.md)。原生调度的状态、门禁和回退见
 [docs/MODEL_ROUTER_NATIVE.md](docs/MODEL_ROUTER_NATIVE.md)。开发前请先阅读
 [AGENTS.md](AGENTS.md) 和 [docs/HARNESS_ENGINEERING.md](docs/HARNESS_ENGINEERING.md)。
+
+当前 `/workflow` 与 `/rag` 均为 ModelMirror 原生主路径；旧 Dify 方案已归档为
+compatibility 参考，不是启动或部署前提。

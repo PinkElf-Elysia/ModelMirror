@@ -22,7 +22,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 DEFAULT_TENANT_ID = "local"
 
 
@@ -169,12 +169,43 @@ class SQLiteRouterRepository:
             created_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, id)
         );
+        CREATE TABLE IF NOT EXISTS video_jobs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            idempotency_key_hash TEXT NOT NULL,
+            decision_id TEXT,
+            connection_id TEXT,
+            requested_model TEXT NOT NULL,
+            actual_model TEXT,
+            provider TEXT NOT NULL DEFAULT 'openrouter',
+            upstream_job_id TEXT,
+            generation_id TEXT,
+            status TEXT NOT NULL,
+            duration INTEGER,
+            resolution TEXT,
+            aspect_ratio TEXT,
+            generate_audio INTEGER NOT NULL DEFAULT 0,
+            seed INTEGER,
+            has_first_frame INTEGER NOT NULL DEFAULT 0,
+            cost_usd REAL,
+            cost_kind TEXT NOT NULL DEFAULT 'unavailable',
+            error_code TEXT,
+            output_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, idempotency_key_hash)
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
             ON router_decisions (tenant_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_compression_runs_tenant_created
             ON compression_runs (tenant_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_video_jobs_tenant_created
+            ON video_jobs (tenant_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_video_jobs_tenant_status
+            ON video_jobs (tenant_id, status);
         """
         with self._lock, self._connect() as connection:
             connection.executescript(schema)
@@ -497,6 +528,7 @@ class SQLiteRouterRepository:
             "router_candidate_stats",
             "router_decisions",
             "compression_runs",
+            "video_jobs",
         )
         with self._lock, self._connect() as connection:
             return {
@@ -508,6 +540,161 @@ class SQLiteRouterRepository:
                 )
                 for table in tables
             }
+
+    def create_video_job_if_absent(
+        self,
+        tenant_id: str,
+        *,
+        job_id: str,
+        idempotency_key_hash: str,
+        connection_id: str | None,
+        requested_model: str,
+        provider: str,
+        duration: int | None,
+        resolution: str | None,
+        aspect_ratio: str | None,
+        generate_audio: bool,
+        seed: int | None,
+        has_first_frame: bool,
+    ) -> tuple[dict[str, object], bool]:
+        """Atomically claim an idempotency key before a paid upstream call."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        values = (
+            job_id,
+            clean_tenant,
+            idempotency_key_hash,
+            connection_id,
+            requested_model,
+            provider,
+            "queued",
+            duration,
+            resolution,
+            aspect_ratio,
+            int(generate_audio),
+            seed,
+            int(has_first_frame),
+            now,
+            now,
+        )
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO video_jobs (
+                    id, tenant_id, idempotency_key_hash, connection_id,
+                    requested_model, provider, status, duration, resolution,
+                    aspect_ratio, generate_audio, seed, has_first_frame,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            created = cursor.rowcount == 1
+            row = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, idempotency_key_hash),
+            ).fetchone()
+        if row is None:
+            raise RouterRepositoryError("video job idempotency claim failed")
+        return dict(row), created
+
+    def get_video_job(
+        self, tenant_id: str, job_id: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_video_job_by_idempotency_hash(
+        self, tenant_id: str, idempotency_key_hash: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, idempotency_key_hash),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_video_jobs(
+        self, tenant_id: str, *, limit: int = 50
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        safe_limit = max(1, min(int(limit), 100))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (clean_tenant, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_video_job(
+        self,
+        tenant_id: str,
+        job_id: str,
+        **changes: object,
+    ) -> dict[str, object] | None:
+        allowed = {
+            "decision_id",
+            "actual_model",
+            "upstream_job_id",
+            "generation_id",
+            "status",
+            "cost_usd",
+            "cost_kind",
+            "error_code",
+            "output_count",
+        }
+        selected = {
+            key: value for key, value in changes.items() if key in allowed
+        }
+        if not selected:
+            return self.get_video_job(tenant_id, job_id)
+        selected["updated_at"] = utc_now()
+        assignments = ", ".join(f"{key} = ?" for key in selected)
+        values = list(selected.values())
+        values.extend((self._tenant_id(tenant_id), job_id))
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE video_jobs SET {assignments}
+                WHERE tenant_id = ? AND id = ?
+                """,
+                values,
+            )
+            if cursor.rowcount != 1:
+                return None
+        return self.get_video_job(tenant_id, job_id)
+
+    def delete_video_job(self, tenant_id: str, job_id: str) -> bool:
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM video_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (self._tenant_id(tenant_id), job_id),
+            )
+        return cursor.rowcount == 1
 
     def get_candidate_stats(
         self,

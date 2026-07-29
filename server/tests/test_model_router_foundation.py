@@ -15,6 +15,7 @@ from server.model_router.api import configure_model_router, router
 from server.model_router.catalog import NativeCatalogService
 from server.model_router.repository import (
     RouterConnectionNotFound,
+    SCHEMA_VERSION,
     SQLiteRouterRepository,
 )
 from server.model_router.schemas import (
@@ -60,7 +61,10 @@ def test_schema_and_credentials_are_tenant_scoped_and_persistent(
     assert restarted.resolve_api_key("local", created.id) == "sk-test-secret-value"
 
     with sqlite3.connect(restarted.database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            == SCHEMA_VERSION
+        )
 
 
 def test_disable_restore_and_policy_persist_without_delete(tmp_path: Path) -> None:

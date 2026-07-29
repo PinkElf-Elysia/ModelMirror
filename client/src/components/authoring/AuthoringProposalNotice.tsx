@@ -48,7 +48,7 @@ export default function AuthoringProposalNotice({
       </span>
       <span className="flex items-center gap-2">
         <Link className="font-semibold text-violet-100 hover:text-white" to="/agents/studio">
-          Xpert 提案
+          智能体提案
         </Link>
         <Link className="font-semibold text-violet-100 hover:text-white" to="/skills?tab=proposals">
           Skill 提案

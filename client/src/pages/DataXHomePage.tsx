@@ -69,7 +69,7 @@ export default function DataXHomePage() {
               Data X 本地语义层
             </div>
             <h1 className="mt-2 text-2xl font-semibold text-white">指标项目</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">导入文件快照，建立语义模型，并将经过审核的指标发布给 Xpert 使用。</p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">导入文件快照，建立语义模型，并将经过审核的指标发布给智能体使用。</p>
           </div>
           <div className="flex items-center gap-2">
             <Link className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/5" to="/studio">返回工作空间</Link>

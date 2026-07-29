@@ -160,7 +160,7 @@ function eventSummary(event: XpertRunEvent) {
 }
 
 function roleCopy(role: XpertConversationMessage["role"]) {
-  return role === "user" ? "你" : "Xpert";
+  return role === "user" ? "你" : "智能体";
 }
 
 export default function XpertChatPage() {
@@ -218,7 +218,7 @@ export default function XpertChatPage() {
         document.title = `模镜 - ${data.name}`;
       })
       .catch((caught) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "Xpert 加载失败");
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "智能体加载失败");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -717,7 +717,7 @@ export default function XpertChatPage() {
           }
           if (event.event === "client_tool_waiting") clientToolPending = true;
           if (event.event === "error") {
-            throw new Error(event.message || "Xpert 运行失败");
+            throw new Error(event.message || "智能体运行失败");
           }
         }
       };
@@ -755,7 +755,7 @@ export default function XpertChatPage() {
       window.setTimeout(() => void refreshContext(), 800);
       window.setTimeout(() => void refreshKnowledgeProposals(), 800);
     } catch (caught) {
-      const messageText = caught instanceof Error ? caught.message : "Xpert 运行失败";
+      const messageText = caught instanceof Error ? caught.message : "智能体运行失败";
       setError(messageText);
       setMessages((current) => [...current, { role: "assistant", content: `运行失败：${messageText}` }]);
     } finally {
@@ -801,7 +801,7 @@ export default function XpertChatPage() {
           }
           if (event.event === "runtime_approval_pending") approvalPending = true;
           if (event.event === "client_tool_waiting") clientToolPending = true;
-          if (event.event === "error") throw new Error(event.message || "Xpert 恢复执行失败");
+          if (event.event === "error") throw new Error(event.message || "智能体恢复执行失败");
         }
       };
 
@@ -833,7 +833,7 @@ export default function XpertChatPage() {
       if (nextRunId) await loadTrace(nextRunId, taskId);
       window.setTimeout(() => void refreshContext(), 800);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Xpert 恢复执行失败");
+      setError(caught instanceof Error ? caught.message : "智能体恢复执行失败");
     } finally {
       setRunning(false);
     }
@@ -842,7 +842,7 @@ export default function XpertChatPage() {
   function openGoalComposer() {
     const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
     const objective = lastUserMessage?.content || input.trim() || openingQuestions[0] || "";
-    setGoalTitle(objective ? `长期目标：${objective.slice(0, 36)}` : `长期目标：${xpert?.name ?? "Xpert"}`);
+    setGoalTitle(objective ? `长期目标：${objective.slice(0, 36)}` : `长期目标：${xpert?.name ?? "智能体"}`);
     setGoalObjective(objective);
     setPlannerXpertId(xpert?.id ?? publishedXperts[0]?.id ?? "");
     setShowGoalComposer(true);
@@ -882,7 +882,7 @@ export default function XpertChatPage() {
   if (!xpert) {
     return (
       <PageContainer activeResource="agents">
-        <div className="rounded-lg border border-rose-300/25 bg-rose-300/10 p-5 text-sm text-rose-100">{error || "Xpert 不存在。"}</div>
+        <div className="rounded-lg border border-rose-300/25 bg-rose-300/10 p-5 text-sm text-rose-100">{error || "智能体不存在。"}</div>
       </PageContainer>
     );
   }
@@ -965,7 +965,7 @@ export default function XpertChatPage() {
               </div>
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <label className="text-xs font-semibold text-slate-400">标题<input className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-ink-950/50 px-3 text-sm text-white outline-none focus:border-cyan-300/40" onChange={(event) => setGoalTitle(event.target.value)} value={goalTitle} /></label>
-                <label className="text-xs font-semibold text-slate-400">Planner Xpert<select className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-ink-950/50 px-3 text-sm text-white outline-none" onChange={(event) => setPlannerXpertId(event.target.value)} value={plannerXpertId}>{publishedXperts.map((item) => <option className="bg-ink-950" key={item.id} value={item.id}>{item.name} / v{item.published_version}</option>)}</select></label>
+                <label className="text-xs font-semibold text-slate-400">规划智能体<select className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-ink-950/50 px-3 text-sm text-white outline-none" onChange={(event) => setPlannerXpertId(event.target.value)} value={plannerXpertId}>{publishedXperts.map((item) => <option className="bg-ink-950" key={item.id} value={item.id}>{item.name} / v{item.published_version}</option>)}</select></label>
               </div>
               <label className="mt-3 block text-xs font-semibold text-slate-400">目标<textarea className="mt-1 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-ink-950/50 p-3 text-sm leading-6 text-white outline-none focus:border-cyan-300/40" onChange={(event) => setGoalObjective(event.target.value)} value={goalObjective} /></label>
               <div className="mt-3 flex justify-end"><button className="h-9 rounded-lg bg-cyan-300 px-4 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-50" disabled={creatingGoal || !goalTitle.trim() || !goalObjective.trim() || !plannerXpertId} onClick={() => void createLongGoal()} type="button">{creatingGoal ? "创建中..." : "创建并规划"}</button></div>
@@ -977,7 +977,7 @@ export default function XpertChatPage() {
               <div className="mx-auto max-w-2xl py-10 text-center">
                 <h2 className="text-xl font-semibold text-white">开始与 {xpert.name} 协作</h2>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-400">
-                  {openingMessage || xpert.description || "这个 Xpert 将运行已发布的工作流版本。"}
+                  {openingMessage || xpert.description || "这个智能体将运行已发布的工作流版本。"}
                 </p>
                 {openingQuestions.length > 0 ? (
                   <div className="mt-6 grid gap-2 sm:grid-cols-2">
@@ -1049,7 +1049,7 @@ export default function XpertChatPage() {
                   </article>
                 ))}
                 {running ? (
-                  <div className="max-w-[86%] rounded-lg border border-white/10 bg-white/[0.04] p-3 text-sm text-slate-400">Xpert 正在执行已发布工作流...</div>
+                  <div className="max-w-[86%] rounded-lg border border-white/10 bg-white/[0.04] p-3 text-sm text-slate-400">智能体正在执行已发布工作流...</div>
                 ) : null}
               </div>
             )}
@@ -1068,7 +1068,7 @@ export default function XpertChatPage() {
                   compact
                   onResolved={() => resumeApprovalExecution()}
                   taskId={taskId}
-                  title="Xpert 等待审批"
+                  title="智能体等待审批"
                 />
               </div>
             ) : null}
@@ -1257,7 +1257,7 @@ export default function XpertChatPage() {
                   <span className="text-[10px] text-slate-500">{knowledgeProposals.length}</span>
                 </div>
                 <p className="mt-1 text-[10px] leading-4 text-slate-500">
-                  Xpert 只能提出写入，正式审批统一在对应资料库 Inbox 完成。
+                  智能体只能提出写入，正式审批统一在对应资料库 Inbox 完成。
                 </p>
                 <div className="mt-2 space-y-2">
                   {knowledgeProposals.length ? knowledgeProposals.slice(0, 5).map((proposal) => (

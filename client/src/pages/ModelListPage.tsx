@@ -7,7 +7,10 @@ import {
   defaultFilterState,
   type ModelFilterState,
 } from "../data/filterState";
-import { models } from "../data/models";
+import {
+  models,
+  type ModelOperation,
+} from "../data/models";
 import { recruitmentTheme } from "../theme/recruitmentTheme";
 import {
   deriveProviderFromModel,
@@ -60,14 +63,65 @@ function countActiveFilters(filters: ModelFilterState) {
   return count;
 }
 
+interface VideoModelProfile {
+  model_id: string;
+  operation: "analyze_video" | "generate_video";
+}
+
+interface VideoCatalogPayload {
+  status: "online" | "stale" | "offline" | "disabled";
+  stale: boolean;
+  profiles: VideoModelProfile[];
+}
+
 export default function ModelListPage() {
   const [filters, setFilters] =
     useState<ModelFilterState>(createDefaultFilters);
   const [searchTerm, setSearchTerm] = useState("");
+  const [videoCatalog, setVideoCatalog] =
+    useState<VideoCatalogPayload | null>(null);
 
   useEffect(() => {
     document.title = "模镜 - AI 牛马招聘会";
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void fetch("/api/multimodal/video/models", {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("video catalog unavailable");
+        }
+        return (await response.json()) as VideoCatalogPayload;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) {
+          setVideoCatalog(payload);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setVideoCatalog(null);
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const confirmedVideoOperations = useMemo(() => {
+    const result = new Map<string, ModelOperation[]>();
+    for (const profile of videoCatalog?.profiles ?? []) {
+      const current = result.get(profile.model_id) ?? [];
+      if (!current.includes(profile.operation)) {
+        current.push(profile.operation);
+      }
+      result.set(profile.model_id, current);
+    }
+    return result;
+  }, [videoCatalog]);
 
   const seriesOptions = useMemo(
     () =>
@@ -169,7 +223,15 @@ export default function ModelListPage() {
   const activeFilterCount =
     countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
   const readyFilteredCount = filteredModels.filter(
-    (model) => model.interaction_status === "ready",
+    (model) =>
+      model.interaction_status === "ready" ||
+      confirmedVideoOperations
+        .get(model.id)
+        ?.some(
+          (operation) =>
+            operation === "analyze_video" ||
+            operation === "generate_video",
+        ),
   ).length;
   const featuredModels = filteredModels.slice(0, 2);
   const galleryModels = filteredModels.slice(featuredModels.length);
@@ -303,7 +365,13 @@ export default function ModelListPage() {
                     className="animate-soft-rise"
                     key={`featured-${model.id}`}
                   >
-                    <ModelCard model={model} />
+                    <ModelCard
+                      confirmedVideoOperations={
+                        confirmedVideoOperations.get(model.id)
+                      }
+                      model={model}
+                      videoCatalogStale={videoCatalog?.stale ?? false}
+                    />
                   </div>
                 ))
               : null}
@@ -312,7 +380,14 @@ export default function ModelListPage() {
           {filteredModels.length > 0 ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {galleryModels.map((model) => (
-                <ModelCard key={model.id} model={model} />
+                <ModelCard
+                  confirmedVideoOperations={
+                    confirmedVideoOperations.get(model.id)
+                  }
+                  key={model.id}
+                  model={model}
+                  videoCatalogStale={videoCatalog?.stale ?? false}
+                />
               ))}
             </div>
           ) : (

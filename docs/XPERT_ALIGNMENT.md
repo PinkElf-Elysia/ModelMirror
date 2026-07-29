@@ -1,5 +1,9 @@
 # Xpert 对齐总纲
 
+> **状态：冻结后的历史增量记录。** 当前维护边界以
+> [XPERT_FREEZE.md](./XPERT_FREEZE.md) 为准。本文保留 `Xpert` 内部契约名和
+> 当时用语，但用户界面统一使用“智能体”“Agent Studio”和“Agent App”。
+
 ## 2026-07-25 当前路线：Xpert 正式冻结
 
 Xpert 功能扩张已在
@@ -298,7 +302,10 @@ classic `/workflow` 节点库元数据已从纯前端 registry 推进为后端�
 
 ## 2026-07-09 增量：XPERT-WORKSPACE-HUB-02
 
-`/studio` 已从只读资源总览推进到 Xpert 式工作空间资源 Hub 第二版：顶部新增“快速创建 / 连接”入口，覆盖创建工作流、生成工作流草稿、管理知识库、连接 MCP、安装 Skill 和查看 Runtime 运维；资源卡片补充主操作、次操作、标签与计划状态；搜索、分类和标签过滤可以同时生效；`API 工具` 与 `数据库` 作为待接入资源卡片展示，不会跳转到不存在页面。运行摘要基于现有 `/api/runtime/runs?limit=8` 做轻量统计，并继续指向 `/runtime` 查看详情。
+该 2026-07-09 增量把 `/studio` 从只读资源总览推进到工作空间 Hub 第二版，
+但当时 `API 工具` 与 `数据库` 仍是待接入卡片。截至 2026-07-28，API 工具已
+指向 Toolset，数据库能力由 Data X 表达，用户标签也已移除“Xpert 对齐”旧文案；
+当前状态以 `StudioHomePage` 和 [GLOSSARY.md](./GLOSSARY.md) 为准。
 
 本轮仍是前端只读聚合视图，不新增后端聚合 API，不引入 Workspace 权限、持久化资源表或资源创建编排。任一资源 API 失败时只影响对应卡片，工作空间页面整体保持可打开。
 
@@ -467,7 +474,11 @@ Published Xperts now have a durable conversation context layer. Xpert Chat can c
 
 The `/rag` Knowledge Pipeline has moved from a read-only four-stage view to a saved draft config plus preflight observation flow. `GET /api/rag/pipeline/draft` now returns draft metadata, version, `updated_at`, `editable`, and safe per-stage config. `PATCH /api/rag/pipeline/draft/{kb_id}` persists safe draft config. `POST /api/rag/pipeline/draft/{kb_id}/preflight` returns stage checks, warnings, and document/artifact/chunk counts.
 
-Boundary: draft config is stored in RAG metadata only and does not affect upload, parsing, splitting, embedding, vector storage, retrieval, chat RAG, or `knowledge_citation`. Image understanding remains planned/disabled. Responses must not expose local file paths, full chunk text, embeddings, prompts, or secrets. Next route: `XPERT-WORKSPACE-RESOURCE-MODEL-01`.
+Historical boundary at that increment: draft config did not affect indexing and image
+understanding remained planned/disabled. The vision stage became optional and executable
+on 2026-07-15; current behavior is documented in
+[RAG_INTEGRATION.md](./RAG_INTEGRATION.md). Responses still must not expose local paths,
+full chunk text, embeddings, prompts, or secrets.
 
 ## 2026-07-10 增量：XPERT-CONVERSATION-GOAL-01
 

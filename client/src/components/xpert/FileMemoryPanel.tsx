@@ -214,7 +214,7 @@ export default function FileMemoryPanel({
         <div>
           <h3 className="text-xs font-semibold text-white">类型化文件记忆</h3>
           <p className="mt-1 text-[10px] leading-4 text-slate-500">
-            长期记忆按 Xpert 隔离；自动整理只生成候选，批准后才写入。
+            长期记忆按智能体隔离；自动整理只生成候选，批准后才写入。
           </p>
         </div>
         <button

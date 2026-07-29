@@ -80,7 +80,7 @@ export default function XpertStudioPage() {
         document.title = `模镜 - ${data.name} Studio`;
       })
       .catch((caught) => {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "Xpert 加载失败");
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "智能体加载失败");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -198,7 +198,7 @@ export default function XpertStudioPage() {
         : "archived";
       const updated = await updateXpert(xpert.id, { status: nextStatus });
       setXpert(updated);
-      setNotice(nextStatus === "archived" ? "Xpert 已归档" : "Xpert 已恢复");
+      setNotice(nextStatus === "archived" ? "智能体已归档" : "智能体已恢复");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "状态更新失败");
     } finally {
@@ -218,7 +218,7 @@ export default function XpertStudioPage() {
     return (
       <PageContainer activeResource="agents">
         <div className="rounded-lg border border-rose-300/25 bg-rose-300/10 p-5 text-sm text-rose-100">
-          {error || "Xpert 不存在或已不可用。"}
+          {error || "智能体不存在或已不可用。"}
         </div>
       </PageContainer>
     );
@@ -230,7 +230,7 @@ export default function XpertStudioPage() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Link className="font-semibold text-hire-100 hover:text-hire-50" to="/agents/studio">我的 Xpert</Link>
+              <Link className="font-semibold text-hire-100 hover:text-hire-50" to="/agents/studio">我的智能体</Link>
               <span className="text-slate-600">/</span>
               <span className="text-slate-400">{xpert.slug}</span>
               <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-slate-400">revision {xpert.draft_revision}</span>
@@ -248,7 +248,7 @@ export default function XpertStudioPage() {
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(220px,0.7fr)_minmax(320px,1.3fr)]">
               <input className="h-11 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-lg font-semibold text-white outline-none focus:border-hire-300/60" maxLength={120} onChange={(event) => setName(event.target.value)} value={name} />
-              <input className="h-11 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-sm text-slate-200 outline-none focus:border-hire-300/60" maxLength={2000} onChange={(event) => setDescription(event.target.value)} placeholder="Xpert 说明" value={description} />
+              <input className="h-11 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-sm text-slate-200 outline-none focus:border-hire-300/60" maxLength={2000} onChange={(event) => setDescription(event.target.value)} placeholder="智能体说明" value={description} />
             </div>
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
               <input className="h-10 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs text-slate-300 outline-none focus:border-hire-300/60" onChange={(event) => setTags(event.target.value)} placeholder="标签，以逗号分隔" value={tags} />
@@ -266,7 +266,7 @@ export default function XpertStudioPage() {
                   value={maxConcurrency}
                 />
                 <span className="mt-1 block font-normal leading-5 text-slate-500">
-                  作用于整个 Xpert 执行树中的模型、工具与子 Xpert。
+                  作用于整个智能体执行树中的模型、工具与子智能体。
                 </span>
               </label>
               <label className="text-xs font-semibold text-slate-300">
@@ -329,7 +329,7 @@ export default function XpertStudioPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-white">Prompt Command</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-400">绑定已发布 Profile；发布 Xpert 时会将 latest 固定为具体版本。</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">绑定已发布 Profile；发布智能体时会将 latest 固定为具体版本。</p>
           </div>
           <Link className="text-xs font-semibold text-cyan-200 hover:text-cyan-100" to="/prompts">管理 Prompt Profile</Link>
         </div>
@@ -454,7 +454,7 @@ export default function XpertStudioPage() {
           void getXpert(xpert.id).then(setXpert);
         }}
         targetId={xpert.id}
-        title="关联 Xpert 提案"
+        title="关联智能体提案"
       />
 
       <XpertAppDeploymentPanel xpert={xpert} />
@@ -463,7 +463,7 @@ export default function XpertStudioPage() {
         initialDefinition={toWorkflowDefinition(xpert)}
         key={`${xpert.id}-${xpert.draft_revision}`}
         onSave={saveWorkflow}
-        saveLabel="保存 Xpert 草稿"
+        saveLabel="保存智能体草稿"
         workflowId={xpert.draft.workflow.id}
       />
     </PageContainer>

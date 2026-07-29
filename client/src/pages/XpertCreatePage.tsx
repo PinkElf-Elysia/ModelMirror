@@ -18,7 +18,7 @@ export default function XpertCreatePage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    document.title = "模镜 - 创建 Xpert";
+    document.title = "模镜 - 创建智能体";
   }, []);
 
   async function submit(event: FormEvent) {
@@ -36,7 +36,7 @@ export default function XpertCreatePage() {
       });
       navigate(`/agents/studio/${created.id}`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Xpert 创建失败");
+      setError(caught instanceof Error ? caught.message : "智能体创建失败");
     } finally {
       setSubmitting(false);
     }
@@ -46,8 +46,8 @@ export default function XpertCreatePage() {
     <PageContainer activeResource="agents" maxWidthClassName="max-w-[1200px]">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold text-hire-100">Xpert Studio</p>
-          <h1 className="mt-2 text-2xl font-semibold text-white">创建 Xpert</h1>
+          <p className="text-xs font-semibold text-hire-100">Agent Studio</p>
+          <h1 className="mt-2 text-2xl font-semibold text-white">创建智能体</h1>
         </div>
         <Link className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-300" to="/agents/studio">
           返回列表
@@ -66,7 +66,7 @@ export default function XpertCreatePage() {
           </label>
           <label className="block">
             <span className="text-xs font-semibold text-slate-300">说明</span>
-            <textarea className="mt-2 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm leading-6 text-white outline-none focus:border-hire-300/60" maxLength={2000} onChange={(event) => setDescription(event.target.value)} placeholder="说明这个 Xpert 解决什么任务、适合谁使用。" value={description} />
+            <textarea className="mt-2 min-h-28 w-full resize-y rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm leading-6 text-white outline-none focus:border-hire-300/60" maxLength={2000} onChange={(event) => setDescription(event.target.value)} placeholder="说明这个智能体解决什么任务、适合谁使用。" value={description} />
           </label>
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block">

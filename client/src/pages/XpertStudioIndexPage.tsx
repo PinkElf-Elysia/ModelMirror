@@ -121,7 +121,7 @@ export default function XpertStudioIndexPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    document.title = "模镜 - 我的 Xpert";
+    document.title = "模镜 - Agent Studio";
     let cancelled = false;
     setLoading(true);
     listXperts({ limit: 200 })
@@ -133,7 +133,7 @@ export default function XpertStudioIndexPage() {
       })
       .catch((caught) => {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : "Xpert 列表加载失败");
+          setError(caught instanceof Error ? caught.message : "智能体列表加载失败");
         }
       })
       .finally(() => {
@@ -165,13 +165,13 @@ export default function XpertStudioIndexPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1 text-xs font-semibold text-hire-100">
-                Xpert Studio Beta
+                Agent Studio Beta
               </span>
               <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-400">
                 草稿与发布版本隔离
               </span>
             </div>
-            <h1 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">我的 Xpert</h1>
+            <h1 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">我的智能体</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               用同一套工作流内核配置模型、Toolset、知识和 Handoff，发布后获得稳定的版本化聊天入口。
             </p>
@@ -180,7 +180,7 @@ export default function XpertStudioIndexPage() {
             className="w-fit rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200"
             to="/agents/studio/new"
           >
-            + 创建 Xpert
+            + 创建智能体
           </Link>
         </div>
       </header>
@@ -219,7 +219,7 @@ export default function XpertStudioIndexPage() {
         onApplied={() => {
           void listXperts({ limit: 200 }).then((result) => setItems(result.items));
         }}
-        title="Xpert 自编写提案"
+        title="智能体自编写提案"
       />
 
       {loading ? (
@@ -236,10 +236,10 @@ export default function XpertStudioIndexPage() {
         </div>
       ) : (
         <div className="rounded-lg border border-white/10 bg-white/[0.04] p-10 text-center">
-          <p className="text-sm font-semibold text-white">没有匹配的 Xpert</p>
+          <p className="text-sm font-semibold text-white">没有匹配的智能体</p>
           <p className="mt-2 text-sm text-slate-400">创建一个默认工作流，或调整当前搜索和状态筛选。</p>
           <Link className="mt-4 inline-flex rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950" to="/agents/studio/new">
-            创建第一个 Xpert
+            创建第一个智能体
           </Link>
         </div>
       )}

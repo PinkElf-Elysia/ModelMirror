@@ -1,146 +1,111 @@
 # 后端架构与 API 文档
 
-最后更新日期：2026-06-17
+最后更新日期：2026-07-28
 维护人：模镜团队
 
 ## 技术栈
 
-- Python 3.11+
-- FastAPI
-- Pydantic
-- httpx
-- ChromaDB
-- MCP Python SDK
-- Uvicorn
+- Python 3.11+；Docker 镜像使用 Python 3.12。
+- FastAPI、Pydantic、httpx、Uvicorn。
+- SQLite、ChromaDB、SQLite FTS5、DuckDB。
+- MCP Python SDK。
 
-## 目录结构
+## 代码边界
 
 ```text
 server/
-├── main.py                 # FastAPI 应用、聊天、工作流、MCP、Skill、RAG 聚合入口
-├── api/                    # 独立路由
-├── data/                   # 后端静态数据
-├── mcp/                    # MCP stdio 客户端管理器
-├── rag/                    # 本地 RAG 服务
-├── registry/               # 工具注册表
-├── skills/                 # Skill 管理
-├── workflow_native/        # workflow-native schema 和 validate
-└── requirements.txt
+├── main.py              # 应用装配和 legacy 入口；不要继续堆积领域算法
+├── api/                 # 独立 FastAPI router
+├── model_router/        # 连接、目录、策略、熔断、预算、决策与 SQLite repository
+├── context_engine/      # 上下文估算、压缩、保真与回退
+├── multimodal/          # STT、TTS、视频理解、视频目录与异步任务
+├── rag/                 # 本地知识库、流水线、索引与评测
+├── workflow_native/     # classic/shared schema、validate 与实验线
+├── xperts/              # Agent Studio 内部存储与发布契约
+├── xpert_runtime/       # Goal、Handoff、Middleware、审计与恢复
+├── mcp/                 # MCP stdio 客户端
+├── toolsets/            # Toolset 与凭据
+├── datax/               # Data X / DuckDB
+└── tests/               # pytest
 ```
 
-## 环境变量
+内部包名 `xperts` / `xpert_runtime` 为持久化兼容契约；用户界面显示“智能体”。
 
-| 变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `LLM_GATEWAY_URL` | 推荐 | newAPI 或其他 OpenAI 兼容网关地址，例如 `http://localhost:3000/v1/chat/completions`。 |
-| `LLM_GATEWAY_KEY` | 推荐 | newAPI 网关统一 API Key。 |
-| `OPENROUTER_API_KEY` | 回退 | 未配置 newAPI 时直接访问 OpenRouter。 |
-| `ALLOWED_ORIGINS` | 否 | CORS 白名单。 |
-| `OPENROUTER_TEXT_FALLBACK_MODEL` | 否 | 文本回退模型。 |
-| `OPENROUTER_VISION_FALLBACK_MODEL` | 否 | 多模态回退模型。 |
-| `RAG_STORAGE_DIR` | 否 | RAG 存储目录。 |
-| `RAG_UPLOAD_DIR` | 否 | RAG 上传目录。 |
+## 模型服务优先级
 
-优先级：
+1. `LLM_GATEWAY_URL` + `LLM_GATEWAY_KEY`：newAPI 或其他 OpenAI-compatible。
+2. `OPENROUTER_API_KEY`：兼容回退与首期多模态。
+3. `/chat/auto` 再根据 `MODEL_ROUTER_ENGINE` 进入 sidecar、shadow、
+   native canary 或 native。
 
-1. `LLM_GATEWAY_URL` + `LLM_GATEWAY_KEY`
-2. `OPENROUTER_API_KEY`
-3. 都未配置时，聊天接口返回网关未配置错误。
+默认网关与 auto 调度是两条独立稳定路径。auto 失败不能静默改走普通网关。
 
-## API
+## 关键环境变量
 
-### GET `/api/health`
+| 变量 | 说明 |
+| --- | --- |
+| `LLM_GATEWAY_URL` / `LLM_GATEWAY_KEY` | 默认 OpenAI-compatible 服务。 |
+| `OPENROUTER_API_KEY` | OpenRouter 回退及多模态能力。 |
+| `MODEL_ROUTER_ENGINE` | `sidecar`、`shadow`、`native_canary` 或 `native` 运维覆盖。 |
+| `MODEL_ROUTER_CANARY_PERCENT` | 稳定会话灰度百分比。 |
+| `MODEL_ROUTER_TENANT_ID` | 当前为 `local`。 |
+| `OMNIROUTE_ENABLED` / `OMNIROUTE_API_KEY` | 可选侧车兼容。 |
+| `MULTIMODAL_VIDEO_ANALYSIS_ENABLED` | 视频理解入口，默认关闭。 |
+| `MULTIMODAL_VIDEO_GENERATION_ENABLED` | 视频生成入口，默认关闭。 |
+| `RAG_STORAGE_DIR` / `RAG_UPLOAD_DIR` | RAG 持久化位置。 |
+| `CHROMA_DB_PATH` | Chroma 目录。 |
+| `XPERT_STORAGE_DIR` / `AGENT_TASK_STORAGE_DIR` | Agent Studio 与 Runtime 兼容存储路径。 |
 
-健康检查。
+完整示例以 `server/.env.example` 为准。不得把服务端变量复制到 `VITE_*`。
 
-```bash
-curl http://localhost:8000/api/health
-```
+## 公共 API 分组
 
-响应：
+### 健康与目录
 
-```json
-{"status":"ok"}
-```
+- `GET /api/health`
+- `GET /api/models/catalog`
+- `GET /api/models/router-status`
 
-### POST `/api/chat`
+### 聊天与智能调度
 
-OpenAI 兼容流式聊天代理。请求体使用 `model_id` 和 `messages`，响应为 `text/event-stream`。
+- `POST /api/chat`：OpenAI-compatible SSE；支持文本、图片、route receipt 和
+  compression receipt。
+- 默认聊天继续使用网关路径；`gateway="auto"` 由路由 engine 决定执行路径。
+- 空流、零 Token、只有 `[DONE]` 或上游正文中断必须计为失败，不能生成成功回执。
 
-文本请求：
+### 多模态
 
-```bash
-curl -N -X POST http://localhost:8000/api/chat ^
-  -H "Content-Type: application/json" ^
-  -d "{\"model_id\":\"openai/gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}],\"temperature\":0.7,\"max_tokens\":1024}"
-```
+- `POST /api/multimodal/transcriptions`
+- `POST /api/multimodal/speech`
+- `GET /api/multimodal/video/models`
+- `POST /api/multimodal/video/analysis`
+- `/api/multimodal/video/jobs*`：提交、列表、刷新、内容代理和删除本地记录。
 
-多模态输入：
+STT/TTS 与视频完整契约见
+[MULTIMODAL_FORMAT_AUDIT.md](./MULTIMODAL_FORMAT_AUDIT.md)。视频生成不复用
+`/api/chat` SSE。
 
-```json
-{
-  "role": "user",
-  "content": [
-    {"type": "text", "text": "描述这张图"},
-    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
-  ]
-}
-```
+### 工作流、RAG 与 Agent
 
-图片生成输出兼容：
+- `/api/workflow/run`：classic 工作流执行。
+- `/api/workflow-native/validate`：实验图静态校验，不调用模型或外部服务。
+- `/api/rag/*`：本地知识库、流水线、检索、评测和 Inbox。
+- `/api/xperts/*`、`/api/agent-*`、`/api/runtime/*`：内部兼容命名的
+  Agent Studio 和 Runtime 契约。
 
-- 上游可能返回 `choices[0].delta.content` 字符串。
-- 上游可能返回 `choices[0].delta.content` 多模态 parts。
-- 上游可能返回 `choices[0].delta.images` 或 `choices[0].message.images`。
-- 图片 part 中的 `image_url.url` 可能是 `https://...`，也可能是 `data:image/...`。
+### Legacy Dify compatibility
 
-后端内部流式 helper `sse_delta_text(event_text: str) -> list[str]` 会把多模态图片 part 规范化为 `![图片](URL)` 文本片段，供 workflow/Fusion/team 等复用。`/api/chat` 主代理保持 OpenAI SSE 兼容转发，前端 `fetchChatStream` 会做同样的图片 part 解析。
+`server/api/dify_proxy.py` 仍挂载 `/api/dify/*`，但没有主前端路由调用，也不是
+Compose 健康依赖。它只用于显式配置的历史兼容，不得写成 Workflow/RAG 主路径。
 
-图片生成模型冒烟：
+## SSE 约束
 
-```bash
-curl -N -X POST http://localhost:8000/api/chat ^
-  -H "Content-Type: application/json" ^
-  -d "{\"model_id\":\"recraft/recraft-v3\",\"messages\":[{\"role\":\"user\",\"content\":\"画一只猫\"}]}"
-```
-
-预期：SSE 中可以观察到 `image_url` 或 `data:image/...`，前端显示图片卡片。
-
-### POST `/api/workflow/run`
-
-经典自研工作流执行接口，供 `/workflow` 使用。
-
-```bash
-curl -N -X POST http://localhost:8000/api/workflow/run ^
-  -H "Content-Type: application/json" ^
-  -d "{\"workflow\":{\"id\":\"draft\",\"title\":\"测试\",\"nodes\":[{\"id\":\"input\",\"type\":\"input\",\"data\":{\"variableName\":\"user_input\"}},{\"id\":\"output\",\"type\":\"output\",\"data\":{\"variableName\":\"user_input\"}}],\"edges\":[{\"id\":\"e1\",\"source\":\"input\",\"target\":\"output\"}]},\"inputs\":{\"user_input\":\"hello\"}}"
-```
-
-### GET `/api/workflow-native/templates`
-
-返回 workflow-native 实验模板。
-
-```bash
-curl http://localhost:8000/api/workflow-native/templates
-```
-
-### POST `/api/workflow-native/validate`
-
-静态校验 workflow-native 图结构，不执行模型、RAG、MCP 或外部 HTTP。
-
-```bash
-curl -X POST http://localhost:8000/api/workflow-native/validate ^
-  -H "Content-Type: application/json" ^
-  -d "{\"workflow\":{\"id\":\"draft\",\"title\":\"t\",\"nodes\":[],\"edges\":[]}}"
-```
-
-### MCP / RAG / Skill
-
-详细说明见：
-
-- [MCP_INTEGRATION.md](./MCP_INTEGRATION.md)
-- [RAG_INTEGRATION.md](./RAG_INTEGRATION.md)
-- [SKILL_INTEGRATION.md](./SKILL_INTEGRATION.md)
+- 保持 OpenAI `choices[0].delta` / `choices[0].message` 与 `[DONE]` 兼容。
+- 图片可能出现在 content part、`delta.images`、`message.images` 或 data URL。
+- 只有明确契约的 ModelMirror 事件可以新增；route receipt 必须在正文结束后
+  仅发送一次。
+- 客户端取消后应关闭上游响应；未输出正文前才允许路由切换候选。
+- 错误响应不得透传密钥、内部 URL、Prompt、媒体正文或上游完整错误体。
 
 ## 验证
 
@@ -148,3 +113,6 @@ curl -X POST http://localhost:8000/api/workflow-native/validate ^
 python -m py_compile server/main.py
 python -m pytest server/tests/ -q
 ```
+
+高风险聊天、多模态、RAG 或工作流变更还必须运行对应专项测试、前端构建和
+Compose 重建。

@@ -1,6 +1,6 @@
 # 前端架构与开发指南
 
-最后更新日期：2026-06-17
+最后更新日期：2026-07-28
 维护人：模镜团队
 
 ## 技术栈
@@ -21,6 +21,7 @@ client/
 │   ├── App.tsx                  # 路由配置
 │   ├── main.tsx                 # React 入口
 │   ├── components/              # 通用组件
+│   ├── components/xpert/        # Agent Studio 内部兼容组件
 │   ├── components/workflow/     # 经典自研工作流画布
 │   ├── context/                 # React Context
 │   ├── data/                    # 静态资源数据
@@ -38,19 +39,48 @@ client/
 | --- | --- | --- |
 | `/` | `Navigate` | 重定向到 `/models`。 |
 | `/models` | `ModelListPage` | 模型招聘会。 |
+| `/studio` | `StudioHomePage` | 组织工作空间与运行总览。 |
 | `/agents` | `AgentsPage` | AI 人才市场。 |
+| `/agents/meta-agent` | `MetaAgentPage` | 元智能体任务工作台。 |
+| `/agents/studio` | `XpertStudioIndexPage` | Agent Studio 列表。 |
+| `/agents/studio/:xpertId` | `XpertStudioPage` | 智能体草稿、版本与发布。 |
+| `/agents/xpert/:xpertId/chat` | `XpertChatPage` | 已发布智能体运行页。 |
+| `/agents/goals` | `ConversationGoalsPage` | 长期 Goal。 |
+| `/agents/automations` | `AutomationsPage` | 智能体自动化。 |
 | `/expert-team` | `ExpertTeamPage` | 专家团。 |
 | `/mcps` | `McpBrowserPage` | MCP 工具。 |
+| `/toolsets` | `ToolsetsPage` | Toolset 管理。 |
 | `/skills` | `SkillBrowserPage` | Skill 技能。 |
-| `/prompts` | `ComingSoonPage` | 提示词市场占位。 |
-| `/chat/:modelId` | `ChatPage` | 面试间。 |
+| `/prompts` | `PromptProfilesPage` | 提示词 Profile 和版本。 |
+| `/plugins` | `PluginsPage` | 声明式 Plugin。 |
+| `/chat/:modelId` | `ChatPage` | 普通聊天或按 operation 自适应多模态工作区。 |
 | `/workflow` | `WorkflowClassicPage` | 经典自研 React Flow 工作流。 |
 | `/workflow/:id` | `WorkflowClassicPage` | 工作流草稿入口。 |
 | `/workflow/classic` | `WorkflowClassicPage` | 兼容旧入口。 |
 | `/workflow-native` | `WorkflowNativePage` | workflow-native 实验入口。 |
 | `/rag` | `RagPage` | 本地 RAG 资料库。 |
+| `/rag/:kbId/pipeline` | `KnowledgePipelineCanvasPage` | 知识流水线。 |
+| `/rag/:kbId/evaluation` | `KnowledgeEvaluationPage` | 检索评测。 |
+| `/datax` | `DataXHomePage` | Data X 项目。 |
+| `/runtime` | `RuntimeOpsPage` | 运行诊断。 |
 | `/settings` | `SystemSettingsPage` | newAPI 控制台 iframe。 |
-| `/studio` | `StudioHomePage` | 工作台总览。 |
+
+`Xpert*` 仍是内部组件、类型和兼容 API 名称。面向用户的标题、按钮和帮助文案
+统一使用“智能体”“Agent Studio”“Agent App”，不要仅为改名破坏已持久化 ID
+或路由。
+
+## ChatPage 自适应入口
+
+`ChatPage` 先根据查询参数和模型 `operations` 选择工作区：
+
+- `chat`：现有文本和图片聊天。
+- `transcribe`：音频文件转录。
+- `synthesize_speech`：文字生成 MP3。
+- `analyze_video`：本地视频或 HTTPS URL 一次性分析。
+- `generate_video`：独立异步视频任务，不进入 Chat SSE。
+
+模型被目录收录或 `invocable=true` 不代表当前 UI 已适配。CTA 必须同时检查
+operation 和 `interaction_status`。
 
 ## 聊天图片输出链路
 
@@ -65,7 +95,7 @@ client/
 开发约束：
 
 - 不改变 `onDelta(text: string)` 签名。
-- 不破坏纯文本模型的流式追加。
+- 纯文本流使用节流/合帧更新，`message_end` 必须立即 flush，不能截断尾部。
 - 不破坏用户上传图片的 `message.images` 展示。
 - `data:image/...` 必须可显示为图片卡片，不能只留在 Markdown 文本里。
 - Lightbox 统一处理上传图、模型输出 URL、data URL 和 SVG。
@@ -84,6 +114,7 @@ npm.cmd run build
 3. Assistant 消息中应出现至少一张图片卡片。
 4. 点击图片应进入 Lightbox。
 5. 纯文本模型仍应逐字/逐段流式显示文本。
+6. 从 AI 人才市场进入专家面试后，可以通过“退出专家模式”恢复普通模型聊天。
 
 ## 开发规范
 

@@ -228,7 +228,7 @@ export default function ConversationGoalsPage() {
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-hire-100">
             <span aria-hidden="true" className="text-xs font-bold">GL</span>
-            Xpert 长期任务
+            智能体长期任务
           </div>
           <h1 className="mt-2 text-2xl font-semibold text-white">Goal 工作台</h1>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
@@ -274,7 +274,7 @@ export default function ConversationGoalsPage() {
             ) : goals.length === 0 ? (
               <div className="p-8 text-center text-sm text-slate-400">
                 <span aria-hidden="true" className="mx-auto mb-3 block text-lg font-bold text-slate-500">GL</span>
-                暂无长期 Goal。可从已发布 Xpert 的聊天页创建。
+                暂无长期 Goal。可从已发布智能体的聊天页创建。
               </div>
             ) : goals.map((item) => (
               <button
@@ -372,7 +372,7 @@ export default function ConversationGoalsPage() {
               </div>
 
               {goal.status === "planning" ? (
-                <section className="p-8 text-center"><span aria-hidden="true" className="mx-auto block animate-pulse text-xl text-cyan-200">•••</span><h3 className="mt-3 text-base font-semibold text-white">Planner Xpert 正在生成计划</h3><p className="mt-2 text-sm text-slate-400">计划生成后会进入人工审核，不会自动开始执行。</p></section>
+                <section className="p-8 text-center"><span aria-hidden="true" className="mx-auto block animate-pulse text-xl text-cyan-200">•••</span><h3 className="mt-3 text-base font-semibold text-white">规划智能体正在生成计划</h3><p className="mt-2 text-sm text-slate-400">计划生成后会进入人工审核，不会自动开始执行。</p></section>
               ) : goal.status === "awaiting_review" ? (
                 <section className="p-4 sm:p-5">
                   <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -385,7 +385,7 @@ export default function ConversationGoalsPage() {
                         <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.07] text-xs font-semibold text-slate-200">{index + 1}</span><label className="flex items-center gap-2 text-xs text-slate-400"><input checked={draftFinalStepId === step.step_id} name="final-step" onChange={() => setDraftFinalStepId(step.step_id)} type="radio" />最终交付</label></div><button aria-label="删除步骤" className="rounded-md p-1.5 text-base text-slate-500 hover:bg-rose-300/10 hover:text-rose-100" onClick={() => setDraftSteps((current) => current.filter((item) => item.step_id !== step.step_id).map((item) => ({ ...item, depends_on: item.depends_on.filter((id) => id !== step.step_id) })))} type="button">×</button></div>
                         <div className="mt-3 grid gap-3 lg:grid-cols-2"><label className="text-xs font-semibold text-slate-400">步骤 ID<input className="mt-1 h-9 w-full cursor-not-allowed rounded-lg border border-white/10 bg-white/[0.025] px-3 text-sm text-slate-500 outline-none" readOnly value={step.step_id} /></label><label className="text-xs font-semibold text-slate-400">标题<input className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-white/[0.045] px-3 text-sm text-white outline-none" onChange={(event) => patchDraftStep(step.step_id, { title: event.target.value })} value={step.title} /></label></div>
                         <label className="mt-3 block text-xs font-semibold text-slate-400">执行要求<textarea className="mt-1 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-white/[0.045] p-3 text-sm leading-6 text-white outline-none" onChange={(event) => patchDraftStep(step.step_id, { instruction: event.target.value })} value={step.instruction} /></label>
-                        <div className="mt-3 grid gap-3 lg:grid-cols-2"><label className="text-xs font-semibold text-slate-400">执行 Xpert<select className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-white/[0.045] px-3 text-sm text-white outline-none" onChange={(event) => patchDraftStep(step.step_id, { target_xpert_id: event.target.value })} value={step.target_xpert_id}>{xperts.map((item) => <option className="bg-ink-950" key={item.id} value={item.id}>{item.name} / {item.slug}</option>)}</select></label><div><p className="text-xs font-semibold text-slate-400">依赖步骤</p><div className="mt-1 flex min-h-9 flex-wrap gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2">{draftSteps.filter((item) => item.step_id !== step.step_id).map((candidate) => <label className="flex items-center gap-1.5 text-xs text-slate-300" key={candidate.step_id}><input checked={step.depends_on.includes(candidate.step_id)} onChange={(event) => patchDraftStep(step.step_id, { depends_on: event.target.checked ? [...step.depends_on, candidate.step_id] : step.depends_on.filter((id) => id !== candidate.step_id) })} type="checkbox" />{candidate.step_id}</label>)}</div></div></div>
+                        <div className="mt-3 grid gap-3 lg:grid-cols-2"><label className="text-xs font-semibold text-slate-400">执行智能体<select className="mt-1 h-9 w-full rounded-lg border border-white/10 bg-white/[0.045] px-3 text-sm text-white outline-none" onChange={(event) => patchDraftStep(step.step_id, { target_xpert_id: event.target.value })} value={step.target_xpert_id}>{xperts.map((item) => <option className="bg-ink-950" key={item.id} value={item.id}>{item.name} / {item.slug}</option>)}</select></label><div><p className="text-xs font-semibold text-slate-400">依赖步骤</p><div className="mt-1 flex min-h-9 flex-wrap gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2">{draftSteps.filter((item) => item.step_id !== step.step_id).map((candidate) => <label className="flex items-center gap-1.5 text-xs text-slate-300" key={candidate.step_id}><input checked={step.depends_on.includes(candidate.step_id)} onChange={(event) => patchDraftStep(step.step_id, { depends_on: event.target.checked ? [...step.depends_on, candidate.step_id] : step.depends_on.filter((id) => id !== candidate.step_id) })} type="checkbox" />{candidate.step_id}</label>)}</div></div></div>
                       </article>
                     ))}
                   </div>
@@ -395,7 +395,7 @@ export default function ConversationGoalsPage() {
                   <div className="space-y-3">
                     {goal.steps.map((step, index) => (
                       <article className={`rounded-lg border p-4 ${step.step_id === goal.final_step_id ? "border-hire-300/25 bg-hire-300/[0.055]" : "border-white/10 bg-white/[0.035]"}`} key={step.step_id}>
-                        <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-xs font-semibold text-slate-200">{index + 1}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-white">{step.title}</h3>{step.step_id === goal.final_step_id ? <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-2 py-0.5 text-[10px] font-semibold text-hire-100">最终交付</span> : null}</div><p className="mt-1 text-xs text-slate-500">{step.step_id} · Xpert v{step.target_version ?? "-"} · 尝试 {step.attempts}</p></div></div><span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(step.status)}`}>{step.status}</span></div>
+                        <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-xs font-semibold text-slate-200">{index + 1}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-white">{step.title}</h3>{step.step_id === goal.final_step_id ? <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-2 py-0.5 text-[10px] font-semibold text-hire-100">最终交付</span> : null}</div><p className="mt-1 text-xs text-slate-500">{step.step_id} · 智能体 v{step.target_version ?? "-"} · 尝试 {step.attempts}</p></div></div><span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(step.status)}`}>{step.status}</span></div>
                         <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-300">{step.instruction}</p>
                         {step.depends_on.length > 0 ? <p className="mt-2 text-xs text-slate-500">依赖：{step.depends_on.join("、")}</p> : null}
                         {step.error ? <p className="mt-3 rounded-lg border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs leading-5 text-rose-100">{step.error}</p> : null}

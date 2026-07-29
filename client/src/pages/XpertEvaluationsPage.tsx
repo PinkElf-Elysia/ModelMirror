@@ -247,7 +247,7 @@ export default function XpertEvaluationsPage() {
   );
 
   useEffect(() => {
-    document.title = "模镜 - Xpert 评测";
+    document.title = "模镜 - 智能体评测";
     void loadWorkspace();
   }, []);
 
@@ -538,7 +538,7 @@ export default function XpertEvaluationsPage() {
             <Beaker className="h-4 w-4" />
             EVOAGENTX EVALUATOR
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-white">Xpert 版本评测</h1>
+          <h1 className="mt-2 text-2xl font-semibold text-white">智能体版本评测</h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
             用不可变数据集和固定执行快照比较基线、已发布版本及 Meta Planner 候选。评测只生成报告，不修改草稿或发布状态。
           </p>
@@ -641,7 +641,7 @@ export default function XpertEvaluationsPage() {
                   </select>
                 </label>
                 <div className="rounded-md border border-white/10 bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
-                  运行创建后会固定 Dataset、Xpert、Proposal revision、知识索引和资源版本。外部 Provider 响应可能变化，报告会明确标记该限制。
+                  运行创建后会固定 Dataset、智能体、Proposal revision、知识索引和资源版本。外部 Provider 响应可能变化，报告会明确标记该限制。
                 </div>
               </div>
             </>
@@ -668,7 +668,7 @@ export default function XpertEvaluationsPage() {
                   <input checked={selectedTargets.includes(item.key)} className="mt-0.5 h-4 w-4 accent-cyan-300" onChange={(event) => setSelectedTargets((current) => event.target.checked ? [...current, item.key].slice(0, 5) : current.filter((key) => key !== item.key))} type="checkbox" />
                   <span className="min-w-0">
                     <span className="block truncate text-xs font-semibold text-slate-200">{item.label}</span>
-                    <span className="mt-1 block text-[10px] uppercase tracking-wide text-slate-500">{item.kind === "proposal" ? "Meta Planner Proposal" : "Published Xpert"}</span>
+                    <span className="mt-1 block text-[10px] uppercase tracking-wide text-slate-500">{item.kind === "proposal" ? "Meta Planner Proposal" : "已发布智能体"}</span>
                   </span>
                 </label>
               ))}

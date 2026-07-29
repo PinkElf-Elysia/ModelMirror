@@ -109,7 +109,7 @@ const nodeMeta = {
   },
   external_xpert: {
     icon: "XP",
-    label: "外部 Xpert",
+    label: "外部智能体",
     border: "border-blue-300/40",
     bg: "bg-blue-300/10",
     text: "text-blue-100",
@@ -335,7 +335,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             id="expert"
             position={Position.Left}
             style={{ top: "38%" }}
-            title="绑定外部 Xpert"
+            title="绑定外部智能体"
             type="target"
           />
           <Handle

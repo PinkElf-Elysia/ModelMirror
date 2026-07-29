@@ -1742,7 +1742,7 @@ export default function ToolsetsPage() {
                             run · 仅本次 Agent 执行
                           </option>
                           <option className="bg-slate-950" value="conversation">
-                            conversation · 私有 Xpert 会话
+                            conversation · 私有智能体会话
                           </option>
                         </select>
                       </label>

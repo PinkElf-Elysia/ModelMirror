@@ -14,7 +14,7 @@
 | 文本 | TXT、Markdown、HTML、JSON、YAML、XML、代码、SQL、日志 | 审计现状与模块入口 |
 | 图片 | JPEG/JPG、PNG、WebP、GIF、SVG、TIFF、HEIC/HEIF、BMP | 审计；不新增 GIF 动画处理 |
 | 音频 | WAV、MP3、AAC、M4A、FLAC、OGG/Opus、WebM | 先交付通用 STT，再交付 TTS |
-| 视频 | MP4、MOV、WebM、MKV、AVI、MPEG | 只审计，音频闭环后实施 |
+| 视频 | MP4、MPEG、MOV、WebM、MKV、AVI | 交付 MP4/MPEG/MOV/WebM 理解与异步生成闭环；MKV/AVI 仅审计 |
 | 文档 | PDF、DOCX、PPTX、XLSX、CSV/TSV、EPUB、RTF、ODF | 只审计；RAG XLSX 延后到专项路线审计 |
 | 结构化数据 | JSON、JSON Schema、表格、数据库查询结果、Parquet | 审计 Chat、RAG、Data X 分工 |
 | 字幕与时间轴 | SRT、VTT、ASS/SSA、带时间戳的转录 JSON | 审计，归入音视频后处理 |
@@ -75,8 +75,8 @@
 | 文字转语音 TTS | 已收录 | 自适应语音生成工作区 | 不适用 | 不适用 | 已有按 Xpert 版本配置的入口 | 无 | 本轮新增 | MAI-Voice-2 通用入口已实现，待人工验收 |
 | 音频理解 | 已收录 | 无 `input_audio` 契约 | 不适用 | 不适用 | 未形成通用能力 | 无 | 无 | 计划中 |
 | 通用音频生成 | 已收录 | 无音频增量解析 | 不适用 | 不适用 | 未形成通用能力 | 无 | 无 | 计划中 |
-| 视频理解 | 已收录 | 无 `video_url` 契约 | 无拆帧流水线 | 不适用 | 未形成通用能力 | 无 | 无 | 计划中 |
-| 视频生成 | 已收录 | 不适合 Chat SSE | 不适用 | 不适用 | 未形成通用能力 | 无 | 无异步任务中心 | 计划中 |
+| 视频理解 | 实时能力确认 | 自适应视频分析工作区 | 无拆帧流水线 | 不适用 | 未形成通用能力 | 无 | 文件或 HTTPS/YouTube URL | 已支持，OpenRouter-first |
+| 视频生成 | 实时能力确认 | 自适应视频生成工作区，不复用 Chat SSE | 不适用 | 不适用 | 未形成通用能力 | 无 | 异步任务提交、恢复、播放与下载 | 已支持，OpenRouter-first |
 | XLSX | 归类为 file | 不支持 | 未支持，待专项审计 | 已支持，结构化解析 | 文件能力按配置 | 文件节点按配置 | 不适用 | 部分支持，仅 Data X 等特定模块 |
 | CSV / TSV | 归类为 file | 不支持 | 尚未纳入资料库 | 已支持 CSV | 文件能力按配置 | 文件节点按配置 | 不适用 | 部分支持 |
 | Parquet | 未作为聊天模态 | 不适用 | 不支持 | 已支持 | 文件能力按配置 | 文件节点按配置 | 不适用 | 部分支持 |
@@ -93,7 +93,7 @@
 - `datax`：CSV、XLSX、Parquet 的结构化分析，不承担知识库语义切片。
 - `xpert / agents`：配置化 STT/TTS、工具调用、审批和 Agent 事件。
 - `workflow`：节点编排和节点事件，不作为通用媒体播放器。
-- `multimodal`：通用 STT、TTS 及后续音视频任务入口；首期仍复用模型详情到 ChatPage 的自适应布局，不新增顶级导航。
+- `multimodal`：通用 STT、TTS、视频分析和视频生成任务入口；仍复用模型详情到 ChatPage 的自适应布局，不新增顶级导航。
 - `models`：只展示真实能力、适配状态和正确入口，不直接承担推理。
 
 ## 3. 当前格式清单
@@ -137,8 +137,8 @@
 | WAV、MP3、AAC、M4A、FLAC、OGG、WebM | Xpert 按配置部分可用；本轮补通用入口 | 不适用 | 计划中 | 不适用 |
 | MP3 | 不适用 | Xpert 按配置部分可用；MAI-Voice-2 通用入口已实现 | 专用工作区可播放和下载 | 不适用 |
 | PCM | 不适用 | 上游可能支持，首期不开放 | 不适用 | 不适用 |
-| MP4、MOV、WebM | 不适用 | 不适用 | 计划中 | 计划中 |
-| MKV、AVI、MPEG | 不适用 | 不适用 | 需转码后支持 | 仅审计 |
+| MP4、MPEG、MOV、WebM | 不适用 | 不适用 | 模型原生理解，文件最大 20 MiB | 异步生成结果可播放与下载 |
+| MKV、AVI | 不适用 | 不适用 | 未接受，需转码后支持 | 仅审计 |
 
 ## 4. 判定示例
 
@@ -181,11 +181,12 @@ UI：先进入“音频转文字”，不得伪装成普通文本聊天
 
 ```text
 输入/输出：视频
-模型目录：已收录
-Chat：没有上传、轮询或播放器契约
-平台状态：计划中
-UI：当前显示“视频理解/视频生成 · 待适配”
-说明：视频生成未来进入异步任务中心，不复用 Chat SSE
+模型目录：必须经实时能力目录确认
+视频理解：支持 MP4/MPEG/MOV/WebM 文件，以及 HTTPS/YouTube URL
+视频生成：独立异步任务，支持文生视频和单张首帧图生视频
+平台状态：OpenRouter-first 已支持
+UI：模型卡进入“分析视频”或“生成视频”专用工作区
+说明：视频生成任务不会进入普通 Chat SSE；未知费用显示“以网关结算为准”
 ```
 
 ## 5. 本轮实现与明确不实现
@@ -196,8 +197,10 @@ UI：当前显示“视频理解/视频生成 · 待适配”
 2. 模型卡把 Chat、RAG 与待适配媒体任务分流。
 3. 通用 STT 文件上传。
 4. 通用 TTS MP3 生成。
+5. 视频理解文件与 URL 输入。
+6. 视频生成异步任务、状态恢复、播放器与下载代理。
 
-本轮在批次 D（TTS）验收后结束。RAG XLSX 与音频批次的用户任务和前端入口割裂，已整体延期；下一轮必须先单独审计解析方式、资源上限、语义检索定位，以及是否只在 `/rag` 提供入口，再决定实现。
+本轮视频闭环在批次 E 完成实例生成验收，批次 F 只补运维、文档和全量回归。RAG XLSX、音频理解、麦克风、流式音频和实时语音继续延期，下一轮需重新审计模块入口与验收边界。
 
 ### 通用 STT 后端契约
 
@@ -267,10 +270,52 @@ Content-Type: application/json
 - 文字和音频不写入数据库；审计仅记录租户、operation、模型、连接、输入/输出字节数、状态和可用费用信息。
 - 前端自适应语音生成工作区提供文字保留、已验证声线、语速、取消、重试、播放器和下载；替换结果或离开页面时释放 Blob URL。
 
+### 视频理解与生成闭环
+
+视频理解使用供应商无关的专用接口：
+
+```http
+GET  /api/multimodal/video/models
+POST /api/multimodal/video/analysis
+```
+
+- 本地视频接受 MP4、MPEG、MOV、WebM，最大 20 MiB；请求内转换为 data URL，不写入磁盘或数据库。
+- 网络来源只接受 HTTPS 与受支持的 YouTube URL；后端不下载目标 URL，避免形成 SSRF 下载代理。
+- 提示词长度为 1–4,000 字符，提交前验证模型 operation 和实时交互状态。
+- UI 支持本地预览、URL 输入、替换、移除、取消请求、重试和复制分析结果。
+
+视频生成使用独立异步任务，不复用 `/api/chat` SSE：
+
+```http
+POST   /api/multimodal/video/jobs
+GET    /api/multimodal/video/jobs
+GET    /api/multimodal/video/jobs/{job_id}
+POST   /api/multimodal/video/jobs/{job_id}/refresh
+GET    /api/multimodal/video/jobs/{job_id}/content?index=0
+DELETE /api/multimodal/video/jobs/{job_id}
+```
+
+- 支持文生视频和单张 JPEG/PNG/WebP 首帧图生视频；首帧最大 10 MiB。
+- SQLite 只持久化 `tenant_id="local"`、模型、参数摘要、上游任务 ID、状态、费用和错误码，不保存 Prompt、首帧或视频正文。
+- `idempotency_key` 在付费上游调用前原子占位，防止重复点击产生第二次任务。
+- 运行中任务默认 30 秒轮询，短时错误按 30/60/120 秒退避；页面隐藏时暂停，恢复可见时立即刷新。
+- “停止关注”只停止当前页面轮询；“移除记录”只删除本地元数据，均不伪装成取消上游生成。
+- 成功内容经后端鉴权代理流式下载，前端不接触上游密钥、签名 URL 或轮询地址。
+- 费用未知时不显示零成本；提交区提示异步等待、可能产生费用和 OpenRouter 视频生成不支持 ZDR。
+
+运维开关写入后端环境文件 `server/.env`：
+
+```text
+MULTIMODAL_VIDEO_ANALYSIS_ENABLED=true
+MULTIMODAL_VIDEO_GENERATION_ENABLED=true
+```
+
+任一开关设为 `false` 后，模型仍保留在目录，但对应入口显示“当前未启用”；文本、图片、STT、TTS、RAG、工作流和智能调度不受影响。
+
 ### 只审计
 
 - GIF 动画、SVG 主动内容、HEIC/TIFF 高级处理。
-- 视频输入、视频生成、实时语音。
+- 视频音轨单独识别、视频多轮上下文、尾帧、多参考图和实时语音。
 - RAG XLSX、CSV 等表格资料解析及其前端入口。
 - 3D、点云、传感器、科学数据和医学影像。
 - 压缩包、旧版 Office 和复杂办公版式保真。

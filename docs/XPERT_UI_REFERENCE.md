@@ -3,6 +3,10 @@
 最后更新日期：2026-07-23
 维护人：模镜团队
 
+> **状态：冻结参考。** 本文用于追溯内部映射和验收证据，不是当前 UI 文案
+> 指南。用户界面不得恢复“Xpert 对齐”等旧标签；当前用语见
+> [GLOSSARY.md](./GLOSSARY.md)。
+
 ## 2026-07-23：Xpert 会话功能映射
 
 真实 Xpert 的“功能”面板将开场白、问题建议、会话总结、长期记忆、记忆回复、标题、文件和语音能力作为智能体级配置，而不是单个工具参数。ModelMirror 的第一版映射将这些配置保存到 `XpertDraft.features`，发布时固定进不可变版本：
@@ -18,7 +22,7 @@
 
 ## 参考来源
 
-- 本地源码：`C:\Users\21547\Downloads\xpert-main\xpert-main`
+- 上游审计快照：本地临时副本，未纳入仓库；具体路径不作为可复现证据。
 - 本地真实界面：`http://localhost:8088/xpert/w/2b9d44a2-b95e-44e2-8a76-97e0d9bb86be`
 - 用户提供的 2026-07-08 Xpert 前端截图
 - 主要源码参考点：
@@ -235,16 +239,19 @@ ModelMirror 已完成 Workspace Hub、Runtime Ops、版本化 `/prompts` 与声�
 
 该页采用独立资源加载和软降级策略：任一资源 API 失败时，只在对应卡片显示“暂不可用”，不影响工作空间首页和其他入口。
 
-## ModelMirror `/studio` 第二版映射
+## ModelMirror `/studio` 第二版映射（历史）
 
 `XPERT-WORKSPACE-HUB-02` 在第一版资源总览上补齐了更接近 Xpert 工作空间首页的操作骨架：
 
 - 顶部“快速创建 / 连接”入口集中展示创建工作流、生成工作流草稿、管理知识库、连接 MCP、安装 Skill 和查看 Runtime 运维，减少用户在资源页之间寻找入口的成本。
-- 资源卡片增加主操作、次操作、标签和计划状态。当前标签包括“可运行”“可创建”“可观测”“待接入”“Xpert 对齐”，并可与分类和搜索同时过滤。
-- 资源骨架补齐 `API 工具` 与 `数据库` 卡片。两者当前标记为“待接入”，不会创建无法运行的配置。
+- 资源卡片在该轮增加主操作、次操作、标签和计划状态；当时仍显示“待接入”
+  和“Xpert 对齐”等标签。
+- 该轮把 `API 工具` 与 `数据库` 作为未接通卡片展示。
 - 运行观测摘要基于 `/api/runtime/runs?limit=8` 展示最近 run，并按状态和 run_type 做轻量统计；深入排查仍跳转 `/runtime`。
 
-当前边界不变：`/studio` 仍是前端只读聚合页，不新增后端聚合 API，不实现 Workspace 权限、资源持久化表或跨资源创建编排。
+截至 2026-07-28，`/studio` 仍是前端只读聚合页，但用户文案已经改为
+“智能体可用”，API 工具通过 Toolset 提供可配置入口，数据库能力通过 Data X
+呈现。本文旧标签不得用于恢复当前 UI。
 
 ## 对齐风险
 
@@ -263,4 +270,6 @@ Xpert 功能增量到 `XPERT-PLUGIN-PROMPT-03` 为止。下一步只执行 `XPER
 
 ## ModelMirror `/rag` Draft Config Mapping
 
-`XPERT-KNOWLEDGE-PIPELINE-03` maps the local `/rag` four-stage Knowledge Pipeline to draft config and preflight observation. Data source and processor stay locked, chunker supports draft `chunk_size` and `chunk_overlap`, and image understanding remains planned/disabled. This only aligns the Xpert interaction skeleton; it does not execute image understanding, migrate the vector store, or change upload, retrieval, chat RAG, or workflow behavior.
+At the `XPERT-KNOWLEDGE-PIPELINE-03` increment, image understanding was still
+planned/disabled. This was superseded on 2026-07-15 by the optional executable vision
+stage documented in [RAG_INTEGRATION.md](./RAG_INTEGRATION.md).

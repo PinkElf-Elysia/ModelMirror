@@ -37,8 +37,8 @@ const capabilities: CapabilityItem[] = [
   {
     icon: "🔌",
     title: "系统设置",
-    description: "外部网关与 API Key 统一管理入口（newAPI 占位）。",
-    badge: "占位",
+    description: "管理模型服务连接、网关状态和本地运行配置。",
+    badge: "可配置",
     href: "/settings",
     actionLabel: "进入设置",
   },

@@ -1,5 +1,9 @@
 # workflow-native 自研工作流设计
 
+> **当前状态（2026-07-28）：** `/workflow` 是 classic React Flow 主入口，
+> `/workflow-native` 是静态校验与设计实验线，`/rag` 是独立的本地知识系统。
+> 本文前半部分保留增量时间线；涉及 Dify 主路径的早期表述已由当前状态取代。
+
 > 2026-07-23 Prompt/Plugin：新增 `plugin_resource`，通过 `plugin-binding -> plugin` 绑定一个 `workflow_agent`，不参与控制流、变量可达性或节点调度。Xpert 发布固定 Plugin 与直接 Prompt Profile 版本；运行时把 Plugin 编译为固定 Toolset、命名空间化 Skill、已注册中间件预设和私有命令。别名、工具或中间件冲突 fail-closed。Slash Command 仍执行当前 Xpert，SSE 事件类型不变。
 
 > 2026-07-23 Agent Features：Xpert 草稿和不可变版本已固定开场白、建议问题、会话标题/摘要、记忆回复、文件策略和 TTS/STT。会话摘要编译为输出 `workflow_agent` 的隐式 `context_compression`，文件关闭时附件不会进入运行或 Goal。`XpertAgentConfig` 的最大并发与递归限制约束整棵执行树；节点级工具预算仍是更窄的局部限制。Classic Workflow SSE 不新增事件类型。
@@ -154,7 +158,9 @@ Classic workflow 每次运行会登记一条 `workflow` run，并在 `workflow_m
 
 `/workflow` 布局恢复为“画布 + 单一右侧工作台”：节点库位于画布顶部附近的下拉/浮层中，避免常驻左栏；右侧工作台使用 `配置 / 运行` tabs 承载 `NodeConfig` 与 `WorkflowRun`，点击运行时切到运行页。该调整只恢复布局体验，不改变节点数据结构、拖拽 payload、SSE 协议或后端执行逻辑。
 
-workflow-native 是模镜自研工作流引擎的渐进式实验线。它不会替换当前稳定的 `/workflow` Dify iframe 入口，也不会改动 `/rag`。当前阶段提供静态图校验能力，并在 classic 运行器中试点少量本地节点执行，让团队先把数据模型、API 契约、错误模型和测试流程立起来。
+workflow-native 是模镜自研工作流的渐进式实验线。它不替换当前稳定的
+classic `/workflow`，也不另建第二套 `/rag`。该入口主要承担静态图校验与
+设计验证；真实工作流执行继续复用 classic runner。
 
 最后更新日期：2026-07-23
 维护人：模镜团队
@@ -184,9 +190,9 @@ RunRegistry 记录 `source Xpert -> handoff -> target Xpert` 父子关系和尝�
 
 - workflow-native API 自身不执行 LLM、Tool、MCP、RAG 或代码节点。
 - 不实现跨节点子图循环，`iteration` 当前只在单节点内对逗号分隔文本做本地迭代。
-- 不替换 Dify iframe。
+- 不替换 classic `/workflow` 主入口。
 - workflow-native 实验线不单独实现发布、版本管理或独立观测面板；Xpert Studio 的版本快照、RunRegistry 与聊天运行复用 classic runner，并不改变本实验线的边界。
-- 不迁移 `/workflow/classic` 的运行行为。
+- 不从 classic runner 分叉第二套运行行为。
 
 ## 2026-07-10 增量：Xpert Studio 发布与运行
 
@@ -202,18 +208,20 @@ RunRegistry 记录 `source Xpert -> handoff -> target Xpert` 父子关系和尝�
 
 公开 App 复用 classic runner，但固定不可变 XpertVersion，使用 `run_type=xpert_app`。工具、Handoff 与 Xpert 记忆默认关闭；工具开启后仍必须先加载 `tool_policy`，否则默认拒绝。公开 JSON/SSE 只转发最终输出，不改变普通 `/workflow`、Xpert Chat、Goal 或 HandoffExecutor 的协议。
 
-## 与 Dify 并行策略
+## 当前入口与 legacy Dify 关系
 
-稳定路径继续由 Dify 提供：
+当前路由：
 
 ```text
-/workflow        -> Dify iframe 稳定工作流
-/rag             -> Dify 或本地 RAG 稳定入口
-/workflow/classic -> 早期 React Flow MVP 画布
+/workflow         -> classic React Flow 主入口
+/workflow/classic -> 同一 classic 画布的兼容入口
+/rag              -> ModelMirror 本地知识系统
 /workflow-native -> 自研工作流实验线
+/api/dify/*       -> 未被主前端路由使用的 legacy compatibility
 ```
 
-如果 native 实验出现问题，回滚方式是关闭或隐藏 `/workflow-native` 路由和 Studio 卡片；`/workflow` 和 `/rag` 不需要改动。
+如果 native 实验出现问题，回滚方式是关闭或隐藏 `/workflow-native` 入口；
+`/workflow`、`/workflow/classic` 和 `/rag` 不需要迁移数据。
 
 ## 图模型
 

@@ -106,6 +106,28 @@ const categoryPlainText: Record<string, string> = {
   vision: "看图分析",
 };
 
+const runTypePlainText: Record<string, string> = {
+  agent_handoff: "智能体交接",
+  agent_task: "智能体任务",
+  chat: "聊天",
+  goal: "长期目标",
+  workflow: "工作流",
+  workflow_agent: "工作流智能体",
+  xpert_automation: "智能体自动化",
+  xpert_evaluation: "智能体评测",
+  xpert_evolution: "智能体优化",
+};
+
+const runStatusPlainText: Record<string, string> = {
+  cancelled: "已取消",
+  completed: "已完成",
+  failed: "失败",
+  paused: "已暂停",
+  pending: "待处理",
+  running: "运行中",
+  waiting_approval: "等待审批",
+};
+
 function titleCaseProvider(value: string) {
   return value
     .split(/[-_\s]+/)
@@ -176,6 +198,21 @@ export function getFriendlyCapabilityLabel(value: string) {
 
 export function getFriendlyCategoryLabel(value: string) {
   return categoryPlainText[value] ?? value;
+}
+
+export function replaceLegacyAgentTerms(value: string) {
+  return value
+    .replace(/\bXpert Studio\b/g, "Agent Studio")
+    .replace(/\bXpert Automation\b/g, "智能体自动化")
+    .replace(/\bXpert\b/g, "智能体");
+}
+
+export function getFriendlyRunTypeLabel(value: string) {
+  return runTypePlainText[value] ?? replaceLegacyAgentTerms(value);
+}
+
+export function getFriendlyRunStatusLabel(value: string) {
+  return runStatusPlainText[value] ?? value;
 }
 
 export function buildFriendlyTalentIntro(model: Model) {
