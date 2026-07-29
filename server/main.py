@@ -1044,6 +1044,16 @@ class ChatCompressionOptions(BaseModel):
     mode: Literal["auto", "off", "standard", "strong"] = "auto"
 
 
+class ChatResponseAudioOptions(BaseModel):
+    enabled: Literal[True]
+    voice: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    format: Literal["mp3"] = "mp3"
+
+
 class ChatRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     messages: list[ChatMessage] = Field(min_length=1, max_length=80)
@@ -1059,6 +1069,7 @@ class ChatRequest(BaseModel):
     gateway: Literal["default", "auto", "omniroute"] = "default"
     routing: ChatRoutingOptions | None = None
     compression: ChatCompressionOptions | None = None
+    response_audio: ChatResponseAudioOptions | None = None
 
 
 class AgentRecord(BaseModel):
@@ -1763,6 +1774,12 @@ def build_upstream_payload(
         upstream_payload["seed"] = payload.seed
     if payload.stop:
         upstream_payload["stop"] = payload.stop
+    if payload.response_audio is not None:
+        upstream_payload["modalities"] = ["text", "audio"]
+        upstream_payload["audio"] = {
+            "voice": payload.response_audio.voice,
+            "format": payload.response_audio.format,
+        }
 
     return upstream_payload
 
@@ -13571,6 +13588,10 @@ async def chat(payload: ChatRequest, request: Request):
     direct_audio_requested = any(
         message_has_audio(message.content) for message in payload.messages
     )
+    response_audio_requested = payload.response_audio is not None
+    native_audio_requested = (
+        direct_audio_requested or response_audio_requested
+    )
     auto_gateway_requested = payload.gateway == "auto"
     canary_native = (
         auto_gateway_requested
@@ -13586,7 +13607,7 @@ async def chat(payload: ChatRequest, request: Request):
     shadow_native_router = (
         auto_gateway_requested and native_router_policy.engine == "shadow"
     )
-    use_omniroute = not direct_audio_requested and (
+    use_omniroute = not native_audio_requested and (
         payload.gateway == "omniroute"
         or (auto_gateway_requested and not use_native_router)
         or (
@@ -13612,7 +13633,7 @@ async def chat(payload: ChatRequest, request: Request):
                 )
             },
         )
-    if not url and not use_native_router and not direct_audio_requested:
+    if not url and not use_native_router and not native_audio_requested:
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -13675,6 +13696,25 @@ async def chat(payload: ChatRequest, request: Request):
                     "如需使用工具，请先把音频转成文字。"
                 ),
             )
+        if response_audio_requested and (
+            payload.gateway != "default"
+            or is_omniroute_auto_model(payload.model_id)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "智能调度暂不直接生成原生语音回答。"
+                    "请关闭“原生语音回答”，或选择已验证的语音模型。"
+                ),
+            )
+        if response_audio_requested and payload.tool_mode != "none":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "原生语音回答暂不与 MCP 工具模式组合使用。"
+                    "请关闭工具模式后重试。"
+                ),
+            )
         validate_multimodal_content(
             payload.model_id,
             payload.messages,
@@ -13698,14 +13738,14 @@ async def chat(payload: ChatRequest, request: Request):
     audio_decision_id: str | None = None
     audio_connection_name = "OpenRouter"
     audio_started_at: float | None = None
-    if direct_audio_requested:
+    if native_audio_requested:
         try:
             catalog_service = get_audio_catalog_service()
             catalog = await catalog_service.get_catalog()
             if catalog.status == "disabled":
                 raise MultimodalServiceError(
                     "chat_audio_disabled",
-                    "Chat 音频附件当前未启用。",
+                    "Chat 语音能力当前未启用。",
                     status_code=503,
                 )
             if catalog.status == "offline":
@@ -13720,11 +13760,16 @@ async def chat(payload: ChatRequest, request: Request):
                     for item in catalog.profiles
                     if item.model_id == payload.model_id
                     and item.interaction_status == "ready"
-                    and "direct_audio_input" in item.chat_modes
                 ),
                 None,
             )
-            if profile is None:
+            if (
+                profile is None
+                or (
+                    direct_audio_requested
+                    and "direct_audio_input" not in profile.chat_modes
+                )
+            ):
                 raise MultimodalServiceError(
                     "operation_mismatch",
                     (
@@ -13733,31 +13778,60 @@ async def chat(payload: ChatRequest, request: Request):
                     ),
                     status_code=422,
                 )
-            attachment_ids = audio_attachment_ids(payload.messages)
-            if len(attachment_ids) != 1:
-                raise MultimodalServiceError(
-                    "invalid_audio_attachment",
-                    "每轮必须且只能提交一个音频附件。",
-                    status_code=422,
+            if (
+                profile is None
+                or (
+                    response_audio_requested
+                    and "native_streaming_audio_output" not in profile.chat_modes
                 )
-            audio_attachment_store = get_chat_attachment_store()
-            audio_attachment = audio_attachment_store.claim(
-                attachment_ids[0],
-                expected_kind="audio",
-            )
-            if audio_attachment.format not in profile.input_formats:
-                audio_attachment_store.release_for_retry(
-                    audio_attachment.attachment_id
-                )
-                audio_attachment = None
+            ):
                 raise MultimodalServiceError(
-                    "direct_audio_format_unsupported",
+                    "native_audio_output_unsupported",
                     (
-                        "当前模型不能直接接收该音频格式。"
-                        "请先使用音频转文字后再发送。"
+                        "所选模型尚未确认支持原生语音回答。"
+                        "请关闭该选项，或选择标有“原生语音回答”的模型。"
                     ),
                     status_code=422,
                 )
+            if response_audio_requested and payload.response_audio is not None:
+                if payload.response_audio.format not in profile.output_formats:
+                    raise MultimodalServiceError(
+                        "native_audio_format_unsupported",
+                        "当前模型不支持所选语音格式，请改用 MP3。",
+                        status_code=422,
+                    )
+                if payload.response_audio.voice not in profile.voices:
+                    raise MultimodalServiceError(
+                        "native_audio_voice_unsupported",
+                        "当前模型不支持所选声线，请刷新语音能力后重试。",
+                        status_code=422,
+                    )
+            if direct_audio_requested:
+                attachment_ids = audio_attachment_ids(payload.messages)
+                if len(attachment_ids) != 1:
+                    raise MultimodalServiceError(
+                        "invalid_audio_attachment",
+                        "每轮必须且只能提交一个音频附件。",
+                        status_code=422,
+                    )
+                audio_attachment_store = get_chat_attachment_store()
+                audio_attachment = audio_attachment_store.claim(
+                    attachment_ids[0],
+                    expected_kind="audio",
+                )
+                if audio_attachment.format not in profile.input_formats:
+                    audio_attachment_store.release_for_retry(
+                        audio_attachment.attachment_id
+                    )
+                    audio_attachment = None
+                    raise MultimodalServiceError(
+                        "direct_audio_format_unsupported",
+                        (
+                            "当前模型不能直接接收该音频格式。"
+                            "请先使用音频转文字后再发送。"
+                        ),
+                        status_code=422,
+                    )
             target = catalog_service.resolve_target()
             url = catalog_service.chat_completions_url(target)
             key = target.api_key
@@ -13778,15 +13852,32 @@ async def chat(payload: ChatRequest, request: Request):
                     session_id_hash=None,
                     engine="openrouter",
                     strategy="explicit",
-                    operation="analyze_audio",
+                    operation=(
+                        "analyze_audio"
+                        if direct_audio_requested
+                        else "chat_audio_output"
+                    ),
                     connection_id=target.connection_id,
                     model_id=payload.model_id,
                     reason_codes=[
                         "explicit_model",
-                        "operation_analyze_audio",
-                        "direct_audio_input",
+                        *(
+                            [
+                                "operation_analyze_audio",
+                                "direct_audio_input",
+                            ]
+                            if direct_audio_requested
+                            else [
+                                "operation_chat_audio_output",
+                                "native_streaming_audio_output",
+                            ]
+                        ),
                     ],
-                    input_bytes=len(audio_attachment.content),
+                    input_bytes=(
+                        len(audio_attachment.content)
+                        if audio_attachment is not None
+                        else None
+                    ),
                 )
             )
             audio_started_at = time.perf_counter()
@@ -13804,12 +13895,12 @@ async def chat(payload: ChatRequest, request: Request):
                 audio_attachment_store.release_for_retry(
                     audio_attachment.attachment_id
                 )
-            logger.exception("Direct audio preparation failed")
+            logger.exception("Native chat audio preparation failed")
             return JSONResponse(
                 status_code=503,
                 content={
                     "error": "暂时无法准备音频调用，请稍后重试。",
-                    "code": "direct_audio_unavailable",
+                    "code": "native_audio_unavailable",
                 },
             )
 
@@ -13968,7 +14059,7 @@ async def chat(payload: ChatRequest, request: Request):
     runtime_pipeline = None
     runtime_context = None
     runtime_task_id = uuid.uuid4().hex
-    if not direct_audio_requested:
+    if not native_audio_requested:
         try:
             runtime_pipeline, runtime_context = create_default_runtime()
             runtime_context.task_id = runtime_task_id
@@ -14010,9 +14101,9 @@ async def chat(payload: ChatRequest, request: Request):
     fallback_notice = ""
     audio_finalized = False
 
-    def finalize_direct_audio_failure(outcome: str) -> None:
+    def finalize_native_audio_failure(outcome: str) -> None:
         nonlocal audio_finalized
-        if audio_finalized or audio_attachment is None:
+        if audio_finalized or not native_audio_requested:
             return
         if audio_decision_id is not None:
             try:
@@ -14023,10 +14114,10 @@ async def chat(payload: ChatRequest, request: Request):
                 )
             except Exception:
                 logger.warning(
-                    "Unable to update direct audio audit outcome: %s",
+                    "Unable to update native chat audio audit outcome: %s",
                     audio_decision_id,
                 )
-        if audio_attachment_store is not None:
+        if audio_attachment is not None and audio_attachment_store is not None:
             try:
                 audio_attachment_store.release_for_retry(
                     audio_attachment.attachment_id
@@ -14035,9 +14126,9 @@ async def chat(payload: ChatRequest, request: Request):
                 pass
         audio_finalized = True
 
-    def finalize_direct_audio_success(outcome: str = "success") -> None:
+    def finalize_native_audio_success(outcome: str = "success") -> None:
         nonlocal audio_finalized
-        if audio_finalized or audio_attachment is None:
+        if audio_finalized or not native_audio_requested:
             return
         if audio_decision_id is not None:
             try:
@@ -14051,10 +14142,10 @@ async def chat(payload: ChatRequest, request: Request):
                 )
             except Exception:
                 logger.warning(
-                    "Unable to settle direct audio audit outcome: %s",
+                    "Unable to settle native chat audio audit outcome: %s",
                     audio_decision_id,
                 )
-        if audio_attachment_store is not None:
+        if audio_attachment is not None and audio_attachment_store is not None:
             try:
                 audio_attachment_store.complete(
                     audio_attachment.attachment_id
@@ -14516,19 +14607,19 @@ async def chat(payload: ChatRequest, request: Request):
         response = await send_initial_response()
     except httpx.TimeoutException:
         logger.exception("OpenRouter request timed out model=%s", actual_model_id)
-        finalize_direct_audio_failure("timeout")
+        finalize_native_audio_failure("timeout")
         await finalize_runtime("error", actual_model_id, error="timeout")
         await client.aclose()
         return JSONResponse(status_code=504, content={"error": "模型响应超时，请稍后重试。"})
     except httpx.HTTPError as exc:
         logger.exception("OpenRouter connection failed model=%s error=%s", actual_model_id, exc)
-        finalize_direct_audio_failure("transport_error")
+        finalize_native_audio_failure("transport_error")
         await finalize_runtime("error", actual_model_id, error=str(exc))
         await client.aclose()
         return JSONResponse(status_code=502, content={"error": "模型服务暂时无法连接，请检查网络或代理配置。"})
     except Exception:
         logger.exception("Unexpected error before upstream stream model=%s", actual_model_id)
-        finalize_direct_audio_failure("upstream_error")
+        finalize_native_audio_failure("upstream_error")
         await finalize_runtime("error", actual_model_id, error="unexpected upstream error")
         await client.aclose()
         return JSONResponse(status_code=500, content={"error": "后端代理请求时出错，请查看服务日志。"})
@@ -14537,13 +14628,13 @@ async def chat(payload: ChatRequest, request: Request):
         body = await response.aread()
         await response.aclose()
         message, data = parse_upstream_error(response.status_code, body)
-        if direct_audio_requested:
+        if native_audio_requested:
             message = direct_audio_upstream_error_message(
                 response.status_code
             )
             data = None
             logger.warning(
-                "Direct audio upstream error status=%s model=%s",
+                "Native chat audio upstream error status=%s model=%s",
                 response.status_code,
                 actual_model_id,
             )
@@ -14559,7 +14650,7 @@ async def chat(payload: ChatRequest, request: Request):
         if (
             not use_omniroute
             and not use_native_router
-            and not direct_audio_requested
+            and not native_audio_requested
             and should_fallback_gateway_to_openrouter(
             response.status_code,
             message,
@@ -14619,7 +14710,7 @@ async def chat(payload: ChatRequest, request: Request):
         if (
             not use_omniroute
             and not use_native_router
-            and not direct_audio_requested
+            and not native_audio_requested
             and response.status_code >= 400
             and should_fallback_model(
                 response.status_code,
@@ -14690,7 +14781,7 @@ async def chat(payload: ChatRequest, request: Request):
                     outcome=f"http_{response.status_code}",
                 )
             await finalize_runtime("error", actual_model_id, error=message)
-            finalize_direct_audio_failure(f"http_{response.status_code}")
+            finalize_native_audio_failure(f"http_{response.status_code}")
             await client.aclose()
             return JSONResponse(
                 status_code=response.status_code,
@@ -14703,7 +14794,7 @@ async def chat(payload: ChatRequest, request: Request):
     if use_omniroute and payload.routing is not None and payload.routing.mode:
         omniroute_header_state.setdefault("decision", payload.routing.mode)
     omniroute_stream_state: dict[str, Any] = {}
-    direct_audio_stream_state: dict[str, Any] = {}
+    native_audio_stream_state: dict[str, Any] = {}
 
     async def stream_native_response():
         nonlocal actual_model_id
@@ -15066,18 +15157,18 @@ async def chat(payload: ChatRequest, request: Request):
                 for line in complete_lines:
                     if use_omniroute:
                         update_stream_state(line, omniroute_stream_state)
-                    if direct_audio_requested:
-                        update_stream_state(line, direct_audio_stream_state)
+                    if native_audio_requested:
+                        update_stream_state(line, native_audio_stream_state)
                     if line.lstrip().startswith(":"):
                         continue
                     if (
-                        (use_omniroute or direct_audio_requested)
+                        (use_omniroute or native_audio_requested)
                         and line.strip() == "data: [DONE]"
                     ):
                         deferred_done = True
                         continue
                     if (
-                        (use_omniroute or direct_audio_requested)
+                        (use_omniroute or native_audio_requested)
                         and deferred_done
                         and not line.strip()
                     ):
@@ -15104,12 +15195,12 @@ async def chat(payload: ChatRequest, request: Request):
             if buffer:
                 if use_omniroute:
                     update_stream_state(buffer, omniroute_stream_state)
-                if direct_audio_requested:
-                    update_stream_state(buffer, direct_audio_stream_state)
+                if native_audio_requested:
+                    update_stream_state(buffer, native_audio_stream_state)
                 if buffer.lstrip().startswith(":"):
                     pass
                 elif (
-                    (use_omniroute or direct_audio_requested)
+                    (use_omniroute or native_audio_requested)
                     and buffer.strip() == "data: [DONE]"
                 ):
                     deferred_done = True
@@ -15117,53 +15208,65 @@ async def chat(payload: ChatRequest, request: Request):
                     accumulated_chunks.extend(sse_delta_text(buffer))
                     yield buffer.encode("utf-8")
 
-            direct_audio_succeeded = False
-            if direct_audio_requested:
+            native_audio_succeeded = False
+            if native_audio_requested:
                 finish_reason = str(
-                    direct_audio_stream_state.get("finish_reason") or ""
+                    native_audio_stream_state.get("finish_reason") or ""
                 ).strip()
                 terminal_observed = bool(
                     deferred_done
-                    or direct_audio_stream_state.get("_done_observed")
+                    or native_audio_stream_state.get("_done_observed")
                     or finish_reason
                 )
-                direct_audio_succeeded = (
+                native_audio_succeeded = (
                     stream_completed
                     and runtime_status == "completed"
                     and terminal_observed
-                    and bool(direct_audio_stream_state.get("content_observed"))
+                    and bool(native_audio_stream_state.get("content_observed"))
                 )
-                if direct_audio_succeeded:
+                if native_audio_succeeded:
                     outcome = (
                         "output_limit"
                         if finish_reason == "length"
+                        else "audio_missing"
+                        if response_audio_requested
+                        and not native_audio_stream_state.get("audio_observed")
                         else "success"
                     )
-                    finalize_direct_audio_success(outcome)
-                    tokens_in = direct_audio_stream_state.get("tokens_in")
-                    tokens_out = direct_audio_stream_state.get("tokens_out")
-                    tokens_total = direct_audio_stream_state.get("tokens_total")
+                    finalize_native_audio_success(outcome)
+                    tokens_in = native_audio_stream_state.get("tokens_in")
+                    tokens_out = native_audio_stream_state.get("tokens_out")
+                    tokens_total = native_audio_stream_state.get("tokens_total")
                     if (
                         tokens_total is None
                         and isinstance(tokens_in, int)
                         and isinstance(tokens_out, int)
                     ):
                         tokens_total = tokens_in + tokens_out
-                    reason_codes = [
-                        "explicit_model",
-                        "operation_analyze_audio",
-                        "direct_audio_input",
-                    ]
+                    reason_codes = ["explicit_model"]
+                    if direct_audio_requested:
+                        reason_codes.extend(
+                            ["operation_analyze_audio", "direct_audio_input"]
+                        )
+                    if response_audio_requested:
+                        reason_codes.extend(
+                            [
+                                "operation_chat_audio_output",
+                                "native_streaming_audio_output",
+                            ]
+                        )
                     if outcome == "output_limit":
                         reason_codes.append("output_limit_reached")
+                    elif outcome == "audio_missing":
+                        reason_codes.append("native_audio_missing")
                     receipt = {
                         "requested_model": payload.model_id,
                         "actual_model": (
-                            direct_audio_stream_state.get("actual_model")
+                            native_audio_stream_state.get("actual_model")
                             or actual_model_id
                         ),
                         "provider": (
-                            direct_audio_stream_state.get("provider")
+                            native_audio_stream_state.get("provider")
                             or audio_connection_name
                         ),
                         "strategy": "explicit",
@@ -15207,10 +15310,35 @@ async def chat(payload: ChatRequest, request: Request):
                             "fallback_reason": None,
                         },
                         "media": {
-                            "input_kind": "audio",
-                            "processing": "direct",
+                            **(
+                                {"input_kind": "audio"}
+                                if direct_audio_requested
+                                else {}
+                            ),
+                            "processing": (
+                                "direct"
+                                if direct_audio_requested
+                                else "native_stream"
+                            ),
+                            **(
+                                {
+                                    "output_kind": "audio",
+                                    "audio_status": (
+                                        "completed"
+                                        if native_audio_stream_state.get(
+                                            "audio_observed"
+                                        )
+                                        else "failed"
+                                    ),
+                                }
+                                if response_audio_requested
+                                else {}
+                            ),
                             "format": (
-                                audio_attachment.format
+                                payload.response_audio.format
+                                if response_audio_requested
+                                and payload.response_audio is not None
+                                else audio_attachment.format
                                 if audio_attachment is not None
                                 else None
                             ),
@@ -15232,6 +15360,11 @@ async def chat(payload: ChatRequest, request: Request):
                             "error": {
                                 "message": (
                                     "音频模型的响应未完整结束，请保留附件后重试。"
+                                    if direct_audio_requested
+                                    else (
+                                        "语音回答未完整结束，已收到的文本仍会保留。"
+                                        "请重试，或使用回答下方的“朗读”。"
+                                    )
                                 )
                             }
                         }
@@ -15240,7 +15373,7 @@ async def chat(payload: ChatRequest, request: Request):
                         ).encode("utf-8")
                     else:
                         outcome = "stream_error"
-                    finalize_direct_audio_failure(outcome)
+                    finalize_native_audio_failure(outcome)
 
             if use_omniroute and stream_completed and runtime_status == "completed":
                 receipt = build_route_receipt(
@@ -15263,7 +15396,7 @@ async def chat(payload: ChatRequest, request: Request):
                     yield (
                         f"data: {json.dumps(empty_error, ensure_ascii=False)}\n\n"
                     ).encode("utf-8")
-            if deferred_done or direct_audio_succeeded:
+            if deferred_done or native_audio_succeeded:
                 yield b"data: [DONE]\n\n"
             await response.aclose()
             await client.aclose()

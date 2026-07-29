@@ -50,11 +50,17 @@ import { deriveProviderFromModel } from "../utils/userFriendlyText";
 import {
   fetchChatStream,
   type ChatApiMessage,
+  type ChatAudioDelta,
   type ChatMessageContent,
   type ChatRuntimeMeta,
   type ChatRole,
   type RouteReceipt,
 } from "../utils/fetchChatStream";
+import {
+  DEFAULT_SPEECH_MODEL_ID,
+  generateSpeechAudio,
+} from "../utils/speechAudio";
+import { StreamingMp3Session } from "../utils/streamingAudio";
 
 interface UploadedImage {
   id: string;
@@ -67,8 +73,37 @@ interface DirectAudioSend {
   audioName: string;
 }
 
+interface ChatAudioProfile {
+  model_id: string;
+  display_name: string;
+  invocable: boolean;
+  interaction_status: "ready" | "planned" | "disabled";
+  chat_modes: Array<
+    | "direct_audio_input"
+    | "native_streaming_audio_output"
+    | "transcribe"
+    | "synthesize_speech"
+  >;
+  output_formats: string[];
+  voices: string[];
+}
+
 interface ChatAudioFeatures {
+  status: "online" | "stale" | "offline" | "disabled";
   microphone_enabled: boolean;
+  profiles: ChatAudioProfile[];
+}
+
+interface AssistantMessageAudio {
+  source: "native" | "tts";
+  status: "waiting" | "streaming" | "generating" | "ready" | "failed";
+  playbackUrl?: string;
+  downloadUrl?: string;
+  format: "mp3";
+  streamed?: boolean;
+  autoPlay?: boolean;
+  byteLength?: number;
+  error?: string;
 }
 
 type LightboxKind = ExtractedImageKind | "upload";
@@ -86,6 +121,7 @@ interface ChatMessage {
   displayContent: string;
   images?: UploadedImage[];
   routeReceipt?: RouteReceipt;
+  audio?: AssistantMessageAudio;
 }
 
 const STREAM_UI_UPDATE_INTERVAL_MS = 80;
@@ -558,6 +594,11 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
             {receipt.actual_model}
           </span>
         ) : null}
+        {receipt.media?.output_kind === "audio" ? (
+          <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2 py-1 text-cyan-100">
+            原生语音 · {(receipt.media.format ?? "mp3").toUpperCase()}
+          </span>
+        ) : null}
       </div>
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 sm:grid-cols-4">
         <div>
@@ -638,14 +679,111 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
   );
 }
 
+function AssistantAudioControls({
+  audio,
+  canRead,
+  isSending,
+  onRead,
+}: {
+  audio?: AssistantMessageAudio;
+  canRead: boolean;
+  isSending: boolean;
+  onRead: () => void;
+}) {
+  const playerRef = useRef<HTMLAudioElement>(null);
+  const hasPlayer = Boolean(audio?.playbackUrl);
+  const isBusy =
+    audio?.status === "waiting" ||
+    audio?.status === "streaming" ||
+    audio?.status === "generating";
+
+  if (!audio && (!canRead || isSending)) return null;
+
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3">
+      {hasPlayer ? (
+        <audio
+          autoPlay={audio?.autoPlay}
+          className="h-9 w-full max-w-md"
+          controls
+          preload="metadata"
+          ref={playerRef}
+          src={audio?.playbackUrl}
+        />
+      ) : null}
+      <div className={`${hasPlayer ? "mt-2" : ""} flex flex-wrap items-center gap-2`}>
+        {isBusy && !hasPlayer ? (
+          <span
+            aria-live="polite"
+            className="inline-flex items-center gap-2 text-xs text-cyan-100"
+            role="status"
+          >
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-cyan-200/30 border-t-cyan-200" />
+            {audio?.source === "native"
+              ? "正在接收语音回答"
+              : "正在生成朗读语音"}
+          </span>
+        ) : null}
+        {hasPlayer ? (
+          <>
+            <button
+              className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/35 hover:text-cyan-100"
+              onClick={() => {
+                const player = playerRef.current;
+                if (!player) return;
+                player.currentTime = 0;
+                void player.play().catch(() => undefined);
+              }}
+              type="button"
+            >
+              重播
+            </button>
+            <button
+              className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/35 hover:text-cyan-100"
+              onClick={() => playerRef.current?.pause()}
+              type="button"
+            >
+              停止
+            </button>
+          </>
+        ) : null}
+        {canRead && !isBusy ? (
+          <button
+            className="rounded-full border border-cyan-300/25 bg-cyan-300/[0.07] px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300/50 hover:bg-cyan-300/12"
+            disabled={isSending}
+            onClick={onRead}
+            type="button"
+          >
+            {audio?.status === "failed" ? "重新朗读" : "朗读"}
+          </button>
+        ) : null}
+        {audio?.source === "native" && audio.streamed ? (
+          <span className="text-[11px] text-slate-400">原生语音 · 边生成边播放</span>
+        ) : audio?.status === "ready" ? (
+          <span className="text-[11px] text-slate-400">
+            {audio.source === "native" ? "原生语音" : "辅助朗读"}
+          </span>
+        ) : null}
+      </div>
+      {audio?.status === "failed" && audio.error ? (
+        <p className="mt-2 text-xs leading-5 text-amber-100">{audio.error}</p>
+      ) : null}
+    </div>
+  );
+}
+
 const MessageBubble = memo(function MessageBubble({
   message,
   isSending,
+  canRead,
   onImageClick,
+  onRead,
 }: {
   message: ChatMessage;
   isSending: boolean;
+  canRead: boolean;
   onImageClick: (src: string, meta?: Partial<LightboxItem>) => void;
+  onRead: (message: ChatMessage) => void;
 }) {
   const isUser = message.role === "user";
   const { text: cleanedContent, images: extractedImages } = useMemo(
@@ -744,6 +882,14 @@ const MessageBubble = memo(function MessageBubble({
             思考中
             <span className="h-2 w-2 animate-pulse rounded-full bg-brand-300 shadow-[0_0_16px_rgba(34,211,238,0.7)]" />
           </span>
+        ) : null}
+        {!isUser ? (
+          <AssistantAudioControls
+            audio={message.audio}
+            canRead={canRead && Boolean(cleanedContent.trim())}
+            isSending={isSending}
+            onRead={() => onRead(message)}
+          />
         ) : null}
         {!isUser && message.routeReceipt ? (
           <RouteReceiptCard receipt={message.routeReceipt} />
@@ -872,6 +1018,11 @@ function ChatConversationPage() {
   >("upload");
   const [chatAudioFeatures, setChatAudioFeatures] =
     useState<ChatAudioFeatures | null>(null);
+  const [nativeAudioEnabled, setNativeAudioEnabled] = useState(false);
+  const [nativeAudioVoice, setNativeAudioVoice] = useState("");
+  const [autoReadEnabled, setAutoReadEnabled] = useState(false);
+  const [autoReadConfirmationOpen, setAutoReadConfirmationOpen] =
+    useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
@@ -923,6 +1074,56 @@ function ChatConversationPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const autoFollowStreamRef = useRef(true);
+  const streamingAudioSessionsRef = useRef(
+    new Map<string, StreamingMp3Session>(),
+  );
+  const speechAbortControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const messageAudioUrlsRef = useRef(new Map<string, Set<string>>());
+  const autoReadConfirmedRef = useRef(false);
+
+  const ttsProfile = useMemo(
+    () =>
+      chatAudioFeatures?.profiles.find(
+        (profile) =>
+          profile.model_id === DEFAULT_SPEECH_MODEL_ID &&
+          profile.invocable &&
+          profile.interaction_status === "ready" &&
+          profile.chat_modes.includes("synthesize_speech"),
+      ) ?? null,
+    [chatAudioFeatures],
+  );
+  const nativeAudioProfile = useMemo(
+    () =>
+      chatAudioFeatures?.profiles.find(
+        (profile) =>
+          profile.model_id === model?.id &&
+          profile.invocable &&
+          profile.interaction_status === "ready" &&
+          profile.chat_modes.includes("native_streaming_audio_output") &&
+          profile.output_formats.includes("mp3"),
+      ) ?? null,
+    [chatAudioFeatures, model?.id],
+  );
+  const nativeAudioAvailable = Boolean(
+    nativeAudioProfile && !isOmniAutoRoute,
+  );
+
+  function releaseAllMessageAudio() {
+    for (const session of streamingAudioSessionsRef.current.values()) {
+      session.dispose();
+    }
+    streamingAudioSessionsRef.current.clear();
+    for (const controller of speechAbortControllersRef.current.values()) {
+      controller.abort();
+    }
+    speechAbortControllersRef.current.clear();
+    for (const urls of messageAudioUrlsRef.current.values()) {
+      for (const url of urls) URL.revokeObjectURL(url);
+    }
+    messageAudioUrlsRef.current.clear();
+  }
 
   const openLightbox = useCallback(
     (src: string, meta?: Partial<LightboxItem>) => {
@@ -979,6 +1180,24 @@ function ChatConversationPage() {
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!nativeAudioProfile) {
+      setNativeAudioEnabled(false);
+      setNativeAudioVoice("");
+      return;
+    }
+    setNativeAudioVoice((current) =>
+      current && nativeAudioProfile.voices.includes(current)
+        ? current
+        : nativeAudioProfile.voices[0] ?? "",
+    );
+  }, [nativeAudioProfile]);
+
+  useEffect(
+    () => () => releaseAllMessageAudio(),
+    [decodedModelId],
+  );
 
   useEffect(() => {
     if (window.matchMedia("(min-width: 1024px)").matches) {
@@ -1224,6 +1443,141 @@ function ChatConversationPage() {
     }
   }
 
+  function releaseMessageAudio(messageId: string) {
+    streamingAudioSessionsRef.current.get(messageId)?.dispose();
+    streamingAudioSessionsRef.current.delete(messageId);
+    speechAbortControllersRef.current.get(messageId)?.abort();
+    speechAbortControllersRef.current.delete(messageId);
+    const urls = messageAudioUrlsRef.current.get(messageId);
+    if (urls) {
+      for (const url of urls) URL.revokeObjectURL(url);
+      messageAudioUrlsRef.current.delete(messageId);
+    }
+  }
+
+  async function requestMessageSpeech(
+    messageId: string,
+    displayContent: string,
+    autoPlay = true,
+  ) {
+    if (!ttsProfile) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                audio: {
+                  source: "tts",
+                  status: "failed",
+                  format: "mp3",
+                  error: "朗读服务当前未启用，请在模型服务连接中检查 OpenRouter。",
+                },
+              }
+            : message,
+        ),
+      );
+      return;
+    }
+    const readableText = extractImages(displayContent).text.trim();
+    if (!readableText) return;
+    if (readableText.length > 4_000) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                audio: {
+                  source: "tts",
+                  status: "failed",
+                  format: "mp3",
+                  error: "本条回答超过 4,000 字，暂不自动截断。请复制需要朗读的段落后使用语音生成。",
+                },
+              }
+            : message,
+        ),
+      );
+      return;
+    }
+
+    releaseMessageAudio(messageId);
+    const controller = new AbortController();
+    speechAbortControllersRef.current.set(messageId, controller);
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              audio: {
+                source: "tts",
+                status: "generating",
+                format: "mp3",
+                autoPlay,
+              },
+            }
+          : message,
+      ),
+    );
+
+    try {
+      const result = await generateSpeechAudio({
+        modelId: ttsProfile.model_id,
+        input: readableText,
+        voice: ttsProfile.voices[0],
+        signal: controller.signal,
+      });
+      const url = URL.createObjectURL(result.blob);
+      messageAudioUrlsRef.current.set(messageId, new Set([url]));
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                audio: {
+                  source: "tts",
+                  status: "ready",
+                  playbackUrl: url,
+                  downloadUrl: url,
+                  format: "mp3",
+                  streamed: false,
+                  autoPlay,
+                  byteLength: result.outputBytes,
+                },
+              }
+            : message,
+        ),
+      );
+    } catch (speechError) {
+      if (
+        speechError instanceof DOMException &&
+        speechError.name === "AbortError"
+      ) {
+        return;
+      }
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                audio: {
+                  source: "tts",
+                  status: "failed",
+                  format: "mp3",
+                  error:
+                    speechError instanceof Error
+                      ? speechError.message
+                      : "朗读语音没有生成完成，请稍后重试。",
+                },
+              }
+            : message,
+        ),
+      );
+    } finally {
+      if (speechAbortControllersRef.current.get(messageId) === controller) {
+        speechAbortControllersRef.current.delete(messageId);
+      }
+    }
+  }
+
   async function sendMessage(
     overrideText?: string,
     directAudio?: DirectAudioSend,
@@ -1268,6 +1622,20 @@ function ChatConversationPage() {
       return false;
     }
 
+    if (
+      nativeAudioEnabled &&
+      (selectedKnowledgeBaseId || runtimeToolsEnabled)
+    ) {
+      setError(
+        "原生语音回答暂不与知识库或 MCP 工具组合。请关闭原生语音，或使用回答下方的“朗读”。",
+      );
+      return false;
+    }
+    const requestNativeAudio =
+      nativeAudioEnabled &&
+      nativeAudioAvailable &&
+      Boolean(nativeAudioVoice);
+
     if (!isOmniAutoRoute && selectedKnowledgeBaseId && images.length > 0) {
       setError("知识库检索模式暂不支持图片问题，请先移除图片或取消知识库选择。");
       return false;
@@ -1307,6 +1675,14 @@ function ChatConversationPage() {
       role: "assistant",
       content: "",
       displayContent: "",
+      audio: requestNativeAudio
+        ? {
+            source: "native",
+            status: "waiting",
+            format: "mp3",
+            autoPlay: true,
+          }
+        : undefined,
     };
 
     const selectedSkill = installedSkills.find(
@@ -1349,6 +1725,62 @@ function ChatConversationPage() {
 
     let pendingAssistantDelta = "";
     let receivedAssistantDelta = false;
+    let receivedAssistantContent = "";
+    let receivedAssistantAudio = false;
+    let nativeAudioReady = false;
+    let nativeAudioFinalized = false;
+    let nativeAudioDecodeError = "";
+    let nativeAudioTranscript = "";
+    const nativeAudioSession = requestNativeAudio
+      ? new StreamingMp3Session({
+          onPlaybackUrl: (url, streamed) => {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId
+                  ? {
+                      ...message,
+                      audio: {
+                        source: "native",
+                        status:
+                          message.audio?.status === "ready"
+                            ? "ready"
+                            : "streaming",
+                        playbackUrl: url,
+                        downloadUrl: message.audio?.downloadUrl,
+                        format: "mp3",
+                        streamed,
+                        autoPlay: true,
+                        byteLength: message.audio?.byteLength,
+                      },
+                    }
+                  : message,
+              ),
+            );
+          },
+          onPlaybackFallback: () => {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantId && message.audio
+                  ? {
+                      ...message,
+                      audio: {
+                        ...message.audio,
+                        streamed: false,
+                      },
+                    }
+                  : message,
+              ),
+            );
+          },
+        })
+      : null;
+    if (nativeAudioSession) {
+      streamingAudioSessionsRef.current.set(
+        assistantId,
+        nativeAudioSession,
+      );
+    }
+
     const flushAssistantDelta = () => {
       if (!pendingAssistantDelta) return;
       const delta = pendingAssistantDelta;
@@ -1369,6 +1801,66 @@ function ChatConversationPage() {
       );
     };
     const assistantUiUpdate = createStreamingUiScheduler(flushAssistantDelta);
+    const finalizeNativeAudio = () => {
+      if (!nativeAudioSession || nativeAudioFinalized) return;
+      nativeAudioFinalized = true;
+      try {
+        if (nativeAudioDecodeError) {
+          throw new Error(nativeAudioDecodeError);
+        }
+        const result = nativeAudioSession.finish();
+        nativeAudioReady = true;
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  audio: {
+                    source: "native",
+                    status: "ready",
+                    playbackUrl: result.playbackUrl,
+                    downloadUrl: result.blobUrl,
+                    format: "mp3",
+                    streamed: result.streamed,
+                    autoPlay: true,
+                    byteLength: result.byteLength,
+                  },
+                }
+              : message,
+          ),
+        );
+      } catch (audioError) {
+        nativeAudioSession.dispose();
+        streamingAudioSessionsRef.current.delete(assistantId);
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  audio: {
+                    source: "native",
+                    status: "failed",
+                    format: "mp3",
+                    error:
+                      audioError instanceof Error
+                        ? `${audioError.message} 文本回答已保留，可点击“重新朗读”。`
+                        : "原生语音未能完整播放。文本回答已保留，可点击“重新朗读”。",
+                  },
+                }
+              : message,
+          ),
+        );
+      }
+    };
+    const flushCompletedMessage = () => {
+      if (!receivedAssistantDelta && nativeAudioTranscript) {
+        receivedAssistantDelta = true;
+        receivedAssistantContent += nativeAudioTranscript;
+        pendingAssistantDelta += nativeAudioTranscript;
+      }
+      assistantUiUpdate.flush();
+      finalizeNativeAudio();
+    };
     let activeRuntimeMeta: ChatRuntimeMeta | null = null;
     let completed = false;
     try {
@@ -1395,9 +1887,12 @@ function ChatConversationPage() {
                   content: answer,
                   displayContent: answer,
                 }
-              : message,
+            : message,
           ),
         );
+        if (autoReadEnabled && ttsProfile) {
+          void requestMessageSpeech(assistantId, answer, true);
+        }
         completed = true;
         return true;
       }
@@ -1427,6 +1922,13 @@ function ChatConversationPage() {
             }
           : undefined,
         compression: isOmniAutoRoute ? { mode: compressionMode } : undefined,
+        responseAudio: requestNativeAudio
+          ? {
+              enabled: true,
+              voice: nativeAudioVoice,
+              format: "mp3",
+            }
+          : undefined,
         temperature: advancedParams.temperature,
         topP: advancedParams.topP,
         maxTokens: advancedParams.maxTokens,
@@ -1464,19 +1966,39 @@ function ChatConversationPage() {
         },
         onDelta: (delta) => {
           receivedAssistantDelta = true;
+          receivedAssistantContent += delta;
           pendingAssistantDelta += delta;
           assistantUiUpdate.schedule();
         },
-        onMessageEnd: () => assistantUiUpdate.flush(),
+        onAudioDelta: (audio: ChatAudioDelta) => {
+          if (audio.transcript) {
+            nativeAudioTranscript += audio.transcript;
+          }
+          if (!audio.data || !nativeAudioSession || nativeAudioDecodeError) {
+            return;
+          }
+          receivedAssistantAudio = true;
+          try {
+            nativeAudioSession.pushBase64(audio.data);
+          } catch (audioError) {
+            nativeAudioDecodeError =
+              audioError instanceof Error
+                ? audioError.message
+                : "原生语音数据无法解码。";
+          }
+        },
+        onMessageEnd: flushCompletedMessage,
       });
-      assistantUiUpdate.flush();
+      flushCompletedMessage();
       if (activeRuntimeMeta) {
         await loadRuntimeObservation(activeRuntimeMeta);
       }
 
       setMessages((current) =>
         current.map((message) =>
-          message.id === assistantId && message.displayContent.trim().length === 0
+          message.id === assistantId &&
+          message.displayContent.trim().length === 0 &&
+          !nativeAudioReady
             ? {
                 ...message,
                 content: "（模型没有返回内容）",
@@ -1485,9 +2007,41 @@ function ChatConversationPage() {
             : message,
         ),
       );
+      if (
+        autoReadEnabled &&
+        !requestNativeAudio &&
+        ttsProfile &&
+        receivedAssistantContent.trim()
+      ) {
+        void requestMessageSpeech(
+          assistantId,
+          receivedAssistantContent,
+          true,
+        );
+      }
       completed = true;
     } catch (streamError) {
       assistantUiUpdate.flush();
+      if (nativeAudioSession && !nativeAudioFinalized) {
+        nativeAudioSession.dispose();
+        streamingAudioSessionsRef.current.delete(assistantId);
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  audio: {
+                    source: "native",
+                    status: "failed",
+                    format: "mp3",
+                    error:
+                      "原生语音响应未完整结束，已丢弃不完整音频。文本回答已保留。",
+                  },
+                }
+              : message,
+          ),
+        );
+      }
       if (activeRuntimeMeta) {
         await loadRuntimeObservation(activeRuntimeMeta);
       }
@@ -1501,10 +2055,10 @@ function ChatConversationPage() {
           item.id === assistantId
             ? {
                 ...item,
-                content: receivedAssistantDelta
+                content: receivedAssistantDelta || receivedAssistantAudio
                   ? item.content
                   : "抱歉，模型暂时无法响应，请稍后重试。",
-                displayContent: receivedAssistantDelta
+                displayContent: receivedAssistantDelta || receivedAssistantAudio
                   ? item.displayContent
                   : "抱歉，模型暂时无法响应，请稍后重试。",
               }
@@ -1624,6 +2178,7 @@ function ChatConversationPage() {
   function exitAgentInterview() {
     if (isSending) return;
 
+    releaseAllMessageAudio();
     clearAgentInterview();
     const nextSearchParams = new URLSearchParams(searchParams);
     [
@@ -2042,10 +2597,18 @@ function ChatConversationPage() {
                   <div className="space-y-5">
                     {messages.map((message) => (
                       <MessageBubble
+                        canRead={Boolean(ttsProfile)}
                         isSending={isSending}
                         key={message.id}
                         message={message}
                         onImageClick={openLightbox}
+                        onRead={(item) =>
+                          void requestMessageSpeech(
+                            item.id,
+                            item.displayContent,
+                            true,
+                          )
+                        }
                       />
                     ))}
                     <div ref={scrollRef} />
@@ -2086,7 +2649,10 @@ function ChatConversationPage() {
                         isLoadingKnowledgeBases ||
                         isOmniAutoRoute
                       }
-                      onChange={(event) => setSelectedKnowledgeBaseId(event.target.value)}
+                      onChange={(event) => {
+                        setSelectedKnowledgeBaseId(event.target.value);
+                        if (event.target.value) setNativeAudioEnabled(false);
+                      }}
                       value={selectedKnowledgeBaseId}
                     >
                       <option value="">
@@ -2154,9 +2720,12 @@ function ChatConversationPage() {
                         checked={runtimeToolsEnabled}
                         className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
                         disabled={isSending || isOmniAutoRoute}
-                        onChange={(event) =>
-                          setRuntimeToolsEnabled(event.target.checked)
-                        }
+                        onChange={(event) => {
+                          setRuntimeToolsEnabled(event.target.checked);
+                          if (event.target.checked) {
+                            setNativeAudioEnabled(false);
+                          }
+                        }}
                         type="checkbox"
                       />
                       启用 MCP 工具
@@ -2300,6 +2869,95 @@ function ChatConversationPage() {
                           </div>
                         </div>
                       </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {ttsProfile || nativeAudioAvailable ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-white/10 px-1 py-2.5 text-xs">
+                    <span className="font-semibold text-cyan-100">语音回答</span>
+                    {nativeAudioAvailable ? (
+                      <label className="inline-flex items-center gap-2 font-semibold text-slate-200">
+                        <input
+                          checked={nativeAudioEnabled}
+                          className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
+                          disabled={
+                            isSending ||
+                            Boolean(selectedKnowledgeBaseId) ||
+                            runtimeToolsEnabled
+                          }
+                          onChange={(event) =>
+                            setNativeAudioEnabled(event.target.checked)
+                          }
+                          type="checkbox"
+                        />
+                        原生语音回答
+                      </label>
+                    ) : null}
+                    {nativeAudioEnabled && nativeAudioProfile ? (
+                      <label className="inline-flex items-center gap-2 text-slate-300">
+                        声线
+                        <select
+                          className="rounded-full border border-white/10 bg-ink-950/80 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-300/45"
+                          disabled={isSending}
+                          onChange={(event) =>
+                            setNativeAudioVoice(event.target.value)
+                          }
+                          value={nativeAudioVoice}
+                        >
+                          {nativeAudioProfile.voices.map((voice) => (
+                            <option key={voice} value={voice}>
+                              {voice}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                    {ttsProfile ? (
+                      <label className="inline-flex items-center gap-2 font-semibold text-slate-200">
+                        <input
+                          checked={autoReadEnabled}
+                          className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
+                          disabled={isSending}
+                          onChange={(event) => {
+                            if (
+                              event.target.checked &&
+                              !autoReadConfirmedRef.current
+                            ) {
+                              setAutoReadConfirmationOpen(true);
+                              return;
+                            }
+                            setAutoReadEnabled(event.target.checked);
+                          }}
+                          type="checkbox"
+                        />
+                        自动朗读后续回答
+                      </label>
+                    ) : null}
+                    <span className="text-slate-500">
+                      默认关闭；原生语音开启时不会重复调用辅助朗读。
+                    </span>
+                    {autoReadConfirmationOpen ? (
+                      <span className="flex basis-full flex-wrap items-center gap-2 rounded-md bg-amber-300/[0.08] px-3 py-2 text-amber-100">
+                        每次文字回答后会额外调用一次语音模型，可能产生费用。
+                        <button
+                          className="rounded-full bg-amber-200 px-3 py-1 font-semibold text-ink-950"
+                          onClick={() => {
+                            autoReadConfirmedRef.current = true;
+                            setAutoReadEnabled(true);
+                            setAutoReadConfirmationOpen(false);
+                          }}
+                          type="button"
+                        >
+                          确认开启
+                        </button>
+                        <button
+                          className="rounded-full border border-amber-200/30 px-3 py-1 font-semibold"
+                          onClick={() => setAutoReadConfirmationOpen(false)}
+                          type="button"
+                        >
+                          取消
+                        </button>
+                      </span>
                     ) : null}
                   </div>
                 ) : null}

@@ -45,6 +45,17 @@ export interface ChatCompressionOptions {
   mode?: "auto" | "off" | "standard" | "strong";
 }
 
+export interface ChatResponseAudioOptions {
+  enabled: true;
+  voice: string;
+  format: "mp3";
+}
+
+export interface ChatAudioDelta {
+  data?: string;
+  transcript?: string;
+}
+
 export interface RouteReceipt {
   requested_model: string;
   actual_model?: string | null;
@@ -79,6 +90,14 @@ export interface RouteReceipt {
     fallback_reason?: string | null;
     stages?: string[];
   };
+  media?: {
+    input_kind?: "audio" | null;
+    output_kind?: "audio" | null;
+    processing?: "direct" | "native_stream" | string | null;
+    audio_status?: "completed" | "failed" | string | null;
+    format?: string | null;
+    raw_retained?: boolean;
+  };
   version?: string | null;
 }
 
@@ -88,6 +107,7 @@ interface FetchChatStreamOptions {
   gateway?: ChatGateway;
   routing?: ChatRoutingOptions;
   compression?: ChatCompressionOptions;
+  responseAudio?: ChatResponseAudioOptions;
   temperature?: number;
   topP?: number;
   maxTokens?: number;
@@ -100,6 +120,7 @@ interface FetchChatStreamOptions {
   signal?: AbortSignal;
   onRuntimeMeta?: (meta: ChatRuntimeMeta) => void;
   onRouteReceipt?: (receipt: RouteReceipt) => void;
+  onAudioDelta?: (audio: ChatAudioDelta) => void;
   onMessageEnd?: () => void;
   onDelta: (text: string) => void;
 }
@@ -216,6 +237,27 @@ function readDelta(payload: unknown) {
   return `${readContent(content)}${readContent(images)}`;
 }
 
+function readAudioDelta(payload: unknown): ChatAudioDelta | null {
+  if (!payload || typeof payload !== "object" || !("choices" in payload)) {
+    return null;
+  }
+  const choices = payload.choices;
+  if (!Array.isArray(choices)) return null;
+  const firstChoice = choices[0] as
+    | {
+        delta?: { audio?: unknown };
+        message?: { audio?: unknown };
+      }
+    | undefined;
+  const audio = firstChoice?.delta?.audio ?? firstChoice?.message?.audio;
+  if (!audio || typeof audio !== "object") return null;
+  const record = audio as Record<string, unknown>;
+  const data = typeof record.data === "string" ? record.data : undefined;
+  const transcript =
+    typeof record.transcript === "string" ? record.transcript : undefined;
+  return data || transcript ? { data, transcript } : null;
+}
+
 function readStreamError(payload: unknown) {
   if (!payload || typeof payload !== "object" || !("error" in payload)) {
     return "";
@@ -259,6 +301,7 @@ function handleSseEvent(
   eventText: string,
   onDelta: (text: string) => void,
   onRouteReceipt?: (receipt: RouteReceipt) => void,
+  onAudioDelta?: (audio: ChatAudioDelta) => void,
   onMessageEnd?: () => void,
 ) {
   const eventName = eventText
@@ -306,6 +349,8 @@ function handleSseEvent(
 
     const delta = readDelta(payload);
     if (delta) onDelta(delta);
+    const audio = readAudioDelta(payload);
+    if (audio) onAudioDelta?.(audio);
     if (readFinishReason(payload)) onMessageEnd?.();
   }
 }
@@ -316,6 +361,7 @@ export async function fetchChatStream({
   gateway = "default",
   routing,
   compression,
+  responseAudio,
   temperature = 0.7,
   topP,
   maxTokens = 2048,
@@ -328,6 +374,7 @@ export async function fetchChatStream({
   signal,
   onRuntimeMeta,
   onRouteReceipt,
+  onAudioDelta,
   onMessageEnd,
   onDelta,
 }: FetchChatStreamOptions) {
@@ -340,6 +387,7 @@ export async function fetchChatStream({
       gateway,
       routing,
       compression,
+      response_audio: responseAudio,
       temperature,
       top_p: topP,
       max_tokens: maxTokens,
@@ -405,7 +453,13 @@ export async function fetchChatStream({
 
     for (const eventText of events) {
       try {
-        handleSseEvent(eventText, onDelta, onRouteReceipt, emitMessageEnd);
+        handleSseEvent(
+          eventText,
+          onDelta,
+          onRouteReceipt,
+          onAudioDelta,
+          emitMessageEnd,
+        );
       } catch (error) {
         console.error("ModelMirror chat stream event failed", error);
         throw error;
@@ -416,7 +470,13 @@ export async function fetchChatStream({
   buffer += decoder.decode();
   if (buffer.trim()) {
     try {
-      handleSseEvent(buffer, onDelta, onRouteReceipt, emitMessageEnd);
+      handleSseEvent(
+        buffer,
+        onDelta,
+        onRouteReceipt,
+        onAudioDelta,
+        emitMessageEnd,
+      );
     } catch (error) {
       console.error("ModelMirror chat stream tail failed", error);
       throw error;

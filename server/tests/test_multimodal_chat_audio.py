@@ -25,6 +25,7 @@ from server.multimodal.api import (
 from server.multimodal.audio_catalog import AudioCatalogService
 from server.multimodal.chat_attachments import ChatAttachmentStore
 from server.multimodal.stt import MultimodalServiceError
+from server.omniroute.telemetry import update_stream_state
 
 
 def audio_bytes(audio_format: str) -> bytes:
@@ -219,6 +220,55 @@ def chat_payload(
             }
         ],
     }
+
+
+def native_audio_output_payload(
+    *,
+    model_id: str = "openai/gpt-audio",
+    voice: str = "alloy",
+) -> dict[str, Any]:
+    return {
+        "model_id": model_id,
+        "gateway": "default",
+        "messages": [
+            {
+                "role": "user",
+                "content": "请用一句话介绍模镜。",
+            }
+        ],
+        "response_audio": {
+            "enabled": True,
+            "voice": voice,
+            "format": "mp3",
+        },
+    }
+
+
+def test_stream_state_recognizes_audio_only_delta() -> None:
+    state: dict[str, Any] = {}
+    update_stream_state(
+        "data: "
+        + json.dumps(
+            {
+                "model": "openai/gpt-audio",
+                "choices": [
+                    {
+                        "delta": {
+                            "audio": {
+                                "data": "SUQz",
+                                "transcript": "你好",
+                            }
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        state,
+    )
+    assert state["content_observed"] is True
+    assert state["audio_observed"] is True
 
 
 def assert_attachment_pending(
@@ -481,6 +531,190 @@ async def test_direct_audio_interrupted_stream_is_retryable(
         assert_attachment_pending(store, attachment_id)
         decision = service.diagnostics()["recent_decisions"][0]
         assert decision["outcome"] == "stream_interrupted"
+    finally:
+        configure_audio_catalog_service(None)
+        configure_chat_attachment_store(None)
+        configure_model_router(original_service)
+
+
+@pytest.mark.asyncio
+async def test_native_audio_output_uses_verified_streaming_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, _ = configure_audio_test_services(tmp_path, monkeypatch)
+    monkeypatch.setenv("MULTIMODAL_STREAMING_AUDIO_ENABLED", "true")
+    sent_requests: list[dict[str, Any]] = []
+    first_audio = base64.b64encode(b"ID3stream-").decode("ascii")
+    second_audio = base64.b64encode(b"tail").decode("ascii")
+    response = FakeResponse(
+        chunks=[
+                (
+                    'data: {"model":"openai/gpt-audio","choices":'
+                    '[{"delta":{"audio":{"data":"'
+                    + first_audio
+                    + '","transcript":"你好，"}}'
+                    ',"finish_reason":null}]}\n\n'
+                ),
+                (
+                    'data: {"choices":[{"delta":{"audio":{"data":"'
+                    + second_audio
+                    + '","transcript":"这里是模镜。"}}'
+                    ',"finish_reason":"stop"}],"usage":{"prompt_tokens":8,'
+                    '"completion_tokens":5,"total_tokens":13}}\n\n'
+            ),
+            "data: [DONE]\n\n",
+        ]
+    )
+    fake_chat_client(monkeypatch, response, sent_requests)
+
+    try:
+        async with RealAsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            result = await client.post(
+                "/api/chat",
+                json=native_audio_output_payload(),
+            )
+
+        assert result.status_code == 200, result.text
+        assert len(sent_requests) == 1
+        sent = sent_requests[0]
+        assert sent["url"] == "https://audio.example/api/v1/chat/completions"
+        assert sent["json"]["modalities"] == ["text", "audio"]
+        assert sent["json"]["audio"] == {
+            "voice": "alloy",
+            "format": "mp3",
+        }
+        assert first_audio in result.text
+        assert second_audio in result.text
+        assert result.text.count("event: route_receipt") == 1
+        assert result.text.count("data: [DONE]") == 1
+        receipt_event = next(
+            event
+            for event in result.text.split("\n\n")
+            if event.startswith("event: route_receipt")
+        )
+        receipt = json.loads(
+            next(
+                line.removeprefix("data:").strip()
+                for line in receipt_event.splitlines()
+                if line.startswith("data:")
+            )
+        )
+        assert receipt["tokens"]["total"] == 13
+        assert receipt["media"] == {
+            "processing": "native_stream",
+            "output_kind": "audio",
+            "audio_status": "completed",
+            "format": "mp3",
+            "raw_retained": False,
+        }
+        decision = service.diagnostics()["recent_decisions"][0]
+        assert decision["operation"] == "chat_audio_output"
+        assert decision["outcome"] == "success"
+    finally:
+        configure_audio_catalog_service(None)
+        configure_chat_attachment_store(None)
+        configure_model_router(original_service)
+
+
+@pytest.mark.asyncio
+async def test_native_audio_output_preserves_text_when_audio_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, _ = configure_audio_test_services(tmp_path, monkeypatch)
+    monkeypatch.setenv("MULTIMODAL_STREAMING_AUDIO_ENABLED", "true")
+    sent_requests: list[dict[str, Any]] = []
+    response = FakeResponse(
+        chunks=[
+            (
+                'data: {"model":"openai/gpt-audio","choices":'
+                '[{"delta":{"content":"文本回答仍然完整"},'
+                '"finish_reason":"stop"}],"usage":{"prompt_tokens":6,'
+                '"completion_tokens":4,"total_tokens":10}}\n\n'
+            ),
+            "data: [DONE]\n\n",
+        ]
+    )
+    fake_chat_client(monkeypatch, response, sent_requests)
+
+    try:
+        async with RealAsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            result = await client.post(
+                "/api/chat",
+                json=native_audio_output_payload(),
+            )
+
+        assert result.status_code == 200, result.text
+        assert "文本回答仍然完整" in result.text
+        assert '"error":' not in result.text
+        receipt_event = next(
+            event
+            for event in result.text.split("\n\n")
+            if event.startswith("event: route_receipt")
+        )
+        receipt = json.loads(
+            next(
+                line.removeprefix("data:").strip()
+                for line in receipt_event.splitlines()
+                if line.startswith("data:")
+            )
+        )
+        assert receipt["media"]["audio_status"] == "failed"
+        assert "native_audio_missing" in receipt["reason_codes"]
+        decision = service.diagnostics()["recent_decisions"][0]
+        assert decision["operation"] == "chat_audio_output"
+        assert decision["outcome"] == "audio_missing"
+    finally:
+        configure_audio_catalog_service(None)
+        configure_chat_attachment_store(None)
+        configure_model_router(original_service)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("streaming_enabled", "voice", "expected_code"),
+    [
+        (False, "alloy", "native_audio_output_unsupported"),
+        (True, "unknown-voice", "native_audio_voice_unsupported"),
+    ],
+)
+async def test_native_audio_output_rejects_unverified_capability_before_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    streaming_enabled: bool,
+    voice: str,
+    expected_code: str,
+) -> None:
+    original_service = get_model_router_service()
+    _, _ = configure_audio_test_services(tmp_path, monkeypatch)
+    monkeypatch.setenv(
+        "MULTIMODAL_STREAMING_AUDIO_ENABLED",
+        "true" if streaming_enabled else "false",
+    )
+    sent_requests: list[dict[str, Any]] = []
+    fake_chat_client(monkeypatch, FakeResponse(), sent_requests)
+
+    try:
+        async with RealAsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            result = await client.post(
+                "/api/chat",
+                json=native_audio_output_payload(voice=voice),
+            )
+        assert result.status_code == 422
+        assert result.json()["code"] == expected_code
+        assert sent_requests == []
     finally:
         configure_audio_catalog_service(None)
         configure_chat_attachment_store(None)
