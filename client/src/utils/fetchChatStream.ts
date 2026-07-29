@@ -17,9 +17,19 @@ export interface ChatInputAudioPart {
   attachment_id: string;
 }
 
+export interface ChatInputVideoPart {
+  type: "input_video";
+  attachment_id: string;
+}
+
 export type ChatMessageContent =
   | string
-  | Array<ChatTextPart | ChatImagePart | ChatInputAudioPart>;
+  | Array<
+      | ChatTextPart
+      | ChatImagePart
+      | ChatInputAudioPart
+      | ChatInputVideoPart
+    >;
 
 export interface ChatApiMessage {
   role: ChatRole;
@@ -91,7 +101,7 @@ export interface RouteReceipt {
     stages?: string[];
   };
   media?: {
-    input_kind?: "audio" | null;
+    input_kind?: "audio" | "video" | null;
     output_kind?: "audio" | null;
     processing?: "direct" | "native_stream" | string | null;
     audio_status?: "completed" | "failed" | string | null;

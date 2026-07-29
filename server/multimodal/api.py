@@ -286,7 +286,15 @@ async def delete_chat_attachment(
 
 
 @router.get("/video/models", response_model=VideoModelCatalogResponse)
-async def get_video_models() -> VideoModelCatalogResponse:
+async def get_video_models(response: Response) -> VideoModelCatalogResponse:
+    response.headers["X-ModelMirror-Chat-Video-Enabled"] = (
+        "true"
+        if os.getenv("MULTIMODAL_CHAT_VIDEO_ENABLED", "false")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+        else "false"
+    )
     return await get_video_catalog_service().get_catalog()
 
 

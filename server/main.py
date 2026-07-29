@@ -557,6 +557,7 @@ try:
     from server.multimodal.api import (
         get_audio_catalog_service,
         get_chat_attachment_store,
+        get_video_analysis_service,
     )
     from server.multimodal.chat_attachments import ClaimedChatAttachment
     from server.multimodal.stt import MultimodalServiceError
@@ -565,6 +566,7 @@ except ModuleNotFoundError:
     from multimodal.api import (
         get_audio_catalog_service,
         get_chat_attachment_store,
+        get_video_analysis_service,
     )
     from multimodal.chat_attachments import ClaimedChatAttachment
     from multimodal.stt import MultimodalServiceError
@@ -1011,8 +1013,20 @@ class InputAudioContentPart(BaseModel):
     )
 
 
+class InputVideoContentPart(BaseModel):
+    type: Literal["input_video"]
+    attachment_id: str = Field(
+        min_length=20,
+        max_length=80,
+        pattern=r"^att_[A-Za-z0-9_-]+$",
+    )
+
+
 ChatContent = str | list[
-    TextContentPart | ImageContentPart | InputAudioContentPart
+    TextContentPart
+    | ImageContentPart
+    | InputAudioContentPart
+    | InputVideoContentPart
 ]
 
 
@@ -1363,6 +1377,12 @@ def message_has_audio(content: ChatContent) -> bool:
     )
 
 
+def message_has_video(content: ChatContent) -> bool:
+    return isinstance(content, list) and any(
+        isinstance(part, InputVideoContentPart) for part in content
+    )
+
+
 def audio_attachment_ids(messages: list[ChatMessage]) -> list[str]:
     return [
         part.attachment_id
@@ -1370,6 +1390,16 @@ def audio_attachment_ids(messages: list[ChatMessage]) -> list[str]:
         if isinstance(message.content, list)
         for part in message.content
         if isinstance(part, InputAudioContentPart)
+    ]
+
+
+def video_attachment_ids(messages: list[ChatMessage]) -> list[str]:
+    return [
+        part.attachment_id
+        for message in messages
+        if isinstance(message.content, list)
+        for part in message.content
+        if isinstance(part, InputVideoContentPart)
     ]
 
 
@@ -1406,6 +1436,7 @@ def validate_multimodal_content(
 ) -> None:
     has_image = False
     audio_message_indexes: list[int] = []
+    video_message_indexes: list[int] = []
     latest_user_index = next(
         (
             index
@@ -1433,6 +1464,9 @@ def validate_multimodal_content(
                 continue
             if isinstance(part, InputAudioContentPart):
                 audio_message_indexes.append(message_index)
+                continue
+            if isinstance(part, InputVideoContentPart):
+                video_message_indexes.append(message_index)
 
     if (
         has_image
@@ -1444,10 +1478,10 @@ def validate_multimodal_content(
             detail="当前模型不支持图片输入，请切换支持多模态的模型。",
         )
     if audio_message_indexes:
-        if has_image:
+        if has_image or video_message_indexes:
             raise HTTPException(
                 status_code=400,
-                detail="本轮只能选择图片或音频中的一种附件。",
+                detail="本轮只能选择图片、音频或视频中的一种附件。",
             )
         if len(audio_message_indexes) != 1:
             raise HTTPException(
@@ -1463,6 +1497,27 @@ def validate_multimodal_content(
             raise HTTPException(
                 status_code=400,
                 detail="音频附件只能用于当前最新一条用户消息。",
+            )
+    if video_message_indexes:
+        if has_image:
+            raise HTTPException(
+                status_code=400,
+                detail="本轮只能选择图片、音频或视频中的一种附件。",
+            )
+        if len(video_message_indexes) != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="每轮最多发送一个视频附件。",
+            )
+        video_index = video_message_indexes[0]
+        if (
+            latest_user_index is None
+            or video_index != latest_user_index
+            or messages[video_index].role != "user"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="视频附件只能用于当前最新一条用户消息。",
             )
 
 
@@ -13588,6 +13643,9 @@ async def chat(payload: ChatRequest, request: Request):
     direct_audio_requested = any(
         message_has_audio(message.content) for message in payload.messages
     )
+    direct_video_requested = any(
+        message_has_video(message.content) for message in payload.messages
+    )
     response_audio_requested = payload.response_audio is not None
     native_audio_requested = (
         direct_audio_requested or response_audio_requested
@@ -13607,7 +13665,7 @@ async def chat(payload: ChatRequest, request: Request):
     shadow_native_router = (
         auto_gateway_requested and native_router_policy.engine == "shadow"
     )
-    use_omniroute = not native_audio_requested and (
+    use_omniroute = not native_audio_requested and not direct_video_requested and (
         payload.gateway == "omniroute"
         or (auto_gateway_requested and not use_native_router)
         or (
@@ -13633,7 +13691,12 @@ async def chat(payload: ChatRequest, request: Request):
                 )
             },
         )
-    if not url and not use_native_router and not native_audio_requested:
+    if (
+        not url
+        and not use_native_router
+        and not native_audio_requested
+        and not direct_video_requested
+    ):
         return JSONResponse(
             status_code=500,
             content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
@@ -13696,6 +13759,33 @@ async def chat(payload: ChatRequest, request: Request):
                     "如需使用工具，请先把音频转成文字。"
                 ),
             )
+        if direct_video_requested and (
+            payload.gateway != "default"
+            or is_omniroute_auto_model(payload.model_id)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "智能调度暂不直接接收视频附件。"
+                    "请先选择视频理解辅助模型，确认摘要后再发送。"
+                ),
+            )
+        if direct_video_requested and payload.tool_mode != "none":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "视频直接理解暂不与 MCP 工具模式组合使用。"
+                    "如需使用工具，请先把视频转成文字摘要。"
+                ),
+            )
+        if direct_video_requested and response_audio_requested:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "视频直接理解暂不同时生成原生语音回答。"
+                    "可在文字回答完成后使用“朗读”。"
+                ),
+            )
         if response_audio_requested and (
             payload.gateway != "default"
             or is_omniroute_auto_model(payload.model_id)
@@ -13731,6 +13821,118 @@ async def chat(payload: ChatRequest, request: Request):
         return JSONResponse(
             status_code=500,
             content={"error": "后端校验请求时出错，请查看服务日志。"},
+        )
+
+    if direct_video_requested:
+        attachment_store = get_chat_attachment_store()
+        video_attachment: ClaimedChatAttachment | None = None
+        try:
+            attachment_ids = video_attachment_ids(payload.messages)
+            if len(attachment_ids) != 1:
+                raise MultimodalServiceError(
+                    "invalid_video_attachment",
+                    "每轮必须且只能提交一个视频附件。",
+                    status_code=422,
+                )
+            video_attachment = attachment_store.claim(
+                attachment_ids[0],
+                expected_kind="video",
+            )
+            prompt = next(
+                (
+                    message_text(message.content).strip()
+                    for message in reversed(payload.messages)
+                    if message.role == "user"
+                    and message_text(message.content).strip()
+                ),
+                "",
+            ) or "请概括这段视频的主要内容、关键事件和可见文字。"
+            started_at = time.perf_counter()
+            result = await get_video_analysis_service().analyze(
+                model_id=payload.model_id,
+                prompt=prompt,
+                source_type="file",
+                filename=f"chat-video.{video_attachment.format}",
+                content_type=video_attachment.mime_type,
+                content=video_attachment.content,
+            )
+            attachment_store.complete(video_attachment.attachment_id)
+            latency_ms = int(
+                max(0.0, (time.perf_counter() - started_at) * 1000)
+            )
+        except MultimodalServiceError as exc:
+            if video_attachment is not None:
+                try:
+                    attachment_store.release_for_retry(
+                        video_attachment.attachment_id
+                    )
+                except MultimodalServiceError:
+                    pass
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": exc.message, "code": exc.code},
+            )
+        except Exception:
+            if video_attachment is not None:
+                try:
+                    attachment_store.release_for_retry(
+                        video_attachment.attachment_id
+                    )
+                except MultimodalServiceError:
+                    pass
+            logger.exception("Direct chat video analysis failed")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "视频理解暂时无法完成，请稍后重试。",
+                    "code": "direct_video_unavailable",
+                },
+            )
+
+        receipt = {
+            "requested_model": payload.model_id,
+            "actual_model": result.actual_model,
+            "provider": result.provider,
+            "strategy": "explicit",
+            "engine": "openrouter",
+            "reason_codes": [
+                "explicit_model",
+                "operation_analyze_video",
+                "direct_video_input",
+            ],
+            "latency_ms": latency_ms,
+            "tokens": {
+                "input": result.usage.input_tokens,
+                "output": result.usage.output_tokens,
+                "total": result.usage.total_tokens,
+            },
+            "response_cost_usd": result.usage.cost_usd,
+            "cost_kind": result.usage.cost_kind,
+            "fallback_attempts": 0,
+            "cache_hit": False,
+            "request_id": result.request_id,
+            "media": {
+                "input_kind": "video",
+                "processing": "direct",
+                "format": video_attachment.format,
+                "raw_retained": False,
+            },
+            "version": "2",
+        }
+
+        async def stream_video_analysis():
+            yield chat_sse_delta(result.text)
+            yield route_receipt_sse(receipt)
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(
+            stream_video_analysis(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-ModelMirror-Actual-Model": result.actual_model,
+            },
         )
 
     audio_attachment: ClaimedChatAttachment | None = None
