@@ -53,6 +53,48 @@ interface ToolActivity {
   title: string;
 }
 
+interface StoredCodingSession {
+  id: string;
+  lastSeq: number;
+}
+
+const CODING_SESSION_STORAGE_KEY = "modelmirror.coding.session.v1";
+const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+function readStoredCodingSession(): StoredCodingSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(
+      window.sessionStorage.getItem(CODING_SESSION_STORAGE_KEY) ?? "null",
+    ) as Partial<StoredCodingSession> | null;
+    if (
+      !value ||
+      typeof value.id !== "string" ||
+      !SAFE_SESSION_ID.test(value.id) ||
+      !Number.isInteger(value.lastSeq) ||
+      (value.lastSeq ?? -1) < 0
+    ) {
+      return null;
+    }
+    return { id: value.id, lastSeq: value.lastSeq as number };
+  } catch {
+    return null;
+  }
+}
+
+function storeCodingSession(id: string, lastSeq: number) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(
+    CODING_SESSION_STORAGE_KEY,
+    JSON.stringify({ id, lastSeq }),
+  );
+}
+
+function clearStoredCodingSession() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(CODING_SESSION_STORAGE_KEY);
+}
+
 const capabilityReason: Record<string, string> = {
   disabled: "管理员尚未启用代码助手，其他功能不受影响。",
   not_configured: "代码服务已启动，但所需的模型连接信息尚未配置。",
@@ -61,12 +103,12 @@ const capabilityReason: Record<string, string> = {
 };
 
 const errorMessage: Record<string, string> = {
-  concurrency_limit: "代码助手正在处理另一个问题，请稍后再试。",
+  concurrency_limit: "代码助手已有一个未结束的会话，请回到原页面继续，或稍后重试。",
   turn_in_progress: "当前问题仍在处理，请先停止或等待完成。",
   prompt_too_long: "问题超过 20,000 字符，请缩短后重试。",
   session_not_found: "本次使用记录已经过期，请重新提交问题。",
   worker_unavailable: "无法连接代码服务，请检查服务状态。",
-  agent_turn_failed: "代码分析未完成，请稍后重试。",
+  agent_turn_failed: "代码助手未能完成本轮处理，请检查模型额度或配置后重试。",
   draft_policy_violation: "本轮修改超出安全范围，已自动撤销。",
   draft_busy: "代码助手仍在处理，请等待本轮结束。",
   validation_failed: "修改检查尚未通过，请先修正后再下载。",
@@ -138,6 +180,9 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
 }
 
 export default function CodingPage() {
+  const restoredSessionRef = useRef<StoredCodingSession | null>(
+    readStoredCodingSession(),
+  );
   const [capabilityState, setCapabilityState] =
     useState<CapabilityState>("loading");
   const [capabilities, setCapabilities] = useState<CodingCapabilities | null>(
@@ -145,7 +190,9 @@ export default function CodingPage() {
   );
   const [runState, setRunState] = useState<RunState>("idle");
   const [prompt, setPrompt] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(
+    restoredSessionRef.current?.id ?? null,
+  );
   const [events, setEvents] = useState<CodingEvent[]>([]);
   const [error, setError] = useState("");
   const [transportWarning, setTransportWarning] = useState("");
@@ -155,7 +202,7 @@ export default function CodingPage() {
   const [draftError, setDraftError] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
   const closeStreamRef = useRef<null | (() => void)>(null);
-  const lastSeqRef = useRef(0);
+  const lastSeqRef = useRef(restoredSessionRef.current?.lastSeq ?? 0);
   const isDraftMode = capabilities?.mode === "draft";
 
   const loadCapabilities = useCallback(async () => {
@@ -236,6 +283,7 @@ export default function CodingPage() {
     (event: CodingEvent) => {
       if (event.seq <= lastSeqRef.current) return;
       lastSeqRef.current = event.seq;
+      storeCodingSession(event.session_id, event.seq);
       setTransportWarning("");
       setEvents((current) => [...current, event]);
       if (event.type === "turn_completed") {
@@ -272,6 +320,7 @@ export default function CodingPage() {
         } else {
           setSessionId(null);
           lastSeqRef.current = 0;
+          clearStoredCodingSession();
         }
       } else if (event.type === "turn_started") {
         setRunState("running");
@@ -306,6 +355,8 @@ export default function CodingPage() {
         const session = await createCodingSession();
         activeSessionId = session.id;
         setSessionId(session.id);
+        lastSeqRef.current = 0;
+        storeCodingSession(session.id, 0);
         if (isDraftMode) {
           setDraftChanges(null);
         }
@@ -328,6 +379,7 @@ export default function CodingPage() {
       ) {
         setSessionId(null);
         lastSeqRef.current = 0;
+        clearStoredCodingSession();
         setDraftChanges(null);
       }
       setRunState("error");

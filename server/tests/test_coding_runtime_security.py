@@ -20,6 +20,8 @@ from server.coding_runtime.models import (
 from server.coding_runtime.worker import (
     INTERNAL_GATEWAY_BASE_URL,
     MAX_AGENT_STEPS,
+    MODEL_CONTEXT_TOKENS,
+    MODEL_OUTPUT_TOKENS,
     CodingWorkerError,
     CodingWorkerServer,
     WORKSPACE_PATH,
@@ -140,7 +142,13 @@ def test_agent_configuration_fails_closed_for_write_shell_and_extensions(
     assert config["autoupdate"] is False
     assert config["model"] == "modelmirror/deepseek/deepseek-v4-flash"
     assert config["agent"]["readonly"]["steps"] == MAX_AGENT_STEPS
-    assert "deepseek/deepseek-v4-flash" in config["provider"]["modelmirror"]["models"]
+    model_config = config["provider"]["modelmirror"]["models"][
+        "deepseek/deepseek-v4-flash"
+    ]
+    assert model_config["limit"] == {
+        "context": MODEL_CONTEXT_TOKENS,
+        "output": MODEL_OUTPUT_TOKENS,
+    }
     assert config["provider"]["modelmirror"]["options"]["baseURL"] == (
         INTERNAL_GATEWAY_BASE_URL
     )

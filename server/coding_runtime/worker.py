@@ -38,6 +38,8 @@ INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
 SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 CODING_AGENT_MODES = frozenset({"readonly", "draft"})
 MAX_AGENT_STEPS = 12
+MODEL_CONTEXT_TOKENS = 131_072
+MODEL_OUTPUT_TOKENS = 8_192
 REQUIRED_RUNTIME_EXECUTABLES = (Path(OPENCODE_PATH), Path(RIPGREP_PATH))
 
 
@@ -152,6 +154,10 @@ def build_opencode_config(
                 "models": {
                     model_id: {
                         "name": "ModelMirror Coding Model",
+                        "limit": {
+                            "context": MODEL_CONTEXT_TOKENS,
+                            "output": MODEL_OUTPUT_TOKENS,
+                        },
                     }
                 },
             }
