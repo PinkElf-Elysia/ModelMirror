@@ -27,24 +27,36 @@ class FakeWorker:
         configured: bool = True,
         block_turn: bool = False,
         fail_health: bool = False,
+        mode: str = "readonly",
+        validation_passed: bool = True,
+        malformed_changes: bool = False,
     ) -> None:
         self.configured = configured
         self.block_turn = block_turn
         self.fail_health = fail_health
+        self.mode = mode
+        self.validation_passed = validation_passed
+        self.malformed_changes = malformed_changes
         self.release = asyncio.Event()
         self.cancelled = False
         self.closed: list[str] = []
         self.session_id = "coding-session"
+        self.revision = 1
 
     async def health(self) -> dict[str, Any]:
         if self.fail_health:
             raise CodingWorkerError("unavailable", code="worker_unavailable")
-        return {"ok": True, "configured": self.configured}
+        return {
+            "ok": True,
+            "configured": self.configured,
+            "mode": self.mode,
+        }
 
     async def create_session(self) -> dict[str, Any]:
         return {
             "ok": True,
             "session_id": self.session_id,
+            "mode": self.mode,
             "event": self._event(1, CodingEventKind.SESSION_STARTED).to_dict(),
         }
 
@@ -94,6 +106,83 @@ class FakeWorker:
     async def close(self, session_id: str) -> None:
         self.closed.append(session_id)
 
+    async def changes(self, session_id: str) -> dict[str, Any]:
+        return self._changes()
+
+    async def diff(self, session_id: str, path: str, revision: int) -> str:
+        self._require_revision(revision)
+        if path != "server/example.py":
+            raise CodingWorkerError("missing", code="change_not_found")
+        return (
+            "diff --git a/server/example.py b/server/example.py\n"
+            "--- a/server/example.py\n"
+            "+++ b/server/example.py\n"
+            "@@ -1 +1 @@\n"
+            "-before\n"
+            "+after\n"
+        )
+
+    async def patch(self, session_id: str, revision: int) -> str:
+        self._require_revision(revision)
+        if not self.validation_passed:
+            raise CodingWorkerError("blocked", code="validation_failed")
+        return await self.diff(session_id, "server/example.py", revision)
+
+    async def validate(self, session_id: str) -> dict[str, Any]:
+        return self._changes()
+
+    async def discard(self, session_id: str) -> dict[str, Any]:
+        self.revision += 1
+        return self._changes(empty=True)
+
+    def _changes(self, *, empty: bool = False) -> dict[str, Any]:
+        path = (
+            "/workspace/private.py"
+            if self.malformed_changes
+            else "server/example.py"
+        )
+        files = (
+            []
+            if empty
+            else [
+                {
+                    "path": path,
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                }
+            ]
+        )
+        validation_status = (
+            "passed" if self.validation_passed or empty else "failed"
+        )
+        return {
+            "revision": self.revision,
+            "files": files,
+            "file_count": len(files),
+            "additions": 0 if empty else 1,
+            "deletions": 0 if empty else 1,
+            "patch_bytes": 0 if empty else 150,
+            "validation_status": validation_status,
+            "can_download": bool(files) and validation_status == "passed",
+            "checks": [
+                {
+                    "id": "python_syntax",
+                    "label": "Python 文件结构",
+                    "status": validation_status,
+                    "message": (
+                        "Python 文件结构正常"
+                        if validation_status == "passed"
+                        else "请检查：server/example.py:1"
+                    ),
+                }
+            ],
+        }
+
+    def _require_revision(self, revision: int) -> None:
+        if revision != self.revision:
+            raise CodingWorkerError("stale", code="stale_revision")
+
     def _event(
         self,
         seq: int,
@@ -127,6 +216,7 @@ async def make_client():
             enabled=enabled,
             worker=fake,
             ttl_seconds=ttl_seconds,
+            mode=fake.mode,
         )
         services.append(service)
         configure_coding_service(service)
@@ -286,3 +376,133 @@ async def test_worker_unavailable_and_expired_sessions_fail_cleanly(make_client)
     assert removed == 1
     assert worker2.closed == [session_id]
     assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_draft_capabilities_and_review_endpoints_are_explicit(
+    make_client,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    client, _, _ = await make_client(worker=worker)
+    async with client:
+        capabilities = await client.get("/api/coding/capabilities")
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        changes = await client.get(
+            f"/api/coding/sessions/{session_id}/changes"
+        )
+        diff = await client.get(
+            f"/api/coding/sessions/{session_id}/diff",
+            params={"path": "server/example.py", "revision": 1},
+        )
+        checked = await client.post(
+            f"/api/coding/sessions/{session_id}/validate"
+        )
+        patch = await client.get(
+            f"/api/coding/sessions/{session_id}/patch",
+            params={"revision": 1},
+        )
+        discarded = await client.post(
+            f"/api/coding/sessions/{session_id}/discard"
+        )
+
+    body = capabilities.json()
+    assert body["available"] is True
+    assert body["mode"] == "draft"
+    assert body["host_apply"] is False
+    assert body["limits"]["max_changed_files"] == 20
+    assert body["limits"]["max_file_bytes"] == 512 * 1024
+    assert body["limits"]["max_patch_bytes"] == 1024 * 1024
+    assert changes.json()["files"][0]["path"] == "server/example.py"
+    assert checked.json()["validation_status"] == "passed"
+    assert diff.status_code == 200
+    assert diff.headers["content-type"].startswith("text/x-diff")
+    assert diff.headers["cache-control"] == "no-store"
+    assert "/workspace" not in diff.text
+    assert patch.status_code == 200
+    assert patch.headers["cache-control"] == "no-store"
+    assert patch.headers["content-disposition"].endswith(
+        'filename="modelmirror-changes-r1.patch"'
+    )
+    assert discarded.json()["revision"] == 2
+    assert discarded.json()["files"] == []
+
+
+@pytest.mark.asyncio
+async def test_review_rejects_readonly_busy_stale_and_invalid_path(
+    make_client,
+) -> None:
+    readonly_client, _, _ = await make_client()
+    async with readonly_client:
+        created = await readonly_client.post("/api/coding/sessions")
+        readonly_id = created.json()["id"]
+        unavailable = await readonly_client.get(
+            f"/api/coding/sessions/{readonly_id}/changes"
+        )
+    assert unavailable.status_code == 409
+    assert unavailable.json()["detail"]["code"] == "draft_unavailable"
+
+    worker = FakeWorker(mode="draft", block_turn=True)
+    client, service, _ = await make_client(worker=worker)
+    async with client:
+        session_id = await _create_and_start(client)
+        busy = await client.get(
+            f"/api/coding/sessions/{session_id}/changes"
+        )
+        worker.release.set()
+        turn_task = service._sessions[session_id].turn_task
+        assert turn_task is not None
+        await turn_task
+        invalid = await client.get(
+            f"/api/coding/sessions/{session_id}/diff",
+            params={"path": "../private.py", "revision": 1},
+        )
+        stale = await client.get(
+            f"/api/coding/sessions/{session_id}/diff",
+            params={"path": "server/example.py", "revision": 0},
+        )
+
+    assert busy.status_code == 409
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "invalid_path"
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "stale_revision"
+
+
+@pytest.mark.asyncio
+async def test_failed_check_keeps_review_but_blocks_patch(make_client) -> None:
+    worker = FakeWorker(mode="draft", validation_passed=False)
+    client, _, _ = await make_client(worker=worker)
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        changes = await client.get(
+            f"/api/coding/sessions/{session_id}/changes"
+        )
+        patch = await client.get(
+            f"/api/coding/sessions/{session_id}/patch",
+            params={"revision": 1},
+        )
+
+    assert changes.status_code == 200
+    assert changes.json()["validation_status"] == "failed"
+    assert changes.json()["can_download"] is False
+    assert patch.status_code == 409
+    assert patch.json()["detail"]["code"] == "validation_failed"
+
+
+@pytest.mark.asyncio
+async def test_malformed_worker_review_payload_is_not_exposed(make_client) -> None:
+    worker = FakeWorker(mode="draft", malformed_changes=True)
+    client, _, _ = await make_client(worker=worker)
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        changes = await client.get(
+            f"/api/coding/sessions/{session_id}/changes"
+        )
+
+    assert changes.status_code == 503
+    serialized = json.dumps(changes.json())
+    assert "/workspace" not in serialized
+    assert changes.json()["detail"]["code"] == "invalid_worker_response"
