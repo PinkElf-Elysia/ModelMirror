@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import stat
 from pathlib import Path
 
 import pytest
@@ -103,6 +105,43 @@ def test_valid_changes_accumulate_across_turns_and_rollback_preserves_them(
     accumulated = workspace.commit_turn()
     assert accumulated.revision == 2
     assert [item.path for item in accumulated.files] == ["first.txt", "third.txt"]
+
+
+def test_rollback_makes_read_only_snapshot_writable_before_checkpoint_overlay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = _workspace(
+        tmp_path,
+        {"docs/baseline.txt": "baseline\n"},
+    )
+    source_file = workspace.source_root / "docs/baseline.txt"
+    source_file.chmod(0o400)
+    source_file.parent.chmod(0o500)
+    workspace.source_root.chmod(0o500)
+
+    workspace.begin_turn()
+    _write(workspace, "docs/accepted.txt", "accepted\n")
+    assert workspace.commit_turn().revision == 1
+
+    workspace.begin_turn()
+    _write(workspace, "docs/cancelled.txt", "cancelled\n")
+    real_copytree = shutil.copytree
+
+    def guarded_copytree(src, dst, *args, **kwargs):
+        if Path(src) == workspace.checkpoint_root:
+            assert (
+                (workspace.workspace_root / "docs").stat().st_mode
+                & stat.S_IWUSR
+            )
+        return real_copytree(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copytree", guarded_copytree)
+    rolled_back = workspace.rollback_turn()
+
+    assert rolled_back.revision == 1
+    assert [item.path for item in rolled_back.files] == ["docs/accepted.txt"]
+    assert not (workspace.workspace_root / "docs/cancelled.txt").exists()
 
 
 @pytest.mark.parametrize(

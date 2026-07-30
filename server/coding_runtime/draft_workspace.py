@@ -625,6 +625,7 @@ class DraftWorkspace:
 
     def _restore_checkpoint(self) -> None:
         self._reset_workspace_from(self.source_root)
+        self._make_tree_writable(self.workspace_root)
         shutil.copytree(
             self.checkpoint_root,
             self.workspace_root,
@@ -663,6 +664,24 @@ class DraftWorkspace:
             if path.is_symlink() or not path.is_dir():
                 raise DraftWorkspaceError("unsafe_workspace_root")
             shutil.rmtree(path)
+
+    @staticmethod
+    def _make_tree_writable(path: Path) -> None:
+        if path.is_symlink() or not path.is_dir():
+            raise DraftWorkspaceError("unsafe_workspace_root")
+        path.chmod(0o700)
+        for current, directory_names, file_names in os.walk(path):
+            current_path = Path(current)
+            for name in directory_names:
+                directory = current_path / name
+                if directory.is_symlink() or not directory.is_dir():
+                    raise DraftWorkspaceError("unsafe_workspace_root")
+                directory.chmod(0o700)
+            for name in file_names:
+                file_path = current_path / name
+                if file_path.is_symlink() or not file_path.is_file():
+                    raise DraftWorkspaceError("unsafe_workspace_root")
+                file_path.chmod(0o600)
 
     def _replace_tree(self, source: Path, target: Path) -> None:
         self._clear_tree(target)
