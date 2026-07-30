@@ -214,6 +214,10 @@ class _DraftTurnAdapter:
         self.workspace = workspace
         self.outcome = outcome
 
+    async def open(self, session):
+        session.transition(CodingSessionState.READY)
+        return session.append_event(CodingEventKind.SESSION_STARTED)
+
     async def prompt(self, session, prompt):
         turn_id = session.begin_turn()
         yield session.append_event(CodingEventKind.TURN_STARTED, turn_id=turn_id)
@@ -283,6 +287,7 @@ def _draft_record(
 @pytest.mark.asyncio
 async def test_worker_commits_success_and_rolls_back_cancel_or_failure(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     server, record = _draft_record(tmp_path, outcome="complete")
     writer = _MemoryWriter()
@@ -294,10 +299,24 @@ async def test_worker_commits_success_and_rolls_back_cancel_or_failure(
     assert (record.workspace.workspace_root / "complete.txt").exists()
     assert record.workspace.revision == 1
 
+    replacement_adapters: list[_DraftTurnAdapter] = []
+
+    def replacement_adapter(mode: str) -> _DraftTurnAdapter:
+        assert mode == "draft"
+        adapter = _DraftTurnAdapter(record.workspace, outcome="complete")
+        replacement_adapters.append(adapter)
+        return adapter
+
+    monkeypatch.setattr(
+        "server.coding_runtime.worker.create_acp_client",
+        replacement_adapter,
+    )
+    old_session = record.session
     record.adapter = _DraftTurnAdapter(record.workspace, outcome="cancel")
+    cancel_writer = _MemoryWriter()
     await server._prompt(
         {"session_id": record.session.session_id, "prompt": "cancelled"},
-        _MemoryWriter(),
+        cancel_writer,
     )
     assert not (record.workspace.workspace_root / "cancel.txt").exists()
     assert (record.workspace.workspace_root / "complete.txt").exists()
@@ -306,6 +325,15 @@ async def test_worker_commits_success_and_rolls_back_cancel_or_failure(
         & stat.S_IWUSR
     )
     assert record.workspace.revision == 1
+    assert replacement_adapters == [record.adapter]
+    assert record.session is not old_session
+    assert record.session.session_id == old_session.session_id
+    assert old_session.state is CodingSessionState.CLOSED
+    assert record.session.state is CodingSessionState.READY
+    assert (
+        record.session._next_seq
+        == cancel_writer.frames[-2]["event"]["seq"] + 1
+    )
 
     record.adapter = _DraftTurnAdapter(record.workspace, outcome="exception")
     with pytest.raises(CodingWorkerError, match="turn failed"):

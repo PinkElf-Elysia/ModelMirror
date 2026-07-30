@@ -412,6 +412,8 @@ class CodingWorkerServer:
                         record,
                         terminal_event,
                     )
+                if terminal_event.kind is CodingEventKind.CANCELLED:
+                    await self._reset_agent_after_cancel(record)
                 await self._send(
                     writer,
                     {"ok": True, "event": terminal_event.to_dict()},
@@ -428,6 +430,29 @@ class CodingWorkerServer:
                     "Coding Agent turn failed.",
                     code="agent_turn_failed",
                 )
+
+    @staticmethod
+    async def _reset_agent_after_cancel(record: _WorkerSession) -> None:
+        old_session = record.session
+        old_adapter = record.adapter
+        next_sequence = old_session._next_seq
+        next_session = CodingSession(
+            session_id=old_session.session_id,
+            created_at=old_session.created_at,
+            _next_seq=next_sequence,
+        )
+        next_adapter = create_acp_client(record.mode)
+        await old_adapter.close(old_session)
+        try:
+            await next_adapter.open(next_session)
+        except BaseException:
+            with contextlib.suppress(BaseException):
+                await next_adapter.close(next_session)
+            raise
+        # The replacement ACP session's startup event is an internal detail.
+        next_session._next_seq = next_sequence
+        record.session = next_session
+        record.adapter = next_adapter
 
     async def _cancel(
         self,
