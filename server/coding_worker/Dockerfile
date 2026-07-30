@@ -10,6 +10,8 @@ RUN npm pack "opencode-ai@${OPENCODE_VERSION}" --pack-destination /tmp \
 
 FROM python:3.12-slim
 
+ARG RIPGREP_VERSION=14.1.1-1+b4
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     CODING_AGENT_SOCKET_PATH=/run/modelmirror-coding/coding-runtime.sock
@@ -17,7 +19,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=opencode_runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=opencode_runtime /usr/local/lib/node_modules/opencode-ai /usr/local/lib/node_modules/opencode-ai
 
-RUN ln -s ../lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends "ripgrep=${RIPGREP_VERSION}" \
+    && rm -rf /var/lib/apt/lists/* \
+    && test "$(rg --version | head -n 1)" = "ripgrep 14.1.1" \
+    && ln -s ../lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode \
     && groupadd --gid 65532 coding \
     && useradd --uid 65532 --gid 65532 --home-dir /home/coding --no-create-home coding \
     && mkdir -p /opt/modelmirror /opt/modelmirror-source /home/coding /workspace /run/modelmirror-coding \

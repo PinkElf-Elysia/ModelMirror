@@ -19,12 +19,14 @@ from server.coding_runtime.models import (
 )
 from server.coding_runtime.worker import (
     INTERNAL_GATEWAY_BASE_URL,
+    MAX_AGENT_STEPS,
     CodingWorkerError,
     CodingWorkerServer,
     WORKSPACE_PATH,
     _WorkerSession,
     build_opencode_config,
     create_acp_client,
+    validate_runtime_dependencies,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +49,9 @@ def test_container_isolation_uses_an_immutable_sanitized_source_snapshot() -> No
         REPOSITORY_ROOT / "server/coding_worker/Dockerfile"
     ).read_text(encoding="utf-8")
     dockerignore = (REPOSITORY_ROOT / ".dockerignore").read_text(encoding="utf-8")
+    notices = (
+        REPOSITORY_ROOT / "server/THIRD_PARTY_NOTICES.md"
+    ).read_text(encoding="utf-8")
 
     assert "profiles:\n      - coding" in service
     assert "context: ." in service
@@ -62,6 +67,10 @@ def test_container_isolation_uses_an_immutable_sanitized_source_snapshot() -> No
     assert "COPY . /opt/modelmirror-source" in dockerfile
     assert "chmod -R a-w /opt/modelmirror-source" in dockerfile
     assert "COPY --chown=coding:coding . /workspace" not in dockerfile
+    assert "ARG RIPGREP_VERSION=14.1.1-1+b4" in dockerfile
+    assert '"ripgrep=${RIPGREP_VERSION}"' in dockerfile
+    assert '"$(rg --version | head -n 1)" = "ripgrep 14.1.1"' in dockerfile
+    assert "ripgrep` 14.1.1" in notices
     assert (
         "/workspace:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700"
         in service
@@ -130,6 +139,7 @@ def test_agent_configuration_fails_closed_for_write_shell_and_extensions(
     assert config["share"] == "disabled"
     assert config["autoupdate"] is False
     assert config["model"] == "modelmirror/deepseek/deepseek-v4-flash"
+    assert config["agent"]["readonly"]["steps"] == MAX_AGENT_STEPS
     assert "deepseek/deepseek-v4-flash" in config["provider"]["modelmirror"]["models"]
     assert config["provider"]["modelmirror"]["options"]["baseURL"] == (
         INTERNAL_GATEWAY_BASE_URL
@@ -152,6 +162,7 @@ def test_draft_mode_only_changes_edit_to_ask(
     assert permission["edit"] == "ask"
     assert permission["*"] == "deny"
     assert permission["read"]["*"] == "allow"
+    assert config["agent"]["draft"]["steps"] == MAX_AGENT_STEPS
     assert all(
         permission[name] == "deny"
         for name in (
@@ -165,6 +176,21 @@ def test_draft_mode_only_changes_edit_to_ask(
             "todowrite",
         )
     )
+
+
+def test_runtime_dependencies_fail_closed_when_search_backend_is_missing(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "opencode"
+    executable.write_text("fixture", encoding="utf-8")
+    executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
+
+    validate_runtime_dependencies((executable,))
+
+    with pytest.raises(CodingWorkerError) as exc_info:
+        validate_runtime_dependencies((executable, tmp_path / "rg"))
+
+    assert exc_info.value.code == "not_configured"
 
 
 def test_workspace_reset_preserves_tmpfs_mount_root(tmp_path: Path) -> None:

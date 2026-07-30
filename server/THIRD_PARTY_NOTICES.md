@@ -52,6 +52,12 @@ retain their own license notices under the image's global Node.js modules
 directory. ModelMirror communicates with OpenCode only through ACP and does not
 copy OpenCode source code into the application.
 
+The Coding Runtime also installs Debian's `ripgrep` 14.1.1 package as the
+search backend required by OpenCode's built-in glob and grep tools. ripgrep is
+distributed under the MIT License or the Unlicense.
+
+Project: https://github.com/BurntSushi/ripgrep
+
 ## Browser sidecar
 
 The isolated Browser sidecar uses Playwright 1.58.2 under the Apache License

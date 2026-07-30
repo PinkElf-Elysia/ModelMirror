@@ -33,9 +33,12 @@ WORKSPACE_PATH = "/workspace"
 SOURCE_SNAPSHOT_PATH = Path("/opt/modelmirror-source")
 CHECKPOINT_PATH = Path("/tmp/modelmirror-coding-checkpoint")
 OPENCODE_PATH = "/usr/local/bin/opencode"
+RIPGREP_PATH = "/usr/bin/rg"
 INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
 SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 CODING_AGENT_MODES = frozenset({"readonly", "draft"})
+MAX_AGENT_STEPS = 12
+REQUIRED_RUNTIME_EXECUTABLES = (Path(OPENCODE_PATH), Path(RIPGREP_PATH))
 
 
 class CodingWorkerError(RuntimeError):
@@ -56,6 +59,21 @@ def coding_agent_mode() -> str:
             code="not_configured",
         )
     return mode
+
+
+def validate_runtime_dependencies(
+    paths: tuple[Path, ...] = REQUIRED_RUNTIME_EXECUTABLES,
+) -> None:
+    missing = [
+        path.name
+        for path in paths
+        if not path.is_file() or not os.access(path, os.X_OK)
+    ]
+    if missing:
+        raise CodingWorkerError(
+            "Coding Agent runtime dependencies are unavailable.",
+            code="not_configured",
+        )
 
 
 def _permission_for_mode(mode: str) -> dict[str, Any]:
@@ -118,6 +136,7 @@ def build_opencode_config(
                     else "Read-only ModelMirror repository analyst"
                 ),
                 "mode": "primary",
+                "steps": MAX_AGENT_STEPS,
                 "permission": permission,
             }
         },
@@ -990,6 +1009,7 @@ def _event_from_dict(payload: dict[str, Any]) -> CodingEvent:
 
 
 async def main() -> None:
+    validate_runtime_dependencies()
     await CodingWorkerServer().serve_forever()
 
 
