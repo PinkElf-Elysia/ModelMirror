@@ -1,6 +1,6 @@
 # 部署与运维指南
 
-最后更新日期：2026-07-28
+最后更新日期：2026-07-29
 维护人：模镜团队
 
 ## 支持边界
@@ -22,6 +22,7 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `sandbox` | 是 | 无网络沙箱 sidecar。 |
 | `omniroute` | 否 | `omniroute` profile；只绑定 `127.0.0.1:20128`。 |
 | `office-host` | 否 | `office` profile；实验性 Office Add-in host。 |
+| `coding-runtime` | 否 | `coding` profile；单实例只读代码问答执行面，无宿主端口。 |
 
 启动默认栈：
 
@@ -84,6 +85,30 @@ docker compose -p modelmirror --profile office up -d office-host
 Office host 需要独立证书和浏览器/Office 加载项验收，不应因该可选服务异常而
 误判默认核心栈不可用。
 
+### 只读代码助手
+
+代码助手默认关闭。配置写入 Compose 读取的根 `.env` 或启动命令环境，不要写入
+前端，也不要提交：
+
+```bash
+CODING_AGENT_ENABLED=true
+CODING_AGENT_MODEL=your-new-api-model-id
+CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
+```
+
+该 Key 只注入 `coding-runtime`，不注入 FastAPI。启动并重建：
+
+```bash
+docker compose -p modelmirror --profile coding up -d --build --force-recreate
+docker compose -p modelmirror --profile coding ps
+curl http://localhost:8000/api/coding/capabilities
+```
+
+`coding-runtime` 仅加入 `internal: true` 网络并通过 Unix socket 连接 FastAPI，
+源码挂载为只读，不映射宿主端口。它是实验性本地单实例能力，不应直接暴露到
+公网。完整边界和人工验收见
+[CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
+
 ## 反向代理
 
 `/api/chat` 和工作流运行使用 SSE。Nginx 必须关闭代理缓冲：
@@ -116,6 +141,7 @@ curl http://localhost:5173/studio
 - RAG active version、候选版本和流水线状态。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
+- 启用后检查 Coding capabilities、Worker health、取消清理和源码 Git 状态。
 
 ## 备份与恢复
 
@@ -136,6 +162,8 @@ curl http://localhost:5173/studio
   和 `MULTIMODAL_CHAT_VIDEO_ENABLED`；独立 STT、TTS、视频分析及旧视频任务不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
+- 代码助手：设置 `CODING_AGENT_ENABLED=false`，停止 `coding-runtime`；没有
+  持久化会话或数据迁移需要恢复。
 - 可选 profile 故障不得通过删除核心数据解决。
 
 legacy `/api/dify/*` 健康只表示兼容代理配置状态，不是平台健康门禁。

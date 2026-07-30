@@ -65,6 +65,8 @@
 - 源码以只读方式挂载；容器使用非 root、只读根文件系统、无特权、资源限额和 tmpfs 状态。
 - `CODING_AGENT_ENABLED=false` 为默认值；Coding Worker 不可用时不得影响核心健康检查。
 - 并发上限为 1，Prompt 上限为 20,000 字符，空闲 TTL 为 30 分钟。
+- `/coding` 面向没有代码基础的用户，页面不得混入不必要的协议、进程或供应商
+  术语；输入区优先显示，服务状态、停止、错误和只读范围必须直接可理解。
 
 ## 5. 验收标准
 
@@ -98,18 +100,31 @@
 
 每批固定执行：范围检查、目标测试、`git diff --check`、`git diff --stat`、完整 Diff Review、敏感信息/禁止产物检查；通过后形成一个本地提交。
 
+已形成的本地提交：
+
+| 批次 | 提交 | 状态 |
+| --- | --- | --- |
+| 0 | `38a4bb1` `docs: 定义 Coding Agent 首轮任务契约` | 通过 |
+| 1 | `d04e89f` `feature: 添加 Coding Runtime 领域契约` | 通过 |
+| 2 | `42b64f1` `feature: 添加最小 ACP 会话客户端` | 通过 |
+| 3 | `a341c50` `feature: 添加只读 ACP 执行容器` | 通过 |
+| 4 | `4eafa76` `feature: 添加 Coding Agent 只读会话接口` | 通过 |
+| 5 | `7ecdec0` `feature: 添加 Coding Agent 只读工作台` | 通过 |
+| 6 | `docs: 完成 Coding Agent 首轮 harness` | 自动门禁通过，随本文件提交 |
+
 ## 7. 验证矩阵
 
 | 检查 | 命令或步骤 | 预期 | 状态 |
 | --- | --- | --- | --- |
 | 基线与隔离 | `git rev-parse HEAD`、`git status --short --branch`、`git worktree list` | 基线正确，新 worktree 干净且独立 | 通过 |
-| 后端语法 | `python -m py_compile server/main.py server/coding_runtime/*.py` | 无语法错误 | 未运行 |
-| Coding 专项测试 | `python -m pytest server/tests/test_coding_runtime_*.py -q` | 全部通过 | 未运行 |
-| 后端回归 | `python -m pytest server/tests/ -q` | 全部通过 | 未运行 |
-| 前端构建 | `cd client; npm.cmd run build` | 类型检查和构建通过 | 未运行 |
-| Compose 静态验证 | `docker compose -p modelmirror --profile coding config` | 配置可解析且隔离属性存在 | 未运行 |
+| 后端语法 | `python -m py_compile server/main.py server/coding_runtime/*.py` | 无语法错误 | 通过 |
+| Coding 专项测试 | `python -m pytest server/tests/test_coding_runtime_*.py -q` | 全部通过 | 22 passed |
+| 后端回归 | `python -m pytest server/tests/ -q` | 全部通过 | 634 passed，4 条既有弃用警告 |
+| 前端构建 | `cd client; npm.cmd run build` | 类型检查和构建通过 | 通过；Coding 独立 chunk gzip 5.79 kB |
+| 前端体验 | 1440×900 与 390×844 页面检查 | 输入优先、状态易懂、无横向溢出或页面错误 | 通过 |
+| Compose 静态验证 | `docker compose -p modelmirror --profile coding config` | 配置可解析且隔离属性存在 | 通过 |
 | Docker/人工验收 | 用户执行完整重建和只读真实问答验收 | 流式、取消、拒绝写入/命令/公网均符合契约 | 未运行 |
-| 敏感信息扫描 | 检查暂存文件中的密钥模式、`.env`、日志和运行存储 | 无秘密或禁止产物 | 未运行 |
+| 敏感信息扫描 | 检查暂存文件中的密钥模式、`.env`、日志和运行存储 | 无秘密或禁止产物 | 通过；文档仅含明确占位符 |
 
 ## 8. 风险与停止条件
 
@@ -135,11 +150,11 @@
 
 ## 10. 完成定义
 
-- [ ] 7 个批次各自通过门禁并形成 7 个本地 commit。
-- [ ] 实现只覆盖声明范围。
-- [ ] 正常、故障和安全拒绝路径均有自动验证。
-- [ ] 公共接口和无持久化影响已说明。
-- [ ] Diff 已审查，无用户改动被覆盖。
-- [ ] 无密钥、运行存储或构建产物进入提交。
-- [ ] 架构、部署、第三方声明和 Harness 已同步。
+- [x] 7 个批次各自通过门禁并形成 7 个本地 commit。
+- [x] 实现只覆盖声明范围。
+- [x] 正常、故障和安全拒绝路径均有自动验证。
+- [x] 公共接口和无持久化影响已说明。
+- [x] Diff 已审查，无用户改动被覆盖。
+- [x] 无密钥、运行存储或构建产物进入提交。
+- [x] 架构、部署、第三方声明和 Harness 已同步。
 - [ ] 用户完成容器重建和真实链路人工验收。
