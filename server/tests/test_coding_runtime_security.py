@@ -29,19 +29,38 @@ def _compose_service(name: str) -> str:
     return match.group(1)
 
 
-def test_container_isolation_prevents_source_changes_and_public_egress() -> None:
+def test_container_isolation_uses_an_immutable_sanitized_source_snapshot() -> None:
     compose = (REPOSITORY_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     service = _compose_service("coding-runtime")
+    dockerfile = (
+        REPOSITORY_ROOT / "server/coding_worker/Dockerfile"
+    ).read_text(encoding="utf-8")
+    dockerignore = (REPOSITORY_ROOT / ".dockerignore").read_text(encoding="utf-8")
 
     assert "profiles:\n      - coding" in service
+    assert "context: ." in service
+    assert "dockerfile: server/coding_worker/Dockerfile" in service
     assert 'user: "65532:65532"' in service
     assert "read_only: true" in service
     assert "cap_drop:\n      - ALL" in service
     assert "no-new-privileges:true" in service
-    assert "- .:/workspace:ro" in service
+    assert ":/workspace" not in service
     assert "- coding_internal" in service
     assert "ports:" not in service
     assert "privileged:" not in service
+    assert "COPY --chown=coding:coding . /workspace" in dockerfile
+    assert all(
+        pattern in dockerignore
+        for pattern in (
+            ".git",
+            ".env",
+            "**/*.key",
+            "**/*.pem",
+            "**/node_modules",
+            "**/storage/**",
+            "**/uploads/**",
+        )
+    )
 
     network = compose.split("  coding_internal:\n", maxsplit=1)[1]
     assert "internal: true" in network

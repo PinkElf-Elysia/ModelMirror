@@ -24,8 +24,9 @@ RUN ln -s ../lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/openco
     && chown -R coding:coding /home/coding /run/modelmirror-coding
 
 WORKDIR /opt/modelmirror
-COPY coding_runtime ./coding_runtime
-COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-coding/THIRD_PARTY_NOTICES.md
+COPY server/coding_runtime ./coding_runtime
+COPY server/THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-coding/THIRD_PARTY_NOTICES.md
+COPY --chown=coding:coding . /workspace
 
 USER 65532:65532
 

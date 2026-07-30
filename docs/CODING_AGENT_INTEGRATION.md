@@ -30,7 +30,7 @@ flowchart LR
   API -->|"私有 Unix socket"| WORKER["coding-runtime"]
   WORKER --> ACP["最小 ACP 客户端"]
   ACP --> OC["OpenCode 1.18.9"]
-  OC -->|"只读挂载 /workspace"| REPO["ModelMirror 源码"]
+  OC -->|"只读镜像快照 /workspace"| REPO["ModelMirror 源码"]
   OC -->|"内部网络"| GW["newAPI"]
 ```
 
@@ -55,12 +55,14 @@ flowchart LR
 1. 协议层：所有 ACP 权限请求统一拒绝；畸形帧、超时和进程退出均失败关闭。
 2. 智能体层：只允许 `read/list/glob/grep/lsp`，禁止编辑、Shell、任务委派、
    外部目录、联网工具、插件、MCP、Skill、分享和自动更新。
-3. 容器层：非 root、只读根文件系统、源码只读挂载、无特权、资源限额和
-   `internal: true` 网络；即使上层配置失效也不能改写真实仓库或直连公网。
+3. 容器层：构建时通过 `.dockerignore` 排除环境文件、密钥、依赖、缓存和运行
+   数据，再把源码快照复制到镜像；运行时使用非 root、只读根文件系统、无特权、
+   资源限额和 `internal: true` 网络。即使上层配置失效也不能改写真实仓库或
+   直连公网。
 
 `coding-runtime` 不映射宿主端口。FastAPI 只通过私有 Unix socket 使用它。
 OpenCode 子进程只继承固定 PATH/HOME、模型标识和专用网关连接信息，不继承
-FastAPI 的完整环境。
+FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷新只读快照。
 
 ## 配置与启动
 

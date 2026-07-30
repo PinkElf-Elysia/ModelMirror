@@ -223,8 +223,8 @@ services:
     profiles:
       - coding
     build:
-      context: ./server
-      dockerfile: coding_worker/Dockerfile
+      context: .
+      dockerfile: server/coding_worker/Dockerfile
     container_name: modelmirror-coding-runtime
     depends_on:
       new-api:
@@ -249,9 +249,6 @@ services:
       CODING_AGENT_GATEWAY_KEY: ${CODING_AGENT_GATEWAY_KEY:-}
     volumes:
       - coding_socket:/run/modelmirror-coding
-      - .:/workspace:ro
-      - ./.env.example:/workspace/.env:ro
-      - ./server/.env.example:/workspace/server/.env:ro
     restart: unless-stopped
     healthcheck:
       test:
