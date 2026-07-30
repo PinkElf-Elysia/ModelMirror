@@ -176,6 +176,7 @@ services:
       SANDBOX_WORKSPACE_ROOT: /app/sandbox-workspaces
       BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
       BROWSER_DATA_ROOT: /app/browser-data
+      CODING_AGENT_ENABLED: ${CODING_AGENT_ENABLED:-false}
       CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
     ports:
       - "8000:8000"

@@ -42,6 +42,7 @@ COPY omniroute ./omniroute
 COPY multimodal ./multimodal
 COPY model_router ./model_router
 COPY context_engine ./context_engine
+COPY coding_runtime ./coding_runtime
 
 EXPOSE 8000
 

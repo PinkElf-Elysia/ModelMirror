@@ -205,6 +205,11 @@ except ModuleNotFoundError:
     from rag.rag_service import RagService
 
 try:
+    from server.coding_runtime.api import router as coding_router
+except ModuleNotFoundError:
+    from coding_runtime.api import router as coding_router
+
+try:
     from server.datax import (
         DataXService,
         DataXStore,
@@ -745,6 +750,7 @@ app.include_router(model_router_router)
 app.include_router(model_catalog_router)
 app.include_router(omniroute_router)
 app.include_router(multimodal_router)
+app.include_router(coding_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
