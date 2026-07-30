@@ -1,7 +1,9 @@
 import type {
   CodingCancelResponse,
   CodingCapabilities,
+  CodingDraftChanges,
   CodingEvent,
+  CodingPatchDownload,
   CodingSessionResponse,
   CodingTurnResponse,
 } from "../types/coding";
@@ -42,6 +44,27 @@ async function requestJson<T>(
   return payload as T;
 }
 
+async function requestText(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: { Accept: "text/x-diff" },
+  });
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  return response.text();
+}
+
+async function throwResponseError(response: Response): Promise<never> {
+  const payload = (await response.json().catch(() => null)) as
+    | { detail?: { code?: string } }
+    | null;
+  throw new CodingApiError(
+    "代码助手请求失败",
+    response.status,
+    payload?.detail?.code,
+  );
+}
+
 export function getCodingCapabilities() {
   return requestJson<CodingCapabilities>("/api/coding/capabilities");
 }
@@ -67,6 +90,58 @@ export function cancelCodingTurn(sessionId: string) {
     `/api/coding/sessions/${encodeURIComponent(sessionId)}/cancel`,
     { method: "POST" },
   );
+}
+
+export function getCodingChanges(sessionId: string) {
+  return requestJson<CodingDraftChanges>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/changes`,
+  );
+}
+
+export function getCodingDiff(
+  sessionId: string,
+  path: string,
+  revision: number,
+) {
+  const query = new URLSearchParams({
+    path,
+    revision: String(revision),
+  });
+  return requestText(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/diff?${query}`,
+  );
+}
+
+export function validateCodingChanges(sessionId: string) {
+  return requestJson<CodingDraftChanges>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/validate`,
+    { method: "POST" },
+  );
+}
+
+export function discardCodingChanges(sessionId: string) {
+  return requestJson<CodingDraftChanges>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/discard`,
+    { method: "POST" },
+  );
+}
+
+export async function getCodingPatch(
+  sessionId: string,
+  revision: number,
+): Promise<CodingPatchDownload> {
+  const response = await fetch(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/patch?revision=${revision}`,
+    { headers: { Accept: "text/x-diff" } },
+  );
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename =
+    disposition.match(/filename="([^"]+)"/)?.[1] ??
+    `modelmirror-changes-r${revision}.patch`;
+  return { blob: await response.blob(), filename };
 }
 
 interface CodingEventHandlers {
