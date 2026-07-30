@@ -42,6 +42,8 @@ class AcpProcessConfig:
     process_cwd: str | None = None
     environment: Mapping[str, str] = field(default_factory=dict)
     request_timeout: float = 30.0
+    prompt_timeout: float = 900.0
+    prompt_idle_timeout: float = 180.0
     shutdown_timeout: float = 2.0
 
     def __post_init__(self) -> None:
@@ -51,7 +53,12 @@ class AcpProcessConfig:
             raise ValueError("ACP workspace is fixed to /workspace")
         if self.mode not in {"readonly", "draft"}:
             raise ValueError("ACP mode must be readonly or draft")
-        if self.request_timeout <= 0 or self.shutdown_timeout <= 0:
+        if (
+            self.request_timeout <= 0
+            or self.prompt_timeout <= 0
+            or self.prompt_idle_timeout <= 0
+            or self.shutdown_timeout <= 0
+        ):
             raise ValueError("ACP timeouts must be positive")
 
 
@@ -138,6 +145,7 @@ class AcpClient:
                     "sessionId": self._acp_session_id,
                     "prompt": [{"type": "text", "text": prompt}],
                 },
+                timeout=self._config.prompt_timeout,
             )
         )
         await asyncio.sleep(0)
@@ -151,7 +159,15 @@ class AcpClient:
                 done, _ = await asyncio.wait(
                     {prompt_task, update_task},
                     return_when=asyncio.FIRST_COMPLETED,
+                    timeout=self._config.prompt_idle_timeout,
                 )
+                if not done:
+                    update_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await update_task
+                    raise AcpRequestTimeout(
+                        "ACP prompt made no progress before its idle timeout"
+                    )
                 if update_task in done:
                     update_session_id, update = update_task.result()
                     if update_session_id != self._acp_session_id:
@@ -230,7 +246,13 @@ class AcpClient:
         self._reader_task = asyncio.create_task(self._reader_loop())
         self._stderr_task = asyncio.create_task(self._stderr_loop())
 
-    async def _request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def _request(
+        self,
+        method: str,
+        params: dict[str, Any],
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
         request_id = self._next_request_id
         self._next_request_id += 1
         future = asyncio.get_running_loop().create_future()
@@ -246,7 +268,7 @@ class AcpClient:
         try:
             return await asyncio.wait_for(
                 asyncio.shield(future),
-                timeout=self._config.request_timeout,
+                timeout=timeout or self._config.request_timeout,
             )
         except TimeoutError as exc:
             raise AcpRequestTimeout(f"ACP request timed out: {method}") from exc

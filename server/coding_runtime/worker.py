@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .acp_client import AcpClient, AcpProcessConfig
+from .acp_client import AcpClient, AcpProcessConfig, AcpRequestTimeout
 from .draft_workspace import (
     DraftPolicyError,
     DraftRevisionError,
@@ -186,6 +186,8 @@ def create_acp_client(mode: str | None = None) -> AcpClient:
             process_cwd=WORKSPACE_PATH,
             environment=child_environment,
             request_timeout=120.0,
+            prompt_timeout=900.0,
+            prompt_idle_timeout=180.0,
             shutdown_timeout=5.0,
         )
     )
@@ -389,8 +391,40 @@ class CodingWorkerServer:
             if record.mode == "draft":
                 record.workspace.begin_turn()
             terminal_event: CodingEvent | None = None
+            active_turn_id: str | None = None
             try:
-                async for event in record.adapter.prompt(record.session, prompt):
+                event_stream = record.adapter.prompt(record.session, prompt)
+                while True:
+                    try:
+                        event = await anext(event_stream)
+                    except StopAsyncIteration:
+                        break
+                    except Exception as exc:
+                        if record.mode == "draft":
+                            record.workspace.rollback_turn()
+                            self._set_workspace_writable(
+                                record.workspace.workspace_root
+                            )
+                        await self._reset_agent_context(record)
+                        failure_event = record.session.append_event(
+                            CodingEventKind.FAILED,
+                            turn_id=active_turn_id,
+                            data={
+                                "code": (
+                                    "agent_turn_timeout"
+                                    if isinstance(exc, AcpRequestTimeout)
+                                    else "agent_turn_failed"
+                                )
+                            },
+                        )
+                        await self._send(
+                            writer,
+                            {"ok": True, "event": failure_event.to_dict()},
+                        )
+                        await self._send(writer, {"ok": True, "done": True})
+                        return
+                    if event.turn_id is not None:
+                        active_turn_id = event.turn_id
                     if event.kind in {
                         CodingEventKind.TURN_COMPLETED,
                         CodingEventKind.FAILED,
@@ -413,7 +447,7 @@ class CodingWorkerServer:
                         terminal_event,
                     )
                 if terminal_event.kind is CodingEventKind.CANCELLED:
-                    await self._reset_agent_after_cancel(record)
+                    await self._reset_agent_context(record)
                 await self._send(
                     writer,
                     {"ok": True, "event": terminal_event.to_dict()},
@@ -432,7 +466,7 @@ class CodingWorkerServer:
                 )
 
     @staticmethod
-    async def _reset_agent_after_cancel(record: _WorkerSession) -> None:
+    async def _reset_agent_context(record: _WorkerSession) -> None:
         old_session = record.session
         old_adapter = record.adapter
         next_sequence = old_session._next_seq

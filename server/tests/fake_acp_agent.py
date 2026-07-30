@@ -84,6 +84,20 @@ def handle(frame: dict[str, Any]) -> None:
                 }
             )
             return
+        if MODE == "prompt-idle":
+            return
+        if MODE == "prompt-progress":
+            for text in ("one", "two", "three"):
+                time.sleep(0.12)
+                update(
+                    {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    }
+                )
+            time.sleep(0.12)
+            result(request_id, {"stopReason": "end_turn"})
+            return
 
         update(
             {

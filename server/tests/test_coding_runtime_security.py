@@ -336,14 +336,21 @@ async def test_worker_commits_success_and_rolls_back_cancel_or_failure(
     )
 
     record.adapter = _DraftTurnAdapter(record.workspace, outcome="exception")
-    with pytest.raises(CodingWorkerError, match="turn failed"):
-        await server._prompt(
-            {"session_id": record.session.session_id, "prompt": "failed"},
-            _MemoryWriter(),
-        )
+    failure_writer = _MemoryWriter()
+    await server._prompt(
+        {"session_id": record.session.session_id, "prompt": "failed"},
+        failure_writer,
+    )
     assert not (record.workspace.workspace_root / "exception.txt").exists()
     assert (record.workspace.workspace_root / "complete.txt").exists()
     assert record.workspace.revision == 1
+    assert failure_writer.frames[-2]["event"]["type"] == "failed"
+    assert failure_writer.frames[-2]["event"]["data"] == {
+        "code": "agent_turn_failed"
+    }
+    assert failure_writer.frames[-1] == {"ok": True, "done": True}
+    assert len(replacement_adapters) == 2
+    assert record.session.state is CodingSessionState.READY
     assert record.session.session_id in server._sessions
 
     review_writer = _MemoryWriter()
