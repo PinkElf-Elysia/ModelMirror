@@ -69,7 +69,7 @@ def test_container_isolation_uses_an_immutable_sanitized_source_snapshot() -> No
 def test_agent_configuration_fails_closed_for_write_shell_and_extensions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("CODING_AGENT_MODEL", "modelmirror-test")
+    monkeypatch.setenv("CODING_AGENT_MODEL", "deepseek/deepseek-v4-flash")
     monkeypatch.setenv("CODING_AGENT_GATEWAY_KEY", "test-only-key")
     monkeypatch.setenv("UNRELATED_SECRET", "must-not-cross")
 
@@ -111,6 +111,8 @@ def test_agent_configuration_fails_closed_for_write_shell_and_extensions(
     assert config["mcp"] == {}
     assert config["share"] == "disabled"
     assert config["autoupdate"] is False
+    assert config["model"] == "modelmirror/deepseek/deepseek-v4-flash"
+    assert "deepseek/deepseek-v4-flash" in config["provider"]["modelmirror"]["models"]
     assert config["provider"]["modelmirror"]["options"]["baseURL"] == (
         INTERNAL_GATEWAY_BASE_URL
     )

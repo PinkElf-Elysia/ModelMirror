@@ -24,7 +24,7 @@ SOCKET_PATH = Path(
 WORKSPACE_PATH = "/workspace"
 OPENCODE_PATH = "/usr/local/bin/opencode"
 INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
-SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
+SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 
 
 class CodingWorkerError(RuntimeError):
