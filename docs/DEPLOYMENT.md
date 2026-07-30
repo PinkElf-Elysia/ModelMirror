@@ -22,7 +22,7 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `sandbox` | 是 | 无网络沙箱 sidecar。 |
 | `omniroute` | 否 | `omniroute` profile；只绑定 `127.0.0.1:20128`。 |
 | `office-host` | 否 | `office` profile；实验性 Office Add-in host。 |
-| `coding-runtime` | 否 | `coding` profile；单实例只读代码问答执行面，无宿主端口。 |
+| `coding-runtime` | 否 | `coding` profile；单实例代码问答与修改草稿执行面，无宿主端口。 |
 
 启动默认栈：
 
@@ -109,16 +109,21 @@ docker compose -p modelmirror --profile office up -d office-host
 Office host 需要独立证书和浏览器/Office 加载项验收，不应因该可选服务异常而
 误判默认核心栈不可用。
 
-### 只读代码助手
+### 实验性代码助手
 
 代码助手默认关闭。配置写入 Compose 读取的根 `.env` 或启动命令环境，不要写入
 前端，也不要提交：
 
 ```bash
 CODING_AGENT_ENABLED=true
+CODING_AGENT_MODE=readonly
 CODING_AGENT_MODEL=your-new-api-model-id
 CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
 ```
+
+`CODING_AGENT_MODE` 默认为 `readonly`。只有显式设置为 `draft`，代码助手才会在
+容器内一次性副本中新增或修改文本；它仍不能删除、重命名、执行 Shell/Git/测试，
+也不能把修改写回宿主仓库。
 
 该 Key 只注入 `coding-runtime`，不注入 FastAPI。启动并重建：
 
@@ -129,9 +134,10 @@ curl http://localhost:8000/api/coding/capabilities
 ```
 
 `coding-runtime` 仅加入 `internal: true` 网络并通过 Unix socket 连接 FastAPI。
-构建时会排除环境文件、密钥和运行产物，再把源码快照复制进镜像；运行时根文件系统只读，
-且不映射宿主端口。它是实验性本地单实例能力，不应直接暴露到公网。完整边界和人工验收见
-[CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
+构建时会排除环境文件、密钥和运行产物，再把净化源码快照复制进只读镜像目录；
+会话副本位于 256 MiB 的 `nosuid,noexec` tmpfs，容器根文件系统仍只读，且不映射
+宿主端口或宿主仓库。它是实验性本地单实例能力，不应直接暴露到公网。完整边界和
+人工验收见 [CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
 
 ## 反向代理
 
@@ -193,8 +199,9 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：设置 `CODING_AGENT_ENABLED=false`，停止 `coding-runtime`；没有
-  持久化会话或数据迁移需要恢复。
+- 代码助手：先设置 `CODING_AGENT_MODE=readonly` 可关闭草稿编辑；需要完全关闭时
+  设置 `CODING_AGENT_ENABLED=false` 并停止 `coding-runtime`。没有持久化会话或
+  数据迁移需要恢复。
 - 可选 profile 故障不得通过删除核心数据解决。
 
 legacy `/api/dify/*` 健康只表示兼容代理配置状态，不是平台健康门禁。

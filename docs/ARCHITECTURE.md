@@ -1,6 +1,6 @@
 # 项目整体架构
 
-最后更新日期：2026-07-29
+最后更新日期：2026-07-30
 维护人：模镜团队
 
 ## 当前定位
@@ -14,7 +14,7 @@
 - `/rag`：本地知识库、知识流水线、检索评估和引用。
 - `/agents/studio`：Agent Studio，提供草稿、发布版本和运行闭环。
 - `/datax`、`/toolsets`、`/runtime`：数据、工具和运行诊断。
-- `/coding`：实验性只读代码问答；通过隔离 Worker 查看固定工作区。
+- `/coding`：实验性代码协作；默认只读，也可在一次性隔离副本中准备可审阅修改草稿。
 
 Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 `server/api/dify_proxy.py` 和旧 iframe 组件作为历史兼容代码，但默认前端路由
@@ -36,7 +36,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | DuckDB | Data X 项目隔离分析。 |
 | Browser / Sandbox sidecar | 受控浏览器和无网络沙箱执行。 |
 | OmniRoute sidecar | 可选兼容、诊断和紧急回退；不是普通用户控制面。 |
-| OpenCode + 最小 ACP Worker | 实验性只读代码问答执行面；单实例、默认关闭。 |
+| OpenCode + 最小 ACP Worker | 实验性代码问答与修改草稿执行面；单实例、默认关闭。 |
 
 ## 系统架构
 
@@ -48,7 +48,7 @@ flowchart LR
   SPA --> WF["Classic Workflow /workflow"]
   SPA --> RAG["Local Knowledge /rag"]
   SPA --> STUDIO["Agent Studio /agents/studio"]
-  SPA --> CODING["Read-only Coding /coding"]
+  SPA --> CODING["Coding Review /coding"]
   CODING --> API
 
   API --> GW["newAPI / OpenAI-compatible"]
@@ -79,7 +79,7 @@ flowchart LR
 | 实验工作流 | `/workflow-native` | 静态校验和设计实验线，不替换 classic 主入口。 |
 | 知识 | `/rag`、`/rag/:kbId/pipeline`、`/rag/:kbId/evaluation`、`/rag/:kbId/inbox` | 本地资料库、流水线、评测和审批。 |
 | 数据 | `/datax`、`/datax/:projectId`、`/datax/:projectId/inbox` | 文件快照、语义指标和提案审批。 |
-| 实验代码问答 | `/coding` | 对固定 ModelMirror 工作区进行只读、流式、可取消的代码问答。 |
+| 实验代码协作 | `/coding` | 对固定 ModelMirror 快照进行只读问答，或准备可查看、检查和下载的临时修改草稿。 |
 
 内部路径仍使用 `Xpert*` 类型和 `/agents/xpert/...` 兼容 API；面向用户统一显示
 “智能体”“Agent Studio”和“Agent App”。内部标识不得仅为改名而迁移。
@@ -132,8 +132,9 @@ flowchart LR
   bind mount 持久化。
 - Browser 与 Sandbox 是独立进程边界；Sandbox 默认无网络。
 - Coding Runtime 是默认关闭的独立进程边界，只通过 Unix socket 接入 FastAPI；
-  构建时排除环境文件、密钥和运行产物后，将源码快照复制进镜像；运行时根文件系统只读，
-  网络仅可到内部 newAPI。
+  构建时排除环境文件、密钥和运行产物后，将净化源码快照复制到镜像内只读目录。
+  Readonly 模式在会话副本上只读运行；Draft 模式把副本复制到 256 MiB 的
+  `nosuid,noexec` tmpfs。宿主仓库从不挂载给 Worker，网络仅可到内部 newAPI。
 - 视频、音频、Prompt 和首帧媒体正文不写入路由或视频任务审计。
 
 ## 当前风险与维护边界
@@ -143,6 +144,7 @@ flowchart LR
 - 当前没有完整用户、组织、RBAC 或公网控制台安全模型。
 - 静态模型快照与实时目录需要定期校准，价格快照必须标注日期。
 - OmniRoute 是可选回退，不得成为普通用户必须理解的配置入口。
-- `/coding` 首轮仅适用于本地单实例实验，不提供仓库选择、写入、重启恢复、
-  多 Agent、分布式 Worker 或生产多租户能力。
+- `/coding` 仅适用于本地单实例实验。Draft 只能新增或修改临时 UTF-8 文本，
+  不会写回宿主仓库；仍不提供仓库选择、删除/重命名、Shell、Git、测试执行、
+  重启恢复、多 Agent、分布式 Worker 或生产多租户能力。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。
