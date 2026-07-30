@@ -10,10 +10,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .acp_client import AcpClient, AcpProcessConfig
-from .models import CodingEvent, CodingSession, CodingSessionState
+from .acp_client import AcpClient, AcpProcessConfig, AcpRequestTimeout
+from .draft_workspace import (
+    DraftPolicyError,
+    DraftRevisionError,
+    DraftTransactionError,
+    DraftValidationError,
+    DraftWorkspace,
+    DraftWorkspaceError,
+)
+from .models import CodingEvent, CodingEventKind, CodingSession, CodingSessionState
 
-MAX_WORKER_FRAME_BYTES = 128 * 1024
+MAX_WORKER_FRAME_BYTES = 2 * 1024 * 1024
 MAX_PROMPT_CHARS = 20_000
 SOCKET_PATH = Path(
     os.getenv(
@@ -22,9 +30,17 @@ SOCKET_PATH = Path(
     )
 )
 WORKSPACE_PATH = "/workspace"
+SOURCE_SNAPSHOT_PATH = Path("/opt/modelmirror-source")
+CHECKPOINT_PATH = Path("/tmp/modelmirror-coding-checkpoint")
 OPENCODE_PATH = "/usr/local/bin/opencode"
+RIPGREP_PATH = "/usr/bin/rg"
 INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
 SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
+CODING_AGENT_MODES = frozenset({"readonly", "draft"})
+MAX_AGENT_STEPS = 12
+MODEL_CONTEXT_TOKENS = 131_072
+MODEL_OUTPUT_TOKENS = 8_192
+REQUIRED_RUNTIME_EXECUTABLES = (Path(OPENCODE_PATH), Path(RIPGREP_PATH))
 
 
 class CodingWorkerError(RuntimeError):
@@ -37,7 +53,37 @@ class CodingWorkerProtocolError(CodingWorkerError):
     pass
 
 
-def _read_only_permission() -> dict[str, Any]:
+def coding_agent_mode() -> str:
+    mode = os.getenv("CODING_AGENT_MODE", "readonly").strip().lower()
+    if mode not in CODING_AGENT_MODES:
+        raise CodingWorkerError(
+            "Coding Agent mode is not configured safely.",
+            code="not_configured",
+        )
+    return mode
+
+
+def validate_runtime_dependencies(
+    paths: tuple[Path, ...] = REQUIRED_RUNTIME_EXECUTABLES,
+) -> None:
+    missing = [
+        path.name
+        for path in paths
+        if not path.is_file() or not os.access(path, os.X_OK)
+    ]
+    if missing:
+        raise CodingWorkerError(
+            "Coding Agent runtime dependencies are unavailable.",
+            code="not_configured",
+        )
+
+
+def _permission_for_mode(mode: str) -> dict[str, Any]:
+    if mode not in CODING_AGENT_MODES:
+        raise CodingWorkerError(
+            "Coding Agent mode is not configured safely.",
+            code="not_configured",
+        )
     return {
         "*": "deny",
         "read": {
@@ -56,7 +102,7 @@ def _read_only_permission() -> dict[str, Any]:
         "glob": "allow",
         "grep": "allow",
         "lsp": "allow",
-        "edit": "deny",
+        "edit": "ask" if mode == "draft" else "deny",
         "bash": "deny",
         "task": "deny",
         "webfetch": "deny",
@@ -69,21 +115,30 @@ def _read_only_permission() -> dict[str, Any]:
     }
 
 
-def build_opencode_config(model_id: str) -> dict[str, Any]:
+def build_opencode_config(
+    model_id: str,
+    mode: str = "readonly",
+) -> dict[str, Any]:
     if not SAFE_MODEL_ID.fullmatch(model_id):
         raise CodingWorkerError(
             "Coding Agent model is not configured safely.",
             code="not_configured",
         )
-    permission = _read_only_permission()
+    permission = _permission_for_mode(mode)
+    agent_name = "draft" if mode == "draft" else "readonly"
     return {
         "$schema": "https://opencode.ai/config.json",
         "model": f"modelmirror/{model_id}",
-        "default_agent": "readonly",
+        "default_agent": agent_name,
         "agent": {
-            "readonly": {
-                "description": "Read-only ModelMirror repository analyst",
+            agent_name: {
+                "description": (
+                    "Isolated ModelMirror change draft assistant"
+                    if mode == "draft"
+                    else "Read-only ModelMirror repository analyst"
+                ),
                 "mode": "primary",
+                "steps": MAX_AGENT_STEPS,
                 "permission": permission,
             }
         },
@@ -99,6 +154,10 @@ def build_opencode_config(model_id: str) -> dict[str, Any]:
                 "models": {
                     model_id: {
                         "name": "ModelMirror Coding Model",
+                        "limit": {
+                            "context": MODEL_CONTEXT_TOKENS,
+                            "output": MODEL_OUTPUT_TOKENS,
+                        },
                     }
                 },
             }
@@ -109,7 +168,10 @@ def build_opencode_config(model_id: str) -> dict[str, Any]:
         "share": "disabled",
         "autoupdate": False,
     }
-def create_acp_client() -> AcpClient:
+
+
+def create_acp_client(mode: str | None = None) -> AcpClient:
+    active_mode = mode or coding_agent_mode()
     model_id = os.getenv("CODING_AGENT_MODEL", "").strip()
     gateway_key = os.getenv("CODING_AGENT_GATEWAY_KEY", "").strip()
     if not gateway_key:
@@ -118,7 +180,7 @@ def create_acp_client() -> AcpClient:
             code="not_configured",
         )
     config_content = json.dumps(
-        build_opencode_config(model_id),
+        build_opencode_config(model_id, active_mode),
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -145,9 +207,12 @@ def create_acp_client() -> AcpClient:
         AcpProcessConfig(
             command=(OPENCODE_PATH, "acp", "--cwd", WORKSPACE_PATH),
             workspace=WORKSPACE_PATH,
+            mode=active_mode,
             process_cwd=WORKSPACE_PATH,
             environment=child_environment,
             request_timeout=120.0,
+            prompt_timeout=900.0,
+            prompt_idle_timeout=180.0,
             shutdown_timeout=5.0,
         )
     )
@@ -157,14 +222,26 @@ def create_acp_client() -> AcpClient:
 class _WorkerSession:
     session: CodingSession
     adapter: AcpClient
+    workspace: DraftWorkspace
+    mode: str
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class CodingWorkerServer:
-    """Single-instance Unix socket host for one read-only ACP session."""
+    """Single-instance Unix socket host for one isolated ACP session."""
 
-    def __init__(self, socket_path: Path = SOCKET_PATH) -> None:
+    def __init__(
+        self,
+        socket_path: Path = SOCKET_PATH,
+        *,
+        source_snapshot_path: Path = SOURCE_SNAPSHOT_PATH,
+        workspace_path: Path = Path(WORKSPACE_PATH),
+        checkpoint_path: Path = CHECKPOINT_PATH,
+    ) -> None:
         self._socket_path = socket_path
+        self._source_snapshot_path = source_snapshot_path
+        self._workspace_path = workspace_path
+        self._checkpoint_path = checkpoint_path
         self._sessions: dict[str, _WorkerSession] = {}
         self._sessions_lock = asyncio.Lock()
 
@@ -188,6 +265,10 @@ class CodingWorkerServer:
                 )
             action = request.get("action")
             if action == "health":
+                try:
+                    mode = coding_agent_mode()
+                except CodingWorkerError:
+                    mode = "invalid"
                 await self._send(
                     writer,
                     {
@@ -195,8 +276,10 @@ class CodingWorkerServer:
                         "configured": bool(
                             os.getenv("CODING_AGENT_MODEL", "").strip()
                             and os.getenv("CODING_AGENT_GATEWAY_KEY", "").strip()
+                            and mode in CODING_AGENT_MODES
                         ),
                         "version": 1,
+                        "mode": mode,
                     },
                 )
             elif action == "create_session":
@@ -207,6 +290,16 @@ class CodingWorkerServer:
                 await self._cancel(request, writer)
             elif action == "close":
                 await self._close_session(request, writer)
+            elif action == "changes":
+                await self._changes(request, writer)
+            elif action == "diff":
+                await self._diff(request, writer)
+            elif action == "patch":
+                await self._patch(request, writer)
+            elif action == "validate":
+                await self._validate(request, writer)
+            elif action == "discard":
+                await self._discard(request, writer)
             else:
                 raise CodingWorkerProtocolError(
                     "Unsupported coding worker action.",
@@ -216,6 +309,16 @@ class CodingWorkerServer:
             await self._send_error(writer, "invalid_request")
         except CodingWorkerError as exc:
             await self._send_error(writer, exc.code)
+        except DraftRevisionError:
+            await self._send_error(writer, "stale_revision")
+        except DraftValidationError as exc:
+            await self._send_error(writer, str(exc))
+        except DraftPolicyError:
+            await self._send_error(writer, "invalid_path")
+        except DraftTransactionError:
+            await self._send_error(writer, "draft_busy")
+        except DraftWorkspaceError:
+            await self._send_error(writer, "draft_review_failed")
         except Exception:
             await self._send_error(writer, "worker_internal_error")
         finally:
@@ -228,8 +331,7 @@ class CodingWorkerServer:
             records = list(self._sessions.values())
             self._sessions.clear()
         for record in records:
-            with contextlib.suppress(Exception):
-                await record.adapter.close(record.session)
+            await self._cleanup_record(record)
 
     async def _create_session(self, writer: asyncio.StreamWriter) -> None:
         async with self._sessions_lock:
@@ -238,15 +340,42 @@ class CodingWorkerServer:
                     "Coding runtime already has an active session.",
                     code="concurrency_limit",
                 )
+            mode = coding_agent_mode()
             session = CodingSession()
-            adapter = create_acp_client()
-            record = _WorkerSession(session=session, adapter=adapter)
+            workspace = DraftWorkspace(
+                self._source_snapshot_path,
+                self._workspace_path,
+                self._checkpoint_path,
+                preserve_workspace_root=True,
+            )
+            try:
+                workspace.initialize()
+                if mode == "readonly":
+                    self._set_workspace_read_only(workspace.workspace_root)
+                else:
+                    self._set_workspace_writable(workspace.workspace_root)
+                adapter = create_acp_client(mode)
+            except Exception as exc:
+                with contextlib.suppress(Exception):
+                    self._set_workspace_writable(workspace.workspace_root)
+                    workspace.destroy()
+                raise CodingWorkerError(
+                    "Coding runtime could not prepare the workspace.",
+                    code="agent_unavailable",
+                ) from exc
+            record = _WorkerSession(
+                session=session,
+                adapter=adapter,
+                workspace=workspace,
+                mode=mode,
+            )
             self._sessions[session.session_id] = record
         try:
             event = await adapter.open(session)
         except Exception:
             async with self._sessions_lock:
                 self._sessions.pop(session.session_id, None)
+            await self._cleanup_record(record)
             raise CodingWorkerError(
                 "Coding runtime could not start the agent.",
                 code="agent_unavailable",
@@ -256,6 +385,7 @@ class CodingWorkerServer:
             {
                 "ok": True,
                 "session_id": session.session_id,
+                "mode": mode,
                 "event": event.to_dict(),
             },
         )
@@ -283,19 +413,105 @@ class CodingWorkerServer:
                 code="concurrency_limit",
             )
         async with record.turn_lock:
+            if record.mode == "draft":
+                record.workspace.begin_turn()
+            terminal_event: CodingEvent | None = None
+            active_turn_id: str | None = None
             try:
-                async for event in record.adapter.prompt(record.session, prompt):
-                    await self._send(writer, {"ok": True, "event": event.to_dict()})
+                event_stream = record.adapter.prompt(record.session, prompt)
+                while True:
+                    try:
+                        event = await anext(event_stream)
+                    except StopAsyncIteration:
+                        break
+                    except Exception as exc:
+                        if record.mode == "draft":
+                            record.workspace.rollback_turn()
+                            self._set_workspace_writable(
+                                record.workspace.workspace_root
+                            )
+                        await self._reset_agent_context(record)
+                        failure_event = record.session.append_event(
+                            CodingEventKind.FAILED,
+                            turn_id=active_turn_id,
+                            data={
+                                "code": (
+                                    "agent_turn_timeout"
+                                    if isinstance(exc, AcpRequestTimeout)
+                                    else "agent_turn_failed"
+                                )
+                            },
+                        )
+                        await self._send(
+                            writer,
+                            {"ok": True, "event": failure_event.to_dict()},
+                        )
+                        await self._send(writer, {"ok": True, "done": True})
+                        return
+                    if event.turn_id is not None:
+                        active_turn_id = event.turn_id
+                    if event.kind in {
+                        CodingEventKind.TURN_COMPLETED,
+                        CodingEventKind.FAILED,
+                        CodingEventKind.CANCELLED,
+                    }:
+                        terminal_event = event
+                    else:
+                        await self._send(
+                            writer,
+                            {"ok": True, "event": event.to_dict()},
+                        )
+                if terminal_event is None:
+                    raise CodingWorkerError(
+                        "Coding Agent turn omitted a terminal event.",
+                        code="agent_turn_failed",
+                    )
+                if record.mode == "draft":
+                    terminal_event = self._finish_draft_turn(
+                        record,
+                        terminal_event,
+                    )
+                if terminal_event.kind is CodingEventKind.CANCELLED:
+                    await self._reset_agent_context(record)
+                await self._send(
+                    writer,
+                    {"ok": True, "event": terminal_event.to_dict()},
+                )
                 await self._send(writer, {"ok": True, "done": True})
             except Exception:
-                with contextlib.suppress(Exception):
-                    await record.adapter.close(record.session)
-                async with self._sessions_lock:
-                    self._sessions.pop(record.session.session_id, None)
+                if record.mode == "draft":
+                    with contextlib.suppress(DraftWorkspaceError):
+                        record.workspace.rollback_turn()
+                        self._set_workspace_writable(
+                            record.workspace.workspace_root
+                        )
                 raise CodingWorkerError(
                     "Coding Agent turn failed.",
                     code="agent_turn_failed",
                 )
+
+    @staticmethod
+    async def _reset_agent_context(record: _WorkerSession) -> None:
+        old_session = record.session
+        old_adapter = record.adapter
+        next_sequence = old_session._next_seq
+        next_session = CodingSession(
+            session_id=old_session.session_id,
+            created_at=old_session.created_at,
+            _next_seq=next_sequence,
+        )
+        next_adapter = create_acp_client(record.mode)
+        await old_adapter.close(old_session)
+        try:
+            await next_adapter.open(next_session)
+        except BaseException:
+            with contextlib.suppress(BaseException):
+                await next_adapter.close(next_session)
+            raise
+        # The replacement ACP session's startup event is an internal detail.
+        next_session._next_seq = next_sequence
+        record.session = next_session
+        record.adapter = next_adapter
 
     async def _cancel(
         self,
@@ -324,8 +540,82 @@ class CodingWorkerServer:
                 "Coding session is not available.",
                 code="session_not_found",
             )
-        await record.adapter.close(record.session)
+        await self._cleanup_record(record)
         await self._send(writer, {"ok": True})
+
+    async def _changes(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        await self._send(
+            writer,
+            {"ok": True, "changes": record.workspace.changes().to_dict()},
+        )
+
+    async def _diff(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        revision = self._require_revision(request)
+        path = request.get("path")
+        if not isinstance(path, str) or not path:
+            raise CodingWorkerProtocolError(
+                "Draft path is required.",
+                code="invalid_request",
+            )
+        await self._send(
+            writer,
+            {
+                "ok": True,
+                "revision": revision,
+                "path": path,
+                "diff": record.workspace.diff_for(path, revision),
+            },
+        )
+
+    async def _patch(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        revision = self._require_revision(request)
+        await self._send(
+            writer,
+            {
+                "ok": True,
+                "revision": revision,
+                "patch": record.workspace.patch(revision),
+            },
+        )
+
+    async def _validate(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        await self._send(
+            writer,
+            {"ok": True, "changes": record.workspace.validate().to_dict()},
+        )
+
+    async def _discard(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        changes = record.workspace.discard().to_dict()
+        self._set_workspace_writable(record.workspace.workspace_root)
+        await self._send(
+            writer,
+            {"ok": True, "changes": changes},
+        )
 
     def _require_session(self, request: dict[str, Any]) -> _WorkerSession:
         session_id = request.get("session_id")
@@ -344,6 +634,102 @@ class CodingWorkerServer:
                 code="session_not_found",
             )
         return record
+
+    def _require_draft_session(
+        self,
+        request: dict[str, Any],
+    ) -> _WorkerSession:
+        session_id = request.get("session_id")
+        if not isinstance(session_id, str) or not session_id:
+            raise CodingWorkerProtocolError(
+                "Session id is required.",
+                code="invalid_request",
+            )
+        record = self._sessions.get(session_id)
+        if record is None or record.session.state is CodingSessionState.CLOSED:
+            raise CodingWorkerError(
+                "Coding session is not available.",
+                code="session_not_found",
+            )
+        if record.mode != "draft":
+            raise CodingWorkerError(
+                "Draft review is not available.",
+                code="draft_unavailable",
+            )
+        if record.turn_lock.locked():
+            raise CodingWorkerError(
+                "Draft review is not available during a turn.",
+                code="draft_busy",
+            )
+        return record
+
+    @staticmethod
+    def _require_revision(request: dict[str, Any]) -> int:
+        revision = request.get("revision")
+        if isinstance(revision, bool) or not isinstance(revision, int):
+            raise CodingWorkerProtocolError(
+                "Draft revision is required.",
+                code="invalid_request",
+            )
+        return revision
+
+    @staticmethod
+    def _finish_draft_turn(
+        record: _WorkerSession,
+        terminal_event: CodingEvent,
+    ) -> CodingEvent:
+        if terminal_event.kind is CodingEventKind.TURN_COMPLETED:
+            try:
+                record.workspace.commit_turn()
+            except DraftPolicyError:
+                CodingWorkerServer._set_workspace_writable(
+                    record.workspace.workspace_root
+                )
+                return CodingEvent(
+                    session_id=terminal_event.session_id,
+                    seq=terminal_event.seq,
+                    kind=CodingEventKind.FAILED,
+                    created_at=terminal_event.created_at,
+                    turn_id=terminal_event.turn_id,
+                    data={"code": "draft_policy_violation"},
+                )
+        else:
+            record.workspace.rollback_turn()
+            CodingWorkerServer._set_workspace_writable(
+                record.workspace.workspace_root
+            )
+        return terminal_event
+
+    @staticmethod
+    def _set_workspace_read_only(path: Path) -> None:
+        for current, directory_names, file_names in os.walk(path, topdown=False):
+            current_path = Path(current)
+            for name in file_names:
+                (current_path / name).chmod(0o400)
+            for name in directory_names:
+                (current_path / name).chmod(0o500)
+        path.chmod(0o500)
+
+    @staticmethod
+    def _set_workspace_writable(path: Path) -> None:
+        if not path.exists():
+            return
+        path.chmod(0o700)
+        for current, directory_names, file_names in os.walk(path):
+            current_path = Path(current)
+            for name in directory_names:
+                (current_path / name).chmod(0o700)
+            for name in file_names:
+                (current_path / name).chmod(0o600)
+
+    async def _cleanup_record(self, record: _WorkerSession) -> None:
+        with contextlib.suppress(Exception):
+            await record.adapter.close(record.session)
+        if record.mode == "readonly":
+            with contextlib.suppress(Exception):
+                self._set_workspace_writable(record.workspace.workspace_root)
+        with contextlib.suppress(Exception):
+            record.workspace.destroy()
 
     @staticmethod
     async def _send(writer: asyncio.StreamWriter, payload: dict[str, Any]) -> None:
@@ -414,6 +800,75 @@ class CodingWorkerClient:
 
     async def close(self, session_id: str) -> None:
         await self._request({"action": "close", "session_id": session_id})
+
+    async def changes(self, session_id: str) -> dict[str, Any]:
+        result = await self._request(
+            {"action": "changes", "session_id": session_id}
+        )
+        changes = result.get("changes")
+        if not isinstance(changes, dict):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted draft changes.",
+                code="invalid_response",
+            )
+        return changes
+
+    async def diff(self, session_id: str, path: str, revision: int) -> str:
+        result = await self._request(
+            {
+                "action": "diff",
+                "session_id": session_id,
+                "path": path,
+                "revision": revision,
+            }
+        )
+        diff = result.get("diff")
+        if not isinstance(diff, str):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted the requested diff.",
+                code="invalid_response",
+            )
+        return diff
+
+    async def patch(self, session_id: str, revision: int) -> str:
+        result = await self._request(
+            {
+                "action": "patch",
+                "session_id": session_id,
+                "revision": revision,
+            }
+        )
+        patch = result.get("patch")
+        if not isinstance(patch, str):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted the requested patch.",
+                code="invalid_response",
+            )
+        return patch
+
+    async def validate(self, session_id: str) -> dict[str, Any]:
+        result = await self._request(
+            {"action": "validate", "session_id": session_id}
+        )
+        changes = result.get("changes")
+        if not isinstance(changes, dict):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted draft validation.",
+                code="invalid_response",
+            )
+        return changes
+
+    async def discard(self, session_id: str) -> dict[str, Any]:
+        result = await self._request(
+            {"action": "discard", "session_id": session_id}
+        )
+        changes = result.get("changes")
+        if not isinstance(changes, dict):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted the discarded draft state.",
+                code="invalid_response",
+            )
+        return changes
 
     async def prompt(
         self,
@@ -560,6 +1015,7 @@ def _event_from_dict(payload: dict[str, Any]) -> CodingEvent:
 
 
 async def main() -> None:
+    validate_runtime_dependencies()
     await CodingWorkerServer().serve_forever()
 
 

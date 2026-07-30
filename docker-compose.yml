@@ -177,6 +177,7 @@ services:
       BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
       BROWSER_DATA_ROOT: /app/browser-data
       CODING_AGENT_ENABLED: ${CODING_AGENT_ENABLED:-false}
+      CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
       CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
     ports:
       - "8000:8000"
@@ -243,8 +244,10 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
       - /home/coding:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
+      - /workspace:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
     environment:
       CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
+      CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
       CODING_AGENT_MODEL: ${CODING_AGENT_MODEL:-}
       CODING_AGENT_GATEWAY_KEY: ${CODING_AGENT_GATEWAY_KEY:-}
     volumes:

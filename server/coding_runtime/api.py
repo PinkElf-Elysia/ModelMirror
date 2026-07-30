@@ -12,19 +12,27 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi.responses import Response, StreamingResponse
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
+from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
 from .models import CodingEvent, CodingEventKind
 from .worker import CodingWorkerClient, CodingWorkerError
 
 MAX_PROMPT_CHARS = 20_000
 SESSION_TTL_SECONDS = 30 * 60
-EVENT_BUFFER_SIZE = 256
+EVENT_BUFFER_SIZE = 1024
 HEARTBEAT_SECONDS = 15.0
+DEFAULT_DRAFT_LIMITS = DraftLimits()
 TERMINAL_EVENT_TYPES = {
     CodingEventKind.TURN_COMPLETED.value,
     CodingEventKind.FAILED.value,
@@ -36,6 +44,7 @@ CONTAINER_ABSOLUTE_PATH = re.compile(
     r"(?<![A-Za-z0-9_])/(?:home|run|opt|tmp|usr|etc|var)/[^\s\"'<>]+"
 )
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+SAFE_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
 
 
 class WorkerClient(Protocol):
@@ -53,6 +62,16 @@ class WorkerClient(Protocol):
 
     async def close(self, session_id: str) -> None: ...
 
+    async def changes(self, session_id: str) -> dict[str, Any]: ...
+
+    async def diff(self, session_id: str, path: str, revision: int) -> str: ...
+
+    async def patch(self, session_id: str, revision: int) -> str: ...
+
+    async def validate(self, session_id: str) -> dict[str, Any]: ...
+
+    async def discard(self, session_id: str) -> dict[str, Any]: ...
+
 
 class CodingTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -65,6 +84,70 @@ class CodingTurnRequest(BaseModel):
         if not value.strip():
             raise ValueError("Prompt must not be empty")
         return value
+
+
+class DraftFilePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=500)
+    status: Literal["added", "modified"]
+    additions: int = Field(ge=0, le=1_000_000)
+    deletions: int = Field(ge=0, le=1_000_000)
+
+    @field_validator("path")
+    @classmethod
+    def path_must_be_safe(cls, value: str) -> str:
+        try:
+            return DraftWorkspace.normalize_relative_path(value)
+        except DraftPolicyError as exc:
+            raise ValueError("Draft path is invalid") from exc
+
+
+class DraftCheckPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    check_id: str = Field(alias="id", min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=100)
+    status: Literal["passed", "failed"]
+    message: str = Field(min_length=1, max_length=500)
+
+
+class DraftChangesPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=0)
+    files: list[DraftFilePayload] = Field(
+        max_length=DEFAULT_DRAFT_LIMITS.max_changed_files
+    )
+    file_count: int = Field(
+        ge=0,
+        le=DEFAULT_DRAFT_LIMITS.max_changed_files,
+    )
+    additions: int = Field(ge=0, le=1_000_000)
+    deletions: int = Field(ge=0, le=1_000_000)
+    patch_bytes: int = Field(
+        ge=0,
+        le=DEFAULT_DRAFT_LIMITS.max_patch_bytes,
+    )
+    validation_status: Literal["passed", "failed"]
+    can_download: bool
+    checks: list[DraftCheckPayload] = Field(max_length=20)
+
+    @model_validator(mode="after")
+    def totals_must_match(self) -> DraftChangesPayload:
+        if self.file_count != len(self.files):
+            raise ValueError("Draft file count is inconsistent")
+        if self.additions != sum(item.additions for item in self.files):
+            raise ValueError("Draft addition count is inconsistent")
+        if self.deletions != sum(item.deletions for item in self.files):
+            raise ValueError("Draft deletion count is inconsistent")
+        expected_download = bool(self.files) and self.validation_status == "passed"
+        if self.can_download is not expected_download:
+            raise ValueError("Draft download state is inconsistent")
+        failed_checks = any(check.status == "failed" for check in self.checks)
+        if (self.validation_status == "failed") is not failed_checks:
+            raise ValueError("Draft validation checks are inconsistent")
+        return self
 
 
 @dataclass(slots=True)
@@ -91,10 +174,14 @@ class CodingService:
         enabled: bool,
         worker: WorkerClient,
         ttl_seconds: float = SESSION_TTL_SECONDS,
+        mode: str | None = None,
     ) -> None:
         self.enabled = enabled
         self.worker = worker
         self.ttl_seconds = ttl_seconds
+        self.mode = _normalize_mode(
+            mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
+        )
         self._sessions: dict[str, CodingApiSession] = {}
         self._lock = asyncio.Lock()
 
@@ -102,7 +189,7 @@ class CodingService:
         response = {
             "enabled": self.enabled,
             "available": False,
-            "mode": "readonly",
+            "mode": self.mode,
             "workspace": "ModelMirror",
             "limits": {
                 "max_prompt_chars": MAX_PROMPT_CHARS,
@@ -110,6 +197,15 @@ class CodingService:
                 "session_ttl_seconds": int(self.ttl_seconds),
             },
         }
+        if self.mode == "draft":
+            response["limits"].update(
+                {
+                    "max_changed_files": DEFAULT_DRAFT_LIMITS.max_changed_files,
+                    "max_file_bytes": DEFAULT_DRAFT_LIMITS.max_file_bytes,
+                    "max_patch_bytes": DEFAULT_DRAFT_LIMITS.max_patch_bytes,
+                }
+            )
+            response["host_apply"] = False
         if not self.enabled:
             response["reason"] = "disabled"
             return response
@@ -123,6 +219,10 @@ class CodingService:
             return response
         if health.get("configured") is not True:
             response["reason"] = "not_configured"
+            return response
+        worker_mode = health.get("mode")
+        if worker_mode not in {"readonly", "draft"} or worker_mode != self.mode:
+            response["reason"] = "mode_mismatch"
             return response
         response["available"] = True
         return response
@@ -141,10 +241,12 @@ class CodingService:
         except CodingWorkerError as exc:
             raise _worker_http_error(exc) from exc
         session_id = result.get("session_id")
+        worker_mode = result.get("mode")
         event_data = result.get("event")
         if (
             not isinstance(session_id, str)
             or not SAFE_IDENTIFIER.fullmatch(session_id)
+            or worker_mode != self.mode
             or not isinstance(event_data, dict)
         ):
             if isinstance(session_id, str) and session_id:
@@ -210,6 +312,58 @@ class CodingService:
             record.state = "cancelling"
             record.updated_at = time.time()
         return accepted
+
+    async def changes(self, session_id: str) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        try:
+            payload = await self.worker.changes(record.worker_session_id)
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return _public_changes(payload)
+
+    async def diff(self, session_id: str, path: str, revision: int) -> str:
+        record = await self._review_record(session_id)
+        try:
+            safe_path = DraftWorkspace.normalize_relative_path(path)
+        except DraftPolicyError as exc:
+            raise _http_error(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "invalid_path",
+            ) from exc
+        try:
+            diff = await self.worker.diff(
+                record.worker_session_id,
+                safe_path,
+                revision,
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return _safe_diff(diff, expected_path=safe_path)
+
+    async def patch(self, session_id: str, revision: int) -> str:
+        record = await self._review_record(session_id)
+        try:
+            patch = await self.worker.patch(record.worker_session_id, revision)
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return _safe_diff(patch)
+
+    async def validate(self, session_id: str) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        try:
+            payload = await self.worker.validate(record.worker_session_id)
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return _public_changes(payload)
+
+    async def discard(self, session_id: str) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        try:
+            payload = await self.worker.discard(record.worker_session_id)
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        record.updated_at = time.time()
+        return _public_changes(payload)
 
     async def stream_events(
         self,
@@ -352,6 +506,17 @@ class CodingService:
             reason = str(capabilities.get("reason") or "unavailable")
             raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, reason)
 
+    async def _review_record(self, session_id: str) -> CodingApiSession:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        record = self._get_session(session_id)
+        if record.state in {"running", "cancelling"} or (
+            record.turn_task is not None and not record.turn_task.done()
+        ):
+            raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
+        return record
+
     def _get_session(self, session_id: str) -> CodingApiSession:
         record = self._sessions.get(session_id)
         if record is None:
@@ -453,6 +618,57 @@ async def cancel_coding_session(session_id: str) -> dict[str, Any]:
     return {"accepted": accepted}
 
 
+@router.get("/sessions/{session_id}/changes")
+async def coding_session_changes(session_id: str) -> dict[str, Any]:
+    return await get_coding_service().changes(session_id)
+
+
+@router.get("/sessions/{session_id}/diff")
+async def coding_session_diff(
+    session_id: str,
+    path: str = Query(min_length=1, max_length=500),
+    revision: int = Query(ge=0),
+) -> Response:
+    diff = await get_coding_service().diff(session_id, path, revision)
+    return Response(
+        content=diff,
+        media_type="text/x-diff",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/sessions/{session_id}/patch")
+async def coding_session_patch(
+    session_id: str,
+    revision: int = Query(ge=0),
+) -> Response:
+    patch = await get_coding_service().patch(session_id, revision)
+    return Response(
+        content=patch,
+        media_type="text/x-diff",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": (
+                f'attachment; filename="modelmirror-changes-r{revision}.patch"'
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post("/sessions/{session_id}/validate")
+async def validate_coding_session(session_id: str) -> dict[str, Any]:
+    return await get_coding_service().validate(session_id)
+
+
+@router.post("/sessions/{session_id}/discard")
+async def discard_coding_session(session_id: str) -> dict[str, Any]:
+    return await get_coding_service().discard(session_id)
+
+
 def _event_from_payload(payload: dict[str, Any]) -> CodingEvent:
     try:
         session_id = payload["session_id"]
@@ -538,9 +754,77 @@ def _sanitize_text(value: Any, limit: int) -> str:
     return text[:limit]
 
 
+def _public_changes(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        validated = DraftChangesPayload.model_validate(payload)
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_worker_response",
+        ) from exc
+    result = validated.model_dump(by_alias=True)
+    for check in result["checks"]:
+        check["id"] = _safe_code(check["id"])
+        check["label"] = _sanitize_text(check["label"], 100)
+        check["message"] = _sanitize_text(check["message"], 500)
+    return result
+
+
+def _safe_diff(diff: str, *, expected_path: str | None = None) -> str:
+    try:
+        encoded = diff.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_worker_response",
+        ) from exc
+    if (
+        not diff
+        or len(encoded) > DEFAULT_DRAFT_LIMITS.max_patch_bytes
+        or "\x00" in diff
+    ):
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_worker_response",
+        )
+    paths: list[str] = []
+    for line in diff.splitlines():
+        if not line.startswith("diff --git "):
+            continue
+        match = SAFE_DIFF_HEADER.fullmatch(line)
+        if match is None or match.group(1) != match.group(2):
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "invalid_worker_response",
+            )
+        try:
+            paths.append(DraftWorkspace.normalize_relative_path(match.group(1)))
+        except DraftPolicyError as exc:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "invalid_worker_response",
+            ) from exc
+    if (
+        not paths
+        or len(paths) > DEFAULT_DRAFT_LIMITS.max_changed_files
+        or len(set(paths)) != len(paths)
+        or (expected_path is not None and paths != [expected_path])
+    ):
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_worker_response",
+        )
+    return diff
+
+
 def _safe_code(value: Any) -> str:
     code = re.sub(r"[^a-z0-9_-]", "_", str(value or "unknown").lower())
     return code[:64] or "unknown"
+
+
+def _normalize_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in {"readonly", "draft"} else "invalid"
 
 
 def _encode_sse(event: dict[str, Any]) -> str:
@@ -555,10 +839,23 @@ def _http_error(status_code: int, code: str) -> HTTPException:
 
 
 def _worker_http_error(exc: CodingWorkerError) -> HTTPException:
-    if exc.code in {"concurrency_limit", "turn_in_progress"}:
+    if exc.code in {
+        "concurrency_limit",
+        "turn_in_progress",
+        "draft_busy",
+        "draft_unavailable",
+        "stale_revision",
+        "validation_failed",
+        "draft_is_empty",
+    }:
         return _http_error(status.HTTP_409_CONFLICT, exc.code)
-    if exc.code in {"invalid_prompt", "prompt_too_long", "invalid_request"}:
-        return _http_error(status.HTTP_422_UNPROCESSABLE_ENTITY, exc.code)
-    if exc.code == "session_not_found":
+    if exc.code in {
+        "invalid_prompt",
+        "prompt_too_long",
+        "invalid_request",
+        "invalid_path",
+    }:
+        return _http_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code)
+    if exc.code in {"session_not_found", "change_not_found"}:
         return _http_error(status.HTTP_404_NOT_FOUND, exc.code)
     return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)

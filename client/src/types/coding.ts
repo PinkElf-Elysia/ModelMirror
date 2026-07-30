@@ -16,8 +16,12 @@ export interface CodingCapabilities {
     max_concurrency: number;
     max_prompt_chars: number;
     session_ttl_seconds: number;
+    max_changed_files?: number;
+    max_file_bytes?: number;
+    max_patch_bytes?: number;
   };
-  mode: "readonly";
+  mode: "readonly" | "draft";
+  host_apply?: false;
   reason?: "disabled" | "not_configured" | "worker_unavailable" | string;
   workspace: string;
 }
@@ -60,4 +64,38 @@ export interface CodingTurnResponse {
 
 export interface CodingCancelResponse {
   accepted: boolean;
+}
+
+export type CodingDraftFileStatus = "added" | "modified";
+export type CodingDraftCheckStatus = "passed" | "failed";
+
+export interface CodingDraftFile {
+  additions: number;
+  deletions: number;
+  path: string;
+  status: CodingDraftFileStatus;
+}
+
+export interface CodingDraftCheck {
+  id: string;
+  label: string;
+  message: string;
+  status: CodingDraftCheckStatus;
+}
+
+export interface CodingDraftChanges {
+  additions: number;
+  can_download: boolean;
+  checks: CodingDraftCheck[];
+  deletions: number;
+  file_count: number;
+  files: CodingDraftFile[];
+  patch_bytes: number;
+  revision: number;
+  validation_status: CodingDraftCheckStatus;
+}
+
+export interface CodingPatchDownload {
+  blob: Blob;
+  filename: string;
 }

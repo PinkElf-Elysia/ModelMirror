@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Clock3,
+  FilePenLine,
   FileSearch,
   RefreshCw,
   Send,
@@ -21,9 +22,11 @@ import {
 import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
+import CodingChangesPanel from "../components/CodingChangesPanel";
 import PageContainer from "../components/PageContainer";
 import type {
   CodingCapabilities,
+  CodingDraftChanges,
   CodingEvent,
   CodingPlanEntry,
 } from "../types/coding";
@@ -32,8 +35,12 @@ import {
   CodingApiError,
   connectCodingEvents,
   createCodingSession,
+  discardCodingChanges,
   getCodingCapabilities,
+  getCodingChanges,
+  getCodingPatch,
   startCodingTurn,
+  validateCodingChanges,
 } from "../utils/codingApi";
 
 type RunState = "idle" | "starting" | "running" | "stopping" | "error";
@@ -46,19 +53,65 @@ interface ToolActivity {
   title: string;
 }
 
+interface StoredCodingSession {
+  id: string;
+  lastSeq: number;
+}
+
+const CODING_SESSION_STORAGE_KEY = "modelmirror.coding.session.v1";
+const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+function readStoredCodingSession(): StoredCodingSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(
+      window.sessionStorage.getItem(CODING_SESSION_STORAGE_KEY) ?? "null",
+    ) as Partial<StoredCodingSession> | null;
+    if (
+      !value ||
+      typeof value.id !== "string" ||
+      !SAFE_SESSION_ID.test(value.id) ||
+      !Number.isInteger(value.lastSeq) ||
+      (value.lastSeq ?? -1) < 0
+    ) {
+      return null;
+    }
+    return { id: value.id, lastSeq: value.lastSeq as number };
+  } catch {
+    return null;
+  }
+}
+
+function storeCodingSession(id: string, lastSeq: number) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(
+    CODING_SESSION_STORAGE_KEY,
+    JSON.stringify({ id, lastSeq }),
+  );
+}
+
+function clearStoredCodingSession() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(CODING_SESSION_STORAGE_KEY);
+}
+
 const capabilityReason: Record<string, string> = {
   disabled: "管理员尚未启用代码助手，其他功能不受影响。",
   not_configured: "代码服务已启动，但所需的模型连接信息尚未配置。",
   worker_unavailable: "代码服务当前不可用，请确认服务是否已启动。",
+  mode_mismatch: "代码服务的运行模式与页面配置不一致，请检查服务配置。",
 };
 
 const errorMessage: Record<string, string> = {
-  concurrency_limit: "代码助手正在处理另一个问题，请稍后再试。",
+  concurrency_limit: "代码助手已有一个未结束的会话，请回到原页面继续，或稍后重试。",
   turn_in_progress: "当前问题仍在处理，请先停止或等待完成。",
   prompt_too_long: "问题超过 20,000 字符，请缩短后重试。",
   session_not_found: "本次使用记录已经过期，请重新提交问题。",
   worker_unavailable: "无法连接代码服务，请检查服务状态。",
-  agent_turn_failed: "代码分析未完成，请稍后重试。",
+  agent_turn_failed: "代码助手未能完成本轮处理，请检查模型额度或配置后重试。",
+  draft_policy_violation: "本轮修改超出安全范围，已自动撤销。",
+  draft_busy: "代码助手仍在处理，请等待本轮结束。",
+  validation_failed: "修改检查尚未通过，请先修正后再下载。",
 };
 
 function describeError(error: unknown) {
@@ -89,10 +142,11 @@ function toolKindLabel(kind: string) {
   if (kind === "glob") return "查找文件";
   if (kind === "grep") return "搜索内容";
   if (kind === "lsp") return "分析代码结构";
+  if (kind === "edit") return "准备修改文件";
   return "查阅代码";
 }
 
-function CodingSidebar() {
+function CodingSidebar({ isDraft }: { isDraft: boolean }) {
   return (
     <div>
       <Link
@@ -103,11 +157,21 @@ function CodingSidebar() {
         返回 Studio
       </Link>
       <div className="mt-5">
-        <p className="text-sm font-semibold text-white">你可以放心提问</p>
+        <p className="text-sm font-semibold text-white">
+          {isDraft ? "修改范围清晰可控" : "你可以放心提问"}
+        </p>
         <ul className="mt-3 space-y-3 text-xs leading-5 text-slate-400">
-          <li>只查看固定的 ModelMirror 项目代码。</li>
+          <li>
+            {isDraft
+              ? "所有修改只保存在临时副本，不会直接改变真实项目。"
+              : "只查看固定的 ModelMirror 项目代码。"}
+          </li>
           <li>不会执行命令、运行测试或访问外部网站。</li>
-          <li>不会修改文件、生成变更或提交代码。</li>
+          <li>
+            {isDraft
+              ? "只新增或修改文本文件，不会删除、重命名或提交代码。"
+              : "不会修改文件、生成变更或提交代码。"}
+          </li>
           <li>问题与回答只临时保留，服务重启后清除。</li>
         </ul>
       </div>
@@ -116,6 +180,9 @@ function CodingSidebar() {
 }
 
 export default function CodingPage() {
+  const restoredSessionRef = useRef<StoredCodingSession | null>(
+    readStoredCodingSession(),
+  );
   const [capabilityState, setCapabilityState] =
     useState<CapabilityState>("loading");
   const [capabilities, setCapabilities] = useState<CodingCapabilities | null>(
@@ -123,12 +190,20 @@ export default function CodingPage() {
   );
   const [runState, setRunState] = useState<RunState>("idle");
   const [prompt, setPrompt] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(
+    restoredSessionRef.current?.id ?? null,
+  );
   const [events, setEvents] = useState<CodingEvent[]>([]);
   const [error, setError] = useState("");
   const [transportWarning, setTransportWarning] = useState("");
+  const [draftChanges, setDraftChanges] =
+    useState<CodingDraftChanges | null>(null);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState("");
+  const [draftNotice, setDraftNotice] = useState("");
   const closeStreamRef = useRef<null | (() => void)>(null);
-  const lastSeqRef = useRef(0);
+  const lastSeqRef = useRef(restoredSessionRef.current?.lastSeq ?? 0);
+  const isDraftMode = capabilities?.mode === "draft";
 
   const loadCapabilities = useCallback(async () => {
     setCapabilityState("loading");
@@ -136,6 +211,11 @@ export default function CodingPage() {
     try {
       const result = await getCodingCapabilities();
       setCapabilities(result);
+      if (result.mode !== "draft") {
+        setDraftChanges(null);
+        setDraftError("");
+        setDraftNotice("");
+      }
       setCapabilityState("ready");
     } catch {
       setCapabilities(null);
@@ -162,6 +242,24 @@ export default function CodingPage() {
     return latest?.data.entries ?? [];
   }, [events]);
 
+  const refreshDraftChanges = useCallback(
+    async (activeSessionId: string, runValidation: boolean) => {
+      setDraftLoading(true);
+      setDraftError("");
+      try {
+        const result = runValidation
+          ? await validateCodingChanges(activeSessionId)
+          : await getCodingChanges(activeSessionId);
+        setDraftChanges(result);
+      } catch (requestError) {
+        setDraftError(describeError(requestError));
+      } finally {
+        setDraftLoading(false);
+      }
+    },
+    [],
+  );
+
   const tools = useMemo<ToolActivity[]>(() => {
     const byId = new Map<string, ToolActivity>();
     events
@@ -170,7 +268,10 @@ export default function CodingPage() {
         const id = event.data.tool_call_id || `tool-${index}`;
         byId.set(id, {
           id,
-          title: event.data.title || "代码读取",
+          title:
+            event.data.kind === "edit"
+              ? "准备修改文件"
+              : event.data.title || "代码读取",
           kind: event.data.kind || "read",
           status: event.data.status || "pending",
         });
@@ -178,26 +279,55 @@ export default function CodingPage() {
     return [...byId.values()];
   }, [events]);
 
-  const handleCodingEvent = useCallback((event: CodingEvent) => {
-    if (event.seq <= lastSeqRef.current) return;
-    lastSeqRef.current = event.seq;
-    setTransportWarning("");
-    setEvents((current) => [...current, event]);
-    if (event.type === "turn_completed" || event.type === "cancelled") {
-      setRunState("idle");
-    } else if (event.type === "failed") {
-      closeStreamRef.current?.();
-      setSessionId(null);
-      lastSeqRef.current = 0;
-      setRunState("error");
-      setError(
-        errorMessage[event.data.code ?? ""] ??
-          "本轮代码分析未完成，请重新提交问题。",
-      );
-    } else if (event.type === "turn_started") {
-      setRunState("running");
-    }
-  }, []);
+  const handleCodingEvent = useCallback(
+    (event: CodingEvent) => {
+      if (event.seq <= lastSeqRef.current) return;
+      lastSeqRef.current = event.seq;
+      storeCodingSession(event.session_id, event.seq);
+      setTransportWarning("");
+      setEvents((current) => [...current, event]);
+      if (event.type === "turn_completed") {
+        setRunState("idle");
+        if (isDraftMode) {
+          setDraftNotice("本轮已完成，修改草稿和检查结果已更新。");
+          window.setTimeout(
+            () => void refreshDraftChanges(event.session_id, true),
+            80,
+          );
+        }
+      } else if (event.type === "cancelled") {
+        setRunState("idle");
+        if (isDraftMode) {
+          setDraftNotice("本轮修改已撤销，此前保留的草稿不受影响。");
+          window.setTimeout(
+            () => void refreshDraftChanges(event.session_id, false),
+            80,
+          );
+        }
+      } else if (event.type === "failed") {
+        closeStreamRef.current?.();
+        setRunState("error");
+        setError(
+          errorMessage[event.data.code ?? ""] ??
+            "本轮处理未完成，请查看提示后重试。",
+        );
+        if (isDraftMode) {
+          setDraftNotice("本轮修改已撤销，此前保留的草稿不受影响。");
+          window.setTimeout(
+            () => void refreshDraftChanges(event.session_id, false),
+            80,
+          );
+        } else {
+          setSessionId(null);
+          lastSeqRef.current = 0;
+          clearStoredCodingSession();
+        }
+      } else if (event.type === "turn_started") {
+        setRunState("running");
+      }
+    },
+    [isDraftMode, refreshDraftChanges],
+  );
 
   const submitPrompt = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -216,6 +346,8 @@ export default function CodingPage() {
     setRunState("starting");
     setError("");
     setTransportWarning("");
+    setDraftError("");
+    setDraftNotice("");
     setEvents([]);
     try {
       let activeSessionId = sessionId;
@@ -223,6 +355,11 @@ export default function CodingPage() {
         const session = await createCodingSession();
         activeSessionId = session.id;
         setSessionId(session.id);
+        lastSeqRef.current = 0;
+        storeCodingSession(session.id, 0);
+        if (isDraftMode) {
+          setDraftChanges(null);
+        }
       }
       const after = lastSeqRef.current;
       await startCodingTurn(activeSessionId, question);
@@ -236,11 +373,14 @@ export default function CodingPage() {
       });
     } catch (requestError) {
       if (
-        !(requestError instanceof CodingApiError) ||
-        requestError.code !== "turn_in_progress"
+        !isDraftMode ||
+        (requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found")
       ) {
         setSessionId(null);
         lastSeqRef.current = 0;
+        clearStoredCodingSession();
+        setDraftChanges(null);
       }
       setRunState("error");
       setError(describeError(requestError));
@@ -269,6 +409,37 @@ export default function CodingPage() {
     }
   };
 
+  const checkDraft = async () => {
+    if (!sessionId) return;
+    const result = await validateCodingChanges(sessionId);
+    setDraftChanges(result);
+    setDraftNotice("检查结果已更新。");
+  };
+
+  const discardDraft = async () => {
+    if (!sessionId) return;
+    const result = await discardCodingChanges(sessionId);
+    setDraftChanges(result);
+    setDraftNotice("修改草稿已放弃，临时副本已恢复到最初状态。");
+  };
+
+  const downloadDraft = async () => {
+    if (!sessionId || !draftChanges) return;
+    const { blob, filename } = await getCodingPatch(
+      sessionId,
+      draftChanges.revision,
+    );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setDraftNotice("Diff 已下载，真实项目仍未发生改变。");
+  };
+
   const serviceAvailable = capabilities?.available === true;
   const isBusy = ["starting", "running", "stopping"].includes(runState);
 
@@ -276,7 +447,7 @@ export default function CodingPage() {
     <PageContainer
       contentClassName="min-w-0"
       maxWidthClassName="max-w-[1360px]"
-      sidebar={<CodingSidebar />}
+      sidebar={<CodingSidebar isDraft={isDraftMode} />}
     >
       <header className="mb-5 border-b border-white/10 pb-5">
         <Link
@@ -290,18 +461,24 @@ export default function CodingPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-1 text-xs font-semibold text-cyan-100">
-                <ShieldCheck aria-hidden="true" size={14} />
-                只读实验
+                {isDraftMode ? (
+                  <FilePenLine aria-hidden="true" size={14} />
+                ) : (
+                  <ShieldCheck aria-hidden="true" size={14} />
+                )}
+                {isDraftMode ? "修改草稿，不会直接改变项目" : "只读实验"}
               </span>
               <span className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs text-slate-300">
                 固定项目：ModelMirror
               </span>
             </div>
             <h1 className="mt-3 text-2xl font-semibold tracking-[-0.025em] text-white sm:text-3xl">
-              代码问答工作台
+              {isDraftMode ? "代码协作工作台" : "代码问答工作台"}
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              你可以询问功能如何实现、页面与服务如何配合，或某段代码的作用。代码助手只能查看项目并回答，不会修改文件或执行命令。
+              {isDraftMode
+                ? "描述希望调整的内容。代码助手会在临时副本中准备修改，你可以逐个文件查看，再下载 Diff。修改不会自动写回项目。"
+                : "你可以询问功能如何实现、页面与服务如何配合，或某段代码的作用。代码助手只能查看项目并回答，不会修改文件或执行命令。"}
             </p>
           </div>
           <button
@@ -342,14 +519,18 @@ export default function CodingPage() {
             {capabilityState === "loading"
               ? "正在检查代码服务"
               : serviceAvailable
-                ? "代码助手可以使用"
+                ? isDraftMode
+                  ? "代码助手可以准备修改草稿"
+                  : "代码助手可以使用"
                 : "代码助手暂时不可用"}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-80">
             {capabilityState === "loading"
               ? "确认代码服务安全可用后，输入框会自动开放。"
               : serviceAvailable
-                ? "一次只处理一个问题，最长可输入 20,000 字符，闲置 30 分钟后会自动清理。"
+                ? isDraftMode
+                  ? "修改只保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
+                  : "一次只处理一个问题，最长可输入 20,000 字符，闲置 30 分钟后会自动清理。"
                 : capabilityReason[capabilities?.reason ?? ""] ??
                   (error || "暂时无法确认代码服务状态。")}
           </p>
@@ -358,7 +539,11 @@ export default function CodingPage() {
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-5">
-          <section className="order-3 min-h-[360px] rounded-lg bg-ink-950/72">
+          <section
+            className={`order-3 rounded-lg bg-ink-950/72 ${
+              isDraftMode ? "" : "min-h-[360px]"
+            }`}
+          >
             <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
               <div>
                 <h2 className="text-sm font-semibold text-white">分析回答</h2>
@@ -367,10 +552,15 @@ export default function CodingPage() {
                 </p>
               </div>
               <span className="rounded-full bg-white/[0.055] px-2.5 py-1 text-xs text-slate-300">
-                {statusLabel(runState)}
+                {answer && runState === "idle"
+                  ? "回答完成"
+                  : statusLabel(runState)}
               </span>
             </div>
-            <div aria-live="polite" className="min-h-[286px] p-4 sm:p-5">
+            <div
+              aria-live="polite"
+              className={`${isDraftMode ? "min-h-24" : "min-h-[286px]"} p-4 sm:p-5`}
+            >
               {answer ? (
                 <div className="max-w-none break-words text-sm leading-7 text-slate-200 [&_a]:text-cyan-200 [&_a]:underline [&_blockquote]:my-4 [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-4 [&_code]:text-cyan-100 [&_h1]:mb-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:text-white [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-white [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:font-semibold [&_h3]:text-white [&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/35 [&_pre]:p-4 [&_table]:my-4 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:border [&_td]:border-white/10 [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-white/10 [&_th]:px-3 [&_th]:py-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
@@ -388,13 +578,33 @@ export default function CodingPage() {
                   <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
                 </div>
               ) : (
-                <div className="flex min-h-[250px] flex-col items-center justify-center text-center">
-                  <FileSearch aria-hidden="true" className="text-cyan-200" size={28} />
+                <div
+                  className={`flex flex-col items-center justify-center text-center ${
+                    isDraftMode ? "min-h-24" : "min-h-[250px]"
+                  }`}
+                >
+                  {isDraftMode ? (
+                    <FilePenLine
+                      aria-hidden="true"
+                      className="text-cyan-200"
+                      size={28}
+                    />
+                  ) : (
+                    <FileSearch
+                      aria-hidden="true"
+                      className="text-cyan-200"
+                      size={28}
+                    />
+                  )}
                   <p className="mt-4 text-sm font-semibold text-white">
-                    从一个可验证的问题开始
+                    {isDraftMode
+                      ? "说清楚想调整什么"
+                      : "从一个可验证的问题开始"}
                   </p>
                   <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
-                    例如：说明聊天回答如何从服务端显示到页面，并指出出现错误时由哪里处理。
+                    {isDraftMode
+                      ? "例如：把代码助手页面的空白提示改得更容易理解，并说明修改原因。"
+                      : "例如：说明聊天回答如何从服务端显示到页面，并指出出现错误时由哪里处理。"}
                   </p>
                 </div>
               )}
@@ -406,7 +616,7 @@ export default function CodingPage() {
             onSubmit={(event) => void submitPrompt(event)}
           >
             <label className="text-sm font-semibold text-white" htmlFor="coding-prompt">
-              提交代码问题
+              {isDraftMode ? "描述希望调整的内容" : "提交代码问题"}
             </label>
             <textarea
               aria-describedby="coding-prompt-help"
@@ -416,7 +626,11 @@ export default function CodingPage() {
               maxLength={capabilities?.limits.max_prompt_chars ?? 20_000}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={handlePromptKeyDown}
-              placeholder="描述想了解的功能或问题，不需要填写路径和命令。"
+              placeholder={
+                isDraftMode
+                  ? "用日常语言说明目标和期望结果，不需要填写命令。"
+                  : "描述想了解的功能或问题，不需要填写路径和命令。"
+              }
               value={prompt}
             />
             <div
@@ -450,7 +664,7 @@ export default function CodingPage() {
                     type="submit"
                   >
                     <Send aria-hidden="true" size={16} />
-                    提交问题
+                    {isDraftMode ? "开始处理" : "提交问题"}
                   </button>
                 )}
               </div>
@@ -468,6 +682,50 @@ export default function CodingPage() {
               role={error ? "alert" : "status"}
             >
               {error || transportWarning}
+            </div>
+          ) : null}
+
+          {draftNotice && isDraftMode ? (
+            <div
+              aria-live="polite"
+              className="order-2 flex items-start gap-2 rounded-lg bg-cyan-300/10 px-4 py-3 text-sm leading-6 text-cyan-100"
+              role="status"
+            >
+              <CheckCircle2
+                aria-hidden="true"
+                className="mt-0.5 shrink-0"
+                size={17}
+              />
+              {draftNotice}
+            </div>
+          ) : null}
+
+          {draftError && isDraftMode ? (
+            <div
+              aria-live="assertive"
+              className="order-2 flex items-start gap-2 rounded-lg bg-rose-300/10 px-4 py-3 text-sm leading-6 text-rose-100"
+              role="alert"
+            >
+              <CircleAlert
+                aria-hidden="true"
+                className="mt-0.5 shrink-0"
+                size={17}
+              />
+              {draftError}
+            </div>
+          ) : null}
+
+          {isDraftMode ? (
+            <div className="order-4">
+              <CodingChangesPanel
+                changes={draftChanges}
+                disabled={isBusy}
+                loading={draftLoading}
+                onDiscard={discardDraft}
+                onDownload={downloadDraft}
+                onValidate={checkDraft}
+                sessionId={sessionId}
+              />
             </div>
           ) : null}
         </div>
