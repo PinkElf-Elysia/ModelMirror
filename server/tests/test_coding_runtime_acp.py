@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ from server.coding_runtime import (
     CodingSession,
     CodingSessionState,
 )
+from server.coding_runtime import worker
 
 FAKE_AGENT = Path(__file__).with_name("fake_acp_agent.py")
 
@@ -41,6 +43,67 @@ def make_client(mode: str = "normal", *, timeout: float = 2.0) -> AcpClient:
 def test_acp_workspace_cannot_be_redirected() -> None:
     with pytest.raises(ValueError, match="fixed to /workspace"):
         AcpProcessConfig(command=("opencode", "acp"), workspace="/tmp/other")
+
+
+def test_worker_config_is_read_only_and_child_env_is_allowlisted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODING_AGENT_MODEL", "test-model")
+    monkeypatch.setenv("CODING_AGENT_GATEWAY_KEY", "test-only-key")
+    monkeypatch.setenv("UNRELATED_SECRET", "must-not-be-inherited")
+
+    client = worker.create_acp_client()
+    config = json.loads(client._config.environment["OPENCODE_CONFIG_CONTENT"])
+    permission = config["permission"]
+
+    assert permission["*"] == "deny"
+    assert permission["read"]["*"] == "allow"
+    assert all(permission[name] == "allow" for name in ("list", "glob", "grep", "lsp"))
+    assert all(
+        permission[name] == "deny"
+        for name in (
+            "edit",
+            "bash",
+            "task",
+            "webfetch",
+            "websearch",
+            "skill",
+            "external_directory",
+            "question",
+        )
+    )
+    assert config["plugin"] == []
+    assert config["mcp"] == {}
+    assert config["share"] == "disabled"
+    assert config["autoupdate"] is False
+    assert config["provider"]["modelmirror"]["options"] == {
+        "baseURL": "http://new-api:3000/v1",
+        "apiKey": "{env:CODING_AGENT_GATEWAY_KEY}",
+    }
+    assert "UNRELATED_SECRET" not in client._config.environment
+    assert client._config.environment["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1"
+    assert client._config.environment["OPENCODE_PURE"] == "1"
+    assert client._config.environment["OPENCODE_DISABLE_AUTOUPDATE"] == "1"
+    assert client._config.environment["OPENCODE_DISABLE_MODELS_FETCH"] == "1"
+    assert set(client._config.environment) == {
+        "PATH",
+        "HOME",
+        "OPENCODE_TEST_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        "OPENCODE_CONFIG_CONTENT",
+        "OPENCODE_DISABLE_PROJECT_CONFIG",
+        "OPENCODE_PURE",
+        "OPENCODE_DISABLE_AUTOUPDATE",
+        "OPENCODE_DISABLE_AUTOCOMPACT",
+        "OPENCODE_DISABLE_MODELS_FETCH",
+        "OPENCODE_AUTH_CONTENT",
+        "CODING_AGENT_GATEWAY_KEY",
+        "NO_PROXY",
+        "no_proxy",
+    }
 
 
 @pytest.mark.asyncio

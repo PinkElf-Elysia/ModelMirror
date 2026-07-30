@@ -38,6 +38,20 @@ and ripgrep. Its complete runtime notice is included at
 `/usr/share/doc/modelmirror-sandbox/THIRD_PARTY_NOTICES.md` inside the sidecar
 image. No Xpert or Dify source code is copied into the Sandbox implementation.
 
+## OpenCode Coding Runtime
+
+The optional `coding` profile installs `opencode-ai` 1.18.9 under the MIT
+License and runs it as a separate ACP command-line process inside the isolated
+Coding Runtime container.
+
+Project: https://github.com/anomalyco/opencode
+
+The npm package is pinned to version 1.18.9 and verified during image build
+against its published SHA-512 integrity value. OpenCode and its dependencies
+retain their own license notices under the image's global Node.js modules
+directory. ModelMirror communicates with OpenCode only through ACP and does not
+copy OpenCode source code into the application.
+
 ## Browser sidecar
 
 The isolated Browser sidecar uses Playwright 1.58.2 under the Apache License

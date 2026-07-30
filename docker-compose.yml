@@ -119,6 +119,9 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/new-api-data:/data
     environment:
       TZ: Asia/Shanghai
+    networks:
+      - default
+      - coding_internal
     healthcheck:
       test:
         [
@@ -173,6 +176,7 @@ services:
       SANDBOX_WORKSPACE_ROOT: /app/sandbox-workspaces
       BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
       BROWSER_DATA_ROOT: /app/browser-data
+      CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
     ports:
       - "8000:8000"
     volumes:
@@ -188,6 +192,7 @@ services:
       - sandbox_workspaces:/app/sandbox-workspaces:ro
       - browser_socket:/run/modelmirror-browser
       - browser_data:/app/browser-data:ro
+      - coding_socket:/run/modelmirror-coding
     restart: unless-stopped
     healthcheck:
       test:
@@ -212,6 +217,53 @@ services:
     ports:
       - "5173:80"
     restart: unless-stopped
+
+  coding-runtime:
+    profiles:
+      - coding
+    build:
+      context: ./server
+      dockerfile: coding_worker/Dockerfile
+    container_name: modelmirror-coding-runtime
+    depends_on:
+      new-api:
+        condition: service_healthy
+    networks:
+      - coding_internal
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /home/coding:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
+      CODING_AGENT_MODEL: ${CODING_AGENT_MODEL:-}
+      CODING_AGENT_GATEWAY_KEY: ${CODING_AGENT_GATEWAY_KEY:-}
+    volumes:
+      - coding_socket:/run/modelmirror-coding
+      - .:/workspace:ro
+      - ./.env.example:/workspace/.env:ro
+      - ./server/.env.example:/workspace/server/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/coding-runtime.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   office-host:
     profiles:
@@ -245,7 +297,11 @@ volumes:
   sandbox_workspaces:
   browser_socket:
   browser_data:
+  coding_socket:
 
 networks:
   browser_egress:
     driver: bridge
+  coding_internal:
+    driver: bridge
+    internal: true
