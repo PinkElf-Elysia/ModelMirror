@@ -22,7 +22,12 @@ from server.coding_runtime import worker
 FAKE_AGENT = Path(__file__).with_name("fake_acp_agent.py")
 
 
-def make_client(mode: str = "normal", *, timeout: float = 2.0) -> AcpClient:
+def make_client(
+    mode: str = "normal",
+    *,
+    timeout: float = 2.0,
+    permission_mode: str = "readonly",
+) -> AcpClient:
     environment = {
         "FAKE_ACP_MODE": mode,
         "PATH": os.environ.get("PATH", ""),
@@ -32,6 +37,7 @@ def make_client(mode: str = "normal", *, timeout: float = 2.0) -> AcpClient:
         AcpProcessConfig(
             command=(sys.executable, str(FAKE_AGENT)),
             workspace="/workspace",
+            mode=permission_mode,
             process_cwd=str(Path.cwd()),
             environment=environment,
             request_timeout=timeout,
@@ -43,6 +49,8 @@ def make_client(mode: str = "normal", *, timeout: float = 2.0) -> AcpClient:
 def test_acp_workspace_cannot_be_redirected() -> None:
     with pytest.raises(ValueError, match="fixed to /workspace"):
         AcpProcessConfig(command=("opencode", "acp"), workspace="/tmp/other")
+    with pytest.raises(ValueError, match="readonly or draft"):
+        AcpProcessConfig(command=("opencode", "acp"), mode="write")
 
 
 def test_worker_config_is_read_only_and_child_env_is_allowlisted(
@@ -159,6 +167,158 @@ async def test_acp_permission_request_always_fails_closed(
         if event.kind is CodingEventKind.ANSWER_DELTA
     )
     assert answer == expected
+
+
+def _edit_params(
+    *,
+    session_id: str = "acp-session",
+    filepath: object = "/workspace/server/main.py",
+    diff: object = (
+        "Index: /workspace/server/main.py\n"
+        "===================================================================\n"
+        "--- /workspace/server/main.py\n"
+        "+++ /workspace/server/main.py\n"
+        "@@ -1 +1 @@\n"
+        "-before\n"
+        "+after\n"
+    ),
+    kind: str = "edit",
+    extra_input: dict[str, object] | None = None,
+    options: list[dict[str, str]] | None = None,
+) -> dict[str, object]:
+    raw_input = {"filepath": filepath, "diff": diff}
+    raw_input.update(extra_input or {})
+    return {
+        "sessionId": session_id,
+        "toolCall": {
+            "toolCallId": "edit-1",
+            "kind": kind,
+            "rawInput": raw_input,
+        },
+        "options": options
+        or [
+            {"optionId": "once", "kind": "allow_once", "name": "Allow once"},
+            {"optionId": "always", "kind": "allow_always", "name": "Always"},
+            {"optionId": "reject", "kind": "reject_once", "name": "Reject"},
+        ],
+    }
+
+
+def _permission_client(mode: str = "draft") -> AcpClient:
+    client = AcpClient(
+        AcpProcessConfig(
+            command=("opencode", "acp"),
+            workspace="/workspace",
+            mode=mode,
+        )
+    )
+    session = CodingSession()
+    session.transition(CodingSessionState.READY)
+    session.begin_turn()
+    client._session = session
+    client._acp_session_id = "acp-session"
+    return client
+
+
+@pytest.mark.parametrize(
+    "filepath",
+    [
+        "/workspace/server/main.py",
+        "server/main.py",
+    ],
+)
+def test_draft_permission_allows_only_safe_single_edit_once(filepath: str) -> None:
+    client = _permission_client()
+
+    selected = client._select_permission_option(_edit_params(filepath=filepath))
+
+    assert selected == "once"
+
+
+def test_new_text_file_diff_can_be_approved_once() -> None:
+    client = _permission_client()
+    params = _edit_params(
+        filepath="/workspace/notes/new.txt",
+        diff=(
+            "Index: /workspace/notes/new.txt\n"
+            "===================================================================\n"
+            "--- /dev/null\n"
+            "+++ /workspace/notes/new.txt\n"
+            "@@ -0,0 +1 @@\n"
+            "+clear summary\n"
+        ),
+    )
+
+    assert client._select_permission_option(params) == "once"
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        _edit_params(session_id="another-session"),
+        _edit_params(filepath="/etc/passwd"),
+        _edit_params(filepath="../outside.txt"),
+        _edit_params(filepath="C:\\private\\file.txt"),
+        _edit_params(filepath="/workspace/.env"),
+        _edit_params(kind="execute"),
+        _edit_params(extra_input={"files": []}),
+        _edit_params(diff=None),
+        _edit_params(diff="\ud800"),
+        _edit_params(diff="not a unified diff"),
+        _edit_params(
+            diff=(
+                "--- /workspace/server/main.py\n"
+                "+++ /dev/null\n"
+                "@@ -1 +0,0 @@\n"
+                "-content\n"
+            )
+        ),
+        _edit_params(
+            diff=(
+                "--- /workspace/server/main.py\n"
+                "+++ /workspace/client/main.ts\n"
+                "@@ -1 +1 @@\n"
+                "-before\n"
+                "+after\n"
+            )
+        ),
+        _edit_params(
+            diff=(
+                "diff --git a/server/main.py b/server/main.py\n"
+                "--- a/server/main.py\n"
+                "+++ b/server/main.py\n"
+                "@@ -1 +1 @@\n"
+                "-before\n"
+                "+after\n"
+                "diff --git a/other.py b/other.py\n"
+            )
+        ),
+    ],
+)
+def test_draft_permission_rejects_unsafe_or_malformed_edit(
+    params: dict[str, object],
+) -> None:
+    client = _permission_client()
+
+    assert client._select_permission_option(params) == "reject"
+
+
+def test_readonly_mode_rejects_even_safe_edit() -> None:
+    client = _permission_client("readonly")
+
+    assert client._select_permission_option(_edit_params()) == "reject"
+
+
+def test_permission_never_selects_allow_always() -> None:
+    client = _permission_client()
+    params = _edit_params(
+        options=[
+            {"optionId": "always", "kind": "allow_always", "name": "Always"},
+            {"optionId": "reject", "kind": "reject_once", "name": "Reject"},
+        ]
+    )
+
+    assert client._select_permission_option(params) == "reject"
 
 
 @pytest.mark.asyncio

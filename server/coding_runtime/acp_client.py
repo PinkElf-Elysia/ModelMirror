@@ -3,16 +3,23 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 
+from .draft_workspace import DraftPolicyError, DraftWorkspace
 from .models import CodingEvent, CodingEventKind, CodingSession, CodingSessionState
 
 ACP_PROTOCOL_VERSION = 1
-MAX_FRAME_BYTES = 1_048_576
+MAX_FRAME_BYTES = 2 * 1024 * 1024
+MAX_EDIT_DIFF_BYTES = 1024 * 1024
 MAX_TEXT_CHUNK = 16_000
 MAX_PLAN_ENTRIES = 50
+_DIFF_HUNK_HEADER = re.compile(
+    r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$"
+)
 
 
 class AcpProtocolError(RuntimeError):
@@ -31,6 +38,7 @@ class AcpProcessExited(RuntimeError):
 class AcpProcessConfig:
     command: Sequence[str]
     workspace: str = "/workspace"
+    mode: str = "readonly"
     process_cwd: str | None = None
     environment: Mapping[str, str] = field(default_factory=dict)
     request_timeout: float = 30.0
@@ -41,6 +49,8 @@ class AcpProcessConfig:
             raise ValueError("ACP command must contain non-empty argv entries")
         if self.workspace != "/workspace":
             raise ValueError("ACP workspace is fixed to /workspace")
+        if self.mode not in {"readonly", "draft"}:
+            raise ValueError("ACP mode must be readonly or draft")
         if self.request_timeout <= 0 or self.shutdown_timeout <= 0:
             raise ValueError("ACP timeouts must be positive")
 
@@ -304,7 +314,7 @@ class AcpClient:
                 await self._updates.put((session_id, update))
                 return
             if method == "session/request_permission" and "id" in frame:
-                await self._reject_permission(frame["id"], params)
+                await self._respond_permission(frame["id"], params)
                 return
             if "id" in frame:
                 await self._write_frame(
@@ -334,25 +344,12 @@ class AcpClient:
             return
         future.set_result(result)
 
-    async def _reject_permission(
+    async def _respond_permission(
         self,
         request_id: Any,
         params: dict[str, Any],
     ) -> None:
-        options = params.get("options")
-        selected_id: str | None = None
-        if isinstance(options, list):
-            for preferred_kind in ("reject_once", "reject_always"):
-                for option in options:
-                    if (
-                        isinstance(option, dict)
-                        and option.get("kind") == preferred_kind
-                        and isinstance(option.get("optionId"), str)
-                    ):
-                        selected_id = option["optionId"]
-                        break
-                if selected_id is not None:
-                    break
+        selected_id = self._select_permission_option(params)
         outcome: dict[str, str]
         if selected_id is None:
             outcome = {"outcome": "cancelled"}
@@ -365,6 +362,208 @@ class AcpClient:
                 "result": {"outcome": outcome},
             }
         )
+
+    def _select_permission_option(self, params: dict[str, Any]) -> str | None:
+        options = params.get("options")
+        if not isinstance(options, list):
+            return None
+        if self._is_safe_single_edit(params):
+            allow_once = self._option_id(options, "allow_once")
+            if allow_once is not None:
+                return allow_once
+        return self._option_id(options, "reject_once") or self._option_id(
+            options, "reject_always"
+        )
+
+    @staticmethod
+    def _option_id(options: list[Any], kind: str) -> str | None:
+        for option in options:
+            if (
+                isinstance(option, dict)
+                and option.get("kind") == kind
+                and isinstance(option.get("optionId"), str)
+                and option["optionId"]
+            ):
+                return option["optionId"]
+        return None
+
+    def _is_safe_single_edit(self, params: dict[str, Any]) -> bool:
+        if self._config.mode != "draft":
+            return False
+        if (
+            self._session is None
+            or self._session.state is not CodingSessionState.RUNNING
+            or params.get("sessionId") != self._acp_session_id
+        ):
+            return False
+
+        tool_call = params.get("toolCall")
+        if not isinstance(tool_call, dict) or tool_call.get("kind") != "edit":
+            return False
+        tool_call_id = tool_call.get("toolCallId")
+        raw_input = tool_call.get("rawInput")
+        if (
+            not isinstance(tool_call_id, str)
+            or not tool_call_id
+            or not isinstance(raw_input, dict)
+            or set(raw_input) != {"filepath", "diff"}
+        ):
+            return False
+
+        filepath = raw_input.get("filepath")
+        diff = raw_input.get("diff")
+        if not isinstance(filepath, str) or not isinstance(diff, str):
+            return False
+        try:
+            target = self._workspace_relative_path(filepath)
+        except DraftPolicyError:
+            return False
+        return self._is_safe_single_file_diff(diff, target)
+
+    def _workspace_relative_path(
+        self,
+        path: str,
+        *,
+        allow_diff_prefix: bool = False,
+    ) -> str:
+        if not path or "," in path or "\\" in path or "//" in path:
+            raise DraftPolicyError("invalid_path")
+        if allow_diff_prefix and path.startswith(("a/", "b/")):
+            path = path[2:]
+        pure_path = PurePosixPath(path)
+        if pure_path.is_absolute():
+            workspace = PurePosixPath(self._config.workspace)
+            try:
+                path = pure_path.relative_to(workspace).as_posix()
+            except ValueError as exc:
+                raise DraftPolicyError("invalid_path") from exc
+        return DraftWorkspace.normalize_relative_path(path)
+
+    def _is_safe_single_file_diff(self, diff: str, target: str) -> bool:
+        try:
+            encoded = diff.encode("utf-8", errors="strict")
+        except UnicodeEncodeError:
+            return False
+        if (
+            not diff
+            or len(encoded) > MAX_EDIT_DIFF_BYTES
+            or "\x00" in diff
+            or any(
+                ord(character) < 32 and character not in "\n\r\t"
+                for character in diff
+            )
+            or any(
+                marker in diff
+                for marker in (
+                    "GIT binary patch",
+                    "Binary files ",
+                    "deleted file mode ",
+                    "rename from ",
+                    "rename to ",
+                )
+            )
+        ):
+            return False
+
+        lines = diff.splitlines()
+        first_hunk = next(
+            (index for index, line in enumerate(lines) if line.startswith("@@ ")),
+            None,
+        )
+        if first_hunk is None:
+            return False
+        header_lines = lines[:first_hunk]
+        if not self._validate_diff_hunks(lines[first_hunk:]):
+            return False
+
+        git_headers = [
+            line for line in lines if line.startswith("diff --git ")
+        ]
+        index_headers = [line for line in lines if line.startswith("Index: ")]
+        old_headers = [line for line in header_lines if line.startswith("--- ")]
+        new_headers = [line for line in header_lines if line.startswith("+++ ")]
+        if (
+            len(git_headers) > 1
+            or len(index_headers) > 1
+            or len(old_headers) != 1
+            or len(new_headers) != 1
+        ):
+            return False
+        allowed_headers = {
+            old_headers[0],
+            new_headers[0],
+            *(git_headers or []),
+            *(index_headers or []),
+        }
+        if any(
+            line not in allowed_headers
+            and line != "==================================================================="
+            and not line.startswith(("index ", "new file mode "))
+            for line in header_lines
+        ):
+            return False
+        if git_headers and git_headers[0] != f"diff --git a/{target} b/{target}":
+            return False
+        if index_headers:
+            try:
+                if self._workspace_relative_path(
+                    index_headers[0][len("Index: ") :],
+                    allow_diff_prefix=True,
+                ) != target:
+                    return False
+            except DraftPolicyError:
+                return False
+
+        old_path = self._diff_header_path(old_headers[0][4:])
+        new_path = self._diff_header_path(new_headers[0][4:])
+        if new_path is None or new_path != target:
+            return False
+        if old_path is not None and old_path != target:
+            return False
+
+        return True
+
+    @staticmethod
+    def _validate_diff_hunks(lines: list[str]) -> bool:
+        index = 0
+        changed = False
+        while index < len(lines):
+            match = _DIFF_HUNK_HEADER.fullmatch(lines[index])
+            if match is None:
+                return False
+            old_expected = int(match.group(1) or "1")
+            new_expected = int(match.group(2) or "1")
+            old_seen = 0
+            new_seen = 0
+            index += 1
+            while index < len(lines) and not lines[index].startswith("@@ "):
+                line = lines[index]
+                if line.startswith("\\ "):
+                    index += 1
+                    continue
+                if not line or line[0] not in {" ", "+", "-"}:
+                    return False
+                if line[0] in {" ", "-"}:
+                    old_seen += 1
+                if line[0] in {" ", "+"}:
+                    new_seen += 1
+                if line[0] in {"+", "-"}:
+                    changed = True
+                if old_seen > old_expected or new_seen > new_expected:
+                    return False
+                index += 1
+            if old_seen != old_expected or new_seen != new_expected:
+                return False
+        return changed
+
+    def _diff_header_path(self, raw_path: str) -> str | None:
+        path = raw_path.split("\t", maxsplit=1)[0]
+        if path == "/dev/null":
+            return None
+        try:
+            return self._workspace_relative_path(path, allow_diff_prefix=True)
+        except DraftPolicyError:
+            return ""
 
     def _map_update(
         self,
