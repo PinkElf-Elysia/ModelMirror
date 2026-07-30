@@ -26,6 +26,7 @@ from pydantic import (
 
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
 from .models import CodingEvent, CodingEventKind
+from .verification import sanitize_verification_output
 from .worker import CodingWorkerClient, CodingWorkerError
 
 MAX_PROMPT_CHARS = 20_000
@@ -71,6 +72,24 @@ class WorkerClient(Protocol):
     async def validate(self, session_id: str) -> dict[str, Any]: ...
 
     async def discard(self, session_id: str) -> dict[str, Any]: ...
+
+    async def verification_start(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]: ...
+
+    async def verification_status(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]: ...
+
+    async def verification_cancel(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]: ...
 
 
 class CodingTurnRequest(BaseModel):
@@ -150,6 +169,60 @@ class DraftChangesPayload(BaseModel):
         return self
 
 
+class VerificationRevisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=0)
+
+
+class VerificationStepPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_id: Literal[
+        "backend_tests",
+        "backend_baseline_tests",
+        "backend_draft_tests",
+        "frontend_build",
+    ] = Field(alias="id")
+    label: str = Field(min_length=1, max_length=100)
+    state: Literal["not_started", "running", "completed", "cancelled"]
+    result: Literal["not_run", "passed", "failed", "not_applicable"]
+    duration_ms: int | None = Field(default=None, ge=0, le=600_000)
+    summary: str = Field(default="", max_length=500)
+    details: str = Field(default="", max_length=16_000)
+    truncated: bool = False
+
+
+class VerificationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    revision: int = Field(ge=0)
+    state: Literal["not_started", "running", "completed", "cancelled"]
+    result: Literal["not_run", "passed", "failed", "not_applicable"]
+    stale: bool
+    reason: str | None = Field(default=None, max_length=64)
+    started_at: float | None = Field(default=None, ge=0)
+    finished_at: float | None = Field(default=None, ge=0)
+    steps: list[VerificationStepPayload] = Field(max_length=4)
+
+    @model_validator(mode="after")
+    def state_and_result_must_be_consistent(self) -> VerificationPayload:
+        terminal = self.state in {"completed", "cancelled"}
+        if self.state == "running" and self.started_at is None:
+            raise ValueError("Running verification must have a start time")
+        if terminal and self.finished_at is None:
+            raise ValueError("Terminal verification must have a finish time")
+        if self.state == "not_started" and self.result != "not_run":
+            raise ValueError("Unstarted verification result is inconsistent")
+        if self.state == "cancelled" and self.result != "not_run":
+            raise ValueError("Cancelled verification result is inconsistent")
+        if self.result in {"passed", "failed", "not_applicable"} and (
+            self.state != "completed"
+        ):
+            raise ValueError("Verification result is inconsistent")
+        return self
+
+
 @dataclass(slots=True)
 class CodingApiSession:
     session_id: str
@@ -196,6 +269,12 @@ class CodingService:
                 "max_concurrency": 1,
                 "session_ttl_seconds": int(self.ttl_seconds),
             },
+            "verification": {
+                "available": False,
+                "strategy": "adaptive",
+                "required_for_patch": False,
+                "max_duration_seconds": 600,
+            },
         }
         if self.mode == "draft":
             response["limits"].update(
@@ -224,6 +303,19 @@ class CodingService:
         if worker_mode not in {"readonly", "draft"} or worker_mode != self.mode:
             response["reason"] = "mode_mismatch"
             return response
+        worker_verification = health.get("verification")
+        if self.mode == "draft" and isinstance(worker_verification, dict):
+            if (
+                worker_verification.get("available") is True
+                and worker_verification.get("strategy") == "adaptive"
+                and worker_verification.get("required_for_patch") is False
+                and worker_verification.get("max_duration_seconds") == 600
+            ):
+                response["verification"]["available"] = True
+            else:
+                response["verification"]["reason"] = _safe_code(
+                    worker_verification.get("reason")
+                )
         response["available"] = True
         return response
 
@@ -291,6 +383,7 @@ class CodingService:
             record.turn_task is not None and not record.turn_task.done()
         ):
             raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
+        await self._require_verification_idle(record)
         record.state = "running"
         record.updated_at = time.time()
         record.turn_task = asyncio.create_task(self._run_turn(record, prompt))
@@ -358,12 +451,69 @@ class CodingService:
 
     async def discard(self, session_id: str) -> dict[str, Any]:
         record = await self._review_record(session_id)
+        await self._require_verification_idle(record)
         try:
             payload = await self.worker.discard(record.worker_session_id)
         except CodingWorkerError as exc:
             raise _worker_http_error(exc) from exc
         record.updated_at = time.time()
         return _public_changes(payload)
+
+    async def verification_start(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        try:
+            payload = await self.worker.verification_start(
+                record.worker_session_id,
+                revision,
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        record.updated_at = time.time()
+        return _verification_from_worker(payload)
+
+    async def verification_status(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        record = self._get_session(session_id)
+        try:
+            payload = await self.worker.verification_status(
+                record.worker_session_id,
+                revision,
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        record.updated_at = time.time()
+        return _verification_from_worker(payload)
+
+    async def verification_cancel(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        record = self._get_session(session_id)
+        try:
+            payload = await self.worker.verification_cancel(
+                record.worker_session_id,
+                revision,
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        record.updated_at = time.time()
+        result = _verification_from_worker(payload)
+        result["accepted"] = payload.get("accepted") is True
+        return result
 
     async def stream_events(
         self,
@@ -517,6 +667,32 @@ class CodingService:
             raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
         return record
 
+    async def _require_verification_idle(
+        self,
+        record: CodingApiSession,
+    ) -> None:
+        if self.mode != "draft":
+            return
+        try:
+            changes = _public_changes(
+                await self.worker.changes(record.worker_session_id)
+            )
+            payload = await self.worker.verification_status(
+                record.worker_session_id,
+                changes["revision"],
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        verification = _verification_from_worker(payload)
+        if (
+            verification["state"] == "running"
+            and verification["stale"] is False
+        ):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "verification_in_progress",
+            )
+
     def _get_session(self, session_id: str) -> CodingApiSession:
         record = self._sessions.get(session_id)
         if record is None:
@@ -616,6 +792,48 @@ async def coding_session_events(
 async def cancel_coding_session(session_id: str) -> dict[str, Any]:
     accepted = await get_coding_service().cancel(session_id)
     return {"accepted": accepted}
+
+
+@router.post(
+    "/sessions/{session_id}/verification",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_coding_verification(
+    session_id: str,
+    payload: VerificationRevisionRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().verification_start(
+        session_id,
+        payload.revision,
+    )
+
+
+@router.get("/sessions/{session_id}/verification")
+async def coding_verification_status(
+    session_id: str,
+    response: Response,
+    revision: int = Query(ge=0),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().verification_status(
+        session_id,
+        revision,
+    )
+
+
+@router.post("/sessions/{session_id}/verification/cancel")
+async def cancel_coding_verification(
+    session_id: str,
+    payload: VerificationRevisionRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().verification_cancel(
+        session_id,
+        payload.revision,
+    )
 
 
 @router.get("/sessions/{session_id}/changes")
@@ -770,6 +988,35 @@ def _public_changes(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _verification_from_worker(payload: dict[str, Any]) -> dict[str, Any]:
+    verification = payload.get("verification")
+    try:
+        validated = VerificationPayload.model_validate(verification)
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_worker_response",
+        ) from exc
+    result = validated.model_dump(by_alias=True)
+    result["reason"] = (
+        _safe_code(result["reason"])
+        if result["reason"] is not None
+        else None
+    )
+    for step in result["steps"]:
+        step["label"] = _sanitize_text(step["label"], 100)
+        step["summary"] = sanitize_verification_output(
+            step["summary"],
+            limit=500,
+            keep_tail=False,
+        ).text
+        step["details"] = sanitize_verification_output(
+            step["details"],
+            limit=16_000,
+        ).text
+    return result
+
+
 def _safe_diff(diff: str, *, expected_path: str | None = None) -> str:
     try:
         encoded = diff.encode("utf-8", errors="strict")
@@ -847,6 +1094,7 @@ def _worker_http_error(exc: CodingWorkerError) -> HTTPException:
         "stale_revision",
         "validation_failed",
         "draft_is_empty",
+        "verification_in_progress",
     }:
         return _http_error(status.HTTP_409_CONFLICT, exc.code)
     if exc.code in {
@@ -856,6 +1104,10 @@ def _worker_http_error(exc: CodingWorkerError) -> HTTPException:
         "invalid_path",
     }:
         return _http_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code)
-    if exc.code in {"session_not_found", "change_not_found"}:
+    if exc.code in {
+        "session_not_found",
+        "change_not_found",
+        "verification_not_found",
+    }:
         return _http_error(status.HTTP_404_NOT_FOUND, exc.code)
     return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)

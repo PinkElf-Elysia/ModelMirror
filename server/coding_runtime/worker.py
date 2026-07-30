@@ -5,6 +5,7 @@ import contextlib
 import json
 import os
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,17 @@ from .draft_workspace import (
     DraftWorkspaceError,
 )
 from .models import CodingEvent, CodingEventKind, CodingSession, CodingSessionState
+from .verification import (
+    VerificationResult,
+    VerificationState,
+    initial_verification_report,
+    select_verification_plan,
+)
+from .verifier_client import (
+    CodingVerifierClient,
+    VerifierClientError,
+    source_snapshot_fingerprint,
+)
 
 MAX_WORKER_FRAME_BYTES = 2 * 1024 * 1024
 MAX_PROMPT_CHARS = 20_000
@@ -32,6 +44,12 @@ SOCKET_PATH = Path(
 WORKSPACE_PATH = "/workspace"
 SOURCE_SNAPSHOT_PATH = Path("/opt/modelmirror-source")
 CHECKPOINT_PATH = Path("/tmp/modelmirror-coding-checkpoint")
+VERIFIER_SOCKET_PATH = Path(
+    os.getenv(
+        "CODING_VERIFIER_SOCKET_PATH",
+        "/run/modelmirror-coding/verifier.sock",
+    )
+)
 OPENCODE_PATH = "/usr/local/bin/opencode"
 RIPGREP_PATH = "/usr/bin/rg"
 INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
@@ -225,6 +243,7 @@ class _WorkerSession:
     workspace: DraftWorkspace
     mode: str
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    verification: dict[str, Any] | None = None
 
 
 class CodingWorkerServer:
@@ -237,11 +256,19 @@ class CodingWorkerServer:
         source_snapshot_path: Path = SOURCE_SNAPSHOT_PATH,
         workspace_path: Path = Path(WORKSPACE_PATH),
         checkpoint_path: Path = CHECKPOINT_PATH,
+        verifier: CodingVerifierClient | None = None,
     ) -> None:
         self._socket_path = socket_path
         self._source_snapshot_path = source_snapshot_path
         self._workspace_path = workspace_path
         self._checkpoint_path = checkpoint_path
+        self._verifier = verifier or CodingVerifierClient(VERIFIER_SOCKET_PATH)
+        try:
+            self._source_fingerprint = source_snapshot_fingerprint(
+                self._source_snapshot_path
+            )
+        except VerifierClientError:
+            self._source_fingerprint = ""
         self._sessions: dict[str, _WorkerSession] = {}
         self._sessions_lock = asyncio.Lock()
 
@@ -280,6 +307,7 @@ class CodingWorkerServer:
                         ),
                         "version": 1,
                         "mode": mode,
+                        "verification": await self._verification_health(),
                     },
                 )
             elif action == "create_session":
@@ -300,6 +328,12 @@ class CodingWorkerServer:
                 await self._validate(request, writer)
             elif action == "discard":
                 await self._discard(request, writer)
+            elif action == "verification_start":
+                await self._verification_start(request, writer)
+            elif action == "verification_status":
+                await self._verification_status(request, writer)
+            elif action == "verification_cancel":
+                await self._verification_cancel(request, writer)
             else:
                 raise CodingWorkerProtocolError(
                     "Unsupported coding worker action.",
@@ -308,6 +342,8 @@ class CodingWorkerServer:
         except (UnicodeDecodeError, json.JSONDecodeError):
             await self._send_error(writer, "invalid_request")
         except CodingWorkerError as exc:
+            await self._send_error(writer, exc.code)
+        except VerifierClientError as exc:
             await self._send_error(writer, exc.code)
         except DraftRevisionError:
             await self._send_error(writer, "stale_revision")
@@ -407,6 +443,13 @@ class CodingWorkerServer:
                 "Prompt exceeds the configured limit.",
                 code="prompt_too_long",
             )
+        if record.mode == "draft":
+            await self._refresh_verification(record)
+            if self._verification_running(record):
+                raise CodingWorkerError(
+                    "Project verification is running.",
+                    code="verification_in_progress",
+                )
         if record.turn_lock.locked():
             raise CodingWorkerError(
                 "Coding runtime already has an active turn.",
@@ -610,12 +653,229 @@ class CodingWorkerServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         record = self._require_draft_session(request)
+        await self._refresh_verification(record)
+        if self._verification_running(record):
+            raise CodingWorkerError(
+                "Project verification is running.",
+                code="verification_in_progress",
+            )
         changes = record.workspace.discard().to_dict()
         self._set_workspace_writable(record.workspace.workspace_root)
         await self._send(
             writer,
             {"ok": True, "changes": changes},
         )
+
+    async def _verification_start(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        revision = self._require_revision(request)
+        await self._refresh_verification(record)
+        if self._verification_running(record):
+            raise CodingWorkerError(
+                "Project verification is already running.",
+                code="verification_in_progress",
+            )
+        if not self._source_fingerprint:
+            raise CodingWorkerError(
+                "Project verification source is unavailable.",
+                code="verifier_unavailable",
+            )
+        report = record.workspace.changes()
+        if revision != report.revision:
+            raise DraftRevisionError("stale_revision")
+        patch = record.workspace.patch(revision)
+        response = await self._verifier.start(
+            session_id=record.session.session_id,
+            revision=revision,
+            patch=patch,
+            paths=[item.path for item in report.files],
+            expected_fingerprint=self._source_fingerprint,
+        )
+        verification = self._store_verification(
+            record,
+            response,
+            current_revision=revision,
+        )
+        await self._send(
+            writer,
+            {"ok": True, "verification": verification},
+        )
+
+    async def _verification_status(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        requested_revision = self._require_revision(request)
+        current_revision = record.workspace.changes().revision
+        stored_revision = (
+            record.verification.get("revision")
+            if record.verification is not None
+            else None
+        )
+        if requested_revision not in {current_revision, stored_revision}:
+            raise DraftRevisionError("stale_revision")
+        if record.verification is None:
+            report = self._initial_verification(record)
+        elif record.verification.get("revision") != requested_revision:
+            report = dict(record.verification)
+        else:
+            await self._refresh_verification(record)
+            report = dict(
+                record.verification or self._initial_verification(record)
+            )
+        report["stale"] = report.get("revision") != current_revision
+        await self._send(
+            writer,
+            {"ok": True, "verification": report},
+        )
+
+    async def _verification_cancel(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        revision = self._require_revision(request)
+        if (
+            record.verification is None
+            or record.verification.get("revision") != revision
+        ):
+            raise CodingWorkerError(
+                "Project verification was not found.",
+                code="verification_not_found",
+            )
+        if not self._verification_running(record):
+            await self._send(
+                writer,
+                {
+                    "ok": True,
+                    "accepted": True,
+                    "verification": record.verification,
+                },
+            )
+            return
+        response = await self._verifier.cancel(
+            session_id=record.session.session_id,
+            revision=revision,
+        )
+        verification = self._store_verification(
+            record,
+            response,
+            current_revision=record.workspace.changes().revision,
+        )
+        await self._send(
+            writer,
+            {
+                "ok": True,
+                "accepted": response.get("accepted") is True,
+                "verification": verification,
+            },
+        )
+
+    async def _verification_health(self) -> dict[str, Any]:
+        capability = {
+            "available": False,
+            "strategy": "adaptive",
+            "required_for_patch": False,
+            "max_duration_seconds": 600,
+        }
+        if not self._source_fingerprint:
+            return {**capability, "reason": "snapshot_unavailable"}
+        try:
+            health = await self._verifier.health()
+        except Exception:
+            return {**capability, "reason": "verifier_unavailable"}
+        if (
+            health.get("configured") is not True
+            or health.get("snapshot_fingerprint") != self._source_fingerprint
+            or health.get("max_duration_seconds") != 600
+        ):
+            return {**capability, "reason": "snapshot_mismatch"}
+        return {**capability, "available": True}
+
+    async def _refresh_verification(self, record: _WorkerSession) -> None:
+        if not self._verification_running(record):
+            return
+        assert record.verification is not None
+        revision = record.verification.get("revision")
+        if isinstance(revision, bool) or not isinstance(revision, int):
+            record.verification = self._unavailable_verification(record)
+            return
+        try:
+            response = await self._verifier.status(
+                session_id=record.session.session_id,
+                revision=revision,
+            )
+            self._store_verification(
+                record,
+                response,
+                current_revision=record.workspace.changes().revision,
+            )
+        except Exception:
+            record.verification = self._unavailable_verification(record)
+
+    def _initial_verification(
+        self,
+        record: _WorkerSession,
+    ) -> dict[str, Any]:
+        report = record.workspace.changes()
+        plan = select_verification_plan(item.path for item in report.files)
+        return initial_verification_report(
+            report.revision,
+            plan,
+        ).to_dict(current_revision=report.revision)
+
+    @staticmethod
+    def _verification_running(record: _WorkerSession) -> bool:
+        return (
+            record.verification is not None
+            and record.verification.get("state")
+            == VerificationState.RUNNING.value
+        )
+
+    @staticmethod
+    def _store_verification(
+        record: _WorkerSession,
+        response: dict[str, Any],
+        *,
+        current_revision: int,
+    ) -> dict[str, Any]:
+        verification = response.get("verification")
+        if not isinstance(verification, dict):
+            raise CodingWorkerError(
+                "Verifier response is invalid.",
+                code="invalid_verifier_response",
+            )
+        stored = dict(verification)
+        stored["stale"] = stored.get("revision") != current_revision
+        record.verification = stored
+        return stored
+
+    @staticmethod
+    def _unavailable_verification(
+        record: _WorkerSession,
+    ) -> dict[str, Any]:
+        current = record.workspace.changes().revision
+        previous = record.verification or {}
+        revision = previous.get("revision")
+        if isinstance(revision, bool) or not isinstance(revision, int):
+            revision = current
+        return {
+            "revision": revision,
+            "state": VerificationState.COMPLETED.value,
+            "result": VerificationResult.NOT_RUN.value,
+            "stale": revision != current,
+            "reason": "verifier_unavailable",
+            "started_at": previous.get("started_at"),
+            "finished_at": time.time(),
+            "steps": [],
+        }
 
     def _require_session(self, request: dict[str, Any]) -> _WorkerSession:
         session_id = request.get("session_id")
@@ -723,6 +983,8 @@ class CodingWorkerServer:
                 (current_path / name).chmod(0o600)
 
     async def _cleanup_record(self, record: _WorkerSession) -> None:
+        with contextlib.suppress(Exception):
+            await self._verifier.close(session_id=record.session.session_id)
         with contextlib.suppress(Exception):
             await record.adapter.close(record.session)
         if record.mode == "readonly":
@@ -869,6 +1131,63 @@ class CodingWorkerClient:
                 code="invalid_response",
             )
         return changes
+
+    async def verification_start(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        return await self._verification_request(
+            "verification_start",
+            session_id,
+            revision,
+        )
+
+    async def verification_status(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        return await self._verification_request(
+            "verification_status",
+            session_id,
+            revision,
+        )
+
+    async def verification_cancel(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        return await self._verification_request(
+            "verification_cancel",
+            session_id,
+            revision,
+        )
+
+    async def _verification_request(
+        self,
+        action: str,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        response = await self._request(
+            {
+                "action": action,
+                "session_id": session_id,
+                "revision": revision,
+            }
+        )
+        verification = response.get("verification")
+        if not isinstance(verification, dict):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted project verification.",
+                code="invalid_response",
+            )
+        return {
+            "verification": verification,
+            "accepted": response.get("accepted") is True,
+        }
 
     async def prompt(
         self,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import stat
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ from server.coding_runtime.worker import (
     create_acp_client,
     validate_runtime_dependencies,
 )
+from server.coding_runtime.verifier_client import VerifierClientError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -283,6 +285,89 @@ class _DraftTurnAdapter:
             session.transition(CodingSessionState.CLOSED)
 
 
+class _FakeVerifier:
+    def __init__(self) -> None:
+        self.fingerprint = ""
+        self.report: dict[str, Any] | None = None
+        self.start_payload: dict[str, Any] | None = None
+        self.cancel_calls = 0
+        self.closed: list[str] = []
+        self.fail_status = False
+
+    async def health(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "configured": True,
+            "snapshot_fingerprint": self.fingerprint,
+            "max_duration_seconds": 600,
+        }
+
+    async def start(self, **payload: Any) -> dict[str, Any]:
+        self.start_payload = payload
+        self.report = self._report(
+            revision=payload["revision"],
+            state="running",
+            result="not_run",
+        )
+        return {"ok": True, "verification": self.report}
+
+    async def status(self, **payload: Any) -> dict[str, Any]:
+        if self.fail_status:
+            raise VerifierClientError(
+                "unavailable",
+                code="verifier_unavailable",
+            )
+        assert self.report is not None
+        assert payload["revision"] == self.report["revision"]
+        return {"ok": True, "verification": self.report}
+
+    async def cancel(self, **payload: Any) -> dict[str, Any]:
+        self.cancel_calls += 1
+        self.report = self._report(
+            revision=payload["revision"],
+            state="cancelled",
+            result="not_run",
+        )
+        return {
+            "ok": True,
+            "accepted": True,
+            "verification": self.report,
+        }
+
+    async def close(self, *, session_id: str) -> None:
+        self.closed.append(session_id)
+
+    @staticmethod
+    def _report(
+        *,
+        revision: int,
+        state: str,
+        result: str,
+    ) -> dict[str, Any]:
+        terminal = state in {"completed", "cancelled"}
+        return {
+            "revision": revision,
+            "state": state,
+            "result": result,
+            "stale": False,
+            "reason": "cancelled" if state == "cancelled" else None,
+            "started_at": time.time(),
+            "finished_at": time.time() if terminal else None,
+            "steps": [
+                {
+                    "id": "backend_tests",
+                    "label": "检查服务代码",
+                    "state": state,
+                    "result": result,
+                    "duration_ms": None,
+                    "summary": "",
+                    "details": "",
+                    "truncated": False,
+                }
+            ],
+        }
+
+
 def _draft_record(
     tmp_path: Path,
     *,
@@ -427,6 +512,91 @@ async def test_worker_hard_policy_failure_rolls_back_and_emits_safe_failure(
     assert terminal[0]["data"] == {"code": "draft_policy_violation"}
     assert (record.workspace.workspace_root / "baseline.txt").exists()
     assert record.workspace.revision == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_verification_locks_mutation_and_degrades_safely(
+    tmp_path: Path,
+) -> None:
+    server, record = _draft_record(tmp_path, outcome="complete")
+    verifier = _FakeVerifier()
+    verifier.fingerprint = server._source_fingerprint
+    server._verifier = verifier
+
+    await server._prompt(
+        {"session_id": record.session.session_id, "prompt": "draft"},
+        _MemoryWriter(),
+    )
+    start_writer = _MemoryWriter()
+    await server._verification_start(
+        {"session_id": record.session.session_id, "revision": 1},
+        start_writer,
+    )
+
+    assert start_writer.frames[-1]["verification"]["state"] == "running"
+    assert verifier.start_payload is not None
+    assert verifier.start_payload["paths"] == ["complete.txt"]
+    assert verifier.start_payload["expected_fingerprint"] == (
+        server._source_fingerprint
+    )
+    assert verifier.start_payload["patch"].startswith(
+        "diff --git a/complete.txt"
+    )
+    with pytest.raises(CodingWorkerError) as prompt_error:
+        await server._prompt(
+            {"session_id": record.session.session_id, "prompt": "blocked"},
+            _MemoryWriter(),
+        )
+    assert prompt_error.value.code == "verification_in_progress"
+    with pytest.raises(CodingWorkerError) as discard_error:
+        await server._discard(
+            {"session_id": record.session.session_id},
+            _MemoryWriter(),
+        )
+    assert discard_error.value.code == "verification_in_progress"
+
+    verifier.fail_status = True
+    status_writer = _MemoryWriter()
+    await server._verification_status(
+        {"session_id": record.session.session_id, "revision": 1},
+        status_writer,
+    )
+    degraded = status_writer.frames[-1]["verification"]
+    assert degraded["state"] == "completed"
+    assert degraded["result"] == "not_run"
+    assert degraded["reason"] == "verifier_unavailable"
+    assert (record.workspace.workspace_root / "complete.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_worker_verification_cancel_and_cleanup_are_idempotent(
+    tmp_path: Path,
+) -> None:
+    server, record = _draft_record(tmp_path, outcome="complete")
+    verifier = _FakeVerifier()
+    verifier.fingerprint = server._source_fingerprint
+    server._verifier = verifier
+    await server._prompt(
+        {"session_id": record.session.session_id, "prompt": "draft"},
+        _MemoryWriter(),
+    )
+    await server._verification_start(
+        {"session_id": record.session.session_id, "revision": 1},
+        _MemoryWriter(),
+    )
+
+    first = _MemoryWriter()
+    second = _MemoryWriter()
+    request = {"session_id": record.session.session_id, "revision": 1}
+    await server._verification_cancel(request, first)
+    await server._verification_cancel(request, second)
+    await server._cleanup_record(record)
+
+    assert first.frames[-1]["accepted"] is True
+    assert second.frames[-1]["accepted"] is True
+    assert second.frames[-1]["verification"]["state"] == "cancelled"
+    assert verifier.cancel_calls == 1
+    assert verifier.closed == [record.session.session_id]
 
 
 def test_api_rejects_control_injection_and_only_exposes_sanitized_events() -> None:
