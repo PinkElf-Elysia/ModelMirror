@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import struct
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,9 +23,104 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
-    "microsoft/mai-voice-2": ("en-US-Harper:MAI-Voice-2",),
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-07-29-b5"
+GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
+MINIMAX_SYSTEM_SPEECH_VOICES = (
+    "Chinese (Mandarin)_News_Anchor",
+    "Chinese (Mandarin)_Reliable_Executive",
+    "Chinese (Mandarin)_Mature_Woman",
+    "Chinese (Mandarin)_Warm_Girl",
+    "English_expressive_narrator",
+    "English_CalmWoman",
+    "English_magnetic_voiced_man",
+    "English_Graceful_Lady",
+)
+SPEECH_OUTPUT_FORMATS: dict[str, str] = {
+    GEMINI_PCM_TTS_MODEL_ID: "wav",
 }
+ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    "minimax/speech-2.8-hd": MINIMAX_SYSTEM_SPEECH_VOICES,
+    "minimax/speech-2.8-turbo": MINIMAX_SYSTEM_SPEECH_VOICES,
+    "microsoft/mai-voice-2": (
+        "en-US-Harper:MAI-Voice-2",
+        "de-DE-Klaus:MAI-Voice-2",
+        "es-MX-Valeria:MAI-Voice-2",
+        "fr-FR-Soleil:MAI-Voice-2",
+    ),
+    "microsoft/mai-voice-2-flash": (
+        "en-US-Harper:MAI-Voice-2",
+        "de-DE-Klaus:MAI-Voice-2",
+        "es-MX-Valeria:MAI-Voice-2",
+        "fr-FR-Soleil:MAI-Voice-2",
+    ),
+    "mistralai/voxtral-mini-tts-2603": (
+        "en_paul_neutral",
+        "fr_marie_neutral",
+        "gb_jane_neutral",
+        "gb_oliver_neutral",
+    ),
+    "qwen/qwen-audio-3.0-tts-flash": (
+        "longanhuan_v3.6",
+        "loongjohn",
+    ),
+    "qwen/qwen-audio-3.0-tts-plus": (
+        "longanlingxin",
+        "longanlufeng",
+    ),
+    "x-ai/grok-voice-tts-1.0": (
+        "ara",
+        "eve",
+        "leo",
+        "rex",
+        "sal",
+    ),
+    "deepgram/aura-2": (
+        "aura-2-amalthea-en",
+        "aura-2-andromeda-en",
+        "aura-2-apollo-en",
+        "aura-2-asteria-en",
+    ),
+    "zyphra/zonos-v0.1-transformer": (
+        "american_female",
+        "american_male",
+        "british_female",
+        "british_male",
+    ),
+    "zyphra/zonos-v0.1-hybrid": (
+        "american_female",
+        "american_male",
+        "british_female",
+        "british_male",
+    ),
+    "canopylabs/orpheus-3b-0.1-ft": (
+        "dan",
+        "jess",
+        "leah",
+        "leo",
+    ),
+    "sesame/csm-1b": (
+        "conversational_a",
+        "conversational_b",
+        "read_speech_a",
+        "read_speech_b",
+    ),
+    "hexgrad/kokoro-82m": (
+        "af_alloy",
+        "af_aoede",
+        "af_bella",
+        "am_fenrir",
+    ),
+    GEMINI_PCM_TTS_MODEL_ID: (
+        "Aoede",
+        "Charon",
+        "Kore",
+        "Puck",
+    ),
+}
+
+
+def speech_output_format(model_id: str) -> str:
+    return SPEECH_OUTPUT_FORMATS.get(model_id, "mp3")
 
 
 @dataclass(frozen=True)
@@ -36,6 +132,7 @@ class SpeechResult:
     request_id: str
     generation_id: str | None
     output_bytes: int
+    response_format: str = "mp3"
     cost_usd: float | None = None
     cost_kind: str = "unavailable"
 
@@ -59,8 +156,10 @@ class OpenRouterTtsAdapter:
         text: str,
         voice: str,
         speed: float,
-    ) -> tuple[bytes, str | None]:
+    ) -> tuple[bytes, str | None, str]:
         await self._verify_speech_model(target, model_id)
+        output_format = speech_output_format(model_id)
+        upstream_format = "pcm" if output_format == "wav" else "mp3"
         async with self._client_factory() as client:
             try:
                 response = await client.post(
@@ -70,7 +169,7 @@ class OpenRouterTtsAdapter:
                         "model": model_id,
                         "input": text,
                         "voice": voice,
-                        "response_format": "mp3",
+                        "response_format": upstream_format,
                         "speed": speed,
                     },
                 )
@@ -91,11 +190,15 @@ class OpenRouterTtsAdapter:
                     status_code=502,
                 ) from exc
         self._raise_for_status(response, model_id=model_id)
-        self._validate_mp3(response)
+        if output_format == "wav":
+            content = self._pcm_response_to_wav(response)
+        else:
+            self._validate_mp3(response)
+            content = bytes(response.content)
         generation_id = str(
             response.headers.get("X-Generation-Id") or ""
         ).strip() or None
-        return bytes(response.content), generation_id
+        return content, generation_id, output_format
 
     async def _verify_speech_model(
         self,
@@ -301,6 +404,69 @@ class OpenRouterTtsAdapter:
                 status_code=502,
             )
 
+    @staticmethod
+    def _pcm_response_to_wav(response: httpx.Response) -> bytes:
+        content = bytes(response.content)
+        content_type = str(response.headers.get("content-type") or "")
+        parts = [part.strip() for part in content_type.split(";")]
+        mime = parts[0].lower() if parts else ""
+        parameters: dict[str, str] = {}
+        for part in parts[1:]:
+            key, separator, value = part.partition("=")
+            if separator:
+                parameters[key.strip().lower()] = value.strip()
+        try:
+            sample_rate = int(parameters.get("rate", ""))
+            channels = int(parameters.get("channels", ""))
+        except ValueError as exc:
+            raise MultimodalServiceError(
+                "invalid_audio_mime",
+                "语音服务返回的 PCM 参数无效，请稍后重试。",
+                status_code=502,
+            ) from exc
+        if mime != "audio/pcm" or sample_rate != 24_000 or channels != 1:
+            raise MultimodalServiceError(
+                "invalid_audio_mime",
+                "语音服务没有返回已验证的 24 kHz 单声道 PCM，请稍后重试。",
+                status_code=502,
+            )
+        if not content:
+            raise MultimodalServiceError(
+                "empty_speech",
+                "语音服务没有返回音频，请稍后重试。",
+                status_code=502,
+            )
+        if len(content) > MAX_SPEECH_BYTES or len(content) % 2:
+            raise MultimodalServiceError(
+                "invalid_speech_audio",
+                "语音服务返回的 PCM 不完整或超过安全大小限制，请重新生成。",
+                status_code=502,
+            )
+        bits_per_sample = 16
+        block_align = channels * bits_per_sample // 8
+        byte_rate = sample_rate * block_align
+        header = b"".join(
+            (
+                b"RIFF",
+                struct.pack("<I", 36 + len(content)),
+                b"WAVE",
+                b"fmt ",
+                struct.pack(
+                    "<IHHIIHH",
+                    16,
+                    1,
+                    channels,
+                    sample_rate,
+                    byte_rate,
+                    block_align,
+                    bits_per_sample,
+                ),
+                b"data",
+                struct.pack("<I", len(content)),
+            )
+        )
+        return header + content
+
 
 class SpeechService:
     def __init__(
@@ -324,7 +490,7 @@ class SpeechService:
         clean_model = self._model_id(model_id)
         clean_text = self._text(text)
         clean_voice = self._voice(clean_model, voice)
-        clean_format = self._response_format(response_format)
+        clean_format = self._response_format(clean_model, response_format)
         clean_speed = self._speed(speed)
         target = self._target()
         decision_id = self._record_start(
@@ -333,7 +499,7 @@ class SpeechService:
             input_bytes=len(clean_text.encode("utf-8")),
         )
         try:
-            content, generation_id = await self.adapter.synthesize(
+            content, generation_id, actual_format = await self.adapter.synthesize(
                 target,
                 model_id=clean_model,
                 text=clean_text,
@@ -343,6 +509,13 @@ class SpeechService:
         except MultimodalServiceError as exc:
             self._record_failure(decision_id, exc.code)
             raise
+        if actual_format != clean_format:
+            self._record_failure(decision_id, "speech_format_mismatch")
+            raise MultimodalServiceError(
+                "speech_format_mismatch",
+                "语音服务返回格式与请求不一致，请刷新模型能力后重试。",
+                status_code=502,
+            )
         self._record_success(decision_id, output_bytes=len(content))
         return SpeechResult(
             content=content,
@@ -352,6 +525,7 @@ class SpeechService:
             request_id=decision_id,
             generation_id=generation_id,
             output_bytes=len(content),
+            response_format=actual_format,
         )
 
     def _target(self) -> OpenRouterTarget:
@@ -361,6 +535,7 @@ class SpeechService:
             if item.kind == "openrouter"
             and item.enabled
             and item.health != "offline"
+            and "audio" in item.scopes
         ]
         connections.sort(
             key=lambda item: (
@@ -496,7 +671,7 @@ class SpeechService:
         if model_id not in ALLOWED_SPEECH_PROFILES:
             raise MultimodalServiceError(
                 "unsupported_speech_model",
-                "该语音模型尚未完成行为验证，请选择 Microsoft MAI-Voice-2。",
+                "该语音模型尚未完成行为验证，请从页面的可用模型中选择。",
                 status_code=422,
             )
         return model_id
@@ -530,12 +705,13 @@ class SpeechService:
         return voice
 
     @staticmethod
-    def _response_format(value: str) -> str:
+    def _response_format(model_id: str, value: str) -> str:
         response_format = str(value or "").strip().lower()
-        if response_format != "mp3":
+        expected_format = speech_output_format(model_id)
+        if response_format != expected_format:
             raise MultimodalServiceError(
                 "unsupported_speech_format",
-                "首期语音生成只支持 MP3。",
+                f"该模型当前只支持 {expected_format.upper()} 输出。",
                 status_code=422,
             )
         return response_format

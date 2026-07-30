@@ -2,10 +2,10 @@
 
 本文只记录可由当前仓库或可重复命令证明的事实。它不是产品需求文档，也不推断目标客户、用户故事或商业目标。
 
-基线日期：2026-07-28
-仓库 HEAD：`77df89447e5f9926a1ab06fc3be6d37d064a4b1d`
+基线日期：2026-07-30
+审计基线主线 HEAD：`de43ab2`
 
-本次事实审计同时覆盖当前未提交工作树中的视频闭环、F 批次体验修复和文档维护；
+本次事实审计同时覆盖当前未提交工作树中的音频闭环批次 A–I 和文档维护；
 这些变更在人工验收和 PR 合并前不能被描述为 `main` 已发布能力。
 
 ## 1. 已证实事实
@@ -24,7 +24,8 @@
 | 持久化 | 多数 Runtime/Xpert 元数据使用文件型 Store；RAG 使用 Chroma/FTS，Data X 使用 DuckDB | `server/xpert_runtime/`、`server/xperts/`、`server/rag/`、`server/datax/` |
 | 隔离服务 | Compose 包含 Browser 和 Sandbox sidecar；另有 new-api、server、client，可选 office-host | `docker-compose.yml` |
 | Dify | 只保留 `/api/dify/*` 兼容代理和旧 iframe 组件；主前端路由与 Compose 不依赖 Dify | `client/src/App.tsx`、`server/api/dify_proxy.py`、`docker-compose.yml` |
-| 多模态 | 已有 STT、TTS、视频理解和独立异步视频任务；视频入口受功能开关控制 | `server/multimodal/`、`client/src/components/Video*Workspace.tsx` |
+| 多模态 | 已有 STT/TTS、Chat 音频附件、原生音频流、独立音乐任务、直接 OpenAI WebRTC 实时语音、视频理解和独立视频任务；新增入口均受功能开关与能力档案控制 | `server/multimodal/`、`client/src/components/*Workspace.tsx` |
+| 模型快照 | 原 493 个 OpenRouter 快照模型保持不变；`/models` 额外展示 2 个直接 OpenAI Realtime 档案 | `client/src/data/models.ts`、`client/src/pages/ModelListPage.tsx` |
 | 前端验证 | 只有 `dev`、`build`、`preview` 脚本，没有独立 lint/test 脚本 | `client/package.json` |
 | 后端验证 | pytest 测试位于 `server/tests/` | `server/tests/`、`server/requirements.txt` |
 | CI | 仓库当前没有 `.github/workflows/` | 文件系统检查 |
@@ -52,9 +53,11 @@
 
 | 验证 | 状态 | 结果 |
 | --- | --- | --- |
-| 当前功能分支 `cd client && npm.cmd run build` | 通过 | 2026-07-28：TypeScript 与 Vite 生产构建成功 |
-| 当前功能分支 `python -m pytest server/tests/ -q` | 通过 | 2026-07-28：582 passed；现有 FastAPI lifespan deprecation warnings 4 条 |
-| 视频专项测试 | 通过 | 38 passed |
+| 当前功能分支 `cd client && npm.cmd run build` | 通过 | 2026-07-30：TypeScript 与 Vite 生产构建成功 |
+| 当前功能分支 `python -m pytest server/tests/ -q` | 通过 | 2026-07-30：691 passed；现有 FastAPI lifespan deprecation warnings 4 条 |
+| 音乐任务与实时语音专项测试 | 通过 | 28 passed |
+| 原生音频流分片检查 | 通过 | Base64 尾部、`message_end` 强制 flush 和纯音频响应检查通过 |
+| `/models` Realtime 卡片检查 | 通过 | 两个卡片与 `operation=realtime_voice` 入口可见；无连接时显示配置态 |
 | 文档维护检查 | 通过 | 57 个 Markdown 相对链接、legacy 状态、个人绝对路径、密钥模式和 `git diff --check` |
 
 验证结果只适用于执行时的当前功能分支。后续代码改动必须重新验证；纯文档改动

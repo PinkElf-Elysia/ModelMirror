@@ -1,6 +1,6 @@
 # 前端架构与开发指南
 
-最后更新日期：2026-07-28
+最后更新日期：2026-07-30
 维护人：模镜团队
 
 ## 技术栈
@@ -75,12 +75,23 @@ client/
 
 - `chat`：现有文本和图片聊天。
 - `transcribe`：音频文件转录。
-- `synthesize_speech`：文字生成 MP3。
+- `synthesize_speech`：按已验证模型与声线生成语音。
+- `generate_audio`：独立音乐生成任务、播放器与临时下载。
+- `realtime_voice`：纯语音 WebRTC 工作区，不进入普通消息 SSE。
 - `analyze_video`：本地视频或 HTTPS URL 一次性分析。
 - `generate_video`：独立异步视频任务，不进入 Chat SSE。
 
 模型被目录收录或 `invocable=true` 不代表当前 UI 已适配。CTA 必须同时检查
 operation 和 `interaction_status`。
+
+`/models` 保留原 493 个 OpenRouter 快照模型，并额外展示
+`gpt-realtime-2.1-mini` 和 `gpt-realtime-2.1` 两个直接 OpenAI 档案。即使当前
+没有可用连接，卡片仍提供“配置实时语音”入口；连接、功能开关和能力档案同时
+满足后才显示“开始实时语音”。
+
+Chat 的音频上传与麦克风共用转写设置，默认先转文字并允许用户编辑。单轮录音
+按钮与“实时语音”入口必须保持可辨识：前者录完再提交，后者创建最长 10 分钟的
+持续 WebRTC 会话。实时语音不会自动组合 RAG、Skill、MCP 或 `/chat/auto`。
 
 ## 聊天图片输出链路
 

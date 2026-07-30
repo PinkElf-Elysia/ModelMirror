@@ -339,8 +339,9 @@ async def test_direct_audio_chat_uses_verified_openrouter_contract(
         assert attachment_id not in json.dumps(sent["json"])
         assert "音频内容摘要" in result.text
         assert result.text.count("event: route_receipt") == 1
+        assert result.text.count("event: message_end") == 1
         assert result.text.index("event: route_receipt") < result.text.index(
-            "data: [DONE]"
+            "event: message_end"
         )
         receipt_event = next(
             event
@@ -591,7 +592,14 @@ async def test_native_audio_output_uses_verified_streaming_contract(
         assert first_audio in result.text
         assert second_audio in result.text
         assert result.text.count("event: route_receipt") == 1
+        assert result.text.count("event: message_end") == 1
         assert result.text.count("data: [DONE]") == 1
+        assert result.text.index("event: route_receipt") < result.text.index(
+            "event: message_end"
+        )
+        assert result.text.index("event: message_end") < result.text.index(
+            "data: [DONE]"
+        )
         receipt_event = next(
             event
             for event in result.text.split("\n\n")
@@ -612,6 +620,67 @@ async def test_native_audio_output_uses_verified_streaming_contract(
             "format": "mp3",
             "raw_retained": False,
         }
+        decision = service.diagnostics()["recent_decisions"][0]
+        assert decision["operation"] == "chat_audio_output"
+        assert decision["outcome"] == "success"
+    finally:
+        configure_audio_catalog_service(None)
+        configure_chat_attachment_store(None)
+        configure_model_router(original_service)
+
+
+@pytest.mark.asyncio
+async def test_native_audio_output_accepts_pure_audio_response(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_service = get_model_router_service()
+    service, _ = configure_audio_test_services(tmp_path, monkeypatch)
+    monkeypatch.setenv("MULTIMODAL_STREAMING_AUDIO_ENABLED", "true")
+    sent_requests: list[dict[str, Any]] = []
+    audio_chunks = [
+        base64.b64encode(b"ID3-pure-").decode("ascii"),
+        base64.b64encode(b"audio-tail").decode("ascii"),
+    ]
+    response = FakeResponse(
+        chunks=[
+            (
+                'data: {"model":"openai/gpt-audio","choices":'
+                '[{"delta":{"audio":{"data":"'
+                + audio_chunks[0]
+                + '"}},"finish_reason":null}]}\n\n'
+            ),
+            (
+                'data: {"choices":[{"delta":{"audio":{"data":"'
+                + audio_chunks[1]
+                + '"}},"finish_reason":"stop"}],"usage":'
+                '{"prompt_tokens":4,"completion_tokens":6,'
+                '"total_tokens":10}}\n\n'
+            ),
+            "data: [DONE]\n\n",
+        ]
+    )
+    fake_chat_client(monkeypatch, response, sent_requests)
+
+    try:
+        async with RealAsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            result = await client.post(
+                "/api/chat",
+                json=native_audio_output_payload(),
+            )
+
+        assert result.status_code == 200, result.text
+        assert all(chunk in result.text for chunk in audio_chunks)
+        assert '"error":' not in result.text
+        assert result.text.count("event: route_receipt") == 1
+        assert result.text.count("event: message_end") == 1
+        assert result.text.count("data: [DONE]") == 1
+        assert result.text.index("event: route_receipt") < result.text.index(
+            "event: message_end"
+        )
         decision = service.diagnostics()["recent_decisions"][0]
         assert decision["operation"] == "chat_audio_output"
         assert decision["outcome"] == "success"

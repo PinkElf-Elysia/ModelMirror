@@ -1,6 +1,6 @@
 # 后端架构与 API 文档
 
-最后更新日期：2026-07-28
+最后更新日期：2026-07-30
 维护人：模镜团队
 
 ## 技术栈
@@ -18,7 +18,7 @@ server/
 ├── api/                 # 独立 FastAPI router
 ├── model_router/        # 连接、目录、策略、熔断、预算、决策与 SQLite repository
 ├── context_engine/      # 上下文估算、压缩、保真与回退
-├── multimodal/          # STT、TTS、视频理解、视频目录与异步任务
+├── multimodal/          # STT、TTS、音乐任务、实时语音、视频理解与异步任务
 ├── rag/                 # 本地知识库、流水线、索引与评测
 ├── workflow_native/     # classic/shared schema、validate 与实验线
 ├── xperts/              # Agent Studio 内部存储与发布契约
@@ -39,6 +39,9 @@ server/
    native canary 或 native。
 
 默认网关与 auto 调度是两条独立稳定路径。auto 失败不能静默改走普通网关。
+直接 OpenAI 连接只承担音频与实时语音：连接类型为 `openai`、官方地址为
+`https://api.openai.com/v1`、用途范围为 `audio + realtime`。它不会自动进入
+普通 Chat 或原生智能调度候选池。
 
 ## 关键环境变量
 
@@ -55,6 +58,9 @@ server/
 | `MULTIMODAL_CHAT_AUDIO_ENABLED` | Chat 音频附件与直接理解，默认关闭。 |
 | `MULTIMODAL_MICROPHONE_ENABLED` | 录音完成后提交，默认关闭。 |
 | `MULTIMODAL_STREAMING_AUDIO_ENABLED` | 已验证模型的原生流式语音输出，默认关闭。 |
+| `MULTIMODAL_AUDIO_GENERATION_ENABLED` | 独立音乐生成任务，默认关闭。 |
+| `MULTIMODAL_REALTIME_VOICE_ENABLED` | 直接 OpenAI WebRTC 实时语音，默认关闭。 |
+| `MULTIMODAL_VOICE_CLONING_ENABLED` | 声音克隆预留开关；本轮安全门禁始终阻止创建资源。 |
 | `MULTIMODAL_CHAT_VIDEO_ENABLED` | Chat 本地视频附件，默认关闭。 |
 | `RAG_STORAGE_DIR` / `RAG_UPLOAD_DIR` | RAG 持久化位置。 |
 | `CHROMA_DB_PATH` | Chroma 目录。 |
@@ -84,13 +90,17 @@ server/
 - `POST /api/multimodal/chat/attachments`
 - `DELETE /api/multimodal/chat/attachments/{attachment_id}`
 - `GET /api/multimodal/audio/models`
+- `/api/multimodal/audio/jobs*`：音乐生成提交、列表、内容代理和删除本地记录。
+- `POST /api/multimodal/realtime/calls`：用后端密钥交换浏览器 WebRTC SDP。
+- `DELETE /api/multimodal/realtime/calls/{session_id}`：结束并审计本地实时会话。
 - `GET /api/multimodal/video/models`，`refresh=true` 强制重新确认实时能力。
 - `POST /api/multimodal/video/analysis`
 - `/api/multimodal/video/jobs*`：提交、列表、刷新、内容代理和删除本地记录。
 
-STT/TTS 与视频完整契约见
+音频、实时语音与视频完整契约见
 [MULTIMODAL_FORMAT_AUDIT.md](./MULTIMODAL_FORMAT_AUDIT.md)。音视频附件可进入
-Chat，但视频生成仍使用独立异步任务，不复用 `/api/chat` SSE。
+Chat；音乐和视频生成使用独立异步任务，实时语音使用 WebRTC，三者均不复用
+普通 `/api/chat` SSE。媒体、Prompt 和实时字幕不写入数据库或日志。
 
 ### 工作流、RAG 与 Agent
 

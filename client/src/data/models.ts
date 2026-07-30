@@ -30,6 +30,7 @@ export type ModelOperation =
   | "synthesize_speech"
   | "generate_audio"
   | "analyze_audio"
+  | "realtime_voice"
   | "analyze_video"
   | "generate_video"
   | "embed"
@@ -38,7 +39,8 @@ export type InteractionStatus = "ready" | "planned" | "unsupported";
 export type ModelUiEntrypoint = "chat" | "rag" | "multimodal" | "planned";
 export type Category = string;
 export type SupportedParameter = string;
-export type PricingTier = "free" | "low" | "medium" | "high";
+export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
+export type PricingStatus = "fixed" | "free" | "dynamic";
 
 export interface Model {
   id: string;
@@ -55,6 +57,7 @@ export interface Model {
     input: number;
     output: number;
   };
+  pricing_status: PricingStatus;
   pricing_tier: PricingTier;
   capabilities: Capability[];
   input_modalities: InputModality[];
@@ -17164,9 +17167,19 @@ function toCny(usdPerMillion: number) {
   return roundMoney(usdPerMillion * USD_TO_CNY);
 }
 
-function getPricingTier(inputUsdPerMillion: number): PricingTier {
+function getPricingStatus(raw: RawCatalogModel): PricingStatus {
+  if (raw.pricing.input < 0 || raw.pricing.output < 0) return "dynamic";
+  if (raw.pricing.input === 0 && raw.pricing.output === 0) return "free";
+  return "fixed";
+}
+
+function getPricingTier(
+  inputUsdPerMillion: number,
+  pricingStatus: PricingStatus,
+): PricingTier {
+  if (pricingStatus === "free") return "free";
+  if (pricingStatus === "dynamic") return "dynamic";
   const inputCny = inputUsdPerMillion * USD_TO_CNY;
-  if (inputUsdPerMillion === 0) return "free";
   if (inputCny <= 1) return "low";
   if (inputCny <= 5) return "medium";
   return "high";
@@ -17240,12 +17253,19 @@ function inferCategories(raw: RawCatalogModel, capabilities: Capability[]): Cate
   return Array.from(categories);
 }
 
-function inferTags(raw: RawCatalogModel, capabilities: Capability[], categories: Category[], active: boolean): string[] {
+function inferTags(
+  raw: RawCatalogModel,
+  capabilities: Capability[],
+  categories: Category[],
+  active: boolean,
+  pricingStatus: PricingStatus,
+): string[] {
   const tags = new Set<string>();
   const haystack = (raw.id + " " + raw.name).toLowerCase();
   const ageDays = raw.created > 0 ? (CURRENT_TIME_SECONDS - raw.created) / 86400 : Number.POSITIVE_INFINITY;
   if (ageDays <= 45) tags.add("新");
-  if (raw.pricing.input === 0 && raw.pricing.output === 0) tags.add("免费");
+  if (pricingStatus === "free") tags.add("免费");
+  if (pricingStatus === "dynamic") tags.add("动态计费");
   if (capabilities.includes("image") || capabilities.includes("audio") || capabilities.includes("video")) tags.add("多模态");
   if (capabilities.includes("audio")) tags.add("音频");
   if (capabilities.includes("video")) tags.add("视频");
@@ -17334,19 +17354,34 @@ function interactionForOperation(
   return { status: "planned", entrypoint: "planned" };
 }
 
-function buildChineseDescription(raw: RawCatalogModel, categories: Category[], active: boolean, priceCny: Model["price_cny"]) {
+function buildChineseDescription(
+  raw: RawCatalogModel,
+  categories: Category[],
+  active: boolean,
+  priceCny: Model["price_cny"],
+  pricingStatus: PricingStatus,
+) {
   const inputs = describeModalities(raw.input_modalities);
   const outputs = describeModalities(raw.output_modalities);
   const scenes = describeCategories(categories);
   const context = raw.context_length > 0 ? raw.context_length.toLocaleString("zh-CN") + " tokens" : "未公开";
-  const price = raw.pricing.input === 0 && raw.pricing.output === 0 ? "当前目录价格为免费。" : "输入约 ¥" + priceCny.input.toFixed(2) + "，输出约 ¥" + priceCny.output.toFixed(2) + " / 百万 token。";
+  const price =
+    pricingStatus === "free"
+      ? "当前目录价格为免费，后续以平台结算为准。"
+      : pricingStatus === "dynamic"
+        ? "费用由实际路由模型或组合调用决定。"
+        : "输入约 ¥" + priceCny.input.toFixed(2) + "，输出约 ¥" + priceCny.output.toFixed(2) + " / 百万 token。";
   const lifecycle = active ? "" : "\u8be5\u6761\u76ee\u5df2\u6309\u5e73\u53f0\u76ee\u5f55\u6807\u8bb0\u4e3a\u975e\u6d3b\u8dc3\u3002";
   return raw.name + " \u662f模镜\u76ee\u5f55\u6536\u5f55\u7684 " + raw.model_author + " 模型，支持" + inputs + "输入并输出" + outputs + "，适合" + scenes + "等场景。上下文长度为 " + context + "，" + price + lifecycle;
 }
 
 function enrichModel(raw: RawCatalogModel): Model {
   const active = raw.expiration_date === null || raw.expiration_date > CURRENT_TIME_SECONDS;
-  const price_cny = { input: toCny(raw.pricing.input), output: toCny(raw.pricing.output) };
+  const pricing_status = getPricingStatus(raw);
+  const price_cny =
+    pricing_status === "free"
+      ? { input: 0, output: 0 }
+      : { input: toCny(raw.pricing.input), output: toCny(raw.pricing.output) };
   const capabilities = inferCapabilities(raw);
   const categories = inferCategories(raw, capabilities);
   const operations = inferOperations(raw);
@@ -17357,11 +17392,18 @@ function enrichModel(raw: RawCatalogModel): Model {
     name: raw.name,
     provider: normalizeProvider(raw.model_author),
     model_author: raw.model_author,
-    description: buildChineseDescription(raw, categories, active, price_cny),
+    description: buildChineseDescription(
+      raw,
+      categories,
+      active,
+      price_cny,
+      pricing_status,
+    ),
     context_length: raw.context_length,
     pricing: raw.pricing,
     price_cny,
-    pricing_tier: getPricingTier(raw.pricing.input),
+    pricing_status,
+    pricing_tier: getPricingTier(raw.pricing.input, pricing_status),
     capabilities,
     input_modalities: raw.input_modalities,
     output_modalities: raw.output_modalities,
@@ -17376,7 +17418,13 @@ function enrichModel(raw: RawCatalogModel): Model {
     zero_data_retention: false,
     in_region_routing: false,
     active,
-    tags: inferTags(raw, capabilities, categories, active),
+    tags: inferTags(
+      raw,
+      capabilities,
+      categories,
+      active,
+      pricing_status,
+    ),
   };
 }
 
@@ -17416,6 +17464,68 @@ function catalogSort(left: RawCatalogModel, right: RawCatalogModel) {
   return right.created - left.created || left.id.localeCompare(right.id);
 }
 
-export const models: Model[] = [...rawCatalogModels]
-  .sort(catalogSort)
-  .map(enrichModel);
+const DIRECT_OPENAI_REALTIME_MODELS: Model[] = [
+  {
+    id: "gpt-realtime-2.1-mini",
+    name: "OpenAI: GPT Realtime 2.1 Mini",
+    provider: "OpenAI",
+    model_author: "OpenAI",
+    description:
+      "OpenAI 实时双向语音模型的均衡版本，适合低延迟连续语音对话、自然停顿和随时打断。该模型通过独立 OpenAI 音频连接调用，不进入普通聊天或智能调度候选池。",
+    context_length: 0,
+    pricing: { input: -1, output: -1 },
+    price_cny: { input: 0, output: 0 },
+    pricing_status: "dynamic",
+    pricing_tier: "dynamic",
+    capabilities: ["audio"],
+    input_modalities: ["audio"],
+    output_modalities: ["audio"],
+    operations: ["realtime_voice"],
+    primary_operation: "realtime_voice",
+    interaction_status: "planned",
+    ui_entrypoint: "multimodal",
+    series: "GPT Realtime 2.1",
+    categories: ["audio"],
+    supported_parameters: [],
+    distillable: false,
+    zero_data_retention: false,
+    in_region_routing: false,
+    active: true,
+    tags: ["新", "音频", "热门"],
+    note: "需要配置 OpenAI 音频与实时语音连接。",
+  },
+  {
+    id: "gpt-realtime-2.1",
+    name: "OpenAI: GPT Realtime 2.1",
+    provider: "OpenAI",
+    model_author: "OpenAI",
+    description:
+      "OpenAI 实时双向语音模型的质量版本，适合更重视回答质量的连续语音对话，支持自然停顿和随时打断。该模型通过独立 OpenAI 音频连接调用，不进入普通聊天或智能调度候选池。",
+    context_length: 0,
+    pricing: { input: -1, output: -1 },
+    price_cny: { input: 0, output: 0 },
+    pricing_status: "dynamic",
+    pricing_tier: "dynamic",
+    capabilities: ["audio"],
+    input_modalities: ["audio"],
+    output_modalities: ["audio"],
+    operations: ["realtime_voice"],
+    primary_operation: "realtime_voice",
+    interaction_status: "planned",
+    ui_entrypoint: "multimodal",
+    series: "GPT Realtime 2.1",
+    categories: ["audio"],
+    supported_parameters: [],
+    distillable: false,
+    zero_data_retention: false,
+    in_region_routing: false,
+    active: true,
+    tags: ["新", "音频", "热门"],
+    note: "需要配置 OpenAI 音频与实时语音连接。",
+  },
+];
+
+export const models: Model[] = [
+  ...DIRECT_OPENAI_REALTIME_MODELS,
+  ...[...rawCatalogModels].sort(catalogSort).map(enrichModel),
+];

@@ -19,10 +19,12 @@ from .schemas import (
     RouterConnectionCreate,
     RouterConnectionUpdate,
     RouterPolicy,
+    default_connection_scopes,
+    normalize_connection_scopes,
 )
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 10
 DEFAULT_TENANT_ID = "local"
 
 
@@ -103,6 +105,7 @@ class SQLiteRouterRepository:
             base_url TEXT NOT NULL,
             masked_key TEXT NOT NULL,
             api_key_ciphertext TEXT NOT NULL,
+            scopes_json TEXT NOT NULL DEFAULT '["chat"]',
             enabled INTEGER NOT NULL DEFAULT 1,
             health TEXT NOT NULL DEFAULT 'untested',
             model_count INTEGER NOT NULL DEFAULT 0,
@@ -199,6 +202,53 @@ class SQLiteRouterRepository:
             PRIMARY KEY (tenant_id, id),
             UNIQUE (tenant_id, idempotency_key_hash)
         );
+        CREATE TABLE IF NOT EXISTS audio_jobs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            idempotency_key_hash TEXT NOT NULL,
+            decision_id TEXT,
+            connection_id TEXT,
+            requested_model TEXT NOT NULL,
+            actual_model TEXT,
+            provider TEXT NOT NULL DEFAULT 'openrouter',
+            generation_id TEXT,
+            status TEXT NOT NULL,
+            has_image INTEGER NOT NULL DEFAULT 0,
+            output_bytes INTEGER NOT NULL DEFAULT 0,
+            cost_usd REAL,
+            cost_kind TEXT NOT NULL DEFAULT 'unavailable',
+            error_code TEXT,
+            expires_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, idempotency_key_hash)
+        );
+        CREATE TABLE IF NOT EXISTS realtime_calls (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            decision_id TEXT,
+            connection_id TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'openai',
+            upstream_call_id TEXT,
+            voice TEXT NOT NULL,
+            vad_mode TEXT NOT NULL,
+            language TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_at TEXT,
+            expires_at TEXT NOT NULL,
+            ended_at TEXT,
+            duration_seconds REAL,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            cost_usd REAL,
+            cost_kind TEXT NOT NULL DEFAULT 'unavailable',
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, id)
+        );
         CREATE INDEX IF NOT EXISTS idx_router_connections_tenant_enabled
             ON router_connections (tenant_id, enabled);
         CREATE INDEX IF NOT EXISTS idx_router_decisions_tenant_created
@@ -209,9 +259,43 @@ class SQLiteRouterRepository:
             ON video_jobs (tenant_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_video_jobs_tenant_status
             ON video_jobs (tenant_id, status);
+        CREATE INDEX IF NOT EXISTS idx_audio_jobs_tenant_created
+            ON audio_jobs (tenant_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_audio_jobs_tenant_status
+            ON audio_jobs (tenant_id, status);
+        CREATE INDEX IF NOT EXISTS idx_realtime_calls_tenant_created
+            ON realtime_calls (tenant_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_realtime_calls_tenant_status
+            ON realtime_calls (tenant_id, status);
         """
         with self._lock, self._connect() as connection:
+            previous_schema_version = int(
+                connection.execute("PRAGMA user_version").fetchone()[0]
+            )
             connection.executescript(schema)
+            connection_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(router_connections)"
+                ).fetchall()
+            }
+            if "scopes_json" not in connection_columns:
+                connection.execute(
+                    "ALTER TABLE router_connections "
+                    "ADD COLUMN scopes_json "
+                    """TEXT NOT NULL DEFAULT '["chat"]'"""
+                )
+            if previous_schema_version < 8:
+                connection.execute(
+                    "UPDATE router_connections "
+                    """SET scopes_json = '["chat","audio"]' """
+                    "WHERE kind = 'openrouter'"
+                )
+                connection.execute(
+                    "UPDATE router_connections "
+                    """SET scopes_json = '["chat"]' """
+                    "WHERE kind IN ('newapi', 'openai_compatible')"
+                )
             existing = {
                 row["name"]
                 for row in connection.execute(
@@ -322,8 +406,9 @@ class SQLiteRouterRepository:
                 """
                 INSERT INTO router_connections (
                     id, tenant_id, name, kind, base_url, masked_key,
-                    api_key_ciphertext, enabled, health, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    api_key_ciphertext, scopes_json, enabled, health,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     connection_id,
@@ -333,6 +418,7 @@ class SQLiteRouterRepository:
                     payload.base_url,
                     self._mask(api_key),
                     encrypted,
+                    json.dumps(payload.scopes, separators=(",", ":")),
                     int(payload.enabled),
                     "untested" if payload.enabled else "disabled",
                     now,
@@ -381,6 +467,11 @@ class SQLiteRouterRepository:
             if value is not None:
                 updates.append(f"{field_name} = ?")
                 values.append(value)
+        if payload.scopes is not None:
+            updates.append("scopes_json = ?")
+            values.append(
+                json.dumps(payload.scopes, separators=(",", ":"))
+            )
         if payload.api_key is not None:
             api_key = payload.api_key.get_secret_value().strip()
             if not api_key:
@@ -557,6 +648,8 @@ class SQLiteRouterRepository:
             "router_decisions",
             "compression_runs",
             "video_jobs",
+            "audio_jobs",
+            "realtime_calls",
         )
         with self._lock, self._connect() as connection:
             return {
@@ -736,6 +829,268 @@ class SQLiteRouterRepository:
                 (self._tenant_id(tenant_id), job_id),
             )
         return cursor.rowcount == 1
+
+    def create_audio_job_if_absent(
+        self,
+        tenant_id: str,
+        *,
+        job_id: str,
+        idempotency_key_hash: str,
+        connection_id: str | None,
+        requested_model: str,
+        provider: str,
+        has_image: bool,
+        cost_usd: float | None = None,
+        cost_kind: str = "unavailable",
+    ) -> tuple[dict[str, object], bool]:
+        """Atomically claim an idempotency key before a paid audio call."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO audio_jobs (
+                    id, tenant_id, idempotency_key_hash, connection_id,
+                    requested_model, provider, status, has_image,
+                    cost_usd, cost_kind, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    clean_tenant,
+                    idempotency_key_hash,
+                    connection_id,
+                    requested_model,
+                    provider,
+                    int(has_image),
+                    cost_usd,
+                    cost_kind,
+                    now,
+                    now,
+                ),
+            )
+            created = cursor.rowcount == 1
+            row = connection.execute(
+                """
+                SELECT * FROM audio_jobs
+                WHERE tenant_id = ? AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, idempotency_key_hash),
+            ).fetchone()
+        if row is None:
+            raise RouterRepositoryError("audio job idempotency claim failed")
+        return dict(row), created
+
+    def get_audio_job(
+        self, tenant_id: str, job_id: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM audio_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_audio_job_by_idempotency_hash(
+        self, tenant_id: str, idempotency_key_hash: str
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM audio_jobs
+                WHERE tenant_id = ? AND idempotency_key_hash = ?
+                """,
+                (clean_tenant, idempotency_key_hash),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_audio_jobs(
+        self, tenant_id: str, *, limit: int = 50
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        safe_limit = max(1, min(int(limit), 100))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM audio_jobs
+                WHERE tenant_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (clean_tenant, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_audio_job(
+        self,
+        tenant_id: str,
+        job_id: str,
+        **changes: object,
+    ) -> dict[str, object] | None:
+        allowed = {
+            "decision_id",
+            "actual_model",
+            "generation_id",
+            "status",
+            "output_bytes",
+            "cost_usd",
+            "cost_kind",
+            "error_code",
+            "expires_at",
+        }
+        selected = {
+            key: value for key, value in changes.items() if key in allowed
+        }
+        if not selected:
+            return self.get_audio_job(tenant_id, job_id)
+        selected["updated_at"] = utc_now()
+        assignments = ", ".join(f"{key} = ?" for key in selected)
+        values = list(selected.values())
+        values.extend((self._tenant_id(tenant_id), job_id))
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE audio_jobs SET {assignments}
+                WHERE tenant_id = ? AND id = ?
+                """,
+                values,
+            )
+            if cursor.rowcount != 1:
+                return None
+        return self.get_audio_job(tenant_id, job_id)
+
+    def delete_audio_job(self, tenant_id: str, job_id: str) -> bool:
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM audio_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (self._tenant_id(tenant_id), job_id),
+            )
+        return cursor.rowcount == 1
+
+    def create_realtime_call(
+        self,
+        tenant_id: str,
+        *,
+        session_id: str,
+        decision_id: str | None,
+        connection_id: str,
+        model_id: str,
+        provider: str,
+        voice: str,
+        vad_mode: str,
+        language: str,
+        expires_at: str,
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO realtime_calls (
+                    id, tenant_id, decision_id, connection_id, model_id,
+                    provider, voice, vad_mode, language, status, expires_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'connecting', ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    clean_tenant,
+                    decision_id,
+                    connection_id,
+                    model_id,
+                    provider,
+                    voice,
+                    vad_mode,
+                    language,
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+        row = self.get_realtime_call(clean_tenant, session_id)
+        if row is None:
+            raise RouterRepositoryError("realtime call creation failed")
+        return row
+
+    def get_realtime_call(
+        self,
+        tenant_id: str,
+        session_id: str,
+    ) -> dict[str, object] | None:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM realtime_calls
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_active_realtime_calls(
+        self,
+        tenant_id: str,
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM realtime_calls
+                WHERE tenant_id = ? AND status IN ('connecting', 'active')
+                ORDER BY created_at ASC, id ASC
+                """,
+                (clean_tenant,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_realtime_call(
+        self,
+        tenant_id: str,
+        session_id: str,
+        **changes: object,
+    ) -> dict[str, object] | None:
+        allowed = {
+            "upstream_call_id",
+            "status",
+            "started_at",
+            "ended_at",
+            "duration_seconds",
+            "input_tokens",
+            "output_tokens",
+            "cost_usd",
+            "cost_kind",
+            "error_code",
+        }
+        selected = {
+            key: value for key, value in changes.items() if key in allowed
+        }
+        if not selected:
+            return self.get_realtime_call(tenant_id, session_id)
+        selected["updated_at"] = utc_now()
+        assignments = ", ".join(f"{key} = ?" for key in selected)
+        values = list(selected.values())
+        values.extend((self._tenant_id(tenant_id), session_id))
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE realtime_calls SET {assignments}
+                WHERE tenant_id = ? AND id = ?
+                """,
+                values,
+            )
+            if cursor.rowcount != 1:
+                return None
+        return self.get_realtime_call(tenant_id, session_id)
 
     def get_candidate_stats(
         self,
@@ -1221,13 +1576,29 @@ class SQLiteRouterRepository:
 
     @staticmethod
     def _public_connection(row: sqlite3.Row) -> RouterConnection:
+        kind = row["kind"]
+        try:
+            decoded_scopes = json.loads(row["scopes_json"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            decoded_scopes = default_connection_scopes(kind)
+        if not isinstance(decoded_scopes, list):
+            decoded_scopes = default_connection_scopes(kind)
+        scopes = normalize_connection_scopes(
+            [
+                scope
+                for scope in decoded_scopes
+                if scope in {"chat", "audio", "realtime"}
+            ],
+            kind=kind,
+        )
         return RouterConnection(
             id=row["id"],
             tenant_id=row["tenant_id"],
             name=row["name"],
-            kind=row["kind"],
+            kind=kind,
             base_url=row["base_url"],
             masked_key=row["masked_key"],
+            scopes=scopes,
             enabled=bool(row["enabled"]),
             health=row["health"],
             model_count=row["model_count"],

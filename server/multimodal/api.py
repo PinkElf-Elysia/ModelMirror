@@ -7,7 +7,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -20,10 +28,23 @@ from .audio_catalog import (
     AudioCatalogService,
     AudioModelCatalogResponse,
 )
+from .audio_jobs import (
+    MAX_AUDIO_JOB_IMAGE_BYTES,
+    AudioJob,
+    AudioJobDeleteResult,
+    AudioJobList,
+    AudioJobService,
+)
 from .chat_attachments import (
     ChatAttachmentDeleteResponse,
     ChatAttachmentResponse,
     ChatAttachmentStore,
+)
+from .realtime import (
+    RealtimeCallEndResponse,
+    RealtimeCallRequest,
+    RealtimeCallResponse,
+    RealtimeVoiceService,
 )
 from .stt import (
     MAX_AUDIO_BYTES,
@@ -73,7 +94,7 @@ class SpeechRequest(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     input: str = Field(min_length=1, max_length=4_000)
     voice: str = Field(min_length=1, max_length=128)
-    response_format: Literal["mp3"] = "mp3"
+    response_format: Literal["mp3", "wav"] = "mp3"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
 
 
@@ -97,7 +118,7 @@ class VideoAnalysisResponse(BaseModel):
 
 @asynccontextmanager
 async def _multimodal_lifespan(_: object) -> AsyncIterator[None]:
-    enabled = any(
+    attachments_enabled = any(
         os.getenv(name, "false").strip().lower()
         in {"1", "true", "yes", "on"}
         for name in (
@@ -105,12 +126,34 @@ async def _multimodal_lifespan(_: object) -> AsyncIterator[None]:
             "MULTIMODAL_CHAT_VIDEO_ENABLED",
         )
     )
-    store = get_chat_attachment_store() if enabled else None
+    audio_jobs_enabled = (
+        os.getenv("MULTIMODAL_AUDIO_GENERATION_ENABLED", "false")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    store = get_chat_attachment_store() if attachments_enabled else None
+    audio_jobs = get_audio_job_service() if audio_jobs_enabled else None
+    realtime_enabled = (
+        os.getenv("MULTIMODAL_REALTIME_VOICE_ENABLED", "false")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    realtime = get_realtime_voice_service() if realtime_enabled else None
     if store is not None:
         await asyncio.to_thread(store.cleanup_expired)
+    if audio_jobs is not None:
+        await asyncio.to_thread(audio_jobs.recover_interrupted)
+    if realtime is not None:
+        await realtime.recover_active()
     try:
         yield
     finally:
+        if realtime is not None:
+            await realtime.shutdown()
+            if _realtime_voice_service is realtime:
+                configure_realtime_voice_service(None)
         if store is not None and _chat_attachment_store is store:
             configure_chat_attachment_store(None)
 
@@ -123,6 +166,8 @@ router = APIRouter(
 _transcription_service: TranscriptionService | None = None
 _speech_service: SpeechService | None = None
 _audio_catalog_service: AudioCatalogService | None = None
+_audio_job_service: AudioJobService | None = None
+_realtime_voice_service: RealtimeVoiceService | None = None
 _chat_attachment_store: ChatAttachmentStore | None = None
 _video_catalog_service: VideoCatalogService | None = None
 _video_analysis_service: VideoAnalysisService | None = None
@@ -171,6 +216,37 @@ def get_audio_catalog_service() -> AudioCatalogService:
             get_model_router_service()
         )
     return _audio_catalog_service
+
+
+def configure_audio_job_service(service: AudioJobService | None) -> None:
+    global _audio_job_service
+    _audio_job_service = service
+
+
+def get_audio_job_service() -> AudioJobService:
+    global _audio_job_service
+    if _audio_job_service is None:
+        _audio_job_service = AudioJobService(
+            get_model_router_service(),
+            get_audio_catalog_service(),
+        )
+    return _audio_job_service
+
+
+def configure_realtime_voice_service(
+    service: RealtimeVoiceService | None,
+) -> None:
+    global _realtime_voice_service
+    _realtime_voice_service = service
+
+
+def get_realtime_voice_service() -> RealtimeVoiceService:
+    global _realtime_voice_service
+    if _realtime_voice_service is None:
+        _realtime_voice_service = RealtimeVoiceService(
+            get_model_router_service()
+        )
+    return _realtime_voice_service
 
 
 def configure_chat_attachment_store(
@@ -242,8 +318,128 @@ def get_video_job_service() -> VideoJobService:
 
 
 @router.get("/audio/models", response_model=AudioModelCatalogResponse)
-async def get_audio_models() -> AudioModelCatalogResponse:
-    return await get_audio_catalog_service().get_catalog()
+async def get_audio_models(
+    refresh: bool = False,
+) -> AudioModelCatalogResponse:
+    return await get_audio_catalog_service().get_catalog(force=refresh)
+
+
+@router.post(
+    "/realtime/calls",
+    response_model=RealtimeCallResponse,
+)
+async def create_realtime_call(
+    payload: RealtimeCallRequest,
+) -> RealtimeCallResponse:
+    try:
+        return await get_realtime_voice_service().create(payload)
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.delete(
+    "/realtime/calls/{session_id}",
+    response_model=RealtimeCallEndResponse,
+)
+async def end_realtime_call(
+    session_id: str,
+) -> RealtimeCallEndResponse:
+    try:
+        return await get_realtime_voice_service().end(session_id)
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/audio/jobs", response_model=AudioJob)
+async def create_audio_job(
+    background_tasks: BackgroundTasks,
+    model_id: str = Form(...),
+    prompt: str = Form(...),
+    idempotency_key: str = Form(...),
+    image: UploadFile | None = File(default=None),
+) -> AudioJob:
+    try:
+        image_content = (
+            await image.read(MAX_AUDIO_JOB_IMAGE_BYTES + 1)
+            if image is not None
+            else None
+        )
+        launch = await get_audio_job_service().create(
+            model_id=model_id,
+            prompt=prompt,
+            idempotency_key=idempotency_key,
+            image_filename=image.filename if image is not None else None,
+            image_content_type=(
+                image.content_type if image is not None else None
+            ),
+            image_content=image_content,
+        )
+        if launch.task is not None:
+            background_tasks.add_task(
+                get_audio_job_service().run,
+                launch.task,
+            )
+        return launch.job
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+    finally:
+        if image is not None:
+            await image.close()
+
+
+@router.get("/audio/jobs", response_model=AudioJobList)
+async def list_audio_jobs(limit: int = 50) -> AudioJobList:
+    try:
+        return await asyncio.to_thread(
+            get_audio_job_service().list,
+            limit=limit,
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/audio/jobs/{job_id}", response_model=AudioJob)
+async def get_audio_job(job_id: str) -> AudioJob:
+    try:
+        return await asyncio.to_thread(
+            get_audio_job_service().get,
+            job_id,
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/audio/jobs/{job_id}/content")
+async def get_audio_job_content(job_id: str) -> StreamingResponse:
+    try:
+        content = await get_audio_job_service().content(job_id)
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+    return StreamingResponse(
+        content.chunks,
+        media_type=content.media_type,
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="modelmirror-music.mp3"'
+            ),
+            "Content-Length": str(content.content_length),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.delete(
+    "/audio/jobs/{job_id}",
+    response_model=AudioJobDeleteResult,
+)
+async def delete_audio_job(job_id: str) -> AudioJobDeleteResult:
+    try:
+        return await asyncio.to_thread(
+            get_audio_job_service().delete,
+            job_id,
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
 
 
 @router.post(
@@ -551,9 +747,11 @@ def _response(result: TranscriptionResult) -> TranscriptionResponse:
 
 
 def _speech_response(result: SpeechResult) -> Response:
+    response_format = result.response_format
+    media_type = "audio/wav" if response_format == "wav" else "audio/mpeg"
     headers = {
         "Content-Disposition": (
-            'attachment; filename="modelmirror-speech.mp3"'
+            f'attachment; filename="modelmirror-speech.{response_format}"'
         ),
         "X-ModelMirror-Request-Id": result.request_id,
         "X-ModelMirror-Actual-Model": result.actual_model,
@@ -565,7 +763,7 @@ def _speech_response(result: SpeechResult) -> Response:
         headers["X-ModelMirror-Generation-Id"] = result.generation_id
     return Response(
         content=result.content,
-        media_type="audio/mpeg",
+        media_type=media_type,
         headers=headers,
     )
 

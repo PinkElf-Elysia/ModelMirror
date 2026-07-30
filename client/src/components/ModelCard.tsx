@@ -18,8 +18,19 @@ import {
 
 interface ModelCardProps {
   model: Model;
+  confirmedAudioOperations?: ModelOperation[];
   confirmedVideoOperations?: ModelOperation[];
+  audioCapabilityStatus?: AudioCapabilityStatus;
+  audioCatalogStale?: boolean;
   videoCatalogStale?: boolean;
+}
+
+export interface AudioCapabilityStatus {
+  status: "ready" | "planned" | "disabled";
+  operations: ModelOperation[];
+  reason: string | null;
+  pricePerGenerationUsd: number | null;
+  fixedDurationSeconds: number | null;
 }
 
 const capabilityIcons: Record<Capability, { icon: string; label: string }> = {
@@ -39,6 +50,7 @@ const tagStyles: Record<string, string> = {
   多模态: "border-fuchsia-300/30 bg-fuchsia-300/10 text-fuchsia-100",
   开源: "border-amber-300/30 bg-amber-300/10 text-amber-100",
   免费: "border-lime-300/30 bg-lime-300/10 text-lime-100",
+  动态计费: "border-sky-300/30 bg-sky-300/10 text-sky-100",
 };
 
 function formatCnyPrice(priceCnyPerMillion: number) {
@@ -95,6 +107,7 @@ const operationLabels: Record<ModelOperation, string> = {
   synthesize_speech: "文字转语音",
   generate_audio: "音频生成",
   analyze_audio: "音频理解",
+  realtime_voice: "实时语音",
   analyze_video: "视频理解",
   generate_video: "视频生成",
   embed: "向量检索",
@@ -103,11 +116,20 @@ const operationLabels: Record<ModelOperation, string> = {
 
 const ModelCard = memo(function ModelCard({
   model,
+  confirmedAudioOperations = [],
   confirmedVideoOperations = [],
+  audioCapabilityStatus,
+  audioCatalogStale = false,
   videoCatalogStale = false,
 }: ModelCardProps) {
   const { preferredModelId, setPreferredModelId } = useModelPreference();
-  const isFree = model.price_cny.input === 0 && model.price_cny.output === 0;
+  const isFree = model.pricing_status === "free";
+  const isDynamicPricing = model.pricing_status === "dynamic";
+  const audioGenerationPriceUsd =
+    model.primary_operation === "generate_audio"
+      ? (audioCapabilityStatus?.pricePerGenerationUsd ?? null)
+      : null;
+  const hasAudioGenerationPrice = audioGenerationPriceUsd !== null;
   const talentStats = getTalentStats(model);
   const providerName = deriveProviderFromModel(model);
   const personaDescription = buildFriendlyTalentIntro(model);
@@ -127,6 +149,22 @@ const ModelCard = memo(function ModelCard({
     model.active &&
     model.interaction_status === "ready" &&
     model.ui_entrypoint === "rag";
+  const canAnalyzeAudio =
+    model.active && confirmedAudioOperations.includes("analyze_audio");
+  const canSynthesizeSpeech =
+    model.active &&
+    confirmedAudioOperations.includes("synthesize_speech");
+  const canGenerateAudio =
+    model.active &&
+    confirmedAudioOperations.includes("generate_audio");
+  const isRealtimeVoiceModel =
+    model.operations.includes("realtime_voice");
+  const canOpenRealtimeVoice =
+    model.active && isRealtimeVoiceModel;
+  const realtimeVoiceReady =
+    confirmedAudioOperations.includes("realtime_voice");
+  const canTranscribe =
+    model.active && confirmedAudioOperations.includes("transcribe");
   const operationLabel = operationLabels[model.primary_operation];
   const canAnalyzeVideo =
     model.active && confirmedVideoOperations.includes("analyze_video");
@@ -139,13 +177,76 @@ const ModelCard = memo(function ModelCard({
         operation === "generate_video",
     )
     .map((operation) => operationLabels[operation]);
-  const isInteractionReady =
-    model.interaction_status === "ready" ||
-    canAnalyzeVideo ||
-    canGenerateVideo;
+  const confirmedAudioLabels = confirmedAudioOperations
+    .filter(
+      (operation) =>
+        operation === "analyze_audio" ||
+        operation === "transcribe" ||
+        operation === "synthesize_speech" ||
+        operation === "generate_audio" ||
+        operation === "realtime_voice",
+    )
+    .map((operation) => operationLabels[operation]);
   const isTranscriptionModel =
     model.primary_operation === "transcribe" &&
     model.operations.includes("transcribe");
+  const staticAudioOperations = model.operations.filter(
+    (operation) =>
+      operation === "analyze_audio" ||
+      operation === "transcribe" ||
+      operation === "synthesize_speech" ||
+      operation === "generate_audio" ||
+      operation === "realtime_voice",
+  );
+  const unresolvedAudioOperations = (
+    audioCapabilityStatus?.operations ?? staticAudioOperations
+  ).filter(
+    (operation) =>
+      !confirmedAudioOperations.includes(operation),
+  );
+  const pendingAudioOperations =
+    audioCapabilityStatus?.status === "ready"
+      ? []
+      : unresolvedAudioOperations;
+  const pendingAudioLabels = pendingAudioOperations.map(
+    (operation) => operationLabels[operation],
+  );
+  const pendingAudioStateLabel =
+    isRealtimeVoiceModel && !realtimeVoiceReady
+      ? "需要配置"
+      : audioCapabilityStatus?.status === "disabled"
+      ? "当前未启用"
+      : "待适配";
+  const pendingAudioReason =
+    audioCapabilityStatus?.reason ??
+    (
+      pendingAudioLabels.length > 0
+        ? isRealtimeVoiceModel
+          ? "请在设置中添加“OpenAI 音频与实时语音”连接并完成测试。"
+          : "静态目录已收录，实时能力尚未确认。"
+        : null
+    );
+  const primaryAudioOperationBlocked =
+    (
+      isTranscriptionModel ||
+      model.primary_operation === "synthesize_speech" ||
+      model.primary_operation === "generate_audio" ||
+      model.primary_operation === "realtime_voice"
+    ) &&
+    Boolean(audioCapabilityStatus) &&
+    audioCapabilityStatus?.status !== "ready";
+  const isInteractionReady =
+    (
+      model.interaction_status === "ready" &&
+      !primaryAudioOperationBlocked
+    ) ||
+    confirmedAudioLabels.length > 0 ||
+    canAnalyzeVideo ||
+    canGenerateVideo;
+  const showGeneralChatAction =
+    canChat &&
+    model.primary_operation !== "synthesize_speech" &&
+    (!isTranscriptionModel || canTranscribe);
   const primaryChatPath = isTranscriptionModel
     ? `/chat/${encodeURIComponent(
         preferredModelId,
@@ -161,7 +262,9 @@ const ModelCard = memo(function ModelCard({
         <div className="flex items-center justify-between gap-3">
           <span className="rounded-full border border-hire-200/30 bg-hire-400/15 px-3 py-1 text-xs font-semibold text-hire-100">
             {!isInteractionReady
-              ? "交互待适配"
+              ? isRealtimeVoiceModel
+                ? "需要配置"
+                : "交互待适配"
               : talentStats.urgent
                 ? "急聘"
                 : "可预约面试"}
@@ -192,8 +295,46 @@ const ModelCard = memo(function ModelCard({
           </p>
         </div>
 
-        {canAnalyzeVideo || canGenerateVideo || canChat ? (
+        {canAnalyzeAudio ||
+        canSynthesizeSpeech ||
+        canGenerateAudio ||
+        canOpenRealtimeVoice ||
+        canAnalyzeVideo ||
+        canGenerateVideo ||
+        showGeneralChatAction ? (
           <div className="flex shrink-0 flex-col items-stretch gap-2">
+            {canAnalyzeAudio ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?media=audio`}
+              >
+                理解音频
+              </Link>
+            ) : null}
+            {canSynthesizeSpeech ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=synthesize_speech`}
+              >
+                生成语音
+              </Link>
+            ) : null}
+            {canGenerateAudio ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=generate_audio`}
+              >
+                生成音乐
+              </Link>
+            ) : null}
+            {canOpenRealtimeVoice ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=realtime_voice`}
+              >
+                {realtimeVoiceReady ? "开始实时语音" : "配置实时语音"}
+              </Link>
+            ) : null}
             {canAnalyzeVideo ? (
               <Link
                 className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
@@ -210,10 +351,15 @@ const ModelCard = memo(function ModelCard({
                 生成视频
               </Link>
             ) : null}
-            {canChat ? (
+            {showGeneralChatAction ? (
               <Link
                 className={`rounded-full px-3.5 py-2 text-center text-sm font-semibold transition duration-200 active:scale-[0.98] ${
-                  canAnalyzeVideo || canGenerateVideo
+                  canAnalyzeAudio ||
+                  canSynthesizeSpeech ||
+                  canGenerateAudio ||
+                  canOpenRealtimeVoice ||
+                  canAnalyzeVideo ||
+                  canGenerateVideo
                     ? "border border-hire-300/35 bg-ink-950/70 text-hire-100 hover:bg-hire-300/10"
                     : "bg-hire-300 text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] hover:bg-hire-200"
                 }`}
@@ -252,13 +398,17 @@ const ModelCard = memo(function ModelCard({
             className="shrink-0 cursor-not-allowed rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 text-sm font-semibold text-slate-400"
             disabled
             title={
-              confirmedVideoLabels.length > 0
+              pendingAudioLabels.length > 0
+                ? pendingAudioReason ?? `${pendingAudioLabels.join("、")}尚未适配`
+                : confirmedVideoLabels.length > 0
                 ? `${confirmedVideoLabels.join("、")}能力已确认`
                 : `${operationLabel}入口尚未适配`
             }
             type="button"
           >
-            {confirmedVideoLabels.length > 0
+            {pendingAudioLabels.length > 0
+              ? `${pendingAudioLabels.join("、")}${pendingAudioStateLabel}`
+              : confirmedVideoLabels.length > 0
               ? `${confirmedVideoLabels.join("、")}已确认`
               : "交互待适配"}
           </button>
@@ -274,7 +424,11 @@ const ModelCard = memo(function ModelCard({
           }`}
         >
           {operationLabel}
-          {!isInteractionReady ? " · 待适配" : ""}
+          {!isInteractionReady
+            ? isRealtimeVoiceModel
+              ? " · 需要连接"
+              : " · 待适配"
+            : ""}
         </span>
         {confirmedVideoLabels.map((label) => (
           <span
@@ -285,7 +439,20 @@ const ModelCard = memo(function ModelCard({
             {videoCatalogStale ? " · 缓存目录" : ""}
           </span>
         ))}
-        {model.tags.map((tag) => (
+        {confirmedAudioLabels.map((label) => (
+          <span
+            className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-1 text-xs font-medium text-cyan-100"
+            key={`audio-${label}`}
+          >
+            {label}已适配
+            {audioCatalogStale ? " · 缓存目录" : ""}
+          </span>
+        ))}
+        {model.tags
+          .filter(
+            (tag) => !(hasAudioGenerationPrice && tag === "免费"),
+          )
+          .map((tag) => (
           <span
             className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
               tagStyles[tag] ?? "border-white/10 bg-white/[0.06] text-slate-300"
@@ -305,45 +472,91 @@ const ModelCard = memo(function ModelCard({
           </span>
         ) : null}
       </div>
+      {pendingAudioLabels.length > 0 ? (
+        <p className="relative mt-2 line-clamp-2 px-5 text-xs leading-5 text-amber-100">
+          <span className="font-semibold">
+            {pendingAudioLabels.join("、")}{pendingAudioStateLabel}：
+          </span>
+          {pendingAudioReason}
+        </p>
+      ) : null}
 
       <div className="relative mx-5 mt-5 rounded-lg border border-white/10 bg-white/[0.045] p-3">
         <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
           <p className="text-[11px] text-slate-400">
-            期望薪资
+            {hasAudioGenerationPrice ? "单次生成费用" : "期望薪资"}
           </p>
-          <p className={`text-sm font-semibold ${isFree ? "text-lime-100" : "text-white"}`}>
-            {isFree
-              ? "免费试工"
-              : `${formatCnyPrice(model.price_cny.input)} / ${formatCnyPrice(model.price_cny.output)}`}
-            <span className="ml-1 text-xs font-normal text-slate-400">
-              输入/输出
-            </span>
+          <p
+            className={`text-right text-sm font-semibold ${
+              hasAudioGenerationPrice
+                ? "text-hire-100"
+                : isFree
+                ? "text-lime-100"
+                : isDynamicPricing
+                  ? "text-sky-100"
+                  : "text-white"
+            }`}
+          >
+            {hasAudioGenerationPrice
+              ? `约 $${audioGenerationPriceUsd.toFixed(2)} / 次`
+              : isFree
+              ? "当前免费"
+              : isDynamicPricing
+                ? "按实际调用计费"
+                : `${formatCnyPrice(model.price_cny.input)} / ${formatCnyPrice(model.price_cny.output)}`}
+            {!hasAudioGenerationPrice && !isFree && !isDynamicPricing ? (
+              <span className="ml-1 text-xs font-normal text-slate-400">
+                输入/输出
+              </span>
+            ) : null}
           </p>
         </div>
 
         <div className="mt-3 grid grid-cols-3 gap-3">
           <div>
             <p className="text-[11px] text-slate-400">
-              输入薪资
+              {hasAudioGenerationPrice ? "目录估算" : "输入薪资"}
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-100">
-              {formatCnyPrice(model.price_cny.input)}
+              {hasAudioGenerationPrice
+                ? `$${audioGenerationPriceUsd.toFixed(2)}`
+                : isDynamicPricing
+                ? "动态"
+                : isFree
+                  ? "免费"
+                  : formatCnyPrice(model.price_cny.input)}
             </p>
           </div>
           <div>
             <p className="text-[11px] text-slate-400">
-              输出薪资
+              {hasAudioGenerationPrice ? "作品时长" : "输出薪资"}
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-100">
-              {formatCnyPrice(model.price_cny.output)}
+              {hasAudioGenerationPrice
+                ? audioCapabilityStatus?.fixedDurationSeconds
+                  ? `约 ${audioCapabilityStatus.fixedDurationSeconds} 秒`
+                  : "模型决定"
+                : isDynamicPricing
+                ? "动态"
+                : isFree
+                  ? "免费"
+                  : formatCnyPrice(model.price_cny.output)}
             </p>
           </div>
           <div>
             <p className="text-[11px] text-slate-400">
-              工作经验
+              {hasAudioGenerationPrice
+                ? "输出格式"
+                : isRealtimeVoiceModel
+                  ? "会话上限"
+                  : "工作经验"}
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-100">
-              {formatContextLength(model.context_length)}
+              {hasAudioGenerationPrice
+                ? "MP3"
+                : isRealtimeVoiceModel
+                  ? "10 分钟"
+                : formatContextLength(model.context_length)}
             </p>
           </div>
         </div>

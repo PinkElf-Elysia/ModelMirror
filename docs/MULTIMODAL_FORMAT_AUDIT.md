@@ -1,6 +1,6 @@
 # 模镜全模态与常用格式缺口审计
 
-> 审计基线：多模态批次 A–G，实时模型目录复核日期 2026-07-29；静态目录快照仍保留 493 个模型。
+> 审计基线：多模态与音频闭环批次 A–I，实时模型目录复核日期 2026-07-29；原 493 个 OpenRouter 快照模型保持不变，另增加 2 个直接 OpenAI Realtime 展示档案。
 > 本文描述的是当前真实能力和分阶段交付边界，不代表一次性承诺支持所有格式。
 
 ## 1. “全模态”的交付定义
@@ -13,7 +13,7 @@
 |---|---|---|
 | 文本 | TXT、Markdown、HTML、JSON、YAML、XML、代码、SQL、日志 | 审计现状与模块入口 |
 | 图片 | JPEG/JPG、PNG、WebP、GIF、SVG、TIFF、HEIC/HEIF、BMP | 审计；不新增 GIF 动画处理 |
-| 音频 | WAV、MP3、AAC、M4A、FLAC、OGG/Opus、WebM | 已交付 STT、TTS、Chat 音频附件、录音后转写和已验证模型的原生音频流 |
+| 音频 | WAV、MP3、AAC、M4A、FLAC、OGG/Opus、WebM、WebRTC 媒体流 | 已交付 STT、TTS、Chat 音频附件、录音后转写、原生音频流、音乐生成和纯语音实时对话 |
 | 视频 | MP4、MPEG、MOV、WebM、MKV、AVI | 已交付 MP4/MPEG/MOV/WebM 理解、Chat 单轮附件和异步生成闭环；MKV/AVI 仅审计 |
 | 文档 | PDF、DOCX、PPTX、XLSX、CSV/TSV、EPUB、RTF、ODF | 只审计；RAG XLSX 延后到专项路线审计 |
 | 结构化数据 | JSON、JSON Schema、表格、数据库查询结果、Parquet | 审计 Chat、RAG、Data X 分工 |
@@ -30,7 +30,7 @@
 - 文本、Markdown、代码块。
 - JSON 与 JSON Schema 约束输出。
 - 图片生成、编辑和局部重绘。
-- 语音合成、通用音频生成。
+- 语音合成、音乐/通用音频生成、实时语音流。
 - 视频生成。
 - PDF、DOCX、PPTX、XLSX 等文件与报告。
 - Embedding、分类标签、检测框、时间轴、字幕。
@@ -72,10 +72,12 @@
 | GIF 动画 | 已收录为图片 | 当前压缩会静态化 | 当前按静态图片处理 | 不适用 | 未验证 | 未验证 | 无 | 仅静态首帧，不算动画支持 |
 | PDF | 已收录为 file | 无附件契约 | 已支持，文本/视觉转换 | 不适用 | 文件能力按配置 | 文件节点按配置 | 无 | 部分支持 |
 | 音频转写 STT | 实时与本地档案确认 | Chat 媒体面板可上传或录音后转写并编辑 | 不适用 | 不适用 | Agent Runtime 可按配置调用 | 无 | 独立深链兼容保留 | 已支持，OpenRouter-first |
-| 文字转语音 TTS | 实时与本地档案确认 | 助手回答可朗读，自动朗读默认关闭 | 不适用 | 不适用 | Agent Runtime 可按配置调用 | 无 | 独立深链兼容保留 | 已支持，MAI-Voice-2 |
+| 文字转语音 TTS | 实时与版本化档案确认 | 助手回答可朗读，自动朗读默认关闭 | 不适用 | 不适用 | Agent Runtime 可按配置调用 | 无 | 独立深链兼容保留 | 已支持，按已验证模型/声线开放 |
 | 音频理解 | 实时与本地档案确认 | 已验证模型可直接理解；普通模型和 auto 显式先转写 | 不适用 | 不适用 | 按模型配置 | 无 | 无 | 部分支持，OpenRouter-first |
 | 原生语音输出 | 实时与本地档案确认 | 已验证的 GPT Audio 模型可返回流式语音；失败保留文字 | 不适用 | 不适用 | 按模型配置 | 无 | 无 | 部分支持 |
-| 通用音频生成 | 已收录 | 音乐等非语音生成不进入朗读模型池 | 不适用 | 不适用 | 未形成通用能力 | 无 | 无 | 计划中 |
+| 音乐生成 | 实时与版本化档案确认 | 不进入朗读模型池 | 不适用 | 不适用 | 未形成通用能力 | 无 | 独立异步音乐工作区 | 已支持，Lyria Clip/Pro |
+| 实时双向语音 | 2 个直接 OpenAI 档案 | 独立纯语音工作区，不进入普通消息流 | 不适用 | 不适用 | 不组合 Agent 工具 | 不适用 | `/chat/:modelId?operation=realtime_voice` | 已支持，需直接 OpenAI `audio+realtime` 连接 |
+| 声音克隆 | 能力可识别 | 不开放上传或创建 | 不适用 | 不适用 | 不开放 | 不适用 | 仅安全占位 | 计划中，上游无法验证删除临时音色 |
 | 视频理解 | 实时能力确认 | 本地附件可由当前模型直接理解或先生成辅助摘要 | 无拆帧流水线 | 不适用 | 未形成通用能力 | 无 | 文件或 HTTPS/YouTube URL | 已支持，OpenRouter-first |
 | 视频生成 | 实时能力确认 | 独立异步工作区，不复用 Chat SSE | 不适用 | 不适用 | 未形成通用能力 | 无 | 文生视频、首尾帧、最多三参考图、受控高级参数 | 已支持，OpenRouter-first |
 | XLSX | 归类为 file | 不支持 | 未支持，待专项审计 | 已支持，结构化解析 | 文件能力按配置 | 文件节点按配置 | 不适用 | 部分支持，仅 Data X 等特定模块 |
@@ -94,8 +96,8 @@
 - `datax`：CSV、XLSX、Parquet 的结构化分析，不承担知识库语义切片。
 - `agents`：配置化媒体工具、工具调用、审批和 Agent 事件。
 - `workflow`：节点编排和节点事件，不作为通用媒体播放器。
-- `multimodal`：保留 STT/TTS 兼容深链、视频 URL 分析和独立视频生成任务；普通音视频输入统一从 Chat 媒体面板进入。
-- `models`：只展示真实能力、适配状态和正确入口，不直接承担推理。
+- `multimodal`：保留 STT/TTS 兼容深链、音乐/视频异步任务、视频 URL 分析和实时语音工作区；普通音视频附件统一从 Chat 媒体面板进入。
+- `models`：保留 493 个快照模型，并单独展示 2 个直接 OpenAI Realtime 档案；卡片只负责状态和入口，不直接承担推理。
 
 ## 3. 当前格式清单
 
@@ -138,6 +140,7 @@
 | WAV、MP3、AAC、M4A、FLAC、OGG、WebM | Chat 可上传或录音后转写；支持模型可直接理解部分格式 | 不适用 | 原生或 STT 组合支持 | 不适用 |
 | MP3 | 可转写或直接理解 | MAI-Voice-2 朗读；已验证模型可原生流式输出 | Chat 内可播放，独立深链可下载 | 不适用 |
 | PCM | 不适用 | 上游可能支持，首期不开放 | 不适用 | 不适用 |
+| WebRTC 媒体流 | 不适用 | 模型原生双向流 | 仅实时语音工作区，不写入普通 Chat 历史 | 不适用 |
 | MP4、MPEG、MOV、WebM | 不适用 | 不适用 | 模型原生理解，文件最大 20 MiB | 异步生成结果可播放与下载 |
 | MKV、AVI | 不适用 | 不适用 | 未接受，需转码后支持 | 仅审计 |
 
@@ -202,8 +205,10 @@ UI：模型卡进入“分析视频”或“生成视频”专用工作区
 6. Chat 音频上传、录音后转写、原生音频流和显式辅助 TTS。
 7. Chat 本地视频附件的直接理解与辅助摘要。
 8. 视频生成异步任务、状态恢复、首尾帧、多参考图、受控高级参数、播放器与下载代理。
+9. Lyria Clip/Pro 音乐生成、幂等任务、临时播放器和下载。
+10. 直接 OpenAI WebRTC 实时语音、语义 VAD、自然打断、静音、显式重连和 10 分钟硬上限。
 
-批次 G 完成视频生成表单与运维收尾。实时双向语音、边录边传、音频 URL、Chat 视频 URL、RAG XLSX 和其他文件格式继续延期，必须重新建立独立验收路线。
+实时翻译、语音/视频电话、SIP、自定义持久音色库、实时工具调用、音频 URL、Chat 视频 URL、RAG XLSX 和其他文件格式继续延期，必须重新建立独立验收路线。
 
 ### 通用 STT 后端契约
 
@@ -266,12 +271,43 @@ Content-Type: application/json
 }
 ```
 
-- 首期只开放完成行为测试的 `microsoft/mai-voice-2` 与 Harper 声线；其他 TTS 模型继续标记为待适配。
-- 输入不能为空且最多 4,000 个字符；速度限定为 `0.5–2.0`，输出仅允许 MP3。
-- 后端完整接收上游响应，并同时校验 `audio/mpeg`、MP3 文件签名、非空内容和 20 MiB 安全上限，校验通过后才返回浏览器。
-- 成功响应为原始 MP3 字节；脱敏响应头提供 request ID、实际模型、供应商、费用状态和输出字节数。
+- TTS 下拉框来自实时目录与版本化行为档案的交集；未通过模型、声线和格式验证的条目保持待适配。
+- 输入不能为空且最多 4,000 个字符；速度限定为 `0.5–2.0`，输出格式按模型档案开放 MP3 或 WAV。
+- 后端完整接收上游响应，并按能力档案校验 MP3 MIME/文件签名或 PCM 完整性；WAV 由后端补齐标准容器头。所有格式同时执行非空内容和 20 MiB 安全上限检查，校验通过后才返回浏览器。
+- 成功响应为能力档案声明的 MP3 或 WAV 字节；脱敏响应头提供 request ID、实际模型、供应商、费用状态和输出字节数。
 - 文字和音频不写入数据库；审计仅记录租户、operation、模型、连接、输入/输出字节数、状态和可用费用信息。
 - 前端自适应语音生成工作区提供文字保留、已验证声线、语速、取消、重试、播放器和下载；替换结果或离开页面时释放 Blob URL。
+
+### 音乐生成与实时语音
+
+音乐生成使用独立任务，不进入普通 Chat SSE：
+
+```http
+POST   /api/multimodal/audio/jobs
+GET    /api/multimodal/audio/jobs
+GET    /api/multimodal/audio/jobs/{job_id}
+GET    /api/multimodal/audio/jobs/{job_id}/content
+DELETE /api/multimodal/audio/jobs/{job_id}
+```
+
+- 当前开放完成行为验证的 Lyria Clip/Pro；Pro 图片提示先按能力档案开放。
+- `idempotency_key` 防止重复付费请求；后端完整校验音频后才标记成功。
+- SQLite 不保存 Prompt、图片或音频正文；结果只在非持久化目录保留 30 分钟。
+- 容器重建后任务元数据可保留，但临时音频正文不保证恢复。
+
+实时语音使用独立 WebRTC 生命周期：
+
+```http
+POST   /api/multimodal/realtime/calls
+DELETE /api/multimodal/realtime/calls/{session_id}
+```
+
+- 浏览器只把 SDP 交给模镜后端，永久 OpenAI Key 不进入前端。
+- 音频在浏览器与 OpenAI 之间通过 WebRTC 传输，模镜不转发或保存 PCM。
+- 默认 `gpt-realtime-2.1-mini + marin + semantic_vad`，可切换质量版和 Cedar。
+- 单次最多 10 分钟，结束前 60 秒提示；网络中断只提供显式重新连接，不自动创建新付费会话。
+- 首期只做纯语音，不组合 RAG、Skill、MCP、Agent、附件或 `/chat/auto`。
+- 两张模型卡始终可进入工作区；未配置直接 OpenAI 连接时显示配置建议，不伪装为可调用。
 
 ### 视频理解与生成闭环
 
@@ -317,14 +353,22 @@ MULTIMODAL_CHAT_AUDIO_ENABLED=true
 MULTIMODAL_MICROPHONE_ENABLED=true
 MULTIMODAL_STREAMING_AUDIO_ENABLED=true
 MULTIMODAL_CHAT_VIDEO_ENABLED=true
+MULTIMODAL_AUDIO_GENERATION_ENABLED=true
+MULTIMODAL_REALTIME_VOICE_ENABLED=true
+MULTIMODAL_VOICE_CLONING_ENABLED=false
 ```
 
 任一开关设为 `false` 后，模型仍保留在目录，但对应入口显示“当前未启用”；文本、图片、STT、TTS、RAG、工作流和智能调度不受影响。
 
+直接 OpenAI Realtime 还要求在设置页创建 `openai` 类型连接，地址必须为
+`https://api.openai.com/v1`，用途范围为 `audio + realtime`。环境开关不能替代连接和密钥。
+声音克隆开关保持关闭；本轮没有上传授权录音、创建音色或绕过删除安全门禁的接口。
+
 ### 只审计
 
 - GIF 动画、SVG 主动内容、HEIC/TIFF 高级处理。
-- 视频音轨单独识别、视频多轮原始媒体上下文和实时双向语音。
+- 视频音轨单独识别、视频多轮原始媒体上下文。
+- 实时翻译、语音/视频电话、电话/SIP 接入、实时工具调用和自定义持久音色库。
 - RAG XLSX、CSV 等表格资料解析及其前端入口。
 - 3D、点云、传感器、科学数据和医学影像。
 - 压缩包、旧版 Office 和复杂办公版式保真。
@@ -349,3 +393,4 @@ MULTIMODAL_CHAT_VIDEO_ENABLED=true
 - OpenRouter PDFs: <https://openrouter.ai/docs/guides/overview/multimodal/pdfs>
 - OpenRouter Video Understanding: <https://openrouter.ai/docs/guides/overview/multimodal/videos>
 - OpenRouter Video Generation: <https://openrouter.ai/docs/guides/overview/multimodal/video-generation>
+- OpenAI Realtime WebRTC: <https://developers.openai.com/api/docs/guides/realtime-webrtc>
