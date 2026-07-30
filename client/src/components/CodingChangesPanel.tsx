@@ -12,9 +12,11 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import CodingVerificationPanel from "./CodingVerificationPanel";
 import type {
   CodingDraftChanges,
   CodingDraftFile,
+  CodingVerification,
 } from "../types/coding";
 import { CodingApiError, getCodingDiff } from "../utils/codingApi";
 
@@ -24,8 +26,14 @@ interface CodingChangesPanelProps {
   loading: boolean;
   onDiscard: () => Promise<void>;
   onDownload: () => Promise<void>;
+  onCancelVerification: () => Promise<void>;
+  onRequestFix: (prompt: string) => void;
+  onRunVerification: () => Promise<void>;
   onValidate: () => Promise<void>;
   sessionId: string | null;
+  verification: CodingVerification | null;
+  verificationAvailable: boolean;
+  verificationError: string;
 }
 
 type ActionState = "idle" | "checking" | "downloading" | "discarding";
@@ -77,11 +85,18 @@ export default function CodingChangesPanel({
   loading,
   onDiscard,
   onDownload,
+  onCancelVerification,
+  onRequestFix,
+  onRunVerification,
   onValidate,
   sessionId,
+  verification,
+  verificationAvailable,
+  verificationError,
 }: CodingChangesPanelProps) {
   const [action, setAction] = useState<ActionState>("idle");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmDownload, setConfirmDownload] = useState(false);
   const [expandedPath, setExpandedPath] = useState<string | null>(null);
   const [diffs, setDiffs] = useState<Record<string, string>>({});
   const [diffLoading, setDiffLoading] = useState("");
@@ -91,8 +106,15 @@ export default function CodingChangesPanel({
     setExpandedPath(null);
     setDiffs({});
     setConfirmDiscard(false);
+    setConfirmDownload(false);
     setMessage("");
-  }, [changes?.revision, sessionId]);
+  }, [
+    changes?.revision,
+    sessionId,
+    verification?.result,
+    verification?.stale,
+    verification?.state,
+  ]);
 
   const runAction = async (
     nextAction: Exclude<ActionState, "idle">,
@@ -139,6 +161,21 @@ export default function CodingChangesPanel({
 
   const hasChanges = Boolean(changes?.files.length);
   const isActing = action !== "idle";
+  const verificationRunning =
+    verification?.state === "running" && verification.stale === false;
+  const verificationSupportsDownload =
+    verification?.revision === changes?.revision &&
+    verification?.stale === false &&
+    (verification?.result === "passed" ||
+      verification?.result === "not_applicable");
+
+  const requestDownload = () => {
+    if (verificationSupportsDownload) {
+      void runAction("downloading", onDownload);
+      return;
+    }
+    setConfirmDownload(true);
+  };
 
   return (
     <section className="overflow-hidden rounded-lg border border-white/10 bg-ink-950/72">
@@ -170,9 +207,9 @@ export default function CodingChangesPanel({
 
       {loading ? (
         <div aria-label="正在读取修改草稿" className="space-y-3 p-4">
-          <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
-          <div className="h-12 animate-pulse rounded-lg bg-white/[0.055]" />
-          <div className="h-12 animate-pulse rounded-lg bg-white/[0.055]" />
+          <div className="h-4 w-2/3 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
+          <div className="h-12 animate-pulse rounded-lg bg-white/[0.055] motion-reduce:animate-none" />
+          <div className="h-12 animate-pulse rounded-lg bg-white/[0.055] motion-reduce:animate-none" />
         </div>
       ) : hasChanges && changes ? (
         <>
@@ -214,7 +251,7 @@ export default function CodingChangesPanel({
                     {diffLoading === file.path ? (
                       <LoaderCircle
                         aria-label="正在读取文件修改"
-                        className="shrink-0 animate-spin text-slate-400"
+                        className="shrink-0 animate-spin text-slate-400 motion-reduce:animate-none"
                         size={17}
                       />
                     ) : (
@@ -310,6 +347,16 @@ export default function CodingChangesPanel({
               ))}
             </ul>
 
+            <CodingVerificationPanel
+              available={verificationAvailable}
+              disabled={disabled || isActing || !changes.can_download}
+              error={verificationError}
+              onCancel={onCancelVerification}
+              onRequestFix={onRequestFix}
+              onRun={onRunVerification}
+              verification={verification}
+            />
+
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
@@ -322,7 +369,7 @@ export default function CodingChangesPanel({
                 {action === "checking" ? (
                   <LoaderCircle
                     aria-hidden="true"
-                    className="animate-spin"
+                    className="animate-spin motion-reduce:animate-none"
                     size={16}
                   />
                 ) : (
@@ -337,15 +384,13 @@ export default function CodingChangesPanel({
                   isActing ||
                   !changes.can_download
                 }
-                onClick={() =>
-                  void runAction("downloading", onDownload)
-                }
+                onClick={requestDownload}
                 type="button"
               >
                 {action === "downloading" ? (
                   <LoaderCircle
                     aria-hidden="true"
-                    className="animate-spin"
+                    className="animate-spin motion-reduce:animate-none"
                     size={16}
                   />
                 ) : (
@@ -355,7 +400,7 @@ export default function CodingChangesPanel({
               </button>
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={disabled || isActing}
+                disabled={disabled || isActing || verificationRunning}
                 onClick={() => setConfirmDiscard(true)}
                 type="button"
               >
@@ -363,6 +408,38 @@ export default function CodingChangesPanel({
                 放弃修改
               </button>
             </div>
+
+            {confirmDownload ? (
+              <div
+                aria-live="polite"
+                className="mt-4 rounded-lg bg-amber-300/10 p-3 text-sm text-amber-100"
+              >
+                <p className="font-semibold">项目验证尚未通过</p>
+                <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                  你仍可下载当前 Diff，但建议先查看项目验证提示，并在应用前由开发者确认。
+                </p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                    onClick={() => setConfirmDownload(false)}
+                    type="button"
+                  >
+                    返回查看
+                  </button>
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-amber-200 px-3 text-xs font-semibold text-amber-950 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100"
+                    onClick={() => {
+                      setConfirmDownload(false);
+                      void runAction("downloading", onDownload);
+                    }}
+                    type="button"
+                  >
+                    <Download aria-hidden="true" size={14} />
+                    仍然下载
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             {confirmDiscard ? (
               <div
@@ -391,7 +468,7 @@ export default function CodingChangesPanel({
                     {action === "discarding" ? (
                       <LoaderCircle
                         aria-hidden="true"
-                        className="animate-spin"
+                        className="animate-spin motion-reduce:animate-none"
                         size={14}
                       />
                     ) : null}

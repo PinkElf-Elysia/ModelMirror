@@ -29,9 +29,11 @@ import type {
   CodingDraftChanges,
   CodingEvent,
   CodingPlanEntry,
+  CodingVerification,
 } from "../types/coding";
 import {
   cancelCodingTurn,
+  cancelCodingVerification,
   CodingApiError,
   connectCodingEvents,
   createCodingSession,
@@ -39,7 +41,9 @@ import {
   getCodingCapabilities,
   getCodingChanges,
   getCodingPatch,
+  getCodingVerification,
   startCodingTurn,
+  startCodingVerification,
   validateCodingChanges,
 } from "../utils/codingApi";
 
@@ -112,6 +116,10 @@ const errorMessage: Record<string, string> = {
   draft_policy_violation: "本轮修改超出安全范围，已自动撤销。",
   draft_busy: "代码助手仍在处理，请等待本轮结束。",
   validation_failed: "修改检查尚未通过，请先修正后再下载。",
+  verification_in_progress: "项目验证仍在运行，请先等待完成或停止验证。",
+  verifier_unavailable: "项目验证服务未启动，仍可查看和下载修改。",
+  snapshot_mismatch: "项目版本正在更新，暂时无法运行验证，请稍后重试。",
+  verification_not_found: "本次项目验证记录已失效，请重新运行。",
 };
 
 function describeError(error: unknown) {
@@ -166,7 +174,11 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
               ? "所有修改只保存在临时副本，不会直接改变真实项目。"
               : "只查看固定的 ModelMirror 项目代码。"}
           </li>
-          <li>不会执行命令、运行测试或访问外部网站。</li>
+          <li>
+            {isDraft
+              ? "代码助手不会自行运行检查；项目验证只在你手动启动时执行固定步骤。"
+              : "不会执行命令、运行测试或访问外部网站。"}
+          </li>
           <li>
             {isDraft
               ? "只新增或修改文本文件，不会删除、重命名或提交代码。"
@@ -201,9 +213,17 @@ export default function CodingPage() {
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState("");
   const [draftNotice, setDraftNotice] = useState("");
+  const [verification, setVerification] =
+    useState<CodingVerification | null>(null);
+  const [verificationError, setVerificationError] = useState("");
   const closeStreamRef = useRef<null | (() => void)>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const lastSeqRef = useRef(restoredSessionRef.current?.lastSeq ?? 0);
   const isDraftMode = capabilities?.mode === "draft";
+  const verificationAvailable =
+    capabilities?.verification.available === true;
+  const verificationRunning =
+    verification?.state === "running" && verification.stale === false;
 
   const loadCapabilities = useCallback(async () => {
     setCapabilityState("loading");
@@ -215,6 +235,8 @@ export default function CodingPage() {
         setDraftChanges(null);
         setDraftError("");
         setDraftNotice("");
+        setVerification(null);
+        setVerificationError("");
       }
       setCapabilityState("ready");
     } catch {
@@ -227,6 +249,72 @@ export default function CodingPage() {
     void loadCapabilities();
     return () => closeStreamRef.current?.();
   }, [loadCapabilities]);
+
+  useEffect(() => {
+    if (
+      !isDraftMode ||
+      !sessionId ||
+      !draftChanges?.files.length
+    ) {
+      setVerification(null);
+      setVerificationError("");
+      return;
+    }
+    let active = true;
+    setVerificationError("");
+    void getCodingVerification(sessionId, draftChanges.revision)
+      .then((result) => {
+        if (active) setVerification(result);
+      })
+      .catch((requestError) => {
+        if (active) setVerificationError(describeError(requestError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    draftChanges?.files.length,
+    draftChanges?.revision,
+    isDraftMode,
+    sessionId,
+    verificationAvailable,
+  ]);
+
+  useEffect(() => {
+    const verificationRevision = verification?.revision;
+    if (
+      !sessionId ||
+      !verificationRunning ||
+      verificationRevision === undefined
+    ) {
+      return;
+    }
+    let active = true;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const result = await getCodingVerification(
+          sessionId,
+          verificationRevision,
+        );
+        if (active) {
+          setVerification(result);
+          setVerificationError("");
+        }
+      } catch (requestError) {
+        if (active) setVerificationError(describeError(requestError));
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 1_200);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [sessionId, verification?.revision, verificationRunning]);
 
   const answer = useMemo(
     () =>
@@ -337,7 +425,8 @@ export default function CodingPage() {
       !capabilities?.available ||
       runState === "starting" ||
       runState === "running" ||
-      runState === "stopping"
+      runState === "stopping" ||
+      verificationRunning
     ) {
       return;
     }
@@ -423,6 +512,48 @@ export default function CodingPage() {
     setDraftNotice("修改草稿已放弃，临时副本已恢复到最初状态。");
   };
 
+  const runVerification = async () => {
+    if (!sessionId || !draftChanges) return;
+    setVerificationError("");
+    try {
+      const result = await startCodingVerification(
+        sessionId,
+        draftChanges.revision,
+      );
+      setVerification(result);
+    } catch (requestError) {
+      setVerificationError(describeError(requestError));
+    }
+  };
+
+  const stopVerification = async () => {
+    if (!sessionId || !verification) return;
+    setVerificationError("");
+    try {
+      const result = await cancelCodingVerification(
+        sessionId,
+        verification.revision,
+      );
+      setVerification(result);
+    } catch (requestError) {
+      setVerificationError(describeError(requestError));
+    }
+  };
+
+  const prepareVerificationFix = (nextPrompt: string) => {
+    setPrompt(nextPrompt);
+    setDraftNotice("问题摘要已填入输入框，你可以确认或补充后再提交。");
+    window.requestAnimationFrame(() => {
+      promptRef.current?.focus();
+      promptRef.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "center",
+      });
+    });
+  };
+
   const downloadDraft = async () => {
     if (!sessionId || !draftChanges) return;
     const { blob, filename } = await getCodingPatch(
@@ -489,7 +620,11 @@ export default function CodingPage() {
           >
             <RefreshCw
               aria-hidden="true"
-              className={capabilityState === "loading" ? "animate-spin" : ""}
+              className={
+                capabilityState === "loading"
+                  ? "animate-spin motion-reduce:animate-none"
+                  : ""
+              }
               size={16}
             />
             刷新服务状态
@@ -567,15 +702,15 @@ export default function CodingPage() {
                   {runState === "running" ? (
                     <span
                       aria-label="回答生成中"
-                      className="ml-1 inline-block h-4 w-1 animate-pulse bg-cyan-300 align-middle"
+                      className="ml-1 inline-block h-4 w-1 animate-pulse bg-cyan-300 align-middle motion-reduce:animate-none"
                     />
                   ) : null}
                 </div>
               ) : isBusy ? (
                 <div className="space-y-3" aria-label="代码分析中">
-                  <div className="h-4 w-4/5 animate-pulse rounded bg-white/10" />
-                  <div className="h-4 w-full animate-pulse rounded bg-white/10" />
-                  <div className="h-4 w-2/3 animate-pulse rounded bg-white/10" />
+                  <div className="h-4 w-4/5 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
+                  <div className="h-4 w-full animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
+                  <div className="h-4 w-2/3 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
                 </div>
               ) : (
                 <div
@@ -621,11 +756,14 @@ export default function CodingPage() {
             <textarea
               aria-describedby="coding-prompt-help"
               className="mt-3 min-h-32 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-3 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 hover:border-white/20 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!serviceAvailable || isBusy}
+              disabled={
+                !serviceAvailable || isBusy || verificationRunning
+              }
               id="coding-prompt"
               maxLength={capabilities?.limits.max_prompt_chars ?? 20_000}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={handlePromptKeyDown}
+              ref={promptRef}
               placeholder={
                 isDraftMode
                   ? "用日常语言说明目标和期望结果，不需要填写命令。"
@@ -660,7 +798,11 @@ export default function CodingPage() {
                 ) : (
                   <button
                     className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-4 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-                    disabled={!serviceAvailable || !prompt.trim()}
+                    disabled={
+                      !serviceAvailable ||
+                      !prompt.trim() ||
+                      verificationRunning
+                    }
                     type="submit"
                   >
                     <Send aria-hidden="true" size={16} />
@@ -723,8 +865,14 @@ export default function CodingPage() {
                 loading={draftLoading}
                 onDiscard={discardDraft}
                 onDownload={downloadDraft}
+                onCancelVerification={stopVerification}
+                onRequestFix={prepareVerificationFix}
+                onRunVerification={runVerification}
                 onValidate={checkDraft}
                 sessionId={sessionId}
+                verification={verification}
+                verificationAvailable={verificationAvailable}
+                verificationError={verificationError}
               />
             </div>
           ) : null}
