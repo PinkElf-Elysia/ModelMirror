@@ -20,13 +20,15 @@ COPY --from=opencode_runtime /usr/local/lib/node_modules/opencode-ai /usr/local/
 RUN ln -s ../lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode \
     && groupadd --gid 65532 coding \
     && useradd --uid 65532 --gid 65532 --home-dir /home/coding --no-create-home coding \
-    && mkdir -p /opt/modelmirror /home/coding /workspace /run/modelmirror-coding \
+    && mkdir -p /opt/modelmirror /opt/modelmirror-source /home/coding /workspace /run/modelmirror-coding \
     && chown -R coding:coding /home/coding /run/modelmirror-coding
 
 WORKDIR /opt/modelmirror
 COPY server/coding_runtime ./coding_runtime
 COPY server/THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-coding/THIRD_PARTY_NOTICES.md
-COPY --chown=coding:coding . /workspace
+COPY . /opt/modelmirror-source
+
+RUN chmod -R a-w /opt/modelmirror-source
 
 USER 65532:65532
 

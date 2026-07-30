@@ -190,11 +190,13 @@ class DraftWorkspace:
         checkpoint_root: Path,
         *,
         limits: DraftLimits | None = None,
+        preserve_workspace_root: bool = False,
     ) -> None:
         self.source_root = source_root.resolve()
         self.workspace_root = workspace_root.resolve()
         self.checkpoint_root = checkpoint_root.resolve()
         self.limits = limits or DraftLimits()
+        self.preserve_workspace_root = preserve_workspace_root
         self._validate_roots()
         self._revision = 0
         self._committed_fingerprint = ""
@@ -209,7 +211,7 @@ class DraftWorkspace:
         if not self.source_root.is_dir():
             raise DraftWorkspaceError("source_snapshot_unavailable")
         self._collect_files(self.source_root, enforce_paths=False)
-        self._replace_tree(self.source_root, self.workspace_root)
+        self._reset_workspace_from(self.source_root)
         self._clear_tree(self.checkpoint_root)
         self._revision = 0
         self._committed_fingerprint = self._fingerprint(())
@@ -292,11 +294,20 @@ class DraftWorkspace:
         self._ensure_initialized()
         if self._turn_active:
             raise DraftTransactionError("turn_active")
-        self._replace_tree(self.source_root, self.workspace_root)
+        self._reset_workspace_from(self.source_root)
         self._clear_tree(self.checkpoint_root)
         self._revision += 1
         self._committed_fingerprint = self._fingerprint(())
         return self.validate()
+
+    def destroy(self) -> None:
+        if self.preserve_workspace_root:
+            self._clear_contents(self.workspace_root)
+        else:
+            self._clear_tree(self.workspace_root)
+        self._clear_tree(self.checkpoint_root)
+        self._turn_active = False
+        self._initialized = False
 
     @staticmethod
     def normalize_relative_path(path: str) -> str:
@@ -613,7 +624,7 @@ class DraftWorkspace:
             raise DraftRevisionError("stale_revision")
 
     def _restore_checkpoint(self) -> None:
-        self._replace_tree(self.source_root, self.workspace_root)
+        self._reset_workspace_from(self.source_root)
         shutil.copytree(
             self.checkpoint_root,
             self.workspace_root,
@@ -622,6 +633,29 @@ class DraftWorkspace:
         )
         self._clear_tree(self.checkpoint_root)
         self._turn_active = False
+
+    def _reset_workspace_from(self, source: Path) -> None:
+        if not self.preserve_workspace_root:
+            self._replace_tree(source, self.workspace_root)
+            return
+        self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self._clear_contents(self.workspace_root)
+        shutil.copytree(
+            source,
+            self.workspace_root,
+            dirs_exist_ok=True,
+            symlinks=False,
+        )
+
+    @staticmethod
+    def _clear_contents(path: Path) -> None:
+        if path.is_symlink() or not path.is_dir():
+            raise DraftWorkspaceError("unsafe_workspace_root")
+        for child in path.iterdir():
+            if child.is_symlink() or not child.is_dir():
+                child.unlink()
+            else:
+                shutil.rmtree(child)
 
     @staticmethod
     def _clear_tree(path: Path) -> None:
