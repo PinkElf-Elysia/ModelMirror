@@ -187,6 +187,12 @@ const tagFilters: Array<{ key: ResourceTag; label: string }> = [
 
 const quickActions: QuickAction[] = [
   {
+    title: "代码只读问答（实验）",
+    description: "让只读代码助手查看固定项目，用易懂的方式说明功能和代码关系。",
+    href: "/coding",
+    label: "打开工作台",
+  },
+  {
     title: "创建 Data X 项目",
     description: "导入本地文件，建立语义模型并发布可由 Agent 查询的业务指标。",
     href: "/datax",

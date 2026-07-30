@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AgentsPage from "./pages/AgentsPage";
 import ChatPage from "./pages/ChatPage";
@@ -32,12 +33,34 @@ import PluginsPage from "./pages/PluginsPage";
 import XpertEvaluationsPage from "./pages/XpertEvaluationsPage";
 import XpertEvolutionPage from "./pages/XpertEvolutionPage";
 
+const CodingPage = lazy(() => import("./pages/CodingPage"));
+
+function CodingPageFallback() {
+  return (
+    <main className="museum-grid flex min-h-screen items-center justify-center px-4 text-slate-100">
+      <div className="w-full max-w-xl rounded-lg bg-ink-950/72 p-6">
+        <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
+        <div className="mt-4 h-8 w-64 max-w-full animate-pulse rounded bg-white/10" />
+        <div className="mt-5 h-24 animate-pulse rounded bg-white/[0.065]" />
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   return (
     <Routes>
       <Route element={<Navigate replace to="/models" />} path="/" />
       <Route element={<ModelListPage />} path="/models" />
       <Route element={<StudioHomePage />} path="/studio" />
+      <Route
+        element={
+          <Suspense fallback={<CodingPageFallback />}>
+            <CodingPage />
+          </Suspense>
+        }
+        path="/coding"
+      />
       <Route element={<AgentsPage />} path="/agents" />
       <Route element={<MetaAgentPage />} path="/agents/meta-agent" />
       <Route element={<XpertStudioIndexPage />} path="/agents/studio" />
