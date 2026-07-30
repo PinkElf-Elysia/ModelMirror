@@ -18,10 +18,54 @@ from server.multimodal.stt import (
     OpenRouterTarget,
     TranscriptionService,
     TranscriptionUsage,
+    VERIFIED_TRANSCRIPTION_PROFILES,
 )
 
 
 WAV_BYTES = b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt " + b"\x00" * 32
+MP3_BYTES = b"ID3" + b"\x04\x00\x00" + b"\x00" * 16
+M4A_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 16
+WEBM_BYTES = b"\x1a\x45\xdf\xa3" + b"\x00" * 16
+
+
+def test_verified_transcription_profiles_cover_common_formats_and_providers() -> None:
+    expected_models = {
+        "microsoft/mai-transcribe-1.5",
+        "mistralai/voxtral-mini-transcribe",
+        "openai/whisper-1",
+        "qwen/qwen3-asr-flash-2026-02-10",
+        "x-ai/grok-stt-1.0",
+    }
+    assert expected_models <= VERIFIED_TRANSCRIPTION_PROFILES.keys()
+    for profile in VERIFIED_TRANSCRIPTION_PROFILES.values():
+        assert {"mp3", "wav", "m4a", "webm"} <= set(
+            profile.input_formats
+        )
+        assert profile.smoke_languages == ("zh", "en")
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type", "content", "expected_format"),
+    [
+        ("sample.mp3", "audio/mpeg", MP3_BYTES, "mp3"),
+        ("sample.wav", "audio/wav", WAV_BYTES, "wav"),
+        ("sample.m4a", "audio/mp4", M4A_BYTES, "m4a"),
+        ("sample.webm", "audio/webm", WEBM_BYTES, "webm"),
+    ],
+)
+def test_transcription_accepts_common_verified_audio_formats(
+    filename: str,
+    content_type: str,
+    content: bytes,
+    expected_format: str,
+) -> None:
+    clean_name, audio_format = TranscriptionService._validate_audio(
+        filename,
+        content_type,
+        content,
+    )
+    assert clean_name == filename
+    assert audio_format == expected_format
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:

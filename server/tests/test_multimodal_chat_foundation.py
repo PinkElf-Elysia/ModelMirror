@@ -15,7 +15,10 @@ from server.multimodal.api import (
     configure_chat_attachment_store,
     router,
 )
-from server.multimodal.audio_catalog import AudioCatalogService
+from server.multimodal.audio_catalog import (
+    OPENROUTER_AUDIO_CONTRACTS,
+    AudioCatalogService,
+)
 from server.multimodal.chat_attachments import ChatAttachmentStore
 from server.multimodal.stt import MultimodalServiceError
 
@@ -55,6 +58,54 @@ def audio_catalog_payload() -> dict[str, object]:
                 },
             },
             {
+                "id": "google/gemini-3.6-flash",
+                "name": "Google: Gemini 3.6 Flash",
+                "architecture": {
+                    "input_modalities": ["text", "audio"],
+                    "output_modalities": ["text"],
+                },
+            },
+            {
+                "id": "google/gemini-3.5-flash",
+                "name": "Google: Gemini 3.5 Flash",
+                "architecture": {
+                    "input_modalities": ["text", "audio"],
+                    "output_modalities": ["text"],
+                },
+            },
+            {
+                "id": "google/gemini-3.5-flash-lite",
+                "name": "Google: Gemini 3.5 Flash Lite",
+                "architecture": {
+                    "input_modalities": ["text", "audio"],
+                    "output_modalities": ["text"],
+                },
+            },
+            {
+                "id": "google/gemini-2.5-flash",
+                "name": "Google: Gemini 2.5 Flash",
+                "architecture": {
+                    "input_modalities": ["text", "audio"],
+                    "output_modalities": ["text"],
+                },
+            },
+            {
+                "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+                "name": "NVIDIA: Nemotron 3 Nano Omni",
+                "architecture": {
+                    "input_modalities": ["text", "audio"],
+                    "output_modalities": ["text"],
+                },
+            },
+            {
+                "id": "mistralai/voxtral-small-24b-2507",
+                "name": "Mistral: Voxtral Small 24B",
+                "architecture": {
+                    "input_modalities": ["text", "audio"],
+                    "output_modalities": ["text"],
+                },
+            },
+            {
                 "id": "microsoft/mai-transcribe-1.5",
                 "name": "Microsoft: MAI Transcribe 1.5",
                 "input_modalities": ["audio"],
@@ -65,6 +116,7 @@ def audio_catalog_payload() -> dict[str, object]:
                 "name": "Microsoft: MAI Voice 2",
                 "input_modalities": ["text"],
                 "output_modalities": ["speech"],
+                "supported_voices": ["en-US-Harper:MAI-Voice-2"],
             },
             {
                 "id": "google/lyria-test",
@@ -79,12 +131,107 @@ def audio_catalog_payload() -> dict[str, object]:
                 "output_modalities": ["text"],
             },
             {
+                "id": "provider/unverified-stt",
+                "name": "Provider: Unverified STT",
+                "input_modalities": ["audio"],
+                "output_modalities": ["transcription"],
+            },
+            {
+                "id": "x-ai/grok-voice-tts-1.0",
+                "name": "xAI: Grok Voice TTS 1.0",
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+                "supported_voices": ["ara", "eve", "unverified"],
+            },
+            {
+                "id": "google/gemini-3.1-flash-tts-preview",
+                "name": "Google: Gemini 3.1 Flash TTS Preview",
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+                "supported_voices": ["Aoede", "Kore", "Puck"],
+            },
+            {
+                "id": "deepgram/aura-2",
+                "name": "Deepgram: Aura 2",
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+                "supported_voices": [
+                    "aura-2-amalthea-en",
+                    "aura-2-apollo-en",
+                ],
+            },
+            {
+                "id": "minimax/speech-2.8-hd",
+                "name": "MiniMax: Speech 2.8 HD",
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+            },
+            {
+                "id": "minimax/speech-2.8-turbo",
+                "name": "MiniMax: Speech 2.8 Turbo",
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+            },
+            {
+                "id": "google/lyria-3-clip-preview",
+                "name": "Google: Lyria 3 Clip Preview",
+                "input_modalities": ["text"],
+                "output_modalities": ["audio"],
+            },
+            {
                 "id": "provider/text-only",
                 "input_modalities": ["text"],
                 "output_modalities": ["text"],
             },
+            {
+                "id": "provider/audio-conditioned-video",
+                "input_modalities": ["text", "audio"],
+                "output_modalities": ["video"],
+            },
         ]
     }
+
+
+def test_audio_contract_registry_keeps_verified_and_planned_models_separate() -> None:
+    verified_direct_models = {
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-pro",
+        "google/gemini-2.5-pro-preview-05-06",
+        "google/gemini-3.1-flash-lite",
+        "google/gemini-3.1-pro-preview",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "thinkingmachines/inkling",
+        "xiaomi/mimo-v2.5",
+    }
+    assert all(
+        OPENROUTER_AUDIO_CONTRACTS[model_id].behavior_verified
+        for model_id in verified_direct_models
+    )
+    assert all(
+        OPENROUTER_AUDIO_CONTRACTS[model_id].input_formats == ("wav",)
+        for model_id in verified_direct_models
+    )
+    for model_id in (
+        "google/lyria-3-clip-preview",
+        "google/lyria-3-pro-preview",
+    ):
+        assert OPENROUTER_AUDIO_CONTRACTS[model_id].behavior_verified
+        assert (
+            OPENROUTER_AUDIO_CONTRACTS[model_id].supports_image_prompt
+            is True
+        )
+        assert OPENROUTER_AUDIO_CONTRACTS[model_id].output_formats == (
+            "mp3",
+        )
+    for model_id in (
+        "minimax/speech-2.8-hd",
+        "minimax/speech-2.8-turbo",
+    ):
+        contract = OPENROUTER_AUDIO_CONTRACTS[model_id]
+        assert contract.behavior_verified
+        assert contract.chat_modes == ("synthesize_speech",)
+        assert contract.output_formats == ("mp3",)
+        assert "Chinese (Mandarin)_News_Anchor" in contract.voices
 
 
 @pytest.mark.asyncio
@@ -94,6 +241,9 @@ async def test_audio_catalog_disabled_without_chat_flags(
 ) -> None:
     monkeypatch.delenv("MULTIMODAL_CHAT_AUDIO_ENABLED", raising=False)
     monkeypatch.delenv("MULTIMODAL_STREAMING_AUDIO_ENABLED", raising=False)
+    monkeypatch.delenv("MULTIMODAL_AUDIO_GENERATION_ENABLED", raising=False)
+    monkeypatch.delenv("MULTIMODAL_REALTIME_VOICE_ENABLED", raising=False)
+    monkeypatch.delenv("MULTIMODAL_VOICE_CLONING_ENABLED", raising=False)
     service = AudioCatalogService(openrouter_service(tmp_path))
 
     result = await service.get_catalog()
@@ -109,6 +259,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 ) -> None:
     monkeypatch.setenv("MULTIMODAL_CHAT_AUDIO_ENABLED", "true")
     monkeypatch.setenv("MULTIMODAL_STREAMING_AUDIO_ENABLED", "true")
+    monkeypatch.setenv("MULTIMODAL_AUDIO_GENERATION_ENABLED", "true")
     requests: list[Request] = []
 
     def handler(request: Request) -> Response:
@@ -126,6 +277,11 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
     by_id = {profile.model_id: profile for profile in result.profiles}
 
     assert result.status == "online"
+    assert result.catalog_version == (
+        "modelmirror-audio-contracts-2026-07-29-b10"
+    )
+    assert by_id["openai/gpt-audio"].provider == "openrouter"
+    assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
     assert by_id["openai/gpt-audio"].chat_modes == [
         "direct_audio_input",
         "native_streaming_audio_output",
@@ -138,6 +294,25 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
         "ogg",
         "wav",
     ]
+    for model_id in (
+        "google/gemini-2.5-flash",
+        "google/gemini-3.6-flash",
+        "google/gemini-3.5-flash",
+        "google/gemini-3.5-flash-lite",
+    ):
+        assert by_id[model_id].interaction_status == "ready"
+        assert by_id[model_id].operations == ["analyze_audio"]
+        assert by_id[model_id].chat_modes == ["direct_audio_input"]
+        assert by_id[model_id].supports_streaming_output is False
+    assert by_id[
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    ].chat_modes == ["direct_audio_input"]
+    assert by_id[
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    ].input_formats == ["wav"]
+    assert by_id[
+        "mistralai/voxtral-small-24b-2507"
+    ].input_formats == ["flac", "m4a", "mp3", "ogg", "wav"]
     assert by_id["microsoft/mai-transcribe-1.5"].chat_modes == [
         "transcribe"
     ]
@@ -150,16 +325,164 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
     assert by_id["microsoft/mai-voice-2"].voices == [
         "en-US-Harper:MAI-Voice-2"
     ]
+    assert by_id["x-ai/grok-voice-tts-1.0"].interaction_status == "ready"
+    assert by_id["x-ai/grok-voice-tts-1.0"].voices == ["ara", "eve"]
+    assert by_id[
+        "google/gemini-3.1-flash-tts-preview"
+    ].interaction_status == "ready"
+    assert by_id[
+        "google/gemini-3.1-flash-tts-preview"
+    ].output_formats == ["wav"]
+    assert by_id["deepgram/aura-2"].interaction_status == "ready"
+    assert by_id["deepgram/aura-2"].voices == [
+        "aura-2-amalthea-en",
+        "aura-2-apollo-en",
+    ]
+    for model_id in (
+        "minimax/speech-2.8-hd",
+        "minimax/speech-2.8-turbo",
+    ):
+        assert by_id[model_id].interaction_status == "ready"
+        assert by_id[model_id].chat_modes == ["synthesize_speech"]
+        assert by_id[model_id].output_formats == ["mp3"]
+        assert by_id[model_id].voices == [
+            "Chinese (Mandarin)_Mature_Woman",
+            "Chinese (Mandarin)_News_Anchor",
+            "Chinese (Mandarin)_Reliable_Executive",
+            "Chinese (Mandarin)_Warm_Girl",
+            "English_CalmWoman",
+            "English_Graceful_Lady",
+            "English_expressive_narrator",
+            "English_magnetic_voiced_man",
+        ]
+    assert by_id[
+        "google/lyria-3-clip-preview"
+    ].interaction_status == "ready"
+    assert by_id[
+        "google/lyria-3-clip-preview"
+    ].supports_image_prompt is True
+    assert by_id[
+        "google/lyria-3-clip-preview"
+    ].output_formats == ["mp3"]
+    assert by_id[
+        "google/lyria-3-clip-preview"
+    ].price_per_generation_usd == 0.04
+    assert by_id[
+        "google/lyria-3-clip-preview"
+    ].fixed_duration_seconds == 30
+    assert by_id["google/lyria-3-clip-preview"].chat_modes == []
+    assert by_id["provider/unverified-stt"].interaction_status == "planned"
+    assert by_id["provider/unverified-stt"].chat_modes == []
+    assert "格式与语言行为验证" in (
+        by_id["provider/unverified-stt"].status_reason or ""
+    )
     assert by_id["google/lyria-test"].interaction_status == "planned"
+    assert by_id["google/lyria-test"].operations == ["generate_audio"]
+    assert by_id["google/lyria-test"].status_reason
     assert by_id["google/lyria-test"].chat_modes == []
     assert (
         by_id["provider/unverified-audio"].interaction_status == "planned"
     )
     assert "provider/text-only" not in by_id
+    assert "provider/audio-conditioned-video" not in by_id
     assert requests[0].headers["authorization"] == (
         "Bearer audio-catalog-secret"
     )
     assert requests[0].url.params["output_modalities"] == "all"
+
+
+@pytest.mark.asyncio
+async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MULTIMODAL_CHAT_AUDIO_ENABLED", "true")
+    monkeypatch.setenv("MULTIMODAL_REALTIME_VOICE_ENABLED", "true")
+    repository = SQLiteRouterRepository(tmp_path)
+    openrouter = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="OpenRouter",
+            kind="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key="openrouter-secret",
+        ),
+    )
+    direct_openai = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="OpenAI Audio",
+            kind="openai",
+            base_url="https://api.openai.com/v1",
+            api_key="openai-secret",
+        ),
+    )
+    for connection in (openrouter, direct_openai):
+        repository.save_test_result(
+            "local",
+            connection.id,
+            health="online",
+            model_count=2,
+            checked_at="2026-07-29T00:00:00+00:00",
+        )
+    requests: list[Request] = []
+    openai_available = [True]
+
+    def handler(request: Request) -> Response:
+        requests.append(request)
+        if request.url.host == "api.openai.com":
+            if not openai_available[0]:
+                return Response(503, text="private direct provider error")
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "gpt-realtime-2.1-mini"},
+                        {"id": "gpt-4o-mini-tts"},
+                        {"id": "gpt-5.6"},
+                    ]
+                },
+            )
+        return Response(200, json=audio_catalog_payload())
+
+    service = AudioCatalogService(
+        ModelRouterService(repository),
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(handler)
+        ),
+    )
+    result = await service.get_catalog()
+    by_id = {
+        (profile.provider, profile.model_id): profile
+        for profile in result.profiles
+    }
+
+    assert result.source == "mixed"
+    realtime = by_id[("openai", "gpt-realtime-2.1-mini")]
+    assert realtime.connection_id == direct_openai.id
+    assert realtime.operations == ["realtime_voice"]
+    assert realtime.interaction_status == "ready"
+    assert realtime.status_reason is None
+    assert realtime.supports_streaming_input is True
+    assert realtime.supports_streaming_output is True
+    voice = by_id[("openai", "gpt-4o-mini-tts")]
+    assert voice.operations == ["synthesize_speech", "clone_voice"]
+    assert "无法验证删除" in (voice.status_reason or "")
+    assert ("openai", "gpt-5.6") not in by_id
+    assert {
+        request.headers["authorization"] for request in requests
+    } == {"Bearer openrouter-secret", "Bearer openai-secret"}
+
+    assert service._cache is not None
+    service._cache.stored_at -= 301
+    openai_available[0] = False
+    stale = await service.get_catalog()
+    assert stale.status == "stale"
+    assert stale.stale is True
+    assert any(
+        profile.provider == "openai" for profile in stale.profiles
+    )
+    assert "private direct provider error" not in stale.model_dump_json()
 
 
 @pytest.mark.asyncio
@@ -220,12 +543,17 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            response = await client.get("/api/multimodal/audio/models")
+            response = await client.get(
+                "/api/multimodal/audio/models?refresh=true"
+            )
     finally:
         configure_audio_catalog_service(None)
 
     assert response.status_code == 200
     assert response.json()["profiles"]
+    assert response.json()["catalog_version"] == (
+        "modelmirror-audio-contracts-2026-07-29-b10"
+    )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text
     assert "openrouter.ai" not in response.text

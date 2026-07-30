@@ -4,6 +4,7 @@ import type { Model } from "../data/models";
 import {
   DEFAULT_SPEECH_VOICE,
   generateSpeechAudio,
+  type SpeechResponseFormat,
 } from "../utils/speechAudio";
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
@@ -29,6 +30,19 @@ interface SpeechWorkspaceProps {
   model: Model;
 }
 
+interface SpeechCatalogProfile {
+  model_id: string;
+  invocable: boolean;
+  interaction_status: "ready" | "planned" | "disabled";
+  chat_modes: string[];
+  output_formats: string[];
+  voices: string[];
+}
+
+interface SpeechCatalogResponse {
+  profiles: SpeechCatalogProfile[];
+}
+
 function formatBytes(bytes: number | null) {
   if (bytes === null) return "未提供";
   if (bytes >= 1024 * 1024) {
@@ -39,7 +53,12 @@ function formatBytes(bytes: number | null) {
 
 export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
   const [text, setText] = useState("");
-  const [voice, setVoice] = useState(DEFAULT_SPEECH_VOICE);
+  const [voice, setVoice] = useState("");
+  const [availableVoices, setAvailableVoices] = useState<string[]>([]);
+  const [responseFormat, setResponseFormat] =
+    useState<SpeechResponseFormat>("mp3");
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [profileError, setProfileError] = useState("");
   const [speed, setSpeed] = useState(1);
   const [status, setStatus] = useState<SpeechStatus>("idle");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -52,11 +71,82 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
   const canGenerate =
     text.trim().length > 0 &&
     characterCount <= MAX_TEXT_CHARS &&
+    Boolean(voice) &&
+    !isLoadingProfile &&
     !isGenerating;
 
   useEffect(() => {
     document.title = `生成语音 · ${model.name} · 模镜`;
   }, [model.name]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setIsLoadingProfile(true);
+    setProfileError("");
+    fetch("/api/multimodal/audio/models", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("暂时无法读取语音模型能力。");
+        }
+        return (await response.json()) as SpeechCatalogResponse;
+      })
+      .then((catalog) => {
+        const profile = catalog.profiles.find(
+          (item) =>
+            item.model_id === model.id &&
+            item.invocable &&
+            item.interaction_status === "ready" &&
+            item.chat_modes.includes("synthesize_speech") &&
+            item.output_formats.some(
+              (format) => format === "mp3" || format === "wav",
+            ) &&
+            item.voices.length > 0,
+        );
+        if (!profile) {
+          setAvailableVoices([]);
+          setVoice("");
+          setResponseFormat("mp3");
+          setProfileError(
+            "该模型当前没有已验证的语音格式和声线，请返回模型招聘会选择可用语音模型。",
+          );
+          return;
+        }
+        setResponseFormat(
+          profile.output_formats.includes("mp3") ? "mp3" : "wav",
+        );
+        setAvailableVoices(profile.voices);
+        setVoice((current) => {
+          if (profile.voices.includes(current)) return current;
+          if (
+            model.id === "microsoft/mai-voice-2" &&
+            profile.voices.includes(DEFAULT_SPEECH_VOICE)
+          ) {
+            return DEFAULT_SPEECH_VOICE;
+          }
+          return profile.voices[0];
+        });
+      })
+      .catch((loadError) => {
+        if (
+          loadError instanceof DOMException &&
+          loadError.name === "AbortError"
+        ) {
+          return;
+        }
+        setAvailableVoices([]);
+        setVoice("");
+        setResponseFormat("mp3");
+        setProfileError(
+          loadError instanceof Error
+            ? loadError.message
+            : "暂时无法读取语音模型能力。",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingProfile(false);
+      });
+    return () => controller.abort();
+  }, [model.id]);
 
   useEffect(() => {
     if (!audioBlob) {
@@ -89,6 +179,7 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
         modelId: model.id,
         input: text.trim(),
         voice,
+        responseFormat,
         speed,
         signal: controller.signal,
       });
@@ -211,7 +302,11 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   </label>
                   <select
                     className="w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-3 text-sm text-white outline-none transition focus:border-brand-300/60 focus:ring-4 focus:ring-brand-300/10 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isGenerating}
+                    disabled={
+                      isGenerating ||
+                      isLoadingProfile ||
+                      availableVoices.length === 0
+                    }
                     id="speech-voice"
                     onChange={(event) => {
                       setVoice(event.target.value);
@@ -219,12 +314,20 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                     }}
                     value={voice}
                   >
-                    <option value={DEFAULT_SPEECH_VOICE}>
-                      Harper · MAI-Voice-2（已验证）
-                    </option>
+                    {isLoadingProfile ? (
+                      <option value="">正在读取声线…</option>
+                    ) : null}
+                    {!isLoadingProfile && availableVoices.length === 0 ? (
+                      <option value="">暂无可用声线</option>
+                    ) : null}
+                    {availableVoices.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
                   </select>
                   <p className="mt-2 text-xs leading-5 text-slate-400">
-                    首期只开放已完成行为测试的声线。
+                    仅显示实时目录中仍存在且已完成行为验证的声线。
                   </p>
                 </div>
 
@@ -290,6 +393,15 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                 </div>
               ) : null}
 
+              {profileError ? (
+                <div
+                  className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100"
+                  role="status"
+                >
+                  {profileError}
+                </div>
+              ) : null}
+
               {status === "cancelled" ? (
                 <div
                   className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100"
@@ -339,7 +451,9 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
               </div>
               <div>
                 <dt className="text-slate-400">输出格式</dt>
-                <dd className="mt-1 text-slate-200">MP3</dd>
+                <dd className="mt-1 text-slate-200">
+                  {responseFormat.toUpperCase()}
+                </dd>
               </div>
               <div>
                 <dt className="text-slate-400">隐私</dt>
@@ -365,10 +479,10 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
               </div>
               <a
                 className="self-start rounded-full border border-brand-300/35 bg-brand-300/10 px-4 py-2 text-sm font-semibold text-brand-100 transition hover:border-brand-300/60 hover:bg-brand-300/15 sm:self-auto"
-                download="modelmirror-speech.mp3"
+                download={`modelmirror-speech.${responseFormat}`}
                 href={audioUrl}
               >
-                下载 MP3
+                下载 {responseFormat.toUpperCase()}
               </a>
             </div>
             <div className="p-5 sm:p-6">

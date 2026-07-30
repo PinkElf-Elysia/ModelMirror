@@ -16,7 +16,7 @@ from httpx import (
     Response,
 )
 
-from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.repository import SCHEMA_VERSION, SQLiteRouterRepository
 from server.model_router.schemas import RouterConnectionCreate
 from server.model_router.service import ModelRouterService
 from server.multimodal.api import configure_video_job_service, router
@@ -861,7 +861,10 @@ def test_repository_migrates_existing_video_jobs_without_data_loss(
     assert row["reference_image_count"] == 0
     assert row["provider_option_keys"] == "[]"
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            == SCHEMA_VERSION
+        )
 
 
 @pytest.mark.asyncio

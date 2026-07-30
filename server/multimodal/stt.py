@@ -36,6 +36,35 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-07-29-b2"
+
+
+@dataclass(frozen=True)
+class TranscriptionProfile:
+    input_formats: tuple[str, ...]
+    smoke_languages: tuple[str, ...] = ("zh", "en")
+
+
+_STANDARD_TRANSCRIPTION_PROFILE = TranscriptionProfile(
+    input_formats=tuple(ALLOWED_AUDIO_FORMATS),
+)
+VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
+    model_id: _STANDARD_TRANSCRIPTION_PROFILE
+    for model_id in (
+        "deepgram/nova-3",
+        "google/chirp-3",
+        "microsoft/mai-transcribe-1.5",
+        "mistralai/voxtral-mini-transcribe",
+        "nvidia/parakeet-tdt-0.6b-v3",
+        "openai/gpt-4o-mini-transcribe",
+        "openai/gpt-4o-transcribe",
+        "openai/whisper-1",
+        "openai/whisper-large-v3",
+        "openai/whisper-large-v3-turbo",
+        "qwen/qwen3-asr-flash-2026-02-10",
+        "x-ai/grok-stt-1.0",
+    )
+}
 
 
 class MultimodalServiceError(Exception):
@@ -370,11 +399,18 @@ class TranscriptionService:
     ) -> TranscriptionResult:
         clean_model = self._model_id(model_id)
         clean_language = self._language(language)
+        profile = VERIFIED_TRANSCRIPTION_PROFILES[clean_model]
         clean_filename, audio_format = self._validate_audio(
             filename,
             content_type,
             content,
         )
+        if audio_format not in profile.input_formats:
+            raise MultimodalServiceError(
+                "unsupported_model_audio_format",
+                "所选转写模型尚未验证该音频格式，请更换模型或重新导出音频。",
+                status_code=415,
+            )
         target = self._target()
         decision_id = self._record_start(
             target,
@@ -410,6 +446,7 @@ class TranscriptionService:
             if item.kind == "openrouter"
             and item.enabled
             and item.health != "offline"
+            and "audio" in item.scopes
         ]
         connections.sort(
             key=lambda item: (
@@ -552,6 +589,12 @@ class TranscriptionService:
             raise MultimodalServiceError(
                 "invalid_model_id",
                 "请选择一个具体的音频转文字模型。",
+                status_code=422,
+            )
+        if model_id not in VERIFIED_TRANSCRIPTION_PROFILES:
+            raise MultimodalServiceError(
+                "unsupported_transcription_model",
+                "该转写模型尚未完成本地契约验证，请从转写设置的可用列表中选择。",
                 status_code=422,
             )
         return model_id

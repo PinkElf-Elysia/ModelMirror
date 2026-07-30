@@ -47,6 +47,7 @@ def test_schema_and_credentials_are_tenant_scoped_and_persistent(
 
     assert all(repository.count_schema_tenant_columns().values())
     assert created.tenant_id == "local"
+    assert created.scopes == ["chat", "audio"]
     assert created.masked_key != "sk-test-secret-value"
     assert repository.resolve_api_key("local", created.id) == "sk-test-secret-value"
     with pytest.raises(RouterConnectionNotFound):
@@ -65,6 +66,78 @@ def test_schema_and_credentials_are_tenant_scoped_and_persistent(
             connection.execute("PRAGMA user_version").fetchone()[0]
             == SCHEMA_VERSION
         )
+
+
+def test_connection_scopes_default_by_provider_and_migrate_v7(
+    tmp_path: Path,
+) -> None:
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    legacy_database = legacy_dir / "router.sqlite3"
+    with sqlite3.connect(legacy_database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE router_connections (
+                id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                masked_key TEXT NOT NULL,
+                api_key_ciphertext TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                health TEXT NOT NULL DEFAULT 'untested',
+                model_count INTEGER NOT NULL DEFAULT 0,
+                last_checked_at TEXT,
+                last_error_code TEXT,
+                last_error_hint TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (tenant_id, id)
+            );
+            PRAGMA user_version = 7;
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO router_connections (
+                id, tenant_id, name, kind, base_url, masked_key,
+                api_key_ciphertext, enabled, health, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-openrouter",
+                "local",
+                "Legacy OpenRouter",
+                "openrouter",
+                "https://openrouter.ai/api/v1",
+                "sk******cy",
+                "not-used-by-this-test",
+                1,
+                "online",
+                "2026-07-29T00:00:00+00:00",
+                "2026-07-29T00:00:00+00:00",
+            ),
+        )
+
+    migrated = SQLiteRouterRepository(
+        legacy_dir,
+        master_key=b"migration-test-key",
+    )
+    assert migrated.get_connection(
+        "local", "legacy-openrouter"
+    ).scopes == ["chat", "audio"]
+
+    direct_openai = migrated.create_connection(
+        "local",
+        connection_payload(
+            kind="openai",
+            name="OpenAI Audio",
+            base_url="https://api.openai.com/v1",
+        ),
+    )
+    assert direct_openai.scopes == ["audio", "realtime"]
+    assert ModelRouterService(migrated).status().connection_count == 1
 
 
 def test_disable_restore_and_policy_persist_without_delete(tmp_path: Path) -> None:
@@ -301,6 +374,7 @@ async def test_connection_api_is_redacted_and_records_health(tmp_path: Path) -> 
         serialized = json.dumps(created, ensure_ascii=False)
         assert "sk-test-secret-value" not in serialized
         assert "api_key_ciphertext" not in serialized
+        assert created["scopes"] == ["chat", "audio"]
 
         tested_response = await client.post(
             f"/api/router/connections/{created['id']}/test"
@@ -370,6 +444,14 @@ async def test_native_catalog_uses_30_second_cache_and_stale_if_error(
 
     repository = SQLiteRouterRepository(tmp_path)
     connection = repository.create_connection("local", connection_payload())
+    direct_openai = repository.create_connection(
+        "local",
+        connection_payload(
+            kind="openai",
+            name="OpenAI Audio",
+            base_url="https://api.openai.com/v1",
+        ),
+    )
     service = ModelRouterService(
         repository,
         client_factory=lambda: httpx.AsyncClient(transport=MockTransport(handler)),
@@ -394,6 +476,9 @@ async def test_native_catalog_uses_30_second_cache_and_stale_if_error(
     assert fresh.source == "native"
     assert fresh.models[0].connection_id == connection.id
     assert fresh.models[0].invocation_id == "provider/model-a"
+    assert all(
+        item.connection_id != direct_openai.id for item in fresh.models
+    )
 
     cached = await catalog_service.get_catalog(
         service, FallbackCatalog()  # type: ignore[arg-type]

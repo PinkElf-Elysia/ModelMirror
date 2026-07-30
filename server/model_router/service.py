@@ -14,6 +14,7 @@ from .repository import (
     utc_now,
 )
 from .schemas import (
+    ConnectionScope,
     ConnectionTestResult,
     RouterConnection,
     RouterConnectionCreate,
@@ -73,8 +74,19 @@ class ModelRouterService:
             )
         )
 
-    def list_connections(self) -> list[RouterConnection]:
-        return self.repository.list_connections(self.tenant_id)
+    def list_connections(
+        self,
+        *,
+        scope: ConnectionScope | None = None,
+    ) -> list[RouterConnection]:
+        connections = self.repository.list_connections(self.tenant_id)
+        if scope is None:
+            return connections
+        return [
+            connection
+            for connection in connections
+            if scope in connection.scopes
+        ]
 
     def create_connection(
         self, payload: RouterConnectionCreate
@@ -140,6 +152,8 @@ class ModelRouterService:
                 "该模型服务已停用。",
                 status_code=409,
             )
+        if "chat" not in connection.scopes:
+            return self._scope_mismatch_result(connection), []
         api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
         result, model_ids, _ = await self._probe_with_models(
             connection.base_url, api_key
@@ -167,6 +181,8 @@ class ModelRouterService:
                 "该模型服务已停用。",
                 status_code=409,
             )
+        if "chat" not in connection.scopes:
+            return self._scope_mismatch_result(connection), []
         api_key = self.repository.resolve_api_key(self.tenant_id, connection_id)
         result, _, records = await self._probe_with_models(
             connection.base_url, api_key
@@ -221,7 +237,7 @@ class ModelRouterService:
         return self.repository.save_policy(self.tenant_id, policy)
 
     def status(self) -> RouterStatus:
-        connections = self.list_connections()
+        connections = self.list_connections(scope="chat")
         online = [item for item in connections if item.health == "online"]
         policy = self.get_policy()
         return RouterStatus(
@@ -410,6 +426,19 @@ class ModelRouterService:
         if "限流" in message:
             return "rate_limited"
         return "unreachable"
+
+    @staticmethod
+    def _scope_mismatch_result(
+        connection: RouterConnection,
+    ) -> ConnectionTestResult:
+        return ConnectionTestResult(
+            ok=False,
+            health=connection.health,
+            model_count=0,
+            models_preview=[],
+            message="该连接未启用普通模型调用，不会进入智能调度。",
+            checked_at=utc_now(),
+        )
 
 
 def translate_repository_error(exc: Exception) -> RouterServiceError:

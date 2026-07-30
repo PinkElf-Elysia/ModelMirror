@@ -14,15 +14,89 @@ from server.model_router.service import ModelRouterService
 from server.multimodal.api import configure_speech_service
 from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 from server.multimodal.tts import (
+    ALLOWED_SPEECH_PROFILES,
+    GEMINI_PCM_TTS_MODEL_ID,
     MAX_SPEECH_INPUT_CHARS,
+    MINIMAX_SYSTEM_SPEECH_VOICES,
     OpenRouterTtsAdapter,
     SpeechService,
+    speech_output_format,
 )
 
 
 MP3_BYTES = b"ID3" + b"\x04\x00\x00" + b"\x00" * 64
+PCM_BYTES = b"\x00\x01" * 256
 MODEL_ID = "microsoft/mai-voice-2"
 VOICE = "en-US-Harper:MAI-Voice-2"
+
+
+def test_verified_speech_profiles_cover_multiple_providers() -> None:
+    assert {
+        "minimax/speech-2.8-hd",
+        "minimax/speech-2.8-turbo",
+        "microsoft/mai-voice-2",
+        "mistralai/voxtral-mini-tts-2603",
+        "qwen/qwen-audio-3.0-tts-flash",
+        "x-ai/grok-voice-tts-1.0",
+        "deepgram/aura-2",
+        "zyphra/zonos-v0.1-transformer",
+        "zyphra/zonos-v0.1-hybrid",
+        "canopylabs/orpheus-3b-0.1-ft",
+        "sesame/csm-1b",
+        "hexgrad/kokoro-82m",
+        GEMINI_PCM_TTS_MODEL_ID,
+    } <= ALLOWED_SPEECH_PROFILES.keys()
+    assert all(ALLOWED_SPEECH_PROFILES.values())
+    assert speech_output_format(MODEL_ID) == "mp3"
+    assert speech_output_format(GEMINI_PCM_TTS_MODEL_ID) == "wav"
+
+
+@pytest.mark.parametrize(
+    ("model_id", "voice"),
+    [
+        ("microsoft/mai-voice-2", "fr-FR-Soleil:MAI-Voice-2"),
+        (
+            "minimax/speech-2.8-hd",
+            "Chinese (Mandarin)_News_Anchor",
+        ),
+        (
+            "minimax/speech-2.8-turbo",
+            "English_expressive_narrator",
+        ),
+        ("mistralai/voxtral-mini-tts-2603", "en_paul_neutral"),
+        ("qwen/qwen-audio-3.0-tts-flash", "longanhuan_v3.6"),
+        ("x-ai/grok-voice-tts-1.0", "ara"),
+        ("deepgram/aura-2", "aura-2-amalthea-en"),
+        ("zyphra/zonos-v0.1-transformer", "american_female"),
+        ("zyphra/zonos-v0.1-hybrid", "american_female"),
+        ("canopylabs/orpheus-3b-0.1-ft", "dan"),
+        ("sesame/csm-1b", "conversational_a"),
+        ("hexgrad/kokoro-82m", "af_alloy"),
+    ],
+)
+def test_speech_service_accepts_only_registered_model_voice_pairs(
+    model_id: str,
+    voice: str,
+) -> None:
+    assert SpeechService._model_id(model_id) == model_id
+    assert SpeechService._voice(model_id, voice) == voice
+
+
+def test_minimax_profiles_only_allow_curated_system_voices() -> None:
+    assert len(MINIMAX_SYSTEM_SPEECH_VOICES) == 8
+    assert set(
+        ALLOWED_SPEECH_PROFILES["minimax/speech-2.8-hd"]
+    ) == set(MINIMAX_SYSTEM_SPEECH_VOICES)
+    assert (
+        ALLOWED_SPEECH_PROFILES["minimax/speech-2.8-turbo"]
+        == MINIMAX_SYSTEM_SPEECH_VOICES
+    )
+    with pytest.raises(MultimodalServiceError) as captured:
+        SpeechService._voice(
+            "minimax/speech-2.8-hd",
+            "user-created-or-cloned-voice",
+        )
+    assert captured.value.code == "unsupported_voice"
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
@@ -60,7 +134,7 @@ async def test_speech_service_records_bytes_without_text_or_secret(
         async def synthesize(self, target, **kwargs):
             captured["target"] = target
             captured["kwargs"] = kwargs
-            return MP3_BYTES, "generation-test"
+            return MP3_BYTES, "generation-test", "mp3"
 
     service = SpeechService(
         router_service,
@@ -161,12 +235,87 @@ async def test_tts_adapter_posts_json_and_caches_speech_catalog() -> None:
         speed=1.25,
     )
 
-    assert first == (MP3_BYTES, "generation-123")
+    assert first == (MP3_BYTES, "generation-123", "mp3")
     assert second[0] == MP3_BYTES
     assert sum(request.url.path.endswith("/models") for request in requests) == 1
     assert sum(
         request.url.path.endswith("/audio/speech") for request in requests
     ) == 2
+
+
+@pytest.mark.asyncio
+async def test_gemini_tts_wraps_verified_pcm_as_wav() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(
+                200,
+                json={"data": [{"id": GEMINI_PCM_TTS_MODEL_ID}]},
+            )
+        payload = json.loads((await request.aread()).decode("utf-8"))
+        assert payload["model"] == GEMINI_PCM_TTS_MODEL_ID
+        assert payload["voice"] == "Kore"
+        assert payload["response_format"] == "pcm"
+        return httpx.Response(
+            200,
+            content=PCM_BYTES,
+            headers={
+                "content-type": "audio/pcm;rate=24000;channels=1",
+                "x-generation-id": "generation-gemini",
+            },
+        )
+
+    adapter = OpenRouterTtsAdapter(
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ),
+    )
+    target = OpenRouterTarget(
+        base_url="https://openrouter.ai/api/v1",
+        api_key="test-key",
+        connection_id=None,
+        cache_key="gemini-pcm",
+    )
+
+    content, generation_id, response_format = await adapter.synthesize(
+        target,
+        model_id=GEMINI_PCM_TTS_MODEL_ID,
+        text="Hello",
+        voice="Kore",
+        speed=1.0,
+    )
+
+    assert response_format == "wav"
+    assert generation_id == "generation-gemini"
+    assert content[:4] == b"RIFF"
+    assert content[8:12] == b"WAVE"
+    assert content[44:] == PCM_BYTES
+    assert len(content) == len(PCM_BYTES) + 44
+
+
+@pytest.mark.parametrize(
+    ("content", "content_type", "expected_code"),
+    [
+        (b"", "audio/pcm;rate=24000;channels=1", "empty_speech"),
+        (b"\x00", "audio/pcm;rate=24000;channels=1", "invalid_speech_audio"),
+        (PCM_BYTES, "audio/pcm;rate=16000;channels=1", "invalid_audio_mime"),
+        (PCM_BYTES, "audio/mpeg", "invalid_audio_mime"),
+    ],
+)
+def test_gemini_tts_rejects_invalid_pcm(
+    content: bytes,
+    content_type: str,
+    expected_code: str,
+) -> None:
+    response = httpx.Response(
+        200,
+        content=content,
+        headers={"content-type": content_type},
+    )
+
+    with pytest.raises(MultimodalServiceError) as captured:
+        OpenRouterTtsAdapter._pcm_response_to_wav(response)
+
+    assert captured.value.code == expected_code
 
 
 @pytest.mark.parametrize(
@@ -272,7 +421,7 @@ async def test_speech_endpoint_validates_profile_and_returns_safe_headers(
 ) -> None:
     class FakeAdapter:
         async def synthesize(self, _target, **_kwargs):
-            return MP3_BYTES, "generation-safe"
+            return MP3_BYTES, "generation-safe", "mp3"
 
     service = SpeechService(
         openrouter_service(tmp_path),
@@ -331,6 +480,54 @@ async def test_speech_endpoint_validates_profile_and_returns_safe_headers(
     assert success.headers["x-modelmirror-provider"] == "openrouter"
     assert success.headers["x-modelmirror-cost-kind"] == "unavailable"
     assert success.content == MP3_BYTES
+
+
+@pytest.mark.asyncio
+async def test_speech_endpoint_returns_gemini_wav_with_safe_headers(
+    tmp_path: Path,
+) -> None:
+    wav_bytes = OpenRouterTtsAdapter._pcm_response_to_wav(
+        httpx.Response(
+            200,
+            content=PCM_BYTES,
+            headers={"content-type": "audio/pcm;rate=24000;channels=1"},
+        )
+    )
+
+    class FakeAdapter:
+        async def synthesize(self, _target, **_kwargs):
+            return wav_bytes, "generation-wav", "wav"
+
+    service = SpeechService(
+        openrouter_service(tmp_path),
+        adapter=FakeAdapter(),  # type: ignore[arg-type]
+    )
+    configure_speech_service(service)
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+        ) as client:
+            response = await client.post(
+                "/api/multimodal/speech",
+                json={
+                    "model_id": GEMINI_PCM_TTS_MODEL_ID,
+                    "input": "Hello",
+                    "voice": "Kore",
+                    "response_format": "wav",
+                    "speed": 1.0,
+                },
+            )
+    finally:
+        configure_speech_service(None)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert "modelmirror-speech.wav" in response.headers[
+        "content-disposition"
+    ]
+    assert response.content == wav_bytes
 
 
 @pytest.mark.asyncio

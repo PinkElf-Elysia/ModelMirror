@@ -7,6 +7,7 @@ interface TalentProfileSource {
     input: number;
     output: number;
   };
+  pricing_status?: "fixed" | "free" | "dynamic";
   capabilities: string[];
   categories: string[];
   tags: string[];
@@ -79,7 +80,9 @@ export function getTalentStats(model: TalentProfileSource) {
   const seed = hashText(model.id);
   const popularity = 72 + (seed % 28);
   const hiredCount = 120 + (seed % 880);
-  const isBudgetFriendly = model.price_cny.input === 0 || model.price_cny.input <= 1;
+  const isBudgetFriendly =
+    model.pricing_status !== "dynamic" &&
+    (model.pricing_status === "free" || model.price_cny.input <= 1);
   const urgent = isBudgetFriendly || model.tags.some((tag) => ["热门", "精选", "免费"].includes(tag));
 
   return {

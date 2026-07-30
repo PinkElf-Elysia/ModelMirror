@@ -12,6 +12,7 @@ import remarkGfm from "remark-gfm";
 import AdvancedParamsPanel, {
   type ChatAdvancedParams,
 } from "../components/AdvancedParamsPanel";
+import AudioCreationWorkspace from "../components/AudioCreationWorkspace";
 import BrandLogo from "../components/BrandLogo";
 import ChatAudioComposer, {
   QuickTranscriptionControl,
@@ -28,6 +29,7 @@ import {
   federationRouteId,
 } from "../components/FederationRouterCard";
 import PromptSidebar from "../components/PromptSidebar";
+import RealtimeVoiceWorkspace from "../components/RealtimeVoiceWorkspace";
 import ResourceNav from "../components/ResourceNav";
 import SpeechWorkspace from "../components/SpeechWorkspace";
 import TranscriptionWorkspace from "../components/TranscriptionWorkspace";
@@ -65,9 +67,13 @@ import {
 } from "../utils/fetchChatStream";
 import {
   DEFAULT_SPEECH_MODEL_ID,
+  DEFAULT_SPEECH_VOICE,
   generateSpeechAudio,
 } from "../utils/speechAudio";
 import { StreamingMp3Session } from "../utils/streamingAudio";
+
+const TTS_MODEL_SESSION_KEY = "modelmirror-chat-tts-model";
+const TTS_VOICE_SESSION_KEY = "modelmirror-chat-tts-voice";
 
 interface UploadedImage {
   id: string;
@@ -102,8 +108,11 @@ interface ChatSendOptions {
 interface ChatAudioProfile {
   model_id: string;
   display_name: string;
+  provider: "openrouter" | "openai";
   invocable: boolean;
   interaction_status: "ready" | "planned" | "disabled";
+  status_reason: string | null;
+  operations: string[];
   chat_modes: Array<
     | "direct_audio_input"
     | "native_streaming_audio_output"
@@ -125,7 +134,7 @@ interface AssistantMessageAudio {
   status: "waiting" | "streaming" | "generating" | "ready" | "failed";
   playbackUrl?: string;
   downloadUrl?: string;
-  format: "mp3";
+  format: "mp3" | "wav";
   streamed?: boolean;
   autoPlay?: boolean;
   byteLength?: number;
@@ -948,6 +957,11 @@ export default function ChatPage() {
   const [searchParams] = useSearchParams();
   const decodedModelId = decodeModelId(modelId);
   const requestedOperation = searchParams.get("operation");
+
+  if (requestedOperation === "realtime_voice") {
+    return <RealtimeVoiceWorkspace initialModelId={decodedModelId} />;
+  }
+
   const videoAnalysisModel = models.find(
     (item) =>
       item.id === decodedModelId &&
@@ -974,6 +988,24 @@ export default function ChatPage() {
     return <VideoGenerationWorkspace model={videoGenerationModel} />;
   }
 
+  const audioGenerationModel = models.find(
+    (item) =>
+      item.id === decodedModelId &&
+      item.operations.includes("generate_audio"),
+  );
+
+  if (
+    requestedOperation === "generate_audio" &&
+    audioGenerationModel
+  ) {
+    return (
+      <AudioCreationWorkspace
+        key={audioGenerationModel.id}
+        model={audioGenerationModel}
+      />
+    );
+  }
+
   const transcriptionModel = models.find(
     (item) =>
       item.id === decodedModelId &&
@@ -988,10 +1020,18 @@ export default function ChatPage() {
   const speechModel = models.find(
     (item) =>
       item.id === decodedModelId &&
-      item.primary_operation === "synthesize_speech" &&
-      item.interaction_status === "ready",
+      item.operations.includes("synthesize_speech"),
   );
-  if (speechModel) {
+  if (
+    speechModel &&
+    (
+      requestedOperation === "synthesize_speech" ||
+      (
+        speechModel.primary_operation === "synthesize_speech" &&
+        speechModel.interaction_status === "ready"
+      )
+    )
+  ) {
     return <SpeechWorkspace model={speechModel} />;
   }
 
@@ -1072,6 +1112,16 @@ function ChatConversationPage() {
   const [chatVideoEnabled, setChatVideoEnabled] = useState(false);
   const [nativeAudioEnabled, setNativeAudioEnabled] = useState(false);
   const [nativeAudioVoice, setNativeAudioVoice] = useState("");
+  const [ttsModelId, setTtsModelId] = useState(
+    () =>
+      window.sessionStorage.getItem(TTS_MODEL_SESSION_KEY) ??
+      DEFAULT_SPEECH_MODEL_ID,
+  );
+  const [ttsVoice, setTtsVoice] = useState(
+    () =>
+      window.sessionStorage.getItem(TTS_VOICE_SESSION_KEY) ??
+      DEFAULT_SPEECH_VOICE,
+  );
   const [autoReadEnabled, setAutoReadEnabled] = useState(false);
   const [autoReadConfirmationOpen, setAutoReadConfirmationOpen] =
     useState(false);
@@ -1146,16 +1196,29 @@ function ChatConversationPage() {
     result: ChatVideoAnalysisResult;
   } | null>(null);
 
-  const ttsProfile = useMemo(
+  const ttsProfiles = useMemo(
     () =>
-      chatAudioFeatures?.profiles.find(
+      (chatAudioFeatures?.profiles ?? []).filter(
         (profile) =>
-          profile.model_id === DEFAULT_SPEECH_MODEL_ID &&
           profile.invocable &&
           profile.interaction_status === "ready" &&
-          profile.chat_modes.includes("synthesize_speech"),
-      ) ?? null,
+          profile.chat_modes.includes("synthesize_speech") &&
+          profile.output_formats.some(
+            (format) => format === "mp3" || format === "wav",
+          ) &&
+          profile.voices.length > 0,
+      ),
     [chatAudioFeatures],
+  );
+  const ttsProfile = useMemo(
+    () =>
+      ttsProfiles.find((profile) => profile.model_id === ttsModelId) ??
+      ttsProfiles.find(
+        (profile) => profile.model_id === DEFAULT_SPEECH_MODEL_ID,
+      ) ??
+      ttsProfiles[0] ??
+      null,
+    [ttsModelId, ttsProfiles],
   );
   const nativeAudioProfile = useMemo(
     () =>
@@ -1171,6 +1234,22 @@ function ChatConversationPage() {
   );
   const nativeAudioAvailable = Boolean(
     nativeAudioProfile && !isOmniAutoRoute,
+  );
+  const realtimeVoiceProfile = useMemo(
+    () =>
+      chatAudioFeatures?.profiles.find(
+        (profile) =>
+          profile.provider === "openai" &&
+          profile.model_id === "gpt-realtime-2.1-mini" &&
+          profile.operations.includes("realtime_voice"),
+      ) ??
+      chatAudioFeatures?.profiles.find(
+        (profile) =>
+          profile.provider === "openai" &&
+          profile.operations.includes("realtime_voice"),
+      ) ??
+      null,
+    [chatAudioFeatures],
   );
   const handleVideoSelectionChange = useCallback(
     (nextSelection: ChatVideoSelection | null) => {
@@ -1296,6 +1375,32 @@ function ChatConversationPage() {
         : nativeAudioProfile.voices[0] ?? "",
     );
   }, [nativeAudioProfile]);
+
+  useEffect(() => {
+    if (!ttsProfile) {
+      setTtsVoice("");
+      return;
+    }
+    if (ttsModelId !== ttsProfile.model_id) {
+      setTtsModelId(ttsProfile.model_id);
+      window.sessionStorage.setItem(
+        TTS_MODEL_SESSION_KEY,
+        ttsProfile.model_id,
+      );
+    }
+    setTtsVoice((current) => {
+      const preferred =
+        ttsProfile.model_id === DEFAULT_SPEECH_MODEL_ID &&
+        ttsProfile.voices.includes(DEFAULT_SPEECH_VOICE)
+          ? DEFAULT_SPEECH_VOICE
+          : ttsProfile.voices[0];
+      const nextVoice = ttsProfile.voices.includes(current)
+        ? current
+        : preferred;
+      window.sessionStorage.setItem(TTS_VOICE_SESSION_KEY, nextVoice);
+      return nextVoice;
+    });
+  }, [ttsModelId, ttsProfile]);
 
   useEffect(
     () => () => {
@@ -1615,6 +1720,9 @@ function ChatConversationPage() {
     }
 
     releaseMessageAudio(messageId);
+    const responseFormat = ttsProfile.output_formats.includes("mp3")
+      ? "mp3"
+      : "wav";
     const controller = new AbortController();
     speechAbortControllersRef.current.set(messageId, controller);
     setMessages((current) =>
@@ -1625,7 +1733,7 @@ function ChatConversationPage() {
               audio: {
                 source: "tts",
                 status: "generating",
-                format: "mp3",
+                format: responseFormat,
                 autoPlay,
               },
             }
@@ -1637,7 +1745,8 @@ function ChatConversationPage() {
       const result = await generateSpeechAudio({
         modelId: ttsProfile.model_id,
         input: readableText,
-        voice: ttsProfile.voices[0],
+        voice: ttsVoice,
+        responseFormat,
         signal: controller.signal,
       });
       const url = URL.createObjectURL(result.blob);
@@ -1652,7 +1761,7 @@ function ChatConversationPage() {
                   status: "ready",
                   playbackUrl: url,
                   downloadUrl: url,
-                  format: "mp3",
+                  format: result.responseFormat,
                   streamed: false,
                   autoPlay,
                   byteLength: result.outputBytes,
@@ -2811,12 +2920,16 @@ function ChatConversationPage() {
                 </label>
               </div>
             ) : null}
-            {isOmniAutoRoute ? (
+            {isOmniAutoRoute || model.pricing_status === "dynamic" ? (
               <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3 text-sm">
                 <p className="text-xs text-slate-400">结算方式</p>
-                <p className="mt-1 font-semibold text-white">按实际路由模型计费</p>
+                <p className="mt-1 font-semibold text-white">
+                  {isOmniAutoRoute
+                    ? "按实际路由模型计费"
+                    : "按实际路由或组合调用计费"}
+                </p>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  最终费用以回答下方的路由回执为准。
+                  最终费用以网关结算和回答下方的调用回执为准。
                 </p>
               </div>
             ) : (
@@ -3224,25 +3337,76 @@ function ChatConversationPage() {
                       </label>
                     ) : null}
                     {ttsProfile ? (
-                      <label className="inline-flex items-center gap-2 font-semibold text-slate-200">
-                        <input
-                          checked={autoReadEnabled}
-                          className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
-                          disabled={isSending}
-                          onChange={(event) => {
-                            if (
-                              event.target.checked &&
-                              !autoReadConfirmedRef.current
-                            ) {
-                              setAutoReadConfirmationOpen(true);
-                              return;
-                            }
-                            setAutoReadEnabled(event.target.checked);
-                          }}
-                          type="checkbox"
-                        />
-                        自动朗读后续回答
-                      </label>
+                      <>
+                        <label className="inline-flex items-center gap-2 text-slate-300">
+                          朗读模型
+                          <select
+                            aria-label="朗读模型"
+                            className="max-w-52 rounded-full border border-white/10 bg-ink-950/80 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-300/45"
+                            disabled={isSending}
+                            onChange={(event) => {
+                              const nextModelId = event.target.value;
+                              setTtsModelId(nextModelId);
+                              window.sessionStorage.setItem(
+                                TTS_MODEL_SESSION_KEY,
+                                nextModelId,
+                              );
+                            }}
+                            value={ttsProfile.model_id}
+                          >
+                            {ttsProfiles.map((profile) => (
+                              <option
+                                key={profile.model_id}
+                                value={profile.model_id}
+                              >
+                                {profile.display_name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="inline-flex items-center gap-2 text-slate-300">
+                          声线
+                          <select
+                            aria-label="朗读声线"
+                            className="max-w-44 rounded-full border border-white/10 bg-ink-950/80 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-300/45"
+                            disabled={isSending}
+                            onChange={(event) => {
+                              const nextVoice = event.target.value;
+                              setTtsVoice(nextVoice);
+                              window.sessionStorage.setItem(
+                                TTS_VOICE_SESSION_KEY,
+                                nextVoice,
+                              );
+                            }}
+                            value={ttsVoice}
+                          >
+                            {ttsProfile.voices.map((voice) => (
+                              <option key={voice} value={voice}>
+                                {voice}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="inline-flex items-center gap-2 font-semibold text-slate-200">
+                          <input
+                            checked={autoReadEnabled}
+                            className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
+                            disabled={isSending}
+                            onChange={(event) => {
+                              if (
+                                event.target.checked &&
+                                !autoReadConfirmedRef.current
+                              ) {
+                                setAutoReadConfirmationOpen(true);
+                                return;
+                              }
+                              setAutoReadEnabled(event.target.checked);
+                            }}
+                            type="checkbox"
+                          />
+                          自动朗读后续回答
+                        </label>
+                      </>
                     ) : null}
                     <span className="text-slate-500">
                       默认关闭；原生语音开启时不会重复调用辅助朗读。
@@ -3428,6 +3592,24 @@ function ChatConversationPage() {
                           onSendDirectAudio={sendDirectAudio}
                           onTranscript={fillQuickTranscript}
                         />
+                      ) : null}
+                      {realtimeVoiceProfile ? (
+                        <Link
+                          className={`inline-flex items-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                            realtimeVoiceProfile.interaction_status === "ready"
+                              ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100 hover:border-cyan-300/60 hover:bg-cyan-300/15"
+                              : "border-white/10 bg-white/[0.045] text-slate-400 hover:border-white/20 hover:text-slate-200"
+                          }`}
+                          title={
+                            realtimeVoiceProfile.status_reason ??
+                            "进入连续语音通话，区别于单轮麦克风转写"
+                          }
+                          to={`/chat/${encodeURIComponent(
+                            realtimeVoiceProfile.model_id,
+                          )}?operation=realtime_voice`}
+                        >
+                          实时语音
+                        </Link>
                       ) : null}
                       <p className="text-xs text-slate-400">
                         {isUploadingImage

@@ -313,6 +313,7 @@ function handleSseEvent(
   onRouteReceipt?: (receipt: RouteReceipt) => void,
   onAudioDelta?: (audio: ChatAudioDelta) => void,
   onMessageEnd?: () => void,
+  endOnFinishReason = true,
 ) {
   const eventName = eventText
     .split(/\r?\n/)
@@ -361,7 +362,7 @@ function handleSseEvent(
     if (delta) onDelta(delta);
     const audio = readAudioDelta(payload);
     if (audio) onAudioDelta?.(audio);
-    if (readFinishReason(payload)) onMessageEnd?.();
+    if (endOnFinishReason && readFinishReason(payload)) onMessageEnd?.();
   }
 }
 
@@ -469,6 +470,7 @@ export async function fetchChatStream({
           onRouteReceipt,
           onAudioDelta,
           emitMessageEnd,
+          !responseAudio?.enabled,
         );
       } catch (error) {
         console.error("ModelMirror chat stream event failed", error);
@@ -486,6 +488,7 @@ export async function fetchChatStream({
         onRouteReceipt,
         onAudioDelta,
         emitMessageEnd,
+        !responseAudio?.enabled,
       );
     } catch (error) {
       console.error("ModelMirror chat stream tail failed", error);

@@ -1,6 +1,6 @@
 # 部署与运维指南
 
-最后更新日期：2026-07-29
+最后更新日期：2026-07-30
 维护人：模镜团队
 
 ## 支持边界
@@ -69,8 +69,25 @@ OPENROUTER_API_KEY=your-openrouter-key
 - `.env`、API Key、token 和 master key 不得提交。
 - 前端环境变量不得保存后端凭据。
 - 日志不得记录 Prompt、音视频正文、URL 查询签名或上游完整错误体。
+- 音乐生成和实时语音均可能额外计费；费用未知时不得显示为零。
 - 视频生成可能产生费用且不保证 ZDR，启用前必须完成人工验收。
 - OmniRoute secrets 必须独立生成，不与模型网关 Key 复用。
+
+音频闭环新增功能默认关闭：
+
+```bash
+MULTIMODAL_AUDIO_GENERATION_ENABLED=false
+MULTIMODAL_REALTIME_VOICE_ENABLED=false
+MULTIMODAL_VOICE_CLONING_ENABLED=false
+```
+
+实时语音不能只靠环境开关启用。还需在设置页“模型服务连接”中创建
+“OpenAI 音频与实时语音”连接，地址使用 `https://api.openai.com/v1`，用途选择
+“音频能力”和“实时语音”。永久密钥仅由后端加密保存，不写入前端或普通聊天
+环境变量；该连接不会自动加入 default/auto 模型池。
+
+声音克隆仍处于安全占位状态：即使把开关设为 `true`，在上游无法验证删除临时
+音色前也不会创建授权录音或自定义音色资源。
 
 ## 可选 profile
 
@@ -137,6 +154,7 @@ location /api/ {
 ```bash
 curl http://localhost:8000/api/health
 curl http://localhost:8000/api/models/router-status
+curl "http://localhost:8000/api/multimodal/audio/models?refresh=true"
 curl http://localhost:8000/api/multimodal/video/models
 curl http://localhost:5173/studio
 ```
@@ -146,6 +164,10 @@ curl http://localhost:5173/studio
 - HTTP 状态、耗时、脱敏错误码。
 - 模型路由 engine、actual model、request ID、空流和失败切换。
 - RAG active version、候选版本和流水线状态。
+- 音频目录中的 `ready / planned / disabled` 与状态原因；实时档案为零时优先检查
+  功能开关、直接 OpenAI 连接、`audio + realtime` 用途及连接测试结果。
+- 实时语音默认 10 分钟，不提供严格预算承诺；断网后只允许用户显式重连，
+  不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
 - 启用后检查 Coding capabilities、Worker health、取消清理和源码 Git 状态。
@@ -167,6 +189,8 @@ curl http://localhost:5173/studio
 - Chat 音视频：分别关闭 `MULTIMODAL_CHAT_AUDIO_ENABLED`、
   `MULTIMODAL_MICROPHONE_ENABLED`、`MULTIMODAL_STREAMING_AUDIO_ENABLED`
   和 `MULTIMODAL_CHAT_VIDEO_ENABLED`；独立 STT、TTS、视频分析及旧视频任务不受影响。
+- 音乐生成与实时语音：分别关闭 `MULTIMODAL_AUDIO_GENERATION_ENABLED` 和
+  `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
 - 代码助手：设置 `CODING_AGENT_ENABLED=false`，停止 `coding-runtime`；没有

@@ -15604,6 +15604,8 @@ async def chat(payload: ChatRequest, request: Request):
                     yield (
                         f"data: {json.dumps(empty_error, ensure_ascii=False)}\n\n"
                     ).encode("utf-8")
+            if native_audio_succeeded:
+                yield b"event: message_end\ndata: {}\n\n"
             if deferred_done or native_audio_succeeded:
                 yield b"data: [DONE]\n\n"
             await response.aclose()

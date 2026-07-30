@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import FederationRouterCard from "../components/FederationRouterCard";
-import ModelCard from "../components/ModelCard";
+import ModelCard, {
+  type AudioCapabilityStatus,
+} from "../components/ModelCard";
 import PageContainer from "../components/PageContainer";
 import FilterPanel from "../components/filters/FilterPanel";
 import {
@@ -9,6 +11,8 @@ import {
 } from "../data/filterState";
 import {
   models,
+  type InputModality,
+  type Model,
   type ModelOperation,
 } from "../data/models";
 import { recruitmentTheme } from "../theme/recruitmentTheme";
@@ -19,6 +23,33 @@ import {
 
 function includesEvery<T>(values: T[], selected: T[]) {
   return selected.every((value) => values.includes(value));
+}
+
+function matchesWorkSkills(
+  model: Model,
+  selectedSkills: InputModality[],
+) {
+  return selectedSkills.every((skill) => {
+    if (skill === "file") {
+      return model.input_modalities.includes("file");
+    }
+    if (skill === "text") {
+      return (
+        model.input_modalities.includes("text") ||
+        model.output_modalities.includes("text")
+      );
+    }
+    if (skill === "image") {
+      return model.capabilities.includes("image");
+    }
+    if (skill === "audio") {
+      return model.capabilities.includes("audio");
+    }
+    if (skill === "video") {
+      return model.capabilities.includes("video");
+    }
+    return false;
+  });
 }
 
 function matchesAny<T>(value: T, selected: T[]) {
@@ -74,12 +105,36 @@ interface VideoCatalogPayload {
   profiles: VideoModelProfile[];
 }
 
+interface AudioModelProfile {
+  model_id: string;
+  invocable: boolean;
+  interaction_status: "ready" | "planned" | "disabled";
+  status_reason: string | null;
+  operations: ModelOperation[];
+  price_per_generation_usd: number | null;
+  fixed_duration_seconds: number | null;
+  chat_modes: (
+    | "direct_audio_input"
+    | "native_streaming_audio_output"
+    | "transcribe"
+    | "synthesize_speech"
+  )[];
+}
+
+interface AudioCatalogPayload {
+  status: "online" | "stale" | "offline" | "disabled";
+  stale: boolean;
+  profiles: AudioModelProfile[];
+}
+
 export default function ModelListPage() {
   const [filters, setFilters] =
     useState<ModelFilterState>(createDefaultFilters);
   const [searchTerm, setSearchTerm] = useState("");
   const [videoCatalog, setVideoCatalog] =
     useState<VideoCatalogPayload | null>(null);
+  const [audioCatalog, setAudioCatalog] =
+    useState<AudioCatalogPayload | null>(null);
 
   useEffect(() => {
     document.title = "模镜 - AI 牛马招聘会";
@@ -108,6 +163,26 @@ export default function ModelListPage() {
         }
       });
 
+    void fetch("/api/multimodal/audio/models", {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("audio catalog unavailable");
+        }
+        return (await response.json()) as AudioCatalogPayload;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) {
+          setAudioCatalog(payload);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setAudioCatalog(null);
+        }
+      });
+
     return () => controller.abort();
   }, []);
 
@@ -122,6 +197,63 @@ export default function ModelListPage() {
     }
     return result;
   }, [videoCatalog]);
+
+  const confirmedAudioOperations = useMemo(() => {
+    const result = new Map<string, ModelOperation[]>();
+    for (const profile of audioCatalog?.profiles ?? []) {
+      if (
+        !profile.invocable ||
+        profile.interaction_status !== "ready"
+      ) {
+        continue;
+      }
+      const operations: ModelOperation[] = [];
+      if (profile.chat_modes.includes("direct_audio_input")) {
+        operations.push("analyze_audio");
+      }
+      if (profile.chat_modes.includes("transcribe")) {
+        operations.push("transcribe");
+      }
+      if (profile.chat_modes.includes("synthesize_speech")) {
+        operations.push("synthesize_speech");
+      }
+      if (profile.operations.includes("generate_audio")) {
+        operations.push("generate_audio");
+      }
+      if (profile.operations.includes("realtime_voice")) {
+        operations.push("realtime_voice");
+      }
+      if (operations.length > 0) {
+        result.set(profile.model_id, operations);
+      }
+    }
+    return result;
+  }, [audioCatalog]);
+
+  const audioCapabilityStatuses = useMemo(() => {
+    const result = new Map<string, AudioCapabilityStatus>();
+    for (const profile of audioCatalog?.profiles ?? []) {
+      const operations = profile.operations.filter(
+        (operation) =>
+          operation === "analyze_audio" ||
+          operation === "transcribe" ||
+          operation === "synthesize_speech" ||
+          operation === "generate_audio" ||
+          operation === "realtime_voice",
+      );
+      if (operations.length === 0) {
+        continue;
+      }
+      result.set(profile.model_id, {
+        status: profile.interaction_status,
+        operations,
+        reason: profile.status_reason,
+        pricePerGenerationUsd: profile.price_per_generation_usd,
+        fixedDurationSeconds: profile.fixed_duration_seconds,
+      });
+    }
+    return result;
+  }, [audioCatalog]);
 
   const seriesOptions = useMemo(
     () =>
@@ -169,7 +301,7 @@ export default function ModelListPage() {
       if (!providerFilterMatches(model, filters.provider)) {
         return false;
       }
-      if (!includesEvery(model.input_modalities, filters.inputModalities)) {
+      if (!matchesWorkSkills(model, filters.inputModalities)) {
         return false;
       }
       if (!matchesAny(model.series, filters.series)) return false;
@@ -199,14 +331,23 @@ export default function ModelListPage() {
         return false;
       }
 
-      const inputPriceCny = model.price_cny.input;
-      if (inputPriceCny < filters.promptPriceCnyRange.min) return false;
-      if (
-        filters.promptPriceCnyRange.max <
-          defaultFilterState.promptPriceCnyRange.max &&
-        inputPriceCny > filters.promptPriceCnyRange.max
-      ) {
-        return false;
+      const usesExplicitPriceFilter =
+        filters.promptPriceCnyRange.min !==
+          defaultFilterState.promptPriceCnyRange.min ||
+        filters.promptPriceCnyRange.max !==
+          defaultFilterState.promptPriceCnyRange.max;
+      if (model.pricing_status === "dynamic") {
+        if (usesExplicitPriceFilter) return false;
+      } else {
+        const inputPriceCny = model.price_cny.input;
+        if (inputPriceCny < filters.promptPriceCnyRange.min) return false;
+        if (
+          filters.promptPriceCnyRange.max <
+            defaultFilterState.promptPriceCnyRange.max &&
+          inputPriceCny > filters.promptPriceCnyRange.max
+        ) {
+          return false;
+        }
       }
 
       return true;
@@ -223,15 +364,34 @@ export default function ModelListPage() {
   const activeFilterCount =
     countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
   const readyFilteredCount = filteredModels.filter(
-    (model) =>
-      model.interaction_status === "ready" ||
-      confirmedVideoOperations
-        .get(model.id)
-        ?.some(
-          (operation) =>
-            operation === "analyze_video" ||
-            operation === "generate_video",
-        ),
+    (model) => {
+      const audioStatus = audioCapabilityStatuses.get(model.id);
+      const primaryAudioBlocked =
+        (
+          model.primary_operation === "transcribe" ||
+          model.primary_operation === "synthesize_speech" ||
+          model.primary_operation === "generate_audio" ||
+          model.primary_operation === "realtime_voice"
+        ) &&
+        Boolean(audioStatus) &&
+        audioStatus?.status !== "ready";
+      return (
+        (
+          model.interaction_status === "ready" &&
+          !primaryAudioBlocked
+        ) ||
+        Boolean(confirmedAudioOperations.get(model.id)?.length) ||
+        Boolean(
+          confirmedVideoOperations
+            .get(model.id)
+            ?.some(
+              (operation) =>
+                operation === "analyze_video" ||
+                operation === "generate_video",
+            ),
+        )
+      );
+    },
   ).length;
   const featuredModels = filteredModels.slice(0, 2);
   const galleryModels = filteredModels.slice(featuredModels.length);
@@ -366,6 +526,13 @@ export default function ModelListPage() {
                     key={`featured-${model.id}`}
                   >
                     <ModelCard
+                      audioCatalogStale={audioCatalog?.stale ?? false}
+                      audioCapabilityStatus={
+                        audioCapabilityStatuses.get(model.id)
+                      }
+                      confirmedAudioOperations={
+                        confirmedAudioOperations.get(model.id)
+                      }
                       confirmedVideoOperations={
                         confirmedVideoOperations.get(model.id)
                       }
@@ -381,6 +548,13 @@ export default function ModelListPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {galleryModels.map((model) => (
                 <ModelCard
+                  audioCatalogStale={audioCatalog?.stale ?? false}
+                  audioCapabilityStatus={
+                    audioCapabilityStatuses.get(model.id)
+                  }
+                  confirmedAudioOperations={
+                    confirmedAudioOperations.get(model.id)
+                  }
                   confirmedVideoOperations={
                     confirmedVideoOperations.get(model.id)
                   }

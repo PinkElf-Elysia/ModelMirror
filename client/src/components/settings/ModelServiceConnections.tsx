@@ -8,7 +8,12 @@ import {
   Server,
 } from "lucide-react";
 
-type ConnectionKind = "openrouter" | "newapi" | "openai_compatible";
+type ConnectionKind =
+  | "openrouter"
+  | "newapi"
+  | "openai_compatible"
+  | "openai";
+type ConnectionScope = "chat" | "audio" | "realtime";
 type ConnectionHealth = "untested" | "online" | "offline" | "disabled";
 
 interface RouterConnection {
@@ -17,6 +22,7 @@ interface RouterConnection {
   kind: ConnectionKind;
   base_url: string;
   masked_key: string;
+  scopes?: ConnectionScope[];
   enabled: boolean;
   health: ConnectionHealth;
   model_count: number;
@@ -38,30 +44,53 @@ interface ConnectionForm {
   name: string;
   base_url: string;
   api_key: string;
+  scopes: ConnectionScope[];
 }
 
 const PROVIDERS: Record<
   ConnectionKind,
-  { label: string; name: string; baseUrl: string; hint: string }
+  {
+    label: string;
+    name: string;
+    baseUrl: string;
+    hint: string;
+    scopes: ConnectionScope[];
+  }
 > = {
   openrouter: {
     label: "OpenRouter",
     name: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
     hint: "适合直接使用 OpenRouter 的统一模型目录。",
+    scopes: ["chat", "audio"],
   },
   newapi: {
     label: "newAPI",
     name: "本地 newAPI",
     baseUrl: "http://localhost:3000/v1",
     hint: "适合已经在模镜中配置好的本地模型渠道。",
+    scopes: ["chat"],
   },
   openai_compatible: {
     label: "其他 OpenAI 兼容服务",
     name: "自定义模型服务",
     baseUrl: "",
     hint: "适合带有 /v1/models 与 /v1/chat/completions 接口的服务。",
+    scopes: ["chat"],
   },
+  openai: {
+    label: "OpenAI 音频服务",
+    name: "OpenAI 音频与实时语音",
+    baseUrl: "https://api.openai.com/v1",
+    hint: "仅用于音频能力与实时语音，不会自动加入普通聊天或智能调度。",
+    scopes: ["audio", "realtime"],
+  },
+};
+
+const SCOPE_LABELS: Record<ConnectionScope, string> = {
+  chat: "普通模型调用",
+  audio: "音频能力",
+  realtime: "实时语音",
 };
 
 const INITIAL_FORM: ConnectionForm = {
@@ -69,6 +98,7 @@ const INITIAL_FORM: ConnectionForm = {
   name: PROVIDERS.openrouter.name,
   base_url: PROVIDERS.openrouter.baseUrl,
   api_key: "",
+  scopes: [...PROVIDERS.openrouter.scopes],
 };
 
 function healthLabel(health: ConnectionHealth) {
@@ -76,6 +106,12 @@ function healthLabel(health: ConnectionHealth) {
   if (health === "offline") return "需检查";
   if (health === "disabled") return "已停用";
   return "未测试";
+}
+
+function scopesForConnection(connection: RouterConnection) {
+  return connection.scopes?.length
+    ? connection.scopes
+    : PROVIDERS[connection.kind]?.scopes ?? ["chat"];
 }
 
 function healthClass(health: ConnectionHealth) {
@@ -149,6 +185,7 @@ export default function ModelServiceConnections() {
         kind,
         name: next.name,
         base_url: next.baseUrl,
+        scopes: [...next.scopes],
       });
     },
     [updateForm],
@@ -160,6 +197,7 @@ export default function ModelServiceConnections() {
       name: form.name.trim(),
       base_url: form.base_url.trim(),
       api_key: form.api_key,
+      scopes: form.scopes,
       enabled: true,
     }),
     [form],
@@ -326,6 +364,16 @@ export default function ModelServiceConnections() {
             <span className="mt-2 block text-xs leading-5 text-slate-400">
               {provider.hint}
             </span>
+            <span className="mt-2 flex flex-wrap gap-2">
+              {form.scopes.map((scope) => (
+                <span
+                  className="rounded-full bg-white/[0.055] px-2.5 py-1 text-xs text-slate-300"
+                  key={scope}
+                >
+                  {SCOPE_LABELS[scope]}
+                </span>
+              ))}
+            </span>
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -460,7 +508,7 @@ export default function ModelServiceConnections() {
                 还没有模型服务连接
               </p>
               <p className="mt-1 text-xs leading-5 text-slate-400">
-                完成左侧三步后，可用模型会进入智能调度候选池。
+                完成左侧三步后，连接只会进入对应的模型与音频功能。
               </p>
             </div>
           ) : (
@@ -485,6 +533,16 @@ export default function ModelServiceConnections() {
                       <p className="mt-2 text-xs text-slate-400">
                         {connection.masked_key} · {connection.model_count} 个模型
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {scopesForConnection(connection).map((scope) => (
+                          <span
+                            className="rounded-full bg-white/[0.055] px-2 py-0.5 text-[11px] text-slate-300"
+                            key={scope}
+                          >
+                            {SCOPE_LABELS[scope]}
+                          </span>
+                        ))}
+                      </div>
                       {connection.last_error_hint ? (
                         <p className="mt-2 text-xs leading-5 text-amber-200">
                           {connection.last_error_hint}

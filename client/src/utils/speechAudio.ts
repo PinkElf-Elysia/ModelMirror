@@ -1,5 +1,6 @@
 export const DEFAULT_SPEECH_MODEL_ID = "microsoft/mai-voice-2";
 export const DEFAULT_SPEECH_VOICE = "en-US-Harper:MAI-Voice-2";
+export type SpeechResponseFormat = "mp3" | "wav";
 
 export interface SpeechAudioResult {
   blob: Blob;
@@ -8,12 +9,14 @@ export interface SpeechAudioResult {
   provider: string;
   costKind: "actual" | "estimated" | "unavailable";
   outputBytes: number;
+  responseFormat: SpeechResponseFormat;
 }
 
 interface GenerateSpeechAudioOptions {
   input: string;
   modelId?: string;
   voice?: string;
+  responseFormat?: SpeechResponseFormat;
   speed?: number;
   signal?: AbortSignal;
 }
@@ -59,6 +62,7 @@ export async function generateSpeechAudio({
   input,
   modelId = DEFAULT_SPEECH_MODEL_ID,
   voice = DEFAULT_SPEECH_VOICE,
+  responseFormat = "mp3",
   speed = 1,
   signal,
 }: GenerateSpeechAudioOptions): Promise<SpeechAudioResult> {
@@ -69,7 +73,7 @@ export async function generateSpeechAudio({
       model_id: modelId,
       input,
       voice,
-      response_format: "mp3",
+      response_format: responseFormat,
       speed,
     }),
     signal,
@@ -80,8 +84,12 @@ export async function generateSpeechAudio({
   const contentType = headerValue(response, "content-type")
     .split(";", 1)[0]
     .toLowerCase();
-  if (contentType !== "audio/mpeg") {
-    throw new Error("语音服务没有返回标准 MP3，请稍后重试。");
+  const expectedContentType =
+    responseFormat === "wav" ? "audio/wav" : "audio/mpeg";
+  if (contentType !== expectedContentType) {
+    throw new Error(
+      `语音服务没有返回标准 ${responseFormat.toUpperCase()}，请稍后重试。`,
+    );
   }
   const blob = await response.blob();
   if (blob.size <= 0) {
@@ -107,5 +115,6 @@ export async function generateSpeechAudio({
       Number.isFinite(outputBytesHeader) && outputBytesHeader > 0
         ? outputBytesHeader
         : blob.size,
+    responseFormat,
   };
 }
