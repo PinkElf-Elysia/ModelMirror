@@ -19,7 +19,7 @@
 | OpenCode 可通过 stdio 的 newline-delimited JSON-RPC 提供 ACP 服务 | 已证实事实 | OpenCode 官方文档：`opencode acp` |
 | 固定依赖为 `opencode-ai@1.18.9`，许可证为 MIT | 已证实事实 | `npm view opencode-ai@1.18.9 version license dist.integrity` |
 | npm integrity | 已证实事实 | `sha512-tqvu/hJ26c2dBj/V/uTHaQI3bMSpLck0hIgGXO2z7b11s5mYfnaq+K1CBjsg8Pp6EirfzwUYGzi85K/SvOgkKg==` |
-| 只读必须由协议拒绝、OpenCode 权限和容器只读挂载共同保证 | 建议方案 | 本任务安全边界与批次 2、3 验收 |
+| 只读必须由协议拒绝、OpenCode 权限、净化后的镜像源码快照和只读根文件系统共同保证 | 建议方案 | 本任务安全边界与批次 2、3 验收 |
 
 ## 3. 影响范围
 
@@ -62,7 +62,7 @@
 - 所有 ACP 权限请求统一拒绝，协议异常、超时或进程退出必须失败关闭并清理。
 - OpenCode 仅允许 `read/list/glob/grep/lsp`；禁止 edit、bash、task、web、skill、外部目录、插件、MCP、分享和自动更新。
 - 子进程只继承必要的 `PATH`、`HOME`、模型和 gateway URL/key，不继承 FastAPI 全部环境。
-- 源码以只读方式挂载；容器使用非 root、只读根文件系统、无特权、资源限额和 tmpfs 状态。
+- 构建时排除环境文件、密钥和运行产物后，将源码快照复制进镜像；容器使用非 root、只读根文件系统、无特权、资源限额和 tmpfs 状态。
 - `CODING_AGENT_ENABLED=false` 为默认值；Coding Worker 不可用时不得影响核心健康检查。
 - 并发上限为 1，Prompt 上限为 20,000 字符，空闲 TTL 为 30 分钟。
 - `/coding` 面向没有代码基础的用户，页面不得混入不必要的协议、进程或供应商
@@ -86,7 +86,7 @@
 
 - Given：Agent 请求写文件、执行 Shell、访问外部目录/公网或其他未允许能力。
 - When：权限请求到达 ACP 客户端，或 OpenCode 权限配置失效。
-- Then：协议层拒绝请求，且容器只读挂载/网络边界继续阻止真实源码修改和公网访问。
+- Then：协议层拒绝请求，且镜像源码快照、只读根文件系统和网络边界继续阻止真实源码修改和公网访问。
 
 ## 6. 实施批次
 
@@ -110,7 +110,8 @@
 | 3 | `a341c50` `feature: 添加只读 ACP 执行容器` | 通过 |
 | 4 | `4eafa76` `feature: 添加 Coding Agent 只读会话接口` | 通过 |
 | 5 | `7ecdec0` `feature: 添加 Coding Agent 只读工作台` | 通过 |
-| 6 | `docs: 完成 Coding Agent 首轮 harness` | 自动门禁通过，随本文件提交 |
+| 6 | `8dde287` `docs: 完成 Coding Agent 首轮 harness` | 通过 |
+| 验收修复 | `b89f5a0` `fix: 修复 Coding Runtime Windows 只读工作区` | 通过 |
 
 ## 7. 验证矩阵
 
@@ -123,13 +124,14 @@
 | 前端构建 | `cd client; npm.cmd run build` | 类型检查和构建通过 | 通过；Coding 独立 chunk gzip 5.79 kB |
 | 前端体验 | 1440×900 与 390×844 页面检查 | 输入优先、状态易懂、无横向溢出或页面错误 | 通过 |
 | Compose 静态验证 | `docker compose -p modelmirror --profile coding config` | 配置可解析且隔离属性存在 | 通过 |
-| Docker/人工验收 | 用户执行完整重建和只读真实问答验收 | 流式、取消、拒绝写入/命令/公网均符合契约 | 未运行 |
+| Docker/人工验收 | 完整重建、容器隔离检查和只读真实问答验收 | 流式、取消、拒绝写入/命令/公网均符合契约 | 容器重建通过；源码快照只读且无 `.env`/`.git`，内网可达、公网阻断通过；真实模型问答待用户配置 Key 后验收 |
 | 敏感信息扫描 | 检查暂存文件中的密钥模式、`.env`、日志和运行存储 | 无秘密或禁止产物 | 通过；文档仅含明确占位符 |
 
 ## 8. 风险与停止条件
 
 - 主要风险：ACP 事件与生命周期不兼容、子进程泄漏、取消竞态、SSE 断线续读错误。
 - 兼容风险：新增功能必须保持独立，不修改 `/api/chat`、ChatPage、多模态和核心健康路径。
+- 并行风险：多个 worktree 使用同一 `modelmirror` Compose 项目时共享活动栈，只允许一个 worktree 在约定窗口内重建。
 - 安全风险：权限 fail-open、源码可写、任意命令/路径注入、秘密或绝对路径泄露、Worker 获得公网出口。
 - 触发停止的条件：
   - 内部统一事件无法覆盖只读交互。
@@ -143,14 +145,14 @@
 ## 9. 回退
 
 1. 功能级：设置 `CODING_AGENT_ENABLED=false` 并停止 `coding` profile。
-2. 批次级：按 7 个独立 commit 逆序回退到最后一个通过批次。
+2. 批次级：按独立 commit 逆序回退到最后一个通过批次。
 3. 整轮级：撤销整轮变更并重建核心服务。
 4. 持久化影响：无数据迁移，无需恢复数据或版本指针。
 5. 回退后验证：核心后端语法/测试、前端构建和默认 Compose 配置继续通过。
 
 ## 10. 完成定义
 
-- [x] 7 个批次各自通过门禁并形成 7 个本地 commit。
+- [x] 7 个批次与验收修复均通过门禁并形成独立本地 commit。
 - [x] 实现只覆盖声明范围。
 - [x] 正常、故障和安全拒绝路径均有自动验证。
 - [x] 公共接口和无持久化影响已说明。

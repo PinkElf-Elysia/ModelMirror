@@ -47,6 +47,13 @@ MODELMIRROR_DATA_ROOT=C:\absolute\path\to\stable\data\workspace
 
 该变量会改变 bind mount 来源；使用前必须核对绝对路径，避免连接到错误环境。
 
+### 多 worktree 共享栈
+
+固定使用 `-p modelmirror` 时，各 worktree 会共享容器名、镜像标签、端口和网络，因此同一时间
+只能由一个 worktree 重建活动栈。其他 worktree 应等待共享栈空闲，或仅运行不会重建活动容器的
+只读/临时测试。切换重建所有权后，应重新检查当前分支的 Server 路由，并确认 `new-api` 已加入
+`modelmirror_coding_internal`；不要把手工连接网络作为长期配置。
+
 ## 配置与密钥
 
 后端默认读取 `${MODELMIRROR_DATA_ROOT}/server/.env`。最低配置为 newAPI Key
@@ -104,9 +111,9 @@ docker compose -p modelmirror --profile coding ps
 curl http://localhost:8000/api/coding/capabilities
 ```
 
-`coding-runtime` 仅加入 `internal: true` 网络并通过 Unix socket 连接 FastAPI，
-源码挂载为只读，不映射宿主端口。它是实验性本地单实例能力，不应直接暴露到
-公网。完整边界和人工验收见
+`coding-runtime` 仅加入 `internal: true` 网络并通过 Unix socket 连接 FastAPI。
+构建时会排除环境文件、密钥和运行产物，再把源码快照复制进镜像；运行时根文件系统只读，
+且不映射宿主端口。它是实验性本地单实例能力，不应直接暴露到公网。完整边界和人工验收见
 [CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
 
 ## 反向代理

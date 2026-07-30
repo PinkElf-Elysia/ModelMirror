@@ -132,7 +132,8 @@ flowchart LR
   bind mount 持久化。
 - Browser 与 Sandbox 是独立进程边界；Sandbox 默认无网络。
 - Coding Runtime 是默认关闭的独立进程边界，只通过 Unix socket 接入 FastAPI；
-  源码只读挂载，网络仅可到内部 newAPI。
+  构建时排除环境文件、密钥和运行产物后，将源码快照复制进镜像；运行时根文件系统只读，
+  网络仅可到内部 newAPI。
 - 视频、音频、Prompt 和首帧媒体正文不写入路由或视频任务审计。
 
 ## 当前风险与维护边界
