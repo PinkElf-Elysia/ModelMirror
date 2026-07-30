@@ -141,17 +141,20 @@
 | 3 临时可写 Worker | `df33c27` | 通过 |
 | 4 草稿审阅 API | `f530bc8` | 通过 |
 | 5 前端审阅切片 | `0eefc94` | 构建、桌面和 390 px 移动端预览通过 |
-| 6 整轮加固与文档 | 当前提交 | 自动门禁通过，待人工容器验收 |
+| 6 整轮加固与文档 | `dc2ff02` | 通过 |
+| 验收修复 | `b9b62a9`、`0d27f12` | 修复取消回滚和取消后上下文残留 |
 
 整轮自动门禁：
 
 - Coding Runtime `py_compile`：通过。
-- Coding 领域、ACP、Worker、API 与安全专项：`66 passed`。
-- `server/tests/` 全量回归：`735 passed`，4 条既有 FastAPI `on_event`
+- Coding 领域、ACP、Worker、API 与安全专项：`66 passed, 1 skipped`。
+- `server/tests/` 全量回归：`736 passed`，4 条既有 FastAPI `on_event`
   弃用警告。
 - 前端生产构建：通过；`CodingPage` 懒加载块 30.97 kB，gzip 9.78 kB。
 - `docker compose -p modelmirror --profile coding config --quiet`：通过。
 - 最终范围、Diff、秘密与禁止产物检查：通过。
 
-活动容器栈尚未重建；真实 Draft、公网阻断、基准快照不可写和宿主仓库状态一致性
-仍等待用户取得共享栈独占窗口后人工验收。人工验收通过前不得推送或创建 PR。
+活动栈已在独占窗口内重建，`server` 与 `coding-runtime` 健康。真实 Draft 已验证
+新增与修改、Diff/Patch、轻量检查下载门禁、取消回滚、取消后不续做旧任务、禁止
+`.env`、放弃草稿、公网阻断、基准快照不可写，以及重建和验收前后宿主仓库状态
+指纹一致。仍待用户完成最终页面人工验收并明确通过；通过前不得推送或创建 PR。
