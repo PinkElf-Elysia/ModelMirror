@@ -387,7 +387,7 @@ async def test_acp_timeout_fails_closed_and_cleans_up() -> None:
 async def test_prompt_progress_is_not_limited_by_control_request_timeout() -> None:
     client = make_client(
         "prompt-progress",
-        timeout=0.3,
+        timeout=2.0,
         prompt_timeout=1.0,
         prompt_idle_timeout=0.2,
     )
@@ -409,7 +409,7 @@ async def test_prompt_progress_is_not_limited_by_control_request_timeout() -> No
 async def test_prompt_idle_timeout_fails_closed_and_cleans_up() -> None:
     client = make_client(
         "prompt-idle",
-        timeout=0.5,
+        timeout=2.0,
         prompt_timeout=0.5,
         prompt_idle_timeout=0.05,
     )

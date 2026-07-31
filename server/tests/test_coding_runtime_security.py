@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import stat
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -191,9 +192,7 @@ def test_draft_mode_only_changes_edit_to_ask(
 def test_runtime_dependencies_fail_closed_when_search_backend_is_missing(
     tmp_path: Path,
 ) -> None:
-    executable = tmp_path / "opencode"
-    executable.write_text("fixture", encoding="utf-8")
-    executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
+    executable = Path(sys.executable)
 
     validate_runtime_dependencies((executable,))
 
