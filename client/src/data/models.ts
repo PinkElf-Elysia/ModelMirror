@@ -1,4 +1,5 @@
 ﻿// Merged with OpenRouter model catalog on 2026-07-28T03:32:25.806Z.
+// Refreshed with entries published through 2026-07-31T12:16:06.800Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest
 // Prices are stored as USD per 1M tokens and CNY per 1M tokens.
 export const USD_TO_CNY = 6.77;
@@ -94,6 +95,229 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "deepseek/deepseek-v4-flash-0731",
+    "canonical_slug": "deepseek/deepseek-v4-flash-20260731",
+    "name": "DeepSeek: DeepSeek V4 Flash 0731",
+    "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.14,
+      "output": 0.28
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1785478908,
+    "expiration_date": null,
+    "model_author": "DeepSeek"
+  },
+  {
+    "id": "minimax/hailuo-3",
+    "canonical_slug": "minimax/hailuo-03-20260730",
+    "name": "MiniMax: H3",
+    "raw_description": "MiniMax H3 is a lightweight, open-weights video generation model from MiniMax. It is designed for precise multimodal editing and controlled content generation, including instruction-guided edits, text and brand rendering, and...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "temperature",
+      "top_p"
+    ],
+    "created": 1785366648,
+    "expiration_date": null,
+    "model_author": "MiniMax"
+  },
+  {
+    "id": "fish-audio/transcribe-1",
+    "canonical_slug": "fish-audio/transcribe-1-20260729",
+    "name": "Fish Audio: Transcribe 1",
+    "raw_description": "Transcribe 1 is a speech-to-text model from Fish Audio. It is suited for audio transcription with automatic language detection and can return timestamped word-level segments when alignment details are requested.",
+    "context_length": 0,
+    "pricing": {
+      "input": 100,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785353735,
+    "expiration_date": null,
+    "model_author": "Fish Audio"
+  },
+  {
+    "id": "fish-audio/s1",
+    "canonical_slug": "fish-audio/s1-20260729",
+    "name": "Fish Audio: S1",
+    "raw_description": "S1 is a multilingual text-to-speech model from Fish Audio. It is suited for voice applications that need broad emotional expression, using parenthetical controls to guide speaking style across its supported...",
+    "context_length": 0,
+    "pricing": {
+      "input": 15,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785353734,
+    "expiration_date": null,
+    "model_author": "Fish Audio"
+  },
+  {
+    "id": "fish-audio/s2-pro",
+    "canonical_slug": "fish-audio/s2-pro-20260729",
+    "name": "Fish Audio: S2 Pro",
+    "raw_description": "S2 Pro is a multilingual text-to-speech model from Fish Audio. It is suited for expressive narration and multi-speaker dialogue, with natural-language controls for speaking style and emotion.",
+    "context_length": 0,
+    "pricing": {
+      "input": 15,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785353734,
+    "expiration_date": null,
+    "model_author": "Fish Audio"
+  },
+  {
+    "id": "fish-audio/s2.1-pro-free:free",
+    "canonical_slug": "fish-audio/s2.1-pro-free-20260729",
+    "name": "Fish Audio: S2.1 Pro Free (free)",
+    "raw_description": "S2.1 Pro Free is the no-cost variant of Fish Audio S2.1 Pro, intended for testing, prototyping, and low-volume applications. It provides the same synthesis capabilities without production latency or availability...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785353733,
+    "expiration_date": null,
+    "model_author": "Fish Audio"
+  },
+  {
+    "id": "fish-audio/s2.1-pro",
+    "canonical_slug": "fish-audio/s2.1-pro-20260729",
+    "name": "Fish Audio: S2.1 Pro",
+    "raw_description": "S2.1 Pro is a production-oriented text-to-speech model from Fish Audio. It is suited for multilingual voice applications, expressive narration, and dialogue synthesis, with open-ended natural-language controls for speaking style and...",
+    "context_length": 0,
+    "pricing": {
+      "input": 15,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785353732,
+    "expiration_date": null,
+    "model_author": "Fish Audio"
+  },
+  {
+    "id": "runway/aleph-2",
+    "canonical_slug": "runway/aleph-2-20260729",
+    "name": "Runway: Aleph 2.0",
+    "raw_description": "Runway Aleph 2.0 is an in-context video editing model from Runway. It applies text instructions and keyframe-guided edits across existing footage while preserving details that are not meant to change....",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [],
+    "created": 1785339484,
+    "expiration_date": null,
+    "model_author": "Runway"
+  },
+  {
+    "id": "runway/gen-4.5",
+    "canonical_slug": "runway/gen-4.5-20260729",
+    "name": "Runway: Gen-4.5",
+    "raw_description": "Runway Gen-4.5 is a video generation model from Runway for text-to-video and image-to-video workflows. It is designed for cinematic scene creation with strong motion quality, visual fidelity, and prompt adherence....",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [],
+    "created": 1785339483,
+    "expiration_date": null,
+    "model_author": "Runway"
+  },
   {
     "id": "qwen/qwen3.7-flash",
     "canonical_slug": "qwen/qwen3.7-flash-20260727",
@@ -17431,6 +17655,7 @@ function enrichModel(raw: RawCatalogModel): Model {
 const FEATURED_MODEL_IDS = [
   "openai/gpt-5.6-sol",
   "anthropic/claude-opus-5",
+  "deepseek/deepseek-v4-flash-0731",
   "anthropic/claude-fable-5",
   "moonshotai/kimi-k3",
   "anthropic/claude-opus-5-fast",
@@ -17525,7 +17750,16 @@ const DIRECT_OPENAI_REALTIME_MODELS: Model[] = [
   },
 ];
 
+const sortedCatalogModels = [...rawCatalogModels]
+  .sort(catalogSort)
+  .map(enrichModel);
+
+// The homepage reserves two spotlight cards plus three desktop gallery rows for
+// broadly useful catalog models before showing the two specialized realtime models.
+const REALTIME_MODEL_INSERT_INDEX = 11;
+
 export const models: Model[] = [
+  ...sortedCatalogModels.slice(0, REALTIME_MODEL_INSERT_INDEX),
   ...DIRECT_OPENAI_REALTIME_MODELS,
-  ...[...rawCatalogModels].sort(catalogSort).map(enrichModel),
+  ...sortedCatalogModels.slice(REALTIME_MODEL_INSERT_INDEX),
 ];
