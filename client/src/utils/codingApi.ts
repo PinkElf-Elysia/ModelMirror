@@ -1,5 +1,6 @@
 import type {
   CodingCancelResponse,
+  CodingApplyResult,
   CodingCapabilities,
   CodingDraftChanges,
   CodingEvent,
@@ -184,6 +185,49 @@ export function cancelCodingVerification(
       method: "POST",
       body: JSON.stringify({ revision }),
     },
+  );
+}
+
+export function applyCodingChanges(
+  sessionId: string,
+  revision: number,
+) {
+  return requestJson<CodingApplyResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/apply`,
+    {
+      method: "POST",
+      body: JSON.stringify({ revision }),
+    },
+  );
+}
+
+export function getCodingApplyStatus(
+  sessionId: string,
+  revision: number,
+) {
+  return requestJson<CodingApplyResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/apply?revision=${revision}`,
+  );
+}
+
+export function revertCodingApply(
+  sessionId: string,
+  revision: number,
+  applyId: string,
+) {
+  return requestJson<CodingApplyResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/apply/revert`,
+    {
+      method: "POST",
+      body: JSON.stringify({ revision, apply_id: applyId }),
+    },
+  );
+}
+
+export function closeCodingSession(sessionId: string) {
+  return requestJson<{ closed: true }>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/close`,
+    { method: "POST" },
   );
 }
 

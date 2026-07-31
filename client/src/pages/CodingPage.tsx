@@ -25,6 +25,7 @@ import remarkGfm from "remark-gfm";
 import CodingChangesPanel from "../components/CodingChangesPanel";
 import PageContainer from "../components/PageContainer";
 import type {
+  CodingApplyResult,
   CodingCapabilities,
   CodingDraftChanges,
   CodingEvent,
@@ -32,19 +33,23 @@ import type {
   CodingVerification,
 } from "../types/coding";
 import {
+  applyCodingChanges,
   cancelCodingTurn,
   cancelCodingVerification,
+  closeCodingSession,
   CodingApiError,
   connectCodingEvents,
   createCodingSession,
   discardCodingChanges,
   getCodingCapabilities,
+  getCodingApplyStatus,
   getCodingChanges,
   getCodingPatch,
   getCodingSessionStatus,
   getCodingVerification,
   startCodingTurn,
   startCodingVerification,
+  revertCodingApply,
   validateCodingChanges,
 } from "../utils/codingApi";
 
@@ -172,7 +177,7 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
         <ul className="mt-3 space-y-3 text-xs leading-5 text-slate-400">
           <li>
             {isDraft
-              ? "所有修改只保存在临时副本，不会直接改变真实项目。"
+              ? "所有修改先保存在临时副本，只有你确认后才会写入专用项目副本。"
               : "只查看固定的 ModelMirror 项目代码。"}
           </li>
           <li>
@@ -182,7 +187,7 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
           </li>
           <li>
             {isDraft
-              ? "只新增或修改文本文件，不会删除、重命名或提交代码。"
+              ? "不会提交或上传；当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
           </li>
           <li>问题与回答只临时保留，服务重启后清除。</li>
@@ -217,6 +222,10 @@ export default function CodingPage() {
   const [verification, setVerification] =
     useState<CodingVerification | null>(null);
   const [verificationError, setVerificationError] = useState("");
+  const [applyResult, setApplyResult] = useState<CodingApplyResult | null>(
+    null,
+  );
+  const [applyError, setApplyError] = useState("");
   const closeStreamRef = useRef<null | (() => void)>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionProbeInFlightRef = useRef(false);
@@ -224,8 +233,42 @@ export default function CodingPage() {
   const isDraftMode = capabilities?.mode === "draft";
   const verificationAvailable =
     capabilities?.verification.available === true;
+  const serviceAvailable = capabilities?.available === true;
+  const isBusy = ["starting", "running", "stopping"].includes(runState);
   const verificationRunning =
     verification?.state === "running" && verification.stale === false;
+  const sessionFrozen = Boolean(
+    applyResult?.apply_id &&
+      ["applied", "reverting", "reverted", "failed"].includes(
+        applyResult.state,
+      ),
+  );
+  const resetExpiredSession = useCallback(
+    (activeSessionId: string) => {
+      if (sessionId !== activeSessionId) return false;
+      closeStreamRef.current?.();
+      closeStreamRef.current = null;
+      setSessionId(null);
+      lastSeqRef.current = 0;
+      clearStoredCodingSession();
+      setEvents([]);
+      setDraftChanges(null);
+      setDraftLoading(false);
+      setDraftError("");
+      setDraftNotice("");
+      setVerification(null);
+      setVerificationError("");
+      setApplyResult(null);
+      setApplyError("");
+      setRunState("idle");
+      setTransportWarning("");
+      setError(
+        "代码服务已重新启动，之前的临时记录已结束。你可以重新描述需求并开始处理。",
+      );
+      return true;
+    },
+    [sessionId],
+  );
 
   const loadCapabilities = useCallback(async () => {
     setCapabilityState("loading");
@@ -239,6 +282,8 @@ export default function CodingPage() {
         setDraftNotice("");
         setVerification(null);
         setVerificationError("");
+        setApplyResult(null);
+        setApplyError("");
       }
       setCapabilityState("ready");
     } catch {
@@ -269,7 +314,15 @@ export default function CodingPage() {
         if (active) setVerification(result);
       })
       .catch((requestError) => {
-        if (active) setVerificationError(describeError(requestError));
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setVerificationError(describeError(requestError));
       });
     return () => {
       active = false;
@@ -278,6 +331,7 @@ export default function CodingPage() {
     draftChanges?.files.length,
     draftChanges?.revision,
     isDraftMode,
+    resetExpiredSession,
     sessionId,
     verificationAvailable,
   ]);
@@ -306,7 +360,15 @@ export default function CodingPage() {
           setVerificationError("");
         }
       } catch (requestError) {
-        if (active) setVerificationError(describeError(requestError));
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setVerificationError(describeError(requestError));
       } finally {
         polling = false;
       }
@@ -316,7 +378,12 @@ export default function CodingPage() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [sessionId, verification?.revision, verificationRunning]);
+  }, [
+    resetExpiredSession,
+    sessionId,
+    verification?.revision,
+    verificationRunning,
+  ]);
 
   const answer = useMemo(
     () =>
@@ -342,13 +409,74 @@ export default function CodingPage() {
           : await getCodingChanges(activeSessionId);
         setDraftChanges(result);
       } catch (requestError) {
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(activeSessionId);
+          return;
+        }
         setDraftError(describeError(requestError));
       } finally {
         setDraftLoading(false);
       }
     },
-    [],
+    [resetExpiredSession],
   );
+
+  useEffect(() => {
+    if (
+      !isDraftMode ||
+      !sessionId ||
+      !serviceAvailable ||
+      draftChanges !== null ||
+      draftLoading
+    ) {
+      return;
+    }
+    void refreshDraftChanges(sessionId, false);
+  }, [
+    draftChanges,
+    draftLoading,
+    isDraftMode,
+    refreshDraftChanges,
+    serviceAvailable,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    if (!isDraftMode || !sessionId || !draftChanges?.files.length) {
+      setApplyResult(null);
+      setApplyError("");
+      return;
+    }
+    let active = true;
+    setApplyError("");
+    void getCodingApplyStatus(sessionId, draftChanges.revision)
+      .then((result) => {
+        if (active) setApplyResult(result);
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setApplyError(describeError(requestError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    draftChanges?.files.length,
+    draftChanges?.revision,
+    isDraftMode,
+    resetExpiredSession,
+    sessionId,
+  ]);
 
   const recoverExpiredSession = useCallback(
     async (activeSessionId: string, submittedPrompt: string) => {
@@ -361,26 +489,15 @@ export default function CodingPage() {
           requestError instanceof CodingApiError &&
           requestError.code === "session_not_found"
         ) {
-          closeStreamRef.current?.();
-          closeStreamRef.current = null;
-          setSessionId(null);
-          lastSeqRef.current = 0;
-          clearStoredCodingSession();
-          setEvents([]);
-          setDraftChanges(null);
-          setVerification(null);
-          setRunState("idle");
-          setTransportWarning("");
-          setPrompt(submittedPrompt);
-          setError(
-            "代码服务已重新启动，旧记录已结束。问题已放回输入框，请重新提交。",
-          );
+          if (resetExpiredSession(activeSessionId)) {
+            setPrompt(submittedPrompt);
+          }
         }
       } finally {
         sessionProbeInFlightRef.current = false;
       }
     },
-    [],
+    [resetExpiredSession],
   );
 
   const tools = useMemo<ToolActivity[]>(() => {
@@ -461,7 +578,8 @@ export default function CodingPage() {
       runState === "starting" ||
       runState === "running" ||
       runState === "stopping" ||
-      verificationRunning
+      verificationRunning ||
+      sessionFrozen
     ) {
       return;
     }
@@ -483,6 +601,8 @@ export default function CodingPage() {
         storeCodingSession(session.id, 0);
         if (isDraftMode) {
           setDraftChanges(null);
+          setApplyResult(null);
+          setApplyError("");
         }
       }
       const after = lastSeqRef.current;
@@ -506,6 +626,8 @@ export default function CodingPage() {
         lastSeqRef.current = 0;
         clearStoredCodingSession();
         setDraftChanges(null);
+        setApplyResult(null);
+        setApplyError("");
       }
       setRunState("error");
       setError(describeError(requestError));
@@ -607,8 +729,70 @@ export default function CodingPage() {
     setDraftNotice("Diff 已下载，真实项目仍未发生改变。");
   };
 
-  const serviceAvailable = capabilities?.available === true;
-  const isBusy = ["starting", "running", "stopping"].includes(runState);
+  const applyDraft = async () => {
+    if (!sessionId || !draftChanges) return;
+    setApplyError("");
+    try {
+      const result = await applyCodingChanges(
+        sessionId,
+        draftChanges.revision,
+      );
+      setApplyResult(result);
+      setDraftNotice(
+        "修改已写入专用项目副本；没有提交或上传，当前项目目录没有改变。",
+      );
+    } catch (requestError) {
+      try {
+        setApplyResult(
+          await getCodingApplyStatus(sessionId, draftChanges.revision),
+        );
+      } catch {
+        // Keep the original, safer error message.
+      }
+      throw requestError;
+    }
+  };
+
+  const revertAppliedDraft = async () => {
+    if (!sessionId || !draftChanges || !applyResult?.apply_id) return;
+    setApplyError("");
+    try {
+      const result = await revertCodingApply(
+        sessionId,
+        draftChanges.revision,
+        applyResult.apply_id,
+      );
+      setApplyResult(result);
+      setDraftNotice("本次应用已撤销，专用项目副本已恢复。");
+    } catch (requestError) {
+      try {
+        setApplyResult(
+          await getCodingApplyStatus(sessionId, draftChanges.revision),
+        );
+      } catch {
+        // Keep the original, safer error message.
+      }
+      throw requestError;
+    }
+  };
+
+  const closeAppliedSession = async () => {
+    if (!sessionId) return;
+    await closeCodingSession(sessionId);
+    closeStreamRef.current?.();
+    closeStreamRef.current = null;
+    setSessionId(null);
+    lastSeqRef.current = 0;
+    clearStoredCodingSession();
+    setEvents([]);
+    setDraftChanges(null);
+    setVerification(null);
+    setApplyResult(null);
+    setApplyError("");
+    setDraftNotice("本次修改已结束，可以开始新的任务。");
+    setRunState("idle");
+    await loadCapabilities();
+  };
 
   return (
     <PageContainer
@@ -633,7 +817,7 @@ export default function CodingPage() {
                 ) : (
                   <ShieldCheck aria-hidden="true" size={14} />
                 )}
-                {isDraftMode ? "修改草稿，不会直接改变项目" : "只读实验"}
+                {isDraftMode ? "修改草稿，确认后可应用" : "只读实验"}
               </span>
               <span className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs text-slate-300">
                 固定项目：ModelMirror
@@ -644,7 +828,7 @@ export default function CodingPage() {
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               {isDraftMode
-                ? "描述希望调整的内容。代码助手会在临时副本中准备修改，你可以逐个文件查看，再下载 Diff。修改不会自动写回项目。"
+                ? "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行项目验证，再决定下载 Diff 或应用到专用项目副本。"
                 : "你可以询问功能如何实现、页面与服务如何配合，或某段代码的作用。代码助手只能查看项目并回答，不会修改文件或执行命令。"}
             </p>
           </div>
@@ -700,7 +884,7 @@ export default function CodingPage() {
               ? "确认代码服务安全可用后，输入框会自动开放。"
               : serviceAvailable
                 ? isDraftMode
-                  ? "修改只保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
+                  ? "修改会先保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
                   : "一次只处理一个问题，最长可输入 20,000 字符，闲置 30 分钟后会自动清理。"
                 : capabilityReason[capabilities?.reason ?? ""] ??
                   (error || "暂时无法确认代码服务状态。")}
@@ -793,7 +977,10 @@ export default function CodingPage() {
               aria-describedby="coding-prompt-help"
               className="mt-3 min-h-32 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-3 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 hover:border-white/20 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={
-                !serviceAvailable || isBusy || verificationRunning
+                !serviceAvailable ||
+                isBusy ||
+                verificationRunning ||
+                sessionFrozen
               }
               id="coding-prompt"
               maxLength={capabilities?.limits.max_prompt_chars ?? 20_000}
@@ -837,7 +1024,8 @@ export default function CodingPage() {
                     disabled={
                       !serviceAvailable ||
                       !prompt.trim() ||
-                      verificationRunning
+                      verificationRunning ||
+                      sessionFrozen
                     }
                     type="submit"
                   >
@@ -896,14 +1084,21 @@ export default function CodingPage() {
           {isDraftMode ? (
             <div className="order-4">
               <CodingChangesPanel
+                applyCapability={capabilities?.apply}
+                applyError={applyError}
+                applyResult={applyResult}
                 changes={draftChanges}
                 disabled={isBusy}
+                frozen={sessionFrozen}
                 loading={draftLoading}
+                onApply={applyDraft}
+                onClose={closeAppliedSession}
                 onDiscard={discardDraft}
                 onDownload={downloadDraft}
                 onCancelVerification={stopVerification}
                 onRequestFix={prepareVerificationFix}
                 onRunVerification={runVerification}
+                onRevert={revertAppliedDraft}
                 onValidate={checkDraft}
                 sessionId={sessionId}
                 verification={verification}

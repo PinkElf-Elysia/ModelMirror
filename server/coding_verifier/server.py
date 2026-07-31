@@ -37,7 +37,7 @@ SOCKET_PATH = Path(
 )
 SOURCE_ROOT = Path("/opt/modelmirror-source")
 WORKSPACE_ROOT = Path("/workspace/current")
-FRONTEND_DEPENDENCIES = Path("/opt/modelmirror-client-node_modules")
+FRONTEND_DEPENDENCIES = Path("/opt/modelmirror-client/node_modules")
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
@@ -159,11 +159,23 @@ class CodingVerifierServer:
                 code="snapshot_mismatch",
             )
         plan = select_verification_plan(paths)
+        started_at = time.time()
         report = initial_verification_report(
             revision,
             plan,
-            now=time.time(),
+            now=started_at,
         )
+        if plan.runnable:
+            report = VerificationReport(
+                revision=revision,
+                state=VerificationState.RUNNING,
+                result=VerificationResult.NOT_RUN,
+                steps=tuple(
+                    VerificationStep(step_id=step_id)
+                    for step_id in plan.step_ids
+                ),
+                started_at=started_at,
+            )
         async with self._job_lock:
             if self._job is not None and self._job.task is not None:
                 if not self._job.task.done():

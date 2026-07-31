@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
+import stat
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,11 @@ from server.coding_runtime.verification import (
     VerificationResult,
     VerificationState,
     VerificationStepId,
+)
+from server.coding_runtime.patch_policy import (
+    PatchPolicyError,
+    snapshot_fingerprint as shared_snapshot_fingerprint,
+    validate_patch,
 )
 from server.coding_verifier.engine import (
     CodingVerifierEngine,
@@ -34,7 +41,8 @@ class FakeRunner:
         self.results = dict(results or {})
         self.wait_for_cancel = wait_for_cancel
         self.calls: list[tuple[VerificationStepId, str]] = []
-        self.frontend_dependencies: list[Path | None] = []
+        self.frontend_dependencies: list[tuple[Path, ...]] = []
+        self.frontend_temp_writable: list[bool] = []
         self.started = asyncio.Event()
 
     async def run(
@@ -48,8 +56,23 @@ class FakeRunner:
         self.calls.append((step_id, observed_test))
         node_modules = workspace / "client/node_modules"
         self.frontend_dependencies.append(
-            node_modules.resolve() if node_modules.is_symlink() else None
+            tuple(
+                sorted(
+                    item.resolve()
+                    for item in node_modules.iterdir()
+                    if item.name != ".tmp" and item.is_symlink()
+                )
+            )
+            if node_modules.is_dir()
+            else ()
         )
+        temporary = node_modules / ".tmp"
+        if temporary.is_dir():
+            marker = temporary / "tsconfig.test.tsbuildinfo"
+            marker.write_text("isolated", encoding="utf-8")
+            self.frontend_temp_writable.append(marker.read_text() == "isolated")
+        else:
+            self.frontend_temp_writable.append(False)
         self.started.set()
         if self.wait_for_cancel:
             await asyncio.Future()
@@ -103,6 +126,22 @@ def test_snapshot_fingerprint_changes_with_content(source_root: Path) -> None:
     assert snapshot_fingerprint(source_root) != original
 
 
+def test_shared_fingerprint_can_ignore_only_named_root_entry(
+    source_root: Path,
+) -> None:
+    original = shared_snapshot_fingerprint(source_root)
+    (source_root / ".git").write_text("gitdir: ignored\n", encoding="utf-8")
+
+    assert (
+        shared_snapshot_fingerprint(
+            source_root,
+            ignored_root_names={".git"},
+        )
+        == original
+    )
+    assert shared_snapshot_fingerprint(source_root) != original
+
+
 def test_snapshot_fingerprint_rejects_symlinks(
     source_root: Path,
     tmp_path: Path,
@@ -134,6 +173,10 @@ def test_patch_validation_matches_expected_paths() -> None:
         patch,
         expected_paths=["server/app.py"],
     ) == ("server/app.py",)
+    assert validate_patch(
+        patch,
+        expected_paths=["server/app.py"],
+    ) == ("server/app.py",)
 
 
 @pytest.mark.parametrize(
@@ -156,6 +199,11 @@ def test_patch_validation_matches_expected_paths() -> None:
 def test_patch_validation_rejects_unsafe_forms(patch: str) -> None:
     with pytest.raises(VerificationEngineError):
         validate_verification_patch(
+            patch,
+            expected_paths=["server/app.py"],
+        )
+    with pytest.raises(PatchPolicyError):
+        validate_patch(
             patch,
             expected_paths=["server/app.py"],
         )
@@ -187,6 +235,54 @@ async def test_engine_applies_patch_and_cleans_workspace(
     assert (source_root / "server/app.py").read_text(encoding="utf-8") == (
         "VALUE = 1\n"
     )
+
+
+@pytest.mark.asyncio
+async def test_engine_adds_file_from_read_only_container_snapshot(
+    source_root: Path,
+    tmp_path: Path,
+) -> None:
+    snapshot_paths = [source_root, *source_root.rglob("*")]
+    try:
+        for path in snapshot_paths:
+            path.chmod(
+                path.stat().st_mode
+                & ~stat.S_IWUSR
+                & ~stat.S_IWGRP
+                & ~stat.S_IWOTH
+            )
+        runner = FakeRunner()
+        workspace = tmp_path / "workspace"
+        engine = CodingVerifierEngine(source_root, workspace, runner=runner)
+        patch = (
+            "diff --git a/server/added.py b/server/added.py\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/server/added.py\n"
+            "@@ -0,0 +1 @@\n"
+            "+VALUE = 2\n"
+        )
+
+        report = await engine.verify(
+            revision=2,
+            patch=patch,
+            paths=["server/added.py"],
+            expected_fingerprint=engine.source_fingerprint,
+        )
+
+        assert report.result is VerificationResult.PASSED
+        assert runner.calls == [
+            (
+                VerificationStepId.BACKEND_TESTS,
+                "def test_value():\n    assert True\n",
+            )
+        ]
+        assert workspace.exists() is False
+        assert (source_root / "server/added.py").exists() is False
+        assert source_root.stat().st_mode & stat.S_IWUSR == 0
+    finally:
+        for path in snapshot_paths:
+            path.chmod(path.stat().st_mode | stat.S_IWUSR)
 
 
 @pytest.mark.asyncio
@@ -267,6 +363,12 @@ async def test_engine_links_preinstalled_frontend_dependencies(
 ) -> None:
     dependencies = tmp_path / "dependencies"
     dependencies.mkdir()
+    package = dependencies / "example-package"
+    package.mkdir()
+    (package / "package.json").write_text(
+        '{"name":"example-package"}\n',
+        encoding="utf-8",
+    )
     runner = FakeRunner()
     engine = CodingVerifierEngine(
         source_root,
@@ -287,7 +389,9 @@ async def test_engine_links_preinstalled_frontend_dependencies(
     )
 
     assert report.result is VerificationResult.PASSED
-    assert runner.frontend_dependencies == [dependencies.resolve()]
+    assert runner.frontend_dependencies == [((package.resolve()),)]
+    assert runner.frontend_temp_writable == [True]
+    assert (dependencies / ".tmp").exists() is False
     assert (source_root / "client/node_modules").exists() is False
 
 
@@ -390,6 +494,52 @@ async def test_subprocess_runner_bounds_output(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert result.output_truncated is True
     assert len(result.stdout.encode("utf-8")) <= 64 * 1024
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="Unix socket check requires POSIX")
+async def test_subprocess_runner_uses_short_cleaned_socket_temp_root(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "current"
+    workspace.mkdir()
+    script = (
+        "import os,pathlib,socket,stat,tempfile;"
+        "root=pathlib.Path(tempfile.mkdtemp(prefix='pytest-of-verifier-'))"
+        "/'pytest-0'/'test_socket_round_trip_exposes0';"
+        "root.mkdir(parents=True);"
+        "path=root/'applier.sock';"
+        "sock=socket.socket(socket.AF_UNIX);"
+        "sock.bind(str(path));"
+        "print(path);"
+        "sock.close();"
+        "temporary=pathlib.Path(os.environ['TMPDIR']);"
+        "locked=temporary/'locked';"
+        "locked.mkdir();"
+        "locked_file=locked/'readonly.txt';"
+        "locked_file.write_text('locked');"
+        "locked_file.chmod(stat.S_IRUSR);"
+        "locked.chmod(stat.S_IRUSR|stat.S_IXUSR);"
+        "outside=pathlib.Path('outside.txt');"
+        "outside.write_text('keep');"
+        "(temporary/'outside-link').symlink_to(outside.resolve())"
+    )
+    runner = SubprocessVerificationRunner(
+        {
+            VerificationStepId.BACKEND_TESTS: FixedCommand(
+                argv=(sys.executable, "-c", script),
+                timeout_seconds=10,
+            )
+        }
+    )
+
+    result = await runner.run(VerificationStepId.BACKEND_TESTS, workspace)
+
+    temporary = Path(tempfile.gettempdir()).resolve() / ".mmv-tmp"
+    assert result.exit_code == 0
+    assert str(temporary) in result.stdout
+    assert temporary.exists() is False
+    assert (workspace / "outside.txt").read_text() == "keep"
 
 
 @pytest.mark.asyncio

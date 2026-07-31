@@ -285,10 +285,11 @@ class _DraftTurnAdapter:
 
 
 class _FakeVerifier:
-    def __init__(self) -> None:
+    def __init__(self, *, start_state: str = "running") -> None:
         self.fingerprint = ""
         self.report: dict[str, Any] | None = None
         self.start_payload: dict[str, Any] | None = None
+        self.start_state = start_state
         self.cancel_calls = 0
         self.closed: list[str] = []
         self.fail_status = False
@@ -305,7 +306,7 @@ class _FakeVerifier:
         self.start_payload = payload
         self.report = self._report(
             revision=payload["revision"],
-            state="running",
+            state=self.start_state,
             result="not_run",
         )
         return {"ok": True, "verification": self.report}
@@ -565,6 +566,46 @@ async def test_worker_verification_locks_mutation_and_degrades_safely(
     assert degraded["result"] == "not_run"
     assert degraded["reason"] == "verifier_unavailable"
     assert (record.workspace.workspace_root / "complete.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_worker_tracks_verifier_jobs_accepted_before_running(
+    tmp_path: Path,
+) -> None:
+    server, record = _draft_record(tmp_path, outcome="complete")
+    verifier = _FakeVerifier(start_state="not_started")
+    verifier.fingerprint = server._source_fingerprint
+    server._verifier = verifier
+
+    await server._prompt(
+        {"session_id": record.session.session_id, "prompt": "draft"},
+        _MemoryWriter(),
+    )
+    await server._verification_start(
+        {"session_id": record.session.session_id, "revision": 1},
+        _MemoryWriter(),
+    )
+
+    assert server._verification_running(record) is True
+    with pytest.raises(CodingWorkerError) as prompt_error:
+        await server._prompt(
+            {"session_id": record.session.session_id, "prompt": "blocked"},
+            _MemoryWriter(),
+        )
+    assert prompt_error.value.code == "verification_in_progress"
+
+    assert verifier.report is not None
+    verifier.report["state"] = "completed"
+    verifier.report["result"] = "passed"
+    verifier.report["finished_at"] = 2.0
+    status_writer = _MemoryWriter()
+    await server._verification_status(
+        {"session_id": record.session.session_id, "revision": 1},
+        status_writer,
+    )
+
+    assert status_writer.frames[-1]["verification"]["state"] == "completed"
+    assert status_writer.frames[-1]["verification"]["result"] == "passed"
 
 
 @pytest.mark.asyncio

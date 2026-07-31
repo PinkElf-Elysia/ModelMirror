@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import inspect
 import os
-import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
@@ -18,8 +18,12 @@ from typing import Protocol
 
 from server.coding_runtime.draft_workspace import (
     DraftLimits,
-    DraftPolicyError,
-    DraftWorkspace,
+)
+from server.coding_runtime.patch_policy import (
+    PatchPolicyError,
+    SNAPSHOT_FINGERPRINT_PATTERN,
+    snapshot_fingerprint as shared_snapshot_fingerprint,
+    validate_patch,
 )
 from server.coding_runtime.verification import (
     MAX_VERIFICATION_DETAIL_CHARS,
@@ -39,10 +43,6 @@ from server.coding_runtime.verification import (
 MAX_COMMAND_OUTPUT_BYTES = 64 * 1024
 BACKEND_TIMEOUT_SECONDS = 300
 FRONTEND_TIMEOUT_SECONDS = 240
-SNAPSHOT_FINGERPRINT_PATTERN = re.compile(r"^[a-f0-9]{64}$")
-SAFE_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
-
-
 class VerificationEngineError(RuntimeError):
     def __init__(self, message: str, *, code: str = "verification_failed") -> None:
         super().__init__(message)
@@ -121,9 +121,10 @@ class SubprocessVerificationRunner:
             )
         runtime_root = workspace / ".modelmirror-verifier"
         home = runtime_root / "home"
-        temporary = runtime_root / "tmp"
+        temporary = Path(tempfile.gettempdir()).resolve() / ".mmv-tmp"
         data_root = runtime_root / "data"
-        for path in (home, temporary, data_root):
+        _prepare_temporary_root(temporary)
+        for path in (home, data_root):
             path.mkdir(parents=True, exist_ok=True)
         environment = {
             "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -143,41 +144,59 @@ class SubprocessVerificationRunner:
             "SKILL_TMP_DIR": str(data_root / "skills-tmp"),
             "DATAX_STORAGE_DIR": str(data_root / "datax"),
         }
-        started = time.monotonic()
-        process = await asyncio.create_subprocess_exec(
-            *command.argv,
-            cwd=str(workspace),
-            env=environment,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=os.name == "posix",
-        )
-        assert process.stdout is not None and process.stderr is not None
-        stdout_task = asyncio.create_task(_read_bounded_stream(process.stdout))
-        stderr_task = asyncio.create_task(_read_bounded_stream(process.stderr))
         try:
-            await asyncio.wait_for(process.wait(), timeout=command.timeout_seconds)
-        except TimeoutError as exc:
-            await _terminate_process(process)
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            raise VerificationEngineError(
-                "Verification step timed out.",
-                code="command_timeout",
-            ) from exc
-        except asyncio.CancelledError:
-            await _terminate_process(process)
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            raise
-        stdout, stdout_truncated = await stdout_task
-        stderr, stderr_truncated = await stderr_task
-        return CommandResult(
-            exit_code=int(process.returncode or 0),
-            stdout=stdout,
-            stderr=stderr,
-            duration_ms=round((time.monotonic() - started) * 1000),
-            output_truncated=stdout_truncated or stderr_truncated,
-        )
+            started = time.monotonic()
+            process = await asyncio.create_subprocess_exec(
+                *command.argv,
+                cwd=str(workspace),
+                env=environment,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
+            assert process.stdout is not None and process.stderr is not None
+            stdout_task = asyncio.create_task(
+                _read_bounded_stream(process.stdout)
+            )
+            stderr_task = asyncio.create_task(
+                _read_bounded_stream(process.stderr)
+            )
+            try:
+                await asyncio.wait_for(
+                    process.wait(),
+                    timeout=command.timeout_seconds,
+                )
+            except TimeoutError as exc:
+                await _terminate_process(process)
+                await asyncio.gather(
+                    stdout_task,
+                    stderr_task,
+                    return_exceptions=True,
+                )
+                raise VerificationEngineError(
+                    "Verification step timed out.",
+                    code="command_timeout",
+                ) from exc
+            except asyncio.CancelledError:
+                await _terminate_process(process)
+                await asyncio.gather(
+                    stdout_task,
+                    stderr_task,
+                    return_exceptions=True,
+                )
+                raise
+            stdout, stdout_truncated = await stdout_task
+            stderr, stderr_truncated = await stderr_task
+            return CommandResult(
+                exit_code=int(process.returncode or 0),
+                stdout=stdout,
+                stderr=stderr,
+                duration_ms=round((time.monotonic() - started) * 1000),
+                output_truncated=stdout_truncated or stderr_truncated,
+            )
+        finally:
+            _clear_temporary_root(temporary)
 
 
 class CodingVerifierEngine:
@@ -373,6 +392,7 @@ class CodingVerifierEngine:
     ) -> None:
         self._clear_workspace()
         shutil.copytree(self.source_root, self.workspace_root, symlinks=False)
+        _make_workspace_writable(self.workspace_root)
         _apply_patch(self.workspace_root, patch)
         if restore_baseline_tests:
             tests_root = self.workspace_root / "server" / "tests"
@@ -381,6 +401,7 @@ class CodingVerifierEngine:
             source_tests = self.source_root / "server" / "tests"
             if source_tests.is_dir():
                 shutil.copytree(source_tests, tests_root, symlinks=False)
+                _make_workspace_writable(tests_root)
         if self.frontend_dependencies is not None:
             node_modules = self.workspace_root / "client" / "node_modules"
             if node_modules.exists() or node_modules.is_symlink():
@@ -388,10 +409,24 @@ class CodingVerifierEngine:
                     "Frontend dependency target is unsafe.",
                     code="unsafe_frontend_dependencies",
                 )
-            node_modules.symlink_to(
-                self.frontend_dependencies,
-                target_is_directory=True,
-            )
+            try:
+                node_modules.mkdir()
+                for dependency in sorted(self.frontend_dependencies.iterdir()):
+                    if dependency.name == ".tmp":
+                        continue
+                    (node_modules / dependency.name).symlink_to(
+                        dependency,
+                        target_is_directory=dependency.is_dir(),
+                    )
+                # TypeScript project builds write their incremental metadata here.
+                # Keep only this directory writable and inside the per-run workspace;
+                # the locked dependency tree remains read-only behind symlinks.
+                (node_modules / ".tmp").mkdir(mode=0o700)
+            except OSError as exc:
+                raise VerificationEngineError(
+                    "Frontend dependencies could not be prepared.",
+                    code="frontend_dependencies_unavailable",
+                ) from exc
 
     def _clear_workspace(self) -> None:
         if not self.workspace_root.exists():
@@ -404,30 +439,110 @@ class CodingVerifierEngine:
         shutil.rmtree(self.workspace_root)
 
 
-def snapshot_fingerprint(root: Path) -> str:
-    resolved = root.resolve()
-    if not resolved.is_dir() or resolved.parent == resolved:
+def _make_workspace_writable(root: Path) -> None:
+    try:
+        paths = [root, *root.rglob("*")]
+        for path in paths:
+            if path.is_symlink():
+                raise VerificationEngineError(
+                    "Verifier workspace contains a symbolic link.",
+                    code="unsafe_workspace_root",
+                )
+            mode = path.stat().st_mode
+            if path.is_dir():
+                path.chmod(mode | stat.S_IWUSR | stat.S_IXUSR)
+            elif path.is_file():
+                path.chmod(mode | stat.S_IWUSR)
+            else:
+                raise VerificationEngineError(
+                    "Verifier workspace contains an unsupported file.",
+                    code="unsafe_workspace_root",
+                )
+    except OSError as exc:
         raise VerificationEngineError(
-            "Verifier source snapshot is unavailable.",
-            code="source_snapshot_unavailable",
+            "Verifier workspace could not be prepared.",
+            code="workspace_unavailable",
+        ) from exc
+
+
+def _prepare_temporary_root(root: Path) -> None:
+    if root.parent == root or root.name != ".mmv-tmp":
+        raise VerificationEngineError(
+            "Verifier temporary root is unsafe.",
+            code="unsafe_temporary_root",
         )
-    digest = hashlib.sha256()
-    for path in sorted(resolved.rglob("*")):
-        relative = path.relative_to(resolved).as_posix()
-        if path.is_symlink():
-            raise VerificationEngineError(
-                "Verifier source snapshot contains a symlink.",
-                code="source_snapshot_unsafe",
+    _clear_temporary_root(root)
+    try:
+        root.mkdir(mode=0o700)
+    except OSError as exc:
+        raise VerificationEngineError(
+            "Verifier temporary root could not be prepared.",
+            code="temporary_root_unavailable",
+        ) from exc
+
+
+def _clear_temporary_root(root: Path) -> None:
+    if root.is_symlink() or (root.exists() and not root.is_dir()):
+        raise VerificationEngineError(
+            "Verifier temporary root is unsafe.",
+            code="unsafe_temporary_root",
+        )
+    if not root.exists():
+        return
+    try:
+        _make_tree_removable(root)
+        shutil.rmtree(root)
+    except OSError as exc:
+        raise VerificationEngineError(
+            "Verifier temporary root could not be cleared.",
+            code="temporary_cleanup_failed",
+        ) from exc
+
+
+def _make_tree_removable(root: Path) -> None:
+    root.chmod(
+        root.lstat().st_mode
+        | stat.S_IRUSR
+        | stat.S_IWUSR
+        | stat.S_IXUSR
+    )
+    for current, directories, files in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+    ):
+        current_path = Path(current)
+        if not current_path.is_symlink():
+            current_path.chmod(
+                current_path.lstat().st_mode
+                | stat.S_IRUSR
+                | stat.S_IWUSR
+                | stat.S_IXUSR
             )
-        if not path.is_file():
-            continue
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        content = path.read_bytes()
-        digest.update(str(len(content)).encode("ascii"))
-        digest.update(b"\0")
-        digest.update(hashlib.sha256(content).digest())
-    return digest.hexdigest()
+        for name in directories:
+            path = current_path / name
+            if path.is_symlink():
+                continue
+            path.chmod(
+                path.lstat().st_mode
+                | stat.S_IRUSR
+                | stat.S_IWUSR
+                | stat.S_IXUSR
+            )
+        for name in files:
+            path = current_path / name
+            if path.is_symlink():
+                continue
+            path.chmod(
+                path.lstat().st_mode | stat.S_IRUSR | stat.S_IWUSR
+            )
+
+
+def snapshot_fingerprint(root: Path) -> str:
+    try:
+        return shared_snapshot_fingerprint(root)
+    except PatchPolicyError as exc:
+        raise VerificationEngineError(str(exc), code=exc.code) from exc
 
 
 def validate_verification_patch(
@@ -436,102 +551,14 @@ def validate_verification_patch(
     expected_paths: Sequence[str],
     limits: DraftLimits | None = None,
 ) -> tuple[str, ...]:
-    active_limits = limits or DraftLimits()
     try:
-        encoded = patch.encode("utf-8", errors="strict")
-    except UnicodeEncodeError as exc:
-        raise VerificationEngineError(
-            "Verification patch is not UTF-8.",
-            code="invalid_patch",
-        ) from exc
-    if (
-        not patch
-        or len(encoded) > active_limits.max_patch_bytes
-        or "\x00" in patch
-        or any(
-            marker in patch
-            for marker in (
-                "GIT binary patch",
-                "Binary files ",
-                "deleted file mode ",
-                "rename from ",
-                "rename to ",
-            )
+        return validate_patch(
+            patch,
+            expected_paths=expected_paths,
+            limits=limits,
         )
-    ):
-        raise VerificationEngineError(
-            "Verification patch is outside the allowed scope.",
-            code="invalid_patch",
-        )
-
-    safe_expected = tuple(
-        sorted(
-            {
-                DraftWorkspace.normalize_relative_path(path)
-                for path in expected_paths
-            }
-        )
-    )
-    headers: list[tuple[int, str]] = []
-    lines = patch.splitlines()
-    for index, line in enumerate(lines):
-        if not line.startswith("diff --git "):
-            continue
-        match = SAFE_DIFF_HEADER.fullmatch(line)
-        if match is None or match.group(1) != match.group(2):
-            raise VerificationEngineError(
-                "Verification patch header is invalid.",
-                code="invalid_patch",
-            )
-        try:
-            path = DraftWorkspace.normalize_relative_path(match.group(1))
-        except DraftPolicyError as exc:
-            raise VerificationEngineError(
-                "Verification patch path is invalid.",
-                code="invalid_patch",
-            ) from exc
-        headers.append((index, path))
-    paths = tuple(path for _, path in headers)
-    if (
-        not paths
-        or len(paths) > active_limits.max_changed_files
-        or len(set(paths)) != len(paths)
-        or tuple(sorted(paths)) != safe_expected
-    ):
-        raise VerificationEngineError(
-            "Verification patch paths do not match the draft.",
-            code="invalid_patch",
-        )
-
-    for position, (start, path) in enumerate(headers):
-        end = headers[position + 1][0] if position + 1 < len(headers) else len(lines)
-        section = lines[start:end]
-        old_headers = [line for line in section if line.startswith("--- ")]
-        new_headers = [line for line in section if line.startswith("+++ ")]
-        if len(old_headers) != 1 or len(new_headers) != 1:
-            raise VerificationEngineError(
-                "Verification patch file headers are incomplete.",
-                code="invalid_patch",
-            )
-        old_path = old_headers[0][4:].split("\t", maxsplit=1)[0]
-        new_path = new_headers[0][4:].split("\t", maxsplit=1)[0]
-        if old_path not in {"/dev/null", f"a/{path}"} or new_path != f"b/{path}":
-            raise VerificationEngineError(
-                "Verification patch file paths do not match.",
-                code="invalid_patch",
-            )
-        has_hunk = any(line.startswith("@@ ") for line in section)
-        is_empty_new_file = (
-            "new file mode 100644" in section
-            and old_path == "/dev/null"
-            and not has_hunk
-        )
-        if not has_hunk and not is_empty_new_file:
-            raise VerificationEngineError(
-                "Verification patch does not contain a change.",
-                code="invalid_patch",
-            )
-    return tuple(sorted(paths))
+    except PatchPolicyError as exc:
+        raise VerificationEngineError(str(exc), code=exc.code) from exc
 
 
 def _apply_patch(workspace: Path, patch: str) -> None:

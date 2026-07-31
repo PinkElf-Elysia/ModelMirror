@@ -21,7 +21,16 @@ export interface CodingCapabilities {
     max_patch_bytes?: number;
   };
   mode: "readonly" | "draft";
-  host_apply?: false;
+  host_apply?: boolean;
+  apply?: {
+    allows_not_applicable: true;
+    available: boolean;
+    configured: boolean;
+    reason?: string;
+    requires_verification: true;
+    supports_revert: true;
+    target: "dedicated_worktree";
+  };
   reason?: "disabled" | "not_configured" | "worker_unavailable" | string;
   verification: {
     available: boolean;
@@ -148,4 +157,24 @@ export interface CodingVerification {
 export interface CodingVerificationCancelResponse
   extends CodingVerification {
   accepted: boolean;
+}
+
+export type CodingApplyState =
+  | "not_applied"
+  | "applying"
+  | "applied"
+  | "reverting"
+  | "reverted"
+  | "failed";
+
+export interface CodingApplyResult {
+  applied_at: number | null;
+  apply_id: string | null;
+  can_revert: boolean;
+  file_count: number;
+  finished_at: number | null;
+  reason: string | null;
+  revision: number;
+  started_at: number | null;
+  state: CodingApplyState;
 }

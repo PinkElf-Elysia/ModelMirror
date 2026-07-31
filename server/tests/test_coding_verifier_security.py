@@ -118,6 +118,7 @@ async def test_socket_service_runs_fixed_verification(
             expected_fingerprint=engine.source_fingerprint,
         )
         assert started["verification"]["revision"] == 1
+        assert started["verification"]["state"] == "running"
         for _ in range(100):
             status = await client.status(session_id="session-1", revision=1)
             if status["verification"]["state"] == "completed":
@@ -266,6 +267,10 @@ def test_verifier_image_uses_preinstalled_locked_dependencies() -> None:
     assert "npm ci" in dockerfile
     assert "server/requirements.txt" in dockerfile
     assert "pip install --no-cache-dir --requirement" in dockerfile
+    assert (
+        "COPY --from=frontend_dependencies /opt/client/node_modules "
+        "/opt/modelmirror-client/node_modules"
+    ) in dockerfile
     assert "USER 65532:65532" in dockerfile
     assert 'CMD ["python", "-m", "server.coding_verifier.server"]' in dockerfile
     assert "curl " not in dockerfile

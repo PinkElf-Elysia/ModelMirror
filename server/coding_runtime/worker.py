@@ -307,6 +307,7 @@ class CodingWorkerServer:
                         ),
                         "version": 1,
                         "mode": mode,
+                        "snapshot_fingerprint": self._source_fingerprint,
                         "verification": await self._verification_health(),
                     },
                 )
@@ -836,7 +837,10 @@ class CodingWorkerServer:
         return (
             record.verification is not None
             and record.verification.get("state")
-            == VerificationState.RUNNING.value
+            in {
+                VerificationState.NOT_STARTED.value,
+                VerificationState.RUNNING.value,
+            }
         )
 
     @staticmethod

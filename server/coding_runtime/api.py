@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import secrets
 import time
 from collections import deque
 from collections.abc import AsyncIterator
@@ -24,9 +25,19 @@ from pydantic import (
     model_validator,
 )
 
+from .applier_client import (
+    ApplierClientError,
+    CodingApplierClient,
+)
+from .apply_models import (
+    ApplyReceipt,
+    ApplyState,
+    not_applied_payload,
+)
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
 from .models import CodingEvent, CodingEventKind
-from .verification import sanitize_verification_output
+from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN
+from .verification import sanitize_verification_output, select_verification_plan
 from .worker import CodingWorkerClient, CodingWorkerError
 
 MAX_PROMPT_CHARS = 20_000
@@ -39,7 +50,14 @@ TERMINAL_EVENT_TYPES = {
     CodingEventKind.FAILED.value,
     CodingEventKind.CANCELLED.value,
 }
-ACTIVE_STATES = {"starting", "ready", "running", "cancelling"}
+ACTIVE_STATES = {
+    "starting",
+    "ready",
+    "running",
+    "cancelling",
+    "applied",
+    "reverted",
+}
 WINDOWS_ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/][^\s\"'<>]+")
 CONTAINER_ABSOLUTE_PATH = re.compile(
     r"(?<![A-Za-z0-9_])/(?:home|run|opt|tmp|usr|etc|var)/[^\s\"'<>]+"
@@ -90,6 +108,22 @@ class WorkerClient(Protocol):
         session_id: str,
         revision: int,
     ) -> dict[str, Any]: ...
+
+
+class ApplierClient(Protocol):
+    async def health(self) -> dict[str, Any]: ...
+
+    async def apply(
+        self,
+        *,
+        operation_id: str,
+        revision: int,
+        patch: str,
+        paths: list[str],
+        expected_fingerprint: str,
+    ) -> ApplyReceipt: ...
+
+    async def revert(self, receipt: ApplyReceipt) -> ApplyReceipt: ...
 
 
 class CodingTurnRequest(BaseModel):
@@ -175,6 +209,10 @@ class VerificationRevisionRequest(BaseModel):
     revision: int = Field(ge=0)
 
 
+class ApplyRevertRequest(VerificationRevisionRequest):
+    apply_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
 class VerificationStepPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -236,6 +274,14 @@ class CodingApiSession:
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     turn_task: asyncio.Task[None] | None = None
     last_seq: int = 0
+    apply_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    apply_state: ApplyState = ApplyState.NOT_APPLIED
+    apply_revision: int | None = None
+    apply_operation_id: str | None = None
+    apply_receipt: ApplyReceipt | None = None
+    apply_reason: str | None = None
+    apply_started_at: float | None = None
+    apply_finished_at: float | None = None
 
 
 class CodingService:
@@ -246,11 +292,13 @@ class CodingService:
         *,
         enabled: bool,
         worker: WorkerClient,
+        applier: ApplierClient | None = None,
         ttl_seconds: float = SESSION_TTL_SECONDS,
         mode: str | None = None,
     ) -> None:
         self.enabled = enabled
         self.worker = worker
+        self.applier = applier
         self.ttl_seconds = ttl_seconds
         self.mode = _normalize_mode(
             mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
@@ -285,6 +333,15 @@ class CodingService:
                 }
             )
             response["host_apply"] = False
+            response["apply"] = {
+                "configured": False,
+                "available": False,
+                "target": "dedicated_worktree",
+                "requires_verification": True,
+                "allows_not_applicable": True,
+                "supports_revert": True,
+                "reason": "applier_not_configured",
+            }
         if not self.enabled:
             response["reason"] = "disabled"
             return response
@@ -316,6 +373,10 @@ class CodingService:
                 response["verification"]["reason"] = _safe_code(
                     worker_verification.get("reason")
                 )
+        if self.mode == "draft":
+            apply_capability = await self._apply_capability(health)
+            response["apply"] = apply_capability
+            response["host_apply"] = apply_capability["available"] is True
         response["available"] = True
         return response
 
@@ -379,14 +440,18 @@ class CodingService:
     async def start_turn(self, session_id: str, prompt: str) -> CodingApiSession:
         await self.cleanup_expired()
         record = self._get_session(session_id)
-        if record.state != "ready" or (
-            record.turn_task is not None and not record.turn_task.done()
-        ):
-            raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
-        await self._require_verification_idle(record)
-        record.state = "running"
-        record.updated_at = time.time()
-        record.turn_task = asyncio.create_task(self._run_turn(record, prompt))
+        if record.apply_lock.locked():
+            raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+        async with record.apply_lock:
+            self._require_mutable(record)
+            if record.state != "ready" or (
+                record.turn_task is not None and not record.turn_task.done()
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
+            await self._require_verification_idle(record)
+            record.state = "running"
+            record.updated_at = time.time()
+            record.turn_task = asyncio.create_task(self._run_turn(record, prompt))
         return record
 
     async def session_status(self, session_id: str) -> dict[str, str]:
@@ -448,20 +513,28 @@ class CodingService:
 
     async def validate(self, session_id: str) -> dict[str, Any]:
         record = await self._review_record(session_id)
-        try:
-            payload = await self.worker.validate(record.worker_session_id)
-        except CodingWorkerError as exc:
-            raise _worker_http_error(exc) from exc
+        if record.apply_lock.locked():
+            raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+        async with record.apply_lock:
+            self._require_mutable(record)
+            try:
+                payload = await self.worker.validate(record.worker_session_id)
+            except CodingWorkerError as exc:
+                raise _worker_http_error(exc) from exc
         return _public_changes(payload)
 
     async def discard(self, session_id: str) -> dict[str, Any]:
         record = await self._review_record(session_id)
-        await self._require_verification_idle(record)
-        try:
-            payload = await self.worker.discard(record.worker_session_id)
-        except CodingWorkerError as exc:
-            raise _worker_http_error(exc) from exc
-        record.updated_at = time.time()
+        if record.apply_lock.locked():
+            raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+        async with record.apply_lock:
+            self._require_mutable(record)
+            await self._require_verification_idle(record)
+            try:
+                payload = await self.worker.discard(record.worker_session_id)
+            except CodingWorkerError as exc:
+                raise _worker_http_error(exc) from exc
+            record.updated_at = time.time()
         return _public_changes(payload)
 
     async def verification_start(
@@ -470,14 +543,18 @@ class CodingService:
         revision: int,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
-        try:
-            payload = await self.worker.verification_start(
-                record.worker_session_id,
-                revision,
-            )
-        except CodingWorkerError as exc:
-            raise _worker_http_error(exc) from exc
-        record.updated_at = time.time()
+        if record.apply_lock.locked():
+            raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+        async with record.apply_lock:
+            self._require_mutable(record)
+            try:
+                payload = await self.worker.verification_start(
+                    record.worker_session_id,
+                    revision,
+                )
+            except CodingWorkerError as exc:
+                raise _worker_http_error(exc) from exc
+            record.updated_at = time.time()
         return _verification_from_worker(payload)
 
     async def verification_status(
@@ -508,17 +585,181 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        try:
-            payload = await self.worker.verification_cancel(
-                record.worker_session_id,
-                revision,
-            )
-        except CodingWorkerError as exc:
-            raise _worker_http_error(exc) from exc
-        record.updated_at = time.time()
+        if record.apply_lock.locked():
+            raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+        async with record.apply_lock:
+            self._require_mutable(record)
+            try:
+                payload = await self.worker.verification_cancel(
+                    record.worker_session_id,
+                    revision,
+                )
+            except CodingWorkerError as exc:
+                raise _worker_http_error(exc) from exc
+            record.updated_at = time.time()
         result = _verification_from_worker(payload)
         result["accepted"] = payload.get("accepted") is True
         return result
+
+    async def apply(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        async with record.apply_lock:
+            if record.apply_revision == revision and record.apply_state in {
+                ApplyState.APPLIED,
+                ApplyState.REVERTED,
+                ApplyState.FAILED,
+            }:
+                return self._public_apply(record, revision)
+            self._require_mutable(record)
+            changes = await self._current_changes(record)
+            if changes["revision"] != revision:
+                raise _http_error(status.HTTP_409_CONFLICT, "stale_revision")
+            if not changes["files"]:
+                raise _http_error(status.HTTP_409_CONFLICT, "draft_is_empty")
+            if (
+                changes["validation_status"] != "passed"
+                or changes["can_download"] is not True
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "validation_failed")
+            verification = await self._current_verification(record, revision)
+            paths = [item["path"] for item in changes["files"]]
+            if not _verification_allows_apply(verification, paths):
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    _verification_apply_reason(verification),
+                )
+            expected_fingerprint = await self._require_apply_available()
+            try:
+                patch = _safe_diff(
+                    await self.worker.patch(record.worker_session_id, revision)
+                )
+            except CodingWorkerError as exc:
+                raise _worker_http_error(exc) from exc
+            operation_id = secrets.token_urlsafe(18)
+            record.apply_state = ApplyState.APPLYING
+            record.apply_revision = revision
+            record.apply_operation_id = operation_id
+            record.apply_reason = None
+            record.apply_started_at = time.time()
+            record.apply_finished_at = None
+            record.updated_at = time.time()
+            try:
+                assert self.applier is not None
+                receipt = await self.applier.apply(
+                    operation_id=operation_id,
+                    revision=revision,
+                    patch=patch,
+                    paths=paths,
+                    expected_fingerprint=expected_fingerprint,
+                )
+                if (
+                    receipt.revision != revision
+                    or receipt.snapshot_fingerprint != expected_fingerprint
+                    or [item.path for item in receipt.files] != paths
+                ):
+                    try:
+                        await self.applier.revert(receipt)
+                    except ApplierClientError as revert_exc:
+                        raise ApplierClientError(
+                            "Coding application response could not be recovered.",
+                            code="rollback_failed",
+                        ) from revert_exc
+                    raise ApplierClientError(
+                        "Coding application receipt does not match the request.",
+                        code="invalid_response",
+                    )
+            except ApplierClientError as exc:
+                record.apply_state = ApplyState.FAILED
+                record.apply_reason = _safe_code(exc.code)
+                record.apply_finished_at = time.time()
+                record.updated_at = record.apply_finished_at
+                raise _applier_http_error(exc) from exc
+            record.apply_receipt = receipt
+            record.apply_state = ApplyState.APPLIED
+            record.apply_finished_at = time.time()
+            record.state = "applied"
+            record.updated_at = record.apply_finished_at
+            return self._public_apply(record, revision)
+
+    async def apply_status(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        record = self._get_session(session_id)
+        return self._public_apply(record, revision)
+
+    async def revert_apply(
+        self,
+        session_id: str,
+        revision: int,
+        apply_id: str,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        record = self._get_session(session_id)
+        async with record.apply_lock:
+            receipt = record.apply_receipt
+            if (
+                receipt is None
+                or record.apply_revision != revision
+                or receipt.apply_id != apply_id
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "apply_mismatch")
+            if record.apply_state is ApplyState.REVERTED:
+                return self._public_apply(record, revision)
+            if record.apply_state is not ApplyState.APPLIED:
+                if record.apply_state is ApplyState.FAILED:
+                    return self._public_apply(record, revision)
+                raise _http_error(status.HTTP_409_CONFLICT, "apply_not_revertible")
+            if self.applier is None:
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "applier_unavailable",
+                )
+            record.apply_state = ApplyState.REVERTING
+            record.apply_reason = None
+            record.updated_at = time.time()
+            try:
+                reverted = await self.applier.revert(receipt)
+                if reverted != receipt:
+                    raise ApplierClientError(
+                        "Coding revert receipt does not match.",
+                        code="invalid_response",
+                    )
+            except ApplierClientError as exc:
+                record.apply_state = ApplyState.FAILED
+                record.apply_reason = _safe_code(exc.code)
+                record.apply_finished_at = time.time()
+                record.updated_at = record.apply_finished_at
+                raise _applier_http_error(exc) from exc
+            record.apply_state = ApplyState.REVERTED
+            record.apply_finished_at = time.time()
+            record.state = "reverted"
+            record.updated_at = record.apply_finished_at
+            return self._public_apply(record, revision)
+
+    async def close_applied_session(self, session_id: str) -> dict[str, bool]:
+        await self.cleanup_expired()
+        record = self._get_session(session_id)
+        if record.state not in {"applied", "reverted"}:
+            raise _http_error(status.HTTP_409_CONFLICT, "session_not_frozen")
+        async with record.apply_lock:
+            try:
+                await self.worker.close(record.worker_session_id)
+            except CodingWorkerError as exc:
+                raise _worker_http_error(exc) from exc
+            async with self._lock:
+                self._sessions.pop(record.session_id, None)
+        return {"closed": True}
 
     async def stream_events(
         self,
@@ -563,6 +804,8 @@ class CodingService:
                 record
                 for record in self._sessions.values()
                 if record.state not in {"running", "cancelling"}
+                and record.apply_state
+                not in {ApplyState.APPLYING, ApplyState.REVERTING}
                 and current - record.updated_at >= self.ttl_seconds
             ]
             for record in expired:
@@ -577,14 +820,15 @@ class CodingService:
             records = list(self._sessions.values())
             self._sessions.clear()
         for record in records:
-            if record.turn_task is not None and not record.turn_task.done():
+            async with record.apply_lock:
+                if record.turn_task is not None and not record.turn_task.done():
+                    with contextlib.suppress(Exception):
+                        await self.worker.cancel(record.worker_session_id)
+                    record.turn_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await record.turn_task
                 with contextlib.suppress(Exception):
-                    await self.worker.cancel(record.worker_session_id)
-                record.turn_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await record.turn_task
-            with contextlib.suppress(Exception):
-                await self.worker.close(record.worker_session_id)
+                    await self.worker.close(record.worker_session_id)
 
     async def _run_turn(self, record: CodingApiSession, prompt: str) -> None:
         try:
@@ -661,6 +905,140 @@ class CodingService:
             reason = str(capabilities.get("reason") or "unavailable")
             raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, reason)
 
+    async def _apply_capability(
+        self,
+        worker_health: dict[str, Any],
+    ) -> dict[str, Any]:
+        capability: dict[str, Any] = {
+            "configured": False,
+            "available": False,
+            "target": "dedicated_worktree",
+            "requires_verification": True,
+            "allows_not_applicable": True,
+            "supports_revert": True,
+        }
+        worker_fingerprint = worker_health.get("snapshot_fingerprint")
+        if (
+            not isinstance(worker_fingerprint, str)
+            or SNAPSHOT_FINGERPRINT_PATTERN.fullmatch(worker_fingerprint) is None
+        ):
+            return {**capability, "reason": "snapshot_unavailable"}
+        if self.applier is None:
+            return {**capability, "reason": "applier_not_configured"}
+        try:
+            health = await self.applier.health()
+        except ApplierClientError as exc:
+            return {**capability, "reason": _safe_code(exc.code)}
+        except Exception:
+            return {**capability, "reason": "applier_unavailable"}
+        configured = health.get("configured") is True
+        response = {**capability, "configured": configured}
+        if not configured:
+            return {
+                **response,
+                "reason": _safe_code(
+                    health.get("reason") or "applier_not_configured"
+                ),
+            }
+        applier_fingerprint = health.get("snapshot_fingerprint")
+        if (
+            not isinstance(applier_fingerprint, str)
+            or applier_fingerprint != worker_fingerprint
+        ):
+            return {**response, "reason": "snapshot_mismatch"}
+        if health.get("available") is not True:
+            return {
+                **response,
+                "reason": _safe_code(health.get("reason") or "target_not_ready"),
+            }
+        return {**response, "available": True}
+
+    async def _require_apply_available(self) -> str:
+        if self.applier is None:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "applier_unavailable",
+            )
+        try:
+            worker_health = await self.worker.health()
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        capability = await self._apply_capability(worker_health)
+        if capability["available"] is not True:
+            reason = str(capability.get("reason") or "applier_unavailable")
+            status_code = (
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if reason in {
+                    "applier_not_configured",
+                    "applier_unavailable",
+                    "applier_timeout",
+                    "snapshot_unavailable",
+                }
+                else status.HTTP_409_CONFLICT
+            )
+            raise _http_error(status_code, reason)
+        fingerprint = worker_health.get("snapshot_fingerprint")
+        assert isinstance(fingerprint, str)
+        return fingerprint
+
+    async def _current_changes(
+        self,
+        record: CodingApiSession,
+    ) -> dict[str, Any]:
+        try:
+            payload = await self.worker.changes(record.worker_session_id)
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return _public_changes(payload)
+
+    async def _current_verification(
+        self,
+        record: CodingApiSession,
+        revision: int,
+    ) -> dict[str, Any]:
+        try:
+            payload = await self.worker.verification_status(
+                record.worker_session_id,
+                revision,
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return _verification_from_worker(payload)
+
+    @staticmethod
+    def _require_mutable(record: CodingApiSession) -> None:
+        if record.state in {"applied", "reverted"}:
+            raise _http_error(status.HTTP_409_CONFLICT, "session_frozen")
+        if record.apply_state in {ApplyState.APPLYING, ApplyState.REVERTING}:
+            raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+
+    @staticmethod
+    def _public_apply(
+        record: CodingApiSession,
+        revision: int,
+    ) -> dict[str, Any]:
+        if record.apply_revision != revision:
+            return {
+                **not_applied_payload(revision),
+                "started_at": None,
+                "finished_at": None,
+                "reason": None,
+            }
+        if record.apply_receipt is not None:
+            payload = record.apply_receipt.to_public(state=record.apply_state)
+        else:
+            payload = {
+                **not_applied_payload(revision),
+                "state": record.apply_state.value,
+                "file_count": 0,
+            }
+        return {
+            **payload,
+            "started_at": record.apply_started_at,
+            "finished_at": record.apply_finished_at,
+            "reason": record.apply_reason,
+        }
+
     async def _review_record(self, session_id: str) -> CodingApiSession:
         await self.cleanup_expired()
         if self.mode != "draft":
@@ -726,9 +1104,14 @@ def get_coding_service() -> CodingService:
             "CODING_AGENT_SOCKET_PATH",
             "/run/modelmirror-coding/coding-runtime.sock",
         )
+        applier_socket_path = os.getenv(
+            "CODING_APPLIER_SOCKET_PATH",
+            "/run/modelmirror-coding-apply/applier.sock",
+        )
         _service = CodingService(
             enabled=enabled,
             worker=CodingWorkerClient(Path(socket_path)),
+            applier=CodingApplierClient(Path(applier_socket_path)),
         )
     return _service
 
@@ -899,6 +1282,49 @@ async def validate_coding_session(session_id: str) -> dict[str, Any]:
 @router.post("/sessions/{session_id}/discard")
 async def discard_coding_session(session_id: str) -> dict[str, Any]:
     return await get_coding_service().discard(session_id)
+
+
+@router.post("/sessions/{session_id}/apply")
+async def apply_coding_session(
+    session_id: str,
+    payload: VerificationRevisionRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().apply(session_id, payload.revision)
+
+
+@router.get("/sessions/{session_id}/apply")
+async def coding_apply_status(
+    session_id: str,
+    response: Response,
+    revision: int = Query(ge=0),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().apply_status(session_id, revision)
+
+
+@router.post("/sessions/{session_id}/apply/revert")
+async def revert_coding_session_apply(
+    session_id: str,
+    payload: ApplyRevertRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().revert_apply(
+        session_id,
+        payload.revision,
+        payload.apply_id,
+    )
+
+
+@router.post("/sessions/{session_id}/close")
+async def close_applied_coding_session(
+    session_id: str,
+    response: Response,
+) -> dict[str, bool]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().close_applied_session(session_id)
 
 
 def _event_from_payload(payload: dict[str, Any]) -> CodingEvent:
@@ -1083,6 +1509,38 @@ def _safe_code(value: Any) -> str:
     return code[:64] or "unknown"
 
 
+def _verification_allows_apply(
+    verification: dict[str, Any],
+    paths: list[str],
+) -> bool:
+    if (
+        verification["state"] != "completed"
+        or verification["stale"] is not False
+    ):
+        return False
+    if verification["result"] == "passed":
+        return True
+    return (
+        verification["result"] == "not_applicable"
+        and verification["reason"] == "documentation_only"
+        and select_verification_plan(paths).reason == "documentation_only"
+    )
+
+
+def _verification_apply_reason(verification: dict[str, Any]) -> str:
+    if verification["stale"] is True:
+        return "verification_stale"
+    if verification["state"] == "running":
+        return "verification_in_progress"
+    if verification["state"] == "cancelled":
+        return "verification_cancelled"
+    if verification["result"] == "failed":
+        return "verification_failed"
+    if verification["reason"] == "dependency_change_unsupported":
+        return "dependency_change_unsupported"
+    return "verification_required"
+
+
 def _normalize_mode(value: Any) -> str:
     mode = str(value or "").strip().lower()
     return mode if mode in {"readonly", "draft"} else "invalid"
@@ -1096,7 +1554,11 @@ def _encode_sse(event: dict[str, Any]) -> str:
 
 
 def _http_error(status_code: int, code: str) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"code": _safe_code(code)})
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": _safe_code(code)},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _worker_http_error(exc: CodingWorkerError) -> HTTPException:
@@ -1124,4 +1586,21 @@ def _worker_http_error(exc: CodingWorkerError) -> HTTPException:
         "verification_not_found",
     }:
         return _http_error(status.HTTP_404_NOT_FOUND, exc.code)
+    return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)
+
+
+def _applier_http_error(exc: ApplierClientError) -> HTTPException:
+    if exc.code in {
+        "already_reverted",
+        "operation_conflict",
+        "patch_apply_failed",
+        "revert_conflict",
+        "snapshot_mismatch",
+        "target_changed",
+        "target_not_ready",
+        "unsafe_workspace_root",
+    }:
+        return _http_error(status.HTTP_409_CONFLICT, exc.code)
+    if exc.code in {"invalid_patch", "invalid_path", "invalid_request"}:
+        return _http_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code)
     return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)

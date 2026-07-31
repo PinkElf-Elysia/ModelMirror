@@ -343,7 +343,7 @@ class DraftWorkspace:
 
     def _scan_candidates(self) -> tuple[_Candidate, ...]:
         source_files = self._collect_files(self.source_root, enforce_paths=False)
-        workspace_files = self._collect_files(self.workspace_root, enforce_paths=True)
+        workspace_files = self._collect_files(self.workspace_root, enforce_paths=False)
 
         deleted_paths = sorted(source_files.keys() - workspace_files.keys())
         if deleted_paths:
@@ -363,6 +363,7 @@ class DraftWorkspace:
                 old_bytes = b""
                 status = "added"
 
+            path = self.normalize_relative_path(path)
             if len(new_bytes) > self.limits.max_file_bytes:
                 raise DraftPolicyError("file_too_large", path=path)
             old_text = self._decode_text(old_bytes, path)

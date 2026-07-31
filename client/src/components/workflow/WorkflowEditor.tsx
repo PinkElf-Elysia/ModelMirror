@@ -18,6 +18,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DEFAULT_CHAT_MODEL_ID } from "../../context/ModelPreferenceContext";
+import { DEFAULT_WORKFLOW_AGENT_MODEL_ID } from "../../data/modelOptions";
 import { models } from "../../data/models";
 import {
   type CodeOperation,
@@ -318,7 +319,7 @@ function createNodeData(
       title: "工作流智能体",
       description: "模型驱动的单步智能体执行节点。",
       agentName: "workflow-agent",
-      modelId: DEFAULT_CHAT_MODEL_ID,
+      modelId: DEFAULT_WORKFLOW_AGENT_MODEL_ID,
       rolePrompt: "你是负责执行当前工作流步骤的智能体，请直接输出结果。",
       taskInput: "{{user_input}}",
       toolMode: "none",
@@ -547,32 +548,35 @@ function initialDefinition(workflowId: string): WorkflowDefinition {
     position: { x: 0, y: 80 },
     data: createNodeData("input"),
   };
-  const llmNode: WorkflowNode = {
-    id: "llm-1",
+  const workflowAgentNode: WorkflowNode = {
+    id: "workflow-agent-1",
     type: "workflowNode",
     position: { x: 340, y: 80 },
-    data: createNodeData("llm"),
+    data: createNodeData("workflow_agent"),
   };
   const outputNode: WorkflowNode = {
     id: "output-1",
     type: "workflowNode",
     position: { x: 700, y: 80 },
-    data: createNodeData("output"),
+    data: {
+      ...createNodeData("output"),
+      outputVariable: "agent_output",
+    },
   };
 
   return {
     id: workflowId,
     title: "新建 AI 流水线",
-    nodes: [inputNode, llmNode, outputNode],
+    nodes: [inputNode, workflowAgentNode, outputNode],
     edges: [
       {
-        id: "edge-input-llm",
+        id: "edge-input-workflow-agent",
         source: inputNode.id,
-        target: llmNode.id,
+        target: workflowAgentNode.id,
       },
       {
-        id: "edge-llm-output",
-        source: llmNode.id,
+        id: "edge-workflow-agent-output",
+        source: workflowAgentNode.id,
         target: outputNode.id,
       },
     ],

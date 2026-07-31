@@ -20,7 +20,7 @@ RUN apt-get update \
 
 COPY --from=frontend_dependencies /usr/local/bin/node /usr/local/bin/node
 COPY --from=frontend_dependencies /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
-COPY --from=frontend_dependencies /opt/client/node_modules /opt/modelmirror-client-node_modules
+COPY --from=frontend_dependencies /opt/client/node_modules /opt/modelmirror-client/node_modules
 
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && groupadd --gid 65532 verifier \
