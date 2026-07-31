@@ -139,6 +139,11 @@ Server 能访问应用 socket，Runtime 与 Verifier 不能访问。
 排除。修正后已重新构建镜像，并在无网络、只读根目录的临时容器中确认目标健康
 检查返回 `available=true`。
 
+首次共享栈重建发现 Windows bind mount 的完整目标扫描约需 20 秒，若每次
+capabilities 都重复扫描，会超过 Server 3 秒和 Docker 5 秒的健康超时。修复将
+完整扫描前移到 Applier 启动阶段并缓存结果，容器启动宽限调整为 45 秒；真正
+`apply`、幂等复查和 `revert` 仍执行实时目标哈希校验，外部修改不能借缓存绕过。
+
 前端 Coding 懒加载块由第三轮的 13.00 KiB gzip 增至 15.50 KiB gzip，增量约
 2.50 KiB，低于 8 KiB 门禁。全量后端只出现 4 条既有 FastAPI `on_event` 弃用
 警告。人工验收目标只在第 7 个提交形成后从最终 HEAD 创建；在用户明确验收通过

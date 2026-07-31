@@ -120,6 +120,30 @@ def test_apply_rejects_target_with_extra_or_changed_content(
     assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
+def test_cached_health_stays_fast_but_apply_rechecks_target(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    engine = CodingApplierEngine(source, target, staging)
+    assert engine.health()["available"] is True
+
+    (target / "extra.txt").write_text("unexpected\n", encoding="utf-8")
+
+    assert engine.health()["available"] is True
+    with pytest.raises(CodingApplyError) as raised:
+        engine.apply(
+            operation_id=OPERATION_ID,
+            revision=1,
+            patch=modified_patch("server/app.py", "VALUE = 1\n", "VALUE = 2\n"),
+            paths=["server/app.py"],
+            expected_fingerprint=engine.source_fingerprint,
+        )
+
+    assert raised.value.code == "target_not_ready"
+    assert engine.health()["available"] is False
+    assert engine.health()["reason"] == "target_not_ready"
+
+
 def test_engine_requires_a_linked_worktree_git_pointer(
     roots: tuple[Path, Path, Path],
 ) -> None:
@@ -277,6 +301,13 @@ def test_revert_restores_exact_baseline_and_is_idempotent(
         paths=["server/app.py", "server/new_file.py"],
         expected_fingerprint=engine.source_fingerprint,
     )
+    assert engine.health() == {
+        "configured": True,
+        "available": False,
+        "target": "dedicated_worktree",
+        "snapshot_fingerprint": engine.source_fingerprint,
+        "reason": "target_changed",
+    }
 
     assert engine.revert(receipt) == receipt
     assert engine.revert(receipt) == receipt

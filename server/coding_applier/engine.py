@@ -69,8 +69,12 @@ class CodingApplierEngine:
             self.source_fingerprint = snapshot_fingerprint(self.source_root)
         except PatchPolicyError as exc:
             raise CodingApplyError(str(exc), code=exc.code) from exc
+        self._health_snapshot = self._inspect_health()
 
     def health(self) -> dict[str, object]:
+        return dict(self._health_snapshot)
+
+    def _inspect_health(self) -> dict[str, object]:
         result: dict[str, object] = {
             "configured": True,
             "available": False,
@@ -84,6 +88,17 @@ class CodingApplierEngine:
             return result
         result["available"] = True
         return result
+
+    def _record_health(self, *, available: bool, reason: str | None = None) -> None:
+        result: dict[str, object] = {
+            "configured": True,
+            "available": available,
+            "target": "dedicated_worktree",
+            "snapshot_fingerprint": self.source_fingerprint,
+        }
+        if reason is not None:
+            result["reason"] = reason
+        self._health_snapshot = result
 
     def apply(
         self,
@@ -134,7 +149,11 @@ class CodingApplierEngine:
                     "Apply snapshot does not match the source.",
                     code="snapshot_mismatch",
                 )
-            self._assert_target_matches_baseline()
+            try:
+                self._assert_target_matches_baseline()
+            except CodingApplyError as exc:
+                self._record_health(available=False, reason=exc.code)
+                raise
             try:
                 self._prepare_staging(patch)
                 receipt = self._build_receipt(
@@ -144,6 +163,9 @@ class CodingApplierEngine:
                 )
                 self._assert_target_matches_baseline()
                 self._write_applied_files(receipt)
+            except CodingApplyError as exc:
+                self._record_health(available=False, reason=exc.code)
+                raise
             finally:
                 self._clear_staging()
 
@@ -154,6 +176,7 @@ class CodingApplierEngine:
                 paths=safe_paths,
                 receipt=receipt,
             )
+            self._record_health(available=False, reason="target_changed")
             return receipt
 
     def revert(self, receipt: ApplyReceipt) -> ApplyReceipt:
@@ -173,6 +196,7 @@ class CodingApplierEngine:
                             "The target changed after revert.",
                             code="revert_conflict",
                         ) from exc
+                    self._record_health(available=True)
                     return operation.receipt
             if receipt.snapshot_fingerprint != self.source_fingerprint:
                 raise CodingApplyError(
@@ -185,7 +209,9 @@ class CodingApplierEngine:
                 with contextlib.suppress(CodingApplyError):
                     self._assert_target_matches_baseline()
                     if operation is not None and operation.reverted:
+                        self._record_health(available=True)
                         return operation.receipt
+                self._record_health(available=False, reason="revert_conflict")
                 raise CodingApplyError(
                     "The target changed after application.",
                     code="revert_conflict",
@@ -202,6 +228,7 @@ class CodingApplierEngine:
                     receipt=operation.receipt,
                     reverted=True,
                 )
+            self._record_health(available=True)
             return receipt
 
     def _validate_roots(self) -> None:
