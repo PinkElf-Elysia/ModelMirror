@@ -243,6 +243,32 @@ export default function CodingPage() {
         applyResult.state,
       ),
   );
+  const resetExpiredSession = useCallback(
+    (activeSessionId: string) => {
+      if (sessionId !== activeSessionId) return false;
+      closeStreamRef.current?.();
+      closeStreamRef.current = null;
+      setSessionId(null);
+      lastSeqRef.current = 0;
+      clearStoredCodingSession();
+      setEvents([]);
+      setDraftChanges(null);
+      setDraftLoading(false);
+      setDraftError("");
+      setDraftNotice("");
+      setVerification(null);
+      setVerificationError("");
+      setApplyResult(null);
+      setApplyError("");
+      setRunState("idle");
+      setTransportWarning("");
+      setError(
+        "代码服务已重新启动，之前的临时记录已结束。你可以重新描述需求并开始处理。",
+      );
+      return true;
+    },
+    [sessionId],
+  );
 
   const loadCapabilities = useCallback(async () => {
     setCapabilityState("loading");
@@ -288,7 +314,15 @@ export default function CodingPage() {
         if (active) setVerification(result);
       })
       .catch((requestError) => {
-        if (active) setVerificationError(describeError(requestError));
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setVerificationError(describeError(requestError));
       });
     return () => {
       active = false;
@@ -297,6 +331,7 @@ export default function CodingPage() {
     draftChanges?.files.length,
     draftChanges?.revision,
     isDraftMode,
+    resetExpiredSession,
     sessionId,
     verificationAvailable,
   ]);
@@ -325,7 +360,15 @@ export default function CodingPage() {
           setVerificationError("");
         }
       } catch (requestError) {
-        if (active) setVerificationError(describeError(requestError));
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setVerificationError(describeError(requestError));
       } finally {
         polling = false;
       }
@@ -335,7 +378,12 @@ export default function CodingPage() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [sessionId, verification?.revision, verificationRunning]);
+  }, [
+    resetExpiredSession,
+    sessionId,
+    verification?.revision,
+    verificationRunning,
+  ]);
 
   const answer = useMemo(
     () =>
@@ -361,12 +409,19 @@ export default function CodingPage() {
           : await getCodingChanges(activeSessionId);
         setDraftChanges(result);
       } catch (requestError) {
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(activeSessionId);
+          return;
+        }
         setDraftError(describeError(requestError));
       } finally {
         setDraftLoading(false);
       }
     },
-    [],
+    [resetExpiredSession],
   );
 
   useEffect(() => {
@@ -402,7 +457,15 @@ export default function CodingPage() {
         if (active) setApplyResult(result);
       })
       .catch((requestError) => {
-        if (active) setApplyError(describeError(requestError));
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setApplyError(describeError(requestError));
       });
     return () => {
       active = false;
@@ -411,6 +474,7 @@ export default function CodingPage() {
     draftChanges?.files.length,
     draftChanges?.revision,
     isDraftMode,
+    resetExpiredSession,
     sessionId,
   ]);
 
@@ -425,28 +489,15 @@ export default function CodingPage() {
           requestError instanceof CodingApiError &&
           requestError.code === "session_not_found"
         ) {
-          closeStreamRef.current?.();
-          closeStreamRef.current = null;
-          setSessionId(null);
-          lastSeqRef.current = 0;
-          clearStoredCodingSession();
-          setEvents([]);
-          setDraftChanges(null);
-          setVerification(null);
-          setApplyResult(null);
-          setApplyError("");
-          setRunState("idle");
-          setTransportWarning("");
-          setPrompt(submittedPrompt);
-          setError(
-            "代码服务已重新启动，旧记录已结束。问题已放回输入框，请重新提交。",
-          );
+          if (resetExpiredSession(activeSessionId)) {
+            setPrompt(submittedPrompt);
+          }
         }
       } finally {
         sessionProbeInFlightRef.current = false;
       }
     },
-    [],
+    [resetExpiredSession],
   );
 
   const tools = useMemo<ToolActivity[]>(() => {
