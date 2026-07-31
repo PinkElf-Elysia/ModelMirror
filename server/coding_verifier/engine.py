@@ -9,6 +9,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
@@ -120,9 +121,10 @@ class SubprocessVerificationRunner:
             )
         runtime_root = workspace / ".modelmirror-verifier"
         home = runtime_root / "home"
-        temporary = runtime_root / "tmp"
+        temporary = Path(tempfile.gettempdir()).resolve() / ".mmv-tmp"
         data_root = runtime_root / "data"
-        for path in (home, temporary, data_root):
+        _prepare_temporary_root(temporary)
+        for path in (home, data_root):
             path.mkdir(parents=True, exist_ok=True)
         environment = {
             "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -142,41 +144,59 @@ class SubprocessVerificationRunner:
             "SKILL_TMP_DIR": str(data_root / "skills-tmp"),
             "DATAX_STORAGE_DIR": str(data_root / "datax"),
         }
-        started = time.monotonic()
-        process = await asyncio.create_subprocess_exec(
-            *command.argv,
-            cwd=str(workspace),
-            env=environment,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=os.name == "posix",
-        )
-        assert process.stdout is not None and process.stderr is not None
-        stdout_task = asyncio.create_task(_read_bounded_stream(process.stdout))
-        stderr_task = asyncio.create_task(_read_bounded_stream(process.stderr))
         try:
-            await asyncio.wait_for(process.wait(), timeout=command.timeout_seconds)
-        except TimeoutError as exc:
-            await _terminate_process(process)
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            raise VerificationEngineError(
-                "Verification step timed out.",
-                code="command_timeout",
-            ) from exc
-        except asyncio.CancelledError:
-            await _terminate_process(process)
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-            raise
-        stdout, stdout_truncated = await stdout_task
-        stderr, stderr_truncated = await stderr_task
-        return CommandResult(
-            exit_code=int(process.returncode or 0),
-            stdout=stdout,
-            stderr=stderr,
-            duration_ms=round((time.monotonic() - started) * 1000),
-            output_truncated=stdout_truncated or stderr_truncated,
-        )
+            started = time.monotonic()
+            process = await asyncio.create_subprocess_exec(
+                *command.argv,
+                cwd=str(workspace),
+                env=environment,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name == "posix",
+            )
+            assert process.stdout is not None and process.stderr is not None
+            stdout_task = asyncio.create_task(
+                _read_bounded_stream(process.stdout)
+            )
+            stderr_task = asyncio.create_task(
+                _read_bounded_stream(process.stderr)
+            )
+            try:
+                await asyncio.wait_for(
+                    process.wait(),
+                    timeout=command.timeout_seconds,
+                )
+            except TimeoutError as exc:
+                await _terminate_process(process)
+                await asyncio.gather(
+                    stdout_task,
+                    stderr_task,
+                    return_exceptions=True,
+                )
+                raise VerificationEngineError(
+                    "Verification step timed out.",
+                    code="command_timeout",
+                ) from exc
+            except asyncio.CancelledError:
+                await _terminate_process(process)
+                await asyncio.gather(
+                    stdout_task,
+                    stderr_task,
+                    return_exceptions=True,
+                )
+                raise
+            stdout, stdout_truncated = await stdout_task
+            stderr, stderr_truncated = await stderr_task
+            return CommandResult(
+                exit_code=int(process.returncode or 0),
+                stdout=stdout,
+                stderr=stderr,
+                duration_ms=round((time.monotonic() - started) * 1000),
+                output_truncated=stdout_truncated or stderr_truncated,
+            )
+        finally:
+            _clear_temporary_root(temporary)
 
 
 class CodingVerifierEngine:
@@ -428,6 +448,39 @@ def _make_workspace_writable(root: Path) -> None:
         raise VerificationEngineError(
             "Verifier workspace could not be prepared.",
             code="workspace_unavailable",
+        ) from exc
+
+
+def _prepare_temporary_root(root: Path) -> None:
+    if root.parent == root or root.name != ".mmv-tmp":
+        raise VerificationEngineError(
+            "Verifier temporary root is unsafe.",
+            code="unsafe_temporary_root",
+        )
+    _clear_temporary_root(root)
+    try:
+        root.mkdir(mode=0o700)
+    except OSError as exc:
+        raise VerificationEngineError(
+            "Verifier temporary root could not be prepared.",
+            code="temporary_root_unavailable",
+        ) from exc
+
+
+def _clear_temporary_root(root: Path) -> None:
+    if root.is_symlink() or (root.exists() and not root.is_dir()):
+        raise VerificationEngineError(
+            "Verifier temporary root is unsafe.",
+            code="unsafe_temporary_root",
+        )
+    if not root.exists():
+        return
+    try:
+        shutil.rmtree(root)
+    except OSError as exc:
+        raise VerificationEngineError(
+            "Verifier temporary root could not be cleared.",
+            code="temporary_cleanup_failed",
         ) from exc
 
 

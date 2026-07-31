@@ -5,6 +5,7 @@ import difflib
 import os
 import stat
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -469,6 +470,41 @@ async def test_subprocess_runner_bounds_output(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert result.output_truncated is True
     assert len(result.stdout.encode("utf-8")) <= 64 * 1024
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="Unix socket check requires POSIX")
+async def test_subprocess_runner_uses_short_cleaned_socket_temp_root(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "current"
+    workspace.mkdir()
+    script = (
+        "import pathlib,socket,tempfile;"
+        "root=pathlib.Path(tempfile.mkdtemp(prefix='pytest-of-verifier-'))"
+        "/'pytest-0'/'test_socket_round_trip_exposes0';"
+        "root.mkdir(parents=True);"
+        "path=root/'applier.sock';"
+        "sock=socket.socket(socket.AF_UNIX);"
+        "sock.bind(str(path));"
+        "print(path);"
+        "sock.close()"
+    )
+    runner = SubprocessVerificationRunner(
+        {
+            VerificationStepId.BACKEND_TESTS: FixedCommand(
+                argv=(sys.executable, "-c", script),
+                timeout_seconds=10,
+            )
+        }
+    )
+
+    result = await runner.run(VerificationStepId.BACKEND_TESTS, workspace)
+
+    temporary = Path(tempfile.gettempdir()).resolve() / ".mmv-tmp"
+    assert result.exit_code == 0
+    assert str(temporary) in result.stdout
+    assert temporary.exists() is False
 
 
 @pytest.mark.asyncio
