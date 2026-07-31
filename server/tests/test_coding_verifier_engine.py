@@ -13,6 +13,11 @@ from server.coding_runtime.verification import (
     VerificationState,
     VerificationStepId,
 )
+from server.coding_runtime.patch_policy import (
+    PatchPolicyError,
+    snapshot_fingerprint as shared_snapshot_fingerprint,
+    validate_patch,
+)
 from server.coding_verifier.engine import (
     CodingVerifierEngine,
     CommandResult,
@@ -103,6 +108,22 @@ def test_snapshot_fingerprint_changes_with_content(source_root: Path) -> None:
     assert snapshot_fingerprint(source_root) != original
 
 
+def test_shared_fingerprint_can_ignore_only_named_root_entry(
+    source_root: Path,
+) -> None:
+    original = shared_snapshot_fingerprint(source_root)
+    (source_root / ".git").write_text("gitdir: ignored\n", encoding="utf-8")
+
+    assert (
+        shared_snapshot_fingerprint(
+            source_root,
+            ignored_root_names={".git"},
+        )
+        == original
+    )
+    assert shared_snapshot_fingerprint(source_root) != original
+
+
 def test_snapshot_fingerprint_rejects_symlinks(
     source_root: Path,
     tmp_path: Path,
@@ -134,6 +155,10 @@ def test_patch_validation_matches_expected_paths() -> None:
         patch,
         expected_paths=["server/app.py"],
     ) == ("server/app.py",)
+    assert validate_patch(
+        patch,
+        expected_paths=["server/app.py"],
+    ) == ("server/app.py",)
 
 
 @pytest.mark.parametrize(
@@ -156,6 +181,11 @@ def test_patch_validation_matches_expected_paths() -> None:
 def test_patch_validation_rejects_unsafe_forms(patch: str) -> None:
     with pytest.raises(VerificationEngineError):
         validate_verification_patch(
+            patch,
+            expected_paths=["server/app.py"],
+        )
+    with pytest.raises(PatchPolicyError):
+        validate_patch(
             patch,
             expected_paths=["server/app.py"],
         )
