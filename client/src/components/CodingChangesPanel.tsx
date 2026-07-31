@@ -12,8 +12,11 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import CodingApplyPanel from "./CodingApplyPanel";
 import CodingVerificationPanel from "./CodingVerificationPanel";
 import type {
+  CodingApplyResult,
+  CodingCapabilities,
   CodingDraftChanges,
   CodingDraftFile,
   CodingVerification,
@@ -21,14 +24,21 @@ import type {
 import { CodingApiError, getCodingDiff } from "../utils/codingApi";
 
 interface CodingChangesPanelProps {
+  applyCapability: CodingCapabilities["apply"];
+  applyError: string;
+  applyResult: CodingApplyResult | null;
   changes: CodingDraftChanges | null;
   disabled: boolean;
+  frozen: boolean;
   loading: boolean;
+  onApply: () => Promise<void>;
+  onClose: () => Promise<void>;
   onDiscard: () => Promise<void>;
   onDownload: () => Promise<void>;
   onCancelVerification: () => Promise<void>;
   onRequestFix: (prompt: string) => void;
   onRunVerification: () => Promise<void>;
+  onRevert: () => Promise<void>;
   onValidate: () => Promise<void>;
   sessionId: string | null;
   verification: CodingVerification | null;
@@ -80,14 +90,21 @@ function lineStyle(line: string) {
 }
 
 export default function CodingChangesPanel({
+  applyCapability,
+  applyError,
+  applyResult,
   changes,
   disabled,
+  frozen,
   loading,
+  onApply,
+  onClose,
   onDiscard,
   onDownload,
   onCancelVerification,
   onRequestFix,
   onRunVerification,
+  onRevert,
   onValidate,
   sessionId,
   verification,
@@ -110,6 +127,7 @@ export default function CodingChangesPanel({
     setMessage("");
   }, [
     changes?.revision,
+    frozen,
     sessionId,
     verification?.result,
     verification?.stale,
@@ -186,7 +204,11 @@ export default function CodingChangesPanel({
             <h2 className="text-sm font-semibold text-white">本轮修改</h2>
           </div>
           <p className="mt-1.5 max-w-2xl text-xs leading-5 text-slate-400">
-            这些文件只存在于临时副本，真实项目没有改变。展开文件可以逐行查看增加和移除的内容。
+            {applyResult?.state === "reverted"
+              ? "以下记录继续保留供你查看；专用项目副本已恢复，当前项目目录没有改变。"
+              : applyResult?.apply_id
+                ? "以下修改已写入专用项目副本，当前项目目录没有改变。你仍可展开文件逐行查看。"
+                : "这些文件只存在于临时副本，当前项目目录没有改变。展开文件可以逐行查看增加和移除的内容。"}
           </p>
         </div>
         {hasChanges ? (
@@ -349,7 +371,9 @@ export default function CodingChangesPanel({
 
             <CodingVerificationPanel
               available={verificationAvailable}
-              disabled={disabled || isActing || !changes.can_download}
+              disabled={
+                disabled || frozen || isActing || !changes.can_download
+              }
               error={verificationError}
               onCancel={onCancelVerification}
               onRequestFix={onRequestFix}
@@ -357,10 +381,22 @@ export default function CodingChangesPanel({
               verification={verification}
             />
 
+            <CodingApplyPanel
+              capability={applyCapability}
+              changes={changes}
+              disabled={disabled || isActing || verificationRunning}
+              error={applyError}
+              onApply={onApply}
+              onClose={onClose}
+              onRevert={onRevert}
+              result={applyResult}
+              verification={verification}
+            />
+
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={disabled || isActing}
+                disabled={disabled || frozen || isActing}
                 onClick={() =>
                   void runAction("checking", onValidate)
                 }
@@ -400,7 +436,9 @@ export default function CodingChangesPanel({
               </button>
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={disabled || isActing || verificationRunning}
+                disabled={
+                  disabled || frozen || isActing || verificationRunning
+                }
                 onClick={() => setConfirmDiscard(true)}
                 type="button"
               >
