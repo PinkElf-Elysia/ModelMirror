@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
@@ -29,11 +30,29 @@ class PatchPolicyError(RuntimeError):
         self.code = code
 
 
+@dataclass(frozen=True, slots=True)
+class SnapshotManifest:
+    entries: frozenset[tuple[str, str]]
+    file_hashes: tuple[tuple[str, str], ...]
+    fingerprint: str
+
+
 def snapshot_fingerprint(
     root: Path,
     *,
     ignored_root_names: Iterable[str] = (),
 ) -> str:
+    return snapshot_manifest(
+        root,
+        ignored_root_names=ignored_root_names,
+    ).fingerprint
+
+
+def snapshot_manifest(
+    root: Path,
+    *,
+    ignored_root_names: Iterable[str] = (),
+) -> SnapshotManifest:
     resolved = root.resolve()
     ignored = frozenset(ignored_root_names)
     if (
@@ -47,6 +66,8 @@ def snapshot_fingerprint(
             code="source_snapshot_unavailable",
         )
     digest = hashlib.sha256()
+    entries: set[tuple[str, str]] = set()
+    file_hashes: list[tuple[str, str]] = []
     for path in sorted(resolved.rglob("*")):
         relative_path = path.relative_to(resolved)
         if relative_path.parts and relative_path.parts[0] in ignored:
@@ -57,8 +78,14 @@ def snapshot_fingerprint(
                 "Source snapshot contains a symlink.",
                 code="source_snapshot_unsafe",
             )
-        if not path.is_file():
+        if path.is_dir():
+            entries.add(("directory", relative))
             continue
+        if not path.is_file():
+            raise PatchPolicyError(
+                "Source snapshot contains an unsupported file.",
+                code="source_snapshot_unsafe",
+            )
         try:
             content = path.read_bytes()
         except OSError as exc:
@@ -66,12 +93,19 @@ def snapshot_fingerprint(
                 "Source snapshot could not be read.",
                 code="source_snapshot_unavailable",
             ) from exc
+        content_hash = hashlib.sha256(content)
+        entries.add(("file", relative))
+        file_hashes.append((relative, content_hash.hexdigest()))
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
         digest.update(str(len(content)).encode("ascii"))
         digest.update(b"\0")
-        digest.update(hashlib.sha256(content).digest())
-    return digest.hexdigest()
+        digest.update(content_hash.digest())
+    return SnapshotManifest(
+        entries=frozenset(entries),
+        file_hashes=tuple(file_hashes),
+        fingerprint=digest.hexdigest(),
+    )
 
 
 def validate_patch(

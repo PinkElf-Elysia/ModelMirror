@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from server.coding_applier import engine as applier_engine
 from server.coding_applier.engine import CodingApplierEngine
 from server.coding_runtime.apply_models import CodingApplyError
 
@@ -220,12 +221,29 @@ def test_patch_staging_failure_is_cleaned(
 
 def test_read_only_snapshot_is_writable_only_in_staging(
     roots: tuple[Path, Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source, target, staging = roots
     for path in source.rglob("*"):
         path.chmod(0o555 if path.is_dir() else 0o444)
     source.chmod(0o555)
+    manifest_calls: list[Path] = []
+    original_manifest = applier_engine.snapshot_manifest
+
+    def tracked_manifest(
+        root: Path,
+        *,
+        ignored_root_names: set[str] | tuple[str, ...] = (),
+    ):
+        manifest_calls.append(root.resolve())
+        return original_manifest(
+            root,
+            ignored_root_names=ignored_root_names,
+        )
+
+    monkeypatch.setattr(applier_engine, "snapshot_manifest", tracked_manifest)
     engine = CodingApplierEngine(source, target, staging)
+    manifest_calls.clear()
     patch = (
         "diff --git a/docs/coding-acceptance-EFA757BD.md "
         "b/docs/coding-acceptance-EFA757BD.md\n"
@@ -251,6 +269,7 @@ def test_read_only_snapshot_is_writable_only_in_staging(
     assert staging.exists() is False
     assert source.stat().st_mode & 0o222 == 0
     assert (source / "server/app.py").stat().st_mode & 0o222 == 0
+    assert manifest_calls == [target.resolve(), target.resolve()]
 
 
 def test_multi_file_failure_restores_every_written_file(

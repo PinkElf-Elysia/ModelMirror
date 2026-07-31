@@ -20,7 +20,8 @@ from server.coding_runtime.apply_models import (
 from server.coding_runtime.draft_workspace import DraftLimits
 from server.coding_runtime.patch_policy import (
     PatchPolicyError,
-    snapshot_fingerprint,
+    SnapshotManifest,
+    snapshot_manifest,
     validate_patch,
 )
 
@@ -66,9 +67,10 @@ class CodingApplierEngine:
         self._operations: dict[str, _Operation] = {}
         self._validate_roots()
         try:
-            self.source_fingerprint = snapshot_fingerprint(self.source_root)
+            self._source_manifest = snapshot_manifest(self.source_root)
         except PatchPolicyError as exc:
             raise CodingApplyError(str(exc), code=exc.code) from exc
+        self.source_fingerprint = self._source_manifest.fingerprint
         self._health_snapshot = self._inspect_health()
 
     def health(self) -> dict[str, object]:
@@ -161,7 +163,6 @@ class CodingApplierEngine:
                     revision=revision,
                     paths=safe_paths,
                 )
-                self._assert_target_matches_baseline()
                 self._write_applied_files(receipt)
             except CodingApplyError as exc:
                 self._record_health(available=False, reason=exc.code)
@@ -275,28 +276,26 @@ class CodingApplierEngine:
                 "Dedicated target metadata is unavailable.",
                 code="target_not_ready",
             )
-        source_entries = _snapshot_entries(self.source_root)
-        target_entries = _snapshot_entries(
-            self.target_root,
-            ignored_root_names={".git"},
-        )
-        if source_entries != target_entries:
+        target_manifest = self._target_manifest()
+        if self._source_manifest.entries != target_manifest.entries:
             raise CodingApplyError(
                 "Dedicated target has unexpected files.",
                 code="target_not_ready",
             )
+        if target_manifest.fingerprint != self.source_fingerprint:
+            raise CodingApplyError(
+                "Dedicated target does not match the source snapshot.",
+                code="target_not_ready",
+            )
+
+    def _target_manifest(self) -> SnapshotManifest:
         try:
-            target_fingerprint = snapshot_fingerprint(
+            return snapshot_manifest(
                 self.target_root,
                 ignored_root_names={".git"},
             )
         except PatchPolicyError as exc:
             raise CodingApplyError(str(exc), code="target_not_ready") from exc
-        if target_fingerprint != self.source_fingerprint:
-            raise CodingApplyError(
-                "Dedicated target does not match the source snapshot.",
-                code="target_not_ready",
-            )
 
     def _prepare_staging(self, patch: str) -> None:
         self._clear_staging()
@@ -523,12 +522,8 @@ class CodingApplierEngine:
                 )
 
     def _assert_target_matches_receipt(self, receipt: ApplyReceipt) -> None:
-        expected_entries = set(_snapshot_entries(self.source_root))
-        expected_files = {
-            relative: _file_sha256(self.source_root / relative)
-            for kind, relative in expected_entries
-            if kind == "file"
-        }
+        expected_entries = set(self._source_manifest.entries)
+        expected_files = dict(self._source_manifest.file_hashes)
         for item in receipt.files:
             expected_files[item.path] = item.after_sha256
             if not item.existed_before:
@@ -537,22 +532,17 @@ class CodingApplierEngine:
                 while parent != Path("."):
                     expected_entries.add(("directory", parent.as_posix()))
                     parent = parent.parent
-        target_entries = _snapshot_entries(
-            self.target_root,
-            ignored_root_names={".git"},
-        )
-        if target_entries != frozenset(expected_entries):
+        target_manifest = self._target_manifest()
+        if target_manifest.entries != frozenset(expected_entries):
             raise CodingApplyError(
                 "Applied target contains unexpected files.",
                 code="target_changed",
             )
-        for relative, expected_hash in expected_files.items():
-            target = self.target_root / relative
-            if not target.is_file() or _file_sha256(target) != expected_hash:
-                raise CodingApplyError(
-                    "Applied target changed after application.",
-                    code="target_changed",
-                )
+        if dict(target_manifest.file_hashes) != expected_files:
+            raise CodingApplyError(
+                "Applied target changed after application.",
+                code="target_changed",
+            )
 
     def _notify_mutation(self, phase: str, index: int, path: str) -> None:
         if self._mutation_hook is not None:
@@ -600,41 +590,6 @@ def _retry_remove_readonly(
 ) -> None:
     os.chmod(path, 0o700)
     function(path)
-
-
-def _snapshot_entries(
-    root: Path,
-    *,
-    ignored_root_names: set[str] | None = None,
-) -> frozenset[tuple[str, str]]:
-    ignored = ignored_root_names or set()
-    entries: set[tuple[str, str]] = set()
-    try:
-        for path in sorted(root.rglob("*")):
-            relative_path = path.relative_to(root)
-            if relative_path.parts and relative_path.parts[0] in ignored:
-                continue
-            if path.is_symlink():
-                raise CodingApplyError(
-                    "Snapshot contains a symbolic link.",
-                    code="target_not_ready",
-                )
-            relative = relative_path.as_posix()
-            if path.is_dir():
-                entries.add(("directory", relative))
-            elif path.is_file():
-                entries.add(("file", relative))
-            else:
-                raise CodingApplyError(
-                    "Snapshot contains an unsupported file.",
-                    code="target_not_ready",
-                )
-    except OSError as exc:
-        raise CodingApplyError(
-            "Snapshot could not be inspected.",
-            code="target_not_ready",
-        ) from exc
-    return frozenset(entries)
 
 
 def _prepare_temp_file(parent: Path, content: bytes, *, mode: int = 0o644) -> Path:
