@@ -480,7 +480,7 @@ async def test_subprocess_runner_uses_short_cleaned_socket_temp_root(
     workspace = tmp_path / "current"
     workspace.mkdir()
     script = (
-        "import pathlib,socket,tempfile;"
+        "import os,pathlib,socket,stat,tempfile;"
         "root=pathlib.Path(tempfile.mkdtemp(prefix='pytest-of-verifier-'))"
         "/'pytest-0'/'test_socket_round_trip_exposes0';"
         "root.mkdir(parents=True);"
@@ -488,7 +488,17 @@ async def test_subprocess_runner_uses_short_cleaned_socket_temp_root(
         "sock=socket.socket(socket.AF_UNIX);"
         "sock.bind(str(path));"
         "print(path);"
-        "sock.close()"
+        "sock.close();"
+        "temporary=pathlib.Path(os.environ['TMPDIR']);"
+        "locked=temporary/'locked';"
+        "locked.mkdir();"
+        "locked_file=locked/'readonly.txt';"
+        "locked_file.write_text('locked');"
+        "locked_file.chmod(stat.S_IRUSR);"
+        "locked.chmod(stat.S_IRUSR|stat.S_IXUSR);"
+        "outside=pathlib.Path('outside.txt');"
+        "outside.write_text('keep');"
+        "(temporary/'outside-link').symlink_to(outside.resolve())"
     )
     runner = SubprocessVerificationRunner(
         {
@@ -505,6 +515,7 @@ async def test_subprocess_runner_uses_short_cleaned_socket_temp_root(
     assert result.exit_code == 0
     assert str(temporary) in result.stdout
     assert temporary.exists() is False
+    assert (workspace / "outside.txt").read_text() == "keep"
 
 
 @pytest.mark.asyncio

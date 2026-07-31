@@ -476,12 +476,52 @@ def _clear_temporary_root(root: Path) -> None:
     if not root.exists():
         return
     try:
+        _make_tree_removable(root)
         shutil.rmtree(root)
     except OSError as exc:
         raise VerificationEngineError(
             "Verifier temporary root could not be cleared.",
             code="temporary_cleanup_failed",
         ) from exc
+
+
+def _make_tree_removable(root: Path) -> None:
+    root.chmod(
+        root.lstat().st_mode
+        | stat.S_IRUSR
+        | stat.S_IWUSR
+        | stat.S_IXUSR
+    )
+    for current, directories, files in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+    ):
+        current_path = Path(current)
+        if not current_path.is_symlink():
+            current_path.chmod(
+                current_path.lstat().st_mode
+                | stat.S_IRUSR
+                | stat.S_IWUSR
+                | stat.S_IXUSR
+            )
+        for name in directories:
+            path = current_path / name
+            if path.is_symlink():
+                continue
+            path.chmod(
+                path.lstat().st_mode
+                | stat.S_IRUSR
+                | stat.S_IWUSR
+                | stat.S_IXUSR
+            )
+        for name in files:
+            path = current_path / name
+            if path.is_symlink():
+                continue
+            path.chmod(
+                path.lstat().st_mode | stat.S_IRUSR | stat.S_IWUSR
+            )
 
 
 def snapshot_fingerprint(root: Path) -> str:
