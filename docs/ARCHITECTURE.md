@@ -37,6 +37,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | Browser / Sandbox sidecar | 受控浏览器和无网络沙箱执行。 |
 | OmniRoute sidecar | 可选兼容、诊断和紧急回退；不是普通用户控制面。 |
 | OpenCode + 最小 ACP Worker | 实验性代码问答与修改草稿执行面；单实例、默认关闭。 |
+| Coding Verifier | 用户手动触发的草稿项目验证执行面；无网络、固定命令、可选启动。 |
 
 ## 系统架构
 
@@ -63,6 +64,8 @@ flowchart LR
   API --> SANDBOX["Sandbox sidecar"]
   API -->|"Unix socket"| CODER["coding-runtime"]
   CODER -->|"internal network"| GW
+  CODER -->|"Patch + revision / Unix socket"| VERIFY["coding-verifier"]
+  VERIFY -. "network_mode: none" .-> OFFLINE["无网络"]
 ```
 
 ## 稳定路由
@@ -135,6 +138,10 @@ flowchart LR
   构建时排除环境文件、密钥和运行产物后，将净化源码快照复制到镜像内只读目录。
   Readonly 模式在会话副本上只读运行；Draft 模式把副本复制到 256 MiB 的
   `nosuid,noexec` tmpfs。宿主仓库从不挂载给 Worker，网络仅可到内部 newAPI。
+- Coding Verifier 是独立的可选进程边界。Worker 只向它发送当前 revision 的内部
+  Patch、变化路径和快照指纹；Verifier 重新校验并应用到 1 GiB 临时副本。其根文件
+  系统和基准快照只读，网络为 `none`，不接收模型密钥、宿主路径、Docker socket
+  或用户命令。Verifier 故障不得影响 Draft、Diff 或 Patch 下载。
 - 视频、音频、Prompt 和首帧媒体正文不写入路由或视频任务审计。
 
 ## 当前风险与维护边界
@@ -145,6 +152,8 @@ flowchart LR
 - 静态模型快照与实时目录需要定期校准，价格快照必须标注日期。
 - OmniRoute 是可选回退，不得成为普通用户必须理解的配置入口。
 - `/coding` 仅适用于本地单实例实验。Draft 只能新增或修改临时 UTF-8 文本，
-  不会写回宿主仓库；仍不提供仓库选择、删除/重命名、Shell、Git、测试执行、
-  重启恢复、多 Agent、分布式 Worker 或生产多租户能力。
+  不会写回宿主仓库。用户可在独立 Verifier 中手动运行固定的后端全量测试或
+  前端生产构建，但 Agent 仍不能使用 Shell、Git、测试命令或选择测试范围；系统
+  仍不提供仓库选择、删除/重命名、重启恢复、多 Agent、分布式 Worker 或生产
+  多租户能力。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。
