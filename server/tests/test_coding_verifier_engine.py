@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -217,6 +218,54 @@ async def test_engine_applies_patch_and_cleans_workspace(
     assert (source_root / "server/app.py").read_text(encoding="utf-8") == (
         "VALUE = 1\n"
     )
+
+
+@pytest.mark.asyncio
+async def test_engine_adds_file_from_read_only_container_snapshot(
+    source_root: Path,
+    tmp_path: Path,
+) -> None:
+    snapshot_paths = [source_root, *source_root.rglob("*")]
+    try:
+        for path in snapshot_paths:
+            path.chmod(
+                path.stat().st_mode
+                & ~stat.S_IWUSR
+                & ~stat.S_IWGRP
+                & ~stat.S_IWOTH
+            )
+        runner = FakeRunner()
+        workspace = tmp_path / "workspace"
+        engine = CodingVerifierEngine(source_root, workspace, runner=runner)
+        patch = (
+            "diff --git a/server/added.py b/server/added.py\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/server/added.py\n"
+            "@@ -0,0 +1 @@\n"
+            "+VALUE = 2\n"
+        )
+
+        report = await engine.verify(
+            revision=2,
+            patch=patch,
+            paths=["server/added.py"],
+            expected_fingerprint=engine.source_fingerprint,
+        )
+
+        assert report.result is VerificationResult.PASSED
+        assert runner.calls == [
+            (
+                VerificationStepId.BACKEND_TESTS,
+                "def test_value():\n    assert True\n",
+            )
+        ]
+        assert workspace.exists() is False
+        assert (source_root / "server/added.py").exists() is False
+        assert source_root.stat().st_mode & stat.S_IWUSR == 0
+    finally:
+        for path in snapshot_paths:
+            path.chmod(path.stat().st_mode | stat.S_IWUSR)
 
 
 @pytest.mark.asyncio

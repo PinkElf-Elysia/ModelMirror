@@ -6,6 +6,7 @@ import inspect
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -371,6 +372,7 @@ class CodingVerifierEngine:
     ) -> None:
         self._clear_workspace()
         shutil.copytree(self.source_root, self.workspace_root, symlinks=False)
+        _make_workspace_writable(self.workspace_root)
         _apply_patch(self.workspace_root, patch)
         if restore_baseline_tests:
             tests_root = self.workspace_root / "server" / "tests"
@@ -379,6 +381,7 @@ class CodingVerifierEngine:
             source_tests = self.source_root / "server" / "tests"
             if source_tests.is_dir():
                 shutil.copytree(source_tests, tests_root, symlinks=False)
+                _make_workspace_writable(tests_root)
         if self.frontend_dependencies is not None:
             node_modules = self.workspace_root / "client" / "node_modules"
             if node_modules.exists() or node_modules.is_symlink():
@@ -400,6 +403,32 @@ class CodingVerifierEngine:
                 code="unsafe_workspace_root",
             )
         shutil.rmtree(self.workspace_root)
+
+
+def _make_workspace_writable(root: Path) -> None:
+    try:
+        paths = [root, *root.rglob("*")]
+        for path in paths:
+            if path.is_symlink():
+                raise VerificationEngineError(
+                    "Verifier workspace contains a symbolic link.",
+                    code="unsafe_workspace_root",
+                )
+            mode = path.stat().st_mode
+            if path.is_dir():
+                path.chmod(mode | stat.S_IWUSR | stat.S_IXUSR)
+            elif path.is_file():
+                path.chmod(mode | stat.S_IWUSR)
+            else:
+                raise VerificationEngineError(
+                    "Verifier workspace contains an unsupported file.",
+                    code="unsafe_workspace_root",
+                )
+    except OSError as exc:
+        raise VerificationEngineError(
+            "Verifier workspace could not be prepared.",
+            code="workspace_unavailable",
+        ) from exc
 
 
 def snapshot_fingerprint(root: Path) -> str:
