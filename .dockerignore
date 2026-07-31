@@ -9,6 +9,9 @@
 **/.env.*
 **/*.key
 **/*.pem
+!.env.example
+!client/.env.example
+!server/.env.example
 
 node_modules
 **/node_modules

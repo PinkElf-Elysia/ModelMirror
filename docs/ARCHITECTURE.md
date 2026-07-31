@@ -38,6 +38,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | OmniRoute sidecar | 可选兼容、诊断和紧急回退；不是普通用户控制面。 |
 | OpenCode + 最小 ACP Worker | 实验性代码问答与修改草稿执行面；单实例、默认关闭。 |
 | Coding Verifier | 用户手动触发的草稿项目验证执行面；无网络、固定命令、可选启动。 |
+| Coding Applier | 把满足门禁的草稿原子写入固定专用工作树；无网络、无 Git 操作、可选启动。 |
 
 ## 系统架构
 
@@ -66,6 +67,9 @@ flowchart LR
   CODER -->|"internal network"| GW
   CODER -->|"Patch + revision / Unix socket"| VERIFY["coding-verifier"]
   VERIFY -. "network_mode: none" .-> OFFLINE["无网络"]
+  API -->|"独立 Unix socket"| APPLY["coding-applier"]
+  APPLY -->|"原子应用 / 安全撤销"| TARGET["固定专用工作树"]
+  APPLY -. "network_mode: none" .-> OFFLINE
 ```
 
 ## 稳定路由
@@ -135,13 +139,22 @@ flowchart LR
   bind mount 持久化。
 - Browser 与 Sandbox 是独立进程边界；Sandbox 默认无网络。
 - Coding Runtime 是默认关闭的独立进程边界，只通过 Unix socket 接入 FastAPI；
-  构建时排除环境文件、密钥和运行产物后，将净化源码快照复制到镜像内只读目录。
+  构建时排除私有环境文件、密钥和运行产物，仅保留仓库追踪的安全占位模板，再将
+  净化源码快照复制到镜像内只读目录。
   Readonly 模式在会话副本上只读运行；Draft 模式把副本复制到 256 MiB 的
   `nosuid,noexec` tmpfs。宿主仓库从不挂载给 Worker，网络仅可到内部 newAPI。
 - Coding Verifier 是独立的可选进程边界。Worker 只向它发送当前 revision 的内部
   Patch、变化路径和快照指纹；Verifier 重新校验并应用到 1 GiB 临时副本。其根文件
   系统和基准快照只读，网络为 `none`，不接收模型密钥、宿主路径、Docker socket
   或用户命令。Verifier 故障不得影响 Draft、Diff 或 Patch 下载。
+- Coding Applier 只在显式加载独立 Compose overlay 后存在。Server 通过与
+  Runtime/Verifier 隔离的 Unix socket 发送内部 Patch、revision 和快照指纹；
+  浏览器与 Agent 都不能提交路径、命令、分支或 Git 参数。Applier 无网络、无
+  模型密钥、无 Docker socket，只把部署时固定的专用工作树挂载为 `/target`，
+  并把 `/target/.git` 单独覆盖为只读。
+- 应用前，Applier 再次复核 Patch，并要求目标除 `.git` 外与内置净化快照完全
+  一致；先在 tmpfs 预演，再以原文件哈希保护执行原子写入。任一步失败会恢复
+  已写文件。撤销只有在目标仍精确保持应用后状态时才执行，避免覆盖人工修改。
 - 视频、音频、Prompt 和首帧媒体正文不写入路由或视频任务审计。
 
 ## 当前风险与维护边界
@@ -151,9 +164,12 @@ flowchart LR
 - 当前没有完整用户、组织、RBAC 或公网控制台安全模型。
 - 静态模型快照与实时目录需要定期校准，价格快照必须标注日期。
 - OmniRoute 是可选回退，不得成为普通用户必须理解的配置入口。
-- `/coding` 仅适用于本地单实例实验。Draft 只能新增或修改临时 UTF-8 文本，
-  不会写回宿主仓库。用户可在独立 Verifier 中手动运行固定的后端全量测试或
-  前端生产构建，但 Agent 仍不能使用 Shell、Git、测试命令或选择测试范围；系统
-  仍不提供仓库选择、删除/重命名、重启恢复、多 Agent、分布式 Worker 或生产
-  多租户能力。
+- `/coding` 仅适用于本地单实例实验。Draft 只能新增或修改临时 UTF-8 文本；
+  默认不会写回宿主目录。显式启用受控应用后，只有轻量检查通过且当前项目验证
+  `passed`（纯文档允许 `not_applicable`）的 revision 才能写入固定专用工作树。
+  当前主工作树不挂载给 Applier，系统也不提交、推送或创建 PR。
+- 应用成功后会话冻结；Diff、Patch 和验证结果仍可读。一次安全撤销依赖 Server
+  内存中的临时凭据，重启后不保证可用，应删除并重建专用工作树回退。Agent 仍
+  不能使用 Shell、Git、测试命令或选择测试范围；系统仍不提供任意仓库选择、
+  删除/重命名、重启恢复、多次增量应用、多 Agent、分布式 Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。

@@ -24,6 +24,7 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `office-host` | 否 | `office` profile；实验性 Office Add-in host。 |
 | `coding-runtime` | 否 | `coding` profile；单实例代码问答与修改草稿执行面，无宿主端口。 |
 | `coding-verifier` | 否 | `coding-verify` profile；无网络的草稿项目验证执行面，无宿主端口。 |
+| `coding-applier` | 否 | 独立 overlay 的 `coding-apply` profile；把已验证草稿写入固定专用工作树。 |
 
 启动默认栈：
 
@@ -136,10 +137,11 @@ curl http://localhost:8000/api/coding/capabilities
 ```
 
 `coding-runtime` 仅加入 `internal: true` 网络并通过 Unix socket 连接 FastAPI。
-构建时会排除环境文件、密钥和运行产物，再把净化源码快照复制进只读镜像目录；
-会话副本位于 256 MiB 的 `nosuid,noexec` tmpfs，容器根文件系统仍只读，且不映射
-宿主端口或宿主仓库。它是实验性本地单实例能力，不应直接暴露到公网。完整边界和
-人工验收见 [CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
+构建时会排除私有环境文件、密钥和运行产物，只保留仓库追踪的安全占位模板，再把
+净化源码快照复制进只读镜像目录；会话副本位于 256 MiB 的 `nosuid,noexec`
+tmpfs，容器根文件系统仍只读，且不映射宿主端口或宿主仓库。它是实验性本地
+单实例能力，不应直接暴露到公网。完整边界和人工验收见
+[CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
 
 `coding-verifier` 通过同一私有 socket volume 接收 Worker 生成的 Patch，不加入
 任何网络。容器使用非 root、只读根文件系统、1 GiB `nosuid,noexec` tmpfs，并固定
@@ -149,6 +151,43 @@ curl http://localhost:8000/api/coding/capabilities
 
 若只需第二轮草稿能力，可省略 `coding-verify` profile。此时页面会明确提示验证
 服务未启动，但查看 Diff、轻量检查和下载仍可使用。
+
+#### 受控应用到专用工作树
+
+受控应用必须显式加载 `docker-compose.coding-apply.yml`。未加载时，基础 Compose
+不会读取或创建任何宿主目标路径，第三轮 Draft、Diff、验证和下载保持原样。
+
+先从将要构建镜像的同一提交创建一个干净、分离 HEAD 的专用工作树。以下路径仅为
+本地验收示例，不要指向当前主工作树或正在开发的工作树：
+
+```bash
+git worktree add --detach C:\tmp\modelmirror-coding-apply-target-v4 <implementation-head-sha>
+```
+
+确认目标 `git status --short` 为空，并在 Compose 读取的根 `.env` 或当前启动环境
+设置绝对路径：
+
+```bash
+CODING_APPLY_WORKTREE=C:\tmp\modelmirror-coding-apply-target-v4
+```
+
+然后显式加载基础文件与 overlay：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply up -d --build --force-recreate
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply ps
+curl http://localhost:8000/api/coding/capabilities
+```
+
+overlay 使用长语法 bind mount 和 `create_host_path: false`；变量缺失或目录不存在时
+配置/启动失败，不会自动创建目录。Applier 只挂载固定 `/target`，并把工作树的
+`.git` 指针文件单独只读挂载。容器无网络、端口、模型密钥和 Docker socket；
+Runtime 与 Verifier 也不能访问它的独立 socket。
+
+应用前目标必须仍与镜像基准完全一致：除 `.git` 外不能有修改、额外文件或符号
+链接。成功应用后页面可在当前会话内执行一次安全撤销；如果有人又编辑了目标，
+撤销会拒绝覆盖。Server 重启后不保证保留撤销凭据，此时应删除并从相同提交重新
+创建这个专用工作树。不要让自动清理脚本删除用户未确认的工作树。
 
 ## 反向代理
 
@@ -187,8 +226,8 @@ curl http://localhost:5173/studio
   不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
-- 启用后检查 Coding capabilities、Worker/Verifier health、验证取消清理、快照
-  指纹和源码 Git 状态。
+- 启用后检查 Coding capabilities、Worker/Verifier/Applier health、验证取消
+  清理、三方快照指纹和源码 Git 状态。Capabilities 与日志不得返回目标绝对路径。
 
 ## 备份与恢复
 
@@ -211,10 +250,12 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：先停止并省略 `coding-verify` profile，可恢复第二轮草稿能力；设置
+- 代码助手：先停止 `coding-applier` 并不再加载
+  `docker-compose.coding-apply.yml`，即可恢复第三轮验证能力；无需改变或删除专用
+  工作树。再省略 `coding-verify` profile 可恢复第二轮草稿能力。设置
   `CODING_AGENT_MODE=readonly` 可关闭草稿编辑；需要完全关闭时设置
   `CODING_AGENT_ENABLED=false` 并停止 `coding-runtime`。没有持久化验证结果、
-  会话或数据迁移需要恢复。
+  应用凭据、会话或数据迁移需要恢复。
 - 可选 profile 故障不得通过删除核心数据解决。
 
 legacy `/api/dify/*` 健康只表示兼容代理配置状态，不是平台健康门禁。
