@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { DEFAULT_CHAT_MODEL_ID } from "../../data/modelOptions";
 import { models } from "../../data/models";
 import { type WorkflowDefinition } from "../../types/workflow";
 import { type XpertDraft, type XpertSummary } from "../../types/xpert";
@@ -50,6 +51,12 @@ interface CapabilitySnapshot {
   prompt_profiles: CapabilityItem[];
   default_scope: MetaPlannerScope;
 }
+
+const DEFAULT_META_PLANNER_MODEL_ID = models.some(
+  (model) => model.id === DEFAULT_CHAT_MODEL_ID,
+)
+  ? DEFAULT_CHAT_MODEL_ID
+  : (models[0]?.id ?? "");
 
 interface PlannerTask {
   task_id: string;
@@ -252,10 +259,10 @@ export default function MetaPlannerV2() {
   const [mode, setMode] = useState<"create" | "update">("create");
   const [targetXpertId, setTargetXpertId] = useState("");
   const [plannerModelId, setPlannerModelId] = useState(
-    plannerModels[0]?.id ?? models[0]?.id ?? "",
+    DEFAULT_META_PLANNER_MODEL_ID,
   );
   const [agentModelId, setAgentModelId] = useState(
-    plannerModels[0]?.id ?? models[0]?.id ?? "",
+    DEFAULT_META_PLANNER_MODEL_ID,
   );
   const [temperature, setTemperature] = useState(0.2);
   const [maxAgents, setMaxAgents] = useState(5);
