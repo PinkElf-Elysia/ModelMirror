@@ -409,10 +409,24 @@ class CodingVerifierEngine:
                     "Frontend dependency target is unsafe.",
                     code="unsafe_frontend_dependencies",
                 )
-            node_modules.symlink_to(
-                self.frontend_dependencies,
-                target_is_directory=True,
-            )
+            try:
+                node_modules.mkdir()
+                for dependency in sorted(self.frontend_dependencies.iterdir()):
+                    if dependency.name == ".tmp":
+                        continue
+                    (node_modules / dependency.name).symlink_to(
+                        dependency,
+                        target_is_directory=dependency.is_dir(),
+                    )
+                # TypeScript project builds write their incremental metadata here.
+                # Keep only this directory writable and inside the per-run workspace;
+                # the locked dependency tree remains read-only behind symlinks.
+                (node_modules / ".tmp").mkdir(mode=0o700)
+            except OSError as exc:
+                raise VerificationEngineError(
+                    "Frontend dependencies could not be prepared.",
+                    code="frontend_dependencies_unavailable",
+                ) from exc
 
     def _clear_workspace(self) -> None:
         if not self.workspace_root.exists():

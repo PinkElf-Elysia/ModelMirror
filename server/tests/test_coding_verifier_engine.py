@@ -41,7 +41,8 @@ class FakeRunner:
         self.results = dict(results or {})
         self.wait_for_cancel = wait_for_cancel
         self.calls: list[tuple[VerificationStepId, str]] = []
-        self.frontend_dependencies: list[Path | None] = []
+        self.frontend_dependencies: list[tuple[Path, ...]] = []
+        self.frontend_temp_writable: list[bool] = []
         self.started = asyncio.Event()
 
     async def run(
@@ -55,8 +56,23 @@ class FakeRunner:
         self.calls.append((step_id, observed_test))
         node_modules = workspace / "client/node_modules"
         self.frontend_dependencies.append(
-            node_modules.resolve() if node_modules.is_symlink() else None
+            tuple(
+                sorted(
+                    item.resolve()
+                    for item in node_modules.iterdir()
+                    if item.name != ".tmp" and item.is_symlink()
+                )
+            )
+            if node_modules.is_dir()
+            else ()
         )
+        temporary = node_modules / ".tmp"
+        if temporary.is_dir():
+            marker = temporary / "tsconfig.test.tsbuildinfo"
+            marker.write_text("isolated", encoding="utf-8")
+            self.frontend_temp_writable.append(marker.read_text() == "isolated")
+        else:
+            self.frontend_temp_writable.append(False)
         self.started.set()
         if self.wait_for_cancel:
             await asyncio.Future()
@@ -347,6 +363,12 @@ async def test_engine_links_preinstalled_frontend_dependencies(
 ) -> None:
     dependencies = tmp_path / "dependencies"
     dependencies.mkdir()
+    package = dependencies / "example-package"
+    package.mkdir()
+    (package / "package.json").write_text(
+        '{"name":"example-package"}\n',
+        encoding="utf-8",
+    )
     runner = FakeRunner()
     engine = CodingVerifierEngine(
         source_root,
@@ -367,7 +389,9 @@ async def test_engine_links_preinstalled_frontend_dependencies(
     )
 
     assert report.result is VerificationResult.PASSED
-    assert runner.frontend_dependencies == [dependencies.resolve()]
+    assert runner.frontend_dependencies == [((package.resolve()),)]
+    assert runner.frontend_temp_writable == [True]
+    assert (dependencies / ".tmp").exists() is False
     assert (source_root / "client/node_modules").exists() is False
 
 
