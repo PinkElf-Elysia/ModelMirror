@@ -307,6 +307,7 @@ class CodingWorkerServer:
                         ),
                         "version": 1,
                         "mode": mode,
+                        "snapshot_fingerprint": self._source_fingerprint,
                         "verification": await self._verification_health(),
                     },
                 )
