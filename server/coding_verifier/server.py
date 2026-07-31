@@ -37,7 +37,7 @@ SOCKET_PATH = Path(
 )
 SOURCE_ROOT = Path("/opt/modelmirror-source")
 WORKSPACE_ROOT = Path("/workspace/current")
-FRONTEND_DEPENDENCIES = Path("/opt/modelmirror-client-node_modules")
+FRONTEND_DEPENDENCIES = Path("/opt/modelmirror-client/node_modules")
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 

@@ -69,7 +69,7 @@ The image is built from the official Python 3.12 and Node.js 22 slim images and
 installs Debian's Git package only to apply an internally generated patch with
 fixed arguments. Python packages retain their metadata under the image's Python
 site-packages directory; npm packages retain their license and package metadata
-under `/opt/modelmirror-client-node_modules`. Their upstream licenses remain
+under `/opt/modelmirror-client/node_modules`. Their upstream licenses remain
 unchanged.
 
 ## Browser sidecar
