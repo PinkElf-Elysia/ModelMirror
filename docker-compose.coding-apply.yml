@@ -1,0 +1,60 @@
+services:
+  server:
+    environment:
+      CODING_APPLIER_SOCKET_PATH: /run/modelmirror-coding-apply/applier.sock
+    volumes:
+      - coding_apply_socket:/run/modelmirror-coding-apply
+
+  coding-applier:
+    profiles:
+      - coding-apply
+    build:
+      context: .
+      dockerfile: server/coding_applier/Dockerfile
+    container_name: modelmirror-coding-applier
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 256m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=32m,uid=65532,gid=65532,mode=0700
+      - /staging:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
+      - /home/applier:rw,nosuid,noexec,size=16m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_APPLIER_SOCKET_PATH: /run/modelmirror-coding-apply/applier.sock
+    volumes:
+      - coding_apply_socket:/run/modelmirror-coding-apply
+      - type: bind
+        source: ${CODING_APPLY_WORKTREE:?Set CODING_APPLY_WORKTREE to a dedicated clean worktree}
+        target: /target
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CODING_APPLY_WORKTREE:?Set CODING_APPLY_WORKTREE to a dedicated clean worktree}/.git
+        target: /target/.git
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 5s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-apply/applier.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  coding_apply_socket:
