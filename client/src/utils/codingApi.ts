@@ -77,6 +77,12 @@ export function createCodingSession() {
   });
 }
 
+export function getCodingSessionStatus(sessionId: string) {
+  return requestJson<{ state: string }>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}`,
+  );
+}
+
 export function startCodingTurn(sessionId: string, prompt: string) {
   return requestJson<CodingTurnResponse>(
     `/api/coding/sessions/${encodeURIComponent(sessionId)}/turns`,

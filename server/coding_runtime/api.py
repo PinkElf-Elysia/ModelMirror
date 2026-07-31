@@ -389,6 +389,11 @@ class CodingService:
         record.turn_task = asyncio.create_task(self._run_turn(record, prompt))
         return record
 
+    async def session_status(self, session_id: str) -> dict[str, str]:
+        await self.cleanup_expired()
+        record = self._get_session(session_id)
+        return {"state": record.state}
+
     async def cancel(self, session_id: str) -> bool:
         await self.cleanup_expired()
         record = self._get_session(session_id)
@@ -765,6 +770,15 @@ async def create_coding_turn(
 ) -> dict[str, Any]:
     record = await get_coding_service().start_turn(session_id, payload.prompt)
     return {"accepted": True, "status": record.state}
+
+
+@router.get("/sessions/{session_id}")
+async def coding_session_status(
+    session_id: str,
+    response: Response,
+) -> dict[str, str]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().session_status(session_id)
 
 
 @router.get("/sessions/{session_id}/events")

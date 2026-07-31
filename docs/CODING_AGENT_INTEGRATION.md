@@ -60,6 +60,7 @@ flowchart LR
 | --- | --- |
 | `GET /api/coding/capabilities` | 查询功能是否启用、当前模式及输入/草稿限制。 |
 | `POST /api/coding/sessions` | 创建一个临时问答或草稿记录。 |
+| `GET /api/coding/sessions/{id}` | 检查临时记录是否仍存在；不返回问题、回答或文件内容。 |
 | `POST /api/coding/sessions/{id}/turns` | 提交问题；请求体只允许 `prompt`。 |
 | `GET /api/coding/sessions/{id}/events?after=<seq>` | 通过 SSE 接收事件，并按序号续读。 |
 | `POST /api/coding/sessions/{id}/cancel` | 停止当前分析；重复调用安全。 |

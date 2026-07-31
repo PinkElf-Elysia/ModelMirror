@@ -41,6 +41,7 @@ import {
   getCodingCapabilities,
   getCodingChanges,
   getCodingPatch,
+  getCodingSessionStatus,
   getCodingVerification,
   startCodingTurn,
   startCodingVerification,
@@ -218,6 +219,7 @@ export default function CodingPage() {
   const [verificationError, setVerificationError] = useState("");
   const closeStreamRef = useRef<null | (() => void)>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const sessionProbeInFlightRef = useRef(false);
   const lastSeqRef = useRef(restoredSessionRef.current?.lastSeq ?? 0);
   const isDraftMode = capabilities?.mode === "draft";
   const verificationAvailable =
@@ -348,6 +350,39 @@ export default function CodingPage() {
     [],
   );
 
+  const recoverExpiredSession = useCallback(
+    async (activeSessionId: string, submittedPrompt: string) => {
+      if (sessionProbeInFlightRef.current) return;
+      sessionProbeInFlightRef.current = true;
+      try {
+        await getCodingSessionStatus(activeSessionId);
+      } catch (requestError) {
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          closeStreamRef.current?.();
+          closeStreamRef.current = null;
+          setSessionId(null);
+          lastSeqRef.current = 0;
+          clearStoredCodingSession();
+          setEvents([]);
+          setDraftChanges(null);
+          setVerification(null);
+          setRunState("idle");
+          setTransportWarning("");
+          setPrompt(submittedPrompt);
+          setError(
+            "代码服务已重新启动，旧记录已结束。问题已放回输入框，请重新提交。",
+          );
+        }
+      } finally {
+        sessionProbeInFlightRef.current = false;
+      }
+    },
+    [],
+  );
+
   const tools = useMemo<ToolActivity[]>(() => {
     const byId = new Map<string, ToolActivity>();
     events
@@ -458,6 +493,7 @@ export default function CodingPage() {
         onEvent: handleCodingEvent,
         onTransportError: () => {
           setTransportWarning("回答连接暂时中断，页面正在自动恢复。");
+          void recoverExpiredSession(activeSessionId, question);
         },
       });
     } catch (requestError) {

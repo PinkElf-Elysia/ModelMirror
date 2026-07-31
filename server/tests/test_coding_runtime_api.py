@@ -391,6 +391,24 @@ async def test_normal_turn_streams_canonical_sanitized_events(make_client) -> No
 
 
 @pytest.mark.asyncio
+async def test_session_status_is_content_free_and_missing_is_explicit(
+    make_client,
+) -> None:
+    client, _, _ = await make_client()
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        current = await client.get(f"/api/coding/sessions/{session_id}")
+        missing = await client.get("/api/coding/sessions/missing-session")
+
+    assert current.status_code == 200
+    assert current.json() == {"state": "ready"}
+    assert current.headers["cache-control"] == "no-store"
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "session_not_found"
+
+
+@pytest.mark.asyncio
 async def test_sse_can_resume_after_sequence(make_client) -> None:
     client, _, _ = await make_client()
     async with client:
