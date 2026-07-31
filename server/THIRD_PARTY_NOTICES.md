@@ -58,6 +58,20 @@ distributed under the MIT License or the Unlicense.
 
 Project: https://github.com/BurntSushi/ripgrep
 
+## Coding Verifier
+
+The optional `coding-verify` profile uses the project's locked CPython and
+Node.js dependency sets to run fixed backend tests and frontend builds in a
+separate offline container. It does not install OpenCode and does not accept
+runtime package installation.
+
+The image is built from the official Python 3.12 and Node.js 22 slim images and
+installs Debian's Git package only to apply an internally generated patch with
+fixed arguments. Python packages retain their metadata under the image's Python
+site-packages directory; npm packages retain their license and package metadata
+under `/opt/modelmirror-client-node_modules`. Their upstream licenses remain
+unchanged.
+
 ## Browser sidecar
 
 The isolated Browser sidecar uses Playwright 1.58.2 under the Apache License

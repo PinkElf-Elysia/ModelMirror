@@ -8,12 +8,13 @@
 `/coding` 是实验性的单实例代码协作入口。默认 `readonly` 模式允许用户用自然
 语言询问 ModelMirror 功能和代码关系；显式启用 `draft` 后，代码助手还可以在
 容器内一次性副本中准备可审阅的文本修改。页面会显示回答、修改文件、逐文件
-Diff、轻量检查结果和停止按钮。
+Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独立项目验证，按变化
+范围运行固定的后端测试或前端生产构建。
 
 两种模式都只使用服务端固定的 ModelMirror 镜像快照。Draft 不会写回真实仓库，
-也不支持删除、重命名、二进制、Shell、测试执行、Git 操作、远程仓库、多 Agent、
-完整 ACP、自动 push/PR、分布式 Worker、重启恢复或生产级多租户。不要将该入口
-直接暴露到公网。
+也不支持删除、重命名、二进制、Agent Shell/测试命令、Git 操作、远程仓库、
+多 Agent、完整 ACP、自动 push/PR、分布式 Worker、重启恢复或生产级多租户。
+不要将该入口直接暴露到公网。
 
 ## 用户体验约束
 
@@ -26,6 +27,10 @@ Diff、轻量检查结果和停止按钮。
 - Draft 模式明确显示“修改草稿，不会直接改变项目”。回答完成后自动列出文件、
   增删行和检查结果；逐文件 Diff 在页面内滚动，不撑宽移动端。
 - “放弃修改”必须二次确认；检查失败时保留草稿供修正，但禁用下载。
+- “项目验证”由用户手动运行，使用“检查服务代码”“检查页面构建”等日常语言。
+  运行时可停止，失败详情默认折叠；“让代码助手修复”只填入摘要，不自动提交。
+- 未运行或失败的项目验证不阻止下载，但必须原位警告并让用户再次确认；验证服务
+  未启动时，Diff、轻量检查和下载继续可用。
 - `/coding` 独立懒加载，不侵入 ChatPage，也不新增前端依赖。
 
 ## 内部结构
@@ -39,6 +44,10 @@ flowchart LR
   SOURCE["只读基准快照 /opt/modelmirror-source"] -->|"会话创建时复制"| WORK["临时 /workspace"]
   OC --> WORK
   OC -->|"内部网络"| GW["newAPI"]
+  WORKER -->|"revision + 内部 Patch"| VERIFY["coding-verifier"]
+  SOURCE2["Verifier 只读基准快照"] --> VERIFY
+  VERIFY --> CHECKS["固定后端测试 / 前端构建"]
+  VERIFY -. "无网络、无宿主仓库" .-> HOST["宿主仓库"]
   WORK -. "不挂载" .-> HOST["宿主仓库"]
 ```
 
@@ -51,14 +60,21 @@ flowchart LR
 | --- | --- |
 | `GET /api/coding/capabilities` | 查询功能是否启用、当前模式及输入/草稿限制。 |
 | `POST /api/coding/sessions` | 创建一个临时问答或草稿记录。 |
+| `GET /api/coding/sessions/{id}` | 检查临时记录是否仍存在；不返回问题、回答或文件内容。 |
 | `POST /api/coding/sessions/{id}/turns` | 提交问题；请求体只允许 `prompt`。 |
 | `GET /api/coding/sessions/{id}/events?after=<seq>` | 通过 SSE 接收事件，并按序号续读。 |
 | `POST /api/coding/sessions/{id}/cancel` | 停止当前分析；重复调用安全。 |
 | `GET /api/coding/sessions/{id}/changes` | 返回当前 revision、文件统计和最近检查结果。 |
 | `GET /api/coding/sessions/{id}/diff?path=&revision=` | 返回指定 revision 的单文件统一 Diff。 |
-| `GET /api/coding/sessions/{id}/patch?revision=` | 检查通过后下载完整 `.patch`。 |
+| `GET /api/coding/sessions/{id}/patch?revision=` | 轻量检查通过后下载完整 `.patch`。 |
 | `POST /api/coding/sessions/{id}/validate` | 重新执行固定的轻量检查，不接受命令参数。 |
 | `POST /api/coding/sessions/{id}/discard` | 放弃全部草稿并使旧 revision 失效。 |
+| `POST /api/coding/sessions/{id}/verification` | 为指定 revision 启动项目验证；返回 `202`。 |
+| `GET /api/coding/sessions/{id}/verification?revision=` | 查询运行状态、结论和固定步骤摘要。 |
+| `POST /api/coding/sessions/{id}/verification/cancel` | 停止指定 revision 的验证；重复调用安全。 |
+
+Capabilities 中的 `verification.available` 表示 Verifier 当前是否可用，
+`required_for_patch=false` 表示项目验证不作为 Patch 下载硬门禁。
 
 公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、完成、失败、
 取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答或工具输出。
@@ -97,8 +113,25 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
   Python/JSON 等可修正问题保留草稿但禁止下载；硬性安全失败自动回滚本轮。
 - 合法变化可跨轮累积；“放弃修改”恢复基准快照并使旧 revision 失效。
 
-这些检查不是 pytest、TypeScript 构建或完整项目测试，下载后的 Patch 仍需由
-开发者审阅和验证。
+这些轻量检查不是完整项目测试。项目验证是额外的用户手动步骤；无论结果如何，
+下载后的 Patch 仍需由开发者审阅。
+
+## 隔离项目验证
+
+- `coding-verifier` 位于独立 `coding-verify` profile，使用非 root、只读根目录、
+  无特权、无宿主端口、无 Docker socket 和 `network_mode: none`。
+- Worker 只发送当前 revision 的内部 Patch、变化路径和快照指纹。Verifier 不接收
+  宿主路径、模型密钥或用户命令，并再次检查 Patch 路径、大小和文件状态。
+- Worker 与 Verifier 的净化快照指纹必须一致；不一致时结果为“未运行”，Draft
+  主功能不降级。
+- 仅变化 `server/**` 时运行后端全量测试，仅变化 `client/**` 时运行前端生产
+  构建；混合、根目录或未知代码路径运行两项，纯文档变化为“不适用”。
+- 变化 `server/tests/**` 时先用不可修改的基准测试验证草稿代码，再运行草稿测试；
+  变化依赖清单或锁文件时不联网安装，结果为“未运行”。
+- 固定上限为后端 300 秒、前端 240 秒、整次 600 秒。取消会终止进程组并清理
+  1 GiB 临时工作区。
+- 输出按步骤聚合、脱敏和截断。验证期间禁止新 Agent 轮次与放弃草稿，但 Diff 和
+  Patch 保持可读；revision 变化后旧结果标记 stale。
 
 ## 配置与启动
 
@@ -119,8 +152,8 @@ CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
 人工重建命令：
 
 ```bash
-docker compose -p modelmirror --profile coding up -d --build --force-recreate
-docker compose -p modelmirror --profile coding ps
+docker compose -p modelmirror --profile coding --profile coding-verify up -d --build --force-recreate
+docker compose -p modelmirror --profile coding --profile coding-verify ps
 curl http://localhost:8000/api/coding/capabilities
 ```
 
@@ -130,23 +163,35 @@ curl http://localhost:8000/api/coding/capabilities
    回答、取消和只读行为仍正常。
 2. 切换到 `draft` 并重建，在 `/coding` 要求新增或修改临时文本文件；确认页面
    显示文件列表、增删行、逐文件 Diff 和检查结果。
-3. 制造 Python/JSON 错误，确认检查能发现且不能下载；修正并重新检查后可下载
-   `.patch`。
+3. 制造 Python/JSON 错误，确认轻量检查能发现且不能下载；修正并重新检查后可
+   下载 `.patch`。
 4. 取消一轮修改，确认本轮变化消失、此前草稿保留；再放弃全部修改，确认变化归零。
 5. 尝试删除、Shell、`.env`、外部路径和超限修改，确认被拒绝或本轮自动回滚。
-6. 验收前后比较真实仓库 `git status --short`，确认完全一致；页面不得显示真实
+6. 分别制造仅后端、仅前端和混合草稿，确认项目验证只运行适用步骤；制造测试或
+   构建失败，确认页面保留草稿、显示简述并可把摘要填回输入框。
+7. 修改既有测试，确认不可绕过基准测试；修改依赖清单，确认显示“未运行”且不
+   联网安装。取消验证后确认无残留进程并可重新运行。
+8. 停止 `coding-verifier`，确认 Draft、Diff、轻量检查和下载仍可用；未验证或失败
+   的 Patch 可在明确警告后二次确认下载。
+9. 验收前后比较真实仓库 `git status --short`，确认完全一致；页面不得显示真实
    绝对路径。
-7. 确认 `coding-runtime` 没有宿主端口和公网出口，基准快照不可写；停止 Worker
-   后核心健康检查和其他页面仍可用。
+10. 确认 Runtime 无宿主端口、只连接内部网关；Verifier 无网络、无宿主端口、
+    无密钥，且两侧基准快照不可写。停止 Verifier 后核心健康和其他页面仍可用。
 
 ## 回退
 
-先设置 `CODING_AGENT_MODE=readonly` 并重建，可立即关闭草稿编辑、保留只读问答。
-需要完全关闭时设置 `CODING_AGENT_ENABLED=false` 并停止 `coding` profile：
+先停止并省略 `coding-verify` profile，即可恢复第二轮 Draft、Diff 和下载能力：
+
+```bash
+docker compose -p modelmirror --profile coding-verify stop coding-verifier
+```
+
+设置 `CODING_AGENT_MODE=readonly` 并重建，可关闭草稿编辑、保留只读问答。需要
+完全关闭时设置 `CODING_AGENT_ENABLED=false` 并停止 `coding` profile：
 
 ```bash
 docker compose -p modelmirror --profile coding stop coding-runtime
 ```
 
-本轮没有数据库迁移或持久化会话。需要整轮回退时，按独立提交逆序撤销并重建
-核心服务即可；容器重启会清除所有临时草稿。
+本轮没有数据库迁移、持久化验证结果或持久化会话。需要整轮回退时，按独立提交
+逆序撤销并重建核心服务即可；容器重启会清除所有临时草稿和验证状态。

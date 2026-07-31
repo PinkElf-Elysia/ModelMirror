@@ -247,6 +247,7 @@ services:
       - /workspace:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
     environment:
       CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
+      CODING_VERIFIER_SOCKET_PATH: /run/modelmirror-coding/verifier.sock
       CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
       CODING_AGENT_MODEL: ${CODING_AGENT_MODEL:-}
       CODING_AGENT_GATEWAY_KEY: ${CODING_AGENT_GATEWAY_KEY:-}
@@ -265,6 +266,46 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  coding-verifier:
+    profiles:
+      - coding-verify
+    build:
+      context: .
+      dockerfile: server/coding_verifier/Dockerfile
+    container_name: modelmirror-coding-verifier
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 3g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+      - /home/verifier:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspace:rw,nosuid,noexec,size=1g,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_VERIFIER_SOCKET_PATH: /run/modelmirror-coding/verifier.sock
+    volumes:
+      - coding_socket:/run/modelmirror-coding
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/verifier.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   office-host:
     profiles:

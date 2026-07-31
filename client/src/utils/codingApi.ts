@@ -6,6 +6,8 @@ import type {
   CodingPatchDownload,
   CodingSessionResponse,
   CodingTurnResponse,
+  CodingVerification,
+  CodingVerificationCancelResponse,
 } from "../types/coding";
 
 export class CodingApiError extends Error {
@@ -75,6 +77,12 @@ export function createCodingSession() {
   });
 }
 
+export function getCodingSessionStatus(sessionId: string) {
+  return requestJson<{ state: string }>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}`,
+  );
+}
+
 export function startCodingTurn(sessionId: string, prompt: string) {
   return requestJson<CodingTurnResponse>(
     `/api/coding/sessions/${encodeURIComponent(sessionId)}/turns`,
@@ -142,6 +150,41 @@ export async function getCodingPatch(
     disposition.match(/filename="([^"]+)"/)?.[1] ??
     `modelmirror-changes-r${revision}.patch`;
   return { blob: await response.blob(), filename };
+}
+
+export function startCodingVerification(
+  sessionId: string,
+  revision: number,
+) {
+  return requestJson<CodingVerification>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/verification`,
+    {
+      method: "POST",
+      body: JSON.stringify({ revision }),
+    },
+  );
+}
+
+export function getCodingVerification(
+  sessionId: string,
+  revision: number,
+) {
+  return requestJson<CodingVerification>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/verification?revision=${revision}`,
+  );
+}
+
+export function cancelCodingVerification(
+  sessionId: string,
+  revision: number,
+) {
+  return requestJson<CodingVerificationCancelResponse>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/verification/cancel`,
+    {
+      method: "POST",
+      body: JSON.stringify({ revision }),
+    },
+  );
 }
 
 interface CodingEventHandlers {

@@ -30,6 +30,7 @@ class FakeWorker:
         mode: str = "readonly",
         validation_passed: bool = True,
         malformed_changes: bool = False,
+        verification_available: bool = True,
     ) -> None:
         self.configured = configured
         self.block_turn = block_turn
@@ -37,11 +38,15 @@ class FakeWorker:
         self.mode = mode
         self.validation_passed = validation_passed
         self.malformed_changes = malformed_changes
+        self.verification_available = verification_available
         self.release = asyncio.Event()
         self.cancelled = False
         self.closed: list[str] = []
         self.session_id = "coding-session"
         self.revision = 1
+        self.verification_revision = 1
+        self.verification_state = "not_started"
+        self.verification_result = "not_run"
 
     async def health(self) -> dict[str, Any]:
         if self.fail_health:
@@ -50,6 +55,17 @@ class FakeWorker:
             "ok": True,
             "configured": self.configured,
             "mode": self.mode,
+            "verification": {
+                "available": self.verification_available,
+                "strategy": "adaptive",
+                "required_for_patch": False,
+                "max_duration_seconds": 600,
+                **(
+                    {}
+                    if self.verification_available
+                    else {"reason": "verifier_unavailable"}
+                ),
+            },
         }
 
     async def create_session(self) -> dict[str, Any]:
@@ -134,6 +150,87 @@ class FakeWorker:
     async def discard(self, session_id: str) -> dict[str, Any]:
         self.revision += 1
         return self._changes(empty=True)
+
+    async def verification_start(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        self._require_revision(revision)
+        if not self.verification_available:
+            raise CodingWorkerError(
+                "unavailable",
+                code="verifier_unavailable",
+            )
+        self.verification_revision = revision
+        self.verification_state = "running"
+        self.verification_result = "not_run"
+        return {"verification": self._verification()}
+
+    async def verification_status(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        if revision not in {self.revision, self.verification_revision}:
+            raise CodingWorkerError("stale", code="stale_revision")
+        return {"verification": self._verification()}
+
+    async def verification_cancel(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        if revision != self.verification_revision:
+            raise CodingWorkerError(
+                "missing",
+                code="verification_not_found",
+            )
+        self.verification_state = "cancelled"
+        self.verification_result = "not_run"
+        return {
+            "accepted": True,
+            "verification": self._verification(),
+        }
+
+    def _verification(self) -> dict[str, Any]:
+        terminal = self.verification_state in {"completed", "cancelled"}
+        details = (
+            "C:\\private\\repo\\server\\main.py "
+            + "sk-"
+            + ("z" * 24)
+            if self.verification_result == "failed"
+            else ""
+        )
+        return {
+            "revision": self.verification_revision,
+            "state": self.verification_state,
+            "result": self.verification_result,
+            "stale": self.verification_revision != self.revision,
+            "reason": None,
+            "started_at": (
+                time.time()
+                if self.verification_state != "not_started"
+                else None
+            ),
+            "finished_at": time.time() if terminal else None,
+            "steps": [
+                {
+                    "id": "backend_tests",
+                    "label": "检查服务代码",
+                    "state": self.verification_state,
+                    "result": self.verification_result,
+                    "duration_ms": 20 if terminal else None,
+                    "summary": (
+                        "发现需要处理的问题"
+                        if self.verification_result == "failed"
+                        else ""
+                    ),
+                    "details": details,
+                    "truncated": False,
+                }
+            ],
+        }
 
     def _changes(self, *, empty: bool = False) -> dict[str, Any]:
         path = (
@@ -291,6 +388,24 @@ async def test_normal_turn_streams_canonical_sanitized_events(make_client) -> No
     assert "/workspace" not in serialized
     assert "raw" not in events[2]["data"]
     assert response.headers["cache-control"] == "no-cache, no-store"
+
+
+@pytest.mark.asyncio
+async def test_session_status_is_content_free_and_missing_is_explicit(
+    make_client,
+) -> None:
+    client, _, _ = await make_client()
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        current = await client.get(f"/api/coding/sessions/{session_id}")
+        missing = await client.get("/api/coding/sessions/missing-session")
+
+    assert current.status_code == 200
+    assert current.json() == {"state": "ready"}
+    assert current.headers["cache-control"] == "no-store"
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "session_not_found"
 
 
 @pytest.mark.asyncio
@@ -506,3 +621,115 @@ async def test_malformed_worker_review_payload_is_not_exposed(make_client) -> No
     serialized = json.dumps(changes.json())
     assert "/workspace" not in serialized
     assert changes.json()["detail"]["code"] == "invalid_worker_response"
+
+
+@pytest.mark.asyncio
+async def test_project_verification_api_is_manual_bounded_and_non_blocking(
+    make_client,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    client, _, _ = await make_client(worker=worker)
+    async with client:
+        capabilities = await client.get("/api/coding/capabilities")
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        injected = await client.post(
+            f"/api/coding/sessions/{session_id}/verification",
+            json={"revision": 1, "command": "pytest selected_test.py"},
+        )
+        started = await client.post(
+            f"/api/coding/sessions/{session_id}/verification",
+            json={"revision": 1},
+        )
+        running = await client.get(
+            f"/api/coding/sessions/{session_id}/verification",
+            params={"revision": 1},
+        )
+        turn_conflict = await client.post(
+            f"/api/coding/sessions/{session_id}/turns",
+            json={"prompt": "Start another change"},
+        )
+        discard_conflict = await client.post(
+            f"/api/coding/sessions/{session_id}/discard"
+        )
+        cancelled = await client.post(
+            f"/api/coding/sessions/{session_id}/verification/cancel",
+            json={"revision": 1},
+        )
+        cancelled_again = await client.post(
+            f"/api/coding/sessions/{session_id}/verification/cancel",
+            json={"revision": 1},
+        )
+        restarted = await client.post(
+            f"/api/coding/sessions/{session_id}/verification",
+            json={"revision": 1},
+        )
+        worker.verification_state = "completed"
+        worker.verification_result = "failed"
+        failed = await client.get(
+            f"/api/coding/sessions/{session_id}/verification",
+            params={"revision": 1},
+        )
+        patch = await client.get(
+            f"/api/coding/sessions/{session_id}/patch",
+            params={"revision": 1},
+        )
+        discarded = await client.post(
+            f"/api/coding/sessions/{session_id}/discard"
+        )
+        stale = await client.get(
+            f"/api/coding/sessions/{session_id}/verification",
+            params={"revision": 2},
+        )
+
+    verification_capability = capabilities.json()["verification"]
+    assert verification_capability == {
+        "available": True,
+        "strategy": "adaptive",
+        "required_for_patch": False,
+        "max_duration_seconds": 600,
+    }
+    assert injected.status_code == 422
+    assert started.status_code == 202
+    assert started.headers["cache-control"] == "no-store"
+    assert running.json()["state"] == "running"
+    assert running.headers["cache-control"] == "no-store"
+    assert turn_conflict.status_code == 409
+    assert turn_conflict.json()["detail"]["code"] == "verification_in_progress"
+    assert discard_conflict.status_code == 409
+    assert cancelled.status_code == 200
+    assert cancelled.headers["cache-control"] == "no-store"
+    assert cancelled.json()["accepted"] is True
+    assert cancelled_again.json()["state"] == "cancelled"
+    assert restarted.status_code == 202
+    assert failed.json()["result"] == "failed"
+    serialized = json.dumps(failed.json())
+    assert "C:\\private" not in serialized
+    assert "sk-" + ("z" * 24) not in serialized
+    assert patch.status_code == 200
+    assert discarded.status_code == 200
+    assert stale.json()["stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_verifier_unavailable_does_not_disable_draft(make_client) -> None:
+    worker = FakeWorker(mode="draft", verification_available=False)
+    client, _, _ = await make_client(worker=worker)
+    async with client:
+        capabilities = await client.get("/api/coding/capabilities")
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        changes = await client.get(
+            f"/api/coding/sessions/{session_id}/changes"
+        )
+        patch = await client.get(
+            f"/api/coding/sessions/{session_id}/patch",
+            params={"revision": 1},
+        )
+
+    body = capabilities.json()
+    assert body["available"] is True
+    assert body["verification"]["available"] is False
+    assert body["verification"]["reason"] == "verifier_unavailable"
+    assert changes.status_code == 200
+    assert patch.status_code == 200

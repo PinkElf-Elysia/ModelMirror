@@ -23,6 +23,13 @@ export interface CodingCapabilities {
   mode: "readonly" | "draft";
   host_apply?: false;
   reason?: "disabled" | "not_configured" | "worker_unavailable" | string;
+  verification: {
+    available: boolean;
+    max_duration_seconds: number;
+    reason?: string;
+    required_for_patch: false;
+    strategy: "adaptive";
+  };
   workspace: string;
 }
 
@@ -98,4 +105,47 @@ export interface CodingDraftChanges {
 export interface CodingPatchDownload {
   blob: Blob;
   filename: string;
+}
+
+export type CodingVerificationState =
+  | "not_started"
+  | "running"
+  | "completed"
+  | "cancelled";
+
+export type CodingVerificationResult =
+  | "not_run"
+  | "passed"
+  | "failed"
+  | "not_applicable";
+
+export interface CodingVerificationStep {
+  details: string;
+  duration_ms: number | null;
+  id:
+    | "backend_tests"
+    | "backend_baseline_tests"
+    | "backend_draft_tests"
+    | "frontend_build";
+  label: string;
+  result: CodingVerificationResult;
+  state: CodingVerificationState;
+  summary: string;
+  truncated: boolean;
+}
+
+export interface CodingVerification {
+  finished_at: number | null;
+  reason: string | null;
+  result: CodingVerificationResult;
+  revision: number;
+  stale: boolean;
+  started_at: number | null;
+  state: CodingVerificationState;
+  steps: CodingVerificationStep[];
+}
+
+export interface CodingVerificationCancelResponse
+  extends CodingVerification {
+  accepted: boolean;
 }

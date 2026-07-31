@@ -23,6 +23,7 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `omniroute` | 否 | `omniroute` profile；只绑定 `127.0.0.1:20128`。 |
 | `office-host` | 否 | `office` profile；实验性 Office Add-in host。 |
 | `coding-runtime` | 否 | `coding` profile；单实例代码问答与修改草稿执行面，无宿主端口。 |
+| `coding-verifier` | 否 | `coding-verify` profile；无网络的草稿项目验证执行面，无宿主端口。 |
 
 启动默认栈：
 
@@ -122,14 +123,15 @@ CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`。只有显式设置为 `draft`，代码助手才会在
-容器内一次性副本中新增或修改文本；它仍不能删除、重命名、执行 Shell/Git/测试，
-也不能把修改写回宿主仓库。
+容器内一次性副本中新增或修改文本；它仍不能删除、重命名、执行 Shell/Git/测试
+命令，也不能把修改写回宿主仓库。可选的项目验证只能由用户手动启动，验证范围和
+命令由服务端固定。
 
 该 Key 只注入 `coding-runtime`，不注入 FastAPI。启动并重建：
 
 ```bash
-docker compose -p modelmirror --profile coding up -d --build --force-recreate
-docker compose -p modelmirror --profile coding ps
+docker compose -p modelmirror --profile coding --profile coding-verify up -d --build --force-recreate
+docker compose -p modelmirror --profile coding --profile coding-verify ps
 curl http://localhost:8000/api/coding/capabilities
 ```
 
@@ -138,6 +140,15 @@ curl http://localhost:8000/api/coding/capabilities
 会话副本位于 256 MiB 的 `nosuid,noexec` tmpfs，容器根文件系统仍只读，且不映射
 宿主端口或宿主仓库。它是实验性本地单实例能力，不应直接暴露到公网。完整边界和
 人工验收见 [CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
+
+`coding-verifier` 通过同一私有 socket volume 接收 Worker 生成的 Patch，不加入
+任何网络。容器使用非 root、只读根文件系统、1 GiB `nosuid,noexec` tmpfs，并固定
+为 2 CPU、3 GiB 内存和 256 PIDs；不挂载宿主仓库、密钥或 Docker socket。镜像
+内预装当前锁定的 Python 和前端依赖，运行时不会下载新依赖。源码变化后必须同时
+重建 Runtime 与 Verifier，快照指纹不一致时验证会显示“未运行”，不影响草稿。
+
+若只需第二轮草稿能力，可省略 `coding-verify` profile。此时页面会明确提示验证
+服务未启动，但查看 Diff、轻量检查和下载仍可使用。
 
 ## 反向代理
 
@@ -176,7 +187,8 @@ curl http://localhost:5173/studio
   不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
-- 启用后检查 Coding capabilities、Worker health、取消清理和源码 Git 状态。
+- 启用后检查 Coding capabilities、Worker/Verifier health、验证取消清理、快照
+  指纹和源码 Git 状态。
 
 ## 备份与恢复
 
@@ -199,9 +211,10 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：先设置 `CODING_AGENT_MODE=readonly` 可关闭草稿编辑；需要完全关闭时
-  设置 `CODING_AGENT_ENABLED=false` 并停止 `coding-runtime`。没有持久化会话或
-  数据迁移需要恢复。
+- 代码助手：先停止并省略 `coding-verify` profile，可恢复第二轮草稿能力；设置
+  `CODING_AGENT_MODE=readonly` 可关闭草稿编辑；需要完全关闭时设置
+  `CODING_AGENT_ENABLED=false` 并停止 `coding-runtime`。没有持久化验证结果、
+  会话或数据迁移需要恢复。
 - 可选 profile 故障不得通过删除核心数据解决。
 
 legacy `/api/dify/*` 健康只表示兼容代理配置状态，不是平台健康门禁。
