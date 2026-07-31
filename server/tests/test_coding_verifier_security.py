@@ -118,6 +118,7 @@ async def test_socket_service_runs_fixed_verification(
             expected_fingerprint=engine.source_fingerprint,
         )
         assert started["verification"]["revision"] == 1
+        assert started["verification"]["state"] == "running"
         for _ in range(100):
             status = await client.status(session_id="session-1", revision=1)
             if status["verification"]["state"] == "completed":
