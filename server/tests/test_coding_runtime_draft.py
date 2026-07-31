@@ -194,6 +194,37 @@ def test_hard_policy_failure_rolls_back_only_the_current_turn(
     assert not (workspace.workspace_root / "secret.txt").exists()
 
 
+def test_tracked_env_examples_may_exist_but_cannot_be_changed(
+    tmp_path: Path,
+) -> None:
+    templates = {
+        ".env.example": "ROOT_PLACEHOLDER=\n",
+        "client/.env.example": "CLIENT_PLACEHOLDER=\n",
+        "server/.env.example": "SERVER_PLACEHOLDER=\n",
+    }
+    workspace = _workspace(tmp_path, templates)
+
+    assert workspace.changes().files == ()
+
+    workspace.begin_turn()
+    _write(workspace, ".env.example", "ROOT_PLACEHOLDER=changed\n")
+    with pytest.raises(DraftPolicyError) as modified:
+        workspace.commit_turn()
+
+    assert modified.value.code == "forbidden_path"
+    assert (workspace.workspace_root / ".env.example").read_text(
+        encoding="utf-8"
+    ) == templates[".env.example"]
+
+    workspace.begin_turn()
+    _write(workspace, ".env.local", "SECRET=blocked\n")
+    with pytest.raises(DraftPolicyError) as added:
+        workspace.commit_turn()
+
+    assert added.value.code == "forbidden_path"
+    assert not (workspace.workspace_root / ".env.local").exists()
+
+
 def test_rename_is_rejected_as_a_deletion(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path, {"old.txt": "content\n"})
     workspace.begin_turn()
