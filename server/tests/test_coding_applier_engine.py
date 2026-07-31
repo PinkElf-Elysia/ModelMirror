@@ -218,6 +218,41 @@ def test_patch_staging_failure_is_cleaned(
     assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
+def test_read_only_snapshot_is_writable_only_in_staging(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    for path in source.rglob("*"):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    source.chmod(0o555)
+    engine = CodingApplierEngine(source, target, staging)
+    patch = (
+        "diff --git a/docs/coding-acceptance-EFA757BD.md "
+        "b/docs/coding-acceptance-EFA757BD.md\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/docs/coding-acceptance-EFA757BD.md\n"
+        "@@ -0,0 +1 @@\n"
+        "+case=EFA757BD, value=494\n"
+        "\\ No newline at end of file\n"
+    )
+
+    receipt = engine.apply(
+        operation_id=OPERATION_ID,
+        revision=1,
+        patch=patch,
+        paths=["docs/coding-acceptance-EFA757BD.md"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+
+    applied = target / "docs/coding-acceptance-EFA757BD.md"
+    assert applied.read_text(encoding="utf-8") == "case=EFA757BD, value=494"
+    assert len(receipt.files) == 1
+    assert staging.exists() is False
+    assert source.stat().st_mode & 0o222 == 0
+    assert (source / "server/app.py").stat().st_mode & 0o222 == 0
+
+
 def test_multi_file_failure_restores_every_written_file(
     roots: tuple[Path, Path, Path],
 ) -> None:

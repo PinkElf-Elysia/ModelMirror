@@ -302,6 +302,7 @@ class CodingApplierEngine:
         self._clear_staging()
         try:
             shutil.copytree(self.source_root, self.staging_root)
+            _make_staging_writable(self.staging_root)
         except OSError as exc:
             raise CodingApplyError(
                 "Apply staging could not be prepared.",
@@ -565,7 +566,40 @@ class CodingApplierEngine:
                 "Apply staging root is unsafe.",
                 code="unsafe_workspace_root",
             )
-        shutil.rmtree(self.staging_root)
+        shutil.rmtree(self.staging_root, onerror=_retry_remove_readonly)
+
+
+def _make_staging_writable(root: Path) -> None:
+    for directory, directory_names, file_names in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+    ):
+        current = Path(directory)
+        if current.is_symlink():
+            raise CodingApplyError(
+                "Apply staging contains a symbolic link.",
+                code="unsafe_workspace_root",
+            )
+        os.chmod(current, 0o700)
+        for name in (*directory_names, *file_names):
+            entry = current / name
+            if entry.is_symlink():
+                raise CodingApplyError(
+                    "Apply staging contains a symbolic link.",
+                    code="unsafe_workspace_root",
+                )
+            if entry.is_file():
+                os.chmod(entry, 0o600)
+
+
+def _retry_remove_readonly(
+    function: Callable[[str], object],
+    path: str,
+    _error: object,
+) -> None:
+    os.chmod(path, 0o700)
+    function(path)
 
 
 def _snapshot_entries(
