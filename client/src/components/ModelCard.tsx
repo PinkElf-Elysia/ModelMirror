@@ -110,6 +110,7 @@ const operationLabels: Record<ModelOperation, string> = {
   realtime_voice: "实时语音",
   analyze_video: "视频理解",
   generate_video: "视频生成",
+  generate_world: "3D 世界生成",
   embed: "向量检索",
   rerank: "检索重排",
 };

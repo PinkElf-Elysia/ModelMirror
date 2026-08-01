@@ -34,6 +34,7 @@ COPY xperts ./xperts
 COPY evaluations ./evaluations
 COPY evolutions ./evolutions
 COPY workflow_native ./workflow_native
+COPY world ./world
 COPY xpert_runtime ./xpert_runtime
 COPY client_extension ./client_extension
 COPY office_addin ./office_addin

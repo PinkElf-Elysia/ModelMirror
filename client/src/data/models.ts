@@ -23,6 +23,7 @@ export type OutputModality =
   | "speech"
   | "transcription"
   | "video"
+  | "world"
   | "embeddings"
   | "rerank";
 export type ModelOperation =
@@ -34,6 +35,7 @@ export type ModelOperation =
   | "realtime_voice"
   | "analyze_video"
   | "generate_video"
+  | "generate_world"
   | "embed"
   | "rerank";
 export type InteractionStatus = "ready" | "planned" | "unsupported";
@@ -76,6 +78,8 @@ export interface Model {
   active: boolean;
   tags: string[];
   note?: string;
+  /** True when this entry is a world-generation model (3D), not a chat model. */
+  worldModel?: boolean;
 }
 
 interface RawCatalogModel {
@@ -17669,6 +17673,37 @@ function enrichModel(raw: RawCatalogModel): Model {
   };
 }
 
+const worldModelEntry: Model = {
+  id: "worldlabs/marble",
+  name: "World Labs Marble",
+  provider: "World Labs",
+  model_author: "World Labs",
+  description:
+    "上传现实场景的图片或视频，异步生成可探索的 3D 世界，支持全景图、GLB、SPZ 预览和显式 PLY 导出。",
+  context_length: 0,
+  pricing: { input: -1, output: -1 },
+  price_cny: { input: 0, output: 0 },
+  pricing_status: "dynamic",
+  pricing_tier: "dynamic",
+  capabilities: ["image", "video"],
+  input_modalities: ["image", "video"],
+  output_modalities: ["world"],
+  operations: ["generate_world"],
+  primary_operation: "generate_world",
+  interaction_status: "ready",
+  ui_entrypoint: "multimodal",
+  series: "世界模型",
+  categories: ["3D", "空间智能"],
+  supported_parameters: [],
+  distillable: false,
+  zero_data_retention: false,
+  in_region_routing: false,
+  active: true,
+  tags: ["3D", "空间智能", "新"],
+  note: "真实 Marble 生成和 PLY 导出可能消耗 World Labs Credits。",
+  worldModel: true,
+};
+
 const FEATURED_MODEL_IDS = [
   "openai/gpt-5.6-sol",
   "anthropic/claude-opus-5",
@@ -17779,4 +17814,5 @@ export const models: Model[] = [
   ...sortedCatalogModels.slice(0, REALTIME_MODEL_INSERT_INDEX),
   ...DIRECT_OPENAI_REALTIME_MODELS,
   ...sortedCatalogModels.slice(REALTIME_MODEL_INSERT_INDEX),
+  worldModelEntry,
 ];

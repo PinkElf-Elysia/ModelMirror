@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PageContainer from "../components/PageContainer";
 import ModelServiceConnections from "../components/settings/ModelServiceConnections";
+import MarbleConnectionSettings from "../components/settings/MarbleConnectionSettings";
 import SmartRoutingSettings from "../components/settings/SmartRoutingSettings";
 
 const DEFAULT_NEWAPI_WEB_URL = "http://localhost:3000";
@@ -40,12 +41,13 @@ export default function SystemSettingsPage() {
           模型服务与智能调度
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-          在这里完成模型服务连接、智能调度和上下文优化。日常使用无需理解底层网关；
-          newAPI 控制台仍作为高级渠道管理入口保留。
+          在这里完成模型服务连接、Marble 世界生成、智能调度和上下文优化。
+          日常使用无需理解底层网关；newAPI 控制台仍作为高级渠道管理入口保留。
         </p>
       </header>
 
       <ModelServiceConnections />
+      <MarbleConnectionSettings />
       <SmartRoutingSettings />
 
       <section className="overflow-hidden rounded-lg border border-white/10 bg-ink-950/82 shadow-prism">

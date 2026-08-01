@@ -1,5 +1,7 @@
 import {
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -72,6 +74,12 @@ import {
   speechVoiceLabel,
 } from "../utils/speechAudio";
 import { StreamingMp3Session } from "../utils/streamingAudio";
+
+const WorldGenerationPanel = lazy(() =>
+  import("../components/world/WorldGenerationPanel").then((module) => ({
+    default: module.WorldGenerationPanel,
+  })),
+);
 
 const TTS_MODEL_SESSION_KEY = "modelmirror-chat-tts-model";
 const TTS_VOICE_SESSION_KEY = "modelmirror-chat-tts-voice";
@@ -2694,6 +2702,47 @@ function ChatConversationPage() {
     : isFederationRoute
     ? "智能路由功能正在紧锣密鼓开发中，当前将使用默认模型为您服务。"
     : agentInterview?.expertise ?? model.description;
+
+  if (model?.worldModel) {
+    return (
+      <main className="museum-grid min-h-screen pb-24 pt-5 text-slate-100 lg:pt-24">
+        <ResourceNav activeResource="models" />
+        <div className="mx-auto flex min-h-screen w-full max-w-[1200px] flex-col px-4 py-5 sm:px-6 lg:px-8">
+          <header className="border-y border-hire-300/20 bg-ink-950/72 px-4 py-4 backdrop-blur-2xl">
+            <Link
+              className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-brand-300/30 hover:bg-brand-300/10 hover:text-brand-100"
+              to="/models"
+            >
+              返回招聘会现场
+            </Link>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+                3D 世界生成
+              </span>
+            </div>
+            <h1 className="mt-3 text-2xl font-semibold tracking-normal text-white sm:text-4xl">
+              世界模型：{model.name}
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+              {model.description}
+            </p>
+          </header>
+          <div className="surface-panel mt-5 min-h-[560px] flex-1 overflow-hidden rounded-lg border border-white/10 shadow-prism">
+            <Suspense
+              fallback={
+                <div className="flex min-h-[560px] items-center justify-center text-sm text-slate-400">
+                  正在加载 3D 世界工作台…
+                </div>
+              }
+            >
+              <WorldGenerationPanel />
+            </Suspense>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="museum-grid min-h-screen pb-24 pt-5 text-slate-100 lg:pt-24">

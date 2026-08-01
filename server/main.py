@@ -17,6 +17,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+# Make subpackages (rag/api/mcp/world/...) importable as top-level modules
+# in both environments: locally (repo/server) and inside Docker (/app).
+_SERVER_ROOT = str(Path(__file__).resolve().parent)
+if _SERVER_ROOT not in sys.path:
+    sys.path.insert(0, _SERVER_ROOT)
+
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -163,6 +169,11 @@ try:
     from server.api.workflow_native import router as workflow_native_router
 except ModuleNotFoundError:
     from api.workflow_native import router as workflow_native_router
+
+try:
+    from server.world.api import router as world_router
+except ModuleNotFoundError:
+    from world.api import router as world_router
 
 try:
     from server.meta_agent import (
@@ -734,6 +745,7 @@ app.include_router(skills_router)
 app.include_router(xperts_router)
 app.include_router(xpert_apps_router)
 app.include_router(workflow_native_router)
+app.include_router(world_router)
 app.include_router(runtime_todo_router)
 app.include_router(runtime_approval_router)
 app.include_router(runtime_sandbox_router)

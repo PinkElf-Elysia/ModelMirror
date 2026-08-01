@@ -7,6 +7,8 @@
     "test:streaming-audio": "node scripts/verify-streaming-audio.mjs"
   },
   "dependencies": {
+    "@mkkellogg/gaussian-splats-3d": "^0.4.7",
+    "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^5.0.0",
     "@xyflow/react": "^12.11.0",
     "autoprefixer": "^10.4.21",
@@ -20,6 +22,7 @@
     "recharts": "^3.2.1",
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^3.4.17",
+    "three": "^0.185.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.0"
   },
