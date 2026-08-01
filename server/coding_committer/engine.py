@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import tempfile
 import threading
@@ -69,6 +70,7 @@ class CodingCommitterEngine:
             raise CodingCommitError("Commit author email is invalid.", code="invalid_author")
         self._mutation_hook = mutation_hook
         self._lock = threading.Lock()
+        self._target_hash_cache: dict[str, tuple[tuple[int, int, int, int], str]] = {}
         self._validate_roots()
         try:
             self._source_manifest = snapshot_manifest(self.source_root)
@@ -102,6 +104,7 @@ class CodingCommitterEngine:
         self._current_entries = dict(self._baseline_entries)
         self._current_hashes = dict(self._source_hashes)
         self._restore_linear_state()
+        self._target_manifest()
         for operation in self._operations.values():
             if operation.apply_receipt.snapshot_fingerprint != self.source_fingerprint:
                 raise CodingCommitError(
@@ -650,10 +653,7 @@ class CodingCommitterEngine:
             while str(parent) not in {"", "."}:
                 expected_entries.add(("directory", parent.as_posix()))
                 parent = parent.parent
-        try:
-            target = snapshot_manifest(self.target_root, ignored_root_names={".git"})
-        except PatchPolicyError as exc:
-            raise CodingCommitError(str(exc), code="target_changed") from exc
+        target = self._target_manifest()
         if target.entries != frozenset(expected_entries) or dict(target.file_hashes) != expected_hashes:
             raise CodingCommitError("Target files changed outside the apply receipt.", code="target_changed")
 
@@ -664,10 +664,7 @@ class CodingCommitterEngine:
             while str(parent) not in {"", "."}:
                 expected_entries.add(("directory", parent.as_posix()))
                 parent = parent.parent
-        try:
-            target = snapshot_manifest(self.target_root, ignored_root_names={".git"})
-        except PatchPolicyError as exc:
-            raise CodingCommitError(str(exc), code="target_changed") from exc
+        target = self._target_manifest()
         if (
             target.entries != frozenset(expected_entries)
             or dict(target.file_hashes) != self._current_hashes
@@ -676,6 +673,74 @@ class CodingCommitterEngine:
                 "Target files changed outside the latest checkpoint.",
                 code="target_changed",
             )
+
+    def _target_manifest(self) -> SnapshotManifest:
+        try:
+            digest = hashlib.sha256()
+            entries: set[tuple[str, str]] = set()
+            file_hashes: list[tuple[str, str]] = []
+            next_cache: dict[str, tuple[tuple[int, int, int, int], str]] = {}
+            pending: list[tuple[Path, str]] = [(self.target_root, "")]
+            while pending:
+                directory, prefix = pending.pop()
+                with os.scandir(directory) as iterator:
+                    children = sorted(iterator, key=lambda item: item.name, reverse=True)
+                for child in children:
+                    if not prefix and child.name == ".git":
+                        continue
+                    relative = f"{prefix}/{child.name}" if prefix else child.name
+                    metadata = child.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(metadata.st_mode):
+                        raise CodingCommitError(
+                            "Target contains a symbolic link.",
+                            code="target_changed",
+                        )
+                    if stat.S_ISDIR(metadata.st_mode):
+                        entries.add(("directory", relative))
+                        pending.append((Path(child.path), relative))
+                        continue
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise CodingCommitError(
+                            "Target contains an unsupported file.",
+                            code="target_changed",
+                        )
+                    signature = (
+                        metadata.st_size,
+                        metadata.st_mtime_ns,
+                        metadata.st_ctime_ns,
+                        metadata.st_ino,
+                    )
+                    cached = self._target_hash_cache.get(relative)
+                    if cached is not None and cached[0] == signature:
+                        content_hash = cached[1]
+                    else:
+                        content_hash = hashlib.sha256(
+                            Path(child.path).read_bytes()
+                        ).hexdigest()
+                    entries.add(("file", relative))
+                    file_hashes.append((relative, content_hash))
+                    next_cache[relative] = (signature, content_hash)
+            file_hashes.sort()
+            for relative, content_hash in file_hashes:
+                size = next_cache[relative][0][0]
+                digest.update(relative.encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(str(size).encode("ascii"))
+                digest.update(b"\0")
+                digest.update(bytes.fromhex(content_hash))
+            self._target_hash_cache = next_cache
+            return SnapshotManifest(
+                entries=frozenset(entries),
+                file_hashes=tuple(file_hashes),
+                fingerprint=digest.hexdigest(),
+            )
+        except CodingCommitError:
+            raise
+        except OSError as exc:
+            raise CodingCommitError(
+                "Target files could not be inspected.",
+                code="target_changed",
+            ) from exc
 
     def _create_commit(
         self,
