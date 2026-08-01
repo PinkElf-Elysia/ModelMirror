@@ -8,8 +8,8 @@ Implements the verified Marble API flow:
   [5] worlds/{id}                  -> pano / spz / glb / thumbnail / caption
   [6] worlds/{id}:export (PLY)     -> download url (optional)
 
-Authentication: header ``WLT-Api-Key``. Key comes from the environment
-variable ``WORLD_LABS_API_KEY`` (never from client/frontend).
+Authentication: header ``WLT-Api-Key``. Key comes from encrypted server
+settings or the ``WORLD_LABS_API_KEY`` environment fallback.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def _map_status(raw: str) -> WorldStatus:
 
 @register_provider(name="marble", priority=10)
 class MarbleWorldProvider(WorldProvider):
-    """Real World Labs Marble adapter (requires WORLD_LABS_API_KEY)."""
+    """Real World Labs Marble adapter (requires a server-side API key)."""
 
     def __init__(
         self,

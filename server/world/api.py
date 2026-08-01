@@ -9,6 +9,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 import time
@@ -21,6 +22,12 @@ from pydantic import BaseModel
 from .models import GeneratedAsset, WorldInput, WorldInputType
 from .providers.marble import MarbleProviderError
 from .registry import WorldRegistry
+from .settings import (
+    MarbleSettingsError,
+    MarbleSettingsPublic,
+    MarbleSettingsStore,
+    MarbleSettingsUpdate,
+)
 from .store import WorldStore
 
 router = APIRouter(prefix="/api/world-generations", tags=["world-generations"])
@@ -31,6 +38,7 @@ SUPPORTED_VIDEO_EXTS = {"mp4", "mov", "webm", "mkv", "avi"}
 SUPPORTED_EXTS = SUPPORTED_IMAGE_EXTS | SUPPORTED_VIDEO_EXTS
 
 _store = WorldStore()
+_settings = MarbleSettingsStore()
 _provider_cache: dict[str, Any] = {}
 
 
@@ -45,8 +53,11 @@ class AssetsResponse(BaseModel):
 
 
 def active_provider_name() -> str:
-    """Resolve the active provider name from env (default mock)."""
+    """Resolve settings first, then fall back to deployment environment."""
 
+    configured_provider = _settings.provider_override()
+    if configured_provider:
+        return configured_provider
     return os.getenv("WORLD_PROVIDER", "mock").strip().lower()
 
 
@@ -55,12 +66,19 @@ def get_provider():
     survives across requests. Rebuilds if the env name changes."""
 
     name = active_provider_name()
-    cached = _provider_cache.get("name")
-    if cached == name:
+    api_key = _settings.resolve_api_key() if name == "marble" else None
+    fingerprint = hashlib.sha256((api_key or "").encode("utf-8")).hexdigest()
+    cached = _provider_cache.get("signature")
+    signature = (name, fingerprint)
+    if cached == signature:
         return _provider_cache["instance"]
     provider_cls = WorldRegistry.get_provider(name)
-    instance = provider_cls()
-    _provider_cache["name"] = name
+    instance = (
+        provider_cls(api_key=api_key)
+        if name == "marble" and api_key
+        else provider_cls()
+    )
+    _provider_cache["signature"] = signature
     _provider_cache["instance"] = instance
     return instance
 
@@ -72,7 +90,9 @@ def set_provider_for_tests(provider: Any) -> None:
         instance = WorldRegistry.get_provider(provider)()
     else:
         instance = provider
-    _provider_cache["name"] = instance.provider_name
+    test_key = str(getattr(instance, "api_key", "") or "")
+    fingerprint = hashlib.sha256(test_key.encode("utf-8")).hexdigest()
+    _provider_cache["signature"] = (instance.provider_name, fingerprint)
     _provider_cache["instance"] = instance
     os.environ["WORLD_PROVIDER"] = instance.provider_name
 
@@ -82,6 +102,27 @@ def set_world_store_for_tests(store: WorldStore) -> None:
 
     global _store
     _store = store
+
+
+def set_world_settings_for_tests(settings: MarbleSettingsStore) -> None:
+    global _settings
+    _settings = settings
+    _provider_cache.clear()
+
+
+async def _validate_marble_key(api_key: str) -> float:
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                "https://api.worldlabs.ai/marble/v1/credits",
+                headers={"WLT-Api-Key": api_key},
+            )
+        response.raise_for_status()
+        return float(response.json()["remaining_credits"])
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        raise MarbleSettingsError("Marble Key 验证失败，请检查 Key 或网络连接。") from exc
 
 
 def _validate_uploads(
@@ -167,6 +208,47 @@ async def create_world_generation(
 @router.get("/provider")
 async def world_provider_info() -> dict[str, str]:
     return {"provider": active_provider_name()}
+
+
+@router.get("/settings/marble", response_model=MarbleSettingsPublic)
+def get_marble_settings() -> MarbleSettingsPublic:
+    try:
+        return _settings.public()
+    except MarbleSettingsError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.put("/settings/marble", response_model=MarbleSettingsPublic)
+async def update_marble_settings(
+    payload: MarbleSettingsUpdate,
+) -> MarbleSettingsPublic:
+    supplied_key = (
+        payload.api_key.get_secret_value().strip() if payload.api_key else ""
+    )
+    try:
+        key_to_validate = supplied_key or _settings.resolve_api_key()
+        if not key_to_validate:
+            raise MarbleSettingsError("请填写 Marble Key。")
+        remaining_credits = await _validate_marble_key(key_to_validate)
+        result = _settings.save(
+            api_key=supplied_key or None,
+            enabled=payload.enabled,
+            remaining_credits=remaining_credits,
+        )
+        _provider_cache.clear()
+        return result
+    except MarbleSettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/settings/marble", response_model=MarbleSettingsPublic)
+def clear_marble_settings() -> MarbleSettingsPublic:
+    try:
+        result = _settings.clear()
+        _provider_cache.clear()
+        return result
+    except MarbleSettingsError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/{job_id}")

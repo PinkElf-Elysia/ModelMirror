@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PageContainer from "../components/PageContainer";
 import ModelServiceConnections from "../components/settings/ModelServiceConnections";
+import MarbleConnectionSettings from "../components/settings/MarbleConnectionSettings";
 import SmartRoutingSettings from "../components/settings/SmartRoutingSettings";
 
 const DEFAULT_NEWAPI_WEB_URL = "http://localhost:3000";
@@ -45,6 +46,7 @@ export default function SystemSettingsPage() {
         </p>
       </header>
 
+      <MarbleConnectionSettings />
       <ModelServiceConnections />
       <SmartRoutingSettings />
 
