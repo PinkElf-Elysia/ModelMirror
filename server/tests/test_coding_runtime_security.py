@@ -305,6 +305,39 @@ async def test_worker_restores_one_safe_draft_and_rejects_snapshot_drift(
     await server.close()
     assert adapter.closed is True
 
+    incremental_server = CodingWorkerServer(
+        tmp_path / "incremental.sock",
+        source_snapshot_path=source,
+        workspace_path=tmp_path / "incremental-workspace",
+        checkpoint_path=tmp_path / "incremental-checkpoint",
+    )
+    incremental_adapter = _RestoredSessionAdapter()
+    monkeypatch.setattr(
+        "server.coding_runtime.worker.create_acp_client",
+        lambda mode: incremental_adapter,
+    )
+    incremental_writer = _MemoryWriter()
+    await incremental_server._restore_session(
+        {
+            "revision": 7,
+            "patch": "",
+            "paths": [],
+            "base_patch": patch,
+            "base_paths": ["app.txt"],
+            "snapshot_fingerprint": incremental_server._source_fingerprint,
+        },
+        incremental_writer,
+    )
+    incremental_response = incremental_writer.frames[-1]
+    assert incremental_response["recovered"] is True
+    assert incremental_response["changes"]["revision"] == 7
+    assert incremental_response["changes"]["files"] == []
+    assert (
+        tmp_path / "incremental-workspace" / "app.txt"
+    ).read_text(encoding="utf-8") == "after-731\n"
+    await incremental_server.close()
+    assert incremental_adapter.closed is True
+
     mismatch_server = CodingWorkerServer(
         tmp_path / "mismatch.sock",
         source_snapshot_path=source,

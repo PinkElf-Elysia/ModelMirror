@@ -457,13 +457,14 @@ class CodingWorkerServer:
             or revision < 1
             or not isinstance(patch, str)
             or not isinstance(paths, list)
-            or not paths
             or not all(isinstance(path, str) for path in paths)
             or tuple(paths) != tuple(sorted(set(paths)))
             or not isinstance(base_patch, str)
             or not isinstance(base_paths, list)
             or not all(isinstance(path, str) for path in base_paths)
             or tuple(base_paths) != tuple(sorted(set(base_paths)))
+            or bool(patch) != bool(paths)
+            or bool(base_patch) != bool(base_paths)
             or not isinstance(expected_fingerprint, str)
         ):
             raise CodingWorkerProtocolError(
