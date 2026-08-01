@@ -36,7 +36,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-07-29-b2"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-08-01-b3"
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,7 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
     model_id: _STANDARD_TRANSCRIPTION_PROFILE
     for model_id in (
         "deepgram/nova-3",
+        "fish-audio/transcribe-1",
         "google/chirp-3",
         "microsoft/mai-transcribe-1.5",
         "mistralai/voxtral-mini-transcribe",

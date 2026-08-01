@@ -30,6 +30,7 @@ WEBM_BYTES = b"\x1a\x45\xdf\xa3" + b"\x00" * 16
 
 def test_verified_transcription_profiles_cover_common_formats_and_providers() -> None:
     expected_models = {
+        "fish-audio/transcribe-1",
         "microsoft/mai-transcribe-1.5",
         "mistralai/voxtral-mini-transcribe",
         "openai/whisper-1",
