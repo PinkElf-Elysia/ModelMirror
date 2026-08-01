@@ -665,7 +665,9 @@ export default function CodingPage() {
       lastSeqRef.current = event.seq;
       storeCodingSession(event.session_id, event.seq);
       setTransportWarning("");
-      setEvents((current) => [...current, event]);
+      setEvents((current) =>
+        event.type === "turn_started" ? [event] : [...current, event],
+      );
       if (event.type === "turn_completed") {
         setRunState("idle");
         if (isDraftMode) {
@@ -731,7 +733,6 @@ export default function CodingPage() {
     setTransportWarning("");
     setDraftError("");
     setDraftNotice("");
-    setEvents([]);
     try {
       let activeSessionId = sessionId;
       if (!activeSessionId) {
