@@ -37,6 +37,7 @@ class _Operation:
     patch_sha256: str
     paths: tuple[str, ...]
     receipt: ApplyReceipt
+    before_contents: tuple[tuple[str, bytes | None], ...] = ()
     reverted: bool = False
 
 
@@ -71,6 +72,7 @@ class CodingApplierEngine:
         except PatchPolicyError as exc:
             raise CodingApplyError(str(exc), code=exc.code) from exc
         self.source_fingerprint = self._source_manifest.fingerprint
+        self._expected_manifest = self._source_manifest
         self._health_snapshot = self._inspect_health()
 
     def health(self) -> dict[str, object]:
@@ -84,7 +86,7 @@ class CodingApplierEngine:
             "snapshot_fingerprint": self.source_fingerprint,
         }
         try:
-            self._assert_target_matches_baseline()
+            self._assert_target_matches_expected()
         except CodingApplyError as exc:
             result["reason"] = exc.code
             return result
@@ -152,18 +154,27 @@ class CodingApplierEngine:
                     code="snapshot_mismatch",
                 )
             try:
-                self._assert_target_matches_baseline()
+                self._assert_target_matches_expected()
             except CodingApplyError as exc:
                 self._record_health(available=False, reason=exc.code)
                 raise
             try:
                 self._prepare_staging(patch)
+                before_contents = tuple(
+                    (
+                        path,
+                        (self.target_root / path).read_bytes()
+                        if (self.target_root / path).is_file()
+                        else None,
+                    )
+                    for path in safe_paths
+                )
                 receipt = self._build_receipt(
                     operation_id=operation_id,
                     revision=revision,
                     paths=safe_paths,
                 )
-                self._write_applied_files(receipt)
+                self._write_applied_files(receipt, dict(before_contents))
             except CodingApplyError as exc:
                 self._record_health(available=False, reason=exc.code)
                 raise
@@ -176,8 +187,10 @@ class CodingApplierEngine:
                 patch_sha256=patch_sha256,
                 paths=safe_paths,
                 receipt=receipt,
+                before_contents=before_contents,
             )
-            self._record_health(available=False, reason="target_changed")
+            self._expected_manifest = self._target_manifest()
+            self._record_health(available=True)
             return receipt
 
     def revert(self, receipt: ApplyReceipt) -> ApplyReceipt:
@@ -191,7 +204,7 @@ class CodingApplierEngine:
                     )
                 if operation.reverted:
                     try:
-                        self._assert_target_matches_baseline()
+                        self._assert_target_matches_expected()
                     except CodingApplyError as exc:
                         raise CodingApplyError(
                             "The target changed after revert.",
@@ -218,8 +231,14 @@ class CodingApplierEngine:
                     code="revert_conflict",
                 ) from exc
 
-            self._restore_baseline(receipt)
-            self._assert_target_matches_baseline()
+            before_contents = dict(operation.before_contents) if operation else {}
+            if len(before_contents) != len(receipt.files):
+                raise CodingApplyError(
+                    "The previous target content is unavailable.",
+                    code="revert_conflict",
+                )
+            self._restore_previous(receipt, before_contents)
+            self._expected_manifest = self._target_manifest()
             if operation is not None:
                 self._operations[receipt.apply_id] = _Operation(
                     revision=operation.revision,
@@ -227,6 +246,7 @@ class CodingApplierEngine:
                     patch_sha256=operation.patch_sha256,
                     paths=operation.paths,
                     receipt=operation.receipt,
+                    before_contents=operation.before_contents,
                     reverted=True,
                 )
             self._record_health(available=True)
@@ -281,7 +301,7 @@ class CodingApplierEngine:
                     code="operation_conflict",
                 )
             try:
-                self._assert_target_matches_baseline()
+                self._assert_target_matches_expected()
             except CodingApplyError:
                 pass
             else:
@@ -308,8 +328,18 @@ class CodingApplierEngine:
                 patch_sha256=patch_sha256,
                 paths=safe_paths,
                 receipt=receipt,
+                before_contents=tuple(
+                    (
+                        item.path,
+                        (self.source_root / item.path).read_bytes()
+                        if item.existed_before
+                        else None,
+                    )
+                    for item in receipt.files
+                ),
             )
-            self._record_health(available=False, reason="target_changed")
+            self._expected_manifest = self._target_manifest()
+            self._record_health(available=True)
             return "applied", receipt
 
     def _validate_roots(self) -> None:
@@ -368,6 +398,17 @@ class CodingApplierEngine:
                 code="target_not_ready",
             )
 
+    def _assert_target_matches_expected(self) -> None:
+        target_manifest = self._target_manifest()
+        if (
+            target_manifest.entries != self._expected_manifest.entries
+            or target_manifest.file_hashes != self._expected_manifest.file_hashes
+        ):
+            raise CodingApplyError(
+                "Dedicated target does not match the latest checkpoint.",
+                code="target_not_ready",
+            )
+
     def _target_manifest(self) -> SnapshotManifest:
         try:
             return snapshot_manifest(
@@ -380,7 +421,11 @@ class CodingApplierEngine:
     def _prepare_staging(self, patch: str) -> None:
         self._clear_staging()
         try:
-            shutil.copytree(self.source_root, self.staging_root)
+            shutil.copytree(
+                self.target_root,
+                self.staging_root,
+                ignore=shutil.ignore_patterns(".git"),
+            )
             _make_staging_writable(self.staging_root)
         except OSError as exc:
             raise CodingApplyError(
@@ -429,7 +474,7 @@ class CodingApplierEngine:
     ) -> ApplyReceipt:
         files: list[ApplyFileReceipt] = []
         for relative in paths:
-            source = self.source_root / relative
+            source = self.target_root / relative
             staged = self.staging_root / relative
             if (
                 staged.is_symlink()
@@ -465,7 +510,11 @@ class CodingApplierEngine:
             files=tuple(files),
         )
 
-    def _write_applied_files(self, receipt: ApplyReceipt) -> None:
+    def _write_applied_files(
+        self,
+        receipt: ApplyReceipt,
+        before_contents: dict[str, bytes | None],
+    ) -> None:
         prepared: list[tuple[ApplyFileReceipt, Path]] = []
         replaced: list[ApplyFileReceipt] = []
         created_dirs: list[Path] = []
@@ -494,7 +543,7 @@ class CodingApplierEngine:
                 replaced.append(item)
             self._assert_target_matches_receipt(receipt)
         except BaseException as exc:
-            rollback_error = self._rollback_apply(replaced)
+            rollback_error = self._rollback_apply(replaced, before_contents)
             for _, temporary in prepared:
                 temporary.unlink(missing_ok=True)
             _remove_empty_directories(created_dirs)
@@ -513,12 +562,19 @@ class CodingApplierEngine:
     def _rollback_apply(
         self,
         replaced: Sequence[ApplyFileReceipt],
+        before_contents: dict[str, bytes | None],
     ) -> BaseException | None:
         try:
             for item in reversed(replaced):
                 target = self.target_root / item.path
                 if item.existed_before:
-                    _atomic_write(target, (self.source_root / item.path).read_bytes())
+                    before = before_contents.get(item.path)
+                    if before is None:
+                        raise CodingApplyError(
+                            "Apply rollback preimage is unavailable.",
+                            code="rollback_failed",
+                        )
+                    _atomic_write(target, before)
                 else:
                     target.unlink(missing_ok=True)
             self._assert_touched_baseline(replaced)
@@ -526,7 +582,11 @@ class CodingApplierEngine:
             return exc
         return None
 
-    def _restore_baseline(self, receipt: ApplyReceipt) -> None:
+    def _restore_previous(
+        self,
+        receipt: ApplyReceipt,
+        before_contents: dict[str, bytes | None],
+    ) -> None:
         applied_content = {
             item.path: (self.target_root / item.path).read_bytes()
             for item in receipt.files
@@ -537,7 +597,13 @@ class CodingApplierEngine:
                 self._notify_mutation("revert", index, item.path)
                 target = self.target_root / item.path
                 if item.existed_before:
-                    _atomic_write(target, (self.source_root / item.path).read_bytes())
+                    before = before_contents.get(item.path)
+                    if before is None:
+                        raise CodingApplyError(
+                            "Revert preimage is unavailable.",
+                            code="revert_conflict",
+                        )
+                    _atomic_write(target, before)
                 else:
                     target.unlink()
                 restored.append(item)
@@ -602,8 +668,19 @@ class CodingApplierEngine:
                 )
 
     def _assert_target_matches_receipt(self, receipt: ApplyReceipt) -> None:
-        expected_entries = set(self._source_manifest.entries)
-        expected_files = dict(self._source_manifest.file_hashes)
+        target_manifest = self._target_manifest()
+        current_hashes = dict(target_manifest.file_hashes)
+        if (
+            target_manifest.entries == self._expected_manifest.entries
+            and target_manifest.file_hashes == self._expected_manifest.file_hashes
+            and all(
+                current_hashes.get(item.path) == item.after_sha256
+                for item in receipt.files
+            )
+        ):
+            return
+        expected_entries = set(self._expected_manifest.entries)
+        expected_files = dict(self._expected_manifest.file_hashes)
         for item in receipt.files:
             expected_files[item.path] = item.after_sha256
             if not item.existed_before:
@@ -612,7 +689,6 @@ class CodingApplierEngine:
                 while parent != Path("."):
                     expected_entries.add(("directory", parent.as_posix()))
                     parent = parent.parent
-        target_manifest = self._target_manifest()
         if target_manifest.entries != frozenset(expected_entries):
             raise CodingApplyError(
                 "Applied target contains unexpected files.",
