@@ -17523,6 +17523,11 @@ const VERIFIED_SPEECH_MODEL_IDS = new Set([
   "microsoft/mai-voice-2",
 ]);
 
+const VERIFIED_VIDEO_MODEL_IDS = new Set([
+  "runway/aleph-2",
+  "runway/gen-4.5",
+]);
+
 function inferOperations(raw: RawCatalogModel): ModelOperation[] {
   const operations = new Set<ModelOperation>();
   const inputs = new Set(raw.input_modalities);
@@ -17580,6 +17585,12 @@ function interactionForOperation(
   }
   if (operation === "embed" || operation === "rerank") {
     return { status: "ready", entrypoint: "rag" };
+  }
+  if (
+    operation === "generate_video" &&
+    VERIFIED_VIDEO_MODEL_IDS.has(modelId)
+  ) {
+    return { status: "ready", entrypoint: "multimodal" };
   }
   return { status: "planned", entrypoint: "planned" };
 }

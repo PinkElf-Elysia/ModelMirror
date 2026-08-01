@@ -96,7 +96,41 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                             "supported_resolutions": ["720p"],
                             "supported_aspect_ratios": ["16:9"],
                             "supported_durations": [5],
-                        }
+                        },
+                        {
+                            "id": "runway/aleph-2",
+                            "supported_resolutions": None,
+                            "supported_aspect_ratios": [
+                                "16:9",
+                                "4:3",
+                                "3:2",
+                                "1:1",
+                                "2:3",
+                                "3:4",
+                                "9:16",
+                                "21:9",
+                            ],
+                            "supported_durations": None,
+                            "supported_frame_images": None,
+                            "generate_audio": False,
+                            "seed": True,
+                            "allowed_passthrough_parameters": [
+                                "contentModeration",
+                                "keyframes",
+                            ],
+                        },
+                        {
+                            "id": "runway/gen-4.5",
+                            "supported_resolutions": ["720p"],
+                            "supported_aspect_ratios": ["16:9", "9:16"],
+                            "supported_durations": list(range(2, 11)),
+                            "supported_frame_images": ["first_frame"],
+                            "generate_audio": False,
+                            "seed": True,
+                            "allowed_passthrough_parameters": [
+                                "contentModeration"
+                            ],
+                        },
                     ]
                 },
             )
@@ -132,7 +166,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 3
+    assert len(result.profiles) == 5
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -145,6 +179,12 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         item
         for item in result.profiles
         if item.model_id == "bytedance/seedance-2.0-fast"
+    )
+    runway_aleph = next(
+        item for item in result.profiles if item.model_id == "runway/aleph-2"
+    )
+    runway_gen = next(
+        item for item in result.profiles if item.model_id == "runway/gen-4.5"
     )
     assert analysis.model_id == "google/gemini-video-test"
     assert analysis.supported_input_sources == ["file", "url"]
@@ -167,6 +207,28 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert generation.interaction_status == "planned"
     assert reference_model.supports_reference_images is True
     assert reference_model.max_reference_images == 3
+    assert runway_aleph.interaction_status == "ready"
+    assert runway_aleph.supported_resolutions == []
+    assert runway_aleph.supported_durations == []
+    assert runway_aleph.supported_aspect_ratios == [
+        "16:9",
+        "4:3",
+        "3:2",
+        "1:1",
+        "2:3",
+        "3:4",
+        "9:16",
+        "21:9",
+    ]
+    assert runway_aleph.supports_generated_audio is False
+    assert runway_aleph.supports_seed is True
+    assert runway_gen.interaction_status == "ready"
+    assert runway_gen.supported_resolutions == ["720p"]
+    assert runway_gen.supported_durations == list(range(2, 11))
+    assert runway_gen.supported_frame_types == ["first_frame"]
+    assert runway_gen.supports_first_frame is True
+    assert runway_gen.supports_generated_audio is False
+    assert runway_gen.supports_seed is True
     assert all(
         request.headers["authorization"]
         == "Bearer video-catalog-secret"
