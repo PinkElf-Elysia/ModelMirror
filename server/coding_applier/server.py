@@ -43,6 +43,16 @@ class ApplierEngine(Protocol):
 
     def revert(self, receipt: ApplyReceipt) -> ApplyReceipt: ...
 
+    def reconcile(
+        self,
+        *,
+        operation_id: str,
+        revision: int,
+        patch: str,
+        paths: list[str],
+        expected_fingerprint: str,
+    ) -> tuple[str, ApplyReceipt | None]: ...
+
 
 class ApplierProtocolError(RuntimeError):
     def __init__(self, message: str, *, code: str = "invalid_request") -> None:
@@ -161,6 +171,46 @@ class CodingApplierServer:
             receipt = _receipt_from_payload(request["receipt"])
             reverted = await asyncio.to_thread(self._engine.revert, receipt)
             return {"receipt": _receipt_to_payload(reverted)}
+        if action == "reconcile":
+            _require_keys(
+                request,
+                {
+                    "action",
+                    "operation_id",
+                    "revision",
+                    "patch",
+                    "paths",
+                    "expected_fingerprint",
+                },
+            )
+            operation_id = request["operation_id"]
+            revision = request["revision"]
+            patch = request["patch"]
+            paths = request["paths"]
+            expected_fingerprint = request["expected_fingerprint"]
+            if (
+                not isinstance(operation_id, str)
+                or isinstance(revision, bool)
+                or not isinstance(revision, int)
+                or not isinstance(patch, str)
+                or not isinstance(paths, list)
+                or not paths
+                or any(not isinstance(path, str) for path in paths)
+                or not isinstance(expected_fingerprint, str)
+            ):
+                raise ApplierProtocolError("Applier reconcile request is invalid.")
+            state, receipt = await asyncio.to_thread(
+                self._engine.reconcile,
+                operation_id=operation_id,
+                revision=revision,
+                patch=patch,
+                paths=paths,
+                expected_fingerprint=expected_fingerprint,
+            )
+            return {
+                "state": state,
+                "receipt": _receipt_to_payload(receipt) if receipt else None,
+            }
         raise ApplierProtocolError(
             "Applier action is not supported.",
             code="unsupported_action",

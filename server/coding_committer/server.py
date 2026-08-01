@@ -46,6 +46,14 @@ class CommitterEngine(Protocol):
         apply_receipt: ApplyReceipt,
     ) -> CommitReceipt: ...
 
+    def reconcile(
+        self,
+        *,
+        operation_id: str,
+        apply_receipt: ApplyReceipt,
+        message: str,
+    ) -> tuple[str, CommitReceipt | None]: ...
+
 
 class CommitterProtocolError(RuntimeError):
     def __init__(self, message: str, *, code: str = "invalid_request") -> None:
@@ -154,6 +162,25 @@ class CodingCommitterServer:
                 _apply_receipt_from_payload(request["apply_receipt"]),
             )
             return {"receipt": _commit_receipt_to_payload(receipt)}
+        if action == "reconcile":
+            _require_keys(
+                request,
+                {"action", "operation_id", "apply_receipt", "message"},
+            )
+            operation_id = request["operation_id"]
+            message = request["message"]
+            if not isinstance(operation_id, str) or not isinstance(message, str):
+                raise CommitterProtocolError("Commit reconcile request is invalid.")
+            state, receipt = await asyncio.to_thread(
+                self._engine.reconcile,
+                operation_id=operation_id,
+                apply_receipt=_apply_receipt_from_payload(request["apply_receipt"]),
+                message=message,
+            )
+            return {
+                "state": state,
+                "receipt": _commit_receipt_to_payload(receipt) if receipt else None,
+            }
         raise CommitterProtocolError(
             "Committer action is not supported.",
             code="unsupported_action",
