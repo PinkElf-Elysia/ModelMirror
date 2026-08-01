@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { DropInViewer } from "@mkkellogg/gaussian-splats-3d";
 
 interface SplatViewerProps {
@@ -8,11 +10,11 @@ interface SplatViewerProps {
 
 /**
  * Downloads the SPZ/PLY file with a real progress bar (fetch + stream),
- * then hands the local blob to the gaussian-splats-3d viewer.
+ * then renders it with gaussian-splats-3d.
  *
- * Without this, loading a large real SPZ (up to ~29MB full_res) shows a
- * blank screen for many seconds with no feedback — the progress bar makes
- * the wait visible.
+ * DropInViewer extends THREE.Group (an Object3D, NOT a DOM node), so it
+ * must be added to our own Three.js scene and rendered by our own
+ * WebGLRenderer — never appendChild'd directly.
  */
 export function SplatViewer({ source, onError }: SplatViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -25,7 +27,34 @@ export function SplatViewer({ source, onError }: SplatViewerProps) {
 
     let disposed = false;
     let objectUrl: string | null = null;
-    const target = container;
+    let viewer: DropInViewer | null = null;
+    let renderer: THREE.WebGLRenderer | null = null;
+
+    // Render loop (recursive requestAnimationFrame so the scene keeps painting).
+    let raf = 0;
+    const render = () => {
+      if (disposed) return;
+      controls.update();
+      if (renderer) renderer.render(scene, camera);
+      raf = requestAnimationFrame(render);
+    };
+
+    // Scene setup
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0e1524);
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      container.clientWidth / container.clientHeight,
+      0.1,
+      1000,
+    );
+    camera.position.set(1, 1, 2);
+    const controls = new OrbitControls(camera, container);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
 
     async function load() {
       try {
@@ -52,29 +81,36 @@ export function SplatViewer({ source, onError }: SplatViewerProps) {
             }
           }
         }
-        const blob = new Blob(chunks, {
-          type: source.endsWith(".ply") ? "application/octet-stream" : "application/octet-stream",
-        });
+        const blob = new Blob(chunks, { type: "application/octet-stream" });
         objectUrl = URL.createObjectURL(blob);
 
-        // 2) Parse + render.
+        // 2) Parse + add DropInViewer to OUR scene.
         setStage("parse");
         setProgress(null);
-        const viewer = new DropInViewer({
+        viewer = new DropInViewer({
           gpuAcceleratedSort: true,
           sharedMemoryForWorkers: false,
         });
-        target.appendChild(viewer.container);
         await viewer.addSplatScene(objectUrl, {
           showLoadingUI: true,
           progressiveLoad: true,
         });
+        scene.add(viewer);
         if (!disposed) {
-          viewer.start();
+          // Center the splat on the scene.
+          viewer.position.set(0, 0, 0);
+          viewer.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(viewer);
+          const size = box.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z) || 1;
+          camera.near = maxDim * 0.001;
+          camera.far = maxDim * 20;
+          camera.position.set(maxDim * 0.8, maxDim * 0.6, maxDim * 0.8);
+          camera.updateProjectionMatrix();
+          controls.target.set(0, 0, 0);
+          controls.update();
           setStage("ready");
           setProgress(null);
-        } else {
-          viewer.dispose();
         }
       } catch (err) {
         if (!disposed) {
@@ -86,10 +122,35 @@ export function SplatViewer({ source, onError }: SplatViewerProps) {
       }
     }
 
+    raf = requestAnimationFrame(render);
     void load();
 
     return () => {
       disposed = true;
+      cancelAnimationFrame(raf);
+      controls.dispose();
+      if (viewer) {
+        try {
+          scene.remove(viewer);
+          viewer.dispose();
+        } catch {
+          /* ignore dispose errors */
+        }
+      }
+      if (renderer) {
+        renderer.dispose();
+        if (renderer.domElement.parentElement === container) {
+          container.removeChild(renderer.domElement);
+        }
+      }
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+          const mat = obj.material;
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else if (mat) mat.dispose();
+        }
+      });
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [source, onError]);

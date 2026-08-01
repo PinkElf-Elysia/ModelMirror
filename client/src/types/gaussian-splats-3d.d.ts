@@ -3,12 +3,13 @@
  * The library ships no types; this covers only what the project uses.
  */
 declare module "@mkkellogg/gaussian-splats-3d" {
-  export class DropInViewer {
+  import type { Object3D } from "three";
+
+  export class DropInViewer extends Object3D {
     constructor(options?: {
       gpuAcceleratedSort?: boolean;
       sharedMemoryForWorkers?: boolean;
     });
-    container: HTMLDivElement;
     addSplatScene(
       path: string,
       options?: {
