@@ -18,12 +18,14 @@ from server.coding_runtime.api import (
     router,
 )
 from server.coding_runtime.applier_client import (
+    APPLIER_OPERATION_TIMEOUT_SECONDS,
     ApplierClientError,
     CodingApplierClient,
 )
 from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
 from server.coding_runtime.commit_models import CommitReceipt
 from server.coding_runtime.committer_client import (
+    COMMITTER_OPERATION_TIMEOUT_SECONDS,
     CodingCommitterClient,
     CommitterClientError,
 )
@@ -73,6 +75,7 @@ class FakeWorker:
         self.verification_result = "not_run"
         self.verification_reason: str | None = None
         self.restore_calls: list[dict[str, Any]] = []
+        self.current_empty = False
 
     async def health(self) -> dict[str, Any]:
         if self.fail_health:
@@ -106,6 +109,7 @@ class FakeWorker:
     async def restore_session(self, **kwargs: Any) -> dict[str, Any]:
         self.restore_calls.append(kwargs)
         self.revision = kwargs["revision"]
+        self.current_empty = not bool(kwargs.get("paths"))
         verification = kwargs.get("verification")
         if isinstance(verification, dict):
             self.verification_revision = verification["revision"]
@@ -117,7 +121,7 @@ class FakeWorker:
             "session_id": self.session_id,
             "mode": self.mode,
             "event": self._event(1, CodingEventKind.SESSION_STARTED).to_dict(),
-            "changes": self._changes(),
+            "changes": self._changes(empty=self.current_empty),
             "recovered": True,
         }
 
@@ -129,8 +133,11 @@ class FakeWorker:
             )
         return {
             "snapshot_fingerprint": self.snapshot_fingerprint,
-            "changes": self._changes(),
-            "patch": self._diff_content(),
+            "changes": self._changes(empty=self.current_empty),
+            "patch": "" if self.current_empty else self._diff_content(),
+            "base_patch": self._diff_content() if self.current_empty else "",
+            "cumulative_changes": self._changes(),
+            "cumulative_patch": self._diff_content(),
             "verification": (
                 self._verification()
                 if self.verification_state == "completed"
@@ -185,7 +192,7 @@ class FakeWorker:
         self.closed.append(session_id)
 
     async def changes(self, session_id: str) -> dict[str, Any]:
-        return self._changes()
+        return self._changes(empty=self.current_empty)
 
     async def diff(self, session_id: str, path: str, revision: int) -> str:
         self._require_revision(revision)
@@ -203,11 +210,26 @@ class FakeWorker:
             "+after\n"
         )
 
-    async def patch(self, session_id: str, revision: int) -> str:
+    async def patch(
+        self,
+        session_id: str,
+        revision: int,
+        *,
+        scope: str = "current",
+    ) -> str:
         self._require_revision(revision)
         if not self.validation_passed:
             raise CodingWorkerError("blocked", code="validation_failed")
         return await self.diff(session_id, self.change_path, revision)
+
+    async def checkpoint_cycle(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        self._require_revision(revision)
+        self.current_empty = True
+        return self._changes(empty=True)
 
     async def validate(self, session_id: str) -> dict[str, Any]:
         return self._changes()
@@ -532,6 +554,7 @@ async def make_client():
         committer: FakeCommitter | None = None,
         recovery_store: CodingRecoveryStore | None = None,
         recovery_enabled: bool = False,
+        incremental_enabled: bool = False,
         ttl_seconds: float = 1800,
     ) -> tuple[httpx.AsyncClient, CodingService, FakeWorker]:
         fake = worker or FakeWorker()
@@ -542,6 +565,7 @@ async def make_client():
             committer=committer,
             recovery_store=recovery_store,
             recovery_enabled=recovery_enabled,
+            incremental_enabled=incremental_enabled,
             ttl_seconds=ttl_seconds,
             mode=fake.mode,
         )
@@ -1361,6 +1385,76 @@ async def test_local_commit_is_gated_idempotent_undoable_and_private(
 
 
 @pytest.mark.asyncio
+async def test_incremental_continue_archives_cycle_and_opens_empty_next_cycle(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        recovery_store=CodingRecoveryStore(tmp_path / "recovery"),
+        recovery_enabled=True,
+        incremental_enabled=True,
+    )
+    async with client:
+        capabilities = await client.get("/api/coding/capabilities")
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "feature: 保存增量样例 84C1",
+            },
+        )
+        continued = await client.post(
+            f"/api/coding/sessions/{session_id}/continue",
+            json={
+                "revision": 1,
+                "commit_id": committed.json()["commit_id"],
+            },
+        )
+        history = await client.get(
+            f"/api/coding/sessions/{session_id}/history"
+        )
+        changes = await client.get(
+            f"/api/coding/sessions/{session_id}/changes"
+        )
+        cumulative = await client.get(
+            f"/api/coding/sessions/{session_id}/patch",
+            params={"revision": 1, "scope": "cumulative"},
+        )
+
+    assert capabilities.json()["incremental"] == {
+        "enabled": True,
+        "available": True,
+        "max_cycles": 10,
+        "requires_recovery": True,
+        "commit_strategy": "linear",
+        "undo_scope": "latest",
+    }
+    assert continued.status_code == 200
+    assert continued.json()["active_cycle"] == 2
+    assert history.json()["completed_count"] == 1
+    assert history.json()["cycles"][0]["message"] == (
+        "feature: 保存增量样例 84C1"
+    )
+    assert changes.json()["files"] == []
+    assert cumulative.status_code == 200
+    assert cumulative.headers["cache-control"] == "no-store"
+    assert "server/example.py" in cumulative.text
+
+
+@pytest.mark.asyncio
 async def test_commit_failure_reuses_operation_and_blocks_unsafe_apply_revert(
     make_client,
 ) -> None:
@@ -1795,6 +1889,7 @@ async def test_reconcile_clients_reject_inconsistent_socket_responses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     applier = CodingApplierClient(Path("/unused/applier.sock"))
+    assert APPLIER_OPERATION_TIMEOUT_SECONDS == 90.0
 
     async def invalid_apply_response(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return {"state": "applied", "receipt": None}
@@ -1811,6 +1906,7 @@ async def test_reconcile_clients_reject_inconsistent_socket_responses(
     assert invalid_apply.value.code == "invalid_response"
 
     committer = CodingCommitterClient(Path("/unused/committer.sock"))
+    assert COMMITTER_OPERATION_TIMEOUT_SECONDS == 90.0
 
     async def invalid_commit_response(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return {"state": "conflict", "receipt": {"unexpected": True}}

@@ -280,7 +280,9 @@ def test_read_only_snapshot_is_writable_only_in_staging(
     assert staging.exists() is False
     assert source.stat().st_mode & 0o222 == 0
     assert (source / "server/app.py").stat().st_mode & 0o222 == 0
-    assert manifest_calls == [target.resolve(), target.resolve()]
+    # The immutable source is fully hashed at startup. Runtime target checks use
+    # the engine's metadata-aware hash cache and must not re-read every file.
+    assert manifest_calls == []
 
 
 def test_multi_file_failure_restores_every_written_file(
@@ -368,10 +370,9 @@ def test_revert_restores_exact_baseline_and_is_idempotent(
     )
     assert engine.health() == {
         "configured": True,
-        "available": False,
+        "available": True,
         "target": "dedicated_worktree",
         "snapshot_fingerprint": engine.source_fingerprint,
-        "reason": "target_changed",
     }
 
     assert engine.revert(receipt) == receipt
@@ -379,6 +380,37 @@ def test_revert_restores_exact_baseline_and_is_idempotent(
     assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
     assert (target / "server/new_file.py").exists() is False
     assert engine.health()["available"] is True
+
+
+def test_incremental_apply_and_latest_revert_preserve_previous_cycle(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    engine = CodingApplierEngine(source, target, staging)
+    first = engine.apply(
+        operation_id="r" * 24,
+        revision=1,
+        patch=modified_patch("server/app.py", "VALUE = 1\n", "VALUE = 2\n"),
+        paths=["server/app.py"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+    second = engine.apply(
+        operation_id="s" * 24,
+        revision=2,
+        patch=modified_patch("server/app.py", "VALUE = 2\n", "VALUE = 3\n"),
+        paths=["server/app.py"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+
+    assert second.files[0].before_sha256 == first.files[0].after_sha256
+    assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 3\n"
+    with pytest.raises(CodingApplyError):
+        engine.revert(first)
+
+    engine.revert(second)
+    assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+    engine.revert(first)
+    assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
 def test_revert_refuses_external_change_without_overwriting_it(

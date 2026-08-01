@@ -203,6 +203,8 @@ class DraftWorkspace:
         self._validate_roots()
         self._revision = 0
         self._committed_fingerprint = ""
+        self._cycle_overrides: dict[str, bytes] = {}
+        self._cycle_patch = ""
         self._turn_active = False
         self._initialized = False
 
@@ -217,6 +219,8 @@ class DraftWorkspace:
         self._reset_workspace_from(self.source_root)
         self._clear_tree(self.checkpoint_root)
         self._revision = 0
+        self._cycle_overrides = {}
+        self._cycle_patch = ""
         self._committed_fingerprint = self._fingerprint(())
         self._turn_active = False
         self._initialized = True
@@ -244,6 +248,7 @@ class DraftWorkspace:
             raise DraftTransactionError("turn_not_active")
         try:
             candidates = self._scan_candidates()
+            self._scan_cumulative_candidates()
         except DraftPolicyError:
             self._restore_checkpoint()
             raise
@@ -293,6 +298,112 @@ class DraftWorkspace:
             raise DraftValidationError("validation_failed")
         return "".join(item.diff for item in report.files)
 
+    def cumulative_changes(self) -> DraftReport:
+        self._ensure_initialized()
+        if self._turn_active:
+            raise DraftTransactionError("turn_active")
+        return self._report(self._scan_cumulative_candidates())
+
+    def cumulative_patch(self, revision: int) -> str:
+        self._check_revision(revision)
+        report = self.cumulative_changes()
+        if not report.files:
+            raise DraftValidationError("draft_is_empty")
+        if not report.can_download:
+            raise DraftValidationError("validation_failed")
+        return "".join(item.diff for item in report.files)
+
+    def checkpoint_cycle(self, revision: int) -> DraftReport:
+        """Accept the current candidate as the baseline for the next cycle."""
+
+        self._check_revision(revision)
+        current = self.validate()
+        if not current.files:
+            raise DraftValidationError("draft_is_empty")
+        cumulative = self.cumulative_changes()
+        if not cumulative.can_download:
+            raise DraftValidationError("validation_failed")
+        self._cycle_patch = "".join(item.diff for item in cumulative.files)
+        self._cycle_overrides = {
+            candidate.path: candidate.new_text.encode("utf-8")
+            for candidate in self._scan_cumulative_candidates()
+        }
+        self._committed_fingerprint = self._fingerprint(())
+        self._clear_tree(self.checkpoint_root)
+        return self.validate()
+
+    @property
+    def cycle_patch(self) -> str:
+        self._ensure_initialized()
+        return self._cycle_patch
+
+    def restore_incremental(
+        self,
+        *,
+        base_patch: str,
+        base_paths: tuple[str, ...],
+        patch: str,
+        revision: int,
+        expected_paths: tuple[str, ...],
+    ) -> DraftReport:
+        """Restore a trusted checkpoint and the one active incremental draft."""
+
+        self._ensure_initialized()
+        if self._turn_active or isinstance(revision, bool) or revision < 1:
+            raise DraftRevisionError("invalid_revision")
+        from .patch_policy import PatchPolicyError, validate_patch
+
+        try:
+            safe_base_paths = (
+                validate_patch(base_patch, expected_paths=base_paths, limits=self.limits)
+                if base_patch
+                else ()
+            )
+            safe_paths = (
+                validate_patch(patch, expected_paths=expected_paths, limits=self.limits)
+                if patch
+                else ()
+            )
+        except PatchPolicyError as exc:
+            raise DraftPolicyError("recovery_patch_invalid") from exc
+        if bool(base_patch) != bool(base_paths) or bool(patch) != bool(expected_paths):
+            raise DraftPolicyError("recovery_patch_invalid")
+
+        self._reset_workspace_from(self.source_root)
+        self._make_tree_writable(self.workspace_root)
+        self._cycle_overrides = {}
+        try:
+            if base_patch:
+                self._apply_recovery_patch(base_patch, safe_base_paths)
+                base_candidates = self._scan_cumulative_candidates()
+                if "".join(item.diff for item in base_candidates) != base_patch:
+                    raise DraftPolicyError("recovery_patch_mismatch")
+                self._cycle_overrides = {
+                    item.path: item.new_text.encode("utf-8")
+                    for item in base_candidates
+                }
+                self._cycle_patch = base_patch
+            if patch:
+                self._apply_recovery_patch(patch, safe_paths)
+            candidates = self._scan_candidates()
+            if tuple(item.path for item in candidates) != safe_paths:
+                raise DraftPolicyError("recovery_patch_mismatch")
+            if "".join(item.diff for item in candidates) != patch:
+                raise DraftPolicyError("recovery_patch_mismatch")
+            self._scan_cumulative_candidates()
+            self._revision = revision
+            self._committed_fingerprint = self._fingerprint(candidates)
+            self._turn_active = False
+            return self._report(candidates)
+        except Exception:
+            self._reset_workspace_from(self.source_root)
+            self._make_tree_writable(self.workspace_root)
+            self._cycle_overrides = {}
+            self._cycle_patch = ""
+            self._revision = 0
+            self._committed_fingerprint = self._fingerprint(())
+            raise
+
     def restore_from_patch(
         self,
         patch: str,
@@ -334,6 +445,8 @@ class DraftWorkspace:
             if regenerated != patch:
                 raise DraftPolicyError("recovery_patch_mismatch")
             self._revision = revision
+            self._cycle_overrides = {}
+            self._cycle_patch = ""
             self._committed_fingerprint = self._fingerprint(candidates)
             self._turn_active = False
             return self._report(candidates)
@@ -342,6 +455,8 @@ class DraftWorkspace:
             self._make_tree_writable(self.workspace_root)
             self._clear_tree(self.checkpoint_root)
             self._revision = 0
+            self._cycle_overrides = {}
+            self._cycle_patch = ""
             self._committed_fingerprint = self._fingerprint(())
             self._turn_active = False
             raise
@@ -350,7 +465,7 @@ class DraftWorkspace:
         self._ensure_initialized()
         if self._turn_active:
             raise DraftTransactionError("turn_active")
-        self._reset_workspace_from(self.source_root)
+        self._reset_workspace_to_cycle_baseline()
         self._clear_tree(self.checkpoint_root)
         self._revision += 1
         self._committed_fingerprint = self._fingerprint(())
@@ -364,6 +479,8 @@ class DraftWorkspace:
         self._clear_tree(self.checkpoint_root)
         self._turn_active = False
         self._initialized = False
+        self._cycle_overrides = {}
+        self._cycle_patch = ""
 
     @staticmethod
     def normalize_relative_path(path: str) -> str:
@@ -398,10 +515,20 @@ class DraftWorkspace:
             raise DraftWorkspaceError("workspace_not_initialized")
 
     def _scan_candidates(self) -> tuple[_Candidate, ...]:
+        return self._scan_candidates_against(self._cycle_overrides)
+
+    def _scan_cumulative_candidates(self) -> tuple[_Candidate, ...]:
+        return self._scan_candidates_against({})
+
+    def _scan_candidates_against(
+        self,
+        overrides: dict[str, bytes],
+    ) -> tuple[_Candidate, ...]:
         source_files = self._collect_files(self.source_root, enforce_paths=False)
         workspace_files = self._collect_files(self.workspace_root, enforce_paths=False)
 
-        deleted_paths = sorted(source_files.keys() - workspace_files.keys())
+        baseline_paths = source_files.keys() | overrides.keys()
+        deleted_paths = sorted(baseline_paths - workspace_files.keys())
         if deleted_paths:
             raise DraftPolicyError("deletion_not_allowed", path=deleted_paths[0])
 
@@ -410,8 +537,10 @@ class DraftWorkspace:
             source_path = source_files.get(path)
             workspace_path = workspace_files[path]
             new_bytes = workspace_path.read_bytes()
-            if source_path is not None:
+            old_bytes = overrides.get(path)
+            if old_bytes is None and source_path is not None:
                 old_bytes = source_path.read_bytes()
+            if old_bytes is not None:
                 if old_bytes == new_bytes:
                     continue
                 status: DraftFileStatus = "modified"
@@ -580,17 +709,22 @@ class DraftWorkspace:
             raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
 
         source_path = self.source_root / expected_path
+        override = self._cycle_overrides.get(expected_path)
+        baseline_exists = override is not None or source_path.is_file()
         is_added = old_header == "--- /dev/null"
         if is_added:
-            if source_path.exists() or not any(
+            if baseline_exists or not any(
                 line.rstrip("\r\n") == "new file mode 100644" for line in section
             ):
                 raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
             old_text = ""
         else:
-            if old_header != f"--- a/{expected_path}" or not source_path.is_file():
+            if old_header != f"--- a/{expected_path}" or not baseline_exists:
                 raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
-            old_text = self._decode_text(source_path.read_bytes(), expected_path)
+            old_text = self._decode_text(
+                override if override is not None else source_path.read_bytes(),
+                expected_path,
+            )
 
         hunk_indexes = [
             index for index, line in enumerate(section) if line.startswith("@@ ")
@@ -826,8 +960,7 @@ class DraftWorkspace:
             raise DraftRevisionError("stale_revision")
 
     def _restore_checkpoint(self) -> None:
-        self._reset_workspace_from(self.source_root)
-        self._make_tree_writable(self.workspace_root)
+        self._reset_workspace_to_cycle_baseline()
         shutil.copytree(
             self.checkpoint_root,
             self.workspace_root,
@@ -836,6 +969,14 @@ class DraftWorkspace:
         )
         self._clear_tree(self.checkpoint_root)
         self._turn_active = False
+
+    def _reset_workspace_to_cycle_baseline(self) -> None:
+        self._reset_workspace_from(self.source_root)
+        self._make_tree_writable(self.workspace_root)
+        for path, content in self._cycle_overrides.items():
+            target = self.workspace_root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
 
     def _reset_workspace_from(self, source: Path) -> None:
         if not self.preserve_workspace_root:

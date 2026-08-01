@@ -15,14 +15,15 @@ from typing import Any, Callable
 from cryptography.fernet import Fernet, InvalidToken
 
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
+from .cycles import CodingCycle, CodingCycleHistory
 from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN, PatchPolicyError, validate_patch
 
 
-RECOVERY_SCHEMA_VERSION = 1
+RECOVERY_SCHEMA_VERSION = 2
 DEFAULT_RECOVERY_RETENTION_SECONDS = 7 * 24 * 60 * 60
 MIN_RECOVERY_RETENTION_SECONDS = 60
 MAX_RECOVERY_RETENTION_SECONDS = 30 * 24 * 60 * 60
-MAX_RECOVERY_PAYLOAD_BYTES = 2 * 1024 * 1024
+MAX_RECOVERY_PAYLOAD_BYTES = 16 * 1024 * 1024
 SAFE_RECOVERY_ID = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 FORBIDDEN_RECOVERY_KEYS = frozenset(
     {
@@ -49,8 +50,18 @@ FORBIDDEN_RECOVERY_KEYS = frozenset(
         "tools",
     }
 )
-_PAYLOAD_KEYS = frozenset(
+_PAYLOAD_KEYS_V1 = frozenset(
     {"patch", "changes", "verification", "apply", "commit", "operation"}
+)
+_PAYLOAD_KEYS = frozenset(
+    {
+        *_PAYLOAD_KEYS_V1,
+        "base_patch",
+        "base_changes",
+        "active_patch",
+        "active_changes",
+        "cycles",
+    }
 )
 _CHANGE_KEYS = frozenset(
     {
@@ -92,18 +103,28 @@ class RecoveryPayload:
     apply: dict[str, Any] | None = None
     commit: dict[str, Any] | None = None
     operation: dict[str, Any] | None = None
+    base_patch: str = ""
+    base_changes: dict[str, Any] | None = None
+    active_patch: str = ""
+    active_changes: dict[str, Any] | None = None
+    cycles: tuple[CodingCycle, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_recovery_payload(self)
 
     @classmethod
     def from_dict(cls, value: Any) -> RecoveryPayload:
-        if not isinstance(value, dict) or set(value) != _PAYLOAD_KEYS:
+        keys = frozenset(value) if isinstance(value, dict) else frozenset()
+        if not isinstance(value, dict) or keys not in {
+            _PAYLOAD_KEYS_V1,
+            _PAYLOAD_KEYS,
+        }:
             raise CodingRecoveryError(
                 "Recovery payload shape is invalid.",
                 code="recovery_data_corrupt",
             )
         try:
+            legacy = keys == _PAYLOAD_KEYS_V1
             return cls(
                 patch=value["patch"],
                 changes=value["changes"],
@@ -111,6 +132,15 @@ class RecoveryPayload:
                 apply=value["apply"],
                 commit=value["commit"],
                 operation=value["operation"],
+                base_patch="" if legacy else value["base_patch"],
+                base_changes=None if legacy else value["base_changes"],
+                active_patch=value["patch"] if legacy else value["active_patch"],
+                active_changes=value["changes"] if legacy else value["active_changes"],
+                cycles=(
+                    ()
+                    if legacy
+                    else tuple(_cycle_from_dict(item) for item in value["cycles"])
+                ),
             )
         except CodingRecoveryError:
             raise
@@ -128,6 +158,11 @@ class RecoveryPayload:
             "apply": self.apply,
             "commit": self.commit,
             "operation": self.operation,
+            "base_patch": self.base_patch,
+            "base_changes": self.base_changes,
+            "active_patch": self.active_patch,
+            "active_changes": self.active_changes,
+            "cycles": [_cycle_to_dict(cycle) for cycle in self.cycles],
         }
 
 
@@ -336,7 +371,7 @@ class CodingRecoveryStore:
             if row["expires_at"] <= self._now():
                 connection.execute("DELETE FROM coding_recovery WHERE slot = 1")
                 return None
-            if row["schema_version"] != RECOVERY_SCHEMA_VERSION:
+            if row["schema_version"] not in {1, RECOVERY_SCHEMA_VERSION}:
                 raise CodingRecoveryError(
                     "Recovery schema is unsupported.",
                     code="recovery_schema_unsupported",
@@ -412,6 +447,8 @@ class CodingRecoveryStore:
                     )
                     """
                 )
+                connection.execute(f"PRAGMA user_version = {RECOVERY_SCHEMA_VERSION}")
+            elif current_version == 1:
                 connection.execute(f"PRAGMA user_version = {RECOVERY_SCHEMA_VERSION}")
             elif current_version != RECOVERY_SCHEMA_VERSION:
                 raise CodingRecoveryError(
@@ -607,11 +644,101 @@ def _validate_recovery_payload(payload: RecoveryPayload) -> None:
                 code="invalid_recovery_payload",
             )
         _validate_json_value(value)
+    try:
+        history = CodingCycleHistory(payload.cycles)
+    except (TypeError, ValueError) as exc:
+        raise CodingRecoveryError(
+            "Recovery cycle history is invalid.",
+            code="invalid_recovery_payload",
+        ) from exc
+    if history.cycles != payload.cycles:
+        raise CodingRecoveryError(
+            "Recovery cycle history is invalid.",
+            code="invalid_recovery_payload",
+        )
+    for cycle in payload.cycles:
+        cycle_files = cycle.changes.get("files")
+        if not isinstance(cycle_files, list):
+            raise CodingRecoveryError(
+                "Recovery cycle files are invalid.",
+                code="invalid_recovery_payload",
+            )
+        cycle_paths = [item.get("path") for item in cycle_files if isinstance(item, dict)]
+        try:
+            validate_patch(cycle.patch, expected_paths=cycle_paths)
+        except (PatchPolicyError, UnicodeError, TypeError) as exc:
+            raise CodingRecoveryError(
+                "Recovery cycle Patch is invalid.",
+                code="invalid_recovery_payload",
+            ) from exc
+        for value in (cycle.changes, cycle.verification, cycle.apply, cycle.commit):
+            _validate_json_value(value)
+    for patch_value, summary in (
+        (payload.base_patch, payload.base_changes),
+        (payload.active_patch, payload.active_changes),
+    ):
+        if not isinstance(patch_value, str) or (
+            summary is not None and not isinstance(summary, dict)
+        ):
+            raise CodingRecoveryError(
+                "Recovery incremental draft is invalid.",
+                code="invalid_recovery_payload",
+            )
+        if len(patch_value.encode("utf-8", errors="strict")) > DraftLimits().max_patch_bytes:
+            raise CodingRecoveryError(
+                "Recovery incremental Patch is too large.",
+                code="invalid_recovery_payload",
+            )
+        if bool(patch_value) != (summary is not None):
+            raise CodingRecoveryError(
+                "Recovery incremental draft is inconsistent.",
+                code="invalid_recovery_payload",
+            )
+        if summary is not None:
+            _validate_json_value(summary)
     if len(_canonical_json(payload.to_dict())) > MAX_RECOVERY_PAYLOAD_BYTES:
         raise CodingRecoveryError(
             "Recovery payload exceeds the allowed size.",
             code="invalid_recovery_payload",
         )
+
+
+def _cycle_to_dict(cycle: CodingCycle) -> dict[str, Any]:
+    return {
+        "number": cycle.number,
+        "revision": cycle.revision,
+        "state": cycle.state.value,
+        "patch": cycle.patch,
+        "changes": cycle.changes,
+        "verification": cycle.verification,
+        "apply": cycle.apply,
+        "commit": cycle.commit,
+        "created_at": cycle.created_at,
+        "updated_at": cycle.updated_at,
+    }
+
+
+def _cycle_from_dict(value: Any) -> CodingCycle:
+    keys = {
+        "number", "revision", "state", "patch", "changes",
+        "verification", "apply", "commit", "created_at", "updated_at",
+    }
+    if not isinstance(value, dict) or set(value) != keys:
+        raise ValueError("Cycle payload shape is invalid")
+    from .cycles import CycleState
+
+    return CodingCycle(
+        number=value["number"],
+        revision=value["revision"],
+        state=CycleState(value["state"]),
+        patch=value["patch"],
+        changes=value["changes"],
+        verification=value["verification"],
+        apply=value["apply"],
+        commit=value["commit"],
+        created_at=value["created_at"],
+        updated_at=value["updated_at"],
+    )
 
 
 def _validate_json_value(value: Any, *, depth: int = 0) -> None:

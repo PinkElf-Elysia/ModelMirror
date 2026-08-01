@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import tempfile
 import threading
@@ -69,6 +70,7 @@ class CodingCommitterEngine:
             raise CodingCommitError("Commit author email is invalid.", code="invalid_author")
         self._mutation_hook = mutation_hook
         self._lock = threading.Lock()
+        self._target_hash_cache: dict[str, tuple[tuple[int, int, int, int], str]] = {}
         self._validate_roots()
         try:
             self._source_manifest = snapshot_manifest(self.source_root)
@@ -80,18 +82,29 @@ class CodingCommitterEngine:
             self.target_root / ".git" / "modelmirror-coding" / "operations"
         )
         self._operations = self._load_journals()
-        journal_parents = {
-            operation.receipt.parent_sha for operation in self._operations.values()
+        commit_ids = {
+            operation.receipt.commit_sha for operation in self._operations.values()
         }
-        if len(journal_parents) > 1:
+        root_parents = {
+            operation.receipt.parent_sha
+            for operation in self._operations.values()
+            if operation.receipt.parent_sha not in commit_ids
+        }
+        if len(root_parents) > 1:
             raise CodingCommitError(
                 "Commit recovery journals disagree on the baseline.",
                 code="recovery_journal_invalid",
             )
-        journal_parent = next(iter(journal_parents), None)
+        journal_parent = next(iter(root_parents), None)
         self._baseline_head, self._baseline_tree, self._baseline_entries = (
             self._inspect_repository_baseline(journal_parent)
         )
+        self._current_head = self._baseline_head
+        self._current_tree = self._baseline_tree
+        self._current_entries = dict(self._baseline_entries)
+        self._current_hashes = dict(self._source_hashes)
+        self._restore_linear_state()
+        self._target_manifest()
         for operation in self._operations.values():
             if operation.apply_receipt.snapshot_fingerprint != self.source_fingerprint:
                 raise CodingCommitError(
@@ -100,16 +113,11 @@ class CodingCommitterEngine:
                 )
         self._health_snapshot = {
             "configured": True,
-            "available": not any(
-                operation.state != "undone"
-                for operation in self._operations.values()
-            ),
+            "available": True,
             "target": "isolated_local_repository",
             "branch": COMMIT_BRANCH,
             "snapshot_fingerprint": self.source_fingerprint,
         }
-        if not self._health_snapshot["available"]:
-            self._health_snapshot["reason"] = "commit_recovery_pending"
 
     def health(self) -> dict[str, object]:
         return dict(self._health_snapshot)
@@ -153,27 +161,18 @@ class CodingCommitterEngine:
                         "Commit recovery state is ambiguous.",
                         code="commit_conflict",
                     )
-            if any(
-                operation.state != "undone"
-                and operation.receipt.commit_id != operation_id
-                for operation in self._operations.values()
-            ):
-                raise CodingCommitError(
-                    "A local commit already exists for this target.",
-                    code="commit_already_exists",
-                )
-
             self._assert_repository_ready(apply_receipt)
             receipt = self._create_commit(
                 operation_id=operation_id,
                 apply_receipt=apply_receipt,
                 message=safe_message,
             )
+            self._advance_current(receipt, apply_receipt)
             self._health_snapshot = {
-                **self._health_snapshot,
-                "available": False,
-                "reason": "commit_exists",
+                key: value for key, value in self._health_snapshot.items()
+                if key != "reason"
             }
+            self._health_snapshot["available"] = True
             return receipt
 
     def undo(self, receipt: CommitReceipt, apply_receipt: ApplyReceipt) -> CommitReceipt:
@@ -189,6 +188,11 @@ class CodingCommitterEngine:
                     "Apply receipt does not match the commit.",
                     code="operation_conflict",
                 )
+            if operation.state != "undone" and self._current_head != receipt.commit_sha:
+                raise CodingCommitError(
+                    "Only the latest local commit can be undone.",
+                    code="undo_not_latest",
+                )
             state, reconciled = self._reconcile_locked(
                 operation_id=receipt.commit_id,
                 apply_receipt=apply_receipt,
@@ -203,6 +207,11 @@ class CodingCommitterEngine:
                 raise CodingCommitError(
                     "Commit cannot be safely undone.",
                     code="undo_conflict",
+                )
+            if self._current_head != receipt.commit_sha:
+                raise CodingCommitError(
+                    "Only the latest local commit can be undone.",
+                    code="undo_not_latest",
                 )
 
             self._assert_committed_state(receipt, apply_receipt)
@@ -220,6 +229,7 @@ class CodingCommitterEngine:
                 state="undone",
             )
             self._write_journal(self._operations[receipt.commit_id])
+            self._rewind_current(receipt, apply_receipt)
             self._health_snapshot = {
                 key: value
                 for key, value in self._health_snapshot.items()
@@ -466,6 +476,85 @@ class CodingCommitterEngine:
                 code="repository_not_independent",
             )
 
+    def _restore_linear_state(self) -> None:
+        target_head = self._git_text("rev-parse", "--verify", "HEAD")
+        remaining = {
+            key: operation
+            for key, operation in self._operations.items()
+            if operation.state in {"committed", "prepared"}
+            and self._run_git(
+                "merge-base",
+                "--is-ancestor",
+                operation.receipt.commit_sha,
+                target_head,
+                allowed_returncodes=(0, 1),
+            ).returncode
+            == 0
+        }
+        while remaining:
+            candidates = [
+                (key, operation)
+                for key, operation in remaining.items()
+                if operation.receipt.parent_sha == self._current_head
+            ]
+            if not candidates:
+                break
+            if len(candidates) != 1:
+                raise CodingCommitError(
+                    "Commit recovery journals are not linear.",
+                    code="recovery_journal_invalid",
+                )
+            key, operation = candidates[0]
+            self._advance_current(operation.receipt, operation.apply_receipt)
+            remaining.pop(key)
+        if remaining or target_head != self._current_head:
+            raise CodingCommitError(
+                "Commit recovery journals do not match the target.",
+                code="recovery_journal_invalid",
+            )
+
+    def _advance_current(
+        self,
+        receipt: CommitReceipt,
+        apply_receipt: ApplyReceipt,
+    ) -> None:
+        if receipt.parent_sha != self._current_head:
+            raise CodingCommitError(
+                "Commit parent is not the latest checkpoint.",
+                code="commit_conflict",
+            )
+        for item in apply_receipt.files:
+            if item.existed_before:
+                if self._current_hashes.get(item.path) != item.before_sha256:
+                    raise CodingCommitError(
+                        "Apply receipt does not match the latest checkpoint.",
+                        code="receipt_mismatch",
+                    )
+            elif item.path in self._current_hashes:
+                raise CodingCommitError(
+                    "New apply path already exists.",
+                    code="receipt_mismatch",
+                )
+            self._current_hashes[item.path] = item.after_sha256
+        self._current_head = receipt.commit_sha
+        self._current_tree = receipt.tree_sha
+        self._current_entries = self._read_tree_entries(receipt.commit_sha)
+
+    def _rewind_current(
+        self,
+        receipt: CommitReceipt,
+        apply_receipt: ApplyReceipt,
+    ) -> None:
+        for item in apply_receipt.files:
+            if item.existed_before:
+                assert item.before_sha256 is not None
+                self._current_hashes[item.path] = item.before_sha256
+            else:
+                self._current_hashes.pop(item.path, None)
+        self._current_head = receipt.parent_sha
+        self._current_tree = self._git_text("rev-parse", f"{receipt.parent_sha}^{{tree}}")
+        self._current_entries = self._read_tree_entries(receipt.parent_sha)
+
     def _inspect_repository_baseline(
         self,
         expected_head: str | None = None,
@@ -536,15 +625,22 @@ class CodingCommitterEngine:
             raise CodingCommitError("Apply snapshot does not match the source.", code="snapshot_mismatch")
         if self._git_text("symbolic-ref", "--quiet", "HEAD") != f"refs/heads/{COMMIT_BRANCH}":
             raise CodingCommitError("Target branch changed.", code="wrong_branch")
-        if self._git_text("rev-parse", "--verify", "HEAD") != self._baseline_head:
+        if self._git_text("rev-parse", "--verify", "HEAD") != self._current_head:
             raise CodingCommitError("Target baseline changed.", code="baseline_mismatch")
-        if self._git_text("write-tree") != self._baseline_tree:
+        if self._git_text("write-tree") != self._current_tree:
             raise CodingCommitError("Target index contains changes.", code="dirty_index")
         self._assert_worktree_matches_receipt(receipt)
 
     def _assert_worktree_matches_receipt(self, receipt: ApplyReceipt) -> None:
-        expected_entries = set(self._source_manifest.entries)
-        expected_hashes = dict(self._source_hashes)
+        expected_entries = {
+            ("file", path) for path in self._current_hashes
+        }
+        for path in self._current_hashes:
+            parent = PurePosixPath(path).parent
+            while str(parent) not in {"", "."}:
+                expected_entries.add(("directory", parent.as_posix()))
+                parent = parent.parent
+        expected_hashes = dict(self._current_hashes)
         for item in receipt.files:
             if item.existed_before:
                 if expected_hashes.get(item.path) != item.before_sha256:
@@ -557,12 +653,94 @@ class CodingCommitterEngine:
             while str(parent) not in {"", "."}:
                 expected_entries.add(("directory", parent.as_posix()))
                 parent = parent.parent
-        try:
-            target = snapshot_manifest(self.target_root, ignored_root_names={".git"})
-        except PatchPolicyError as exc:
-            raise CodingCommitError(str(exc), code="target_changed") from exc
+        target = self._target_manifest()
         if target.entries != frozenset(expected_entries) or dict(target.file_hashes) != expected_hashes:
             raise CodingCommitError("Target files changed outside the apply receipt.", code="target_changed")
+
+    def _assert_worktree_matches_current(self) -> None:
+        expected_entries = {("file", path) for path in self._current_hashes}
+        for path in self._current_hashes:
+            parent = PurePosixPath(path).parent
+            while str(parent) not in {"", "."}:
+                expected_entries.add(("directory", parent.as_posix()))
+                parent = parent.parent
+        target = self._target_manifest()
+        if (
+            target.entries != frozenset(expected_entries)
+            or dict(target.file_hashes) != self._current_hashes
+        ):
+            raise CodingCommitError(
+                "Target files changed outside the latest checkpoint.",
+                code="target_changed",
+            )
+
+    def _target_manifest(self) -> SnapshotManifest:
+        try:
+            digest = hashlib.sha256()
+            entries: set[tuple[str, str]] = set()
+            file_hashes: list[tuple[str, str]] = []
+            next_cache: dict[str, tuple[tuple[int, int, int, int], str]] = {}
+            pending: list[tuple[Path, str]] = [(self.target_root, "")]
+            while pending:
+                directory, prefix = pending.pop()
+                with os.scandir(directory) as iterator:
+                    children = sorted(iterator, key=lambda item: item.name, reverse=True)
+                for child in children:
+                    if not prefix and child.name == ".git":
+                        continue
+                    relative = f"{prefix}/{child.name}" if prefix else child.name
+                    metadata = child.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(metadata.st_mode):
+                        raise CodingCommitError(
+                            "Target contains a symbolic link.",
+                            code="target_changed",
+                        )
+                    if stat.S_ISDIR(metadata.st_mode):
+                        entries.add(("directory", relative))
+                        pending.append((Path(child.path), relative))
+                        continue
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise CodingCommitError(
+                            "Target contains an unsupported file.",
+                            code="target_changed",
+                        )
+                    signature = (
+                        metadata.st_size,
+                        metadata.st_mtime_ns,
+                        metadata.st_ctime_ns,
+                        metadata.st_ino,
+                    )
+                    cached = self._target_hash_cache.get(relative)
+                    if cached is not None and cached[0] == signature:
+                        content_hash = cached[1]
+                    else:
+                        content_hash = hashlib.sha256(
+                            Path(child.path).read_bytes()
+                        ).hexdigest()
+                    entries.add(("file", relative))
+                    file_hashes.append((relative, content_hash))
+                    next_cache[relative] = (signature, content_hash)
+            file_hashes.sort()
+            for relative, content_hash in file_hashes:
+                size = next_cache[relative][0][0]
+                digest.update(relative.encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(str(size).encode("ascii"))
+                digest.update(b"\0")
+                digest.update(bytes.fromhex(content_hash))
+            self._target_hash_cache = next_cache
+            return SnapshotManifest(
+                entries=frozenset(entries),
+                file_hashes=tuple(file_hashes),
+                fingerprint=digest.hexdigest(),
+            )
+        except CodingCommitError:
+            raise
+        except OSError as exc:
+            raise CodingCommitError(
+                "Target files could not be inspected.",
+                code="target_changed",
+            ) from exc
 
     def _create_commit(
         self,
@@ -573,9 +751,9 @@ class CodingCommitterEngine:
     ) -> CommitReceipt:
         with tempfile.TemporaryDirectory(dir=self.temporary_root) as directory:
             index_path = Path(directory) / "index"
-            self._run_git("read-tree", self._baseline_head, index_path=index_path)
+            self._run_git("read-tree", self._current_head, index_path=index_path)
             for item in apply_receipt.files:
-                mode = self._baseline_entries[item.path].mode if item.existed_before else "100644"
+                mode = self._current_entries[item.path].mode if item.existed_before else "100644"
                 object_id = self._git_text(
                     "hash-object",
                     "-w",
@@ -595,7 +773,7 @@ class CodingCommitterEngine:
                 "commit-tree",
                 tree,
                 "-p",
-                self._baseline_head,
+                self._current_head,
                 input_bytes=(message + "\n").encode("utf-8"),
             )
             receipt = CommitReceipt(
@@ -603,7 +781,7 @@ class CodingCommitterEngine:
                 revision=apply_receipt.revision,
                 apply_id=apply_receipt.apply_id,
                 commit_sha=commit_sha,
-                parent_sha=self._baseline_head,
+                parent_sha=self._current_head,
                 tree_sha=tree,
                 message=message,
                 files=tuple(item.path for item in apply_receipt.files),
@@ -617,7 +795,7 @@ class CodingCommitterEngine:
             self._operations[operation_id] = prepared
             self._write_journal(prepared)
             self._move_head_and_index(
-                old_head=self._baseline_head,
+                old_head=self._current_head,
                 new_head=commit_sha,
                 index_tree=tree,
                 phase="commit",
@@ -713,14 +891,21 @@ class CodingCommitterEngine:
             raise CodingCommitError("Local commit changed.", code="commit_conflict")
         if self._git_text("write-tree") != receipt.tree_sha:
             raise CodingCommitError("Target index changed.", code="commit_conflict")
-        self._assert_worktree_matches_receipt(apply_receipt)
+        if self._current_head == receipt.commit_sha:
+            self._assert_worktree_matches_current()
+        else:
+            self._assert_worktree_matches_receipt(apply_receipt)
 
     def _assert_undone_state(self, receipt: CommitReceipt, apply_receipt: ApplyReceipt) -> None:
         if self._git_text("rev-parse", "--verify", "HEAD") != receipt.parent_sha:
             raise CodingCommitError("Local commit undo changed.", code="undo_conflict")
-        if self._git_text("write-tree") != self._baseline_tree:
+        parent_tree = self._git_text("rev-parse", f"{receipt.parent_sha}^{{tree}}")
+        if self._git_text("write-tree") != parent_tree:
             raise CodingCommitError("Target index changed after undo.", code="undo_conflict")
-        self._assert_worktree_matches_receipt(apply_receipt)
+        if self._current_head == receipt.parent_sha:
+            self._assert_worktree_matches_receipt(apply_receipt)
+        else:
+            self._assert_worktree_matches_current()
 
     def _read_tree_entries(self, treeish: str) -> dict[str, _TreeEntry]:
         raw = self._run_git("ls-tree", "-rz", "--full-tree", treeish).stdout

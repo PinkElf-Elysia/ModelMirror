@@ -49,6 +49,7 @@ from .commit_models import (
     suggest_commit_message,
 )
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
+from .cycles import MAX_INCREMENTAL_CYCLES, CodingCycle, CodingCycleHistory, CycleState
 from .models import CodingEvent, CodingEventKind
 from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN
 from .recovery import (
@@ -121,7 +122,13 @@ class WorkerClient(Protocol):
 
     async def diff(self, session_id: str, path: str, revision: int) -> str: ...
 
-    async def patch(self, session_id: str, revision: int) -> str: ...
+    async def patch(
+        self, session_id: str, revision: int, *, scope: str = "current"
+    ) -> str: ...
+
+    async def checkpoint_cycle(
+        self, session_id: str, revision: int
+    ) -> dict[str, Any]: ...
 
     async def validate(self, session_id: str) -> dict[str, Any]: ...
 
@@ -301,6 +308,13 @@ class CommitUndoRequest(ApplyRevertRequest):
     commit_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class ContinueCycleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=0)
+    commit_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
 class VerificationStepPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -381,6 +395,8 @@ class CodingApiSession:
     recovery_id: str | None = None
     recovery_created_at: float | None = None
     recovery_conflict: str | None = None
+    cycle_number: int = 1
+    cycle_history: CodingCycleHistory = field(default_factory=CodingCycleHistory)
 
 
 class CodingService:
@@ -396,6 +412,7 @@ class CodingService:
         recovery_store: CodingRecoveryStore | None = None,
         recovery_enabled: bool = False,
         recovery_reason: str | None = None,
+        incremental_enabled: bool | None = None,
         ttl_seconds: float = SESSION_TTL_SECONDS,
         mode: str | None = None,
     ) -> None:
@@ -406,6 +423,12 @@ class CodingService:
         self.recovery_store = recovery_store
         self.recovery_enabled = recovery_enabled
         self.recovery_reason = recovery_reason
+        self.incremental_enabled = (
+            os.getenv("CODING_INCREMENTAL_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"}
+            if incremental_enabled is None
+            else incremental_enabled
+        )
         self.ttl_seconds = ttl_seconds
         self.mode = _normalize_mode(
             mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
@@ -442,6 +465,14 @@ class CodingService:
                     if recovery.get("reason") is not None
                     else {}
                 ),
+            },
+            "incremental": {
+                "enabled": self.incremental_enabled,
+                "available": False,
+                "max_cycles": MAX_INCREMENTAL_CYCLES,
+                "requires_recovery": True,
+                "commit_strategy": "linear",
+                "undo_scope": "latest",
             },
         }
         if self.mode == "draft":
@@ -508,6 +539,16 @@ class CodingService:
             response["apply"] = apply_capability
             response["host_apply"] = apply_capability["available"] is True
             response["commit"] = await self._commit_capability(health)
+            response["incremental"]["available"] = bool(
+                self.incremental_enabled
+                and recovery["available"]
+                and response["apply"].get("available") is True
+                and response["commit"].get("available") is True
+            )
+            if self.incremental_enabled and not response["incremental"]["available"]:
+                response["incremental"]["reason"] = (
+                    "incremental_dependencies_unavailable"
+                )
         response["available"] = True
         return response
 
@@ -676,8 +717,19 @@ class CodingService:
             raise _worker_http_error(exc) from exc
         if health.get("snapshot_fingerprint") != recovery.snapshot_fingerprint:
             raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
-        changes = _public_changes(recovery.payload.changes)
-        paths = [item["path"] for item in changes["files"]]
+        cumulative_changes = _public_changes(recovery.payload.changes)
+        active_changes = (
+            _public_changes(recovery.payload.active_changes)
+            if recovery.payload.active_changes is not None
+            else None
+        )
+        active_patch = recovery.payload.active_patch
+        paths = (
+            [item["path"] for item in active_changes["files"]]
+            if active_changes is not None
+            else []
+        )
+        base_paths = _diff_paths(recovery.payload.base_patch)
         verification = (
             _verification_from_worker(
                 {"verification": recovery.payload.verification}
@@ -688,8 +740,10 @@ class CodingService:
         try:
             result = await self.worker.restore_session(
                 revision=recovery.revision,
-                patch=recovery.payload.patch,
+                patch=active_patch,
                 paths=paths,
+                base_patch=recovery.payload.base_patch,
+                base_paths=base_paths,
                 snapshot_fingerprint=recovery.snapshot_fingerprint,
                 verification=verification,
             )
@@ -703,7 +757,14 @@ class CodingService:
             or SAFE_IDENTIFIER.fullmatch(session_id) is None
             or result.get("mode") != self.mode
             or not isinstance(event_data, dict)
-            or _public_changes(restored_changes) != changes
+            or (
+                active_changes is not None
+                and _public_changes(restored_changes) != active_changes
+            )
+            or (
+                active_changes is None
+                and bool(_public_changes(restored_changes)["files"])
+            )
         ):
             if isinstance(session_id, str) and session_id:
                 with contextlib.suppress(Exception):
@@ -717,6 +778,8 @@ class CodingService:
             worker_session_id=session_id,
             recovery_id=recovery.recovery_id,
             recovery_created_at=recovery.created_at,
+            cycle_number=len(recovery.payload.cycles) + 1,
+            cycle_history=CodingCycleHistory(recovery.payload.cycles),
         )
         initial = _event_from_payload(event_data)
         if (
@@ -735,7 +798,7 @@ class CodingService:
             self._hydrate_recovered_session(record, recovery)
             await self._reconcile_recovered_operations(
                 record,
-                recovery.payload.patch,
+                active_patch,
                 paths,
                 recovery.snapshot_fingerprint,
             )
@@ -818,13 +881,135 @@ class CodingService:
             raise _worker_http_error(exc) from exc
         return _safe_diff(diff, expected_path=safe_path)
 
-    async def patch(self, session_id: str, revision: int) -> str:
+    async def patch(
+        self,
+        session_id: str,
+        revision: int,
+        *,
+        scope: str = "current",
+    ) -> str:
         record = await self._review_record(session_id)
+        if scope not in {"current", "cumulative"}:
+            raise _http_error(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_scope")
         try:
-            patch = await self.worker.patch(record.worker_session_id, revision)
+            patch = await self.worker.patch(
+                record.worker_session_id,
+                revision,
+                scope=scope,
+            )
         except CodingWorkerError as exc:
             raise _worker_http_error(exc) from exc
         return _safe_diff(patch)
+
+    async def history(self, session_id: str) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        latest_commit = (
+            self._public_commit(record, record.commit_revision)
+            if record.commit_revision is not None
+            and record.commit_state is CommitState.COMMITTED
+            else None
+        )
+        return {
+            "active_cycle": record.cycle_number,
+            "completed_count": len(record.cycle_history.cycles),
+            "max_cycles": MAX_INCREMENTAL_CYCLES,
+            "can_continue": bool(
+                self.incremental_enabled
+                and latest_commit is not None
+                and record.cycle_number < MAX_INCREMENTAL_CYCLES
+                and record.recovery_conflict is None
+            ),
+            "current_commit": latest_commit,
+            "cycles": record.cycle_history.to_public(),
+        }
+
+    async def continue_cycle(
+        self,
+        session_id: str,
+        revision: int,
+        commit_id: str,
+    ) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        async with record.apply_lock:
+            if not self.incremental_enabled or self.recovery_store is None:
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "incremental_unavailable",
+                )
+            if record.cycle_number >= MAX_INCREMENTAL_CYCLES:
+                raise _http_error(status.HTTP_409_CONFLICT, "cycle_limit_reached")
+            receipt = record.commit_receipt
+            if (
+                receipt is None
+                or record.commit_state is not CommitState.COMMITTED
+                or record.commit_revision != revision
+                or receipt.commit_id != commit_id
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "commit_mismatch")
+            changes = await self._current_changes(record)
+            if changes["revision"] != revision or not changes["files"]:
+                raise _http_error(status.HTTP_409_CONFLICT, "stale_revision")
+            verification = await self._current_verification(record, revision)
+            try:
+                patch = _safe_diff(
+                    await self.worker.patch(
+                        record.worker_session_id,
+                        revision,
+                        scope="current",
+                    )
+                )
+                cycle = CodingCycle(
+                    number=record.cycle_number,
+                    revision=revision,
+                    state=CycleState.COMMITTED,
+                    patch=patch,
+                    changes=changes,
+                    verification=verification,
+                    apply=_apply_storage_payload(record),
+                    commit=_commit_storage_payload(record),
+                    created_at=record.apply_started_at or record.updated_at,
+                    updated_at=time.time(),
+                )
+                next_history = record.cycle_history.append(cycle)
+                next_changes = await self.worker.checkpoint_cycle(
+                    record.worker_session_id,
+                    revision,
+                )
+            except (CodingWorkerError, ValueError) as exc:
+                if isinstance(exc, CodingWorkerError):
+                    raise _worker_http_error(exc) from exc
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    "cycle_transition_invalid",
+                ) from exc
+            record.cycle_history = next_history
+            record.cycle_number += 1
+            record.state = "ready"
+            record.apply_state = ApplyState.NOT_APPLIED
+            record.apply_revision = None
+            record.apply_operation_id = None
+            record.apply_receipt = None
+            record.apply_reason = None
+            record.apply_started_at = None
+            record.apply_finished_at = None
+            record.commit_state = CommitState.NOT_COMMITTED
+            record.commit_revision = None
+            record.commit_operation_id = None
+            record.commit_message = None
+            record.commit_receipt = None
+            record.commit_reason = None
+            record.commit_started_at = None
+            record.commit_finished_at = None
+            record.updated_at = time.time()
+            if _public_changes(next_changes)["files"]:
+                record.state = "conflict"
+                record.recovery_conflict = "checkpoint_not_empty"
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "checkpoint_not_empty",
+                )
+            await self._persist_recovery(record, required=True)
+            return await self.history(session_id)
 
     async def validate(self, session_id: str) -> dict[str, Any]:
         record = await self._review_record(session_id)
@@ -1463,8 +1648,11 @@ class CodingService:
             snapshot = await self.worker.recovery_snapshot(
                 record.worker_session_id
             )
-            changes = _public_changes(snapshot.get("changes"))
-            if not changes["files"]:
+            active_changes = _public_changes(snapshot.get("changes"))
+            cumulative_changes = _public_changes(
+                snapshot.get("cumulative_changes", snapshot.get("changes"))
+            )
+            if not cumulative_changes["files"]:
                 if record.recovery_id is not None:
                     discarded = await asyncio.to_thread(
                         self.recovery_store.discard,
@@ -1478,12 +1666,24 @@ class CodingService:
                 record.recovery_id = None
                 record.recovery_created_at = None
                 return True
-            patch = _safe_diff(snapshot.get("patch"))
+            active_patch = _safe_diff(snapshot.get("patch")) if active_changes["files"] else ""
+            cumulative_patch = _safe_diff(
+                snapshot.get("cumulative_patch", snapshot.get("patch"))
+            )
+            base_patch = snapshot.get("base_patch", "")
+            if not isinstance(base_patch, str):
+                raise CodingRecoveryError(
+                    "Coding recovery checkpoint is invalid.",
+                    code="recovery_snapshot_invalid",
+                )
+            base_patch = _safe_diff(base_patch) if base_patch else ""
             fingerprint = snapshot.get("snapshot_fingerprint")
             if (
                 not isinstance(fingerprint, str)
                 or SNAPSHOT_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None
-                or changes["patch_bytes"] != len(patch.encode("utf-8"))
+                or cumulative_changes["patch_bytes"]
+                != len(cumulative_patch.encode("utf-8"))
+                or active_changes["patch_bytes"] != len(active_patch.encode("utf-8"))
             ):
                 raise CodingRecoveryError(
                     "Coding recovery snapshot is inconsistent.",
@@ -1497,17 +1697,24 @@ class CodingService:
             )
             recovery_id = record.recovery_id or secrets.token_urlsafe(18)
             payload = RecoveryPayload(
-                patch=patch,
-                changes=changes,
+                patch=cumulative_patch,
+                changes=cumulative_changes,
                 verification=verification,
                 apply=_apply_storage_payload(record),
                 commit=_commit_storage_payload(record),
                 operation=_operation_storage_payload(record),
+                base_patch=base_patch,
+                base_changes=(
+                    {"paths": _diff_paths(base_patch)} if base_patch else None
+                ),
+                active_patch=active_patch,
+                active_changes=(active_changes if active_changes["files"] else None),
+                cycles=record.cycle_history.cycles,
             )
             recovery = self.recovery_store.create_record(
                 recovery_id=recovery_id,
                 state=_recovery_state(record),
-                revision=changes["revision"],
+                revision=cumulative_changes["revision"],
                 snapshot_fingerprint=fingerprint,
                 payload=payload,
                 created_at=record.recovery_created_at,
@@ -2262,18 +2469,48 @@ async def coding_session_diff(
 async def coding_session_patch(
     session_id: str,
     revision: int = Query(ge=0),
+    scope: Literal["current", "cumulative"] = Query(default="current"),
 ) -> Response:
-    patch = await get_coding_service().patch(session_id, revision)
+    patch = await get_coding_service().patch(
+        session_id,
+        revision,
+        scope=scope,
+    )
     return Response(
         content=patch,
         media_type="text/x-diff",
         headers={
             "Cache-Control": "no-store",
             "Content-Disposition": (
-                f'attachment; filename="modelmirror-changes-r{revision}.patch"'
+                f'attachment; filename="modelmirror-'
+                f'{"changes" if scope == "current" else "cumulative"}'
+                f'-r{revision}.patch"'
             ),
             "X-Content-Type-Options": "nosniff",
         },
+    )
+
+
+@router.get("/sessions/{session_id}/history")
+async def coding_session_history(
+    session_id: str,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().history(session_id)
+
+
+@router.post("/sessions/{session_id}/continue")
+async def continue_coding_session(
+    session_id: str,
+    payload: ContinueCycleRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().continue_cycle(
+        session_id,
+        payload.revision,
+        payload.commit_id,
     )
 
 
@@ -2872,6 +3109,25 @@ def _safe_diff(diff: str, *, expected_path: str | None = None) -> str:
             "invalid_worker_response",
         )
     return diff
+
+
+def _diff_paths(diff: str) -> list[str]:
+    if not diff:
+        return []
+    paths: list[str] = []
+    for line in diff.splitlines():
+        if not line.startswith("diff --git "):
+            continue
+        match = SAFE_DIFF_HEADER.fullmatch(line)
+        if match is None or match.group(1) != match.group(2):
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "unsafe_diff")
+        try:
+            paths.append(DraftWorkspace.normalize_relative_path(match.group(1)))
+        except DraftPolicyError as exc:
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "unsafe_diff") from exc
+    if not paths or paths != sorted(set(paths)):
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "unsafe_diff")
+    return paths
 
 
 def _safe_code(value: Any) -> str:

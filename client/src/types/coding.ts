@@ -41,6 +41,15 @@ export interface CodingCapabilities {
     supports_undo: true;
     target: "isolated_local_repository";
   };
+  incremental?: {
+    available: boolean;
+    commit_strategy: "linear";
+    enabled: boolean;
+    max_cycles: number;
+    reason?: string;
+    requires_recovery: true;
+    undo_scope: "latest";
+  };
   reason?: "disabled" | "not_configured" | "worker_unavailable" | string;
   recovery: {
     available: boolean;
@@ -251,4 +260,29 @@ export interface CodingCommitResult {
   started_at: number | null;
   state: CodingCommitState;
   suggested_message: string;
+}
+
+export interface CodingCycleSummary {
+  additions: number;
+  can_undo: boolean;
+  commit_sha: string | null;
+  created_at: number;
+  deletions: number;
+  file_count: number;
+  message: string | null;
+  number: number;
+  revision: number;
+  short_sha: string | null;
+  state: "committed" | "undone" | "reverted" | "conflict";
+  updated_at: number;
+  verification_result: CodingVerificationResult;
+}
+
+export interface CodingCycleHistory {
+  active_cycle: number;
+  can_continue: boolean;
+  completed_count: number;
+  current_commit: CodingCommitResult | null;
+  cycles: CodingCycleSummary[];
+  max_cycles: number;
 }

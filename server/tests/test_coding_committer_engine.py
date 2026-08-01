@@ -110,6 +110,47 @@ def test_commit_is_atomic_idempotent_and_uses_fixed_identity(
     ]
 
 
+def test_multiple_commits_are_linear_and_only_latest_can_be_undone(
+    repository: tuple[Path, Path, Path, ApplyReceipt],
+) -> None:
+    source, target, temporary, first_apply = repository
+    engine = CodingCommitterEngine(source, target, temporary)
+    first = engine.commit(
+        operation_id="l" * 24,
+        apply_receipt=first_apply,
+        message="feature: 第一轮随机样例 7F3A",
+    )
+
+    app = target / "server/app.py"
+    before = sha256(app)
+    app.write_text("VALUE = 3\n", encoding="utf-8")
+    second_apply = ApplyReceipt(
+        apply_id="b" * 24,
+        revision=5,
+        snapshot_fingerprint=first_apply.snapshot_fingerprint,
+        files=(
+            ApplyFileReceipt(
+                path="server/app.py",
+                existed_before=True,
+                before_sha256=before,
+                after_sha256=sha256(app),
+            ),
+        ),
+    )
+    second = engine.commit(
+        operation_id="m" * 24,
+        apply_receipt=second_apply,
+        message="feature: 第二轮随机样例 B82C",
+    )
+
+    assert second.parent_sha == first.commit_sha
+    with pytest.raises(CodingCommitError, match="latest"):
+        engine.undo(first, first_apply)
+    engine.undo(second, second_apply)
+    assert git(target, "rev-parse", "HEAD") == first.commit_sha
+    assert app.read_text(encoding="utf-8") == "VALUE = 3\n"
+
+
 def test_git_commands_pin_only_the_fixed_target_as_safe(
     repository: tuple[Path, Path, Path, ApplyReceipt],
     monkeypatch: pytest.MonkeyPatch,

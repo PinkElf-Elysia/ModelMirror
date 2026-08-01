@@ -171,6 +171,11 @@ const ModelCard = memo(function ModelCard({
     model.active && confirmedVideoOperations.includes("analyze_video");
   const canGenerateVideo =
     model.active && confirmedVideoOperations.includes("generate_video");
+  const canGenerateWorld =
+    model.active &&
+    model.interaction_status === "ready" &&
+    model.worldModel === true &&
+    model.operations.includes("generate_world");
   const confirmedVideoLabels = confirmedVideoOperations
     .filter(
       (operation) =>
@@ -302,8 +307,17 @@ const ModelCard = memo(function ModelCard({
         canOpenRealtimeVoice ||
         canAnalyzeVideo ||
         canGenerateVideo ||
+        canGenerateWorld ||
         showGeneralChatAction ? (
           <div className="flex shrink-0 flex-col items-stretch gap-2">
+            {canGenerateWorld ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}`}
+              >
+                生成 3D 世界
+              </Link>
+            ) : null}
             {canAnalyzeAudio ? (
               <Link
                 className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"

@@ -335,6 +335,8 @@ class CodingWorkerServer:
                 await self._diff(request, writer)
             elif action == "patch":
                 await self._patch(request, writer)
+            elif action == "checkpoint_cycle":
+                await self._checkpoint_cycle(request, writer)
             elif action == "validate":
                 await self._validate(request, writer)
             elif action == "discard":
@@ -445,6 +447,8 @@ class CodingWorkerServer:
         revision = request.get("revision")
         patch = request.get("patch")
         paths = request.get("paths")
+        base_patch = request.get("base_patch", "")
+        base_paths = request.get("base_paths", [])
         expected_fingerprint = request.get("snapshot_fingerprint")
         verification = request.get("verification")
         if (
@@ -453,9 +457,14 @@ class CodingWorkerServer:
             or revision < 1
             or not isinstance(patch, str)
             or not isinstance(paths, list)
-            or not paths
             or not all(isinstance(path, str) for path in paths)
             or tuple(paths) != tuple(sorted(set(paths)))
+            or not isinstance(base_patch, str)
+            or not isinstance(base_paths, list)
+            or not all(isinstance(path, str) for path in base_paths)
+            or tuple(base_paths) != tuple(sorted(set(base_paths)))
+            or bool(patch) != bool(paths)
+            or bool(base_patch) != bool(base_paths)
             or not isinstance(expected_fingerprint, str)
         ):
             raise CodingWorkerProtocolError(
@@ -494,8 +503,10 @@ class CodingWorkerServer:
             )
             try:
                 workspace.initialize()
-                report = workspace.restore_from_patch(
-                    patch,
+                report = workspace.restore_incremental(
+                    base_patch=base_patch,
+                    base_paths=tuple(base_paths),
+                    patch=patch,
                     revision=revision,
                     expected_paths=tuple(paths),
                 )
@@ -561,6 +572,8 @@ class CodingWorkerServer:
         await self._refresh_verification(record)
         report = record.workspace.changes()
         patch = "".join(item.diff for item in report.files)
+        cumulative = record.workspace.cumulative_changes()
+        cumulative_patch = "".join(item.diff for item in cumulative.files)
         verification = record.verification
         if verification is not None and (
             verification.get("state") != VerificationState.COMPLETED.value
@@ -581,6 +594,9 @@ class CodingWorkerServer:
                 "snapshot_fingerprint": self._source_fingerprint,
                 "changes": report.to_dict(),
                 "patch": patch,
+                "base_patch": record.workspace.cycle_patch,
+                "cumulative_changes": cumulative.to_dict(),
+                "cumulative_patch": cumulative_patch,
                 "verification": verification,
             },
         )
@@ -786,14 +802,43 @@ class CodingWorkerServer:
     ) -> None:
         record = self._require_draft_session(request)
         revision = self._require_revision(request)
+        scope = request.get("scope", "current")
+        if scope not in {"current", "cumulative"}:
+            raise CodingWorkerProtocolError(
+                "Draft Patch scope is invalid.",
+                code="invalid_request",
+            )
+        patch = (
+            record.workspace.cumulative_patch(revision)
+            if scope == "cumulative"
+            else record.workspace.patch(revision)
+        )
         await self._send(
             writer,
             {
                 "ok": True,
                 "revision": revision,
-                "patch": record.workspace.patch(revision),
+                "scope": scope,
+                "patch": patch,
             },
         )
+
+    async def _checkpoint_cycle(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        revision = self._require_revision(request)
+        await self._refresh_verification(record)
+        if self._verification_running(record):
+            raise CodingWorkerError(
+                "Project verification is running.",
+                code="verification_in_progress",
+            )
+        changes = record.workspace.checkpoint_cycle(revision).to_dict()
+        record.verification = None
+        await self._send(writer, {"ok": True, "changes": changes})
 
     async def _validate(
         self,
@@ -843,10 +888,10 @@ class CodingWorkerServer:
                 "Project verification source is unavailable.",
                 code="verifier_unavailable",
             )
-        report = record.workspace.changes()
+        report = record.workspace.cumulative_changes()
         if revision != report.revision:
             raise DraftRevisionError("stale_revision")
-        patch = record.workspace.patch(revision)
+        patch = record.workspace.cumulative_patch(revision)
         response = await self._verifier.start(
             session_id=record.session.session_id,
             revision=revision,
@@ -1224,6 +1269,8 @@ class CodingWorkerClient:
         paths: list[str],
         snapshot_fingerprint: str,
         verification: dict[str, Any] | None = None,
+        base_patch: str = "",
+        base_paths: list[str] | None = None,
     ) -> dict[str, Any]:
         result = await self._request(
             {
@@ -1231,6 +1278,8 @@ class CodingWorkerClient:
                 "revision": revision,
                 "patch": patch,
                 "paths": paths,
+                "base_patch": base_patch,
+                "base_paths": base_paths or [],
                 "snapshot_fingerprint": snapshot_fingerprint,
                 "verification": verification,
             },
@@ -1254,6 +1303,9 @@ class CodingWorkerClient:
             not isinstance(result.get("snapshot_fingerprint"), str)
             or not isinstance(result.get("changes"), dict)
             or not isinstance(result.get("patch"), str)
+            or not isinstance(result.get("base_patch"), str)
+            or not isinstance(result.get("cumulative_changes"), dict)
+            or not isinstance(result.get("cumulative_patch"), str)
             or (
                 result.get("verification") is not None
                 and not isinstance(result.get("verification"), dict)
@@ -1303,12 +1355,19 @@ class CodingWorkerClient:
             )
         return diff
 
-    async def patch(self, session_id: str, revision: int) -> str:
+    async def patch(
+        self,
+        session_id: str,
+        revision: int,
+        *,
+        scope: str = "current",
+    ) -> str:
         result = await self._request(
             {
                 "action": "patch",
                 "session_id": session_id,
                 "revision": revision,
+                "scope": scope,
             }
         )
         patch = result.get("patch")
@@ -1318,6 +1377,26 @@ class CodingWorkerClient:
                 code="invalid_response",
             )
         return patch
+
+    async def checkpoint_cycle(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        result = await self._request(
+            {
+                "action": "checkpoint_cycle",
+                "session_id": session_id,
+                "revision": revision,
+            }
+        )
+        changes = result.get("changes")
+        if not isinstance(changes, dict):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted the next cycle state.",
+                code="invalid_response",
+            )
+        return changes
 
     async def validate(self, session_id: str) -> dict[str, Any]:
         result = await self._request(

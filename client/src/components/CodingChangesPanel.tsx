@@ -41,6 +41,7 @@ interface CodingChangesPanelProps {
   onApply: () => Promise<void>;
   onClose: () => Promise<void>;
   onCommit: (message: string) => Promise<void>;
+  onContinue?: () => Promise<void>;
   onDiscard: () => Promise<void>;
   onDownload: () => Promise<void>;
   onCancelVerification: () => Promise<void>;
@@ -152,6 +153,7 @@ interface CodingCommitPanelProps {
   disabled: boolean;
   error: string;
   onCommit: (message: string) => Promise<void>;
+  onContinue?: () => Promise<void>;
   onClose: () => Promise<void>;
   onUndo: () => Promise<void>;
   result: CodingCommitResult | null;
@@ -164,6 +166,7 @@ function CodingCommitPanel({
   disabled,
   error,
   onCommit,
+  onContinue,
   onClose,
   onUndo,
   result,
@@ -267,6 +270,19 @@ function CodingCommitPanel({
         </div>
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {onContinue ? (
+            <button
+              className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              disabled={disabled || waiting}
+              onClick={() => void runAction("closing", onContinue)}
+              type="button"
+            >
+              {action === "closing" ? (
+                <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={14} />
+              ) : null}
+              继续修改
+            </button>
+          ) : null}
           <button
             className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-amber-300/30 px-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             disabled={disabled || waiting || !result.can_undo}
@@ -529,6 +545,7 @@ export default function CodingChangesPanel({
   onApply,
   onClose,
   onCommit,
+  onContinue,
   onDiscard,
   onDownload,
   onCancelVerification,
@@ -833,6 +850,7 @@ export default function CodingChangesPanel({
               disabled={disabled || readOnly || isActing}
               error={commitError}
               onCommit={onCommit}
+              onContinue={onContinue}
               onClose={onClose}
               onUndo={onUndoCommit}
               result={commitResult}
