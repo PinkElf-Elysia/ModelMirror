@@ -12,9 +12,11 @@ from server.model_router.repository import SQLiteRouterRepository
 from server.model_router.schemas import RouterConnectionCreate
 from server.model_router.service import ModelRouterService
 from server.multimodal.api import configure_speech_service
+from server.multimodal.audio_catalog import AudioCatalogService
 from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 from server.multimodal.tts import (
     ALLOWED_SPEECH_PROFILES,
+    FISH_AUDIO_PUBLIC_VOICES,
     GEMINI_PCM_TTS_MODEL_ID,
     MAX_SPEECH_INPUT_CHARS,
     MINIMAX_SYSTEM_SPEECH_VOICES,
@@ -32,6 +34,10 @@ VOICE = "en-US-Harper:MAI-Voice-2"
 
 def test_verified_speech_profiles_cover_multiple_providers() -> None:
     assert {
+        "fish-audio/s1",
+        "fish-audio/s2-pro",
+        "fish-audio/s2.1-pro-free:free",
+        "fish-audio/s2.1-pro",
         "minimax/speech-2.8-hd",
         "minimax/speech-2.8-turbo",
         "microsoft/mai-voice-2",
@@ -51,10 +57,77 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
     assert speech_output_format(GEMINI_PCM_TTS_MODEL_ID) == "wav"
 
 
+def test_fish_audio_profiles_use_documented_public_voice_ids() -> None:
+    assert FISH_AUDIO_PUBLIC_VOICES == (
+        "8ef4a238714b45718ce04243307c57a7",
+        "802e3bc2b27e49c2995d23ef70e6ac89",
+    )
+    for model_id in (
+        "fish-audio/s1",
+        "fish-audio/s2-pro",
+        "fish-audio/s2.1-pro-free:free",
+        "fish-audio/s2.1-pro",
+    ):
+        assert ALLOWED_SPEECH_PROFILES[model_id] == FISH_AUDIO_PUBLIC_VOICES
+        assert speech_output_format(model_id) == "mp3"
+
+
+@pytest.mark.parametrize(
+    ("model_id", "input_modalities", "output_modalities", "chat_mode"),
+    [
+        ("fish-audio/transcribe-1", ["audio"], ["transcription"], "transcribe"),
+        ("fish-audio/s1", ["text"], ["speech"], "synthesize_speech"),
+        ("fish-audio/s2-pro", ["text"], ["speech"], "synthesize_speech"),
+        (
+            "fish-audio/s2.1-pro-free:free",
+            ["text"],
+            ["speech"],
+            "synthesize_speech",
+        ),
+        (
+            "fish-audio/s2.1-pro",
+            ["text"],
+            ["speech"],
+            "synthesize_speech",
+        ),
+    ],
+)
+def test_fish_audio_catalog_profiles_are_ready(
+    model_id: str,
+    input_modalities: list[str],
+    output_modalities: list[str],
+    chat_mode: str,
+) -> None:
+    service = object.__new__(AudioCatalogService)
+    profile = service._profile_from_item(
+        "openrouter",
+        "connection-test",
+        {
+            "id": model_id,
+            "name": model_id,
+            "architecture": {
+                "input_modalities": input_modalities,
+                "output_modalities": output_modalities,
+            },
+        },
+        chat_enabled=True,
+        streaming_enabled=False,
+        generation_enabled=False,
+        realtime_enabled=False,
+    )
+
+    assert profile is not None
+    assert profile.interaction_status == "ready"
+    assert chat_mode in profile.chat_modes
+    if chat_mode == "synthesize_speech":
+        assert tuple(profile.voices) == tuple(sorted(FISH_AUDIO_PUBLIC_VOICES))
+
+
 @pytest.mark.parametrize(
     ("model_id", "voice"),
     [
         ("microsoft/mai-voice-2", "fr-FR-Soleil:MAI-Voice-2"),
+        ("fish-audio/s2.1-pro", FISH_AUDIO_PUBLIC_VOICES[0]),
         (
             "minimax/speech-2.8-hd",
             "Chinese (Mandarin)_News_Anchor",

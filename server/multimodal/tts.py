@@ -23,8 +23,12 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-07-29-b5"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-08-01-b6"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
+FISH_AUDIO_PUBLIC_VOICES = (
+    "8ef4a238714b45718ce04243307c57a7",
+    "802e3bc2b27e49c2995d23ef70e6ac89",
+)
 MINIMAX_SYSTEM_SPEECH_VOICES = (
     "Chinese (Mandarin)_News_Anchor",
     "Chinese (Mandarin)_Reliable_Executive",
@@ -39,6 +43,10 @@ SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_PCM_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    "fish-audio/s1": FISH_AUDIO_PUBLIC_VOICES,
+    "fish-audio/s2-pro": FISH_AUDIO_PUBLIC_VOICES,
+    "fish-audio/s2.1-pro-free:free": FISH_AUDIO_PUBLIC_VOICES,
+    "fish-audio/s2.1-pro": FISH_AUDIO_PUBLIC_VOICES,
     "minimax/speech-2.8-hd": MINIMAX_SYSTEM_SPEECH_VOICES,
     "minimax/speech-2.8-turbo": MINIMAX_SYSTEM_SPEECH_VOICES,
     "microsoft/mai-voice-2": (

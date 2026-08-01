@@ -69,6 +69,7 @@ import {
   DEFAULT_SPEECH_MODEL_ID,
   DEFAULT_SPEECH_VOICE,
   generateSpeechAudio,
+  speechVoiceLabel,
 } from "../utils/speechAudio";
 import { StreamingMp3Session } from "../utils/streamingAudio";
 
@@ -3382,7 +3383,7 @@ function ChatConversationPage() {
                           >
                             {ttsProfile.voices.map((voice) => (
                               <option key={voice} value={voice}>
-                                {voice}
+                                {speechVoiceLabel(voice)}
                               </option>
                             ))}
                           </select>

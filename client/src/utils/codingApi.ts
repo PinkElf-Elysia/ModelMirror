@@ -2,6 +2,7 @@ import type {
   CodingCancelResponse,
   CodingApplyResult,
   CodingCapabilities,
+  CodingCommitResult,
   CodingDraftChanges,
   CodingEvent,
   CodingPatchDownload,
@@ -220,6 +221,49 @@ export function revertCodingApply(
     {
       method: "POST",
       body: JSON.stringify({ revision, apply_id: applyId }),
+    },
+  );
+}
+
+export function commitCodingChanges(
+  sessionId: string,
+  revision: number,
+  applyId: string,
+  message: string,
+) {
+  return requestJson<CodingCommitResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/commit`,
+    {
+      method: "POST",
+      body: JSON.stringify({ revision, apply_id: applyId, message }),
+    },
+  );
+}
+
+export function getCodingCommitStatus(
+  sessionId: string,
+  revision: number,
+) {
+  return requestJson<CodingCommitResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/commit?revision=${revision}`,
+  );
+}
+
+export function undoCodingCommit(
+  sessionId: string,
+  revision: number,
+  applyId: string,
+  commitId: string,
+) {
+  return requestJson<CodingCommitResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/commit/undo`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        revision,
+        apply_id: applyId,
+        commit_id: commitId,
+      }),
     },
   );
 }

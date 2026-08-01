@@ -1,6 +1,6 @@
 # 项目整体架构
 
-最后更新日期：2026-07-30
+最后更新日期：2026-07-31
 维护人：模镜团队
 
 ## 当前定位
@@ -14,7 +14,7 @@
 - `/rag`：本地知识库、知识流水线、检索评估和引用。
 - `/agents/studio`：Agent Studio，提供草稿、发布版本和运行闭环。
 - `/datax`、`/toolsets`、`/runtime`：数据、工具和运行诊断。
-- `/coding`：实验性代码协作；默认只读，也可在一次性隔离副本中准备可审阅修改草稿。
+- `/coding`：实验性代码协作；默认只读，也可准备、验证、受控应用并保存隔离本地提交。
 
 Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 `server/api/dify_proxy.py` 和旧 iframe 组件作为历史兼容代码，但默认前端路由
@@ -39,6 +39,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | OpenCode + 最小 ACP Worker | 实验性代码问答与修改草稿执行面；单实例、默认关闭。 |
 | Coding Verifier | 用户手动触发的草稿项目验证执行面；无网络、固定命令、可选启动。 |
 | Coding Applier | 把满足门禁的草稿原子写入固定专用工作树；无网络、无 Git 操作、可选启动。 |
+| Coding Committer | 把已应用文件保存到独立本地仓库；无网络、固定分支、只写隔离 `.git`。 |
 
 ## 系统架构
 
@@ -70,6 +71,9 @@ flowchart LR
   API -->|"独立 Unix socket"| APPLY["coding-applier"]
   APPLY -->|"原子应用 / 安全撤销"| TARGET["固定专用工作树"]
   APPLY -. "network_mode: none" .-> OFFLINE
+  API -->|"独立 Unix socket"| COMMIT["coding-committer"]
+  COMMIT -->|"本地提交 / 保留文件撤销"| REPO["无远程独立仓库"]
+  COMMIT -. "network_mode: none" .-> OFFLINE
 ```
 
 ## 稳定路由
@@ -86,7 +90,7 @@ flowchart LR
 | 实验工作流 | `/workflow-native` | 静态校验和设计实验线，不替换 classic 主入口。 |
 | 知识 | `/rag`、`/rag/:kbId/pipeline`、`/rag/:kbId/evaluation`、`/rag/:kbId/inbox` | 本地资料库、流水线、评测和审批。 |
 | 数据 | `/datax`、`/datax/:projectId`、`/datax/:projectId/inbox` | 文件快照、语义指标和提案审批。 |
-| 实验代码协作 | `/coding` | 对固定 ModelMirror 快照进行只读问答，或准备可查看、检查和下载的临时修改草稿。 |
+| 实验代码协作 | `/coding` | 对固定快照问答，或准备、验证、应用并保存隔离本地提交。 |
 
 内部路径仍使用 `Xpert*` 类型和 `/agents/xpert/...` 兼容 API；面向用户统一显示
 “智能体”“Agent Studio”和“Agent App”。内部标识不得仅为改名而迁移。
@@ -155,6 +159,14 @@ flowchart LR
 - 应用前，Applier 再次复核 Patch，并要求目标除 `.git` 外与内置净化快照完全
   一致；先在 tmpfs 预演，再以原文件哈希保护执行原子写入。任一步失败会恢复
   已写文件。撤销只有在目标仍精确保持应用后状态时才执行，避免覆盖人工修改。
+- Coding Committer 只在显式加载第二个独立 overlay 后存在。目标必须是无远程、
+  独立 `.git` 且固定在 `coding/local-draft` 的本地克隆；普通 Git worktree 仍可
+  受控应用，但不能提交。容器把 `/target` 挂为只读，仅把 `/target/.git` 单独挂为
+  可写，并与 Runtime、Verifier、Applier 使用不同 socket。
+- 提交只消费 Server 已保存的 ApplyReceipt 路径和哈希。引擎使用临时索引、固定
+  Git plumbing 与 compare-and-swap 引用更新，不运行 Hook、过滤器、签名器、
+  凭据助手或远程操作。撤销提交只移动本次引用并保留文件；目标、索引或分支发生
+  外部变化时失败关闭。
 - 视频、音频、Prompt 和首帧媒体正文不写入路由或视频任务审计。
 
 ## 当前风险与维护边界
@@ -167,9 +179,12 @@ flowchart LR
 - `/coding` 仅适用于本地单实例实验。Draft 只能新增或修改临时 UTF-8 文本；
   默认不会写回宿主目录。显式启用受控应用后，只有轻量检查通过且当前项目验证
   `passed`（纯文档允许 `not_applicable`）的 revision 才能写入固定专用工作树。
-  当前主工作树不挂载给 Applier，系统也不提交、推送或创建 PR。
+  当前主工作树不挂载给 Applier 或 Committer。显式启用隔离本地提交时，系统只在
+  无远程独立克隆中创建一个本地提交，仍不推送或创建 PR。
 - 应用成功后会话冻结；Diff、Patch 和验证结果仍可读。一次安全撤销依赖 Server
-  内存中的临时凭据，重启后不保证可用，应删除并重建专用工作树回退。Agent 仍
+  内存中的临时凭据，重启后不保证可用。有效本地提交存在时必须先撤销提交并保留
+  文件，才可撤销应用；已有本地提交不会因 Server 重启丢失。Agent 仍
   不能使用 Shell、Git、测试命令或选择测试范围；系统仍不提供任意仓库选择、
-  删除/重命名、重启恢复、多次增量应用、多 Agent、分布式 Worker 或生产多租户。
+  远程操作、分支选择、删除/重命名、重启恢复、多次增量应用、多 Agent、分布式
+  Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。

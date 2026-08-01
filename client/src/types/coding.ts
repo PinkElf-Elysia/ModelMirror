@@ -31,6 +31,16 @@ export interface CodingCapabilities {
     supports_revert: true;
     target: "dedicated_worktree";
   };
+  commit?: {
+    available: boolean;
+    configured: boolean;
+    max_message_chars: 2000;
+    reason?: string;
+    remote_operations: false;
+    requires_apply: true;
+    supports_undo: true;
+    target: "isolated_local_repository";
+  };
   reason?: "disabled" | "not_configured" | "worker_unavailable" | string;
   verification: {
     available: boolean;
@@ -177,4 +187,29 @@ export interface CodingApplyResult {
   revision: number;
   started_at: number | null;
   state: CodingApplyState;
+}
+
+export type CodingCommitState =
+  | "not_committed"
+  | "committing"
+  | "committed"
+  | "undoing"
+  | "undone"
+  | "failed";
+
+export interface CodingCommitResult {
+  branch: "coding/local-draft";
+  can_undo: boolean;
+  commit_id: string | null;
+  commit_sha: string | null;
+  committed_at: number | null;
+  file_count: number;
+  finished_at: number | null;
+  message: string | null;
+  reason: string | null;
+  revision: number;
+  short_sha: string | null;
+  started_at: number | null;
+  state: CodingCommitState;
+  suggested_message: string;
 }

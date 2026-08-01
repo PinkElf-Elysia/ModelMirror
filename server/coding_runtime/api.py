@@ -34,6 +34,19 @@ from .apply_models import (
     ApplyState,
     not_applied_payload,
 )
+from .committer_client import (
+    CodingCommitterClient,
+    CommitterClientError,
+)
+from .commit_models import (
+    MAX_COMMIT_MESSAGE_CHARS,
+    CodingCommitError,
+    CommitReceipt,
+    CommitState,
+    normalize_commit_message,
+    not_committed_payload,
+    suggest_commit_message,
+)
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
 from .models import CodingEvent, CodingEventKind
 from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN
@@ -126,6 +139,24 @@ class ApplierClient(Protocol):
     async def revert(self, receipt: ApplyReceipt) -> ApplyReceipt: ...
 
 
+class CommitterClient(Protocol):
+    async def health(self) -> dict[str, Any]: ...
+
+    async def commit(
+        self,
+        *,
+        operation_id: str,
+        apply_receipt: ApplyReceipt,
+        message: str,
+    ) -> CommitReceipt: ...
+
+    async def undo(
+        self,
+        receipt: CommitReceipt,
+        apply_receipt: ApplyReceipt,
+    ) -> CommitReceipt: ...
+
+
 class CodingTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -213,6 +244,22 @@ class ApplyRevertRequest(VerificationRevisionRequest):
     apply_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class CommitRequest(ApplyRevertRequest):
+    message: str = Field(min_length=1, max_length=MAX_COMMIT_MESSAGE_CHARS)
+
+    @field_validator("message")
+    @classmethod
+    def message_must_be_safe(cls, value: str) -> str:
+        try:
+            return normalize_commit_message(value)
+        except ValueError as exc:
+            raise ValueError("Commit message is invalid") from exc
+
+
+class CommitUndoRequest(ApplyRevertRequest):
+    commit_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
 class VerificationStepPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -282,6 +329,14 @@ class CodingApiSession:
     apply_reason: str | None = None
     apply_started_at: float | None = None
     apply_finished_at: float | None = None
+    commit_state: CommitState = CommitState.NOT_COMMITTED
+    commit_revision: int | None = None
+    commit_operation_id: str | None = None
+    commit_message: str | None = None
+    commit_receipt: CommitReceipt | None = None
+    commit_reason: str | None = None
+    commit_started_at: float | None = None
+    commit_finished_at: float | None = None
 
 
 class CodingService:
@@ -293,12 +348,14 @@ class CodingService:
         enabled: bool,
         worker: WorkerClient,
         applier: ApplierClient | None = None,
+        committer: CommitterClient | None = None,
         ttl_seconds: float = SESSION_TTL_SECONDS,
         mode: str | None = None,
     ) -> None:
         self.enabled = enabled
         self.worker = worker
         self.applier = applier
+        self.committer = committer
         self.ttl_seconds = ttl_seconds
         self.mode = _normalize_mode(
             mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
@@ -342,6 +399,16 @@ class CodingService:
                 "supports_revert": True,
                 "reason": "applier_not_configured",
             }
+            response["commit"] = {
+                "configured": False,
+                "available": False,
+                "target": "isolated_local_repository",
+                "requires_apply": True,
+                "supports_undo": True,
+                "remote_operations": False,
+                "max_message_chars": MAX_COMMIT_MESSAGE_CHARS,
+                "reason": "committer_not_configured",
+            }
         if not self.enabled:
             response["reason"] = "disabled"
             return response
@@ -377,6 +444,7 @@ class CodingService:
             apply_capability = await self._apply_capability(health)
             response["apply"] = apply_capability
             response["host_apply"] = apply_capability["available"] is True
+            response["commit"] = await self._commit_capability(health)
         response["available"] = True
         return response
 
@@ -696,6 +764,161 @@ class CodingService:
         record = self._get_session(session_id)
         return self._public_apply(record, revision)
 
+    async def commit(
+        self,
+        session_id: str,
+        revision: int,
+        apply_id: str,
+        message: str,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        record = self._get_session(session_id)
+        async with record.apply_lock:
+            apply_receipt = record.apply_receipt
+            if (
+                apply_receipt is None
+                or record.apply_revision != revision
+                or apply_receipt.apply_id != apply_id
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "apply_mismatch")
+            if record.apply_state is not ApplyState.APPLIED:
+                raise _http_error(status.HTTP_409_CONFLICT, "apply_not_committable")
+            if record.commit_state is CommitState.COMMITTED:
+                if record.commit_message != message:
+                    raise _http_error(status.HTTP_409_CONFLICT, "commit_already_exists")
+                return self._public_commit(record, revision)
+            if record.commit_state in {CommitState.COMMITTING, CommitState.UNDOING}:
+                raise _http_error(status.HTTP_409_CONFLICT, "commit_in_progress")
+            if (
+                record.commit_state is CommitState.FAILED
+                and record.commit_message is not None
+                and record.commit_message != message
+            ):
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    "commit_retry_message_mismatch",
+                )
+            if record.commit_state is CommitState.UNDONE:
+                record.commit_operation_id = None
+                record.commit_receipt = None
+            retrying_unknown_result = (
+                record.commit_state is CommitState.FAILED
+                and record.commit_operation_id is not None
+            )
+            if not retrying_unknown_result:
+                await self._require_commit_available(
+                    apply_receipt.snapshot_fingerprint
+                )
+            operation_id = record.commit_operation_id or secrets.token_urlsafe(18)
+            record.commit_state = CommitState.COMMITTING
+            record.commit_revision = revision
+            record.commit_operation_id = operation_id
+            record.commit_message = message
+            record.commit_reason = None
+            record.commit_started_at = time.time()
+            record.commit_finished_at = None
+            record.updated_at = record.commit_started_at
+            try:
+                assert self.committer is not None
+                receipt = await self.committer.commit(
+                    operation_id=operation_id,
+                    apply_receipt=apply_receipt,
+                    message=message,
+                )
+                expected_files = tuple(item.path for item in apply_receipt.files)
+                if (
+                    receipt.commit_id != operation_id
+                    or receipt.revision != revision
+                    or receipt.apply_id != apply_id
+                    or receipt.message != message
+                    or receipt.files != expected_files
+                ):
+                    try:
+                        await self.committer.undo(receipt, apply_receipt)
+                    except CommitterClientError as undo_exc:
+                        raise CommitterClientError(
+                            "Invalid commit response could not be recovered.",
+                            code="rollback_failed",
+                        ) from undo_exc
+                    raise CommitterClientError(
+                        "Commit receipt does not match the request.",
+                        code="invalid_response",
+                    )
+            except CommitterClientError as exc:
+                record.commit_state = CommitState.FAILED
+                record.commit_reason = _safe_code(exc.code)
+                record.commit_finished_at = time.time()
+                record.updated_at = record.commit_finished_at
+                raise _committer_http_error(exc) from exc
+            record.commit_receipt = receipt
+            record.commit_state = CommitState.COMMITTED
+            record.commit_finished_at = time.time()
+            record.updated_at = record.commit_finished_at
+            return self._public_commit(record, revision)
+
+    async def commit_status(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        return self._public_commit(self._get_session(session_id), revision)
+
+    async def undo_commit(
+        self,
+        session_id: str,
+        revision: int,
+        apply_id: str,
+        commit_id: str,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        record = self._get_session(session_id)
+        async with record.apply_lock:
+            apply_receipt = record.apply_receipt
+            receipt = record.commit_receipt
+            if (
+                apply_receipt is None
+                or receipt is None
+                or record.commit_revision != revision
+                or apply_receipt.apply_id != apply_id
+                or receipt.apply_id != apply_id
+                or receipt.commit_id != commit_id
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "commit_mismatch")
+            if record.commit_state is CommitState.UNDONE:
+                return self._public_commit(record, revision)
+            if record.commit_state is not CommitState.COMMITTED:
+                raise _http_error(status.HTTP_409_CONFLICT, "commit_not_undoable")
+            if self.committer is None:
+                raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "committer_unavailable")
+            record.commit_state = CommitState.UNDOING
+            record.commit_reason = None
+            record.updated_at = time.time()
+            try:
+                undone = await self.committer.undo(receipt, apply_receipt)
+                if undone != receipt:
+                    raise CommitterClientError(
+                        "Commit undo receipt does not match.",
+                        code="invalid_response",
+                    )
+            except CommitterClientError as exc:
+                record.commit_state = CommitState.COMMITTED
+                record.commit_reason = _safe_code(exc.code)
+                record.commit_finished_at = time.time()
+                record.updated_at = record.commit_finished_at
+                raise _committer_http_error(exc) from exc
+            record.commit_state = CommitState.UNDONE
+            record.commit_reason = None
+            record.commit_finished_at = time.time()
+            record.updated_at = record.commit_finished_at
+            return self._public_commit(record, revision)
+
     async def revert_apply(
         self,
         session_id: str,
@@ -714,6 +937,14 @@ class CodingService:
                 or receipt.apply_id != apply_id
             ):
                 raise _http_error(status.HTTP_409_CONFLICT, "apply_mismatch")
+            if (
+                record.commit_operation_id is not None
+                and record.commit_state is not CommitState.UNDONE
+            ):
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    "commit_must_be_undone",
+                )
             if record.apply_state is ApplyState.REVERTED:
                 return self._public_apply(record, revision)
             if record.apply_state is not ApplyState.APPLIED:
@@ -981,6 +1212,74 @@ class CodingService:
         assert isinstance(fingerprint, str)
         return fingerprint
 
+    async def _commit_capability(
+        self,
+        worker_health: dict[str, Any],
+    ) -> dict[str, Any]:
+        capability: dict[str, Any] = {
+            "configured": False,
+            "available": False,
+            "target": "isolated_local_repository",
+            "requires_apply": True,
+            "supports_undo": True,
+            "remote_operations": False,
+            "max_message_chars": MAX_COMMIT_MESSAGE_CHARS,
+        }
+        worker_fingerprint = worker_health.get("snapshot_fingerprint")
+        if (
+            not isinstance(worker_fingerprint, str)
+            or SNAPSHOT_FINGERPRINT_PATTERN.fullmatch(worker_fingerprint) is None
+        ):
+            return {**capability, "reason": "snapshot_unavailable"}
+        if self.committer is None:
+            return {**capability, "reason": "committer_not_configured"}
+        try:
+            health = await self.committer.health()
+        except CommitterClientError as exc:
+            return {**capability, "reason": _safe_code(exc.code)}
+        except Exception:
+            return {**capability, "reason": "committer_unavailable"}
+        configured = health.get("configured") is True
+        response = {**capability, "configured": configured}
+        if not configured:
+            return {
+                **response,
+                "reason": _safe_code(
+                    health.get("reason") or "committer_not_configured"
+                ),
+            }
+        committer_fingerprint = health.get("snapshot_fingerprint")
+        if (
+            not isinstance(committer_fingerprint, str)
+            or committer_fingerprint != worker_fingerprint
+        ):
+            return {**response, "reason": "snapshot_mismatch"}
+        if health.get("available") is not True:
+            return {
+                **response,
+                "reason": _safe_code(health.get("reason") or "repository_not_ready"),
+            }
+        return {**response, "available": True}
+
+    async def _require_commit_available(self, expected_fingerprint: str) -> None:
+        capability = await self._commit_capability(
+            {"snapshot_fingerprint": expected_fingerprint}
+        )
+        if capability["available"] is True:
+            return
+        reason = str(capability.get("reason") or "committer_unavailable")
+        status_code = (
+            status.HTTP_503_SERVICE_UNAVAILABLE
+            if reason in {
+                "committer_not_configured",
+                "committer_unavailable",
+                "committer_timeout",
+                "snapshot_unavailable",
+            }
+            else status.HTTP_409_CONFLICT
+        )
+        raise _http_error(status_code, reason)
+
     async def _current_changes(
         self,
         record: CodingApiSession,
@@ -1032,11 +1331,58 @@ class CodingService:
                 "state": record.apply_state.value,
                 "file_count": 0,
             }
-        return {
+        result = {
             **payload,
             "started_at": record.apply_started_at,
             "finished_at": record.apply_finished_at,
             "reason": record.apply_reason,
+        }
+        if (
+            record.commit_operation_id is not None
+            and record.commit_state is not CommitState.UNDONE
+        ):
+            result["can_revert"] = False
+        return result
+
+    @staticmethod
+    def _public_commit(
+        record: CodingApiSession,
+        revision: int,
+    ) -> dict[str, Any]:
+        paths = (
+            tuple(item.path for item in record.apply_receipt.files)
+            if record.apply_receipt is not None
+            and record.apply_revision == revision
+            else ("server/placeholder.py",)
+        )
+        try:
+            suggestion = suggest_commit_message(paths)
+        except (CodingCommitError, ValueError):
+            suggestion = "feature: 更新项目功能"
+        if record.commit_revision != revision:
+            payload = not_committed_payload(
+                revision,
+                suggested_message=suggestion,
+            )
+        elif record.commit_receipt is not None:
+            payload = {
+                **record.commit_receipt.to_public(state=record.commit_state),
+                "suggested_message": suggestion,
+            }
+        else:
+            payload = not_committed_payload(
+                revision,
+                suggested_message=suggestion,
+                state=record.commit_state,
+                reason=record.commit_reason,
+            )
+            if record.commit_message is not None:
+                payload["message"] = record.commit_message
+        return {
+            **payload,
+            "started_at": record.commit_started_at,
+            "finished_at": record.commit_finished_at,
+            "reason": record.commit_reason,
         }
 
     async def _review_record(self, session_id: str) -> CodingApiSession:
@@ -1108,10 +1454,15 @@ def get_coding_service() -> CodingService:
             "CODING_APPLIER_SOCKET_PATH",
             "/run/modelmirror-coding-apply/applier.sock",
         )
+        committer_socket_path = os.getenv(
+            "CODING_COMMITTER_SOCKET_PATH",
+            "/run/modelmirror-coding-commit/committer.sock",
+        )
         _service = CodingService(
             enabled=enabled,
             worker=CodingWorkerClient(Path(socket_path)),
             applier=CodingApplierClient(Path(applier_socket_path)),
+            committer=CodingCommitterClient(Path(committer_socket_path)),
         )
     return _service
 
@@ -1315,6 +1666,46 @@ async def revert_coding_session_apply(
         session_id,
         payload.revision,
         payload.apply_id,
+    )
+
+
+@router.post("/sessions/{session_id}/commit")
+async def commit_coding_session(
+    session_id: str,
+    payload: CommitRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().commit(
+        session_id,
+        payload.revision,
+        payload.apply_id,
+        payload.message,
+    )
+
+
+@router.get("/sessions/{session_id}/commit")
+async def coding_commit_status(
+    session_id: str,
+    response: Response,
+    revision: int = Query(ge=0),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().commit_status(session_id, revision)
+
+
+@router.post("/sessions/{session_id}/commit/undo")
+async def undo_coding_session_commit(
+    session_id: str,
+    payload: CommitUndoRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().undo_commit(
+        session_id,
+        payload.revision,
+        payload.apply_id,
+        payload.commit_id,
     )
 
 
@@ -1602,5 +1993,28 @@ def _applier_http_error(exc: ApplierClientError) -> HTTPException:
     }:
         return _http_error(status.HTTP_409_CONFLICT, exc.code)
     if exc.code in {"invalid_patch", "invalid_path", "invalid_request"}:
+        return _http_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code)
+    return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)
+
+
+def _committer_http_error(exc: CommitterClientError) -> HTTPException:
+    if exc.code in {
+        "already_undone",
+        "baseline_mismatch",
+        "commit_already_exists",
+        "commit_conflict",
+        "dirty_index",
+        "operation_conflict",
+        "repository_has_remote",
+        "repository_not_independent",
+        "shared_git_directory",
+        "snapshot_mismatch",
+        "target_changed",
+        "undo_conflict",
+        "unsafe_repository",
+        "wrong_branch",
+    }:
+        return _http_error(status.HTTP_409_CONFLICT, exc.code)
+    if exc.code in {"invalid_author", "invalid_message", "invalid_request"}:
         return _http_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code)
     return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)

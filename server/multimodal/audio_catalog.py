@@ -29,7 +29,7 @@ from .tts import ALLOWED_SPEECH_PROFILES, speech_output_format
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-07-29-b10"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-08-01-b11"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",

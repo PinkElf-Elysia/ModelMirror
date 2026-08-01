@@ -1,0 +1,62 @@
+services:
+  server:
+    environment:
+      CODING_COMMITTER_SOCKET_PATH: /run/modelmirror-coding-commit/committer.sock
+    volumes:
+      - coding_commit_socket:/run/modelmirror-coding-commit
+
+  coding-committer:
+    profiles:
+      - coding-commit
+    build:
+      context: .
+      dockerfile: server/coding_committer/Dockerfile
+    container_name: modelmirror-coding-committer
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 256m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m,uid=65532,gid=65532,mode=0700
+      - /temporary:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /home/committer:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_COMMITTER_SOCKET_PATH: /run/modelmirror-coding-commit/committer.sock
+      CODING_COMMIT_AUTHOR_NAME: ${CODING_COMMIT_AUTHOR_NAME:-ModelMirror Coding Assistant}
+      CODING_COMMIT_AUTHOR_EMAIL: ${CODING_COMMIT_AUTHOR_EMAIL:-coding@modelmirror.local}
+    volumes:
+      - coding_commit_socket:/run/modelmirror-coding-commit
+      - type: bind
+        source: ${CODING_COMMIT_REPOSITORY:?Set CODING_COMMIT_REPOSITORY to an independent local clone}
+        target: /target
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CODING_COMMIT_REPOSITORY:?Set CODING_COMMIT_REPOSITORY to an independent local clone}/.git
+        target: /target/.git
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 5s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-commit/committer.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  coding_commit_socket:
