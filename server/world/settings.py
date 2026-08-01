@@ -40,6 +40,10 @@ class MarbleSettingsUpdate(BaseModel):
     enabled: bool | None = None
 
 
+class MarbleModeUpdate(BaseModel):
+    enabled: bool
+
+
 class MarbleSettingsStore:
     """Persist Marble mode and an encrypted API key without exposing plaintext."""
 
@@ -120,6 +124,14 @@ class MarbleSettingsStore:
                 config["remaining_credits"] = remaining_credits
             if bool(config.get("enabled")) and not config.get("credential_id"):
                 raise MarbleSettingsError("启用真实模式前请先配置 Marble Key。")
+            if enabled is True:
+                credential_id = str(config.get("credential_id") or "")
+                try:
+                    self.credentials.resolve(credential_id)
+                except (CredentialNotFoundError, CredentialUnavailableError) as exc:
+                    raise MarbleSettingsError(
+                        "启用真实模式前请重新配置 Marble Key。"
+                    ) from exc
             self._write(config)
         return self.public()
 

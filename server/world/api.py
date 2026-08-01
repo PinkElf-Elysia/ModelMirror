@@ -24,6 +24,7 @@ from .providers.marble import MarbleProviderError
 from .registry import WorldRegistry
 from .settings import (
     MarbleSettingsError,
+    MarbleModeUpdate,
     MarbleSettingsPublic,
     MarbleSettingsStore,
     MarbleSettingsUpdate,
@@ -234,6 +235,20 @@ async def update_marble_settings(
             api_key=supplied_key or None,
             enabled=payload.enabled,
             remaining_credits=remaining_credits,
+        )
+        _provider_cache.clear()
+        return result
+    except MarbleSettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/settings/marble", response_model=MarbleSettingsPublic)
+def update_marble_mode(payload: MarbleModeUpdate) -> MarbleSettingsPublic:
+    try:
+        result = _settings.save(
+            api_key=None,
+            enabled=payload.enabled,
+            remaining_credits=None,
         )
         _provider_cache.clear()
         return result

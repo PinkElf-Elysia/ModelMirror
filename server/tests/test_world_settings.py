@@ -129,3 +129,36 @@ async def test_clear_marble_settings_disables_real_mode(
         "remaining_credits": None,
     }
     assert world_api.active_provider_name() == "mock"
+
+
+@pytest.mark.asyncio
+async def test_mode_can_be_toggled_without_revalidating_key(
+    settings_store: MarbleSettingsStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_store.save(
+        api_key="saved-mode-key",
+        enabled=False,
+        remaining_credits=9,
+    )
+
+    async def must_not_validate(_: str) -> float:
+        raise AssertionError("mode-only update must not call Marble credits")
+
+    monkeypatch.setattr(world_api, "_validate_marble_key", must_not_validate)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        enabled = await client.patch(
+            "/api/world-generations/settings/marble",
+            json={"enabled": True},
+        )
+        disabled = await client.patch(
+            "/api/world-generations/settings/marble",
+            json={"enabled": False},
+        )
+
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] is True
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+    assert disabled.json()["remaining_credits"] == 9
