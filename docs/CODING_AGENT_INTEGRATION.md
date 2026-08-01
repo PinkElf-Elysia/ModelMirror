@@ -307,6 +307,15 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
 
 ## 人工验收
 
+### 重启、超时与对账检查
+
+- Windows 绑定目录不得在应用或提交请求中重复读取并哈希整个项目。启动时校验完整基准，运行时扫描全部路径与元数据，并只重新哈希变化文件。
+- 页面出现“等待时间过长”时，先查询对应 revision 的 apply/commit 状态并检查目标仓库；操作可能已经成功。必须使用原操作 ID 对账，禁止直接生成第二次写入或提交。
+- Applier 与 Committer 最多等待 90 秒。当前验收环境的参考值为：单文件应用约 21–28 秒，本地提交约 33 秒；明显超过时应检查绑定目录性能和重复扫描，不继续增加超时。
+- `docker ps` 的 healthy 仅是第一层检查。还必须从 Server 通过共享 Unix socket 调用四个 Coding 执行面的 health，确认 socket 路径存在且可连接。
+- 多轮恢复中，累计修改可以位于 `base_patch`，当前轮 `patch` 可以为空；`patch/paths` 与 `base_patch/base_paths` 分别成对校验。恢复页连续返回 `invalid_request` 时优先检查这一契约。
+- 完整重建前检查 pending 恢复记录。源码快照指纹变化后旧记录只能下载或标记过期，不得改写指纹强行恢复。
+
 1. 以 `CODING_AGENT_MODE=readonly` 提交一个可从当前源码验证的问题，确认流式
    回答、取消和只读行为仍正常。
 2. 切换到 `draft` 并重建，在 `/coding` 要求新增或修改临时文本文件；确认页面
