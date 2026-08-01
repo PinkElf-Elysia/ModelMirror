@@ -474,10 +474,19 @@ class CodingCommitterEngine:
             )
 
     def _restore_linear_state(self) -> None:
+        target_head = self._git_text("rev-parse", "--verify", "HEAD")
         remaining = {
             key: operation
             for key, operation in self._operations.items()
-            if operation.state == "committed"
+            if operation.state in {"committed", "prepared"}
+            and self._run_git(
+                "merge-base",
+                "--is-ancestor",
+                operation.receipt.commit_sha,
+                target_head,
+                allowed_returncodes=(0, 1),
+            ).returncode
+            == 0
         }
         while remaining:
             candidates = [
@@ -495,7 +504,7 @@ class CodingCommitterEngine:
             key, operation = candidates[0]
             self._advance_current(operation.receipt, operation.apply_receipt)
             remaining.pop(key)
-        if remaining or self._git_text("rev-parse", "--verify", "HEAD") != self._current_head:
+        if remaining or target_head != self._current_head:
             raise CodingCommitError(
                 "Commit recovery journals do not match the target.",
                 code="recovery_journal_invalid",

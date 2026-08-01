@@ -309,11 +309,20 @@ class CodingApplierEngine:
                 return "not_applied", None
 
             try:
-                self._prepare_staging(patch)
-                receipt = self._build_receipt(
+                self._prepare_reverse_staging(patch)
+                receipt = self._build_reconciled_receipt(
                     operation_id=operation_id,
                     revision=revision,
                     paths=safe_paths,
+                )
+                before_contents = tuple(
+                    (
+                        item.path,
+                        (self.staging_root / item.path).read_bytes()
+                        if item.existed_before
+                        else None,
+                    )
+                    for item in receipt.files
                 )
                 self._assert_target_matches_receipt(receipt)
             except CodingApplyError:
@@ -328,19 +337,86 @@ class CodingApplierEngine:
                 patch_sha256=patch_sha256,
                 paths=safe_paths,
                 receipt=receipt,
-                before_contents=tuple(
-                    (
-                        item.path,
-                        (self.source_root / item.path).read_bytes()
-                        if item.existed_before
-                        else None,
-                    )
-                    for item in receipt.files
-                ),
+                before_contents=before_contents,
             )
             self._expected_manifest = self._target_manifest()
             self._record_health(available=True)
             return "applied", receipt
+
+    def _prepare_reverse_staging(self, patch: str) -> None:
+        """Reconstruct the exact pre-apply checkpoint from the current target."""
+
+        self._clear_staging()
+        try:
+            shutil.copytree(
+                self.target_root,
+                self.staging_root,
+                ignore=shutil.ignore_patterns(".git"),
+            )
+            _make_staging_writable(self.staging_root)
+        except OSError as exc:
+            raise CodingApplyError(
+                "Recovery staging could not be prepared.",
+                code="staging_unavailable",
+            ) from exc
+        for argv in (
+            ("git", "apply", "--reverse", "--check", "--whitespace=nowarn", "-"),
+            ("git", "apply", "--reverse", "--whitespace=nowarn", "-"),
+        ):
+            try:
+                completed = subprocess.run(
+                    argv,
+                    cwd=self.staging_root,
+                    env={
+                        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+                        "LANG": "C.UTF-8",
+                        "LC_ALL": "C.UTF-8",
+                    },
+                    input=patch.encode("utf-8"),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=APPLY_TIMEOUT_SECONDS,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise CodingApplyError(
+                    "Recovery Patch inspection failed.",
+                    code="patch_apply_failed",
+                ) from exc
+            if completed.returncode != 0:
+                raise CodingApplyError(
+                    "Target does not contain the exact applied Patch.",
+                    code="patch_apply_failed",
+                )
+
+    def _build_reconciled_receipt(
+        self,
+        *,
+        operation_id: str,
+        revision: int,
+        paths: tuple[str, ...],
+    ) -> ApplyReceipt:
+        files: list[ApplyFileReceipt] = []
+        for relative in paths:
+            before = self.staging_root / relative
+            after = self.target_root / relative
+            if after.is_symlink() or not after.is_file():
+                raise CodingApplyError("Applied file is unavailable.", code="invalid_patch")
+            existed_before = before.is_file() and not before.is_symlink()
+            files.append(
+                ApplyFileReceipt(
+                    path=relative,
+                    existed_before=existed_before,
+                    before_sha256=_file_sha256(before) if existed_before else None,
+                    after_sha256=_file_sha256(after),
+                )
+            )
+        return ApplyReceipt(
+            apply_id=operation_id,
+            revision=revision,
+            snapshot_fingerprint=self.source_fingerprint,
+            files=tuple(files),
+        )
 
     def _validate_roots(self) -> None:
         roots = (self.source_root, self.target_root, self.staging_root)

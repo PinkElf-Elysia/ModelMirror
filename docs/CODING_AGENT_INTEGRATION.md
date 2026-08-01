@@ -103,6 +103,8 @@ flowchart LR
 | `POST /api/coding/sessions/{id}/commit` | 创建本地提交；请求体只允许 `revision`、`apply_id` 与 `message`。 |
 | `GET /api/coding/sessions/{id}/commit?revision=` | 查询建议说明、状态、不透明撤销标识、提交 SHA 与撤销能力。 |
 | `POST /api/coding/sessions/{id}/commit/undo` | 撤销本次提交并保留文件；请求体只允许 revision、apply_id 与不透明 commit_id。 |
+| `GET /api/coding/sessions/{id}/history` | 查询当前轮、已完成轮次和是否还能继续，不返回 Patch 正文。 |
+| `POST /api/coding/sessions/{id}/continue` | 在最新本地提交后开始下一轮；请求体只允许 revision 与 commit_id。 |
 | `GET /api/coding/recovery` | 查询是否存在最近一份可恢复修改及安全状态，不返回内容正文。 |
 | `POST /api/coding/recovery/resume` | 从不可变基准和保存的 Patch 创建全新 Agent 会话。 |
 | `POST /api/coding/recovery/discard` | 只删除恢复记录，不修改专用副本或本地提交。 |
@@ -234,6 +236,18 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 - 活跃任务空闲 30 分钟后关闭进程但保留记录；有 pending 记录时必须先继续或
   放弃，不能静默创建另一任务。到期清理只删除恢复记录，不触碰外部仓库。
 
+## 多轮本地修改
+
+- 加载恢复 overlay 并设置 `CODING_INCREMENTAL_ENABLED=true` 后，同一任务最多可完成
+  10 轮修改、验证、应用和本地提交。每次提交成功后，用户必须明确点击“继续修改”才会
+  开始下一轮；旧轮次保持只读。
+- 项目验证针对基准、此前全部已提交轮次和当前草稿的累计状态运行；应用和提交只处理
+  当前轮增量。目标仓库保持线性父子提交关系，不允许选择分支或改写旧轮次。
+- 页面默认展示当前轮文件与 Diff，历史折叠显示，并可分别下载当前轮或全部累计修改。
+  只允许撤销最新一轮；达到 10 轮后仍可查看、下载和结束任务。
+- 恢复 schema v2 保存已完成轮次和当前完整草稿；旧 v1 单轮记录仍可读取。恢复不包含
+  此前对话，外部文件、索引或分支状态不明确时转为只读冲突态。
+
 ## 配置与启动
 
 功能默认关闭。专用模型配置应放在 Compose 读取的根 `.env` 或启动命令环境中，
@@ -244,11 +258,15 @@ CODING_AGENT_ENABLED=true
 CODING_AGENT_MODE=readonly
 CODING_AGENT_MODEL=your-new-api-model-id
 CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
+CODING_INCREMENTAL_ENABLED=false
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
 `CODING_AGENT_GATEWAY_KEY` 只注入隔离 Worker，不注入 FastAPI。模型标识只允许
 字母、数字、点、下划线、斜线、冒号和短横线。
+多轮模式依赖恢复、Applier 和 Committer 同时可用；任一执行面缺失时 capabilities 会
+明确显示不可用，不会静默降级为可写多轮流程。恢复 overlay 默认开启该能力；设置
+`CODING_INCREMENTAL_ENABLED=false` 可立即回到第六轮单次流程。
 
 人工重建命令：
 
