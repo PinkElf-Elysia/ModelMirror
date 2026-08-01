@@ -203,6 +203,7 @@ class DraftWorkspace:
         self._validate_roots()
         self._revision = 0
         self._committed_fingerprint = ""
+        self._cycle_overrides: dict[str, bytes] = {}
         self._turn_active = False
         self._initialized = False
 
@@ -217,6 +218,7 @@ class DraftWorkspace:
         self._reset_workspace_from(self.source_root)
         self._clear_tree(self.checkpoint_root)
         self._revision = 0
+        self._cycle_overrides = {}
         self._committed_fingerprint = self._fingerprint(())
         self._turn_active = False
         self._initialized = True
@@ -244,6 +246,7 @@ class DraftWorkspace:
             raise DraftTransactionError("turn_not_active")
         try:
             candidates = self._scan_candidates()
+            self._scan_cumulative_candidates()
         except DraftPolicyError:
             self._restore_checkpoint()
             raise
@@ -293,6 +296,39 @@ class DraftWorkspace:
             raise DraftValidationError("validation_failed")
         return "".join(item.diff for item in report.files)
 
+    def cumulative_changes(self) -> DraftReport:
+        self._ensure_initialized()
+        if self._turn_active:
+            raise DraftTransactionError("turn_active")
+        return self._report(self._scan_cumulative_candidates())
+
+    def cumulative_patch(self, revision: int) -> str:
+        self._check_revision(revision)
+        report = self.cumulative_changes()
+        if not report.files:
+            raise DraftValidationError("draft_is_empty")
+        if not report.can_download:
+            raise DraftValidationError("validation_failed")
+        return "".join(item.diff for item in report.files)
+
+    def checkpoint_cycle(self, revision: int) -> DraftReport:
+        """Accept the current candidate as the baseline for the next cycle."""
+
+        self._check_revision(revision)
+        current = self.validate()
+        if not current.files:
+            raise DraftValidationError("draft_is_empty")
+        cumulative = self.cumulative_changes()
+        if not cumulative.can_download:
+            raise DraftValidationError("validation_failed")
+        self._cycle_overrides = {
+            candidate.path: candidate.new_text.encode("utf-8")
+            for candidate in self._scan_cumulative_candidates()
+        }
+        self._committed_fingerprint = self._fingerprint(())
+        self._clear_tree(self.checkpoint_root)
+        return self.validate()
+
     def restore_from_patch(
         self,
         patch: str,
@@ -334,6 +370,7 @@ class DraftWorkspace:
             if regenerated != patch:
                 raise DraftPolicyError("recovery_patch_mismatch")
             self._revision = revision
+            self._cycle_overrides = {}
             self._committed_fingerprint = self._fingerprint(candidates)
             self._turn_active = False
             return self._report(candidates)
@@ -342,6 +379,7 @@ class DraftWorkspace:
             self._make_tree_writable(self.workspace_root)
             self._clear_tree(self.checkpoint_root)
             self._revision = 0
+            self._cycle_overrides = {}
             self._committed_fingerprint = self._fingerprint(())
             self._turn_active = False
             raise
@@ -350,7 +388,7 @@ class DraftWorkspace:
         self._ensure_initialized()
         if self._turn_active:
             raise DraftTransactionError("turn_active")
-        self._reset_workspace_from(self.source_root)
+        self._reset_workspace_to_cycle_baseline()
         self._clear_tree(self.checkpoint_root)
         self._revision += 1
         self._committed_fingerprint = self._fingerprint(())
@@ -364,6 +402,7 @@ class DraftWorkspace:
         self._clear_tree(self.checkpoint_root)
         self._turn_active = False
         self._initialized = False
+        self._cycle_overrides = {}
 
     @staticmethod
     def normalize_relative_path(path: str) -> str:
@@ -398,10 +437,20 @@ class DraftWorkspace:
             raise DraftWorkspaceError("workspace_not_initialized")
 
     def _scan_candidates(self) -> tuple[_Candidate, ...]:
+        return self._scan_candidates_against(self._cycle_overrides)
+
+    def _scan_cumulative_candidates(self) -> tuple[_Candidate, ...]:
+        return self._scan_candidates_against({})
+
+    def _scan_candidates_against(
+        self,
+        overrides: dict[str, bytes],
+    ) -> tuple[_Candidate, ...]:
         source_files = self._collect_files(self.source_root, enforce_paths=False)
         workspace_files = self._collect_files(self.workspace_root, enforce_paths=False)
 
-        deleted_paths = sorted(source_files.keys() - workspace_files.keys())
+        baseline_paths = source_files.keys() | overrides.keys()
+        deleted_paths = sorted(baseline_paths - workspace_files.keys())
         if deleted_paths:
             raise DraftPolicyError("deletion_not_allowed", path=deleted_paths[0])
 
@@ -410,8 +459,10 @@ class DraftWorkspace:
             source_path = source_files.get(path)
             workspace_path = workspace_files[path]
             new_bytes = workspace_path.read_bytes()
-            if source_path is not None:
+            old_bytes = overrides.get(path)
+            if old_bytes is None and source_path is not None:
                 old_bytes = source_path.read_bytes()
+            if old_bytes is not None:
                 if old_bytes == new_bytes:
                     continue
                 status: DraftFileStatus = "modified"
@@ -826,8 +877,7 @@ class DraftWorkspace:
             raise DraftRevisionError("stale_revision")
 
     def _restore_checkpoint(self) -> None:
-        self._reset_workspace_from(self.source_root)
-        self._make_tree_writable(self.workspace_root)
+        self._reset_workspace_to_cycle_baseline()
         shutil.copytree(
             self.checkpoint_root,
             self.workspace_root,
@@ -836,6 +886,14 @@ class DraftWorkspace:
         )
         self._clear_tree(self.checkpoint_root)
         self._turn_active = False
+
+    def _reset_workspace_to_cycle_baseline(self) -> None:
+        self._reset_workspace_from(self.source_root)
+        self._make_tree_writable(self.workspace_root)
+        for path, content in self._cycle_overrides.items():
+            target = self.workspace_root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
 
     def _reset_workspace_from(self, source: Path) -> None:
         if not self.preserve_workspace_root:

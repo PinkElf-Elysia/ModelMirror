@@ -296,6 +296,47 @@ def test_valid_changes_accumulate_across_turns_and_rollback_preserves_them(
     assert [item.path for item in accumulated.files] == ["first.txt", "third.txt"]
 
 
+def test_cycle_checkpoint_separates_current_and_cumulative_changes(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path, {"app.txt": "base\n"})
+
+    workspace.begin_turn()
+    _write(workspace, "app.txt", "round one\n")
+    first = workspace.commit_turn()
+    assert first.revision == 1
+    first_patch = workspace.patch(1)
+    assert "-base" in first_patch and "+round one" in first_patch
+
+    empty = workspace.checkpoint_cycle(1)
+    assert empty.files == ()
+    assert workspace.cumulative_patch(1) == first_patch
+
+    workspace.begin_turn()
+    _write(workspace, "app.txt", "round two\n")
+    _write(workspace, "docs/round-two.txt", "random-8421\n")
+    second = workspace.commit_turn()
+
+    assert second.revision == 2
+    current_patch = workspace.patch(2)
+    cumulative_patch = workspace.cumulative_patch(2)
+    assert "-round one" in current_patch and "+round two" in current_patch
+    assert "-base" in cumulative_patch and "+round two" in cumulative_patch
+    assert "round one" not in cumulative_patch
+    assert [item.path for item in workspace.cumulative_changes().files] == [
+        "app.txt",
+        "docs/round-two.txt",
+    ]
+
+    discarded = workspace.discard()
+    assert discarded.files == ()
+    assert (workspace.workspace_root / "app.txt").read_text(encoding="utf-8") == (
+        "round one\n"
+    )
+    assert not (workspace.workspace_root / "docs/round-two.txt").exists()
+    assert workspace.cumulative_patch(discarded.revision) == first_patch
+
+
 def test_rollback_makes_read_only_snapshot_writable_before_checkpoint_overlay(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

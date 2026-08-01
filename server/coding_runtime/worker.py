@@ -335,6 +335,8 @@ class CodingWorkerServer:
                 await self._diff(request, writer)
             elif action == "patch":
                 await self._patch(request, writer)
+            elif action == "checkpoint_cycle":
+                await self._checkpoint_cycle(request, writer)
             elif action == "validate":
                 await self._validate(request, writer)
             elif action == "discard":
@@ -786,14 +788,43 @@ class CodingWorkerServer:
     ) -> None:
         record = self._require_draft_session(request)
         revision = self._require_revision(request)
+        scope = request.get("scope", "current")
+        if scope not in {"current", "cumulative"}:
+            raise CodingWorkerProtocolError(
+                "Draft Patch scope is invalid.",
+                code="invalid_request",
+            )
+        patch = (
+            record.workspace.cumulative_patch(revision)
+            if scope == "cumulative"
+            else record.workspace.patch(revision)
+        )
         await self._send(
             writer,
             {
                 "ok": True,
                 "revision": revision,
-                "patch": record.workspace.patch(revision),
+                "scope": scope,
+                "patch": patch,
             },
         )
+
+    async def _checkpoint_cycle(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        revision = self._require_revision(request)
+        await self._refresh_verification(record)
+        if self._verification_running(record):
+            raise CodingWorkerError(
+                "Project verification is running.",
+                code="verification_in_progress",
+            )
+        changes = record.workspace.checkpoint_cycle(revision).to_dict()
+        record.verification = None
+        await self._send(writer, {"ok": True, "changes": changes})
 
     async def _validate(
         self,
@@ -843,10 +874,10 @@ class CodingWorkerServer:
                 "Project verification source is unavailable.",
                 code="verifier_unavailable",
             )
-        report = record.workspace.changes()
+        report = record.workspace.cumulative_changes()
         if revision != report.revision:
             raise DraftRevisionError("stale_revision")
-        patch = record.workspace.patch(revision)
+        patch = record.workspace.cumulative_patch(revision)
         response = await self._verifier.start(
             session_id=record.session.session_id,
             revision=revision,
@@ -1303,12 +1334,19 @@ class CodingWorkerClient:
             )
         return diff
 
-    async def patch(self, session_id: str, revision: int) -> str:
+    async def patch(
+        self,
+        session_id: str,
+        revision: int,
+        *,
+        scope: str = "current",
+    ) -> str:
         result = await self._request(
             {
                 "action": "patch",
                 "session_id": session_id,
                 "revision": revision,
+                "scope": scope,
             }
         )
         patch = result.get("patch")
@@ -1318,6 +1356,26 @@ class CodingWorkerClient:
                 code="invalid_response",
             )
         return patch
+
+    async def checkpoint_cycle(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        result = await self._request(
+            {
+                "action": "checkpoint_cycle",
+                "session_id": session_id,
+                "revision": revision,
+            }
+        )
+        changes = result.get("changes")
+        if not isinstance(changes, dict):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted the next cycle state.",
+                code="invalid_response",
+            )
+        return changes
 
     async def validate(self, session_id: str) -> dict[str, Any]:
         result = await self._request(
