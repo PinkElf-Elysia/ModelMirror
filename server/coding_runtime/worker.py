@@ -313,6 +313,8 @@ class CodingWorkerServer:
                 )
             elif action == "create_session":
                 await self._create_session(writer)
+            elif action == "restore_session":
+                await self._restore_session(request, writer)
             elif action == "prompt":
                 await self._prompt(request, writer)
             elif action == "cancel":
@@ -424,6 +426,109 @@ class CodingWorkerServer:
                 "session_id": session.session_id,
                 "mode": mode,
                 "event": event.to_dict(),
+            },
+        )
+
+    async def _restore_session(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        revision = request.get("revision")
+        patch = request.get("patch")
+        paths = request.get("paths")
+        expected_fingerprint = request.get("snapshot_fingerprint")
+        if (
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+            or not isinstance(patch, str)
+            or not isinstance(paths, list)
+            or not paths
+            or not all(isinstance(path, str) for path in paths)
+            or tuple(paths) != tuple(sorted(set(paths)))
+            or not isinstance(expected_fingerprint, str)
+        ):
+            raise CodingWorkerProtocolError(
+                "Coding recovery request is invalid.",
+                code="invalid_request",
+            )
+        if expected_fingerprint != self._source_fingerprint:
+            raise CodingWorkerError(
+                "Coding recovery snapshot does not match the runtime.",
+                code="snapshot_mismatch",
+            )
+
+        async with self._sessions_lock:
+            if self._sessions:
+                raise CodingWorkerError(
+                    "Coding runtime already has an active session.",
+                    code="concurrency_limit",
+                )
+            mode = coding_agent_mode()
+            if mode != "draft":
+                raise CodingWorkerError(
+                    "Coding recovery requires draft mode.",
+                    code="draft_unavailable",
+                )
+            session = CodingSession()
+            workspace = DraftWorkspace(
+                self._source_snapshot_path,
+                self._workspace_path,
+                self._checkpoint_path,
+                preserve_workspace_root=True,
+            )
+            try:
+                workspace.initialize()
+                report = workspace.restore_from_patch(
+                    patch,
+                    revision=revision,
+                    expected_paths=tuple(paths),
+                )
+                self._set_workspace_writable(workspace.workspace_root)
+                adapter = create_acp_client(mode)
+            except (DraftWorkspaceError, OSError, UnicodeError) as exc:
+                with contextlib.suppress(Exception):
+                    self._set_workspace_writable(workspace.workspace_root)
+                    workspace.destroy()
+                raise CodingWorkerError(
+                    "Coding recovery data was rejected.",
+                    code="recovery_invalid",
+                ) from exc
+            except Exception as exc:
+                with contextlib.suppress(Exception):
+                    self._set_workspace_writable(workspace.workspace_root)
+                    workspace.destroy()
+                raise CodingWorkerError(
+                    "Coding runtime could not prepare the recovered session.",
+                    code="agent_unavailable",
+                ) from exc
+            record = _WorkerSession(
+                session=session,
+                adapter=adapter,
+                workspace=workspace,
+                mode=mode,
+            )
+            self._sessions[session.session_id] = record
+        try:
+            event = await adapter.open(session)
+        except Exception:
+            async with self._sessions_lock:
+                self._sessions.pop(session.session_id, None)
+            await self._cleanup_record(record)
+            raise CodingWorkerError(
+                "Coding runtime could not start the recovered agent.",
+                code="agent_unavailable",
+            )
+        await self._send(
+            writer,
+            {
+                "ok": True,
+                "session_id": session.session_id,
+                "mode": mode,
+                "event": event.to_dict(),
+                "changes": report.to_dict(),
+                "recovered": True,
             },
         )
 
@@ -1057,6 +1162,34 @@ class CodingWorkerClient:
 
     async def create_session(self) -> dict[str, Any]:
         return await self._request({"action": "create_session"}, timeout=130.0)
+
+    async def restore_session(
+        self,
+        *,
+        revision: int,
+        patch: str,
+        paths: list[str],
+        snapshot_fingerprint: str,
+    ) -> dict[str, Any]:
+        result = await self._request(
+            {
+                "action": "restore_session",
+                "revision": revision,
+                "patch": patch,
+                "paths": paths,
+                "snapshot_fingerprint": snapshot_fingerprint,
+            },
+            timeout=130.0,
+        )
+        if (
+            result.get("recovered") is not True
+            or not isinstance(result.get("changes"), dict)
+        ):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted recovered draft state.",
+                code="invalid_response",
+            )
+        return result
 
     async def cancel(self, session_id: str) -> bool:
         result = await self._request(
