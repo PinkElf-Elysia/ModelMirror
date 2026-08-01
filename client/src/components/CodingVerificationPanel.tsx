@@ -17,6 +17,7 @@ import type {
 interface CodingVerificationPanelProps {
   available: boolean;
   disabled: boolean;
+  empty?: boolean;
   error: string;
   onCancel: () => Promise<void>;
   onRequestFix: (prompt: string) => void;
@@ -44,7 +45,14 @@ function stepState(step: CodingVerificationStep) {
   return "等待";
 }
 
-function statusCopy(verification: CodingVerification | null) {
+function statusCopy(verification: CodingVerification | null, empty: boolean) {
+  if (empty) {
+    return {
+      title: "本轮无需项目验证",
+      description: "当前没有待保存的新文件变化，此前完成的修改不受影响。",
+      tone: "text-emerald-100",
+    };
+  }
   if (!verification || verification.stale) {
     return {
       title: verification?.stale
@@ -102,6 +110,7 @@ function statusCopy(verification: CodingVerification | null) {
 export default function CodingVerificationPanel({
   available,
   disabled,
+  empty = false,
   error,
   onCancel,
   onRequestFix,
@@ -109,11 +118,12 @@ export default function CodingVerificationPanel({
   verification,
 }: CodingVerificationPanelProps) {
   const [action, setAction] = useState<ActionState>("idle");
-  const copy = statusCopy(verification);
+  const copy = statusCopy(verification, empty);
   const isRunning =
     verification?.state === "running" && verification.stale === false;
-  const failedSteps =
-    verification?.steps.filter((step) => step.result === "failed") ?? [];
+  const failedSteps = empty
+    ? []
+    : verification?.steps.filter((step) => step.result === "failed") ?? [];
 
   const runAction = async (
     nextAction: Exclude<ActionState, "idle">,
@@ -151,7 +161,13 @@ export default function CodingVerificationPanel({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            {isRunning ? (
+            {empty ? (
+              <CheckCircle2
+                aria-hidden="true"
+                className="shrink-0 text-emerald-200"
+                size={17}
+              />
+            ) : isRunning ? (
               <LoaderCircle
                 aria-hidden="true"
                 className="shrink-0 animate-spin text-cyan-200 motion-reduce:animate-none"
@@ -191,7 +207,7 @@ export default function CodingVerificationPanel({
           </div>
         </div>
 
-        {isRunning ? (
+        {empty ? null : isRunning ? (
           <button
             className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-300/30 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={action !== "idle"}
@@ -232,7 +248,7 @@ export default function CodingVerificationPanel({
         )}
       </div>
 
-      {!available ? (
+      {!available && !empty ? (
         <div className="mt-3 rounded-lg bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
           项目验证服务未启动，仍可查看和下载修改。
         </div>
