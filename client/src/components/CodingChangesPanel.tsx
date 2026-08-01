@@ -37,6 +37,7 @@ interface CodingChangesPanelProps {
   disabled: boolean;
   frozen: boolean;
   loading: boolean;
+  readOnly?: boolean;
   onApply: () => Promise<void>;
   onClose: () => Promise<void>;
   onCommit: (message: string) => Promise<void>;
@@ -524,6 +525,7 @@ export default function CodingChangesPanel({
   disabled,
   frozen,
   loading,
+  readOnly = false,
   onApply,
   onClose,
   onCommit,
@@ -801,7 +803,7 @@ export default function CodingChangesPanel({
             <CodingVerificationPanel
               available={verificationAvailable}
               disabled={
-                disabled || frozen || isActing || !changes.can_download
+                disabled || readOnly || frozen || isActing || !changes.can_download
               }
               error={verificationError}
               onCancel={onCancelVerification}
@@ -814,7 +816,7 @@ export default function CodingChangesPanel({
               <CodingApplyPanel
                 capability={applyCapability}
                 changes={changes}
-                disabled={disabled || isActing || verificationRunning}
+                disabled={disabled || readOnly || isActing || verificationRunning}
                 error={applyError}
                 onApply={onApply}
                 onClose={onClose}
@@ -828,7 +830,7 @@ export default function CodingChangesPanel({
               applyResult={applyResult}
               capability={commitCapability}
               changes={changes}
-              disabled={disabled || isActing}
+              disabled={disabled || readOnly || isActing}
               error={commitError}
               onCommit={onCommit}
               onClose={onClose}
@@ -839,7 +841,7 @@ export default function CodingChangesPanel({
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={disabled || frozen || isActing}
+                disabled={disabled || readOnly || frozen || isActing}
                 onClick={() =>
                   void runAction("checking", onValidate)
                 }
@@ -880,7 +882,7 @@ export default function CodingChangesPanel({
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={
-                  disabled || frozen || isActing || verificationRunning
+                  disabled || readOnly || frozen || isActing || verificationRunning
                 }
                 onClick={() => setConfirmDiscard(true)}
                 type="button"
