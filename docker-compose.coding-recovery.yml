@@ -1,0 +1,171 @@
+services:
+  server:
+    environment:
+      CODING_RECOVERY_ENABLED: ${CODING_RECOVERY_ENABLED:-true}
+      CODING_RECOVERY_STORAGE_DIR: /var/lib/modelmirror/coding-recovery
+      CODING_RECOVERY_RETENTION_SECONDS: ${CODING_RECOVERY_RETENTION_SECONDS:-604800}
+    volumes:
+      - type: bind
+        source: ${MODELMIRROR_DATA_ROOT:?Set MODELMIRROR_DATA_ROOT to the absolute stable data root}/server/coding-recovery
+        target: /var/lib/modelmirror/coding-recovery
+        bind:
+          create_host_path: false
+
+  coding-recovery-preflight:
+    profiles:
+      - coding-recovery-preflight
+    image: modelmirror-server
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 32
+    cpus: 0.25
+    mem_limit: 128m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=8m
+    environment:
+      HOME: /tmp
+      MODELMIRROR_DATA_ROOT_INPUT: ${MODELMIRROR_DATA_ROOT:?Set MODELMIRROR_DATA_ROOT to the absolute stable data root}
+    volumes:
+      - type: bind
+        source: ${MODELMIRROR_DATA_ROOT:?Set MODELMIRROR_DATA_ROOT to the absolute stable data root}
+        target: /checks/data-root
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CODING_IMPLEMENTATION_WORKTREE:?Set CODING_IMPLEMENTATION_WORKTREE to the absolute implementation worktree}
+        target: /checks/implementation
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CODING_COMMIT_REPOSITORY:?Set CODING_COMMIT_REPOSITORY to the independent local clone}
+        target: /checks/target
+        read_only: true
+        bind:
+          create_host_path: false
+    command:
+      - python
+      - -c
+      - |
+        import os
+        import pathlib
+        import re
+        import hashlib
+        import subprocess
+        import sys
+
+        def stop(message):
+            print(f"PRECHECK FAILED: {message}", file=sys.stderr)
+            raise SystemExit(2)
+
+        def git(root, *args):
+            result = subprocess.run(
+                [
+                    "git", "-c", f"safe.directory={root}",
+                    "-c", "core.autocrlf=true", "-C", root, *args,
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                stop(f"Git check failed for {root}")
+            return result.stdout.strip()
+
+        ignored_directories = {
+            ".git", ".agents", ".codex", ".idea", ".pytest_cache", ".vite",
+            ".vscode", "__pycache__", "artifacts", "build", "dist", "docker-data",
+            "new-api-data", "node_modules", "omniroute-data", "storage", "uploads",
+            "volumes",
+        }
+
+        def ignored(relative):
+            parts = relative.parts
+            name = relative.name
+            if any(part in ignored_directories or part.startswith(".tmp-") for part in parts):
+                return True
+            if parts[:3] in {
+                ("server", "skills", "installed"),
+                ("server", "skills", "tmp"),
+                ("server", "mcp", "installed"),
+                ("server", "office_host", "certs"),
+            } or parts[:2] == ("server", "workflow_sandboxes"):
+                return True
+            if name == ".env.example":
+                return False
+            return (
+                name == ".env"
+                or name.startswith(".env.")
+                or name.endswith((".key", ".pem", ".pyc", ".pyo", ".log", ".err", ".db", ".sqlite", ".sqlite3"))
+            )
+
+        def fingerprint(root):
+            base = pathlib.Path(root)
+            digest = hashlib.sha256()
+            for current, directories, files in os.walk(base):
+                current_path = pathlib.Path(current)
+                kept = []
+                for name in sorted(directories):
+                    path = current_path / name
+                    relative = path.relative_to(base)
+                    if ignored(relative):
+                        continue
+                    if path.is_symlink():
+                        stop(f"source contains a symlink: {relative.as_posix()}")
+                    kept.append(name)
+                directories[:] = kept
+                for name in sorted(files):
+                    path = current_path / name
+                    relative = path.relative_to(base)
+                    if ignored(relative):
+                        continue
+                    if path.is_symlink():
+                        stop(f"source contains a symlink: {relative.as_posix()}")
+                    content = path.read_bytes()
+                    digest.update(relative.as_posix().encode("utf-8"))
+                    digest.update(b"\0")
+                    digest.update(str(len(content)).encode("ascii"))
+                    digest.update(b"\0")
+                    digest.update(hashlib.sha256(content).digest())
+            return digest.hexdigest()
+
+        data_root = os.environ.get("MODELMIRROR_DATA_ROOT_INPUT", "").strip()
+        if not (
+            pathlib.PurePosixPath(data_root).is_absolute()
+            or re.fullmatch(r"[A-Za-z]:[\\/].+", data_root)
+        ):
+            stop("MODELMIRROR_DATA_ROOT must be absolute")
+
+        data = pathlib.Path("/checks/data-root")
+        server_env = data / "server" / ".env"
+        recovery_dir = data / "server" / "coding-recovery"
+        if not server_env.is_file() or server_env.stat().st_size == 0:
+            stop("the selected data root has no non-empty server/.env")
+        if not recovery_dir.is_dir():
+            stop("server/coding-recovery must exist before rebuild")
+
+        implementation = "/checks/implementation"
+        target = "/checks/target"
+        if not pathlib.Path(implementation, ".git").exists():
+            stop("implementation worktree is not a Git checkout")
+        target_git = pathlib.Path(target, ".git")
+        if not target_git.is_dir():
+            stop("target must use an independent .git directory")
+        if pathlib.Path(target_git, "objects", "info", "alternates").exists():
+            stop("target repository uses Git alternates")
+        if git(target, "status", "--porcelain=v1", "--untracked-files=all"):
+            stop("target repository is not clean")
+        if git(target, "symbolic-ref", "--short", "HEAD") != "coding/local-draft":
+            stop("target branch must be coding/local-draft")
+        if git(target, "remote"):
+            stop("target repository must not have remotes")
+        if fingerprint(implementation) != fingerprint(target):
+            stop("implementation and target fingerprints differ")
+        print("PRECHECK PASSED: paths, environment, repositories and fingerprints match")
