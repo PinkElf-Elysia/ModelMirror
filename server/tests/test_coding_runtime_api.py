@@ -18,6 +18,8 @@ from server.coding_runtime.api import (
 )
 from server.coding_runtime.applier_client import ApplierClientError
 from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
+from server.coding_runtime.commit_models import CommitReceipt
+from server.coding_runtime.committer_client import CommitterClientError
 from server.coding_runtime.models import CodingEvent, CodingEventKind
 from server.coding_runtime.worker import CodingWorkerError
 
@@ -367,6 +369,61 @@ class FakeApplier:
         return receipt
 
 
+class FakeCommitter:
+    def __init__(
+        self,
+        *,
+        configured: bool = True,
+        available: bool = True,
+        fingerprint: str = SNAPSHOT_FINGERPRINT,
+        commit_error: str | None = None,
+        undo_error: str | None = None,
+    ) -> None:
+        self.configured = configured
+        self.available = available
+        self.fingerprint = fingerprint
+        self.commit_error = commit_error
+        self.undo_error = undo_error
+        self.commit_calls: list[dict[str, Any]] = []
+        self.undo_calls: list[tuple[CommitReceipt, ApplyReceipt]] = []
+
+    async def health(self) -> dict[str, Any]:
+        return {
+            "configured": self.configured,
+            "available": self.available,
+            "target": "isolated_local_repository",
+            "snapshot_fingerprint": self.fingerprint,
+            **({} if self.available else {"reason": "repository_not_ready"}),
+        }
+
+    async def commit(self, **kwargs: Any) -> CommitReceipt:
+        self.commit_calls.append(kwargs)
+        if self.commit_error is not None:
+            raise CommitterClientError("commit failed", code=self.commit_error)
+        apply_receipt = kwargs["apply_receipt"]
+        return CommitReceipt(
+            commit_id=kwargs["operation_id"],
+            revision=apply_receipt.revision,
+            apply_id=apply_receipt.apply_id,
+            commit_sha=("d" if len(self.commit_calls) == 1 else "e") * 40,
+            parent_sha="b" * 40,
+            tree_sha="f" * 40,
+            message=kwargs["message"],
+            files=tuple(item.path for item in apply_receipt.files),
+            committed_at=20.0,
+        )
+
+    async def undo(
+        self,
+        receipt: CommitReceipt,
+        apply_receipt: ApplyReceipt,
+    ) -> CommitReceipt:
+        self.undo_calls.append((receipt, apply_receipt))
+        if self.undo_error is not None:
+            raise CommitterClientError("undo failed", code=self.undo_error)
+        return receipt
+
+
 @pytest_asyncio.fixture
 async def make_client():
     services: list[CodingService] = []
@@ -376,6 +433,7 @@ async def make_client():
         enabled: bool = True,
         worker: FakeWorker | None = None,
         applier: FakeApplier | None = None,
+        committer: FakeCommitter | None = None,
         ttl_seconds: float = 1800,
     ) -> tuple[httpx.AsyncClient, CodingService, FakeWorker]:
         fake = worker or FakeWorker()
@@ -383,6 +441,7 @@ async def make_client():
             enabled=enabled,
             worker=fake,
             applier=applier,
+            committer=committer,
             ttl_seconds=ttl_seconds,
             mode=fake.mode,
         )
@@ -1103,3 +1162,173 @@ async def test_apply_serializes_mutations_and_failed_request_is_idempotent(
     assert repeated.json()["state"] == "failed"
     assert repeated.json()["reason"] == "target_changed"
     assert len(applier.apply_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_local_commit_is_gated_idempotent_undoable_and_private(
+    make_client,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    applier = FakeApplier()
+    committer = FakeCommitter()
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=applier,
+        committer=committer,
+    )
+    async with client:
+        capabilities = await client.get("/api/coding/capabilities")
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        apply_id = applied.json()["apply_id"]
+        before = await client.get(
+            f"/api/coding/sessions/{session_id}/commit",
+            params={"revision": 1},
+        )
+        payload = {
+            "revision": 1,
+            "apply_id": apply_id,
+            "message": "feature: 保存随机功能 A91C",
+        }
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json=payload,
+        )
+        repeated = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json=payload,
+        )
+        commit_status = await client.get(
+            f"/api/coding/sessions/{session_id}/commit",
+            params={"revision": 1},
+        )
+        apply_status = await client.get(
+            f"/api/coding/sessions/{session_id}/apply",
+            params={"revision": 1},
+        )
+        blocked_revert = await client.post(
+            f"/api/coding/sessions/{session_id}/apply/revert",
+            json={"revision": 1, "apply_id": apply_id},
+        )
+        undo_payload = {
+            "revision": 1,
+            "apply_id": apply_id,
+            "commit_id": committed.json()["commit_id"],
+        }
+        undone = await client.post(
+            f"/api/coding/sessions/{session_id}/commit/undo",
+            json=undo_payload,
+        )
+        repeated_undo = await client.post(
+            f"/api/coding/sessions/{session_id}/commit/undo",
+            json=undo_payload,
+        )
+        reverted = await client.post(
+            f"/api/coding/sessions/{session_id}/apply/revert",
+            json={"revision": 1, "apply_id": apply_id},
+        )
+
+    assert capabilities.json()["commit"] == {
+        "configured": True,
+        "available": True,
+        "target": "isolated_local_repository",
+        "requires_apply": True,
+        "supports_undo": True,
+        "remote_operations": False,
+        "max_message_chars": 2000,
+    }
+    assert before.json()["suggested_message"] == "feature: 更新项目功能"
+    assert committed.status_code == 200
+    assert committed.headers["cache-control"] == "no-store"
+    assert committed.json() == repeated.json() == commit_status.json()
+    assert len(committer.commit_calls) == 1
+    serialized = json.dumps(committed.json())
+    assert "parent_sha" not in serialized
+    assert "tree_sha" not in serialized
+    assert "server/example.py" not in serialized
+    assert apply_status.json()["can_revert"] is False
+    assert blocked_revert.json()["detail"]["code"] == "commit_must_be_undone"
+    assert undone.json()["state"] == "undone"
+    assert undone.json() == repeated_undo.json()
+    assert len(committer.undo_calls) == 1
+    assert reverted.json()["state"] == "reverted"
+
+
+@pytest.mark.asyncio
+async def test_commit_failure_reuses_operation_and_blocks_unsafe_apply_revert(
+    make_client,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    committer = FakeCommitter(commit_error="committer_timeout")
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=committer,
+    )
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        payload = {
+            "revision": 1,
+            "apply_id": applied.json()["apply_id"],
+            "message": "feature: 保存超时恢复 B72E",
+        }
+        failed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json=payload,
+        )
+        changed_message = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={**payload, "message": "feature: 不安全改名"},
+        )
+        blocked_revert = await client.post(
+            f"/api/coding/sessions/{session_id}/apply/revert",
+            json={"revision": 1, "apply_id": applied.json()["apply_id"]},
+        )
+        first_operation = committer.commit_calls[0]["operation_id"]
+        committer.commit_error = None
+        committer.available = False
+        recovered = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json=payload,
+        )
+
+    assert failed.status_code == 503
+    assert failed.json()["detail"]["code"] == "committer_timeout"
+    assert changed_message.json()["detail"]["code"] == (
+        "commit_retry_message_mismatch"
+    )
+    assert blocked_revert.json()["detail"]["code"] == "commit_must_be_undone"
+    assert recovered.json()["state"] == "committed"
+    assert committer.commit_calls[1]["operation_id"] == first_operation
+
+
+@pytest.mark.asyncio
+async def test_committer_unavailable_does_not_disable_existing_draft_features(
+    make_client,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    client, _, _ = await make_client(worker=worker, applier=FakeApplier())
+    async with client:
+        capabilities = await client.get("/api/coding/capabilities")
+        created = await client.post("/api/coding/sessions")
+        changes = await client.get(
+            f"/api/coding/sessions/{created.json()['id']}/changes"
+        )
+
+    assert capabilities.json()["available"] is True
+    assert capabilities.json()["commit"]["available"] is False
+    assert capabilities.json()["commit"]["reason"] == "committer_not_configured"
+    assert changes.status_code == 200

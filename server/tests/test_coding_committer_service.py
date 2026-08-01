@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,10 @@ from server.coding_committer.server import (
 )
 from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
 from server.coding_runtime.commit_models import CommitReceipt
+from server.coding_runtime.committer_client import (
+    CodingCommitterClient,
+    CommitterClientError,
+)
 
 
 def receipts() -> tuple[ApplyReceipt, CommitReceipt]:
@@ -115,6 +121,38 @@ async def test_protocol_dispatch_supports_only_health_commit_and_undo(tmp_path: 
     with pytest.raises(CommitterProtocolError) as raised:
         await server._dispatch({"action": "shell", "command": "git push"})
     assert raised.value.code == "unsupported_action"
+
+
+@pytest.mark.asyncio
+async def test_client_and_socket_server_round_trip_and_fail_closed(tmp_path: Path) -> None:
+    socket_path = tmp_path / "committer.sock"
+    fake = FakeEngine()
+    server = CodingCommitterServer(socket_path, engine=fake)
+    task = asyncio.create_task(server.serve_forever())
+    for _ in range(100):
+        if socket_path.exists():
+            break
+        await asyncio.sleep(0.01)
+    client = CodingCommitterClient(socket_path)
+    try:
+        health = await client.health()
+        committed = await client.commit(
+            operation_id="c" * 24,
+            apply_receipt=fake.apply_receipt,
+            message="docs: 保存随机说明 31B7",
+        )
+        undone = await client.undo(committed, fake.apply_receipt)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert health["available"] is True
+    assert committed == fake.commit_receipt
+    assert undone == fake.commit_receipt
+    with pytest.raises(CommitterClientError) as raised:
+        await CodingCommitterClient(tmp_path / "missing.sock").health()
+    assert raised.value.code == "committer_unavailable"
 
 
 def test_container_files_enforce_isolation_and_narrow_mounts() -> None:
