@@ -40,11 +40,22 @@ Thumbs.db
 # Dify / Docker persistent data
 docker-data/
 new-api-data/
+omniroute-data/
 volumes/
 server/rag/storage/
 server/rag/uploads/
 server/skills/installed/
 server/skills/tmp/
+server/xperts/storage/
+server/plugins/storage/
+server/prompts/storage/
+server/xpert_runtime/storage/
+server/datax/storage/
+server/toolsets/storage/
+server/model_router/storage/
+server/mcp/installed/
+server/workflow_sandboxes/
+server/office_host/certs/
 
 # Temporary generated assets
 .tmp-*/
@@ -60,3 +71,8 @@ verify_marble.py
 测试图片*.jpg
 rag_fts5.db
 *.docx
+
+# Root-level local packaging artifacts
+/package.json
+/package-lock.json
+/*.apk

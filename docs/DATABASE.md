@@ -1,138 +1,77 @@
 # 数据模型与存储方案
 
-## 当前存储方式
+最后更新日期：2026-07-28
+维护人：模镜团队
 
-模镜当前没有自建数据库。数据分为四类：
+## 当前结论
 
-| 类型 | 存储位置 | 说明 |
+模镜已经包含多种本地持久化实现，不能再描述为“没有自建数据库”。当前是
+本地单租户、按领域选择存储的架构，并未形成统一关系数据库或多租户数据层。
+
+| 领域 | 存储 | 说明 |
 | --- | --- | --- |
-| 模型数据 | `client/src/data/models.ts` | 静态模型目录，含价格、能力、筛选字段。 |
-| 智能体数据 | `client/src/data/agents.ts`、`server/data/agents.json` | 前端展示和后端自动路由/团队协作各有一份数据。 |
-| MCP / Skill 数据 | `client/src/data/mcpProjects.ts`、`client/src/data/skillProjects.ts` | 首批真实项目卡片数据。 |
-| 提示词数据 | `client/src/data/promptLibrary.json` | 提示词助手使用的分类与内容。 |
-| 用户偏好 | `localStorage` | 偏好模型、高级参数、部分会话状态。 |
-| 工作流与 RAG | Dify 内部数据库 | 稳定主路径由 Dify 社区版管理。 |
-| 经典工作流草稿 | `localStorage` | `/workflow/classic` 实验入口使用。 |
+| 模型静态快照 | `client/src/data/models.ts` | 展示、能力与离线目录；实时可调用性来自后端目录。 |
+| 模型路由与视频任务 | `server/model_router/storage/router.sqlite3` | 连接、策略、候选统计、决策、压缩与视频任务元数据。 |
+| 路由凭据 | SQLite 加密字段 + `credential-master.key` | 只在后端解密，API 返回脱敏摘要。 |
+| RAG 元数据与流水线 | `server/rag/storage/` | metadata、候选/激活版本、处理和视觉产物。 |
+| RAG 向量 | Chroma，失败时可使用本地 JSON fallback | 由 `CHROMA_DB_PATH` 配置。 |
+| RAG 全文 | `lexical_index.sqlite3` / SQLite FTS5 | 与向量索引组成混合检索。 |
+| Agent Studio | `server/xperts/storage/` 文件型 Store | 草稿 revision、不可变发布版本、App 和文件记忆。 |
+| Agent Runtime | `server/xpert_runtime/storage/` 文件型 Store | Goal、Handoff、自动化、审批和执行恢复。 |
+| Toolset | `server/toolsets/storage/` | Toolset 版本、凭据摘要和本地 master key。 |
+| Data X | 项目元数据 + 项目隔离 DuckDB | 文件快照、语义模型和受限查询。 |
+| 工作流草稿 | 浏览器 `localStorage` | classic 画布本地草稿；发布 Agent 时进入后端不可变版本。 |
+| 媒体正文 | 不持久化 | STT/TTS/视频请求媒体及视频生成 Prompt、首帧不进入任务数据库。 |
 
-## 模型数据接口
+Dify 数据库不属于当前主路径或备份范围。legacy Dify 代理只在显式配置后可用。
 
-`client/src/data/models.ts` 中的 `Model` 包含：
+## 租户边界
 
-```typescript
-interface Model {
-  id: string;
-  name: string;
-  description: string;
-  context_length: number;
-  pricing: { input: number; output: number };
-  price_cny: { input: number; output: number };
-  input_modalities: string[];
-  categories: string[];
-  supported_parameters: string[];
-  series: string;
-  tags: string[];
-  provider: string;
-  model_author: string;
-  distillable: boolean;
-  zero_data_retention: boolean;
-  in_region_routing: boolean;
-  active: boolean;
-}
-```
+- 原生路由、连接、决策、压缩和视频任务从第一天携带
+  `tenant_id`，当前固定为 `local`。
+- 文件型 Agent/Runtime Store 仍是可信本地管理面，不等同于完整多租户隔离。
+- 所有 repository 查询必须显式携带租户；不得在前端传入任意租户覆盖。
+- 进入多租户前必须完成用户身份、组织、RBAC、密钥托管和数据迁移设计。
 
-用途：
+## 备份范围
 
-- `/models` 卡片展示。
-- 模型筛选。
-- 聊天页模型选择器。
-- 多模态能力判断。
-
-## 智能体数据接口
-
-前端 `agents.ts` 用于人才市场卡片；后端 `agents.json` 用于路由和团队协作。核心字段：
-
-```typescript
-interface AgentRecord {
-  id: string;
-  name: string;
-  department: string;
-  expertise: string;
-  scenarios: string;
-  prompt: string;
-  sourceUrl?: string;
-  emoji?: string;
-  popularity?: number;
-}
-```
-
-## MCP 项目数据
-
-```typescript
-interface ResourceProject {
-  id: string;
-  name: string;
-  description: string;
-  repository: string;
-  stars: string;
-  language: string;
-  updatedAt: string;
-  installCommand: string;
-  tags: string[];
-}
-```
-
-实际字段以 `ResourceProjectCard` 消费的数据为准。新增 MCP 时应优先补充真实仓库、安装命令和简短中文描述。
-
-## Skill 项目数据
-
-Skill 数据与 MCP 类似，展示为“技能货架”。对于综合仓库，例如 `anthropics/skills`，可以拆成多个子技能卡片，但必须注明来源仓库。
-
-## localStorage Key
-
-| Key | 用途 |
-| --- | --- |
-| `modelmirror-preferred-model-id` | 用户偏好的默认聊天模型。 |
-| 聊天高级参数相关 key | 按模型记忆 temperature、top_p、max_tokens 等。 |
-| 经典工作流草稿 key | `/workflow/classic` 保存实验画布。 |
-
-## Dify 数据层
-
-Dify 社区版通常包含：
-
-- PostgreSQL：应用、工作流、知识库、文档元数据。
-- Redis / Queue：异步任务与缓存。
-- 向量数据库或 Dify 内置索引配置：知识库检索。
-- 文件存储：上传文档和解析结果。
-
-模镜不直接访问这些数据库，而是通过 Dify Web iframe 和 `/api/dify/*` 代理访问 Dify API。
-
-## 未来数据库迁移方案
-
-当需要自建用户体系和资源收藏时，建议引入 PostgreSQL：
+使用默认 Compose bind mount 时，应备份：
 
 ```text
-users
-resources
-favorites
-chat_sessions
-chat_messages
-workflow_drafts
-agent_teams
+new-api-data/
+server/model_router/storage/
+server/rag/storage/
+server/rag/uploads/
+server/xperts/storage/
+server/xpert_runtime/storage/
+server/datax/storage/
+server/toolsets/storage/
+server/skills/installed/
 ```
 
-推荐技术路线：
+不要只备份 JSON 而遗漏 SQLite、DuckDB、Chroma 目录或对应 master key。没有
+`credential-master.key` 时，加密凭据不能恢复。
 
-- PostgreSQL 作为主库。
-- Prisma 或 SQLModel 管理 schema。
-- Redis 用于限流、任务队列和短期缓存。
-- 静态资源数据逐步迁移到管理后台或同步任务。
+备份前建议停止写入或停止 `server`，避免跨文件快照不一致。恢复后先运行健康检查，
+再抽查 RAG active version、Agent 发布版本、路由连接和视频任务状态。
 
 ## 数据更新原则
 
-- 不要手动改生产密钥或用户数据。
-- 大型静态数据更新必须单独提交，避免和 UI 改动混在一起。
-- 模型价格、MCP stars、Skill 仓库信息应注明更新时间。
-- 如果数据来自外部仓库，保留来源链接。
+- 不提交上述持久化目录、上传文件、数据库或本地密钥。
+- 静态目录、UI 和数据迁移分开提交。
+- schema 变更必须具备向前迁移、旧数据读取测试和不删除数据的回退说明。
+- 价格、模型能力和外部仓库元数据应记录快照日期。
+- 任务审计只保存必要元数据，不保存 Prompt、媒体正文、完整工具结果或凭据。
 
-最后更新日期：2026-06-10  
-维护人：模镜团队
+## PostgreSQL 迁移方向
+
+SQLite repository 已隔离于路由服务实现，可在多租户阶段增加 PostgreSQL adapter。
+迁移顺序建议为：
+
+1. 身份、租户与权限。
+2. 连接、策略、任务和审计。
+3. Agent/Runtime 文件型 Store。
+4. 需要集中查询的 RAG/Data X 元数据。
+
+Chroma、对象正文和项目 DuckDB 是否迁移，应按检索规模、保留策略和部署拓扑
+单独决策，不能通过一次通用数据库替换解决。

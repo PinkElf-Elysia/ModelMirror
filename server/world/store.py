@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .models import GeneratedWorld, WorldJob, WorldStatus
+from .models import GeneratedAsset, GeneratedWorld, WorldJob, WorldStatus
 
 
 class WorldStore:
@@ -49,7 +49,7 @@ class WorldStore:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def save_job(self, job: WorldJob) -> None:
+    def save_job(self, job: WorldJob, provider: str | None = None) -> None:
         """Create (or update) a record for a job."""
 
         with self._lock:
@@ -63,6 +63,8 @@ class WorldStore:
                     "created_at": job.created_at,
                 }
             )
+            if provider:
+                existing["provider"] = provider
             records[job.job_id] = existing
             self._write_all(records)
 
@@ -99,6 +101,26 @@ class WorldStore:
                     "credits": world.credits,
                     "estimated_cost_usd": world.estimated_cost_usd,
                     "completed_at": world.completed_at,
+                }
+            )
+            self._write_all(records)
+
+    def add_asset(self, job_id: str, asset: GeneratedAsset) -> None:
+        """Persist an explicitly requested export without replacing other assets."""
+
+        with self._lock:
+            records = self._read_all()
+            if job_id not in records:
+                return
+            assets = records[job_id].setdefault("assets", [])
+            assets[:] = [item for item in assets if item.get("id") != asset.id]
+            assets.append(
+                {
+                    "id": asset.id,
+                    "kind": asset.kind,
+                    "format": asset.format,
+                    "url": asset.url,
+                    "size_bytes": asset.size_bytes,
                 }
             )
             self._write_all(records)

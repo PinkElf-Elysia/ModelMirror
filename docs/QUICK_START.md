@@ -1,134 +1,128 @@
 # 5 分钟快速上手
 
+最后更新日期：2026-07-28
+维护人：模镜团队
+
 ## 环境要求
 
-- Node.js 18+，当前项目使用 Vite 7。
-- Python 3.11+，后端使用 FastAPI。
-- Docker / Docker Compose：可选，用于运行 Dify 社区版或项目容器。
-- Git：用于版本控制。
+- Node.js 22，建议使用项目已验证的当前 22.x 版本。
+- Python 3.11+；Docker 服务镜像使用 Python 3.12。
+- Docker Desktop / Docker Compose：推荐，用于运行完整本地栈。
+- Git。
 
-## 克隆与安装
+Dify 不是当前启动依赖。`/workflow` 和 `/rag` 均由 ModelMirror 原生实现提供。
 
-```bash
-git clone <your-private-repo-url> model-mirror
-cd model-mirror
+## 推荐：Docker Compose
+
+复制后端配置：
+
+```powershell
+Copy-Item server/.env.example server/.env
 ```
 
-安装前端依赖：
+至少配置一种模型访问方式。推荐先启动 newAPI，在
+`http://localhost:3000` 创建本地渠道和 ModelMirror 专用 Key，然后写入：
 
 ```bash
-cd client
-npm install
-cd ..
+LLM_GATEWAY_KEY=your-new-api-key
 ```
 
-安装后端依赖：
+Docker Compose 会把 `LLM_GATEWAY_URL` 指向容器内
+`http://new-api:3000/v1/chat/completions`。也可配置 OpenRouter 回退：
+
+```bash
+OPENROUTER_API_KEY=your-openrouter-key
+```
+
+STT、TTS 和视频能力依赖 OpenRouter。视频入口默认关闭，完成人工费用验收后
+在 `server/.env` 启用：
+
+```bash
+MULTIMODAL_VIDEO_ANALYSIS_ENABLED=true
+MULTIMODAL_VIDEO_GENERATION_ENABLED=true
+MULTIMODAL_CHAT_AUDIO_ENABLED=true
+MULTIMODAL_MICROPHONE_ENABLED=true
+MULTIMODAL_STREAMING_AUDIO_ENABLED=true
+MULTIMODAL_CHAT_VIDEO_ENABLED=true
+```
+
+Chat 开关只控制主聊天页的音视频附件、录音和原生语音输出；独立
+STT/TTS/视频工作区仍由各自能力开关控制。首次启用建议先测试上传转写、回答朗读、
+视频辅助理解，再测试可能产生较高费用的视频生成。
+
+启动：
+
+```bash
+docker compose -p modelmirror up -d --build
+```
+
+检查：
+
+```bash
+docker compose -p modelmirror ps
+curl http://localhost:8000/api/health
+curl http://localhost:5173/models
+```
+
+核心服务为 `client`、`server`、`new-api`、`browser` 和 `sandbox`。
+`omniroute` 与 `office-host` 使用可选 profile，不属于默认启动前提。
+
+## 可选：本地热更新
+
+安装后端：
 
 ```bash
 cd server
 python -m pip install -r requirements.txt
-cd ..
-```
-
-## 配置环境变量
-
-```bash
-copy server\.env.example server\.env
-copy client\.env.example client\.env
-```
-
-编辑 `server/.env`：
-
-```bash
-OPENROUTER_API_KEY=sk-or-v1-your-key
-ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-OPENROUTER_HTTP_REFERER=http://localhost:5173
-OPENROUTER_APP_TITLE=ModelMirror
-OPENROUTER_TEXT_FALLBACK_MODEL=deepseek/deepseek-chat
-OPENROUTER_VISION_FALLBACK_MODEL=qwen/qwen2.5-vl-72b-instruct
-DIFY_API_BASE_URL=http://localhost:5001/v1
-DIFY_API_KEY=app-your-dify-api-key
-```
-
-编辑 `client/.env`：
-
-```bash
-VITE_DIFY_WEB_URL=http://localhost:3000
-```
-
-> 没有 Dify API Key 时，模型浏览和聊天仍可运行；`/workflow` 和 `/rag` 会显示 iframe 壳，但 Dify 内部能力需要本地 Dify 服务。
-
-## 启动后端
-
-```bash
-cd server
 python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-验证：
+本地运行后端时，若使用 newAPI：
 
 ```bash
-curl http://localhost:8000/api/health
-curl http://localhost:8000/api/dify/health
+LLM_GATEWAY_URL=http://localhost:3000/v1/chat/completions
+LLM_GATEWAY_KEY=your-new-api-key
 ```
 
-期望：
-
-```json
-{"status":"ok"}
-```
-
-`/api/dify/health` 如果未配置 key 会返回：
-
-```json
-{"status":"missing_api_key","base_url":"http://localhost:5001/v1"}
-```
-
-## 启动前端
+安装并启动前端：
 
 ```bash
 cd client
-npm run dev -- --host 0.0.0.0 --port 5173
+npm.cmd install
+npm.cmd run dev -- --host 0.0.0.0 --port 5173
 ```
 
-访问：
-
-```text
-http://localhost:5173/models
-```
-
-## 可选：启动 Dify
-
-按照 Dify 官方 Docker Compose 文档启动社区版，确保：
-
-- Dify Web：`http://localhost:3000`
-- Dify API：`http://localhost:5001/v1`
-
-在 Dify 中创建工作空间和应用后，将 App API Key 写入 `server/.env` 的 `DIFY_API_KEY`。
-
-## 页面验证清单
+## 页面验收
 
 | 页面 | 地址 | 期望 |
 | --- | --- | --- |
-| 模型招聘会 | `http://localhost:5173/models` | 能看到模型卡片和筛选。 |
-| AI 人才市场 | `http://localhost:5173/agents` | 能看到智能体卡片。 |
-| 面试间 | `http://localhost:5173/chat/openai%2Fgpt-4o-mini` | 能输入消息，后端配置正确时可流式回复。 |
-| MCP 工具采购 | `http://localhost:5173/mcps` | 能看到 MCP 项目卡片。 |
-| Skill 技能货架 | `http://localhost:5173/skills` | 能看到 Skill 项目卡片。 |
-| Dify 工作流 | `http://localhost:5173/workflow` | 能看到 Dify iframe 工作流入口。 |
-| Dify 资料库 | `http://localhost:5173/rag` | 能看到 Dify iframe 知识库入口。 |
+| 模型招聘会 | `http://localhost:5173/models` | 目录、筛选和真实可用状态正常。 |
+| 普通聊天 | `http://localhost:5173/chat/openai%2Fgpt-4o-mini` | 正常流式返回。 |
+| 智能调度 | `http://localhost:5173/chat/auto` | 展示路由策略与回执。 |
+| AI 人才市场 | `http://localhost:5173/agents` | 可进入专家面试并退出专家模式。 |
+| Agent Studio | `http://localhost:5173/agents/studio` | 可查看或创建智能体草稿。 |
+| 工作流 | `http://localhost:5173/workflow` | classic React Flow 画布可用。 |
+| RAG | `http://localhost:5173/rag` | 本地知识库与流水线状态可用。 |
+| Data X | `http://localhost:5173/datax` | 项目入口可用。 |
+| 设置 | `http://localhost:5173/settings` | newAPI 控制台与脱敏状态卡可见。 |
 
-## 常用检查命令
+多模态验收需从模型招聘会选择对应 `operation`，不要把 STT、TTS 或视频生成
+模型当作普通文本模型调用。
+
+## 提交前检查
 
 ```bash
 cd client
-npm run build
+npm.cmd run build
 ```
 
 ```bash
-cd ..
-python -m py_compile server/main.py server/api/dify_proxy.py
+python -m py_compile server/main.py
+python -m pytest server/tests/ -q
 ```
 
-最后更新日期：2026-06-10  
-维护人：模镜团队
+```bash
+docker compose -p modelmirror up -d --build --force-recreate
+curl http://localhost:8000/api/health
+curl http://localhost:5173/models
+```

@@ -46,3 +46,8 @@ export function readAgentInterview(agentId: string | null) {
     return null;
   }
 }
+
+export function clearAgentInterview() {
+  window.sessionStorage.removeItem(AGENT_INTERVIEW_STORAGE_KEY);
+  window.sessionStorage.removeItem(AGENT_DEFAULT_MODEL_NOTICE_KEY);
+}

@@ -14,14 +14,22 @@ const capabilities: CapabilityItem[] = [
     icon: "🛠️",
     title: "工作流（经典自研）",
     description: "默认使用模镜本地的 React Flow 画布，支持节点拖拽、静态图校验和本地运行。",
-    badge: "稳定路径",
+    badge: "更多",
     href: "/workflow",
     actionLabel: "进入工作流",
   },
   {
+    icon: "元",
+    title: "元智能体 Beta",
+    description: "从自然语言目标生成 Agent 工作流草稿，并导入经典画布试运行。",
+    badge: "Beta",
+    href: "/agents/meta-agent",
+    actionLabel: "打开工作台",
+  },
+  {
     icon: "📚",
     title: "RAG 资料库",
-    description: "通过 Dify 知识库提供文档上传、切分、检索测试和 RAG 问答。",
+    description: "通过本地知识库提供文档上传、切分、检索测试和 RAG 问答。",
     badge: "稳定接入",
     href: "/rag",
     actionLabel: "打开资料库",
@@ -29,8 +37,8 @@ const capabilities: CapabilityItem[] = [
   {
     icon: "🔌",
     title: "系统设置",
-    description: "外部网关与 API Key 统一管理入口（newAPI 占位）。",
-    badge: "占位",
+    description: "管理模型服务连接、网关状态和本地运行配置。",
+    badge: "可配置",
     href: "/settings",
     actionLabel: "进入设置",
   },
@@ -109,11 +117,11 @@ export default function SystemCapabilityBar({
         <div>
           <p className="text-sm font-semibold text-white">模镜服务台</p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
-            工作流默认使用经典自研画布，资料库通过 Dify 稳定集成，其他能力按模块持续扩展。
+            工作流默认使用经典自研画布，RAG本地知识库已开放，其他能力按模块持续扩展。
           </p>
         </div>
         <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-2.5 py-1 text-xs font-semibold text-hire-100">
-          稳定路径
+          更多
         </span>
       </div>
 

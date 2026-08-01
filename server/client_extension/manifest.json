@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "ModelMirror Client Host",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "description": "Run explicitly approved ModelMirror client tools in the user-bound tab.",
+  "permissions": ["activeTab", "scripting", "storage", "alarms"],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "ModelMirror Client Host",
+    "default_popup": "popup.html"
+  }
+}

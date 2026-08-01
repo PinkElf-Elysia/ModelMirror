@@ -1,114 +1,96 @@
 # 新成员入职指引
 
-欢迎加入模镜。这个项目经历过一次工作流自研失败和大规模回退，因此我们非常重视版本控制、文档和渐进式交付。
+最后更新日期：2026-07-28
+维护人：模镜团队
 
-## 项目使命
+## 第一天先建立事实基线
 
-模镜要成为 AI 时代的一站式资源浏览器：帮助用户发现模型、智能体、MCP、Skill、提示词，并把这些资源组合成可运行的聊天、工作流和知识库应用。
+1. 阅读 [REPOSITORY_FACTS.md](./REPOSITORY_FACTS.md)，区分当前事实、冻结基线和历史方案。
+2. 按 [QUICK_START.md](./QUICK_START.md) 启动项目。
+3. 打开 `/models`、`/chat/auto`、`/agents`、`/workflow`、`/rag` 和 `/studio`。
+4. 阅读 [ARCHITECTURE.md](./ARCHITECTURE.md) 与
+   [HARNESS_ENGINEERING.md](./HARNESS_ENGINEERING.md)。
+5. 根据任务阅读模块文档；不要从历史复盘直接推断当前实现。
 
-## 第一天任务清单
+当前 `/workflow` 是 classic 自研画布，`/rag` 是本地知识系统。Dify 文档已归档，
+不是本地环境前提。
 
-- [ ] 获取 GitHub 私密仓库访问权限。
-- [ ] 克隆仓库并按 [QUICK_START.md](./QUICK_START.md) 启动项目。
-- [ ] 打开 `/models`、`/agents`、`/chat/:modelId`、`/workflow`、`/rag` 了解产品。
-- [ ] 阅读 [ARCHITECTURE.md](./ARCHITECTURE.md)。
-- [ ] 阅读 [HARNESS_ENGINEERING.md](./HARNESS_ENGINEERING.md)，理解开发护栏和回退要求。
-- [ ] 阅读与你角色相关的文档：
-  - 前端：[FRONTEND.md](./FRONTEND.md)
-  - 后端：[BACKEND.md](./BACKEND.md)
-  - 设计：[THEME.md](./THEME.md)
-- [ ] 阅读 [postmortem-workflow-rewrite.md](./postmortem-workflow-rewrite.md)，理解为什么禁止无设计的大重构。
-- [ ] 加入团队通讯工具：待补充。
-
-## 开发环境配置
+## 开发环境
 
 必备：
 
-- Node.js 18+
-- Python 3.11+
-- Git
+- Node.js 22。
+- Python 3.11+。
+- Git。
 
-可选：
+推荐：
 
-- Docker / Docker Compose
-- Dify 社区版本地服务
+- Docker Desktop / Docker Compose。
+- 独立的 newAPI 或 OpenRouter 测试 Key。
 
-验证命令：
+验证：
 
 ```bash
 cd client
-npm run build
+npm.cmd run build
 ```
 
 ```bash
-cd ..
-python -m py_compile server/main.py server/api/dify_proxy.py
+python -m py_compile server/main.py
+python -m pytest server/tests/ -q
 ```
 
-## 分支与提交规范
+## 模块导航
 
-分支命名：
-
-```text
-feature/<short-description>
-fix/<short-description>
-docs/<short-description>
-chore/<short-description>
-```
-
-提交信息：
-
-```text
-type: 简短中文说明
-```
-
-示例：
-
-```text
-docs: 添加后端 API 文档
-fix: 修复聊天流式错误提示
-feature: 添加 MCP 项目卡片
-```
-
-## PR 流程
-
-1. 从最新 `main` 创建分支。
-2. 小步提交，避免一个 PR 混入多个主题。
-3. 提交前运行构建和必要检查。
-4. PR 描述必须包含：
-   - 改了什么
-   - 为什么改
-   - 如何验证
-   - 风险和回滚方式
-5. 至少一名成员 Review 后合并。
-
-## 测试规范
-
-当前测试体系仍在建设中，最低要求：
-
-- 前端：`npm run build`
-- 后端：`python -m py_compile server/main.py server/api/dify_proxy.py`
-- 关键接口：`/api/health`、`/api/dify/health`
-- 核心页面：`/models`、`/agents`、`/workflow`、`/rag`
-
-新增后端执行器、解析器、路由匹配等核心逻辑时，必须补单元测试。
-
-## 工程红线
-
-- 不允许把 API Key 写入前端或提交到 Git。
-- 不允许未验证实验功能替换 `/workflow` 和 `/rag` 主入口。
-- 不允许无设计文档的大规模重构。
-- 不允许构建失败时交付。
-- 不允许通过不安全批量替换处理中文源码。
-
-## 重要联系人
-
-| 角色 | 姓名 | 联系方式 |
+| 领域 | 代码入口 | 文档 |
 | --- | --- | --- |
-| 产品负责人 | 待补充 | 待补充 |
-| 前端负责人 | 待补充 | 待补充 |
-| 后端负责人 | 待补充 | 待补充 |
-| 运维负责人 | 待补充 | 待补充 |
+| 前端与路由 | `client/src/App.tsx`、`client/src/pages/` | [FRONTEND.md](./FRONTEND.md) |
+| 后端装配 | `server/main.py`、`server/api/` | [BACKEND.md](./BACKEND.md) |
+| 智能调度 | `server/model_router/`、`server/context_engine/` | [MODEL_ROUTER_NATIVE.md](./MODEL_ROUTER_NATIVE.md) |
+| 多模态 | `server/multimodal/`、自适应工作区组件 | [MULTIMODAL_FORMAT_AUDIT.md](./MULTIMODAL_FORMAT_AUDIT.md) |
+| 工作流 | `client/src/components/workflow/`、`server/workflow_native/` | [workflow-native-design.md](./workflow-native-design.md) |
+| RAG | `server/rag/`、`client/src/pages/Knowledge*` | [RAG_INTEGRATION.md](./RAG_INTEGRATION.md) |
+| Agent | `server/xperts/`、`server/xpert_runtime/` | [XPERT_FREEZE.md](./XPERT_FREEZE.md) |
+| 工具与扩展 | `server/mcp/`、`server/toolsets/`、`server/skills/` | MCP、Toolset、Skill 文档 |
 
-最后更新日期：2026-06-10  
-维护人：模镜团队
+`Xpert*` 是历史内部契约名。用户界面使用“智能体”“Agent Studio”“Agent App”；
+不要仅为改名迁移内部 API、Store 或类型。
+
+## Harness 工作方式
+
+每个任务都应包含：
+
+- Inspect：先读取真实路由、接口和测试。
+- Plan：写明范围、验收和回退。
+- Implement：一次只解决一个可验证问题。
+- Verify：运行最小必要检查，高风险主路径运行全量回归。
+- Document：同步当前状态；历史决策使用归档标识。
+- Commit：人工验收后再提交。
+
+禁止：
+
+- 提交 `.env`、密钥、日志或持久化业务数据。
+- 用实验路径替换 `/workflow`、`/rag` 或 `/api/chat` 而没有门禁。
+- 将“计划”“占位”写成当前可用能力。
+- 用旧 Dify 或 Xpert 对齐文档覆盖当前仓库事实。
+- 使用不安全批量替换写入中文源码。
+
+## PR 最低信息
+
+- 改动目标与非目标。
+- 修改文件和公共契约。
+- 自动验证与人工验收。
+- 已知风险、功能开关和回退方法。
+- 是否涉及外部费用、隐私、凭据或持久化迁移。
+
+分支默认使用 `codex/<short-description>`；提交信息遵循
+`type: 简短中文说明`。
+
+## 文档状态
+
+- “当前”：可作为实现和运维依据。
+- “冻结”：描述已完成基线，只接受兼容维护。
+- “历史/归档”：保留决策背景，不可作为当前部署或入口依据。
+
+遇到冲突时，优先级为：真实代码与测试 → `REPOSITORY_FACTS.md` →
+当前模块文档 → 冻结文档 → 历史文档。

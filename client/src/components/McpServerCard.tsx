@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { McpProject } from "../data/mcpProjects";
 
 type ConnectionState = "idle" | "connecting" | "connected" | "error";
+type InstallState = "idle" | "checking" | "installing" | "installed" | "error";
 
 interface JsonSchemaProperty {
   type?: string | string[];
@@ -32,6 +33,10 @@ interface ToolCallResult {
   content: Array<Record<string, unknown>>;
   is_error: boolean;
   raw: Record<string, unknown>;
+}
+
+interface InstalledMcpRecord {
+  project_id: string;
 }
 
 interface McpServerCardProps {
@@ -116,12 +121,44 @@ export default function McpServerCard({
   const [toolResults, setToolResults] = useState<Record<string, ToolCallResult>>({});
   const [runningTool, setRunningTool] = useState<string | null>(null);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
+  const [installState, setInstallState] = useState<InstallState>("checking");
+  const [installError, setInstallError] = useState("");
 
   const canConnect = Boolean(project.command?.length);
   const commandPreview = useMemo(
     () => project.command?.join(" ") ?? "该项目暂未提供本地 stdio 启动命令",
     [project.command],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInstalledState() {
+      setInstallState("checking");
+      try {
+        const response = await fetch("/api/mcp/installed");
+        if (!response.ok) throw new Error(await readError(response));
+        const data = (await response.json()) as { installed: InstalledMcpRecord[] };
+        const installed = data.installed.some(
+          (record) => record.project_id === project.id,
+        );
+        if (!cancelled) {
+          setInstallState(installed ? "installed" : "idle");
+          setInstallError("");
+        }
+      } catch (exc) {
+        if (!cancelled) {
+          setInstallState("idle");
+          setInstallError(exc instanceof Error ? exc.message : "");
+        }
+      }
+    }
+
+    void loadInstalledState();
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
 
   useEffect(() => {
     if (!restoredSession || restoredSession.session_id === sessionId) return;
@@ -183,6 +220,28 @@ export default function McpServerCard({
     setError("");
     setState("idle");
     onConnectionChange?.();
+  }
+
+  async function installProject() {
+    if (installState === "installing" || installState === "installed") return;
+    setInstallState("installing");
+    setInstallError("");
+    try {
+      const response = await fetch("/api/mcp/install", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: project.id,
+          install_command: project.installCommand,
+          server_command: project.command ?? null,
+        }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      setInstallState("installed");
+    } catch (exc) {
+      setInstallState("error");
+      setInstallError(exc instanceof Error ? exc.message : "MCP 安装失败");
+    }
   }
 
   function updateField(toolName: string, key: string, value: string) {
@@ -375,11 +434,29 @@ export default function McpServerCard({
           </button>
         ) : null}
         <button
-          className="rounded-full border border-white/10 bg-white/[0.055] px-4 py-2 text-sm font-semibold text-slate-100 transition duration-200 hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-brand-100"
+          className={`rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
+            installState === "installed"
+              ? "border-emerald-300/35 bg-emerald-300/12 text-emerald-100"
+              : "border-white/10 bg-white/[0.055] text-slate-100 hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-brand-100"
+          }`}
+          disabled={installState === "checking" || installState === "installing" || installState === "installed"}
+          onClick={() => void installProject()}
+          type="button"
+        >
+          {installState === "checking"
+            ? "检查中..."
+            : installState === "installing"
+              ? "安装中..."
+              : installState === "installed"
+                ? "已安装"
+                : "⚡ 安装"}
+        </button>
+        <button
+          className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-300 transition duration-200 hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
           onClick={() => setIsInstallOpen(true)}
           type="button"
         >
-          ⚡ 安装
+          命令
         </button>
       </div>
 
@@ -398,6 +475,12 @@ export default function McpServerCard({
           ) : null}
         </div>
       </div>
+
+      {installError ? (
+        <div className="relative mt-4 rounded-lg border border-amber-300/25 bg-amber-300/10 p-3 text-sm leading-6 text-amber-50">
+          MCP 安装提示：{installError}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="relative mt-4 rounded-lg border border-rose-300/25 bg-rose-300/10 p-3 text-sm leading-6 text-rose-100">

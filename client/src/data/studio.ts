@@ -40,12 +40,12 @@ export function createInitialStudioState(): StudioState {
         tags: ["工作流", "稳定", "本地"],
       },
       {
-        id: "dify-datasets",
-        name: "Dify 资料库",
+        id: "local-rag-datasets",
+        name: "本地 RAG 知识库",
         kind: "dataset",
         icon: "📚",
         status: "stable",
-        description: "通过 Dify 知识库提供文档上传、切分、检索测试和 RAG 问答。",
+        description: "通过本地知识库提供文档上传、切分、检索测试和 RAG 问答。",
         href: "/rag",
         tags: ["RAG", "知识库"],
       },
@@ -76,7 +76,7 @@ export function createInitialStudioState(): StudioState {
       {
         id: "activity-workflow-refactor",
         title: "工作流已切换为经典自研画布为默认路径",
-        detail: "删除了 Dify iframe 集成作为 /workflow 主入口；外部网关与 API Key 管理迁移到 /settings。",
+        detail: "工作流默认使用经典自研画布；外部网关与 API Key 管理迁移到 /settings。",
         at: now,
       },
       {

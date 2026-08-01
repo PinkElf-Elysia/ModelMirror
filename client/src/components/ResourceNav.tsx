@@ -52,7 +52,7 @@ export default function ResourceNav({ activeResource }: ResourceNavProps) {
 
       <nav
         aria-label="资源类型"
-        className="fixed bottom-4 left-1/2 z-50 grid w-[min(18rem,calc(100vw-1rem))] -translate-x-1/2 grid-cols-5 items-center overflow-hidden rounded-full border border-white/10 bg-ink-950/86 px-1.5 py-2 shadow-dock backdrop-blur-2xl lg:hidden"
+        className="fixed bottom-4 left-1/2 z-50 grid w-[min(21rem,calc(100vw-1rem))] -translate-x-1/2 grid-cols-6 items-center overflow-hidden rounded-full border border-white/10 bg-ink-950/86 px-1.5 py-2 shadow-dock backdrop-blur-2xl lg:hidden"
       >
         {resourceNavItems.map((item) => {
           const isActive = activeResource === item.key;

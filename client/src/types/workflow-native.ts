@@ -10,10 +10,12 @@ export type NativeNodeKind =
   | "variable_aggregator"
   | "parameter_extractor"
   | "knowledge_retrieval"
+  | "knowledge_citation"
   | "document_extractor"
   | "human_intervention"
   | "question_classifier"
   | "agent"
+  | "workflow_agent"
   | "mcp_tool"
   | "time_tool"
   | "http_request"
@@ -31,6 +33,7 @@ export type DifyConceptNodeKind =
   | "variable-aggregator"
   | "parameter-extractor"
   | "knowledge-retrieval"
+  | "knowledge-citation"
   | "document-extractor"
   | "human-in-the-loop"
   | "question-classifier"
@@ -93,6 +96,11 @@ export const difyNodeMappings: DifyNodeMapping[] = [
     native: "knowledge_retrieval",
     dify: "knowledge-retrieval",
     note: "Native retrieval queries the local RAG service when a knowledge base exists.",
+  },
+  {
+    native: "knowledge_citation",
+    dify: "knowledge-citation",
+    note: "Native citation maps local RAG retrieval results into CitationAnchor JSON.",
   },
   {
     native: "document_extractor",

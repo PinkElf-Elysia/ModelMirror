@@ -1,0 +1,34 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #081015;
+  color: #f7fafc;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; background: #081015; }
+main { display: grid; gap: 14px; padding: 16px; }
+header { display: flex; align-items: center; gap: 12px; padding: 4px 0 8px; }
+.brand { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 8px; background: #8be4cf; color: #07120f; font-weight: 800; }
+h1, h2, p { margin: 0; }
+h1 { font-size: 16px; }
+h2 { font-size: 13px; }
+header p, .panel p, .notice { color: #91a1ab; font-size: 12px; line-height: 1.55; }
+.status-grid { display: grid; grid-template-columns: 1fr 1fr; border-block: 1px solid #24323a; }
+.status-grid div { display: grid; gap: 4px; padding: 10px 4px; }
+.status-grid span { color: #7f919c; font-size: 10px; text-transform: uppercase; }
+.status-grid strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.panel { display: grid; gap: 10px; padding: 13px; border: 1px solid #263740; border-radius: 8px; background: #0d181e; }
+label { color: #c9d5da; font-size: 11px; font-weight: 650; }
+input { width: 100%; height: 40px; border: 1px solid #31454f; border-radius: 6px; background: #071116; color: white; padding: 0 10px; font: inherit; letter-spacing: 0; outline: none; }
+input:focus { border-color: #8be4cf; box-shadow: 0 0 0 3px rgba(139, 228, 207, .12); }
+button { min-height: 38px; border: 0; border-radius: 6px; background: #8be4cf; color: #07120f; font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
+button.secondary { border: 1px solid #31454f; background: transparent; color: #d5e1e5; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; }
+.section-heading span { min-width: 24px; border-radius: 999px; background: #1d3038; padding: 3px 7px; color: #9edecf; font-size: 10px; text-align: center; }
+ol { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+li { display: grid; gap: 3px; padding-top: 7px; border-top: 1px solid #213139; font-size: 11px; }
+li strong { color: #dbe5e9; }
+li span { color: #78909a; }
+.notice { padding: 2px 3px 16px; }

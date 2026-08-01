@@ -8,7 +8,7 @@ import {
 } from "../theme/resources";
 
 interface ComingSoonPageProps {
-  resource: Exclude<ResourceKey, "models" | "agents">;
+  resource: Exclude<ResourceKey, "models" | "agents" | "runtime">;
 }
 
 export default function ComingSoonPage({ resource }: ComingSoonPageProps) {

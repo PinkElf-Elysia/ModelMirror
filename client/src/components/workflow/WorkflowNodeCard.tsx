@@ -65,6 +65,13 @@ const nodeMeta = {
     bg: "bg-teal-300/10",
     text: "text-teal-100",
   },
+  knowledge_citation: {
+    icon: "🔖",
+    label: "引用锚点",
+    border: "border-teal-200/40",
+    bg: "bg-teal-200/10",
+    text: "text-teal-100",
+  },
   document_extractor: {
     icon: "📄",
     label: "文档工位",
@@ -92,6 +99,62 @@ const nodeMeta = {
     border: "border-violet-400/40",
     bg: "bg-violet-400/10",
     text: "text-violet-100",
+  },
+  workflow_agent: {
+    icon: "🧭",
+    label: "工作流智能体",
+    border: "border-cyan-300/40",
+    bg: "bg-cyan-300/10",
+    text: "text-cyan-100",
+  },
+  external_xpert: {
+    icon: "XP",
+    label: "外部智能体",
+    border: "border-blue-300/40",
+    bg: "bg-blue-300/10",
+    text: "text-blue-100",
+  },
+  knowledge_base: {
+    icon: "KB",
+    label: "知识库资源",
+    border: "border-teal-300/40",
+    bg: "bg-teal-300/10",
+    text: "text-teal-100",
+  },
+  toolset_resource: {
+    icon: "TS",
+    label: "Toolset 资源",
+    border: "border-amber-300/40",
+    bg: "bg-amber-300/10",
+    text: "text-amber-100",
+  },
+  plugin_resource: {
+    icon: "PL",
+    label: "Plugin 资源",
+    border: "border-violet-300/40",
+    bg: "bg-violet-300/10",
+    text: "text-violet-100",
+  },
+  agent_task: {
+    icon: "▣",
+    label: "Agent Task",
+    border: "border-purple-300/40",
+    bg: "bg-purple-300/10",
+    text: "text-purple-100",
+  },
+  agent_handoff: {
+    icon: "⇄",
+    label: "Handoff",
+    border: "border-fuchsia-300/40",
+    bg: "bg-fuchsia-300/10",
+    text: "text-fuchsia-100",
+  },
+  handoff_router: {
+    icon: "↪",
+    label: "Handoff Router",
+    border: "border-pink-300/40",
+    bg: "bg-pink-300/10",
+    text: "text-pink-100",
   },
   mcp_tool: {
     icon: "🔧",
@@ -128,6 +191,13 @@ const nodeMeta = {
     bg: "bg-violet-300/10",
     text: "text-violet-100",
   },
+  runtime_middleware: {
+    icon: "▣",
+    label: "中间件",
+    border: "border-indigo-300/40",
+    bg: "bg-indigo-300/10",
+    text: "text-indigo-100",
+  },
   output: {
     icon: "📤",
     label: "交付工位",
@@ -158,6 +228,9 @@ function outputName(data: WorkflowNode["data"]) {
   if (data.kind === "knowledge_retrieval") {
     return `${data.queryVariable ?? "query"} top ${data.top_k ?? "3"} -> ${data.outputVariable ?? "rag_context"}`;
   }
+  if (data.kind === "knowledge_citation") {
+    return `${data.queryVariable ?? "query"} top ${data.top_k ?? "4"} -> ${data.outputVariable ?? "citation_anchors_json"}`;
+  }
   if (data.kind === "document_extractor") {
     return `${data.sourcePathVariable ?? "path"} -> ${data.outputVariable ?? "document_text"}`;
   }
@@ -169,6 +242,44 @@ function outputName(data: WorkflowNode["data"]) {
   }
   if (data.kind === "agent") {
     return `🤖 ${data.agentMode ?? "tool_first"} → ${data.outputVariable ?? "agent_output"}`;
+  }
+  if (data.kind === "workflow_agent") {
+    return `${data.agentName ?? "workflow-agent"} · ${data.toolMode ?? "none"} → ${data.outputVariable ?? "agent_output"}`;
+  }
+  if (data.kind === "external_xpert") {
+    const version =
+      data.versionPolicy === "pinned"
+        ? `v${data.pinnedVersion ?? "?"}`
+        : "current";
+    return `${data.toolName ?? "external_xpert"} -> ${version}`;
+  }
+  if (data.kind === "knowledge_base") {
+    return `${data.knowledgeBaseId || "选择知识库"} · top ${data.topK ?? "5"}`;
+  }
+  if (data.kind === "toolset_resource") {
+    const version =
+      data.versionPolicy === "pinned"
+        ? `v${data.pinnedVersion ?? "?"}`
+        : "current";
+    return `${data.toolsetId || "选择 Toolset"} -> ${version}`;
+  }
+  if (data.kind === "plugin_resource") {
+    const version =
+      data.versionPolicy === "pinned"
+        ? `v${data.pinnedVersion ?? "?"}`
+        : "current";
+    return `${data.pluginId || "选择 Plugin"} -> ${version}`;
+  }
+  if (data.kind === "agent_task") {
+    return `${data.assignedAgent ?? "workflow-planner"} → ${data.outputVariable ?? "agent_task_id"}`;
+  }
+  if (data.kind === "agent_handoff") {
+    const mode = data.executionMode === "xpert_auto" ? "auto" : "manual";
+    return `${mode} · ${data.taskIdVariable ?? "agent_task_id"} -> ${data.targetAgent ?? "review-agent"}`;
+  }
+  if (data.kind === "handoff_router") {
+    const mode = data.executionMode === "xpert_auto" ? "auto" : "manual";
+    return `${mode} · ${data.sourceVariable ?? "agent_output"} -> ${data.targetAgent ?? "review-agent"}`;
   }
   if (data.kind === "mcp_tool") {
     return `🔧 ${data.toolName ?? "未选择"} → ${data.outputVariable ?? "mcp_output"}`;
@@ -185,6 +296,9 @@ function outputName(data: WorkflowNode["data"]) {
   if (data.kind === "iteration") {
     return `${data.inputVariable ?? "items"} as ${data.iterationVariable ?? "item"} -> ${data.outputVariable ?? "iteration_output"}`;
   }
+  if (data.kind === "runtime_middleware") {
+    return `${data.runtimeMiddlewareId ?? "middleware"} → ${data.runtimeMiddlewareKind ?? "runtime"}`;
+  }
   if (data.kind === "output") return data.outputVariable ?? "final_output";
   return data.outputVariable ?? "llm_output";
 }
@@ -200,7 +314,62 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           : meta.border
       }`}
     >
-      {data.kind !== "input" ? (
+      {data.kind === "workflow_agent" ? (
+        <>
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-slate-200"
+            position={Position.Left}
+            style={{ top: "24%" }}
+            type="target"
+          />
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-indigo-300"
+            id="middleware"
+            position={Position.Left}
+            style={{ top: "94%" }}
+            title="绑定 Agent 中间件"
+            type="target"
+          />
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-blue-300"
+            id="expert"
+            position={Position.Left}
+            style={{ top: "38%" }}
+            title="绑定外部智能体"
+            type="target"
+          />
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-teal-300"
+            id="knowledge"
+            position={Position.Left}
+            style={{ top: "52%" }}
+            title="绑定知识库"
+            type="target"
+          />
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-amber-300"
+            id="toolset"
+            position={Position.Left}
+            style={{ top: "66%" }}
+            title="绑定 Toolset"
+            type="target"
+          />
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-violet-300"
+            id="plugin"
+            position={Position.Left}
+            style={{ top: "80%" }}
+            title="绑定 Plugin"
+            type="target"
+          />
+        </>
+      ) : ![
+          "input",
+          "external_xpert",
+          "knowledge_base",
+          "toolset_resource",
+          "plugin_resource",
+        ].includes(data.kind) ? (
         <Handle
           className="!h-3 !w-3 !border-2 !border-surface-900 !bg-slate-200"
           position={Position.Left}
@@ -259,6 +428,56 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
             否
           </div>
         </>
+      ) : data.kind === "runtime_middleware" ? (
+        <>
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-hire-300"
+            position={Position.Right}
+            style={{ top: "38%" }}
+            title="控制流输出"
+            type="source"
+          />
+          <Handle
+            className="!h-3 !w-3 !border-2 !border-surface-900 !bg-indigo-300"
+            id="middleware-binding"
+            position={Position.Right}
+            style={{ top: "72%" }}
+            title="绑定到 workflow_agent"
+            type="source"
+          />
+        </>
+      ) : data.kind === "external_xpert" ? (
+        <Handle
+          className="!h-3 !w-3 !border-2 !border-surface-900 !bg-blue-300"
+          id="expert-binding"
+          position={Position.Right}
+          title="绑定到 workflow_agent 的 expert 入口"
+          type="source"
+        />
+      ) : data.kind === "knowledge_base" ? (
+        <Handle
+          className="!h-3 !w-3 !border-2 !border-surface-900 !bg-teal-300"
+          id="knowledge-binding"
+          position={Position.Right}
+          title="绑定到 workflow_agent 的 knowledge 入口"
+          type="source"
+        />
+      ) : data.kind === "toolset_resource" ? (
+        <Handle
+          className="!h-3 !w-3 !border-2 !border-surface-900 !bg-amber-300"
+          id="toolset-binding"
+          position={Position.Right}
+          title="绑定到 workflow_agent 的 toolset 入口"
+          type="source"
+        />
+      ) : data.kind === "plugin_resource" ? (
+        <Handle
+          className="!h-3 !w-3 !border-2 !border-surface-900 !bg-violet-300"
+          id="plugin-binding"
+          position={Position.Right}
+          title="绑定到 workflow_agent 的 plugin 入口"
+          type="source"
+        />
       ) : data.kind !== "output" ? (
         <Handle
           className="!h-3 !w-3 !border-2 !border-surface-900 !bg-hire-300"

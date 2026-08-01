@@ -1,0 +1,527 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+import pytest_asyncio
+
+import server.main as main_module
+from server.main import app
+from server.xperts import (
+    XpertConflictError,
+    XpertContextStore,
+    XpertStore,
+    XpertValidationError,
+    set_xpert_context_store_for_tests,
+    set_xpert_store_for_tests,
+    validate_xpert_definition,
+)
+
+
+@pytest.fixture(autouse=True)
+def reset_xpert_rate_limit_window():
+    main_module.request_windows.clear()
+    yield
+    main_module.request_windows.clear()
+
+
+@pytest.fixture
+def xpert_store(tmp_path: Path):
+    store = XpertStore(tmp_path / "xperts")
+    set_xpert_store_for_tests(store)
+    yield store
+    set_xpert_store_for_tests(None)
+
+
+@pytest.fixture
+def xpert_context_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    store = XpertContextStore(tmp_path / "runtime")
+    set_xpert_context_store_for_tests(store)
+    monkeypatch.setattr(main_module, "xpert_context_store", store)
+    yield store
+    set_xpert_context_store_for_tests(None)
+
+
+@pytest_asyncio.fixture
+async def client(xpert_store: XpertStore):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as async_client:
+        yield async_client
+
+
+def test_xpert_store_persists_unique_slugs_and_immutable_versions(
+    xpert_store: XpertStore,
+) -> None:
+    created = xpert_store.create_xpert(
+        name="Research Xpert",
+        slug="research-xpert",
+        tags=["research", "workflow"],
+    )
+    assert validate_xpert_definition(created).valid is True
+    assert (
+        _workflow_agent_data(created.draft.workflow)["modelId"]
+        == "deepseek/deepseek-v4-flash-0731"
+    )
+
+    reloaded = XpertStore(xpert_store.storage_dir).get_xpert(created.id)
+    assert reloaded.slug == "research-xpert"
+    assert reloaded.tags == ["research", "workflow"]
+
+    with pytest.raises(XpertValidationError):
+        xpert_store.create_xpert(name="Duplicate", slug="research-xpert")
+
+    first_draft = created.draft.model_copy(deep=True)
+    first_draft.features.opening.enabled = True
+    first_draft.features.opening.message = "Welcome to the published assistant."
+    first_draft.features.opening.questions = ["Start the research"]
+    created = xpert_store.update_xpert(
+        created.id,
+        {"draft": first_draft.model_dump(mode="json")},
+    )
+    version_one = xpert_store.publish_xpert(
+        created.id,
+        release_notes="First stable release",
+        expected_revision=created.draft_revision,
+    )
+    assert version_one.agent_config is not None
+    assert version_one.agent_config.max_concurrency == 4
+    assert version_one.agent_config.recursion_limit == 1000
+    assert version_one.features is not None
+    assert version_one.features.opening.questions == ["Start the research"]
+    original_role_prompt = _workflow_agent_data(version_one.workflow)["rolePrompt"]
+
+    next_draft = created.draft.model_copy(deep=True)
+    _workflow_agent_data(next_draft.workflow)["rolePrompt"] = "A changed draft prompt."
+    next_draft.agent_config.max_concurrency = 7
+    next_draft.agent_config.recursion_limit = 240
+    next_draft.features.opening.message = "A changed draft welcome."
+    next_draft.features.opening.questions = ["Use the changed draft"]
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": next_draft.model_dump(mode="json")},
+    )
+    version_two = xpert_store.publish_xpert(
+        created.id,
+        release_notes="Second release",
+        expected_revision=updated.draft_revision,
+    )
+
+    assert version_one.version == 1
+    assert version_two.version == 2
+    assert xpert_store.get_version(created.id, 1).workflow == version_one.workflow
+    assert _workflow_agent_data(version_one.workflow)["rolePrompt"] == original_role_prompt
+    assert _workflow_agent_data(version_two.workflow)["rolePrompt"] == "A changed draft prompt."
+    assert version_two.agent_config is not None
+    assert version_two.agent_config.max_concurrency == 7
+    assert version_two.agent_config.recursion_limit == 240
+    assert version_one.agent_config.max_concurrency == 4
+    assert version_one.features.opening.message == "Welcome to the published assistant."
+    assert version_two.features is not None
+    assert version_two.features.opening.message == "A changed draft welcome."
+
+
+def test_xpert_publish_revision_conflict_is_rejected(xpert_store: XpertStore) -> None:
+    created = xpert_store.create_xpert(name="Concurrent Xpert")
+    changed_draft = created.draft.model_copy(deep=True)
+    _workflow_agent_data(changed_draft.workflow)["rolePrompt"] = "Changed during preflight."
+    xpert_store.update_xpert(
+        created.id,
+        {"draft": changed_draft.model_dump(mode="json")},
+    )
+
+    with pytest.raises(XpertConflictError):
+        xpert_store.publish_xpert(
+            created.id,
+            expected_revision=created.draft_revision,
+        )
+
+
+@pytest.mark.asyncio
+async def test_xpert_api_create_validate_publish_and_list_versions(
+    client: httpx.AsyncClient,
+) -> None:
+    create_response = await client.post(
+        "/api/xperts",
+        json={
+            "name": "Support Planner",
+            "slug": "support-planner",
+            "description": "Plans customer support work.",
+            "tags": ["support"],
+            "starters": ["Plan this escalation"],
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+    xpert = create_response.json()
+
+    validation_response = await client.post(f"/api/xperts/{xpert['id']}/validate")
+    assert validation_response.status_code == 200
+    assert validation_response.json()["valid"] is True
+
+    publish_response = await client.post(
+        f"/api/xperts/{xpert['id']}/publish",
+        json={"release_notes": "Ready for team use"},
+    )
+    assert publish_response.status_code == 200, publish_response.text
+    assert publish_response.json()["version"] == 1
+
+    list_response = await client.get("/api/xperts?status=published&search=support")
+    assert list_response.status_code == 200
+    assert list_response.json()["items"][0]["id"] == xpert["id"]
+
+    versions_response = await client.get(f"/api/xperts/{xpert['id']}/versions")
+    assert versions_response.status_code == 200
+    assert [item["version"] for item in versions_response.json()] == [1]
+
+
+@pytest.mark.asyncio
+async def test_xpert_publish_preflight_rejects_invalid_chat_contract(
+    client: httpx.AsyncClient,
+) -> None:
+    create_response = await client.post("/api/xperts", json={"name": "Invalid Xpert"})
+    xpert = create_response.json()
+    draft = xpert["draft"]
+    _workflow_agent_data_dict(draft["workflow"])["modelId"] = ""
+    _workflow_agent_data_dict(draft["workflow"])["taskInput"] = ""
+    draft["workflow"]["nodes"].append(
+        {
+            "id": "human-1",
+            "type": "human_intervention",
+            "data": {
+                "kind": "human_intervention",
+                "prompt": "Approve this response",
+                "outputVariable": "approval",
+            },
+        }
+    )
+
+    update_response = await client.patch(
+        f"/api/xperts/{xpert['id']}",
+        json={"draft": draft},
+    )
+    assert update_response.status_code == 200, update_response.text
+
+    publish_response = await client.post(
+        f"/api/xperts/{xpert['id']}/publish",
+        json={},
+    )
+    assert publish_response.status_code == 422
+    issues = publish_response.json()["detail"]["issues"]
+    codes = {item["code"] for item in issues}
+    assert "xpert_workflow_agent_missing_modelId" in codes
+    assert "xpert_workflow_agent_missing_taskInput" in codes
+    assert "xpert_human_intervention_not_supported" not in codes
+
+    versions_response = await client.get(f"/api/xperts/{xpert['id']}/versions")
+    assert versions_response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_published_xpert_runs_immutable_snapshot_and_registers_trace(
+    client: httpx.AsyncClient,
+    xpert_store: XpertStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str | None] = {}
+
+    async def fake_stream_workflow_llm_text(
+        model_id: str,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+    ):
+        captured["model_id"] = model_id
+        captured["prompt"] = prompt
+        captured["system_prompt"] = system_prompt
+        yield "published "
+        yield "answer"
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "stream_workflow_llm_text",
+        fake_stream_workflow_llm_text,
+    )
+
+    created = xpert_store.create_xpert(name="Immutable Runtime")
+    version_one = xpert_store.publish_xpert(
+        created.id,
+        expected_revision=created.draft_revision,
+    )
+    old_prompt = str(_workflow_agent_data(version_one.workflow)["rolePrompt"])
+
+    changed_draft = created.draft.model_copy(deep=True)
+    _workflow_agent_data(changed_draft.workflow)["rolePrompt"] = "UNPUBLISHED DRAFT"
+    xpert_store.update_xpert(
+        created.id,
+        {"draft": changed_draft.model_dump(mode="json")},
+    )
+
+    run_response = await client.post(
+        f"/api/xperts/{created.id}/run",
+        json={
+            "message": "Create a launch plan",
+            "messages": [
+                {"role": "user", "content": "We discussed a staged rollout."},
+                {"role": "assistant", "content": "I will preserve that context."},
+            ],
+            "version": 1,
+        },
+    )
+    assert run_response.status_code == 200, run_response.text
+    events = _parse_sse_events(run_response.text)
+    meta = next(item for item in events if item.get("event") == "workflow_meta")
+    assert meta["xpert_id"] == created.id
+    assert meta["xpert_version"] == 1
+
+    completed = next(item for item in events if item.get("event") == "workflow_end")
+    assert completed["final_output"] == "published answer"
+    assert captured["system_prompt"] == old_prompt
+    assert "Create a launch plan" in str(captured["prompt"])
+    assert "We discussed a staged rollout." in str(captured["prompt"])
+
+    run_response = await client.get(f"/api/runtime/runs/{meta['run_id']}")
+    assert run_response.status_code == 200
+    runtime_run = run_response.json()
+    assert runtime_run["run_type"] == "xpert"
+    assert runtime_run["status"] == "completed"
+    assert runtime_run["metadata"]["xpert_version"] == 1
+    assert runtime_run["metadata"]["xpert_draft_revision"] == 1
+
+    checkpoint_response = await client.get(
+        f"/api/runtime/runs/{meta['run_id']}/checkpoints"
+    )
+    checkpoint_types = {item["event_type"] for item in checkpoint_response.json()}
+    assert {"xpert.started", "xpert.completed"}.issubset(checkpoint_types)
+
+
+@pytest.mark.asyncio
+async def test_published_xpert_generates_and_persists_conversation_metadata(
+    client: httpx.AsyncClient,
+    xpert_store: XpertStore,
+    xpert_context_store: XpertContextStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_stream(
+        model_id: str,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+    ):
+        yield "A concise answer."
+
+    async def fake_enrichment(*args, **kwargs):
+        return '{"title":"Launch plan","suggestions":["List the risks","Draft milestones"]}'
+
+    monkeypatch.setattr(main_module, "stream_workflow_llm_text", fake_stream)
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", fake_enrichment)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    created = xpert_store.create_xpert(name="Conversation Features")
+    draft = created.draft.model_copy(deep=True)
+    draft.features.generated_questions.enabled = True
+    draft.features.generated_questions.count = 2
+    draft.features.conversation_title.enabled = True
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+    conversation = xpert_context_store.create_conversation(created.id)
+
+    response = await client.post(
+        f"/api/xperts/{created.id}/run",
+        json={
+            "message": "Plan the launch",
+            "conversation_id": conversation.conversation_id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    completed = next(
+        event
+        for event in _parse_sse_events(response.text)
+        if event.get("event") == "workflow_end"
+    )
+    assert completed["conversation_title"] == "Launch plan"
+    assert completed["suggestions"] == ["List the risks", "Draft milestones"]
+
+    restored = xpert_context_store.get_conversation(
+        created.id,
+        conversation.conversation_id,
+    )
+    assert restored.title == "Launch plan"
+    assert restored.messages[-1].suggestions == [
+        "List the risks",
+        "Draft milestones",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_published_xpert_audio_features_use_fixed_version_gateway_contract(
+    client: httpx.AsyncClient,
+    xpert_store: XpertStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeGatewayResponse:
+        def __init__(
+            self,
+            *,
+            content: bytes,
+            payload: dict[str, Any] | None = None,
+            content_type: str,
+        ) -> None:
+            self.status_code = 200
+            self.content = content
+            self._payload = payload
+            self.headers = {"content-type": content_type}
+
+        def json(self) -> dict[str, Any]:
+            return dict(self._payload or {})
+
+    class FakeGatewayClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        async def post(self, url: str, **kwargs: Any):
+            captured.append((url, kwargs))
+            if url.endswith("/audio/transcriptions"):
+                return FakeGatewayResponse(
+                    content=b'{"text":"transcribed request"}',
+                    payload={"text": "transcribed request"},
+                    content_type="application/json",
+                )
+            return FakeGatewayResponse(
+                content=b"fake-mp3",
+                content_type="audio/mpeg",
+            )
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("https://gateway.example/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeGatewayClient)
+
+    created = xpert_store.create_xpert(name="Audio Features")
+    draft = created.draft.model_copy(deep=True)
+    draft.features.speech_to_text.enabled = True
+    draft.features.speech_to_text.model_id = "speech-to-text-model"
+    draft.features.text_to_speech.enabled = True
+    draft.features.text_to_speech.model_id = "text-to-speech-model"
+    draft.features.text_to_speech.voice = "calm"
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+
+    capabilities = await client.get(
+        f"/api/xperts/{created.id}/audio-capabilities",
+        params={"version": 1},
+    )
+    assert capabilities.status_code == 200, capabilities.text
+    assert capabilities.json()["text_to_speech"]["model_id"] == "text-to-speech-model"
+    assert capabilities.json()["speech_to_text"]["model_id"] == "speech-to-text-model"
+
+    transcription = await client.post(
+        f"/api/xperts/{created.id}/audio/transcriptions",
+        data={"version": "1"},
+        files={"file": ("request.wav", b"wave-data", "audio/wav")},
+    )
+    assert transcription.status_code == 200, transcription.text
+    assert transcription.json()["text"] == "transcribed request"
+
+    speech = await client.post(
+        f"/api/xperts/{created.id}/audio/speech",
+        json={"text": "Read this response.", "version": 1},
+    )
+    assert speech.status_code == 200, speech.text
+    assert speech.content == b"fake-mp3"
+    assert speech.headers["x-modelmirror-xpert-version"] == "1"
+    assert [item[0] for item in captured] == [
+        "https://gateway.example/v1/audio/transcriptions",
+        "https://gateway.example/v1/audio/speech",
+    ]
+    assert captured[1][1]["json"]["model"] == "text-to-speech-model"
+    assert captured[1][1]["json"]["voice"] == "calm"
+
+
+@pytest.mark.asyncio
+async def test_unpublished_or_missing_xpert_cannot_run(
+    client: httpx.AsyncClient,
+    xpert_store: XpertStore,
+) -> None:
+    created = xpert_store.create_xpert(name="Draft only")
+
+    draft_response = await client.post(
+        f"/api/xperts/{created.id}/run",
+        json={"message": "hello"},
+    )
+    assert draft_response.status_code == 409
+
+    published = xpert_store.publish_xpert(
+        created.id,
+        expected_revision=created.draft_revision,
+    )
+    assert published.version == 1
+    xpert_store.update_xpert(created.id, {"status": "archived"})
+    archived_response = await client.post(
+        f"/api/xperts/{created.id}/run",
+        json={"message": "hello"},
+    )
+    assert archived_response.status_code == 409
+
+    missing_response = await client.post(
+        "/api/xperts/missing/run",
+        json={"message": "hello"},
+    )
+    assert missing_response.status_code == 404
+
+
+def _workflow_agent_data(workflow: Any) -> dict[str, Any]:
+    for node in workflow.nodes:
+        if node.data.get("kind") == "workflow_agent":
+            return node.data
+    raise AssertionError("workflow_agent node not found")
+
+
+def _workflow_agent_data_dict(workflow: dict[str, Any]) -> dict[str, Any]:
+    for node in workflow["nodes"]:
+        if node["data"].get("kind") == "workflow_agent":
+            return node["data"]
+    raise AssertionError("workflow_agent node not found")
+
+
+def _parse_sse_events(text: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if not line.startswith("data:"):
+            continue
+        events.append(json.loads(line[5:].strip()))
+    return events

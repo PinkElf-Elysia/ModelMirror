@@ -182,7 +182,7 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 后端测试不依赖外网，会在临时目录创建本地 git 仓库作为 mock Skill 源：
 
 ```bash
-C:\Users\21547\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pytest server\tests\test_skill_integration.py -q
+python -m pytest server/tests/test_skill_integration.py -q
 ```
 
 覆盖范围：

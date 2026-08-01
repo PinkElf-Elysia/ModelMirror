@@ -17,6 +17,7 @@ from server.main import app
 from server.world.api import set_provider_for_tests, set_world_store_for_tests
 from server.world.models import GeneratedAsset, GeneratedWorld, WorldInput
 from server.world.providers.mock import MockWorldProvider
+from server.world.providers.marble import MarbleWorldProvider
 from server.world.store import WorldStore
 
 # Shorten the mock so tests don't wait ~6 seconds.
@@ -67,7 +68,7 @@ async def test_upload_rejects_unsupported_type(client: httpx.AsyncClient) -> Non
         files={"files": ("bad.exe", b"MZ fake", "application/octet-stream")},
     )
     assert response.status_code == 400
-    assert "不支持的文件类型" in response.json()["detail"]
+    assert "模式不支持 .exe" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -92,6 +93,29 @@ async def test_upload_rejects_too_many_multi_images(
     )
     assert response.status_code == 400
     assert "最多上传 8 张" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_invalid_input_type(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/api/world-generations",
+        params={"input_type": "banana"},
+        files={"files": _png_file()},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_mode_extension_mismatch(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post(
+        "/api/world-generations",
+        params={"input_type": "image"},
+        files={"files": ("clip.mp4", b"video", "video/mp4")},
+    )
+    assert response.status_code == 400
+    assert "image 模式不支持 .mp4" in response.json()["detail"]
 
 
 # ----------------------------------------------------------------------
@@ -151,6 +175,15 @@ async def test_provider_endpoint_reports_mock(client: httpx.AsyncClient) -> None
     assert response.json()["provider"] == "mock"
 
 
+@pytest.mark.asyncio
+async def test_mock_provider_rejects_ply_export(client: httpx.AsyncClient) -> None:
+    job_id = await create_job(client)
+    await asyncio_sleep(0.5)
+    await client.get(f"/api/world-generations/{job_id}")
+    response = await client.post(f"/api/world-generations/{job_id}/exports/ply")
+    assert response.status_code == 400
+
+
 # ----------------------------------------------------------------------
 # Provider-level unit tests (mapping)
 # ----------------------------------------------------------------------
@@ -178,6 +211,78 @@ async def test_mock_provider_job_status_flow() -> None:
     assert await provider.get_job_status(job.provider_job_id) == "succeeded"
     # Unknown job -> failed
     assert await provider.get_job_status("unknown-op") == "failed"
+
+
+@pytest.mark.asyncio
+async def test_marble_contract_and_signed_upload_headers(tmp_path: Path) -> None:
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path.endswith("/media-assets:prepare_upload"):
+            assert request.headers["WLT-Api-Key"] == "secret-key"
+            return httpx.Response(
+                200,
+                json={
+                    "media_asset": {"id": "media-1"},
+                    "upload_info": {
+                        "upload_url": "https://uploads.example/signed",
+                        "required_headers": {"x-upload-token": "signed"},
+                    },
+                },
+            )
+        if request.url.host == "uploads.example":
+            assert "WLT-Api-Key" not in request.headers
+            assert request.headers["x-upload-token"] == "signed"
+            return httpx.Response(200)
+        if request.url.path.endswith("/worlds:generate"):
+            assert request.headers["WLT-Api-Key"] == "secret-key"
+            return httpx.Response(200, json={"operation_id": "operation-1"})
+        if request.url.path.endswith("/operations/operation-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "done": True,
+                    "metadata": {"world_id": "world-from-metadata"},
+                    "response": {"id": "world-1"},
+                },
+            )
+        if request.url.path.endswith("/worlds/world-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "world": {
+                        "id": "world-1",
+                        "assets": {
+                            "caption": "Generated world",
+                            "imagery": {"pano_url": "https://assets.example/pano.png"},
+                            "splats": {"spz_urls": {"500k": "https://assets.example/world.spz"}},
+                            "mesh": {"collider_mesh_url": "https://assets.example/world.glb"},
+                        },
+                    }
+                },
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as marble_client:
+        provider = MarbleWorldProvider(
+            api_key="secret-key",
+            client=marble_client,
+        )
+        source = tmp_path / "scene.png"
+        source.write_bytes(b"png")
+        job = await provider.create_world(
+            WorldInput(type="image", source_file_ids=["scene.png"]),
+            [source],
+        )
+        assert job.provider_job_id == "operation-1"
+        assert await provider.get_world_id("operation-1") == "world-1"
+        world = await provider.get_world("world-1")
+
+    assert world.caption == "Generated world"
+    assert {asset.format for asset in world.assets} == {"png", "spz", "glb"}
+    assert not any(path.endswith(":export") for path in seen_paths)
 
 
 async def asyncio_sleep(seconds: float) -> None:

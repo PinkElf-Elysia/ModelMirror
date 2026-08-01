@@ -125,20 +125,68 @@ textarea {
 
   .react-flow__controls {
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(253, 186, 116, 0.24);
     border-radius: 12px;
-    background: rgba(13, 19, 36, 0.92);
-    box-shadow: 0 16px 32px rgba(2, 6, 23, 0.34);
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: 0 16px 32px rgba(2, 6, 23, 0.42);
   }
 
   .react-flow__controls-button {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    background: transparent;
-    color: #e5edf8;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(15, 23, 42, 0.9);
+    color: #fed7aa;
   }
 
   .react-flow__controls-button:hover {
-    background: rgba(253, 186, 116, 0.12);
+    background: rgba(253, 186, 116, 0.18);
+    color: #fb923c;
+  }
+
+  .react-flow__controls-button svg,
+  .react-flow__controls-button svg * {
+    color: #fed7aa !important;
+    fill: #fed7aa !important;
+    stroke: #fed7aa !important;
+  }
+
+  .react-flow__controls-button:hover svg,
+  .react-flow__controls-button:hover svg * {
+    color: #fb923c !important;
+    fill: #fb923c !important;
+    stroke: #fb923c !important;
+  }
+
+  .modelmirror-flow-controls.react-flow__controls {
+    --xy-controls-button-background-color-default: rgba(15, 23, 42, 0.96);
+    --xy-controls-button-background-color-hover-default: rgba(253, 186, 116, 0.18);
+    --xy-controls-button-color-default: #fed7aa;
+    --xy-controls-button-color-hover-default: #fb923c;
+    --xy-controls-button-border-color-default: rgba(253, 186, 116, 0.24);
+    background: rgba(15, 23, 42, 0.96) !important;
+  }
+
+  .modelmirror-flow-controls .react-flow__controls-button {
+    background: rgba(15, 23, 42, 0.92) !important;
+    color: #fed7aa !important;
+  }
+
+  .modelmirror-flow-controls .react-flow__controls-button:hover {
+    background: rgba(253, 186, 116, 0.18) !important;
+    color: #fb923c !important;
+  }
+
+  .modelmirror-flow-controls .react-flow__controls-button svg,
+  .modelmirror-flow-controls .react-flow__controls-button svg * {
+    color: #fed7aa !important;
+    fill: #fed7aa !important;
+    stroke: #fed7aa !important;
+  }
+
+  .modelmirror-flow-controls .react-flow__controls-button:hover svg,
+  .modelmirror-flow-controls .react-flow__controls-button:hover svg * {
+    color: #fb923c !important;
+    fill: #fb923c !important;
+    stroke: #fb923c !important;
   }
 
   .react-flow__minimap {
@@ -150,6 +198,11 @@ textarea {
 
   .modelmirror-workflow-edge path {
     stroke-dasharray: 8 6;
+  }
+
+  .modelmirror-workflow-edge-selected path {
+    stroke-dasharray: 0;
+    filter: drop-shadow(0 0 8px rgba(251, 146, 60, 0.52));
   }
 }
 

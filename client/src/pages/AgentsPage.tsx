@@ -23,6 +23,36 @@ import {
 
 const platformCapabilities: PlatformCapability[] = [
   {
+    id: "xpert-automations",
+    icon: "AT",
+    title: "智能体自动化",
+    summary: "按单次、间隔或 Cron 调度已发布智能体，并在失败后重试或进入死信。",
+    detail:
+      "每条自动化固定智能体发布版本，支持预算、并发与重叠策略；审批和客户端等待可以在后台恢复。",
+    tag: "后台执行 · Beta",
+    eta: "已开放自动化工作台",
+  },
+  {
+    id: "conversation-goals",
+    icon: "GL",
+    title: "长期 Goal",
+    summary: "把对话目标拆成可审核的依赖计划，并由已发布智能体持续协作执行。",
+    detail:
+      "选择规划智能体自动生成计划，人工确认步骤和依赖后启动。支持暂停、恢复、失败重试、改派与最终结果汇总。",
+    tag: "长期任务 · Beta",
+    eta: "已开放规划、执行与恢复工作台",
+  },
+  {
+    id: "xpert-studio",
+    icon: "XP",
+    title: "Agent Studio",
+    summary: "创建、版本化发布并直接运行可组合的智能体应用。",
+    detail:
+      "复用经典工作流内核，把模型、Toolset、知识、中间件与 Handoff 组合成不可变发布版本。",
+    tag: "可发布智能体 · Beta",
+    eta: "已开放草稿、发布与聊天运行",
+  },
+  {
     id: "workflow-builder",
     icon: "流",
     title: "自定义工作流",
@@ -38,11 +68,11 @@ const platformCapabilities: PlatformCapability[] = [
     icon: "元",
     title: "元智能体",
     summary:
-      "用自然语言描述需求，由 AI 自动设计工作流并分配智能体协作。",
+      "用自然语言生成可编辑 Agent 工作流，并直接接入模镜经典画布试运行。",
     detail:
-      "你只需要说“帮我做市场调研”，系统会拆成资料检索、竞品分析、报告撰写和复盘建议等岗位。当前仅展示入口，编排能力仍在建设。",
-    tag: "自然语言驱动 · 即将开放",
-    eta: "预计 2025 年下半年开放内测",
+      "输入目标后，元智能体会拆解子任务、推断变量依赖、生成原生 React Flow 工作流，并通过现有 /api/workflow/run 执行。",
+    tag: "自然语言驱动 · Beta",
+    eta: "已接入生成与运行工作台",
   },
   {
     id: "expert-squad",
@@ -119,8 +149,24 @@ export default function AgentsPage() {
   }
 
   function openPlatformCapability(capability: PlatformCapability) {
+    if (capability.id === "xpert-automations") {
+      navigate("/agents/automations");
+      return;
+    }
+    if (capability.id === "conversation-goals") {
+      navigate("/agents/goals");
+      return;
+    }
+    if (capability.id === "xpert-studio") {
+      navigate("/agents/studio");
+      return;
+    }
     if (capability.id === "workflow-builder") {
       navigate("/workflow/new");
+      return;
+    }
+    if (capability.id === "meta-agent") {
+      navigate("/agents/meta-agent");
       return;
     }
     if (capability.id === "expert-squad") {
@@ -138,7 +184,7 @@ export default function AgentsPage() {
         <div>
           <p className="text-sm font-semibold text-white">资源分区</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            AI 人才市场收录 215 位带完整岗位人设的智能体专家。
+            AI 人才市场收录 {agents.length} 位带完整岗位人设的智能体专家。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
             <p className="text-xs text-slate-400">当前可面试</p>
@@ -157,14 +203,14 @@ export default function AgentsPage() {
             <div className="min-w-0">
               <div className="max-w-4xl">
                 <p className="text-sm font-semibold text-hire-200">
-                  215 位 AI 专家现场递简历
+                  {agents.length} 位 AI 专家现场递简历
                 </p>
                 <h1 className="mt-3 max-w-4xl text-4xl font-semibold tracking-normal text-white sm:text-6xl">
                   AI 人才市场
                   <span className="block text-hire-100">开源专家等你来招</span>
                 </h1>
                 <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-                  来源于 agency-agents-zh 的 215 个中文智能体角色，按部门、专长和场景筛选。看中哪位专家，就带进面试间直接开聊。
+                  来源于 agency-agents-zh 的最新中文智能体快照，按部门、专长和任务场景筛选。看中哪位专家，就带进面试间直接开聊。
                 </p>
               </div>
             </div>
@@ -233,7 +279,7 @@ export default function AgentsPage() {
               3 个平台能力排队入场
             </span>
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
             {platformCapabilities.map((capability) => (
               <PlatformCapabilityCard
                 capability={capability}

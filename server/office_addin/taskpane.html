@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ModelMirror Office Host</title>
+    <link rel="stylesheet" href="/taskpane.css" />
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script defer src="/taskpane.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand">MM</div>
+        <div>
+          <h1>ModelMirror Office Host</h1>
+          <p id="host-summary">正在检测 Office 宿主...</p>
+        </div>
+      </header>
+
+      <section class="status-grid" aria-label="连接状态">
+        <div><span>Runtime</span><strong id="connection-status">离线</strong></div>
+        <div><span>当前文档</span><strong id="binding-status">未绑定</strong></div>
+      </section>
+
+      <section class="panel" id="pairing-panel">
+        <h2>连接私有 Runtime</h2>
+        <p>在 Runtime Ops 为 Office 宿主生成一次性配对码，然后在这里输入。</p>
+        <label for="pairing-code">8 位配对码</label>
+        <input id="pairing-code" inputmode="numeric" maxlength="8" placeholder="00000000" />
+        <button id="pair-button" type="button">配对 Office 宿主</button>
+      </section>
+
+      <section class="panel" id="binding-panel">
+        <h2>文档授权</h2>
+        <p>仅当前文档有效。切换宿主或文档后需要重新绑定。</p>
+        <button id="bind-button" type="button">绑定当前文档</button>
+        <button class="secondary" id="unbind-button" type="button">解除绑定</button>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading">
+          <h2>最近操作</h2>
+          <span id="request-count">0</span>
+        </div>
+        <ol id="operation-list" aria-live="polite"></ol>
+      </section>
+
+      <p class="notice">页面内容、输入值和 Office 文件路径不会写入 Runtime 日志。所有修改仍需服务端 HITL 批准。</p>
+    </main>
+  </body>
+</html>

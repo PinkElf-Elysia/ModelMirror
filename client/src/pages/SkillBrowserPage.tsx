@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PageContainer from "../components/PageContainer";
+import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
+import SkillDraftPanel from "../components/authoring/SkillDraftPanel";
 import { type SkillProject, skillProjects } from "../data/skillProjects";
 
 interface InstalledSkill {
@@ -15,7 +17,7 @@ interface InstalledSkillsResponse {
   skills: InstalledSkill[];
 }
 
-type SkillTab = "market" | "installed";
+type SkillTab = "market" | "installed" | "drafts" | "proposals";
 
 function formatStars(stars: number) {
   return `${(stars / 1000).toFixed(1)}k`;
@@ -163,7 +165,12 @@ function InstalledSkillCard({
 }
 
 export default function SkillBrowserPage() {
-  const [activeTab, setActiveTab] = useState<SkillTab>("market");
+  const requestedTab = new URLSearchParams(window.location.search).get("tab");
+  const [activeTab, setActiveTab] = useState<SkillTab>(
+    requestedTab === "drafts" || requestedTab === "proposals"
+      ? requestedTab
+      : "market",
+  );
   const [installedSkills, setInstalledSkills] = useState<InstalledSkill[]>([]);
   const [isLoadingInstalled, setIsLoadingInstalled] = useState(false);
   const [installingId, setInstallingId] = useState("");
@@ -337,6 +344,8 @@ export default function SkillBrowserPage() {
             {[
               { id: "market", label: "技能市场" },
               { id: "installed", label: "已安装" },
+              { id: "drafts", label: "工作区草稿" },
+              { id: "proposals", label: "待审提案" },
             ].map((tab) => (
               <button
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
@@ -385,7 +394,7 @@ export default function SkillBrowserPage() {
               />
             ))}
           </div>
-        ) : installedSkills.length > 0 ? (
+        ) : activeTab === "installed" && installedSkills.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {installedSkills.map((skill) => (
               <InstalledSkillCard
@@ -396,6 +405,13 @@ export default function SkillBrowserPage() {
               />
             ))}
           </div>
+        ) : activeTab === "drafts" ? (
+          <SkillDraftPanel onInstalled={() => void loadInstalledSkills()} />
+        ) : activeTab === "proposals" ? (
+          <AuthoringProposalPanel
+            kindPrefix="skill"
+            title="Skill 自编写提案"
+          />
         ) : (
           <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.04] px-6 py-12 text-center">
             <p className="text-lg font-semibold text-white">

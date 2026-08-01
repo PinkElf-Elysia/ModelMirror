@@ -11,9 +11,9 @@ export default function BrandLogo({
 }: BrandLogoProps) {
   return (
     <Link
-      aria-label="返回模镜 ModelMirror 模型列表"
+      aria-label="返回模镜 ModelMirror 工作空间"
       className={`group inline-flex items-center gap-3 ${className}`}
-      to="/models"
+      to="/studio"
     >
       <span className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/10 bg-white shadow-neon transition duration-200 group-hover:scale-[1.03]">
         <img

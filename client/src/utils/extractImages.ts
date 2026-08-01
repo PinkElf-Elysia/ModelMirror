@@ -8,12 +8,7 @@ export interface ExtractedImage {
   raw: string;
 }
 
-interface ProtectedMarkdownImage {
-  token: string;
-  value: string;
-}
-
-const markdownImageRegex = /!\[[^\]]*\]\([^)]+\)/g;
+const markdownImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
 const dataUrlRegex =
   /data:image\/(?:png|jpeg|jpg|webp|gif|svg\+xml)[;,][A-Za-z0-9+/=\-_\s]+/gi;
 const svgRegex = /<svg[\s\S]*?<\/svg>/gi;
@@ -53,21 +48,38 @@ export function filenameForImage(img: ExtractedImage, index: number): string {
   return `${safe}.${ext}`;
 }
 
+function kindFromSource(source: string): ExtractedImageKind {
+  const lowerSource = source.toLowerCase();
+  if (lowerSource.startsWith("data:image/svg+xml")) return "svg";
+  if (lowerSource.startsWith("data:image/")) return "data";
+  return "url";
+}
+
 export function extractImages(text: string): {
   text: string;
   images: ExtractedImage[];
 } {
   if (!text) return { text: "", images: [] };
 
-  const protectedMarkdownImages: ProtectedMarkdownImage[] = [];
-  let remaining = text.replace(markdownImageRegex, (match) => {
-    const token = `__MODELMIRROR_MARKDOWN_IMAGE_${protectedMarkdownImages.length}__`;
-    protectedMarkdownImages.push({ token, value: match });
-    return token;
-  });
-
   const images: ExtractedImage[] = [];
   let index = 0;
+
+  let remaining = text.replace(
+    markdownImageRegex,
+    (match, alt: string, url: string) => {
+      const source = url.trim();
+      if (!source) return "";
+      images.push({
+        id: `ext-${index}`,
+        kind: kindFromSource(source),
+        name: alt.trim() || `图片-${index + 1}`,
+        source,
+        raw: match,
+      });
+      index += 1;
+      return "";
+    },
+  );
 
   remaining = remaining.replace(dataUrlRegex, (match) => {
     const source = match.trim();
@@ -109,10 +121,6 @@ export function extractImages(text: string): {
     index += 1;
     return "";
   });
-
-  for (const item of protectedMarkdownImages) {
-    remaining = remaining.replace(item.token, item.value);
-  }
 
   return { text: remaining.trim(), images };
 }

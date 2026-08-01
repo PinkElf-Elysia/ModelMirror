@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 
 export const federationRouteId = "model-federation";
-export const federationFallbackModelId = "openai/gpt-4o-mini";
+export const federationFallbackModelId = "openai/gpt-5.6-sol";
 
 export default function FederationRouterCard() {
   return (
@@ -59,12 +59,12 @@ export default function FederationRouterCard() {
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
           <Link
             className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(251,146,60,0.22)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
-            to="/expert-team?desk=fusion"
+            to="/chat/auto"
           >
-            进入 Fusion 会诊
+            交给智能路由
           </Link>
           <span className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-slate-200">
-            多模型并行 + 裁判融合
+            自动选择合适模型
           </span>
         </div>
       </div>

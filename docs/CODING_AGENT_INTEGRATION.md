@@ -1,0 +1,327 @@
+# 代码助手接入说明
+
+最后更新日期：2026-07-31
+维护人：模镜团队
+
+## 当前状态
+
+`/coding` 是实验性的单实例代码协作入口。默认 `readonly` 模式允许用户用自然
+语言询问 ModelMirror 功能和代码关系；显式启用 `draft` 后，代码助手还可以在
+容器内一次性副本中准备可审阅的文本修改。页面会显示回答、修改文件、逐文件
+Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独立项目验证，按变化
+范围运行固定的后端测试或前端生产构建。部署者显式配置固定专用工作树后，用户
+可以把满足全部门禁的当前草稿应用到该副本；当目标是无远程的独立本地克隆时，
+还可以编辑中文说明并保存为一个真实本地提交。
+
+两种模式都只使用服务端固定的 ModelMirror 镜像快照。Draft 默认不会写回任何
+宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
+系统只在用户确认后向固定独立克隆创建本地提交，不上传、不创建 PR，也不支持
+删除、重命名、二进制、Agent Shell/测试命令、远程 Git 操作、多 Agent、完整 ACP、
+分布式 Worker、
+跨重启恢复或生产级多租户。不要将该入口直接暴露到公网。
+
+## 用户体验约束
+
+- 页面面向没有代码基础的用户，优先使用“代码助手”“分析步骤”“查阅记录”等
+  直白说法。
+- 页面不展示 ACP、OpenCode、进程、原始协议帧、真实绝对路径或完整工具输出。
+- 输入区先于回答区出现；服务不可用时明确禁用输入，不影响其他页面。
+- 回答和查阅记录逐步更新；上游提供结构化计划时同步显示。停止操作可重复执行，
+  不要求用户理解会话状态。
+- Draft 模式明确显示“修改草稿，不会直接改变项目”。回答完成后自动列出文件、
+  增删行和检查结果；逐文件 Diff 在页面内滚动，不撑宽移动端。
+- “放弃修改”必须二次确认；检查失败时保留草稿供修正，但禁用下载。
+- “项目验证”由用户手动运行，使用“检查服务代码”“检查页面构建”等日常语言。
+  运行时可停止，失败详情默认折叠；“让代码助手修复”只填入摘要，不自动提交。
+- 未运行或失败的项目验证不阻止下载，但必须原位警告并让用户再次确认；验证服务
+  未启动时，Diff、轻量检查和下载继续可用。
+- “应用到本地项目副本”仅在门禁满足时启用；确认区必须说明文件数量、不会提交或
+  上传、当前项目目录不改变。目标不匹配或已有修改时使用日常语言提示，技术原因
+  默认折叠。
+- 应用成功后明确显示“修改已应用”，冻结输入与修改操作，但保留 Diff、验证和
+  下载；提供“撤销本次应用”和“结束本次修改”。撤销不得覆盖之后的人工改动。
+- 独立本地仓库可用时，页面显示“保存一个可找回的本地版本”，预填系统建议并允许
+  编辑说明。确认区明确“只保存在本机，不会上传”；成功后显示短提交编号。
+- “撤销本地提交”必须二次确认并明确文件仍保留。有效提交存在时隐藏应用撤销；
+  先撤销提交后才恢复应用撤销。普通 worktree 只显示提交不可用，不影响应用。
+- `/coding` 独立懒加载，不侵入 ChatPage，也不新增前端依赖。
+
+## 内部结构
+
+```mermaid
+flowchart LR
+  UI["/coding 页面"] --> API["FastAPI /api/coding"]
+  API -->|"私有 Unix socket"| WORKER["coding-runtime"]
+  WORKER --> ACP["最小 ACP 客户端"]
+  ACP --> OC["OpenCode 1.18.9"]
+  SOURCE["只读基准快照 /opt/modelmirror-source"] -->|"会话创建时复制"| WORK["临时 /workspace"]
+  OC --> WORK
+  OC -->|"内部网络"| GW["newAPI"]
+  WORKER -->|"revision + 内部 Patch"| VERIFY["coding-verifier"]
+  SOURCE2["Verifier 只读基准快照"] --> VERIFY
+  VERIFY --> CHECKS["固定后端测试 / 前端构建"]
+  API -->|"独立私有 Unix socket"| APPLY["coding-applier"]
+  SOURCE3["Applier 只读基准快照"] --> APPLY
+  APPLY -->|"原子应用 / 安全撤销"| TARGET["固定专用工作树"]
+  API -->|"独立私有 Unix socket"| COMMIT["coding-committer"]
+  COMMIT -->|"本地提交 / 保留文件撤销"| REPO["无远程独立仓库"]
+  VERIFY -. "无网络、无宿主仓库" .-> HOST["宿主仓库"]
+  WORK -. "不挂载" .-> HOST["宿主仓库"]
+  APPLY -. "不挂载" .-> CURRENT["当前主工作树"]
+  COMMIT -. "不挂载" .-> CURRENT
+```
+
+浏览器只接收供应商无关的 `CodingEvent`。OpenCode 和 ACP 是后端实现细节，
+后续更换代码智能体时不得要求前端理解新的供应商协议。
+
+## 公共接口
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /api/coding/capabilities` | 查询功能是否启用、当前模式及输入/草稿限制。 |
+| `POST /api/coding/sessions` | 创建一个临时问答或草稿记录。 |
+| `GET /api/coding/sessions/{id}` | 检查临时记录是否仍存在；不返回问题、回答或文件内容。 |
+| `POST /api/coding/sessions/{id}/turns` | 提交问题；请求体只允许 `prompt`。 |
+| `GET /api/coding/sessions/{id}/events?after=<seq>` | 通过 SSE 接收事件，并按序号续读。 |
+| `POST /api/coding/sessions/{id}/cancel` | 停止当前分析；重复调用安全。 |
+| `GET /api/coding/sessions/{id}/changes` | 返回当前 revision、文件统计和最近检查结果。 |
+| `GET /api/coding/sessions/{id}/diff?path=&revision=` | 返回指定 revision 的单文件统一 Diff。 |
+| `GET /api/coding/sessions/{id}/patch?revision=` | 轻量检查通过后下载完整 `.patch`。 |
+| `POST /api/coding/sessions/{id}/validate` | 重新执行固定的轻量检查，不接受命令参数。 |
+| `POST /api/coding/sessions/{id}/discard` | 放弃全部草稿并使旧 revision 失效。 |
+| `POST /api/coding/sessions/{id}/verification` | 为指定 revision 启动项目验证；返回 `202`。 |
+| `GET /api/coding/sessions/{id}/verification?revision=` | 查询运行状态、结论和固定步骤摘要。 |
+| `POST /api/coding/sessions/{id}/verification/cancel` | 停止指定 revision 的验证；重复调用安全。 |
+| `POST /api/coding/sessions/{id}/apply` | 应用指定 revision；请求体只允许 `revision`，最多 30 秒。 |
+| `GET /api/coding/sessions/{id}/apply?revision=` | 查询应用、撤销状态和是否仍可撤销。 |
+| `POST /api/coding/sessions/{id}/apply/revert` | 安全撤销；请求体只允许 `revision` 与不透明 `apply_id`。 |
+| `POST /api/coding/sessions/{id}/close` | 结束已应用或已撤销的冻结会话，释放单会话 Runtime。 |
+| `POST /api/coding/sessions/{id}/commit` | 创建本地提交；请求体只允许 `revision`、`apply_id` 与 `message`。 |
+| `GET /api/coding/sessions/{id}/commit?revision=` | 查询建议说明、状态、不透明撤销标识、提交 SHA 与撤销能力。 |
+| `POST /api/coding/sessions/{id}/commit/undo` | 撤销本次提交并保留文件；请求体只允许 revision、apply_id 与不透明 commit_id。 |
+
+Capabilities 中的 `verification.available` 表示 Verifier 当前是否可用，
+`required_for_patch=false` 表示项目验证不作为 Patch 下载硬门禁。
+Draft 模式还返回 `host_apply` 与 `apply`：包含是否已配置、当前可用性、固定目标
+`dedicated_worktree`、验证要求、纯文档例外和撤销能力；可选 `reason` 只是安全
+原因码，不含真实路径。启用提交 overlay 后还返回 `commit`：目标固定为
+`isolated_local_repository`，需要先应用、支持撤销、禁止远程操作，说明上限为
+2000 字符。
+
+公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、完成、失败、
+取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答或工具输出。
+计划事件是可选能力：OpenCode 1.18.9 的 ACP 会话不保证每轮产生结构化计划，
+没有计划事件时页面直接展示查阅记录和流式回答。
+
+所有 Diff/Patch、应用与提交接口响应均为 `Cache-Control: no-store`，且不返回绝对
+路径、文件正文、原始 Patch、命令输出、原始 ACP 帧或完整工具输入。浏览器不能
+提交工作目录、命令、provider、自定义检查器、目标路径、分支或 Git 参数。
+
+## 隔离与编辑边界
+
+1. 协议层：Readonly 拒绝全部 ACP 权限请求。Draft 仅对当前会话、`/workspace`
+   内、可安全解析的单文件 `edit` 请求选择一次性允许；永不永久允许。畸形帧、
+   越界路径、Shell 和其他权限均失败关闭。
+2. 智能体层：Readonly 只允许 `read/list/glob/grep/lsp`。Draft 额外把 `edit`
+   设为询问；Shell、任务委派、外部目录、联网工具、插件、MCP、Skill、分享和
+   自动更新仍禁止。
+3. 容器层：构建时通过 `.dockerignore` 排除私有环境文件、密钥、依赖、缓存和
+   运行数据，只重新纳入仓库追踪的 3 个安全 `.env.example` 占位模板；再把净化
+   源码快照复制到 `/opt/modelmirror-source` 并设为只读。运行时使用非 root、
+   只读根文件系统、无特权、资源限额和 `internal: true` 网络。`/workspace` 是
+   256 MiB 的 `nosuid,noexec` tmpfs，宿主仓库不挂载给 Worker。
+
+`coding-runtime` 不映射宿主端口。FastAPI 只通过私有 Unix socket 使用它。
+OpenCode 子进程只继承固定 PATH/HOME、模型标识和专用网关连接信息，不继承
+FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷新只读快照。
+
+## 草稿事务与检查
+
+- 会话创建时把只读基准快照复制到临时工作区；会话关闭、过期或容器重启后清除。
+- 每轮开始前建立轻量检查点。取消、模型/协议失败或硬性安全违规只回滚本轮，
+  之前已完成的合法草稿继续保留。
+- 只允许新增或修改 UTF-8 文本；禁止删除、重命名、二进制、符号链接、秘密模式、
+  环境文件、越界路径和禁止目录。
+- 最多变化 20 个文件，单文件最终大小 512 KiB，总 Patch 1 MiB。
+- 自动检查 Python AST、JSON、冲突标记、新增尾随空白、Diff 完整性和安全策略。
+  Python/JSON 等可修正问题保留草稿但禁止下载；硬性安全失败自动回滚本轮。
+- 合法变化可跨轮累积；“放弃修改”恢复基准快照并使旧 revision 失效。
+
+这些轻量检查不是完整项目测试。项目验证是额外的用户手动步骤；无论结果如何，
+下载后的 Patch 仍需由开发者审阅。
+
+## 隔离项目验证
+
+- `coding-verifier` 位于独立 `coding-verify` profile，使用非 root、只读根目录、
+  无特权、无宿主端口、无 Docker socket 和 `network_mode: none`。
+- Worker 只发送当前 revision 的内部 Patch、变化路径和快照指纹。Verifier 不接收
+  宿主路径、模型密钥或用户命令，并再次检查 Patch 路径、大小和文件状态。
+- Worker 与 Verifier 的净化快照指纹必须一致；不一致时结果为“未运行”，Draft
+  主功能不降级。
+- 仅变化 `server/**` 时运行后端全量测试，仅变化 `client/**` 时运行前端生产
+  构建；混合、根目录或未知代码路径运行两项，纯文档变化为“不适用”。
+- 变化 `server/tests/**` 时先用不可修改的基准测试验证草稿代码，再运行草稿测试；
+  变化依赖清单或锁文件时不联网安装，结果为“未运行”。
+- 固定上限为后端 300 秒、前端 240 秒、整次 600 秒。取消会终止进程组并清理
+  1 GiB 临时工作区。
+- 输出按步骤聚合、脱敏和截断。验证期间禁止新 Agent 轮次与放弃草稿，但 Diff 和
+  Patch 保持可读；revision 变化后旧结果标记 stale。
+
+## 受控应用与撤销
+
+- `coding-applier` 只存在于显式加载的独立 Compose overlay，使用非 root、只读
+  根目录、无特权、无宿主端口、无 Docker socket 和 `network_mode: none`。
+  只有 Server 挂载独立应用 socket；Runtime 与 Verifier 不能访问。
+- `/target` 是部署者固定配置的专用工作树。它的 `.git` 指针文件单独只读挂载；
+  浏览器与 Agent 不知道真实路径。当前主工作树、实现工作树和任意用户路径都不
+  在 Applier 的挂载范围内。
+- 应用要求轻量检查通过，验证属于精确 revision、已完成且非 stale；结论必须为
+  `passed`，只有系统重新判定为纯文档时才接受
+  `not_applicable/documentation_only`。失败、未运行、取消、运行中、依赖变化和
+  stale 一律拒绝。
+- Applier 再次检查快照指纹、Patch 路径/限额/文件状态，并要求目标除 `.git` 外
+  与基准完全一致。它先在 tmpfs 预演，再按原文件哈希原子写入；多文件任一步
+  失败都会恢复已写文件。相同会话与 revision 的重复请求返回原结果，不再次写入。
+- 成功后会话冻结，只允许查看变化、Diff、Patch、验证和应用结果。撤销只有在
+  目标仍精确保持应用后状态时执行；新增文件只在这次撤销中删除。外部修改会使
+  撤销失败，不会被覆盖。
+- 应用凭据仅存 Server 内存。会话关闭、过期或 Server 重启后不保证页面撤销；
+  应删除并从同一提交重建专用工作树。Applier 不可用不会影响 Draft、Diff、
+  Verifier、Patch 下载或核心服务健康。
+
+## 隔离本地提交与撤销
+
+- `coding-committer` 只存在于独立 Compose overlay，使用非 root、只读根目录、
+  无特权、无端口、无 Docker socket 和 `network_mode: none`；不接收模型密钥、
+  Git 凭据或远程地址。只有 Server 挂载提交 socket。
+- 目标必须是无 remote、独立 `.git`、固定分支 `coding/local-draft` 的本地克隆。
+  `/target` 只读，只有 `/target/.git` 可写；Git worktree、alternates、共享 Git、
+  错误分支、脏索引、额外文件和基线不匹配均失败关闭。
+- 浏览器只提交 revision、apply_id 和说明。路径来自已验证的 ApplyReceipt；作者由
+  部署变量固定，默认 `ModelMirror Coding Assistant <coding@modelmirror.local>`。
+- 说明统一为 LF、长度 1–2000 字符、首行不超过 120 字符，并拒绝控制字符。系统
+  建议：纯文档 `docs: 更新项目说明`、纯测试 `test: 更新项目检查`，其他变化
+  `feature: 更新项目功能`。
+- 引擎使用临时索引、固定 Git plumbing 与 compare-and-swap 更新固定分支，不执行
+  Hook、签名、clean/smudge filter、凭据助手或仓库命令。失败恢复索引与引用；
+  重复请求返回原提交，不生成第二个提交。
+- 撤销只在目标、索引和分支仍保持提交后的精确状态时移动引用，工作区文件保持
+  不变。有效提交存在时禁止撤销应用；Committer 不可用不影响其他 Coding 能力。
+
+## 配置与启动
+
+功能默认关闭。专用模型配置应放在 Compose 读取的根 `.env` 或启动命令环境中，
+不要写入前端，也不要提交：
+
+```bash
+CODING_AGENT_ENABLED=true
+CODING_AGENT_MODE=readonly
+CODING_AGENT_MODEL=your-new-api-model-id
+CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
+```
+
+`CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
+`CODING_AGENT_GATEWAY_KEY` 只注入隔离 Worker，不注入 FastAPI。模型标识只允许
+字母、数字、点、下划线、斜线、冒号和短横线。
+
+人工重建命令：
+
+```bash
+docker compose -p modelmirror --profile coding --profile coding-verify up -d --build --force-recreate
+docker compose -p modelmirror --profile coding --profile coding-verify ps
+curl http://localhost:8000/api/coding/capabilities
+```
+
+如需启用受控应用，先从实现 HEAD 创建干净的专用工作树，再设置绝对路径：
+
+```bash
+git worktree add --detach C:\tmp\modelmirror-coding-apply-target-v4 <implementation-head-sha>
+CODING_APPLY_WORKTREE=C:\tmp\modelmirror-coding-apply-target-v4
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply up -d --build --force-recreate
+```
+
+必须同时写出两个 `-f`；不要把 overlay 设为默认 Compose 文件。overlay 的 bind
+mount 使用 `create_host_path: false`，路径缺失时失败关闭，不自动创建目标。
+
+如需继续启用本地提交，改用独立克隆作为应用与提交的共同目标，并加载提交 overlay：
+
+```bash
+git clone --no-local --no-hardlinks <implementation-worktree> C:\tmp\modelmirror-coding-repository-v5
+git -C C:\tmp\modelmirror-coding-repository-v5 remote remove origin
+git -C C:\tmp\modelmirror-coding-repository-v5 switch -C coding/local-draft <implementation-head-sha>
+CODING_APPLY_WORKTREE=C:\tmp\modelmirror-coding-repository-v5
+CODING_COMMIT_REPOSITORY=C:\tmp\modelmirror-coding-repository-v5
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply --profile coding-commit up -d --build --force-recreate
+```
+
+## 人工验收
+
+1. 以 `CODING_AGENT_MODE=readonly` 提交一个可从当前源码验证的问题，确认流式
+   回答、取消和只读行为仍正常。
+2. 切换到 `draft` 并重建，在 `/coding` 要求新增或修改临时文本文件；确认页面
+   显示文件列表、增删行、逐文件 Diff 和检查结果。
+3. 制造 Python/JSON 错误，确认轻量检查能发现且不能下载；修正并重新检查后可
+   下载 `.patch`。
+4. 取消一轮修改，确认本轮变化消失、此前草稿保留；再放弃全部修改，确认变化归零。
+5. 尝试删除、Shell、`.env`、外部路径和超限修改，确认被拒绝或本轮自动回滚。
+6. 分别制造仅后端、仅前端和混合草稿，确认项目验证只运行适用步骤；制造测试或
+   构建失败，确认页面保留草稿、显示简述并可把摘要填回输入框。
+7. 修改既有测试，确认不可绕过基准测试；修改依赖清单，确认显示“未运行”且不
+   联网安装。取消验证后确认无残留进程并可重新运行。
+8. 停止 `coding-verifier`，确认 Draft、Diff、轻量检查和下载仍可用；未验证或失败
+   的 Patch 可在明确警告后二次确认下载。
+9. 验收前后比较真实仓库 `git status --short`，确认完全一致；页面不得显示真实
+   绝对路径。
+10. 确认 Runtime 无宿主端口、只连接内部网关；Verifier 无网络、无宿主端口、
+    无密钥，且两侧基准快照不可写。停止 Verifier 后核心健康和其他页面仍可用。
+11. 从实现 HEAD 创建固定专用工作树并启用 Applier。后端、前端、混合及纯文档
+    草稿满足门禁后可应用；失败、未运行、依赖变化和 stale revision 均被阻止。
+12. 分别让目标出现已有修改、额外文件、版本不匹配和符号链接，确认应用被拒绝；
+    重复点击不重复写入，成功后草稿冻结但 Diff、验证和下载仍可查看。
+13. 正常撤销后目标精确回到基准；再次应用后手工修改目标，确认撤销拒绝且不覆盖
+    人工内容。停止 Applier，确认 Draft、Diff、验证和下载不受影响。
+14. 验收前后确认实现工作树和当前主工作树的 `git status --short` 不变，只有专用
+    目标发生预期变化；Applier 无公网、宿主端口、密钥或可写 `.git`。
+15. 从最终 HEAD 创建无远程独立克隆并固定到 `coding/local-draft`。分别用纯文档、
+    后端、前端和混合草稿完成验证、应用和本地提交；确认建议说明可编辑、作者固定、
+    提交文件准确且仓库干净。
+16. 重复点击确认不新增提交。撤销提交后 HEAD 恢复且文件保留，可修改说明重新提交，
+    或继续撤销应用；有效提交存在时应用撤销必须被阻止。
+17. 分别制造 remote、worktree、alternates、错误分支、脏索引、额外文件、基线不匹配
+    和外部文件修改；确认提交或撤销失败且不覆盖内容。停止 Committer 后，尚未提交
+    的应用仍可撤销，已提交结果仍可查看和结束。
+
+## 回退
+
+先停止 Committer 并在后续启动中省略提交 overlay，即可恢复第四轮能力；已创建的
+本地提交不会被自动删除：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -p modelmirror --profile coding-commit stop coding-committer
+```
+
+再停止 Applier，并在后续启动中省略应用 overlay，即可恢复第三轮能力：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -p modelmirror --profile coding-apply stop coding-applier
+```
+
+目标工作树不会被自动删除。若会话撤销已不可用，应人工确认后删除并从相同提交
+重建专用工作树。再停止并省略 `coding-verify` profile，即可恢复第二轮 Draft、
+Diff 和下载能力：
+
+```bash
+docker compose -p modelmirror --profile coding-verify stop coding-verifier
+```
+
+设置 `CODING_AGENT_MODE=readonly` 并重建，可关闭草稿编辑、保留只读问答。需要
+完全关闭时设置 `CODING_AGENT_ENABLED=false` 并停止 `coding` profile：
+
+```bash
+docker compose -p modelmirror --profile coding stop coding-runtime
+```
+
+本轮没有数据库迁移、持久化验证结果、持久化应用/提交凭据或持久化会话。已经
+创建的本地提交由目标仓库保留，不依赖 Server 会话。需要整轮
+回退时，按独立提交逆序撤销并重建核心服务即可；容器重启会清除所有临时草稿、
+验证和应用状态。

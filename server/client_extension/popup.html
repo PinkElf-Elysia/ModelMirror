@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>ModelMirror Client Host</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="mark">MM</div>
+        <div><strong>客户端宿主</strong><p id="connection">未连接</p></div>
+      </header>
+      <section id="pairing">
+        <label for="pairing-code">一次性配对码</label>
+        <input id="pairing-code" inputmode="numeric" maxlength="8" placeholder="00000000">
+        <button id="pair">连接 ModelMirror</button>
+      </section>
+      <section>
+        <div class="row"><span>宿主</span><code id="host-id">未配对</code></div>
+        <div class="row"><span>当前标签页</span><span id="tab-state">未绑定</span></div>
+        <button id="bind" class="secondary">绑定当前标签页</button>
+        <button id="unbind" class="ghost">撤销标签页授权</button>
+      </section>
+      <p class="notice">仅在你主动绑定的标签页执行。跨站导航会自动撤销授权。</p>
+      <output id="message" aria-live="polite"></output>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

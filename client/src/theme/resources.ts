@@ -1,4 +1,10 @@
-export type ResourceKey = "models" | "agents" | "mcps" | "skills" | "prompts";
+export type ResourceKey =
+  | "models"
+  | "agents"
+  | "mcps"
+  | "skills"
+  | "runtime"
+  | "prompts";
 
 export interface ResourceNavItem {
   key: ResourceKey;
@@ -48,6 +54,15 @@ export const resourceNavItems: ResourceNavItem[] = [
     description: "管理可复用的模型操作技能",
   },
   {
+    key: "runtime",
+    title: "Runtime 运维",
+    shortTitle: "运维",
+    english: "Runtime",
+    path: "/runtime",
+    icon: "运",
+    description: "查看 MCP、工具、运行记录和 Skill 状态",
+  },
+  {
     key: "prompts",
     title: "提示词市场",
     shortTitle: "提示",
@@ -59,7 +74,7 @@ export const resourceNavItems: ResourceNavItem[] = [
 ];
 
 export const resourceComingSoonCopy: Record<
-  Exclude<ResourceKey, "models" | "agents">,
+  Exclude<ResourceKey, "models" | "agents" | "runtime">,
   { title: string; description: string; actionHint: string }
 > = {
   mcps: {

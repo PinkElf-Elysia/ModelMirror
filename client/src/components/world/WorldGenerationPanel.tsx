@@ -8,6 +8,7 @@ interface JobRecord {
   world_id?: string;
   caption?: string;
   error?: string;
+  provider?: string;
 }
 
 interface AssetItem {
@@ -63,6 +64,7 @@ export function WorldGenerationPanel() {
   const [files, setFiles] = useState<File[]>([]);
   const [prompt, setPrompt] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [isExportingPly, setIsExportingPly] = useState(false);
   const [job, setJob] = useState<JobRecord | null>(null);
   const [error, setError] = useState("");
   const [viewerAsset, setViewerAsset] = useState<AssetItem | null>(null);
@@ -154,6 +156,7 @@ export function WorldGenerationPanel() {
         job_id: body.job_id,
         status: body.status,
         assets: [],
+        provider: body.provider,
       });
       setFiles([]);
     } catch (err) {
@@ -179,6 +182,7 @@ export function WorldGenerationPanel() {
           world_id: body.world_id,
           caption: body.caption,
           error: body.error,
+          provider: body.provider ?? prev?.provider,
         }));
       }
     } catch {
@@ -197,6 +201,43 @@ export function WorldGenerationPanel() {
       if (pollTimerRef.current !== null) window.clearTimeout(pollTimerRef.current);
     };
   }, [job, pollJob]);
+
+  const exportPly = useCallback(async () => {
+    if (!job || job.provider !== "marble") return;
+    if (!window.confirm("PLY 导出可能消耗 World Labs Credits，确认继续吗？")) {
+      return;
+    }
+
+    setError("");
+    setIsExportingPly(true);
+    try {
+      const response = await fetch(
+        `/api/world-generations/${job.job_id}/exports/ply`,
+        { method: "POST" },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.detail || "PLY 导出失败。");
+      }
+      if (body.asset) {
+        setJob((prev) =>
+          prev
+            ? {
+                ...prev,
+                assets: [
+                  ...prev.assets.filter((asset) => asset.id !== body.asset.id),
+                  body.asset,
+                ],
+              }
+            : prev,
+        );
+      }
+    } catch (err) {
+      setError(friendlyError(err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsExportingPly(false);
+    }
+  }, [job]);
 
   // ------------------------------------------------------------------
   // Local 3D file preview (no API)
@@ -377,6 +418,19 @@ export function WorldGenerationPanel() {
               </button>
             ))}
           </div>
+          {job.provider === "marble" &&
+          !job.assets.some((asset) => asset.format === "ply") ? (
+            <button
+              className="mt-3 w-full rounded-full border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/15 disabled:opacity-50"
+              disabled={isExportingPly}
+              onClick={exportPly}
+              type="button"
+            >
+              {isExportingPly
+                ? "正在导出 PLY…"
+                : "导出 PLY（可能消耗 Credits，需再次确认）"}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

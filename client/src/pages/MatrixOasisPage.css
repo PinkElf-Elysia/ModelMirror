@@ -1,0 +1,499 @@
+.matrix-oasis {
+  --oasis-cyan: #67e8f9;
+  --oasis-violet: #8b5cf6;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  min-width: 320px;
+  overflow: hidden;
+  background: #030611;
+  color: #f8fafc;
+  isolation: isolate;
+}
+
+.matrix-oasis__scene,
+.matrix-oasis__image,
+.matrix-oasis__image img,
+.matrix-oasis__shards,
+.matrix-oasis__shard,
+.matrix-oasis__tunnel,
+.matrix-oasis__floor,
+.matrix-oasis__bloom,
+.matrix-oasis__vignette {
+  position: absolute;
+  inset: 0;
+}
+
+.matrix-oasis__scene {
+  overflow: hidden;
+  contain: layout paint;
+  background: #030611;
+}
+
+.matrix-oasis__image {
+  display: block;
+  transition: opacity 250ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.matrix-oasis__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.matrix-oasis__gateway {
+  opacity: 1;
+  transform: scale(1.01);
+}
+
+.matrix-oasis__destination {
+  opacity: 0;
+  transform: scale(1.065);
+  filter: saturate(0.72) brightness(0.76);
+}
+
+.matrix-oasis__shards {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.matrix-oasis__shard {
+  background-position: center;
+  background-size: cover;
+  filter: saturate(0.75) brightness(0.78);
+}
+
+.matrix-oasis__shard--left {
+  clip-path: polygon(0 0, 44% 0, 62% 50%, 42% 100%, 0 100%);
+  transform-origin: left center;
+}
+
+.matrix-oasis__shard--upper {
+  clip-path: polygon(40% 0, 100% 0, 100% 44%, 50% 62%);
+  transform-origin: center top;
+}
+
+.matrix-oasis__shard--lower {
+  clip-path: polygon(42% 100%, 50% 46%, 100% 58%, 100% 100%);
+  transform-origin: center bottom;
+}
+
+.matrix-oasis__shard--right {
+  clip-path: polygon(58% 0, 100% 0, 100% 100%, 62% 100%, 44% 50%);
+  transform-origin: right center;
+}
+
+.matrix-oasis__tunnel {
+  perspective: 900px;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.matrix-oasis__gate {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(52vw, 720px);
+  aspect-ratio: 1.3;
+  border: 1px solid rgba(103, 232, 249, 0.56);
+  box-shadow:
+    0 0 18px rgba(36, 217, 255, 0.14),
+    inset 0 0 18px rgba(124, 58, 237, 0.12);
+  transform: translate(-50%, -50%) scale(calc(0.18 + var(--gate-index) * 0.145));
+}
+
+.matrix-oasis__gate:nth-child(1) { --gate-index: 0; }
+.matrix-oasis__gate:nth-child(2) { --gate-index: 1; }
+.matrix-oasis__gate:nth-child(3) { --gate-index: 2; }
+.matrix-oasis__gate:nth-child(4) { --gate-index: 3; }
+.matrix-oasis__gate:nth-child(5) { --gate-index: 4; }
+.matrix-oasis__gate:nth-child(6) { --gate-index: 5; }
+
+.matrix-oasis__floor {
+  top: 52%;
+  background-image:
+    linear-gradient(rgba(103, 232, 249, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 92, 246, 0.16) 1px, transparent 1px);
+  background-size: 5vw 5vw;
+  opacity: 0.32;
+  transform: perspective(480px) rotateX(66deg) scale(1.35);
+  transform-origin: center top;
+  mask-image: linear-gradient(to bottom, black, transparent 78%);
+}
+
+.matrix-oasis__bloom {
+  left: 50%;
+  top: 50%;
+  width: 18vmax;
+  height: 18vmax;
+  border-radius: 50%;
+  background: radial-gradient(circle, white 0 4%, rgba(103, 232, 249, 0.88) 12%, rgba(139, 92, 246, 0.24) 36%, transparent 68%);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.12);
+  filter: blur(5px);
+  pointer-events: none;
+}
+
+.matrix-oasis__vignette {
+  background:
+    linear-gradient(180deg, rgba(3, 6, 17, 0.5), transparent 28%, transparent 62%, rgba(3, 6, 17, 0.74)),
+    radial-gradient(circle at center, transparent 36%, rgba(3, 6, 17, 0.58) 100%);
+  pointer-events: none;
+}
+
+.matrix-oasis__brand {
+  position: fixed;
+  top: max(1rem, env(safe-area-inset-top));
+  left: max(1rem, env(safe-area-inset-left));
+  z-index: 8;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.65rem;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  text-shadow: 0 1px 10px rgba(3, 6, 17, 0.9);
+}
+
+.matrix-oasis__brand img {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+}
+
+.matrix-oasis__intro,
+.matrix-oasis__ending {
+  position: absolute;
+  z-index: 5;
+}
+
+.matrix-oasis__intro {
+  left: 50%;
+  bottom: max(3.25rem, calc(env(safe-area-inset-bottom) + 2rem));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+  text-align: center;
+  text-shadow: 0 2px 20px rgba(3, 6, 17, 0.9);
+}
+
+.matrix-oasis__intro p {
+  margin: 0 0 0.5rem;
+  color: #cffafe;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.matrix-oasis__intro h1,
+.matrix-oasis__ending h1 {
+  margin: 0;
+  color: white;
+  font-size: clamp(2rem, 4vw, 4.5rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.matrix-oasis__primary,
+.matrix-oasis__skip,
+.matrix-oasis__actions button,
+.matrix-oasis__actions a {
+  min-height: 44px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 150ms ease-out, background-color 200ms ease-out, border-color 200ms ease-out;
+}
+
+.matrix-oasis__primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(3, 6, 17, 0.7);
+  padding: 0 1.2rem;
+  color: white;
+  backdrop-filter: blur(10px);
+}
+
+.matrix-oasis__primary:hover {
+  border-color: rgba(103, 232, 249, 0.72);
+  background: rgba(8, 51, 68, 0.78);
+}
+
+.matrix-oasis__primary:active,
+.matrix-oasis__actions button:active,
+.matrix-oasis__actions a:active {
+  transform: scale(0.97);
+}
+
+.matrix-oasis__skip {
+  position: absolute;
+  top: max(1rem, env(safe-area-inset-top));
+  right: max(1rem, env(safe-area-inset-right));
+  z-index: 8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(3, 6, 17, 0.62);
+  padding: 0 1rem;
+  color: #e2e8f0;
+  backdrop-filter: blur(8px);
+}
+
+.matrix-oasis__ending {
+  left: max(3.5rem, env(safe-area-inset-left));
+  bottom: max(3.5rem, calc(env(safe-area-inset-bottom) + 2rem));
+  opacity: 0;
+  transform: translateY(10px);
+  text-shadow: 0 2px 24px rgba(3, 6, 17, 0.96);
+}
+
+.matrix-oasis__ending-title {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.matrix-oasis__ending-title span {
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.matrix-oasis__actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.matrix-oasis__actions button,
+.matrix-oasis__actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(3, 6, 17, 0.62);
+  padding: 0 1rem;
+  color: white;
+  backdrop-filter: blur(9px);
+}
+
+.matrix-oasis__actions button:hover,
+.matrix-oasis__actions a:hover {
+  border-color: rgba(103, 232, 249, 0.62);
+  background: rgba(8, 51, 68, 0.78);
+}
+
+.matrix-oasis--playing .matrix-oasis__gateway,
+.matrix-oasis--playing .matrix-oasis__destination,
+.matrix-oasis--playing .matrix-oasis__shards,
+.matrix-oasis--playing .matrix-oasis__tunnel,
+.matrix-oasis--playing .matrix-oasis__bloom {
+  will-change: transform, opacity, filter;
+}
+
+.matrix-oasis--playing .matrix-oasis__gateway {
+  animation: oasis-gateway-drive 1.55s cubic-bezier(0.65, 0, 0.35, 1) 0.2s both;
+}
+
+.matrix-oasis--playing .matrix-oasis__destination {
+  animation: oasis-destination-reveal 3.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.matrix-oasis--playing .matrix-oasis__shards {
+  animation: oasis-shards 1.5s cubic-bezier(0.22, 1, 0.36, 1) 0.9s both;
+}
+
+.matrix-oasis--playing .matrix-oasis__shard--left {
+  animation: oasis-shard-left 1.35s cubic-bezier(0.22, 1, 0.36, 1) 0.9s both;
+}
+
+.matrix-oasis--playing .matrix-oasis__shard--upper {
+  animation: oasis-shard-upper 1.35s cubic-bezier(0.22, 1, 0.36, 1) 1s both;
+}
+
+.matrix-oasis--playing .matrix-oasis__shard--lower {
+  animation: oasis-shard-lower 1.35s cubic-bezier(0.22, 1, 0.36, 1) 1.08s both;
+}
+
+.matrix-oasis--playing .matrix-oasis__shard--right {
+  animation: oasis-shard-right 1.35s cubic-bezier(0.22, 1, 0.36, 1) 0.96s both;
+}
+
+.matrix-oasis--playing .matrix-oasis__tunnel {
+  animation: oasis-tunnel-drive 1.55s cubic-bezier(0.65, 0, 0.35, 1) 0.25s both;
+}
+
+.matrix-oasis--playing .matrix-oasis__bloom {
+  animation: oasis-bloom 0.62s cubic-bezier(0.16, 1, 0.3, 1) 2.05s both;
+}
+
+.matrix-oasis--settled .matrix-oasis__gateway,
+.matrix-oasis--settled .matrix-oasis__shards,
+.matrix-oasis--settled .matrix-oasis__tunnel,
+.matrix-oasis--settled .matrix-oasis__floor {
+  opacity: 0;
+}
+
+.matrix-oasis--settled .matrix-oasis__destination {
+  opacity: 1;
+  transform: scale(1);
+  filter: saturate(0.78) brightness(0.8);
+}
+
+.matrix-oasis--settled .matrix-oasis__ending {
+  animation: oasis-ending-in 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes oasis-gateway-drive {
+  0% { opacity: 1; transform: scale(1.01); filter: saturate(1); }
+  72% { opacity: 0.9; filter: saturate(1.2) contrast(1.04); }
+  100% { opacity: 0; transform: scale(3.45); filter: saturate(1.25) blur(2px); }
+}
+
+@keyframes oasis-destination-reveal {
+  0%, 38% { opacity: 0; transform: scale(1.065); filter: saturate(0.6) brightness(0.65); }
+  70% { opacity: 0.72; filter: saturate(0.72) brightness(0.75); }
+  100% { opacity: 1; transform: scale(1); filter: saturate(0.78) brightness(0.8); }
+}
+
+@keyframes oasis-shards {
+  0% { opacity: 0; }
+  18%, 78% { opacity: 0.94; }
+  100% { opacity: 0; }
+}
+
+@keyframes oasis-shard-left {
+  0% { transform: translateX(-14%) rotateY(16deg); filter: hue-rotate(-12deg) saturate(0.6); }
+  100% { transform: translateX(0) rotateY(0); filter: hue-rotate(0) saturate(0.78); }
+}
+
+@keyframes oasis-shard-upper {
+  0% { transform: translateY(-14%) rotateX(-12deg); filter: hue-rotate(16deg) saturate(0.62); }
+  100% { transform: translateY(0) rotateX(0); filter: hue-rotate(0) saturate(0.78); }
+}
+
+@keyframes oasis-shard-lower {
+  0% { transform: translateY(16%) rotateX(12deg); filter: hue-rotate(-10deg) saturate(0.62); }
+  100% { transform: translateY(0) rotateX(0); filter: hue-rotate(0) saturate(0.78); }
+}
+
+@keyframes oasis-shard-right {
+  0% { transform: translateX(14%) rotateY(-16deg); filter: hue-rotate(14deg) saturate(0.6); }
+  100% { transform: translateX(0) rotateY(0); filter: hue-rotate(0) saturate(0.78); }
+}
+
+@keyframes oasis-tunnel-drive {
+  0% { opacity: 0.35; transform: scale(0.72); }
+  40% { opacity: 1; }
+  100% { opacity: 0; transform: scale(5.2); }
+}
+
+@keyframes oasis-bloom {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.1); }
+  42% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(5.8); }
+}
+
+@keyframes oasis-ending-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 720px), (max-aspect-ratio: 4 / 5) {
+  .matrix-oasis__destination {
+    background: #050711;
+  }
+
+  .matrix-oasis__destination::before {
+    position: absolute;
+    inset: -5%;
+    content: "";
+    background:
+      linear-gradient(rgba(3, 6, 17, 0.55), rgba(3, 6, 17, 0.82)),
+      url("../assets/matrix-oasis/matrix-oasis-final-900.webp") center / cover;
+    opacity: 0.68;
+    filter: blur(24px) saturate(0.7);
+    transform: scale(1.08);
+  }
+
+  .matrix-oasis__destination img,
+  .matrix-oasis--settled .matrix-oasis__destination img {
+    z-index: 1;
+    object-fit: contain;
+  }
+
+  .matrix-oasis__shard {
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+
+  .matrix-oasis__gate {
+    width: 78vw;
+  }
+
+  .matrix-oasis__ending {
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+    left: max(1rem, env(safe-area-inset-left));
+  }
+
+  .matrix-oasis__ending-title {
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .matrix-oasis__ending h1 {
+    font-size: 2rem;
+  }
+
+  .matrix-oasis__actions {
+    width: 100%;
+  }
+
+  .matrix-oasis__actions button,
+  .matrix-oasis__actions a {
+    flex: 1;
+  }
+
+  .matrix-oasis__intro {
+    width: calc(100% - 2rem);
+  }
+
+  .matrix-oasis__brand span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .matrix-oasis--playing .matrix-oasis__gateway {
+    animation: oasis-reduced-out 250ms linear both;
+  }
+
+  .matrix-oasis--playing .matrix-oasis__destination {
+    animation: oasis-reduced-in 250ms linear both;
+  }
+
+  .matrix-oasis--playing .matrix-oasis__shards,
+  .matrix-oasis--playing .matrix-oasis__tunnel,
+  .matrix-oasis--playing .matrix-oasis__floor,
+  .matrix-oasis--playing .matrix-oasis__bloom {
+    display: none;
+  }
+
+  @keyframes oasis-reduced-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes oasis-reduced-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}

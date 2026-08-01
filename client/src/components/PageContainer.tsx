@@ -8,6 +8,7 @@ interface PageContainerProps {
   children: ReactNode;
   className?: string;
   contentClassName?: string;
+  hideSidebar?: boolean;
   maxWidthClassName?: string;
   sidebar?: ReactNode;
 }
@@ -17,6 +18,7 @@ export default function PageContainer({
   children,
   className = "",
   contentClassName = "",
+  hideSidebar = false,
   maxWidthClassName = "max-w-[1480px]",
   sidebar,
 }: PageContainerProps) {
@@ -41,11 +43,15 @@ export default function PageContainer({
       <div
         className={`relative mx-auto w-full ${maxWidthClassName} px-4 py-6 sm:px-6 lg:px-8 lg:py-8`}
       >
-        <div className="mb-5 xl:hidden">
-          <SystemCapabilityBar compact />
-        </div>
+        {!hideSidebar ? (
+          <div className="mb-5 xl:hidden">
+            <SystemCapabilityBar compact />
+          </div>
+        ) : null}
 
-        {sidebar ? (
+        {hideSidebar ? (
+          <div className={`min-w-0 ${contentClassName}`}>{children}</div>
+        ) : sidebar ? (
           <div className="grid min-w-0 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
             <aside className="hidden xl:block">
               <div className="surface-panel sticky top-28 rounded-lg p-4">

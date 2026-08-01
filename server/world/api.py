@@ -10,7 +10,6 @@ Endpoints:
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -19,7 +18,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from .models import GeneratedWorld, WorldInput, WorldJob
+from .models import GeneratedAsset, WorldInput, WorldInputType
 from .providers.marble import MarbleProviderError
 from .registry import WorldRegistry
 from .store import WorldStore
@@ -33,11 +32,6 @@ SUPPORTED_EXTS = SUPPORTED_IMAGE_EXTS | SUPPORTED_VIDEO_EXTS
 
 _store = WorldStore()
 _provider_cache: dict[str, Any] = {}
-
-
-class WorldCreateRequest(BaseModel):
-    input_type: str = "image"  # image | multi_image | video
-    prompt: str | None = None
 
 
 class JobResponse(BaseModel):
@@ -90,22 +84,34 @@ def set_world_store_for_tests(store: WorldStore) -> None:
     _store = store
 
 
-def _validate_uploads(files: list[UploadFile], input_type: str) -> list[str]:
+def _validate_uploads(
+    files: list[UploadFile], input_type: WorldInputType
+) -> list[str]:
     """Validate file types/sizes and return their saved temp paths."""
 
     if not files:
         raise HTTPException(status_code=400, detail="请至少选择一个文件。")
-    if input_type in {"image", "multi_image"} and len(files) > 8:
+    if input_type in {"image", "video"} and len(files) != 1:
+        raise HTTPException(status_code=400, detail="单图或视频模式只能上传 1 个文件。")
+    if input_type == "multi_image" and len(files) > 8:
         raise HTTPException(status_code=400, detail="多图模式最多上传 8 张图片。")
 
     saved: list[str] = []
     for upload in files:
-        filename = upload.filename or "upload"
+        filename = Path((upload.filename or "upload").replace("\\", "/")).name
         ext = Path(filename).suffix.lstrip(".").lower()
-        if ext not in SUPPORTED_EXTS:
+        allowed_exts = (
+            SUPPORTED_IMAGE_EXTS
+            if input_type in {"image", "multi_image"}
+            else SUPPORTED_VIDEO_EXTS
+        )
+        if ext not in allowed_exts:
             raise HTTPException(
                 status_code=400,
-                detail=f"不支持的文件类型：.{ext}（支持 jpg/jpeg/png/webp/mp4/mov/webm/mkv/avi）。",
+                detail=(
+                    f"{input_type} 模式不支持 .{ext} 文件；"
+                    f"允许：{', '.join(sorted(allowed_exts))}。"
+                ),
             )
         content = upload.file.read(MAX_UPLOAD_BYTES + 1)
         if len(content) > MAX_UPLOAD_BYTES:
@@ -131,7 +137,7 @@ def _cleanup_temp(paths: list[str]) -> None:
 
 @router.post("", response_model=JobResponse)
 async def create_world_generation(
-    input_type: str = "image",
+    input_type: WorldInputType = "image",
     prompt: str | None = None,
     files: list[UploadFile] = File(...),
 ) -> JobResponse:
@@ -140,14 +146,15 @@ async def create_world_generation(
     try:
         provider = get_provider()
         world_input = WorldInput(
-            type=input_type,  # type: ignore[arg-type]
+            type=input_type,
             source_file_ids=[Path(p).name for p in saved_paths],
             prompt=prompt,
         )
         job = await provider.create_world(world_input, [Path(p) for p in saved_paths])
-        _store.save_job(job)
+        provider_name = active_provider_name()
+        _store.save_job(job, provider=provider_name)
         return JobResponse(
-            job_id=job.job_id, status=job.status, provider=active_provider_name()
+            job_id=job.job_id, status=job.status, provider=provider_name
         )
     except MarbleProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -187,9 +194,10 @@ async def get_world_generation(job_id: str) -> dict[str, Any]:
                     world = await provider.get_world(world_id)
                     _store.attach_world(job_id, world)
                     record = _store.get(job_id) or record
-        except Exception:
-            # Polling may fail transiently; return the stored record as-is.
-            pass
+        except MarbleProviderError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="世界生成状态暂时不可用。") from exc
 
     return record
 
@@ -201,3 +209,31 @@ async def get_world_assets(job_id: str) -> AssetsResponse:
         raise HTTPException(status_code=404, detail="生成任务不存在。")
     assets = record.get("assets", [])
     return AssetsResponse(assets=assets)
+
+
+@router.post("/{job_id}/exports/ply")
+async def export_world_ply(job_id: str) -> dict[str, Any]:
+    """Explicitly request a potentially billable PLY export."""
+
+    record = _store.get(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="生成任务不存在。")
+    if record.get("status") != "succeeded" or not record.get("world_id"):
+        raise HTTPException(status_code=409, detail="世界尚未生成完成。")
+    if record.get("provider") != "marble":
+        raise HTTPException(status_code=400, detail="当前生成服务不支持 PLY 导出。")
+
+    provider = get_provider()
+    try:
+        url = await provider.export_ply(record["world_id"])
+    except MarbleProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    asset = GeneratedAsset(
+        id=f"{record['world_id']}-ply",
+        kind="gaussian_splat",
+        format="ply",
+        url=url,
+    )
+    _store.add_asset(job_id, asset)
+    return {"asset": asset.model_dump()}

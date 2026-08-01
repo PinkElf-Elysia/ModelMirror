@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import FederationRouterCard from "../components/FederationRouterCard";
-import ModelCard from "../components/ModelCard";
+import ModelCard, {
+  type AudioCapabilityStatus,
+} from "../components/ModelCard";
 import PageContainer from "../components/PageContainer";
 import FilterPanel from "../components/filters/FilterPanel";
 import {
   defaultFilterState,
   type ModelFilterState,
 } from "../data/filterState";
-import { models } from "../data/models";
+import {
+  models,
+  type InputModality,
+  type Model,
+  type ModelOperation,
+} from "../data/models";
 import { recruitmentTheme } from "../theme/recruitmentTheme";
 import {
   deriveProviderFromModel,
@@ -18,12 +25,52 @@ function includesEvery<T>(values: T[], selected: T[]) {
   return selected.every((value) => values.includes(value));
 }
 
+function matchesWorkSkills(
+  model: Model,
+  selectedSkills: InputModality[],
+) {
+  return selectedSkills.every((skill) => {
+    if (skill === "file") {
+      return model.input_modalities.includes("file");
+    }
+    if (skill === "text") {
+      return (
+        model.input_modalities.includes("text") ||
+        model.output_modalities.includes("text")
+      );
+    }
+    if (skill === "image") {
+      return model.capabilities.includes("image");
+    }
+    if (skill === "audio") {
+      return model.capabilities.includes("audio");
+    }
+    if (skill === "video") {
+      return model.capabilities.includes("video");
+    }
+    return false;
+  });
+}
+
 function matchesAny<T>(value: T, selected: T[]) {
   return selected.length === 0 || selected.includes(value);
 }
 
 function isDefaultFilters(filters: ModelFilterState) {
   return JSON.stringify(filters) === JSON.stringify(defaultFilterState);
+}
+
+function createDefaultFilters(): ModelFilterState {
+  return {
+    ...defaultFilterState,
+    inputModalities: [],
+    contextRange: { ...defaultFilterState.contextRange },
+    promptPriceCnyRange: { ...defaultFilterState.promptPriceCnyRange },
+    series: [],
+    categories: [],
+    supportedParameters: [],
+    modelAuthors: [],
+  };
 }
 
 function countActiveFilters(filters: ModelFilterState) {
@@ -47,19 +94,166 @@ function countActiveFilters(filters: ModelFilterState) {
   return count;
 }
 
+interface VideoModelProfile {
+  model_id: string;
+  operation: "analyze_video" | "generate_video";
+}
+
+interface VideoCatalogPayload {
+  status: "online" | "stale" | "offline" | "disabled";
+  stale: boolean;
+  profiles: VideoModelProfile[];
+}
+
+interface AudioModelProfile {
+  model_id: string;
+  invocable: boolean;
+  interaction_status: "ready" | "planned" | "disabled";
+  status_reason: string | null;
+  operations: ModelOperation[];
+  price_per_generation_usd: number | null;
+  fixed_duration_seconds: number | null;
+  chat_modes: (
+    | "direct_audio_input"
+    | "native_streaming_audio_output"
+    | "transcribe"
+    | "synthesize_speech"
+  )[];
+}
+
+interface AudioCatalogPayload {
+  status: "online" | "stale" | "offline" | "disabled";
+  stale: boolean;
+  profiles: AudioModelProfile[];
+}
+
 export default function ModelListPage() {
   const [filters, setFilters] =
-    useState<ModelFilterState>(defaultFilterState);
+    useState<ModelFilterState>(createDefaultFilters);
   const [searchTerm, setSearchTerm] = useState("");
-  const [showRegionHint, setShowRegionHint] = useState(false);
+  const [videoCatalog, setVideoCatalog] =
+    useState<VideoCatalogPayload | null>(null);
+  const [audioCatalog, setAudioCatalog] =
+    useState<AudioCatalogPayload | null>(null);
 
   useEffect(() => {
     document.title = "模镜 - AI 牛马招聘会";
   }, []);
 
   useEffect(() => {
-    setShowRegionHint(navigator.language.toLowerCase().startsWith("zh"));
+    const controller = new AbortController();
+
+    void fetch("/api/multimodal/video/models", {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("video catalog unavailable");
+        }
+        return (await response.json()) as VideoCatalogPayload;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) {
+          setVideoCatalog(payload);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setVideoCatalog(null);
+        }
+      });
+
+    void fetch("/api/multimodal/audio/models", {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("audio catalog unavailable");
+        }
+        return (await response.json()) as AudioCatalogPayload;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) {
+          setAudioCatalog(payload);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setAudioCatalog(null);
+        }
+      });
+
+    return () => controller.abort();
   }, []);
+
+  const confirmedVideoOperations = useMemo(() => {
+    const result = new Map<string, ModelOperation[]>();
+    for (const profile of videoCatalog?.profiles ?? []) {
+      const current = result.get(profile.model_id) ?? [];
+      if (!current.includes(profile.operation)) {
+        current.push(profile.operation);
+      }
+      result.set(profile.model_id, current);
+    }
+    return result;
+  }, [videoCatalog]);
+
+  const confirmedAudioOperations = useMemo(() => {
+    const result = new Map<string, ModelOperation[]>();
+    for (const profile of audioCatalog?.profiles ?? []) {
+      if (
+        !profile.invocable ||
+        profile.interaction_status !== "ready"
+      ) {
+        continue;
+      }
+      const operations: ModelOperation[] = [];
+      if (profile.chat_modes.includes("direct_audio_input")) {
+        operations.push("analyze_audio");
+      }
+      if (profile.chat_modes.includes("transcribe")) {
+        operations.push("transcribe");
+      }
+      if (profile.chat_modes.includes("synthesize_speech")) {
+        operations.push("synthesize_speech");
+      }
+      if (profile.operations.includes("generate_audio")) {
+        operations.push("generate_audio");
+      }
+      if (profile.operations.includes("realtime_voice")) {
+        operations.push("realtime_voice");
+      }
+      if (operations.length > 0) {
+        result.set(profile.model_id, operations);
+      }
+    }
+    return result;
+  }, [audioCatalog]);
+
+  const audioCapabilityStatuses = useMemo(() => {
+    const result = new Map<string, AudioCapabilityStatus>();
+    for (const profile of audioCatalog?.profiles ?? []) {
+      const operations = profile.operations.filter(
+        (operation) =>
+          operation === "analyze_audio" ||
+          operation === "transcribe" ||
+          operation === "synthesize_speech" ||
+          operation === "generate_audio" ||
+          operation === "realtime_voice",
+      );
+      if (operations.length === 0) {
+        continue;
+      }
+      result.set(profile.model_id, {
+        status: profile.interaction_status,
+        operations,
+        reason: profile.status_reason,
+        pricePerGenerationUsd: profile.price_per_generation_usd,
+        fixedDurationSeconds: profile.fixed_duration_seconds,
+      });
+    }
+    return result;
+  }, [audioCatalog]);
 
   const seriesOptions = useMemo(
     () =>
@@ -107,7 +301,7 @@ export default function ModelListPage() {
       if (!providerFilterMatches(model, filters.provider)) {
         return false;
       }
-      if (!includesEvery(model.input_modalities, filters.inputModalities)) {
+      if (!matchesWorkSkills(model, filters.inputModalities)) {
         return false;
       }
       if (!matchesAny(model.series, filters.series)) return false;
@@ -137,14 +331,23 @@ export default function ModelListPage() {
         return false;
       }
 
-      const inputPriceCny = model.price_cny.input;
-      if (inputPriceCny < filters.promptPriceCnyRange.min) return false;
-      if (
-        filters.promptPriceCnyRange.max <
-          defaultFilterState.promptPriceCnyRange.max &&
-        inputPriceCny > filters.promptPriceCnyRange.max
-      ) {
-        return false;
+      const usesExplicitPriceFilter =
+        filters.promptPriceCnyRange.min !==
+          defaultFilterState.promptPriceCnyRange.min ||
+        filters.promptPriceCnyRange.max !==
+          defaultFilterState.promptPriceCnyRange.max;
+      if (model.pricing_status === "dynamic") {
+        if (usesExplicitPriceFilter) return false;
+      } else {
+        const inputPriceCny = model.price_cny.input;
+        if (inputPriceCny < filters.promptPriceCnyRange.min) return false;
+        if (
+          filters.promptPriceCnyRange.max <
+            defaultFilterState.promptPriceCnyRange.max &&
+          inputPriceCny > filters.promptPriceCnyRange.max
+        ) {
+          return false;
+        }
       }
 
       return true;
@@ -152,10 +355,40 @@ export default function ModelListPage() {
   }, [filters, searchTerm]);
 
   function clearFilters() {
-    setFilters(defaultFilterState);
+    setFilters(createDefaultFilters());
+    setSearchTerm("");
   }
 
-  const activeFilterCount = countActiveFilters(filters);
+  const hasSearchTerm = searchTerm.trim().length > 0;
+  const hasActiveCriteria = hasSearchTerm || !isDefaultFilters(filters);
+  const activeFilterCount =
+    countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
+  const adaptedFilteredCount = filteredModels.filter(
+    (model) => {
+      const audioStatus = audioCapabilityStatuses.get(model.id);
+      const primaryAudioOperation =
+        model.primary_operation === "transcribe" ||
+        model.primary_operation === "synthesize_speech" ||
+        model.primary_operation === "generate_audio" ||
+        model.primary_operation === "realtime_voice";
+      if (primaryAudioOperation && audioStatus) {
+        return audioStatus.status !== "planned";
+      }
+      return (
+        model.interaction_status === "ready" ||
+        Boolean(confirmedAudioOperations.get(model.id)?.length) ||
+        Boolean(
+          confirmedVideoOperations
+            .get(model.id)
+            ?.some(
+              (operation) =>
+                operation === "analyze_video" ||
+                operation === "generate_video",
+            ),
+        )
+      );
+    },
+  ).length;
   const featuredModels = filteredModels.slice(0, 2);
   const galleryModels = filteredModels.slice(featuredModels.length);
 
@@ -166,12 +399,15 @@ export default function ModelListPage() {
         <div>
           <p className="text-sm font-semibold text-white">资源分区</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            模型招聘会展示可直接进入面试间的大模型候选人。
+            浏览模型能力，并进入当前已适配的对话或资料库入口。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">当前可面试</p>
+            <p className="text-xs text-slate-400">已完成适配</p>
             <p className="mt-1 text-sm font-semibold text-hire-100">
-              {filteredModels.length} / {models.length}
+              {adaptedFilteredCount} / {filteredModels.length}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              是否已启用，请以模型卡片状态为准。
             </p>
           </div>
         </div>
@@ -206,9 +442,9 @@ export default function ModelListPage() {
               <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 text-center text-xs">
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-hire-100">
-                    {filteredModels.length}
+                    {adaptedFilteredCount}
                   </p>
-                  <p className="mt-1 truncate text-slate-400">可面试</p>
+                  <p className="mt-1 truncate text-slate-400">已适配</p>
                 </div>
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-accent-100">
@@ -240,7 +476,7 @@ export default function ModelListPage() {
               />
             </label>
 
-            {!isDefaultFilters(filters) ? (
+            {hasActiveCriteria ? (
               <button
                 className="h-12 rounded-full border border-white/10 bg-white/[0.07] px-5 text-sm font-semibold text-slate-100 transition duration-200 hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 active:scale-[0.98]"
                 onClick={clearFilters}
@@ -252,12 +488,6 @@ export default function ModelListPage() {
           </div>
         </header>
 
-        {showRegionHint ? (
-          <div className="mt-5 rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-50 shadow-[0_12px_40px_rgba(251,146,60,0.10)]">
-            服务台提醒：您所在地区部分海外模型可能无法使用。推荐优先面试 DeepSeek、Qwen、Moonshot、智谱 GLM 等国内可用候选人；若遇到地区限制，面试间会提供一键切换入口。
-          </div>
-        ) : null}
-
         <section className="mt-6">
           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -267,11 +497,11 @@ export default function ModelListPage() {
               </p>
             </div>
             <p className="text-sm text-slate-400">
-              当前可面试{" "}
+              当前展示{" "}
               <span className="font-semibold text-white">
                 {filteredModels.length}
               </span>{" "}
-              位候选人
+              位候选人，其中 {adaptedFilteredCount} 位已完成适配
             </p>
           </div>
 
@@ -280,7 +510,6 @@ export default function ModelListPage() {
             matchingCount={filteredModels.length}
             modelAuthorOptions={modelAuthorOptions}
             onChange={setFilters}
-            onClear={clearFilters}
             seriesOptions={seriesOptions}
             totalCount={models.length}
           />
@@ -295,7 +524,20 @@ export default function ModelListPage() {
                     className="animate-soft-rise"
                     key={`featured-${model.id}`}
                   >
-                    <ModelCard model={model} />
+                    <ModelCard
+                      audioCatalogStale={audioCatalog?.stale ?? false}
+                      audioCapabilityStatus={
+                        audioCapabilityStatuses.get(model.id)
+                      }
+                      confirmedAudioOperations={
+                        confirmedAudioOperations.get(model.id)
+                      }
+                      confirmedVideoOperations={
+                        confirmedVideoOperations.get(model.id)
+                      }
+                      model={model}
+                      videoCatalogStale={videoCatalog?.stale ?? false}
+                    />
                   </div>
                 ))
               : null}
@@ -304,7 +546,21 @@ export default function ModelListPage() {
           {filteredModels.length > 0 ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {galleryModels.map((model) => (
-                <ModelCard key={model.id} model={model} />
+                <ModelCard
+                  audioCatalogStale={audioCatalog?.stale ?? false}
+                  audioCapabilityStatus={
+                    audioCapabilityStatuses.get(model.id)
+                  }
+                  confirmedAudioOperations={
+                    confirmedAudioOperations.get(model.id)
+                  }
+                  confirmedVideoOperations={
+                    confirmedVideoOperations.get(model.id)
+                  }
+                  key={model.id}
+                  model={model}
+                  videoCatalogStale={videoCatalog?.stale ?? false}
+                />
               ))}
             </div>
           ) : (

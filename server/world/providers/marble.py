@@ -79,9 +79,7 @@ class MarbleWorldProvider(WorldProvider):
         self.api_base = api_base.rstrip("/")
         self.api_key = api_key or os.getenv("WORLD_LABS_API_KEY", "").strip()
         self._client = client or httpx.AsyncClient(timeout=120)
-        # Inject the auth header up front so every request (create_world,
-        # get_job_status, get_world_id, get_world, export_ply) is authenticated.
-        self._client.headers.update({"WLT-Api-Key": self.api_key})
+        self._auth_headers = {"WLT-Api-Key": self.api_key}
         # world_id -> ply_url ("" = tried and failed) to avoid duplicate paid exports.
         self._ply_cache: dict[str, str] = {}
 
@@ -92,10 +90,14 @@ class MarbleWorldProvider(WorldProvider):
         prep = await self._client.post(
             f"{self.api_base}/marble/v1/media-assets:prepare_upload",
             json={"file_name": path.name, "kind": kind, "extension": extension},
+            headers=self._auth_headers,
         )
         self._raise_for_status(prep, "media asset prepare_upload")
         body = prep.json()
-        media_asset_id = body["media_asset"]["media_asset_id"]
+        media_asset = body.get("media_asset", {})
+        media_asset_id = media_asset.get("media_asset_id") or media_asset.get("id")
+        if not media_asset_id:
+            raise MarbleProviderError("Marble 上传准备响应缺少 media asset id。")
         upload_url = body["upload_info"]["upload_url"]
         required_headers = body["upload_info"].get("required_headers", {})
 
@@ -155,6 +157,7 @@ class MarbleWorldProvider(WorldProvider):
         resp = await self._client.post(
             f"{self.api_base}/marble/v1/worlds:generate",
             json=payload,
+            headers=self._auth_headers,
         )
         self._raise_for_status(resp, "worlds:generate")
         data = resp.json()
@@ -169,7 +172,8 @@ class MarbleWorldProvider(WorldProvider):
     # ------------------------------------------------------------------
     async def get_job_status(self, provider_job_id: str) -> WorldStatus:
         resp = await self._client.get(
-            f"{self.api_base}/marble/v1/operations/{provider_job_id}"
+            f"{self.api_base}/marble/v1/operations/{provider_job_id}",
+            headers=self._auth_headers,
         )
         self._raise_for_status(resp, "operations/{id}")
         data = resp.json()
@@ -185,7 +189,8 @@ class MarbleWorldProvider(WorldProvider):
     # ------------------------------------------------------------------
     async def get_world_id(self, provider_job_id: str) -> str | None:
         resp = await self._client.get(
-            f"{self.api_base}/marble/v1/operations/{provider_job_id}"
+            f"{self.api_base}/marble/v1/operations/{provider_job_id}",
+            headers=self._auth_headers,
         )
         self._raise_for_status(resp, "operations/{id}")
         data = resp.json()
@@ -193,7 +198,12 @@ class MarbleWorldProvider(WorldProvider):
             return None
         response = data.get("response")
         if isinstance(response, dict):
-            return response.get("world_id")
+            world_id = response.get("world_id") or response.get("id")
+            if world_id:
+                return str(world_id)
+        metadata = data.get("metadata")
+        if isinstance(metadata, dict) and metadata.get("world_id"):
+            return str(metadata["world_id"])
         return None
 
     # ------------------------------------------------------------------
@@ -203,13 +213,15 @@ class MarbleWorldProvider(WorldProvider):
         self,
         provider_world_id: str,
         *,
-        include_ply: bool = True,
+        include_ply: bool = False,
     ) -> GeneratedWorld:
         resp = await self._client.get(
-            f"{self.api_base}/marble/v1/worlds/{provider_world_id}"
+            f"{self.api_base}/marble/v1/worlds/{provider_world_id}",
+            headers=self._auth_headers,
         )
         self._raise_for_status(resp, "worlds/{id}")
-        data = resp.json()
+        raw = resp.json()
+        data = raw.get("world", raw)
         assets = data.get("assets", {})
 
         asset_list: list[GeneratedAsset] = []
@@ -251,7 +263,7 @@ class MarbleWorldProvider(WorldProvider):
                     )
                 )
 
-        cost = data.get("cost") or {}
+        cost = data.get("cost") or raw.get("cost") or {}
         credits = cost.get("total_credits") if isinstance(cost, dict) else None
 
         return GeneratedWorld(
@@ -286,7 +298,7 @@ class MarbleWorldProvider(WorldProvider):
             return None
 
     async def list_assets(self, provider_world_id: str) -> list[GeneratedAsset]:
-        world = await self.get_world(provider_world_id)
+        world = await self.get_world(provider_world_id, include_ply=False)
         return world.assets
 
     # ------------------------------------------------------------------
@@ -296,6 +308,7 @@ class MarbleWorldProvider(WorldProvider):
         resp = await self._client.post(
             f"{self.api_base}/marble/v1/worlds/{provider_world_id}:export",
             json={"asset_type": "splats", "format": "ply", "resolution": "full_res"},
+            headers=self._auth_headers,
         )
         self._raise_for_status(resp, "worlds:export")
         data = resp.json()
@@ -315,7 +328,8 @@ class MarbleWorldProvider(WorldProvider):
         while True:
             await asyncio_sleep(wait)
             resp = await self._client.get(
-                f"{self.api_base}/marble/v1/operations/{operation_id}"
+                f"{self.api_base}/marble/v1/operations/{operation_id}",
+                headers=self._auth_headers,
             )
             self._raise_for_status(resp, "operations/{id}")
             data = resp.json()

@@ -1,4 +1,114 @@
 services:
+  browser:
+    build:
+      context: ./server/browser_sidecar
+    container_name: modelmirror-browser
+    networks:
+      - browser_egress
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    shm_size: 256m
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m
+      - /home/pwuser:rw,nosuid,size=128m
+    environment:
+      BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
+      BROWSER_DATA_ROOT: /browser-data
+      SANDBOX_WORKSPACE_ROOT: /sandbox-workspaces
+      # Docker Desktop/VPN DNS may map public hostnames into the RFC 2544 Fake-IP range.
+      # Literal access to that range remains blocked by the sidecar policy.
+      BROWSER_ALLOW_SYNTHETIC_DNS: "true"
+    volumes:
+      - browser_socket:/run/modelmirror-browser
+      - browser_data:/browser-data
+      - sandbox_workspaces:/sandbox-workspaces:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const n=require('net');const s=n.createConnection('/run/modelmirror-browser/browser.sock');s.on('connect',()=>s.write('{\"action\":\"health\"}\\n'));s.on('data',d=>{const x=JSON.parse(d);process.exit(x.ok?0:1)});s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),3000)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  sandbox:
+    build:
+      context: ./server/sandbox_sidecar
+    container_name: modelmirror-sandbox
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m
+    volumes:
+      - sandbox_socket:/run/modelmirror-sandbox
+      - sandbox_workspaces:/workspaces
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-sandbox/sandbox.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  omniroute:
+    image: diegosouzapw/omniroute:3.8.48@sha256:badb560971fdc23c2fb84b3e8695116239ff215b4cca4b07076201a8efae7f0d
+    container_name: modelmirror-omniroute
+    profiles:
+      - omniroute
+    restart: unless-stopped
+    stop_grace_period: 40s
+    ports:
+      - "127.0.0.1:20128:20128"
+    volumes:
+      - omniroute-data:/app/data
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "20128"
+      JWT_SECRET: ${OMNIROUTE_JWT_SECRET:-}
+      API_KEY_SECRET: ${OMNIROUTE_API_KEY_SECRET:-}
+      INITIAL_PASSWORD: ${OMNIROUTE_INITIAL_PASSWORD:-}
+      STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY:-}
+      OMNIROUTE_WS_BRIDGE_SECRET: ${OMNIROUTE_WS_BRIDGE_SECRET:-}
+      REQUIRE_API_KEY: "true"
+      ALLOW_API_KEY_REVEAL: "false"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const required=['JWT_SECRET','API_KEY_SECRET','INITIAL_PASSWORD','STORAGE_ENCRYPTION_KEY','OMNIROUTE_WS_BRIDGE_SECRET'];if(required.some(k=>!process.env[k]))process.exit(1);fetch('http://localhost:20128/api/monitoring/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+
   new-api:
     image: calciumion/new-api:latest
     container_name: modelmirror-new-api
@@ -6,9 +116,12 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./new-api-data:/data
+      - ${MODELMIRROR_DATA_ROOT:-.}/new-api-data:/data
     environment:
       TZ: Asia/Shanghai
+    networks:
+      - default
+      - coding_internal
     healthcheck:
       test:
         [
@@ -25,23 +138,67 @@ services:
       context: ./server
     container_name: modelmirror-server
     depends_on:
+      browser:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
       new-api:
         condition: service_healthy
     env_file:
-      - ./server/.env
+      - path: ${MODELMIRROR_DATA_ROOT:-.}/server/.env
+        required: false
     environment:
       LLM_GATEWAY_URL: http://new-api:3000/v1/chat/completions
+      OMNIROUTE_BASE_URL: http://omniroute:20128
+      OMNIROUTE_ENABLED: ${OMNIROUTE_ENABLED:-false}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
+      MODEL_ROUTER_DEFAULT: ${MODEL_ROUTER_DEFAULT:-newapi}
+      OMNIROUTE_BUDGET_HEADERS_ENABLED: ${OMNIROUTE_BUDGET_HEADERS_ENABLED:-false}
+      MODEL_ROUTER_ENGINE: ${MODEL_ROUTER_ENGINE:-}
+      MODEL_ROUTER_CANARY_PERCENT: ${MODEL_ROUTER_CANARY_PERCENT:-0}
+      MODEL_ROUTER_TENANT_ID: ${MODEL_ROUTER_TENANT_ID:-local}
+      MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE: ${MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE:-false}
+      MODEL_ROUTER_STORAGE_DIR: /app/model_router/storage
+      WORLD_PROVIDER: ${WORLD_PROVIDER:-mock}
+      WORLD_LABS_API_KEY: ${WORLD_LABS_API_KEY:-}
+      WORLD_STORAGE_DIR: /app/world/storage/world_records.json
+      MODELMIRROR_DEFAULT_TENANT_ID: ${MODELMIRROR_DEFAULT_TENANT_ID:-local}
       RAG_STORAGE_DIR: /app/rag/storage
       RAG_UPLOAD_DIR: /app/rag/uploads
       CHROMA_DB_PATH: /app/rag/storage/chroma_db
       SKILL_INSTALLED_DIR: /app/skills/installed
       SKILL_TMP_DIR: /app/skills/tmp
+      XPERT_STORAGE_DIR: /app/xperts/storage
+      AGENT_TASK_STORAGE_DIR: /app/xpert_runtime/storage
+      DATAX_STORAGE_DIR: /app/datax/storage
+      TOOLSET_STORAGE_DIR: /app/toolsets/storage
+      HANDOFF_EXECUTOR_ENABLED: "true"
+      HANDOFF_EXECUTOR_MAX_CONCURRENCY: "2"
+      GOAL_COORDINATOR_ENABLED: "true"
+      SANDBOX_SOCKET_PATH: /run/modelmirror-sandbox/sandbox.sock
+      SANDBOX_WORKSPACE_ROOT: /app/sandbox-workspaces
+      BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
+      BROWSER_DATA_ROOT: /app/browser-data
+      CODING_AGENT_ENABLED: ${CODING_AGENT_ENABLED:-false}
+      CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
+      CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
     ports:
       - "8000:8000"
     volumes:
-      - ./server/rag/storage:/app/rag/storage
-      - ./server/rag/uploads:/app/rag/uploads
-      - ./server/skills/installed:/app/skills/installed
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/rag/storage:/app/rag/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/rag/uploads:/app/rag/uploads
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/skills/installed:/app/skills/installed
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/xperts/storage:/app/xperts/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/xpert_runtime/storage:/app/xpert_runtime/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/datax/storage:/app/datax/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/toolsets/storage:/app/toolsets/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/model_router/storage:/app/model_router/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/world/storage:/app/world/storage
+      - sandbox_socket:/run/modelmirror-sandbox
+      - sandbox_workspaces:/app/sandbox-workspaces:ro
+      - browser_socket:/run/modelmirror-browser
+      - browser_data:/app/browser-data:ro
+      - coding_socket:/run/modelmirror-coding
     restart: unless-stopped
     healthcheck:
       test:
@@ -66,3 +223,131 @@ services:
     ports:
       - "5173:80"
     restart: unless-stopped
+
+  coding-runtime:
+    profiles:
+      - coding
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile
+    container_name: modelmirror-coding-runtime
+    depends_on:
+      new-api:
+        condition: service_healthy
+    networks:
+      - coding_internal
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /home/coding:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
+      - /workspace:rw,nosuid,noexec,size=256m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_AGENT_SOCKET_PATH: /run/modelmirror-coding/coding-runtime.sock
+      CODING_VERIFIER_SOCKET_PATH: /run/modelmirror-coding/verifier.sock
+      CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
+      CODING_AGENT_MODEL: ${CODING_AGENT_MODEL:-}
+      CODING_AGENT_GATEWAY_KEY: ${CODING_AGENT_GATEWAY_KEY:-}
+    volumes:
+      - coding_socket:/run/modelmirror-coding
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/coding-runtime.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  coding-verifier:
+    profiles:
+      - coding-verify
+    build:
+      context: .
+      dockerfile: server/coding_verifier/Dockerfile
+    container_name: modelmirror-coding-verifier
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 3g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+      - /home/verifier:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspace:rw,nosuid,noexec,size=1g,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_VERIFIER_SOCKET_PATH: /run/modelmirror-coding/verifier.sock
+    volumes:
+      - coding_socket:/run/modelmirror-coding
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/verifier.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  office-host:
+    profiles:
+      - office
+    build:
+      context: ./server
+      dockerfile: office_host/Dockerfile
+    container_name: modelmirror-office-host
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./server/office_host/certs:/certs:ro
+    user: "101:101"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/cache/nginx:rw,nosuid,size=16m,uid=101,gid=101,mode=0700
+      - /var/run:rw,nosuid,size=4m,uid=101,gid=101,mode=0700
+      - /tmp:rw,nosuid,size=8m
+    restart: unless-stopped
+
+volumes:
+  omniroute-data:
+  sandbox_socket:
+  sandbox_workspaces:
+  browser_socket:
+  browser_data:
+  coding_socket:
+
+networks:
+  browser_egress:
+    driver: bridge
+  coding_internal:
+    driver: bridge
+    internal: true

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import McpServerCard, {
   type McpSessionSummary,
 } from "../components/McpServerCard";
@@ -116,6 +117,12 @@ export default function McpBrowserPage() {
           >
             刷新连接状态
           </button>
+          <Link
+            className="mt-2 block w-full rounded-full border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-center text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
+            to="/toolsets?tab=mcp"
+          >
+            管理 Toolset
+          </Link>
         </div>
       }
     >

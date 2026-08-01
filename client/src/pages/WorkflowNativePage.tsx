@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import { DEFAULT_CHAT_MODEL_ID } from "../context/ModelPreferenceContext";
 import type {
   NativeValidateResponse,
   NativeWorkflowDefinition,
@@ -34,7 +35,7 @@ function createNativeSample(withCycle = false): NativeWorkflowDefinition {
           kind: "llm",
           title: "LLM",
           description: "Draft a response from the input.",
-          modelId: "openai/gpt-4o-mini",
+          modelId: DEFAULT_CHAT_MODEL_ID,
           prompt: "请基于 {{user_input}} 给出清晰回答。",
           outputVariable: "llm_output",
         },
@@ -138,7 +139,7 @@ export default function WorkflowNativePage() {
         <div>
           <p className="text-sm font-semibold text-white">workflow-native</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            这是自研工作流的隔离实验入口。稳定工作流仍由 Dify 的 /workflow 提供。
+            这是自研工作流的隔离实验入口。稳定工作流由经典自研画布 /workflow 提供。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
             <p className="text-xs text-slate-400">当前草稿</p>
@@ -150,7 +151,7 @@ export default function WorkflowNativePage() {
             className="mt-4 inline-flex rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1.5 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/20"
             to="/workflow"
           >
-            返回 Dify 稳定版
+            返回经典工作流
           </Link>
         </div>
       }
@@ -163,7 +164,7 @@ export default function WorkflowNativePage() {
               自研工作流 Native 校验台
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
-              本页只验证工作流图结构，不执行 LLM、Tool 或 RAG。它和 Dify 稳定入口并行存在，方便逐步替换而不影响主流程。
+              本页只验证工作流图结构，不执行 LLM、Tool 或 RAG。它和经典画布并行存在，方便逐步增强而不影响主流程。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -177,7 +178,7 @@ export default function WorkflowNativePage() {
               className="rounded-full border border-white/10 bg-white/[0.045] px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
               to="/workflow"
             >
-              打开 Dify 稳定版
+              打开经典工作流
             </Link>
           </div>
         </div>
