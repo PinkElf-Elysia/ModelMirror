@@ -447,6 +447,8 @@ class CodingWorkerServer:
         revision = request.get("revision")
         patch = request.get("patch")
         paths = request.get("paths")
+        base_patch = request.get("base_patch", "")
+        base_paths = request.get("base_paths", [])
         expected_fingerprint = request.get("snapshot_fingerprint")
         verification = request.get("verification")
         if (
@@ -458,6 +460,10 @@ class CodingWorkerServer:
             or not paths
             or not all(isinstance(path, str) for path in paths)
             or tuple(paths) != tuple(sorted(set(paths)))
+            or not isinstance(base_patch, str)
+            or not isinstance(base_paths, list)
+            or not all(isinstance(path, str) for path in base_paths)
+            or tuple(base_paths) != tuple(sorted(set(base_paths)))
             or not isinstance(expected_fingerprint, str)
         ):
             raise CodingWorkerProtocolError(
@@ -496,8 +502,10 @@ class CodingWorkerServer:
             )
             try:
                 workspace.initialize()
-                report = workspace.restore_from_patch(
-                    patch,
+                report = workspace.restore_incremental(
+                    base_patch=base_patch,
+                    base_paths=tuple(base_paths),
+                    patch=patch,
                     revision=revision,
                     expected_paths=tuple(paths),
                 )
@@ -563,6 +571,8 @@ class CodingWorkerServer:
         await self._refresh_verification(record)
         report = record.workspace.changes()
         patch = "".join(item.diff for item in report.files)
+        cumulative = record.workspace.cumulative_changes()
+        cumulative_patch = "".join(item.diff for item in cumulative.files)
         verification = record.verification
         if verification is not None and (
             verification.get("state") != VerificationState.COMPLETED.value
@@ -583,6 +593,9 @@ class CodingWorkerServer:
                 "snapshot_fingerprint": self._source_fingerprint,
                 "changes": report.to_dict(),
                 "patch": patch,
+                "base_patch": record.workspace.cycle_patch,
+                "cumulative_changes": cumulative.to_dict(),
+                "cumulative_patch": cumulative_patch,
                 "verification": verification,
             },
         )
@@ -1255,6 +1268,8 @@ class CodingWorkerClient:
         paths: list[str],
         snapshot_fingerprint: str,
         verification: dict[str, Any] | None = None,
+        base_patch: str = "",
+        base_paths: list[str] | None = None,
     ) -> dict[str, Any]:
         result = await self._request(
             {
@@ -1262,6 +1277,8 @@ class CodingWorkerClient:
                 "revision": revision,
                 "patch": patch,
                 "paths": paths,
+                "base_patch": base_patch,
+                "base_paths": base_paths or [],
                 "snapshot_fingerprint": snapshot_fingerprint,
                 "verification": verification,
             },
@@ -1285,6 +1302,9 @@ class CodingWorkerClient:
             not isinstance(result.get("snapshot_fingerprint"), str)
             or not isinstance(result.get("changes"), dict)
             or not isinstance(result.get("patch"), str)
+            or not isinstance(result.get("base_patch"), str)
+            or not isinstance(result.get("cumulative_changes"), dict)
+            or not isinstance(result.get("cumulative_patch"), str)
             or (
                 result.get("verification") is not None
                 and not isinstance(result.get("verification"), dict)

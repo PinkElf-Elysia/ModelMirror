@@ -204,6 +204,7 @@ class DraftWorkspace:
         self._revision = 0
         self._committed_fingerprint = ""
         self._cycle_overrides: dict[str, bytes] = {}
+        self._cycle_patch = ""
         self._turn_active = False
         self._initialized = False
 
@@ -219,6 +220,7 @@ class DraftWorkspace:
         self._clear_tree(self.checkpoint_root)
         self._revision = 0
         self._cycle_overrides = {}
+        self._cycle_patch = ""
         self._committed_fingerprint = self._fingerprint(())
         self._turn_active = False
         self._initialized = True
@@ -321,6 +323,7 @@ class DraftWorkspace:
         cumulative = self.cumulative_changes()
         if not cumulative.can_download:
             raise DraftValidationError("validation_failed")
+        self._cycle_patch = "".join(item.diff for item in cumulative.files)
         self._cycle_overrides = {
             candidate.path: candidate.new_text.encode("utf-8")
             for candidate in self._scan_cumulative_candidates()
@@ -328,6 +331,78 @@ class DraftWorkspace:
         self._committed_fingerprint = self._fingerprint(())
         self._clear_tree(self.checkpoint_root)
         return self.validate()
+
+    @property
+    def cycle_patch(self) -> str:
+        self._ensure_initialized()
+        return self._cycle_patch
+
+    def restore_incremental(
+        self,
+        *,
+        base_patch: str,
+        base_paths: tuple[str, ...],
+        patch: str,
+        revision: int,
+        expected_paths: tuple[str, ...],
+    ) -> DraftReport:
+        """Restore a trusted checkpoint and the one active incremental draft."""
+
+        self._ensure_initialized()
+        if self._turn_active or isinstance(revision, bool) or revision < 1:
+            raise DraftRevisionError("invalid_revision")
+        from .patch_policy import PatchPolicyError, validate_patch
+
+        try:
+            safe_base_paths = (
+                validate_patch(base_patch, expected_paths=base_paths, limits=self.limits)
+                if base_patch
+                else ()
+            )
+            safe_paths = (
+                validate_patch(patch, expected_paths=expected_paths, limits=self.limits)
+                if patch
+                else ()
+            )
+        except PatchPolicyError as exc:
+            raise DraftPolicyError("recovery_patch_invalid") from exc
+        if bool(base_patch) != bool(base_paths) or bool(patch) != bool(expected_paths):
+            raise DraftPolicyError("recovery_patch_invalid")
+
+        self._reset_workspace_from(self.source_root)
+        self._make_tree_writable(self.workspace_root)
+        self._cycle_overrides = {}
+        try:
+            if base_patch:
+                self._apply_recovery_patch(base_patch, safe_base_paths)
+                base_candidates = self._scan_cumulative_candidates()
+                if "".join(item.diff for item in base_candidates) != base_patch:
+                    raise DraftPolicyError("recovery_patch_mismatch")
+                self._cycle_overrides = {
+                    item.path: item.new_text.encode("utf-8")
+                    for item in base_candidates
+                }
+                self._cycle_patch = base_patch
+            if patch:
+                self._apply_recovery_patch(patch, safe_paths)
+            candidates = self._scan_candidates()
+            if tuple(item.path for item in candidates) != safe_paths:
+                raise DraftPolicyError("recovery_patch_mismatch")
+            if "".join(item.diff for item in candidates) != patch:
+                raise DraftPolicyError("recovery_patch_mismatch")
+            self._scan_cumulative_candidates()
+            self._revision = revision
+            self._committed_fingerprint = self._fingerprint(candidates)
+            self._turn_active = False
+            return self._report(candidates)
+        except Exception:
+            self._reset_workspace_from(self.source_root)
+            self._make_tree_writable(self.workspace_root)
+            self._cycle_overrides = {}
+            self._cycle_patch = ""
+            self._revision = 0
+            self._committed_fingerprint = self._fingerprint(())
+            raise
 
     def restore_from_patch(
         self,
@@ -371,6 +446,7 @@ class DraftWorkspace:
                 raise DraftPolicyError("recovery_patch_mismatch")
             self._revision = revision
             self._cycle_overrides = {}
+            self._cycle_patch = ""
             self._committed_fingerprint = self._fingerprint(candidates)
             self._turn_active = False
             return self._report(candidates)
@@ -380,6 +456,7 @@ class DraftWorkspace:
             self._clear_tree(self.checkpoint_root)
             self._revision = 0
             self._cycle_overrides = {}
+            self._cycle_patch = ""
             self._committed_fingerprint = self._fingerprint(())
             self._turn_active = False
             raise
@@ -403,6 +480,7 @@ class DraftWorkspace:
         self._turn_active = False
         self._initialized = False
         self._cycle_overrides = {}
+        self._cycle_patch = ""
 
     @staticmethod
     def normalize_relative_path(path: str) -> str:
@@ -631,17 +709,22 @@ class DraftWorkspace:
             raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
 
         source_path = self.source_root / expected_path
+        override = self._cycle_overrides.get(expected_path)
+        baseline_exists = override is not None or source_path.is_file()
         is_added = old_header == "--- /dev/null"
         if is_added:
-            if source_path.exists() or not any(
+            if baseline_exists or not any(
                 line.rstrip("\r\n") == "new file mode 100644" for line in section
             ):
                 raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
             old_text = ""
         else:
-            if old_header != f"--- a/{expected_path}" or not source_path.is_file():
+            if old_header != f"--- a/{expected_path}" or not baseline_exists:
                 raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
-            old_text = self._decode_text(source_path.read_bytes(), expected_path)
+            old_text = self._decode_text(
+                override if override is not None else source_path.read_bytes(),
+                expected_path,
+            )
 
         hunk_indexes = [
             index for index, line in enumerate(section) if line.startswith("@@ ")
