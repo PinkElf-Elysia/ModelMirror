@@ -23,6 +23,7 @@ import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import CodingChangesPanel from "../components/CodingChangesPanel";
+import CodingHistoryPanel from "../components/CodingHistoryPanel";
 import CodingRecoveryCard, {
   type CodingRecoveryAction,
 } from "../components/CodingRecoveryCard";
@@ -31,6 +32,7 @@ import type {
   CodingApplyResult,
   CodingCapabilities,
   CodingCommitResult,
+  CodingCycleHistory,
   CodingDraftChanges,
   CodingEvent,
   CodingPlanEntry,
@@ -43,6 +45,7 @@ import {
   cancelCodingVerification,
   closeCodingSession,
   commitCodingChanges,
+  continueCodingSession,
   CodingApiError,
   connectCodingEvents,
   createCodingSession,
@@ -52,6 +55,7 @@ import {
   getCodingApplyStatus,
   getCodingChanges,
   getCodingCommitStatus,
+  getCodingHistory,
   getCodingPatch,
   getCodingRecovery,
   getCodingRecoveryPatch,
@@ -263,6 +267,7 @@ export default function CodingPage() {
     null,
   );
   const [commitError, setCommitError] = useState("");
+  const [cycleHistory, setCycleHistory] = useState<CodingCycleHistory | null>(null);
   const [recovery, setRecovery] = useState<CodingRecoveryStatus | null>(null);
   const [recoveryAction, setRecoveryAction] =
     useState<CodingRecoveryAction>("idle");
@@ -312,6 +317,7 @@ export default function CodingPage() {
       setApplyError("");
       setCommitResult(null);
       setCommitError("");
+      setCycleHistory(null);
       setRecoveredState(null);
       setRecoveryConflict(null);
       setRunState("idle");
@@ -495,6 +501,19 @@ export default function CodingPage() {
     [resetExpiredSession],
   );
 
+  const refreshCycleHistory = useCallback(async (activeSessionId: string) => {
+    try {
+      setCycleHistory(await getCodingHistory(activeSessionId));
+    } catch (requestError) {
+      if (
+        !(requestError instanceof CodingApiError) ||
+        !["session_not_found", "incremental_unavailable"].includes(requestError.code)
+      ) {
+        setDraftError(describeError(requestError));
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (
       !isDraftMode ||
@@ -514,6 +533,14 @@ export default function CodingPage() {
     serviceAvailable,
     sessionId,
   ]);
+
+  useEffect(() => {
+    if (!isDraftMode || !sessionId || capabilities?.incremental?.enabled !== true) {
+      setCycleHistory(null);
+      return;
+    }
+    void refreshCycleHistory(sessionId);
+  }, [capabilities?.incremental?.enabled, isDraftMode, refreshCycleHistory, sessionId]);
 
   useEffect(() => {
     if (!isDraftMode || !sessionId || !draftChanges?.files.length) {
@@ -906,6 +933,7 @@ export default function CodingPage() {
         message,
       );
       setCommitResult(result);
+      await refreshCycleHistory(sessionId);
       setDraftNotice("已创建本地提交，只保存在专用项目副本中，不会上传。");
     } catch (requestError) {
       try {
@@ -917,6 +945,36 @@ export default function CodingPage() {
       }
       throw requestError;
     }
+  };
+
+  const continueAfterCommit = async () => {
+    if (!sessionId || !draftChanges || !commitResult?.commit_id) return;
+    setCommitError("");
+    const history = await continueCodingSession(
+      sessionId,
+      draftChanges.revision,
+      commitResult.commit_id,
+    );
+    setCycleHistory(history);
+    setDraftChanges(await getCodingChanges(sessionId));
+    setVerification(null);
+    setApplyResult(null);
+    setCommitResult(null);
+    setRecoveredState(null);
+    setEvents([]);
+    setDraftNotice(`已开始第 ${history.active_cycle} 轮修改，此前保存的本地版本不会改变。`);
+    window.requestAnimationFrame(() => promptRef.current?.focus());
+  };
+
+  const downloadCumulativeDraft = async () => {
+    if (!sessionId || !draftChanges) return;
+    const { blob, filename } = await getCodingPatch(
+      sessionId,
+      draftChanges.revision,
+      "cumulative",
+    );
+    downloadFile(blob, filename);
+    setDraftNotice("已下载这项任务的全部修改。");
   };
 
   const undoAppliedCommit = async () => {
@@ -1402,6 +1460,11 @@ export default function CodingPage() {
                 onApply={applyDraft}
                 onClose={closeAppliedSession}
                 onCommit={commitAppliedDraft}
+                onContinue={
+                  capabilities?.incremental?.available && cycleHistory?.can_continue
+                    ? continueAfterCommit
+                    : undefined
+                }
                 onDiscard={discardDraft}
                 onDownload={downloadDraft}
                 onCancelVerification={stopVerification}
@@ -1414,6 +1477,11 @@ export default function CodingPage() {
                 verification={verification}
                 verificationAvailable={verificationAvailable}
                 verificationError={verificationError}
+              />
+              <CodingHistoryPanel
+                disabled={isBusy}
+                history={cycleHistory}
+                onDownloadAll={downloadCumulativeDraft}
               />
             </div>
           ) : null}

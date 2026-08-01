@@ -3,6 +3,7 @@ import type {
   CodingApplyResult,
   CodingCapabilities,
   CodingCommitResult,
+  CodingCycleHistory,
   CodingDraftChanges,
   CodingEvent,
   CodingPatchDownload,
@@ -173,9 +174,10 @@ export function discardCodingChanges(sessionId: string) {
 export async function getCodingPatch(
   sessionId: string,
   revision: number,
+  scope: "current" | "cumulative" = "current",
 ): Promise<CodingPatchDownload> {
   const response = await fetch(
-    `/api/coding/sessions/${encodeURIComponent(sessionId)}/patch?revision=${revision}`,
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/patch?revision=${revision}&scope=${scope}`,
     { headers: { Accept: "text/x-diff" } },
   );
   if (!response.ok) {
@@ -186,6 +188,26 @@ export async function getCodingPatch(
     disposition.match(/filename="([^"]+)"/)?.[1] ??
     `modelmirror-changes-r${revision}.patch`;
   return { blob: await response.blob(), filename };
+}
+
+export function getCodingHistory(sessionId: string) {
+  return requestJson<CodingCycleHistory>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/history`,
+  );
+}
+
+export function continueCodingSession(
+  sessionId: string,
+  revision: number,
+  commitId: string,
+) {
+  return requestJson<CodingCycleHistory>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/continue`,
+    {
+      method: "POST",
+      body: JSON.stringify({ revision, commit_id: commitId }),
+    },
+  );
 }
 
 export function startCodingVerification(
