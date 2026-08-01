@@ -1376,6 +1376,8 @@ class CodingService:
                 state=record.commit_state,
                 reason=record.commit_reason,
             )
+            if record.commit_message is not None:
+                payload["message"] = record.commit_message
         return {
             **payload,
             "started_at": record.commit_started_at,
