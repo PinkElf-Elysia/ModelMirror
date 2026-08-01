@@ -232,6 +232,86 @@ class CodingApplierEngine:
             self._record_health(available=True)
             return receipt
 
+    def reconcile(
+        self,
+        *,
+        operation_id: str,
+        revision: int,
+        patch: str,
+        paths: Sequence[str],
+        expected_fingerprint: str,
+    ) -> tuple[str, ApplyReceipt | None]:
+        """Inspect an interrupted application without mutating the target."""
+
+        if not APPLY_ID_PATTERN.fullmatch(operation_id):
+            raise CodingApplyError(
+                "Apply operation id is invalid.",
+                code="invalid_request",
+            )
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+            raise CodingApplyError(
+                "Apply revision is invalid.",
+                code="invalid_request",
+            )
+        try:
+            safe_paths = validate_patch(
+                patch,
+                expected_paths=paths,
+                limits=self.limits,
+            )
+        except PatchPolicyError as exc:
+            raise CodingApplyError(str(exc), code=exc.code) from exc
+        if expected_fingerprint != self.source_fingerprint:
+            raise CodingApplyError(
+                "Apply snapshot does not match the source.",
+                code="snapshot_mismatch",
+            )
+
+        patch_sha256 = _sha256(patch.encode("utf-8"))
+        with self._lock:
+            previous = self._operations.get(operation_id)
+            if previous is not None and (
+                previous.revision != revision
+                or previous.snapshot_fingerprint != expected_fingerprint
+                or previous.patch_sha256 != patch_sha256
+                or previous.paths != safe_paths
+            ):
+                raise CodingApplyError(
+                    "Apply operation was reused with different input.",
+                    code="operation_conflict",
+                )
+            try:
+                self._assert_target_matches_baseline()
+            except CodingApplyError:
+                pass
+            else:
+                self._record_health(available=True)
+                return "not_applied", None
+
+            try:
+                self._prepare_staging(patch)
+                receipt = self._build_receipt(
+                    operation_id=operation_id,
+                    revision=revision,
+                    paths=safe_paths,
+                )
+                self._assert_target_matches_receipt(receipt)
+            except CodingApplyError:
+                self._record_health(available=False, reason="recovery_conflict")
+                return "conflict", None
+            finally:
+                self._clear_staging()
+
+            self._operations[operation_id] = _Operation(
+                revision=revision,
+                snapshot_fingerprint=expected_fingerprint,
+                patch_sha256=patch_sha256,
+                paths=safe_paths,
+                receipt=receipt,
+            )
+            self._record_health(available=False, reason="target_changed")
+            return "applied", receipt
+
     def _validate_roots(self) -> None:
         roots = (self.source_root, self.target_root, self.staging_root)
         if len(set(roots)) != len(roots):

@@ -42,6 +42,14 @@ export interface CodingCapabilities {
     target: "isolated_local_repository";
   };
   reason?: "disabled" | "not_configured" | "worker_unavailable" | string;
+  recovery: {
+    available: boolean;
+    enabled: boolean;
+    pending: boolean;
+    reason?: string;
+    restores_conversation: false;
+    retention_seconds: number;
+  };
   verification: {
     available: boolean;
     max_duration_seconds: number;
@@ -79,6 +87,37 @@ export interface CodingEvent {
 }
 
 export interface CodingSessionResponse {
+  id: string;
+  status: string;
+}
+
+export type CodingRecoveryState =
+  | "draft"
+  | "applied"
+  | "reverted"
+  | "committed"
+  | "undone"
+  | "conflict";
+
+export interface CodingRecoveryStatus {
+  available: boolean;
+  can_download?: boolean;
+  can_resume?: boolean;
+  enabled: boolean;
+  expires_at?: number;
+  file_count?: number;
+  pending: boolean;
+  reason?: string | null;
+  restores_conversation: false;
+  retention_seconds: number;
+  revision?: number;
+  state?: CodingRecoveryState;
+  updated_at?: number;
+}
+
+export interface CodingRecoveryResumeResponse {
+  conflict: string | null;
+  conversation_restored: false;
   id: string;
   status: string;
 }

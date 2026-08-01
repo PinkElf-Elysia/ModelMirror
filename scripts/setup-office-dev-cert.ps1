@@ -1,11 +1,21 @@
 [CmdletBinding()]
 param(
-    [switch]$SkipTrust
+    [switch]$SkipTrust,
+    [string]$DataRoot
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$certDir = Join-Path $repoRoot "server\office_host\certs"
+$resolvedDataRoot = if ([string]::IsNullOrWhiteSpace($DataRoot)) {
+    $repoRoot
+} else {
+    $expandedDataRoot = [Environment]::ExpandEnvironmentVariables($DataRoot)
+    if (-not [System.IO.Path]::IsPathRooted($expandedDataRoot)) {
+        throw "DataRoot must be an absolute path."
+    }
+    [System.IO.Path]::GetFullPath($expandedDataRoot)
+}
+$certDir = Join-Path $resolvedDataRoot "server\office_host\certs"
 New-Item -ItemType Directory -Path $certDir -Force | Out-Null
 
 $git = Get-Command git -ErrorAction SilentlyContinue

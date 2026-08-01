@@ -1,6 +1,6 @@
 # 代码助手接入说明
 
-最后更新日期：2026-07-31
+最后更新日期：2026-08-01
 维护人：模镜团队
 
 ## 当前状态
@@ -11,14 +11,14 @@
 Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独立项目验证，按变化
 范围运行固定的后端测试或前端生产构建。部署者显式配置固定专用工作树后，用户
 可以把满足全部门禁的当前草稿应用到该副本；当目标是无远程的独立本地克隆时，
-还可以编辑中文说明并保存为一个真实本地提交。
+还可以编辑中文说明并保存为一个真实本地提交。显式启用恢复 overlay 后，最近一份
+完整草稿及其脱敏检查、验证、应用和提交状态可在容器重启后继续。
 
 两种模式都只使用服务端固定的 ModelMirror 镜像快照。Draft 默认不会写回任何
 宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
 系统只在用户确认后向固定独立克隆创建本地提交，不上传、不创建 PR，也不支持
 删除、重命名、二进制、Agent Shell/测试命令、远程 Git 操作、多 Agent、完整 ACP、
-分布式 Worker、
-跨重启恢复或生产级多租户。不要将该入口直接暴露到公网。
+分布式 Worker、保存对话、多任务历史或生产级多租户。不要将该入口直接暴露到公网。
 
 ## 用户体验约束
 
@@ -44,6 +44,9 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
   编辑说明。确认区明确“只保存在本机，不会上传”；成功后显示短提交编号。
 - “撤销本地提交”必须二次确认并明确文件仍保留。有效提交存在时隐藏应用撤销；
   先撤销提交后才恢复应用撤销。普通 worktree 只显示提交不可用，不影响应用。
+- 页面发现恢复记录时不自动覆盖当前内容，而是显示“继续上次修改”“下载 Diff”
+  和“放弃这份修改”。继续后必须明确说明此前对话未保存；冲突态只保留查看、
+  下载和放弃，不提供会覆盖外部内容的操作。
 - `/coding` 独立懒加载，不侵入 ChatPage，也不新增前端依赖。
 
 ## 内部结构
@@ -65,6 +68,7 @@ flowchart LR
   APPLY -->|"原子应用 / 安全撤销"| TARGET["固定专用工作树"]
   API -->|"独立私有 Unix socket"| COMMIT["coding-committer"]
   COMMIT -->|"本地提交 / 保留文件撤销"| REPO["无远程独立仓库"]
+  API -->|"认证加密"| RECOVERY["单槽 SQLite 恢复存储"]
   VERIFY -. "无网络、无宿主仓库" .-> HOST["宿主仓库"]
   WORK -. "不挂载" .-> HOST["宿主仓库"]
   APPLY -. "不挂载" .-> CURRENT["当前主工作树"]
@@ -99,6 +103,10 @@ flowchart LR
 | `POST /api/coding/sessions/{id}/commit` | 创建本地提交；请求体只允许 `revision`、`apply_id` 与 `message`。 |
 | `GET /api/coding/sessions/{id}/commit?revision=` | 查询建议说明、状态、不透明撤销标识、提交 SHA 与撤销能力。 |
 | `POST /api/coding/sessions/{id}/commit/undo` | 撤销本次提交并保留文件；请求体只允许 revision、apply_id 与不透明 commit_id。 |
+| `GET /api/coding/recovery` | 查询是否存在最近一份可恢复修改及安全状态，不返回内容正文。 |
+| `POST /api/coding/recovery/resume` | 从不可变基准和保存的 Patch 创建全新 Agent 会话。 |
+| `POST /api/coding/recovery/discard` | 只删除恢复记录，不修改专用副本或本地提交。 |
+| `GET /api/coding/recovery/patch` | 在项目版本变化时仍允许下载保存的 Diff。 |
 
 Capabilities 中的 `verification.available` 表示 Verifier 当前是否可用，
 `required_for_patch=false` 表示项目验证不作为 Patch 下载硬门禁。
@@ -107,6 +115,8 @@ Draft 模式还返回 `host_apply` 与 `apply`：包含是否已配置、当前�
 原因码，不含真实路径。启用提交 overlay 后还返回 `commit`：目标固定为
 `isolated_local_repository`，需要先应用、支持撤销、禁止远程操作，说明上限为
 2000 字符。
+`recovery` 公开 enabled、available、pending、retention_seconds 和
+`restores_conversation=false`；不返回存储路径、密钥或加密负载。
 
 公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、完成、失败、
 取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答或工具输出。
@@ -208,6 +218,22 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 - 撤销只在目标、索引和分支仍保持提交后的精确状态时移动引用，工作区文件保持
   不变。有效提交存在时禁止撤销应用；Committer 不可用不影响其他 Coding 能力。
 
+## 加密任务恢复
+
+- 恢复存储最多保留最近一份完整 revision，默认 7 天。SQLite 明文字段只保存
+  revision、状态、文件数、指纹和时间；Patch、检查摘要、ApplyReceipt 与
+  CommitReceipt 全部放在 Fernet 认证密文中。
+- 密钥首次启用时在独立挂载目录本地生成。数据库存在但密钥缺失、密钥不可读、
+  密文被篡改或 schema 不兼容时失败关闭，绝不生成新密钥覆盖旧记录。
+- 一轮处理只有在安全快照成功落盘后才向页面发出完成事件；取消、失败或中断只
+  保留上一份完整 revision，半轮修改不会恢复。
+- 继续时 Worker 重新复核路径、UTF-8、文件类型和限额，并从只读基准重建全新
+  工作区。Prompt、回答、计划、工具日志、原始命令输出和 ACP 帧从不持久化。
+- 基准或验证环境指纹不一致时验证结论过期。应用、提交及撤销中断后只进行精确
+  只读对账；结果不明确或有人修改目标时进入冲突态，不重复写入、不覆盖人工内容。
+- 活跃任务空闲 30 分钟后关闭进程但保留记录；有 pending 记录时必须先继续或
+  放弃，不能静默创建另一任务。到期清理只删除恢复记录，不触碰外部仓库。
+
 ## 配置与启动
 
 功能默认关闭。专用模型配置应放在 Compose 读取的根 `.env` 或启动命令环境中，
@@ -254,6 +280,12 @@ CODING_COMMIT_REPOSITORY=C:\tmp\modelmirror-coding-repository-v5
 docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply --profile coding-commit up -d --build --force-recreate
 ```
 
+如需启用重启恢复，先创建 `${MODELMIRROR_DATA_ROOT}/server/coding-recovery`，再加载
+`docker-compose.coding-recovery.yml`。重建前必须先运行 overlay 中无网络、全只读的
+`coding-recovery-preflight`；它要求绝对数据根目录、非空 `server/.env`、无 remote
+的 `coding/local-draft` 干净独立目标，并比较实现与目标的净化内容指纹。
+完整 PowerShell 命令见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
+
 ## 人工验收
 
 1. 以 `CODING_AGENT_MODE=readonly` 提交一个可从当前源码验证的问题，确认流式
@@ -290,10 +322,19 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
 17. 分别制造 remote、worktree、alternates、错误分支、脏索引、额外文件、基线不匹配
     和外部文件修改；确认提交或撤销失败且不覆盖内容。停止 Committer 后，尚未提交
     的应用仍可撤销，已提交结果仍可查看和结束。
+18. 以随机文件名和随机正文建立草稿，分别重启 Server、Runtime、Verifier 和完整
+    Coding 容器组；继续后确认 revision、Diff、检查和验证摘要一致，页面没有旧对话。
+19. 分别在验证通过、应用完成和本地提交完成后重启，确认状态与撤销能力精确恢复，
+    Git HEAD 不产生重复提交；重启前人工改文件或分支时必须进入只读冲突态。
+20. 改变项目基准，确认不能继续应用但仍可下载保存的 Diff；相对数据根目录、空
+    `server/.env`、脏目标或指纹不一致必须在共享栈重建前被预检拒绝。
 
 ## 回退
 
-先停止 Committer 并在后续启动中省略提交 overlay，即可恢复第四轮能力；已创建的
+先设置 `CODING_RECOVERY_ENABLED=false` 或省略恢复 overlay，即恢复第五轮内存
+行为。恢复记录不会改变专用副本或本地提交；存储目录只在用户明确授权后清理。
+
+再停止 Committer 并在后续启动中省略提交 overlay，即可恢复第四轮能力；已创建的
 本地提交不会被自动删除：
 
 ```bash
@@ -321,7 +362,6 @@ docker compose -p modelmirror --profile coding-verify stop coding-verifier
 docker compose -p modelmirror --profile coding stop coding-runtime
 ```
 
-本轮没有数据库迁移、持久化验证结果、持久化应用/提交凭据或持久化会话。已经
-创建的本地提交由目标仓库保留，不依赖 Server 会话。需要整轮
-回退时，按独立提交逆序撤销并重建核心服务即可；容器重启会清除所有临时草稿、
-验证和应用状态。
+恢复 SQLite 是 Coding 专用、可选的单槽存储，不迁移其他业务数据库。需要整轮
+回退时，省略恢复 overlay 并按独立提交逆序撤销；已有外部文件和本地提交不会被
+自动删除。

@@ -60,6 +60,42 @@ class CodingCommitterClient:
         )
         return _commit_receipt_from_response(response)
 
+    async def reconcile(
+        self,
+        *,
+        operation_id: str,
+        apply_receipt: ApplyReceipt,
+        message: str,
+    ) -> tuple[str, CommitReceipt | None]:
+        response = await self._request(
+            {
+                "action": "reconcile",
+                "operation_id": operation_id,
+                "apply_receipt": _apply_receipt_to_payload(apply_receipt),
+                "message": message,
+            }
+        )
+        state = response.get("state")
+        payload = response.get("receipt")
+        if state not in {"not_committed", "committed", "undone", "conflict"}:
+            raise CommitterClientError(
+                "Commit recovery response is invalid.",
+                code="invalid_response",
+            )
+        if payload is None:
+            if state in {"committed", "undone"}:
+                raise CommitterClientError(
+                    "Commit recovery receipt is missing.",
+                    code="invalid_response",
+                )
+            return state, None
+        if state not in {"committed", "undone"}:
+            raise CommitterClientError(
+                "Commit recovery response is inconsistent.",
+                code="invalid_response",
+            )
+        return state, _commit_receipt_from_response({"receipt": payload})
+
     async def _request(
         self,
         payload: dict[str, Any],

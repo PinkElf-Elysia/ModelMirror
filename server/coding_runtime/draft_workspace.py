@@ -166,6 +166,9 @@ _SECRET_PATTERNS = (
     re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b"),
 )
 _CONFLICT_MARKER = re.compile(r"^(?:<<<<<<<|=======|>>>>>>>)")
+_HUNK_HEADER = re.compile(
+    r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?(?:\r?\n)?$"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,6 +292,59 @@ class DraftWorkspace:
         if not report.can_download:
             raise DraftValidationError("validation_failed")
         return "".join(item.diff for item in report.files)
+
+    def restore_from_patch(
+        self,
+        patch: str,
+        *,
+        revision: int,
+        expected_paths: tuple[str, ...],
+    ) -> DraftReport:
+        """Rebuild one complete draft without invoking Git or a shell."""
+
+        self._ensure_initialized()
+        if self._turn_active:
+            raise DraftTransactionError("turn_active")
+        if (
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+        ):
+            raise DraftRevisionError("invalid_revision")
+        from .patch_policy import PatchPolicyError, validate_patch
+
+        try:
+            safe_paths = validate_patch(
+                patch,
+                expected_paths=expected_paths,
+                limits=self.limits,
+            )
+        except PatchPolicyError as exc:
+            raise DraftPolicyError("recovery_patch_invalid") from exc
+
+        self._reset_workspace_from(self.source_root)
+        self._make_tree_writable(self.workspace_root)
+        self._clear_tree(self.checkpoint_root)
+        try:
+            self._apply_recovery_patch(patch, safe_paths)
+            candidates = self._scan_candidates()
+            if tuple(item.path for item in candidates) != safe_paths:
+                raise DraftPolicyError("recovery_patch_mismatch")
+            regenerated = "".join(item.diff for item in candidates)
+            if regenerated != patch:
+                raise DraftPolicyError("recovery_patch_mismatch")
+            self._revision = revision
+            self._committed_fingerprint = self._fingerprint(candidates)
+            self._turn_active = False
+            return self._report(candidates)
+        except Exception:
+            self._reset_workspace_from(self.source_root)
+            self._make_tree_writable(self.workspace_root)
+            self._clear_tree(self.checkpoint_root)
+            self._revision = 0
+            self._committed_fingerprint = self._fingerprint(())
+            self._turn_active = False
+            raise
 
     def discard(self) -> DraftReport:
         self._ensure_initialized()
@@ -483,6 +539,151 @@ class DraftWorkspace:
         )
         return checks
 
+    def _apply_recovery_patch(
+        self,
+        patch: str,
+        expected_paths: tuple[str, ...],
+    ) -> None:
+        lines = patch.splitlines(keepends=True)
+        starts = [
+            index for index, line in enumerate(lines) if line.startswith("diff --git ")
+        ]
+        if len(starts) != len(expected_paths):
+            raise DraftPolicyError("recovery_patch_invalid")
+        for position, start in enumerate(starts):
+            end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+            self._apply_recovery_section(
+                lines[start:end],
+                expected_path=expected_paths[position],
+            )
+
+    def _apply_recovery_section(
+        self,
+        section: list[str],
+        *,
+        expected_path: str,
+    ) -> None:
+        header = f"diff --git a/{expected_path} b/{expected_path}"
+        if not section or section[0].rstrip("\r\n") != header:
+            raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+        old_headers = [
+            index for index, line in enumerate(section) if line.startswith("--- ")
+        ]
+        new_headers = [
+            index for index, line in enumerate(section) if line.startswith("+++ ")
+        ]
+        if len(old_headers) != 1 or len(new_headers) != 1:
+            raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+        old_header = section[old_headers[0]].rstrip("\r\n").split("\t", 1)[0]
+        new_header = section[new_headers[0]].rstrip("\r\n").split("\t", 1)[0]
+        if new_header != f"+++ b/{expected_path}":
+            raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+
+        source_path = self.source_root / expected_path
+        is_added = old_header == "--- /dev/null"
+        if is_added:
+            if source_path.exists() or not any(
+                line.rstrip("\r\n") == "new file mode 100644" for line in section
+            ):
+                raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+            old_text = ""
+        else:
+            if old_header != f"--- a/{expected_path}" or not source_path.is_file():
+                raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+            old_text = self._decode_text(source_path.read_bytes(), expected_path)
+
+        hunk_indexes = [
+            index for index, line in enumerate(section) if line.startswith("@@ ")
+        ]
+        if not hunk_indexes:
+            if not is_added:
+                raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+            new_text = ""
+        else:
+            old_lines = old_text.splitlines(keepends=True)
+            output: list[str] = []
+            old_cursor = 0
+            for hunk_position, hunk_index in enumerate(hunk_indexes):
+                match = _HUNK_HEADER.fullmatch(section[hunk_index])
+                if match is None:
+                    raise DraftPolicyError(
+                        "recovery_patch_invalid", path=expected_path
+                    )
+                old_start = int(match.group(1))
+                old_count = int(match.group(2) or "1")
+                new_start = int(match.group(3))
+                new_count = int(match.group(4) or "1")
+                old_index = 0 if old_start == 0 else old_start - 1
+                new_index = 0 if new_start == 0 else new_start - 1
+                if old_index < old_cursor or old_index > len(old_lines):
+                    raise DraftPolicyError(
+                        "recovery_patch_invalid", path=expected_path
+                    )
+                output.extend(old_lines[old_cursor:old_index])
+                if len(output) != new_index:
+                    raise DraftPolicyError(
+                        "recovery_patch_invalid", path=expected_path
+                    )
+                old_cursor = old_index
+                hunk_end = (
+                    hunk_indexes[hunk_position + 1]
+                    if hunk_position + 1 < len(hunk_indexes)
+                    else len(section)
+                )
+                logical_lines = self._recovery_hunk_lines(
+                    section[hunk_index + 1 : hunk_end],
+                    expected_path,
+                )
+                seen_old = 0
+                seen_new = 0
+                for prefix, content in logical_lines:
+                    if prefix in {" ", "-"}:
+                        if (
+                            old_cursor >= len(old_lines)
+                            or old_lines[old_cursor] != content
+                        ):
+                            raise DraftPolicyError(
+                                "recovery_patch_mismatch", path=expected_path
+                            )
+                        old_cursor += 1
+                        seen_old += 1
+                    if prefix in {" ", "+"}:
+                        output.append(content)
+                        seen_new += 1
+                if seen_old != old_count or seen_new != new_count:
+                    raise DraftPolicyError(
+                        "recovery_patch_invalid", path=expected_path
+                    )
+            output.extend(old_lines[old_cursor:])
+            new_text = "".join(output)
+
+        target = self.workspace_root / expected_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(new_text)
+
+    @staticmethod
+    def _recovery_hunk_lines(
+        lines: list[str],
+        path: str,
+    ) -> list[tuple[str, str]]:
+        result: list[tuple[str, str]] = []
+        for line in lines:
+            if line.rstrip("\r\n") == "\\ No newline at end of file":
+                if not result or not result[-1][1].endswith(("\n", "\r")):
+                    raise DraftPolicyError("recovery_patch_invalid", path=path)
+                prefix, content = result[-1]
+                if content.endswith("\r\n"):
+                    content = content[:-2]
+                else:
+                    content = content[:-1]
+                result[-1] = (prefix, content)
+                continue
+            if not line or line[0] not in {" ", "+", "-"}:
+                raise DraftPolicyError("recovery_patch_invalid", path=path)
+            result.append((line[0], line[1:]))
+        return result
+
     @staticmethod
     def _check(
         check_id: str,
@@ -641,6 +842,7 @@ class DraftWorkspace:
             self._replace_tree(source, self.workspace_root)
             return
         self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self._make_tree_writable(self.workspace_root)
         self._clear_contents(self.workspace_root)
         shutil.copytree(
             source,
