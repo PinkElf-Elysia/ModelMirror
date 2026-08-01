@@ -18,6 +18,7 @@ from server.coding_runtime.api import (
     router,
 )
 from server.coding_runtime.applier_client import (
+    APPLIER_OPERATION_TIMEOUT_SECONDS,
     ApplierClientError,
     CodingApplierClient,
 )
@@ -1887,6 +1888,7 @@ async def test_reconcile_clients_reject_inconsistent_socket_responses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     applier = CodingApplierClient(Path("/unused/applier.sock"))
+    assert APPLIER_OPERATION_TIMEOUT_SECONDS == 90.0
 
     async def invalid_apply_response(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return {"state": "applied", "receipt": None}

@@ -11,6 +11,7 @@ from .apply_models import ApplyFileReceipt, ApplyReceipt
 
 
 MAX_APPLIER_FRAME_BYTES = 2 * 1024 * 1024
+APPLIER_OPERATION_TIMEOUT_SECONDS = 90.0
 SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
@@ -25,7 +26,7 @@ class CodingApplierClient:
         self,
         socket_path: Path,
         *,
-        timeout: float = 35.0,
+        timeout: float = APPLIER_OPERATION_TIMEOUT_SECONDS,
     ) -> None:
         self._socket_path = socket_path
         self._timeout = timeout
