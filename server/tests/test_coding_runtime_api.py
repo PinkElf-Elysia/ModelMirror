@@ -25,6 +25,7 @@ from server.coding_runtime.applier_client import (
 from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
 from server.coding_runtime.commit_models import CommitReceipt
 from server.coding_runtime.committer_client import (
+    COMMITTER_OPERATION_TIMEOUT_SECONDS,
     CodingCommitterClient,
     CommitterClientError,
 )
@@ -1905,6 +1906,7 @@ async def test_reconcile_clients_reject_inconsistent_socket_responses(
     assert invalid_apply.value.code == "invalid_response"
 
     committer = CodingCommitterClient(Path("/unused/committer.sock"))
+    assert COMMITTER_OPERATION_TIMEOUT_SECONDS == 90.0
 
     async def invalid_commit_response(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return {"state": "conflict", "receipt": {"unexpected": True}}

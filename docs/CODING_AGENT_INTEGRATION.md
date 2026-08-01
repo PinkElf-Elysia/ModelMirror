@@ -97,6 +97,7 @@ flowchart LR
 | `GET /api/coding/sessions/{id}/verification?revision=` | 查询运行状态、结论和固定步骤摘要。 |
 | `POST /api/coding/sessions/{id}/verification/cancel` | 停止指定 revision 的验证；重复调用安全。 |
 | `POST /api/coding/sessions/{id}/apply` | 应用指定 revision；请求体只允许 `revision`。Windows 绑定目录扫描较慢时最多等待 90 秒。 |
+| `POST /api/coding/sessions/{id}/commit` | 保存本地提交；Windows 绑定目录扫描较慢时最多等待 90 秒。 |
 | `GET /api/coding/sessions/{id}/apply?revision=` | 查询应用、撤销状态和是否仍可撤销。 |
 | `POST /api/coding/sessions/{id}/apply/revert` | 安全撤销；请求体只允许 `revision` 与不透明 `apply_id`。 |
 | `POST /api/coding/sessions/{id}/close` | 结束已应用或已撤销的冻结会话，释放单会话 Runtime。 |

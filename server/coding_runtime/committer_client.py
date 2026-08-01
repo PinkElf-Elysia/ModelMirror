@@ -12,6 +12,7 @@ from .commit_models import CommitReceipt
 
 
 MAX_COMMITTER_FRAME_BYTES = 256 * 1024
+COMMITTER_OPERATION_TIMEOUT_SECONDS = 90.0
 SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
@@ -22,7 +23,12 @@ class CommitterClientError(RuntimeError):
 
 
 class CodingCommitterClient:
-    def __init__(self, socket_path: Path, *, timeout: float = 35.0) -> None:
+    def __init__(
+        self,
+        socket_path: Path,
+        *,
+        timeout: float = COMMITTER_OPERATION_TIMEOUT_SECONDS,
+    ) -> None:
         self._socket_path = socket_path
         self._timeout = timeout
 
