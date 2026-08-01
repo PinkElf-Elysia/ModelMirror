@@ -21,6 +21,13 @@ from .stt import MultimodalServiceError, OpenRouterTarget
 VIDEO_CATALOG_TTL_SECONDS = 300.0
 VIDEO_CATALOG_STALE_SECONDS = 1_800.0
 
+VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
+    {
+        "runway/aleph-2",
+        "runway/gen-4.5",
+    }
+)
+
 
 class VideoProviderOption(BaseModel):
     key: str
@@ -269,7 +276,11 @@ class VideoCatalogService:
                             model_id, item
                         ),
                         pricing_skus=self._pricing(item.get("pricing_skus")),
-                        interaction_status="planned",
+                        interaction_status=(
+                            "ready"
+                            if model_id in VERIFIED_VIDEO_GENERATION_MODELS
+                            else "planned"
+                        ),
                     )
                 )
         return [
