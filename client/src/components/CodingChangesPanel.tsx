@@ -626,6 +626,9 @@ export default function CodingChangesPanel({
   };
 
   const hasChanges = Boolean(changes?.files.length);
+  const completedWithoutChanges = Boolean(
+    changes && changes.revision > 0 && !hasChanges,
+  );
   const isActing = action !== "idle";
   const verificationRunning =
     verification?.state === "running" && verification.stale === false;
@@ -656,7 +659,11 @@ export default function CodingChangesPanel({
               ? "以下记录继续保留供你查看；专用项目副本已恢复，当前项目目录没有改变。"
               : applyResult?.apply_id
                 ? "以下修改已写入专用项目副本，当前项目目录没有改变。你仍可展开文件逐行查看。"
-                : "这些文件只存在于临时副本，当前项目目录没有改变。展开文件可以逐行查看增加和移除的内容。"}
+                : hasChanges
+                  ? "这些文件只存在于临时副本，当前项目目录没有改变。展开文件可以逐行查看增加和移除的内容。"
+                  : completedWithoutChanges
+                    ? "本轮没有待保存的新文件变化，此前保存的修改仍保留在下方记录中。"
+                    : "代码助手产生的文件变化会显示在这里，当前项目目录不会被直接改变。"}
           </p>
         </div>
         {hasChanges ? (
@@ -980,6 +987,37 @@ export default function CodingChangesPanel({
             ) : null}
           </div>
         </>
+      ) : completedWithoutChanges && changes ? (
+        <div className="px-4 py-5">
+          <div className="flex items-start gap-3 rounded-lg bg-emerald-300/[0.07] p-3">
+            <CheckCircle2
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-emerald-200"
+              size={18}
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-emerald-100">
+                本轮没有待保存的新修改
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-300">
+                代码助手本轮没有留下新的文件变化。若刚完成修复，说明文件已回到本轮开始时的状态。
+              </p>
+              <p className="mt-2 text-xs font-medium text-emerald-100">
+                草稿检查已完成，无需应用或创建新的本地版本。
+              </p>
+            </div>
+          </div>
+          <CodingVerificationPanel
+            available={verificationAvailable}
+            disabled
+            empty
+            error={verificationError}
+            onCancel={onCancelVerification}
+            onRequestFix={onRequestFix}
+            onRun={onRunVerification}
+            verification={verification}
+          />
+        </div>
       ) : (
         <div className="px-4 py-8 text-center">
           <FileDiff aria-hidden="true" className="mx-auto text-slate-500" size={25} />
