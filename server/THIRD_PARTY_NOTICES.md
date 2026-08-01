@@ -58,19 +58,21 @@ distributed under the MIT License or the Unlicense.
 
 Project: https://github.com/BurntSushi/ripgrep
 
-## Coding Verifier
+## Coding Verifier, Applier, and Committer
 
 The optional `coding-verify` profile uses the project's locked CPython and
 Node.js dependency sets to run fixed backend tests and frontend builds in a
 separate offline container. It does not install OpenCode and does not accept
 runtime package installation.
 
-The image is built from the official Python 3.12 and Node.js 22 slim images and
-installs Debian's Git package only to apply an internally generated patch with
-fixed arguments. Python packages retain their metadata under the image's Python
-site-packages directory; npm packages retain their license and package metadata
-under `/opt/modelmirror-client/node_modules`. Their upstream licenses remain
-unchanged.
+The Verifier image is built from the official Python 3.12 and Node.js 22 slim
+images. The optional `coding-apply` and `coding-commit` images use the official
+Python 3.12 slim image. These offline images install Debian's Git package only
+for fixed internal patch or Git plumbing operations; the Committer performs no
+remote operation. Python packages retain their metadata under the image's
+Python site-packages directory; npm packages in the Verifier retain their
+license and package metadata under `/opt/modelmirror-client/node_modules`.
+Their upstream licenses remain unchanged.
 
 ## Browser sidecar
 

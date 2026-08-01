@@ -1,6 +1,6 @@
 # 部署与运维指南
 
-最后更新日期：2026-07-30
+最后更新日期：2026-07-31
 维护人：模镜团队
 
 ## 支持边界
@@ -25,6 +25,7 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `coding-runtime` | 否 | `coding` profile；单实例代码问答与修改草稿执行面，无宿主端口。 |
 | `coding-verifier` | 否 | `coding-verify` profile；无网络的草稿项目验证执行面，无宿主端口。 |
 | `coding-applier` | 否 | 独立 overlay 的 `coding-apply` profile；把已验证草稿写入固定专用工作树。 |
+| `coding-committer` | 否 | 独立 overlay 的 `coding-commit` profile；只在无远程独立仓库中创建本地提交。 |
 
 启动默认栈：
 
@@ -189,6 +190,41 @@ Runtime 与 Verifier 也不能访问它的独立 socket。
 撤销会拒绝覆盖。Server 重启后不保证保留撤销凭据，此时应删除并从相同提交重新
 创建这个专用工作树。不要让自动清理脚本删除用户未确认的工作树。
 
+#### 保存为隔离本地提交
+
+本地提交必须同时加载 `docker-compose.coding-apply.yml` 与
+`docker-compose.coding-commit.yml`。提交目标不能是 Git worktree；必须从最终实现
+HEAD 创建无硬链接、无远程的独立克隆，并固定到 `coding/local-draft`：
+
+```bash
+git clone --no-local --no-hardlinks <implementation-worktree> C:\tmp\modelmirror-coding-repository-v5
+git -C C:\tmp\modelmirror-coding-repository-v5 remote remove origin
+git -C C:\tmp\modelmirror-coding-repository-v5 switch -C coding/local-draft <implementation-head-sha>
+```
+
+确认 `git status --short` 和 `git remote` 均无输出，再设置目标。Applier 与 Committer
+使用同一独立克隆；前者只写工作区且只读 `.git`，后者只读工作区且只写 `.git`：
+
+```bash
+CODING_APPLY_WORKTREE=C:\tmp\modelmirror-coding-repository-v5
+CODING_COMMIT_REPOSITORY=C:\tmp\modelmirror-coding-repository-v5
+CODING_COMMIT_AUTHOR_NAME=ModelMirror Coding Assistant
+CODING_COMMIT_AUTHOR_EMAIL=coding@modelmirror.local
+```
+
+作者变量可由部署者覆盖，浏览器不能指定。显式加载三个 Compose 文件：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply --profile coding-commit up -d --build --force-recreate
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply --profile coding-commit ps
+curl http://localhost:8000/api/coding/capabilities
+```
+
+Committer 无网络、端口、Docker socket、模型密钥或 Git 凭据；目标路径缺失时
+`create_host_path: false` 会失败关闭。它拒绝远程地址、worktree gitfile、
+alternates、共享 Git 目录、错误分支、脏索引和基线不匹配。有效提交存在时应用撤销
+会被阻止；先撤销提交可保留文件，再选择重新提交或撤销应用。
+
 ## 反向代理
 
 `/api/chat` 和工作流运行使用 SSE。Nginx 必须关闭代理缓冲：
@@ -226,8 +262,8 @@ curl http://localhost:5173/studio
   不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
-- 启用后检查 Coding capabilities、Worker/Verifier/Applier health、验证取消
-  清理、三方快照指纹和源码 Git 状态。Capabilities 与日志不得返回目标绝对路径。
+- 启用后检查 Coding capabilities、Worker/Verifier/Applier/Committer health、验证取消
+  清理、四方快照指纹和源码 Git 状态。Capabilities 与日志不得返回目标绝对路径。
 
 ## 备份与恢复
 
@@ -250,12 +286,14 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：先停止 `coding-applier` 并不再加载
-  `docker-compose.coding-apply.yml`，即可恢复第三轮验证能力；无需改变或删除专用
-  工作树。再省略 `coding-verify` profile 可恢复第二轮草稿能力。设置
+- 代码助手：先停止 `coding-committer` 并不再加载
+  `docker-compose.coding-commit.yml`，即可恢复第四轮受控应用能力，已有本地提交
+  不会被删除。再停止 `coding-applier` 并省略 `docker-compose.coding-apply.yml`
+  可恢复第三轮验证能力；无需改变或删除专用目标。再省略 `coding-verify` profile
+  可恢复第二轮草稿能力。设置
   `CODING_AGENT_MODE=readonly` 可关闭草稿编辑；需要完全关闭时设置
   `CODING_AGENT_ENABLED=false` 并停止 `coding-runtime`。没有持久化验证结果、
-  应用凭据、会话或数据迁移需要恢复。
+  应用/提交凭据、会话或数据迁移需要恢复。
 - 可选 profile 故障不得通过删除核心数据解决。
 
 legacy `/api/dify/*` 健康只表示兼容代理配置状态，不是平台健康门禁。
