@@ -108,11 +108,15 @@ docker compose -p modelmirror --profile omniroute up -d omniroute
 
 Office host：
 
-```bash
+```powershell
+$env:MODELMIRROR_DATA_ROOT = (Resolve-Path ".").Path
+./scripts/setup-office-dev-cert.ps1 -DataRoot $env:MODELMIRROR_DATA_ROOT
 docker compose -p modelmirror --profile office up -d office-host
 ```
 
-Office host 需要独立证书和浏览器/Office 加载项验收，不应因该可选服务异常而
+`MODELMIRROR_DATA_ROOT` 必须是绝对路径，并与 Server 使用的数据根目录一致。
+Compose 不会自动创建空证书目录；缺少 `localhost.crt` 或 `localhost.key` 时应先运行
+上述脚本。Office host 仍需要浏览器/Office 加载项验收，不应因该可选服务异常而
 误判默认核心栈不可用。
 
 ### 实验性代码助手
