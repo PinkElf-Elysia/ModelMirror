@@ -70,7 +70,7 @@ def default_xpert_workflow(xpert_id: str, name: str) -> NativeWorkflowDefinition
                         "title": "主智能体",
                         "description": "执行已发布 Xpert 的主要推理步骤。",
                         "agentName": "primary-agent",
-                        "modelId": "deepseek/deepseek-chat",
+                        "modelId": "deepseek/deepseek-v4-flash-0731",
                         "rolePrompt": "你是一个可靠的任务智能体。请结合对话上下文，直接完成用户请求。",
                         "taskInput": "历史对话：\n{{conversation_history}}\n\n当前请求：\n{{user_input}}",
                         "toolMode": "none",

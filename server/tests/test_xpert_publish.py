@@ -64,6 +64,10 @@ def test_xpert_store_persists_unique_slugs_and_immutable_versions(
         tags=["research", "workflow"],
     )
     assert validate_xpert_definition(created).valid is True
+    assert (
+        _workflow_agent_data(created.draft.workflow)["modelId"]
+        == "deepseek/deepseek-v4-flash-0731"
+    )
 
     reloaded = XpertStore(xpert_store.storage_dir).get_xpert(created.id)
     assert reloaded.slug == "research-xpert"

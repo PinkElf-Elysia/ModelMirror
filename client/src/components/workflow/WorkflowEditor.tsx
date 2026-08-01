@@ -38,7 +38,11 @@ import {
   toXpertDraftWorkflow,
   updateXpert,
 } from "../../utils/xpertApi";
-import { readStoredWorkflow, saveStoredWorkflow } from "../../utils/workflowStorage";
+import {
+  isLegacyStarterWorkflow,
+  readStoredWorkflow,
+  saveStoredWorkflow,
+} from "../../utils/workflowStorage";
 import NodePalette from "./NodePalette";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
@@ -603,7 +607,16 @@ function loadDefinition(
   if (controlledDefinition) {
     return cloneDefinition(controlledDefinition);
   }
-  return readStoredWorkflow(workflowId) ?? initialDefinition(workflowId);
+  const storedDefinition = readStoredWorkflow(workflowId);
+  if (!storedDefinition) {
+    return initialDefinition(workflowId);
+  }
+  if (isLegacyStarterWorkflow(storedDefinition)) {
+    const upgradedDefinition = initialDefinition(workflowId);
+    saveStoredWorkflow(upgradedDefinition);
+    return upgradedDefinition;
+  }
+  return storedDefinition;
 }
 
 function Field({
