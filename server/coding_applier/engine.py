@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
@@ -66,6 +67,7 @@ class CodingApplierEngine:
         self._mutation_hook = mutation_hook
         self._lock = threading.Lock()
         self._operations: dict[str, _Operation] = {}
+        self._target_hash_cache: dict[str, tuple[tuple[int, int, int, int], str]] = {}
         self._validate_roots()
         try:
             self._source_manifest = snapshot_manifest(self.source_root)
@@ -480,12 +482,69 @@ class CodingApplierEngine:
 
     def _target_manifest(self) -> SnapshotManifest:
         try:
-            return snapshot_manifest(
-                self.target_root,
-                ignored_root_names={".git"},
+            digest = hashlib.sha256()
+            entries: set[tuple[str, str]] = set()
+            file_hashes: list[tuple[str, str]] = []
+            next_cache: dict[str, tuple[tuple[int, int, int, int], str]] = {}
+            pending: list[tuple[Path, str]] = [(self.target_root, "")]
+            while pending:
+                directory, prefix = pending.pop()
+                with os.scandir(directory) as iterator:
+                    children = sorted(iterator, key=lambda item: item.name, reverse=True)
+                for child in children:
+                    if not prefix and child.name == ".git":
+                        continue
+                    relative = f"{prefix}/{child.name}" if prefix else child.name
+                    metadata = child.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(metadata.st_mode):
+                        raise CodingApplyError(
+                            "Dedicated target contains a symbolic link.",
+                            code="target_not_ready",
+                        )
+                    if stat.S_ISDIR(metadata.st_mode):
+                        entries.add(("directory", relative))
+                        pending.append((Path(child.path), relative))
+                        continue
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise CodingApplyError(
+                            "Dedicated target contains an unsupported file.",
+                            code="target_not_ready",
+                        )
+                    signature = (
+                        metadata.st_size,
+                        metadata.st_mtime_ns,
+                        metadata.st_ctime_ns,
+                        metadata.st_ino,
+                    )
+                    cached = self._target_hash_cache.get(relative)
+                    if cached is not None and cached[0] == signature:
+                        content_hash = cached[1]
+                    else:
+                        content_hash = _file_sha256(Path(child.path))
+                    entries.add(("file", relative))
+                    file_hashes.append((relative, content_hash))
+                    next_cache[relative] = (signature, content_hash)
+            file_hashes.sort()
+            for relative, content_hash in file_hashes:
+                size = next_cache[relative][0][0]
+                digest.update(relative.encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(str(size).encode("ascii"))
+                digest.update(b"\0")
+                digest.update(bytes.fromhex(content_hash))
+            self._target_hash_cache = next_cache
+            return SnapshotManifest(
+                entries=frozenset(entries),
+                file_hashes=tuple(file_hashes),
+                fingerprint=digest.hexdigest(),
             )
-        except PatchPolicyError as exc:
-            raise CodingApplyError(str(exc), code="target_not_ready") from exc
+        except CodingApplyError:
+            raise
+        except OSError as exc:
+            raise CodingApplyError(
+                "Dedicated target could not be inspected.",
+                code="target_not_ready",
+            ) from exc
 
     def _prepare_staging(self, patch: str, paths: tuple[str, ...]) -> None:
         self._clear_staging()

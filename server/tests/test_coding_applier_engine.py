@@ -280,7 +280,9 @@ def test_read_only_snapshot_is_writable_only_in_staging(
     assert staging.exists() is False
     assert source.stat().st_mode & 0o222 == 0
     assert (source / "server/app.py").stat().st_mode & 0o222 == 0
-    assert manifest_calls == [target.resolve(), target.resolve(), target.resolve()]
+    # The immutable source is fully hashed at startup. Runtime target checks use
+    # the engine's metadata-aware hash cache and must not re-read every file.
+    assert manifest_calls == []
 
 
 def test_multi_file_failure_restores_every_written_file(
