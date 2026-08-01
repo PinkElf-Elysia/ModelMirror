@@ -188,6 +188,15 @@ export default function ModelListPage() {
 
   const confirmedVideoOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
+    for (const model of models) {
+      const operations = model.operations.filter(
+        (operation) =>
+          operation === "analyze_video" || operation === "generate_video",
+      );
+      if (operations.length > 0) {
+        result.set(model.id, operations);
+      }
+    }
     for (const profile of videoCatalog?.profiles ?? []) {
       const current = result.get(profile.model_id) ?? [];
       if (!current.includes(profile.operation)) {
@@ -200,6 +209,18 @@ export default function ModelListPage() {
 
   const confirmedAudioOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
+    for (const model of models) {
+      const operations = model.operations.filter(
+        (operation) =>
+          operation === "analyze_audio" ||
+          operation === "transcribe" ||
+          operation === "synthesize_speech" ||
+          operation === "generate_audio",
+      );
+      if (operations.length > 0) {
+        result.set(model.id, operations);
+      }
+    }
     for (const profile of audioCatalog?.profiles ?? []) {
       if (
         !profile.invocable ||
@@ -224,7 +245,11 @@ export default function ModelListPage() {
         operations.push("realtime_voice");
       }
       if (operations.length > 0) {
-        result.set(profile.model_id, operations);
+        const current = result.get(profile.model_id) ?? [];
+        result.set(
+          profile.model_id,
+          Array.from(new Set([...current, ...operations])),
+        );
       }
     }
     return result;
