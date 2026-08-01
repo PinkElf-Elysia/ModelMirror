@@ -50,3 +50,6 @@ server/skills/tmp/
 .tmp-*/
 .tmp-*
 artifacts/
+
+# World generation runtime storage
+server/world/storage/

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -10,6 +11,12 @@ from collections import defaultdict, deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
+
+# Make subpackages (rag/api/mcp/world/...) importable as top-level modules
+# in both environments: locally (repo/server) and inside Docker (/app).
+_SERVER_ROOT = str(Path(__file__).resolve().parent)
+if _SERVER_ROOT not in sys.path:
+    sys.path.insert(0, _SERVER_ROOT)
 
 import httpx
 from dotenv import load_dotenv
@@ -37,6 +44,11 @@ try:
     from server.api.workflow_native import router as workflow_native_router
 except ModuleNotFoundError:
     from api.workflow_native import router as workflow_native_router
+
+try:
+    from server.world.api import router as world_router
+except ModuleNotFoundError:
+    from world.api import router as world_router
 
 try:
     from server.rag.document_parser import parse_document
@@ -158,6 +170,7 @@ app.include_router(dify_router)
 app.include_router(rag_router)
 app.include_router(skills_router)
 app.include_router(workflow_native_router)
+app.include_router(world_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)

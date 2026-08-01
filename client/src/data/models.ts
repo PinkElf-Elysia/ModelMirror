@@ -46,6 +46,8 @@ export interface Model {
   active: boolean;
   tags: string[];
   note?: string;
+  /** True when this entry is a world-generation model (3D), not a chat model. */
+  worldModel?: boolean;
 }
 
 interface RawCatalogModel {
@@ -14824,4 +14826,28 @@ function enrichModel(raw: RawCatalogModel): Model {
   };
 }
 
-export const models: Model[] = rawCatalogModels.map(enrichModel);
+const worldModelEntry: Model = {
+  id: "worldlabs/marble",
+  name: "World Labs Marble",
+  provider: "World Labs",
+  model_author: "World Labs",
+  description:
+    "上传现实场景的图片或视频，异步生成可探索的 3D 世界，支持全景图、GLB、SPZ、PLY 资产直接预览。",
+  context_length: 0,
+  pricing: { input: 0, output: 0 },
+  price_cny: { input: 0, output: 0 },
+  pricing_tier: "free",
+  capabilities: ["image", "video"],
+  input_modalities: ["image", "video"],
+  series: "世界模型",
+  categories: ["3D", "空间智能"],
+  supported_parameters: [],
+  distillable: false,
+  zero_data_retention: false,
+  in_region_routing: false,
+  active: true,
+  tags: ["3D", "空间智能", "新"],
+  worldModel: true,
+};
+
+export const models: Model[] = [...rawCatalogModels.map(enrichModel), worldModelEntry];

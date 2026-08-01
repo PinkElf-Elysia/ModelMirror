@@ -16,6 +16,7 @@ COPY registry ./registry
 COPY rag ./rag
 COPY skills ./skills
 COPY workflow_native ./workflow_native
+COPY world ./world
 
 EXPOSE 8000
 
