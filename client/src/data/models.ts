@@ -17515,7 +17515,13 @@ function describeCategories(categories: Category[]) {
   return categories.slice(0, 3).map((category) => labels[category] ?? category).join("、") || "通用";
 }
 
-const VERIFIED_SPEECH_MODEL_IDS = new Set(["microsoft/mai-voice-2"]);
+const VERIFIED_SPEECH_MODEL_IDS = new Set([
+  "fish-audio/s1",
+  "fish-audio/s2-pro",
+  "fish-audio/s2.1-pro-free:free",
+  "fish-audio/s2.1-pro",
+  "microsoft/mai-voice-2",
+]);
 
 function inferOperations(raw: RawCatalogModel): ModelOperation[] {
   const operations = new Set<ModelOperation>();

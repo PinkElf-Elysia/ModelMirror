@@ -2,6 +2,15 @@ export const DEFAULT_SPEECH_MODEL_ID = "microsoft/mai-voice-2";
 export const DEFAULT_SPEECH_VOICE = "en-US-Harper:MAI-Voice-2";
 export type SpeechResponseFormat = "mp3" | "wav";
 
+const SPEECH_VOICE_LABELS: Record<string, string> = {
+  "8ef4a238714b45718ce04243307c57a7": "轻快女声",
+  "802e3bc2b27e49c2995d23ef70e6ac89": "活力男声",
+};
+
+export function speechVoiceLabel(voice: string) {
+  return SPEECH_VOICE_LABELS[voice] ?? voice;
+}
+
 export interface SpeechAudioResult {
   blob: Blob;
   requestId: string;

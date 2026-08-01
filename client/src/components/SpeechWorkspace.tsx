@@ -4,6 +4,7 @@ import type { Model } from "../data/models";
 import {
   DEFAULT_SPEECH_VOICE,
   generateSpeechAudio,
+  speechVoiceLabel,
   type SpeechResponseFormat,
 } from "../utils/speechAudio";
 import BrandLogo from "./BrandLogo";
@@ -322,7 +323,7 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                     ) : null}
                     {availableVoices.map((item) => (
                       <option key={item} value={item}>
-                        {item}
+                        {speechVoiceLabel(item)}
                       </option>
                     ))}
                   </select>

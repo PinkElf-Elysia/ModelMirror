@@ -363,23 +363,19 @@ export default function ModelListPage() {
   const hasActiveCriteria = hasSearchTerm || !isDefaultFilters(filters);
   const activeFilterCount =
     countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
-  const readyFilteredCount = filteredModels.filter(
+  const adaptedFilteredCount = filteredModels.filter(
     (model) => {
       const audioStatus = audioCapabilityStatuses.get(model.id);
-      const primaryAudioBlocked =
-        (
-          model.primary_operation === "transcribe" ||
-          model.primary_operation === "synthesize_speech" ||
-          model.primary_operation === "generate_audio" ||
-          model.primary_operation === "realtime_voice"
-        ) &&
-        Boolean(audioStatus) &&
-        audioStatus?.status !== "ready";
+      const primaryAudioOperation =
+        model.primary_operation === "transcribe" ||
+        model.primary_operation === "synthesize_speech" ||
+        model.primary_operation === "generate_audio" ||
+        model.primary_operation === "realtime_voice";
+      if (primaryAudioOperation && audioStatus) {
+        return audioStatus.status !== "planned";
+      }
       return (
-        (
-          model.interaction_status === "ready" &&
-          !primaryAudioBlocked
-        ) ||
+        model.interaction_status === "ready" ||
         Boolean(confirmedAudioOperations.get(model.id)?.length) ||
         Boolean(
           confirmedVideoOperations
@@ -406,9 +402,12 @@ export default function ModelListPage() {
             浏览模型能力，并进入当前已适配的对话或资料库入口。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">当前可使用</p>
+            <p className="text-xs text-slate-400">已完成适配</p>
             <p className="mt-1 text-sm font-semibold text-hire-100">
-              {readyFilteredCount} / {filteredModels.length}
+              {adaptedFilteredCount} / {filteredModels.length}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              是否已启用，请以模型卡片状态为准。
             </p>
           </div>
         </div>
@@ -443,9 +442,9 @@ export default function ModelListPage() {
               <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 text-center text-xs">
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-hire-100">
-                    {readyFilteredCount}
+                    {adaptedFilteredCount}
                   </p>
-                  <p className="mt-1 truncate text-slate-400">可使用</p>
+                  <p className="mt-1 truncate text-slate-400">已适配</p>
                 </div>
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-accent-100">
@@ -502,7 +501,7 @@ export default function ModelListPage() {
               <span className="font-semibold text-white">
                 {filteredModels.length}
               </span>{" "}
-              位候选人，其中 {readyFilteredCount} 位已有入口
+              位候选人，其中 {adaptedFilteredCount} 位已完成适配
             </p>
           </div>
 
