@@ -145,12 +145,23 @@ def test_cached_health_stays_fast_but_apply_rechecks_target(
     assert engine.health()["reason"] == "target_not_ready"
 
 
-def test_engine_requires_a_linked_worktree_git_pointer(
+def test_engine_accepts_an_independent_git_directory(
     roots: tuple[Path, Path, Path],
 ) -> None:
     source, target, staging = roots
     (target / ".git").unlink()
     (target / ".git").mkdir()
+
+    engine = CodingApplierEngine(source, target, staging)
+
+    assert engine.health()["available"] is True
+
+
+def test_engine_requires_supported_git_metadata(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    (target / ".git").unlink()
 
     with pytest.raises(CodingApplyError) as raised:
         CodingApplierEngine(source, target, staging)

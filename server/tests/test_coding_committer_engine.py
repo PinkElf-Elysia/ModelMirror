@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from server.coding_committer import engine as committer_engine
 from server.coding_committer.engine import CodingCommitterEngine
 from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
 from server.coding_runtime.commit_models import CodingCommitError
@@ -107,6 +108,26 @@ def test_commit_is_atomic_idempotent_and_uses_fixed_identity(
         "docs/random-7F3A.md",
         "server/app.py",
     ]
+
+
+def test_git_commands_pin_only_the_fixed_target_as_safe(
+    repository: tuple[Path, Path, Path, ApplyReceipt],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source, target, temporary, _ = repository
+    calls: list[tuple[str, ...]] = []
+    original_run = committer_engine.subprocess.run
+
+    def tracked_run(argv: tuple[str, ...], **kwargs: object):
+        calls.append(tuple(argv))
+        return original_run(argv, **kwargs)
+
+    monkeypatch.setattr(committer_engine.subprocess, "run", tracked_run)
+
+    CodingCommitterEngine(source, target, temporary)
+
+    assert calls
+    assert all(f"safe.directory={target.resolve()}" in call for call in calls)
 
 
 def test_undo_moves_head_back_but_keeps_applied_files_and_allows_recommit(

@@ -493,6 +493,8 @@ class CodingCommitterEngine:
         argv = (
             "git",
             "-c",
+            f"safe.directory={self.target_root}",
+            "-c",
             f"core.hooksPath={os.devnull}",
             "-c",
             "core.fsmonitor=false",

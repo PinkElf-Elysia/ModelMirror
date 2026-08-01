@@ -258,7 +258,7 @@ class CodingApplierEngine:
         if (
             not git_entry.exists()
             or git_entry.is_symlink()
-            or not git_entry.is_file()
+            or not (git_entry.is_file() or git_entry.is_dir())
         ):
             raise CodingApplyError(
                 "Dedicated target metadata is unavailable.",
@@ -270,7 +270,7 @@ class CodingApplierEngine:
         if (
             not git_entry.exists()
             or git_entry.is_symlink()
-            or not git_entry.is_file()
+            or not (git_entry.is_file() or git_entry.is_dir())
         ):
             raise CodingApplyError(
                 "Dedicated target metadata is unavailable.",
