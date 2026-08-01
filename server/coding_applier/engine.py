@@ -159,7 +159,7 @@ class CodingApplierEngine:
                 self._record_health(available=False, reason=exc.code)
                 raise
             try:
-                self._prepare_staging(patch)
+                self._prepare_staging(patch, safe_paths)
                 before_contents = tuple(
                     (
                         path,
@@ -309,7 +309,7 @@ class CodingApplierEngine:
                 return "not_applied", None
 
             try:
-                self._prepare_reverse_staging(patch)
+                self._prepare_reverse_staging(patch, safe_paths)
                 receipt = self._build_reconciled_receipt(
                     operation_id=operation_id,
                     revision=revision,
@@ -343,22 +343,15 @@ class CodingApplierEngine:
             self._record_health(available=True)
             return "applied", receipt
 
-    def _prepare_reverse_staging(self, patch: str) -> None:
+    def _prepare_reverse_staging(
+        self,
+        patch: str,
+        paths: tuple[str, ...],
+    ) -> None:
         """Reconstruct the exact pre-apply checkpoint from the current target."""
 
         self._clear_staging()
-        try:
-            shutil.copytree(
-                self.target_root,
-                self.staging_root,
-                ignore=shutil.ignore_patterns(".git"),
-            )
-            _make_staging_writable(self.staging_root)
-        except OSError as exc:
-            raise CodingApplyError(
-                "Recovery staging could not be prepared.",
-                code="staging_unavailable",
-            ) from exc
+        self._copy_paths_to_staging(paths)
         for argv in (
             ("git", "apply", "--reverse", "--check", "--whitespace=nowarn", "-"),
             ("git", "apply", "--reverse", "--whitespace=nowarn", "-"),
@@ -494,20 +487,9 @@ class CodingApplierEngine:
         except PatchPolicyError as exc:
             raise CodingApplyError(str(exc), code="target_not_ready") from exc
 
-    def _prepare_staging(self, patch: str) -> None:
+    def _prepare_staging(self, patch: str, paths: tuple[str, ...]) -> None:
         self._clear_staging()
-        try:
-            shutil.copytree(
-                self.target_root,
-                self.staging_root,
-                ignore=shutil.ignore_patterns(".git"),
-            )
-            _make_staging_writable(self.staging_root)
-        except OSError as exc:
-            raise CodingApplyError(
-                "Apply staging could not be prepared.",
-                code="staging_unavailable",
-            ) from exc
+        self._copy_paths_to_staging(paths)
         for argv in (
             ("git", "apply", "--check", "--whitespace=nowarn", "-"),
             ("git", "apply", "--whitespace=nowarn", "-"),
@@ -540,6 +522,30 @@ class CodingApplierEngine:
                     "Patch could not be applied to the source snapshot.",
                     code="patch_apply_failed",
                 )
+
+    def _copy_paths_to_staging(self, paths: tuple[str, ...]) -> None:
+        try:
+            self.staging_root.mkdir(parents=True, exist_ok=False)
+            for relative in paths:
+                source = self.target_root / relative
+                if not source.exists():
+                    continue
+                if source.is_symlink() or not source.is_file():
+                    raise CodingApplyError(
+                        "Apply source path is unsafe.",
+                        code="target_changed",
+                    )
+                destination = self.staging_root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+            _make_staging_writable(self.staging_root)
+        except CodingApplyError:
+            raise
+        except OSError as exc:
+            raise CodingApplyError(
+                "Apply staging could not be prepared.",
+                code="staging_unavailable",
+            ) from exc
 
     def _build_receipt(
         self,
