@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,12 +17,22 @@ from server.coding_runtime.api import (
     configure_coding_service,
     router,
 )
-from server.coding_runtime.applier_client import ApplierClientError
+from server.coding_runtime.applier_client import (
+    ApplierClientError,
+    CodingApplierClient,
+)
 from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
 from server.coding_runtime.commit_models import CommitReceipt
-from server.coding_runtime.committer_client import CommitterClientError
+from server.coding_runtime.committer_client import (
+    CodingCommitterClient,
+    CommitterClientError,
+)
 from server.coding_runtime.models import CodingEvent, CodingEventKind
-from server.coding_runtime.worker import CodingWorkerError
+from server.coding_runtime.recovery import CodingRecoveryStore
+from server.coding_runtime.worker import (
+    CodingWorkerError,
+    _validate_recovered_verification,
+)
 
 
 SNAPSHOT_FINGERPRINT = "a" * 64
@@ -39,6 +50,8 @@ class FakeWorker:
         malformed_changes: bool = False,
         verification_available: bool = True,
         change_path: str = "server/example.py",
+        snapshot_fingerprint: str = SNAPSHOT_FINGERPRINT,
+        fail_recovery_snapshot: bool = False,
     ) -> None:
         self.configured = configured
         self.block_turn = block_turn
@@ -48,6 +61,8 @@ class FakeWorker:
         self.malformed_changes = malformed_changes
         self.verification_available = verification_available
         self.change_path = change_path
+        self.snapshot_fingerprint = snapshot_fingerprint
+        self.fail_recovery_snapshot = fail_recovery_snapshot
         self.release = asyncio.Event()
         self.cancelled = False
         self.closed: list[str] = []
@@ -57,6 +72,7 @@ class FakeWorker:
         self.verification_state = "not_started"
         self.verification_result = "not_run"
         self.verification_reason: str | None = None
+        self.restore_calls: list[dict[str, Any]] = []
 
     async def health(self) -> dict[str, Any]:
         if self.fail_health:
@@ -65,7 +81,7 @@ class FakeWorker:
             "ok": True,
             "configured": self.configured,
             "mode": self.mode,
-            "snapshot_fingerprint": SNAPSHOT_FINGERPRINT,
+            "snapshot_fingerprint": self.snapshot_fingerprint,
             "verification": {
                 "available": self.verification_available,
                 "strategy": "adaptive",
@@ -85,6 +101,41 @@ class FakeWorker:
             "session_id": self.session_id,
             "mode": self.mode,
             "event": self._event(1, CodingEventKind.SESSION_STARTED).to_dict(),
+        }
+
+    async def restore_session(self, **kwargs: Any) -> dict[str, Any]:
+        self.restore_calls.append(kwargs)
+        self.revision = kwargs["revision"]
+        verification = kwargs.get("verification")
+        if isinstance(verification, dict):
+            self.verification_revision = verification["revision"]
+            self.verification_state = verification["state"]
+            self.verification_result = verification["result"]
+            self.verification_reason = verification["reason"]
+        return {
+            "ok": True,
+            "session_id": self.session_id,
+            "mode": self.mode,
+            "event": self._event(1, CodingEventKind.SESSION_STARTED).to_dict(),
+            "changes": self._changes(),
+            "recovered": True,
+        }
+
+    async def recovery_snapshot(self, session_id: str) -> dict[str, Any]:
+        if self.fail_recovery_snapshot:
+            raise CodingWorkerError(
+                "snapshot failed",
+                code="recovery_snapshot_failed",
+            )
+        return {
+            "snapshot_fingerprint": self.snapshot_fingerprint,
+            "changes": self._changes(),
+            "patch": self._diff_content(),
+            "verification": (
+                self._verification()
+                if self.verification_state == "completed"
+                else None
+            ),
         }
 
     async def prompt(
@@ -140,6 +191,9 @@ class FakeWorker:
         self._require_revision(revision)
         if path != self.change_path:
             raise CodingWorkerError("missing", code="change_not_found")
+        return self._diff_content()
+
+    def _diff_content(self) -> str:
         return (
             f"diff --git a/{self.change_path} b/{self.change_path}\n"
             f"--- a/{self.change_path}\n"
@@ -270,7 +324,7 @@ class FakeWorker:
             "file_count": len(files),
             "additions": 0 if empty else 1,
             "deletions": 0 if empty else 1,
-            "patch_bytes": 0 if empty else 150,
+            "patch_bytes": 0 if empty else len(self._diff_content().encode("utf-8")),
             "validation_status": validation_status,
             "can_download": bool(files) and validation_status == "passed",
             "checks": [
@@ -319,6 +373,7 @@ class FakeApplier:
         apply_error: str | None = None,
         revert_error: str | None = None,
         block_apply: bool = False,
+        reconcile_state: str = "applied",
     ) -> None:
         self.configured = configured
         self.available = available
@@ -326,10 +381,12 @@ class FakeApplier:
         self.apply_error = apply_error
         self.revert_error = revert_error
         self.block_apply = block_apply
+        self.reconcile_state = reconcile_state
         self.apply_calls: list[dict[str, Any]] = []
         self.revert_calls: list[ApplyReceipt] = []
         self.apply_started = asyncio.Event()
         self.release_apply = asyncio.Event()
+        self.reconcile_calls: list[dict[str, Any]] = []
 
     async def health(self) -> dict[str, Any]:
         return {
@@ -368,6 +425,25 @@ class FakeApplier:
             raise ApplierClientError("revert failed", code=self.revert_error)
         return receipt
 
+    async def reconcile(self, **kwargs: Any) -> tuple[str, ApplyReceipt | None]:
+        self.reconcile_calls.append(kwargs)
+        if self.reconcile_state != "applied":
+            return self.reconcile_state, None
+        return self.reconcile_state, ApplyReceipt(
+            apply_id=kwargs["operation_id"],
+            revision=kwargs["revision"],
+            snapshot_fingerprint=kwargs["expected_fingerprint"],
+            files=(
+                ApplyFileReceipt(
+                    path=kwargs["paths"][0],
+                    existed_before=True,
+                    before_sha256="b" * 64,
+                    after_sha256="c" * 64,
+                ),
+            ),
+            applied_at=10.0,
+        )
+
 
 class FakeCommitter:
     def __init__(
@@ -378,14 +454,17 @@ class FakeCommitter:
         fingerprint: str = SNAPSHOT_FINGERPRINT,
         commit_error: str | None = None,
         undo_error: str | None = None,
+        reconcile_state: str = "committed",
     ) -> None:
         self.configured = configured
         self.available = available
         self.fingerprint = fingerprint
         self.commit_error = commit_error
         self.undo_error = undo_error
+        self.reconcile_state = reconcile_state
         self.commit_calls: list[dict[str, Any]] = []
         self.undo_calls: list[tuple[CommitReceipt, ApplyReceipt]] = []
+        self.reconcile_calls: list[dict[str, Any]] = []
 
     async def health(self) -> dict[str, Any]:
         return {
@@ -423,6 +502,23 @@ class FakeCommitter:
             raise CommitterClientError("undo failed", code=self.undo_error)
         return receipt
 
+    async def reconcile(self, **kwargs: Any) -> tuple[str, CommitReceipt | None]:
+        self.reconcile_calls.append(kwargs)
+        if self.reconcile_state not in {"committed", "undone"}:
+            return self.reconcile_state, None
+        apply_receipt = kwargs["apply_receipt"]
+        return self.reconcile_state, CommitReceipt(
+            commit_id=kwargs["operation_id"],
+            revision=apply_receipt.revision,
+            apply_id=apply_receipt.apply_id,
+            commit_sha="d" * 40,
+            parent_sha="b" * 40,
+            tree_sha="f" * 40,
+            message=kwargs["message"],
+            files=tuple(item.path for item in apply_receipt.files),
+            committed_at=20.0,
+        )
+
 
 @pytest_asyncio.fixture
 async def make_client():
@@ -434,6 +530,8 @@ async def make_client():
         worker: FakeWorker | None = None,
         applier: FakeApplier | None = None,
         committer: FakeCommitter | None = None,
+        recovery_store: CodingRecoveryStore | None = None,
+        recovery_enabled: bool = False,
         ttl_seconds: float = 1800,
     ) -> tuple[httpx.AsyncClient, CodingService, FakeWorker]:
         fake = worker or FakeWorker()
@@ -442,6 +540,8 @@ async def make_client():
             worker=fake,
             applier=applier,
             committer=committer,
+            recovery_store=recovery_store,
+            recovery_enabled=recovery_enabled,
             ttl_seconds=ttl_seconds,
             mode=fake.mode,
         )
@@ -1332,3 +1432,407 @@ async def test_committer_unavailable_does_not_disable_existing_draft_features(
     assert capabilities.json()["commit"]["available"] is False
     assert capabilities.json()["commit"]["reason"] == "committer_not_configured"
     assert changes.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_recovery_persists_draft_without_conversation_and_resumes_explicitly(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "recovery")
+    worker = FakeWorker(mode="draft")
+    client, service, _ = await make_client(
+        worker=worker,
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    random_prompt = "RECOVERY_PROMPT_7F31A9"
+    async with client:
+        session_id = await _create_and_start(client, random_prompt)
+        events = await client.get(f"/api/coding/sessions/{session_id}/events")
+        assert _sse_events(events.text)[-1]["type"] == "turn_completed"
+        pending = await client.get("/api/coding/recovery")
+    await service.shutdown()
+
+    persisted = b"".join(
+        path.read_bytes()
+        for path in (tmp_path / "recovery").iterdir()
+        if path.is_file()
+    )
+    assert random_prompt.encode() not in persisted
+    assert b"Answer for" not in persisted
+    assert pending.json()["pending"] is True
+    assert pending.json()["restores_conversation"] is False
+
+    resumed_worker = FakeWorker(mode="draft")
+    resumed_client, _, _ = await make_client(
+        worker=resumed_worker,
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with resumed_client:
+        blocked = await resumed_client.post("/api/coding/sessions")
+        downloaded = await resumed_client.get("/api/coding/recovery/patch")
+        resumed = await resumed_client.post("/api/coding/recovery/resume")
+        status_response = await resumed_client.get(
+            f"/api/coding/sessions/{resumed.json()['id']}"
+        )
+        discard_while_active = await resumed_client.post(
+            "/api/coding/recovery/discard"
+        )
+
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "recovery_pending"
+    assert downloaded.status_code == 200
+    assert downloaded.headers["cache-control"] == "no-store"
+    assert "server/example.py" in downloaded.text
+    assert resumed.status_code == 200
+    assert resumed.json()["conversation_restored"] is False
+    assert status_response.json() == {"state": "ready"}
+    assert discard_while_active.json()["detail"]["code"] == "session_active"
+    assert len(resumed_worker.restore_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_recovery_save_failure_withholds_success_terminal_event(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft", fail_recovery_snapshot=True)
+    client, _, _ = await make_client(
+        worker=worker,
+        recovery_store=CodingRecoveryStore(tmp_path / "recovery-failure"),
+        recovery_enabled=True,
+    )
+    async with client:
+        session_id = await _create_and_start(client, "RANDOM_SAVE_FAIL_91A7")
+        response = await client.get(f"/api/coding/sessions/{session_id}/events")
+
+    events = _sse_events(response.text)
+    assert events[-1]["type"] == "failed"
+    assert events[-1]["data"]["code"] == "recovery_snapshot_failed"
+    assert all(event["type"] != "turn_completed" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_recovery_snapshot_mismatch_still_allows_download_and_discard(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "recovery-mismatch")
+    client, service, _ = await make_client(
+        worker=FakeWorker(mode="draft"),
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with client:
+        session_id = await _create_and_start(client, "RANDOM_BASELINE_22D7")
+        await client.get(f"/api/coding/sessions/{session_id}/events")
+    await service.shutdown()
+
+    mismatch_worker = FakeWorker(
+        mode="draft",
+        snapshot_fingerprint="f" * 64,
+    )
+    mismatch_client, _, _ = await make_client(
+        worker=mismatch_worker,
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with mismatch_client:
+        recovery = await mismatch_client.get("/api/coding/recovery")
+        resume = await mismatch_client.post("/api/coding/recovery/resume")
+        patch_response = await mismatch_client.get("/api/coding/recovery/patch")
+        discarded = await mismatch_client.post("/api/coding/recovery/discard")
+
+    assert recovery.json()["can_resume"] is False
+    assert recovery.json()["reason"] == "snapshot_mismatch"
+    assert resume.status_code == 409
+    assert resume.json()["detail"]["code"] == "snapshot_mismatch"
+    assert patch_response.status_code == 200
+    assert discarded.json() == {"discarded": True}
+    assert store.load() is None
+
+
+@pytest.mark.asyncio
+async def test_recovery_reconciles_applied_and_committed_receipts(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "recovery-commit")
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    client, service, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "feature: 恢复本地版本 8C31",
+            },
+        )
+        assert committed.json()["state"] == "committed"
+    await service.shutdown()
+
+    recovered_worker = FakeWorker(mode="draft")
+    recovered_worker.verification_state = "completed"
+    recovered_worker.verification_result = "passed"
+    recovered_applier = FakeApplier(reconcile_state="applied")
+    recovered_committer = FakeCommitter(reconcile_state="committed")
+    recovered_client, _, _ = await make_client(
+        worker=recovered_worker,
+        applier=recovered_applier,
+        committer=recovered_committer,
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with recovered_client:
+        resumed = await recovered_client.post("/api/coding/recovery/resume")
+        commit_status = await recovered_client.get(
+            f"/api/coding/sessions/{resumed.json()['id']}/commit",
+            params={"revision": 1},
+        )
+
+    assert resumed.json()["status"] == "applied"
+    assert commit_status.json()["state"] == "committed"
+    assert commit_status.json()["message"] == "feature: 恢复本地版本 8C31"
+    assert len(recovered_applier.reconcile_calls) == 1
+    assert len(recovered_committer.reconcile_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_recovery_preserves_undone_commit_after_apply_was_reverted(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "recovery-reverted")
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    client, service, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "feature: 撤销恢复样例 62E4",
+            },
+        )
+        await client.post(
+            f"/api/coding/sessions/{session_id}/commit/undo",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "commit_id": committed.json()["commit_id"],
+            },
+        )
+        reverted = await client.post(
+            f"/api/coding/sessions/{session_id}/apply/revert",
+            json={"revision": 1, "apply_id": applied.json()["apply_id"]},
+        )
+        assert reverted.json()["state"] == "reverted"
+    await service.shutdown()
+
+    recovered_committer = FakeCommitter(reconcile_state="conflict")
+    recovered_client, _, _ = await make_client(
+        worker=FakeWorker(mode="draft"),
+        applier=FakeApplier(reconcile_state="not_applied"),
+        committer=recovered_committer,
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with recovered_client:
+        resumed = await recovered_client.post("/api/coding/recovery/resume")
+        commit_status = await recovered_client.get(
+            f"/api/coding/sessions/{resumed.json()['id']}/commit",
+            params={"revision": 1},
+        )
+
+    assert resumed.json()["status"] == "reverted"
+    assert commit_status.json()["state"] == "undone"
+    assert recovered_committer.reconcile_calls == []
+
+
+@pytest.mark.asyncio
+async def test_recovery_conflict_is_read_only_and_preserves_download(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "recovery-conflict")
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    client, service, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        applied = await client.post(
+            f"/api/coding/sessions/{created.json()['id']}/apply",
+            json={"revision": 1},
+        )
+        assert applied.json()["state"] == "applied"
+    await service.shutdown()
+
+    conflict_client, _, _ = await make_client(
+        worker=FakeWorker(mode="draft"),
+        applier=FakeApplier(reconcile_state="conflict"),
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with conflict_client:
+        resumed = await conflict_client.post("/api/coding/recovery/resume")
+        session_id = resumed.json()["id"]
+        turn = await conflict_client.post(
+            f"/api/coding/sessions/{session_id}/turns",
+            json={"prompt": "不要覆盖人工内容 49B2"},
+        )
+        changes = await conflict_client.get(
+            f"/api/coding/sessions/{session_id}/changes"
+        )
+        patch_response = await conflict_client.get("/api/coding/recovery/patch")
+        discarded = await conflict_client.post("/api/coding/recovery/discard")
+
+    assert resumed.json()["status"] == "conflict"
+    assert resumed.json()["conflict"] == "apply_recovery_conflict"
+    assert turn.status_code == 409
+    assert turn.json()["detail"]["code"] == "recovery_conflict"
+    assert changes.status_code == 200
+    assert patch_response.status_code == 200
+    assert discarded.json() == {"discarded": True}
+    assert store.load() is None
+
+
+def test_recovered_verification_is_revision_bound_and_resanitized() -> None:
+    valid = {
+        "revision": 7,
+        "state": "completed",
+        "result": "passed",
+        "stale": False,
+        "reason": None,
+        "started_at": 1700000000.0,
+        "finished_at": 1700000001.0,
+        "steps": [
+            {
+                "id": "backend_tests",
+                "label": "检查服务代码",
+                "state": "completed",
+                "result": "passed",
+                "duration_ms": 731,
+                "summary": "检查通过",
+                "details": "38 项检查通过",
+                "truncated": False,
+            }
+        ],
+    }
+
+    assert _validate_recovered_verification(
+        valid,
+        revision=7,
+        paths=["server/recovery_case_7f31.py"],
+    ) == valid
+    failed = json.loads(json.dumps(valid))
+    failed["result"] = "failed"
+    failed["steps"][0].update(
+        {"result": "failed", "duration_ms": None, "summary": "检查未能完成"}
+    )
+    assert _validate_recovered_verification(
+        failed,
+        revision=7,
+        paths=["server/recovery_case_7f31.py"],
+    ) == failed
+    with pytest.raises(CodingWorkerError) as stale:
+        _validate_recovered_verification(
+            valid,
+            revision=8,
+            paths=["server/recovery_case_7f31.py"],
+        )
+    assert stale.value.code == "recovery_invalid"
+
+    leaked = json.loads(json.dumps(valid))
+    leaked["steps"][0]["details"] = "C:\\private\\repo\\secret.py"
+    with pytest.raises(CodingWorkerError) as unsafe:
+        _validate_recovered_verification(
+            leaked,
+            revision=7,
+            paths=["server/recovery_case_7f31.py"],
+        )
+    assert unsafe.value.code == "recovery_invalid"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_clients_reject_inconsistent_socket_responses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    applier = CodingApplierClient(Path("/unused/applier.sock"))
+
+    async def invalid_apply_response(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"state": "applied", "receipt": None}
+
+    monkeypatch.setattr(applier, "_request", invalid_apply_response)
+    with pytest.raises(ApplierClientError) as invalid_apply:
+        await applier.reconcile(
+            operation_id="a" * 24,
+            revision=4,
+            patch="diff --git a/server/a.py b/server/a.py\n",
+            paths=["server/a.py"],
+            expected_fingerprint=SNAPSHOT_FINGERPRINT,
+        )
+    assert invalid_apply.value.code == "invalid_response"
+
+    committer = CodingCommitterClient(Path("/unused/committer.sock"))
+
+    async def invalid_commit_response(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"state": "conflict", "receipt": {"unexpected": True}}
+
+    monkeypatch.setattr(committer, "_request", invalid_commit_response)
+    apply_receipt = ApplyReceipt(
+        apply_id="b" * 24,
+        revision=4,
+        snapshot_fingerprint=SNAPSHOT_FINGERPRINT,
+        files=(
+            ApplyFileReceipt(
+                path="server/a.py",
+                existed_before=True,
+                before_sha256="c" * 64,
+                after_sha256="d" * 64,
+            ),
+        ),
+    )
+    with pytest.raises(CommitterClientError) as invalid_commit:
+        await committer.reconcile(
+            operation_id="e" * 24,
+            apply_receipt=apply_receipt,
+            message="feature: 恢复检查 4D2A",
+        )
+    assert invalid_commit.value.code == "invalid_response"

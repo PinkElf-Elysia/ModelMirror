@@ -63,6 +63,46 @@ class CodingApplierClient:
         )
         return _receipt_from_response(response)
 
+    async def reconcile(
+        self,
+        *,
+        operation_id: str,
+        revision: int,
+        patch: str,
+        paths: list[str],
+        expected_fingerprint: str,
+    ) -> tuple[str, ApplyReceipt | None]:
+        response = await self._request(
+            {
+                "action": "reconcile",
+                "operation_id": operation_id,
+                "revision": revision,
+                "patch": patch,
+                "paths": paths,
+                "expected_fingerprint": expected_fingerprint,
+            }
+        )
+        state = response.get("state")
+        payload = response.get("receipt")
+        if state not in {"not_applied", "applied", "conflict"}:
+            raise ApplierClientError(
+                "Coding application recovery response is invalid.",
+                code="invalid_response",
+            )
+        if payload is None:
+            if state == "applied":
+                raise ApplierClientError(
+                    "Coding application recovery receipt is missing.",
+                    code="invalid_response",
+                )
+            return state, None
+        if state != "applied":
+            raise ApplierClientError(
+                "Coding application recovery response is inconsistent.",
+                code="invalid_response",
+            )
+        return state, _receipt_from_response({"receipt": payload})
+
     async def _request(
         self,
         payload: dict[str, Any],
