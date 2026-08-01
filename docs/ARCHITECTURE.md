@@ -1,6 +1,6 @@
 # 项目整体架构
 
-最后更新日期：2026-07-31
+最后更新日期：2026-08-01
 维护人：模镜团队
 
 ## 当前定位
@@ -14,7 +14,8 @@
 - `/rag`：本地知识库、知识流水线、检索评估和引用。
 - `/agents/studio`：Agent Studio，提供草稿、发布版本和运行闭环。
 - `/datax`、`/toolsets`、`/runtime`：数据、工具和运行诊断。
-- `/coding`：实验性代码协作；默认只读，也可准备、验证、受控应用并保存隔离本地提交。
+- `/coding`：实验性代码协作；默认只读，也可准备、验证、受控应用、保存隔离本地
+  提交，并在重启后恢复最近一份安全草稿。
 
 Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 `server/api/dify_proxy.py` 和旧 iframe 组件作为历史兼容代码，但默认前端路由
@@ -31,7 +32,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | newAPI / OpenAI-compatible | 默认模型服务连接与渠道管理。 |
 | OpenRouter | 默认网关不可用时的兼容回退，以及首期多模态能力来源。 |
 | 原生 Model Router | 目录、策略、熔断、预算、回执和上下文优化。 |
-| SQLite | 原生路由、连接、决策和视频任务元数据。 |
+| SQLite | 原生路由、连接、决策、视频任务元数据及单槽加密 Coding 恢复索引。 |
 | Chroma + SQLite FTS5 | RAG 向量与全文检索。 |
 | DuckDB | Data X 项目隔离分析。 |
 | Browser / Sandbox sidecar | 受控浏览器和无网络沙箱执行。 |
@@ -40,6 +41,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | Coding Verifier | 用户手动触发的草稿项目验证执行面；无网络、固定命令、可选启动。 |
 | Coding Applier | 把满足门禁的草稿原子写入固定专用工作树；无网络、无 Git 操作、可选启动。 |
 | Coding Committer | 把已应用文件保存到独立本地仓库；无网络、固定分支、只写隔离 `.git`。 |
+| Coding Recovery Store | 可选的单任务加密恢复存储；默认保留 7 天，不保存对话或工具过程。 |
 
 ## 系统架构
 
@@ -74,6 +76,7 @@ flowchart LR
   API -->|"独立 Unix socket"| COMMIT["coding-committer"]
   COMMIT -->|"本地提交 / 保留文件撤销"| REPO["无远程独立仓库"]
   COMMIT -. "network_mode: none" .-> OFFLINE
+  API -->|"Fernet 密文 + SQLite"| RECOVERY["最近一份 Coding 恢复记录"]
 ```
 
 ## 稳定路由
@@ -90,7 +93,7 @@ flowchart LR
 | 实验工作流 | `/workflow-native` | 静态校验和设计实验线，不替换 classic 主入口。 |
 | 知识 | `/rag`、`/rag/:kbId/pipeline`、`/rag/:kbId/evaluation`、`/rag/:kbId/inbox` | 本地资料库、流水线、评测和审批。 |
 | 数据 | `/datax`、`/datax/:projectId`、`/datax/:projectId/inbox` | 文件快照、语义指标和提案审批。 |
-| 实验代码协作 | `/coding` | 对固定快照问答，或准备、验证、应用并保存隔离本地提交。 |
+| 实验代码协作 | `/coding` | 对固定快照问答，或准备、验证、应用、提交并恢复最近一份修改。 |
 
 内部路径仍使用 `Xpert*` 类型和 `/agents/xpert/...` 兼容 API；面向用户统一显示
 “智能体”“Agent Studio”和“Agent App”。内部标识不得仅为改名而迁移。
@@ -167,6 +170,13 @@ flowchart LR
   Git plumbing 与 compare-and-swap 引用更新，不运行 Hook、过滤器、签名器、
   凭据助手或远程操作。撤销提交只移动本次引用并保留文件；目标、索引或分支发生
   外部变化时失败关闭。
+- Coding Recovery Store 只在显式加载恢复 overlay 时启用。它在固定数据目录中
+  最多保存一条记录，SQLite 明文字段仅含 revision、指纹、文件数和时间；规范化
+  Patch、验证摘要及 Apply/Commit Receipt 使用本地 Fernet 密钥认证加密。密钥
+  缺失、损坏、schema 不兼容或密文被篡改时失败关闭，不生成新密钥覆盖旧记录。
+- 恢复会从镜像内不可变基准重新复核并应用 Patch，再创建全新 Agent 会话；问题、
+  回答、计划、工具过程和原始命令输出从不持久化。基准或验证环境指纹变化会使
+  结果过期；应用/提交状态无法精确对账时进入只读冲突态，不重复写入或覆盖人工内容。
 - 视频、音频、Prompt 和首帧媒体正文不写入路由或视频任务审计。
 
 ## 当前风险与维护边界
@@ -181,10 +191,10 @@ flowchart LR
   `passed`（纯文档允许 `not_applicable`）的 revision 才能写入固定专用工作树。
   当前主工作树不挂载给 Applier 或 Committer。显式启用隔离本地提交时，系统只在
   无远程独立克隆中创建一个本地提交，仍不推送或创建 PR。
-- 应用成功后会话冻结；Diff、Patch 和验证结果仍可读。一次安全撤销依赖 Server
-  内存中的临时凭据，重启后不保证可用。有效本地提交存在时必须先撤销提交并保留
-  文件，才可撤销应用；已有本地提交不会因 Server 重启丢失。Agent 仍
+- 应用成功后会话冻结；Diff、Patch 和验证结果仍可读。启用恢复 overlay 后，精确
+  对账成功的应用、提交及其撤销能力可在重启后恢复；外部状态不明确时只允许查看和
+  下载。有效本地提交存在时必须先撤销提交并保留文件，才可撤销应用。Agent 仍
   不能使用 Shell、Git、测试命令或选择测试范围；系统仍不提供任意仓库选择、
-  远程操作、分支选择、删除/重命名、重启恢复、多次增量应用、多 Agent、分布式
+  远程操作、分支选择、删除/重命名、多次增量应用、多 Agent、分布式
   Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。

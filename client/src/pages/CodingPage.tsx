@@ -23,6 +23,9 @@ import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import CodingChangesPanel from "../components/CodingChangesPanel";
+import CodingRecoveryCard, {
+  type CodingRecoveryAction,
+} from "../components/CodingRecoveryCard";
 import PageContainer from "../components/PageContainer";
 import type {
   CodingApplyResult,
@@ -31,6 +34,7 @@ import type {
   CodingDraftChanges,
   CodingEvent,
   CodingPlanEntry,
+  CodingRecoveryStatus,
   CodingVerification,
 } from "../types/coding";
 import {
@@ -42,16 +46,20 @@ import {
   CodingApiError,
   connectCodingEvents,
   createCodingSession,
+  discardCodingRecovery,
   discardCodingChanges,
   getCodingCapabilities,
   getCodingApplyStatus,
   getCodingChanges,
   getCodingCommitStatus,
   getCodingPatch,
+  getCodingRecovery,
+  getCodingRecoveryPatch,
   getCodingSessionStatus,
   getCodingVerification,
   startCodingTurn,
   startCodingVerification,
+  resumeCodingRecovery,
   revertCodingApply,
   undoCodingCommit,
   validateCodingChanges,
@@ -109,6 +117,17 @@ function clearStoredCodingSession() {
   window.sessionStorage.removeItem(CODING_SESSION_STORAGE_KEY);
 }
 
+function downloadFile(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 const capabilityReason: Record<string, string> = {
   disabled: "管理员尚未启用代码助手，其他功能不受影响。",
   not_configured: "代码服务已启动，但所需的模型连接信息尚未配置。",
@@ -128,8 +147,14 @@ const errorMessage: Record<string, string> = {
   validation_failed: "修改检查尚未通过，请先修正后再下载。",
   verification_in_progress: "项目验证仍在运行，请先等待完成或停止验证。",
   verifier_unavailable: "项目验证服务未启动，仍可查看和下载修改。",
-  snapshot_mismatch: "项目版本正在更新，暂时无法运行验证，请稍后重试。",
+  snapshot_mismatch: "项目版本已经变化，当前操作不能继续；已有修改仍可查看和下载。",
   verification_not_found: "本次项目验证记录已失效，请重新运行。",
+  recovery_pending: "发现一份未完成的修改，请先选择继续、下载或放弃。",
+  recovery_conflict: "外部内容后来发生变化，为避免覆盖人工内容，现在只允许查看或下载。",
+  recovery_data_corrupt: "保存的修改无法安全读取，请下载可用内容或联系开发者处理。",
+  recovery_storage_unavailable: "修改恢复服务暂时不可用，当前操作没有完成。",
+  recovery_not_found: "这份保存记录已不存在，请刷新页面确认最新状态。",
+  recovery_changed: "保存记录刚刚发生变化，请刷新页面后再试。",
 };
 
 function describeError(error: unknown) {
@@ -194,7 +219,11 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
               ? "只有你再次确认，才会保存为本地提交；不会上传，当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
           </li>
-          <li>问题与回答只临时保留，服务重启后清除。</li>
+          <li>
+            {isDraft
+              ? "修改草稿可以在重启后继续；此前的提问、回答和查阅过程不会保存。"
+              : "问题与回答只临时保留，服务重启后清除。"}
+          </li>
         </ul>
       </div>
     </div>
@@ -234,6 +263,13 @@ export default function CodingPage() {
     null,
   );
   const [commitError, setCommitError] = useState("");
+  const [recovery, setRecovery] = useState<CodingRecoveryStatus | null>(null);
+  const [recoveryAction, setRecoveryAction] =
+    useState<CodingRecoveryAction>("idle");
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryNotice, setRecoveryNotice] = useState("");
+  const [recoveredState, setRecoveredState] = useState<string | null>(null);
+  const [recoveryConflict, setRecoveryConflict] = useState<string | null>(null);
   const closeStreamRef = useRef<null | (() => void)>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionProbeInFlightRef = useRef(false);
@@ -246,10 +282,16 @@ export default function CodingPage() {
   const verificationRunning =
     verification?.state === "running" && verification.stale === false;
   const sessionFrozen = Boolean(
-    applyResult?.apply_id &&
-      ["applied", "reverting", "reverted", "failed"].includes(
-        applyResult.state,
-      ),
+    recoveryConflict ||
+      recoveredState === "applied" ||
+      recoveredState === "reverted" ||
+      (applyResult?.apply_id &&
+        ["applied", "reverting", "reverted", "failed"].includes(
+          applyResult.state,
+        )),
+  );
+  const hasPendingRecovery = Boolean(
+    recovery?.pending && (!sessionId || recoveryConflict),
   );
   const resetExpiredSession = useCallback(
     (activeSessionId: string) => {
@@ -270,15 +312,27 @@ export default function CodingPage() {
       setApplyError("");
       setCommitResult(null);
       setCommitError("");
+      setRecoveredState(null);
+      setRecoveryConflict(null);
       setRunState("idle");
       setTransportWarning("");
       setError(
-        "代码服务已重新启动，之前的临时记录已结束。你可以重新描述需求并开始处理。",
+        "代码服务已重新启动。若有可继续的修改，页面会在上方提示；此前对话不会恢复。",
       );
       return true;
     },
     [sessionId],
   );
+
+  const loadRecovery = useCallback(async () => {
+    setRecoveryError("");
+    try {
+      const result = await getCodingRecovery();
+      setRecovery(result.pending ? result : null);
+    } catch (requestError) {
+      setRecoveryError(describeError(requestError));
+    }
+  }, []);
 
   const loadCapabilities = useCallback(async () => {
     setCapabilityState("loading");
@@ -286,6 +340,11 @@ export default function CodingPage() {
     try {
       const result = await getCodingCapabilities();
       setCapabilities(result);
+      if (result.recovery.enabled) {
+        await loadRecovery();
+      } else {
+        setRecovery(null);
+      }
       if (result.mode !== "draft") {
         setDraftChanges(null);
         setDraftError("");
@@ -302,7 +361,7 @@ export default function CodingPage() {
       setCapabilities(null);
       setCapabilityState("error");
     }
-  }, []);
+  }, [loadRecovery]);
 
   useEffect(() => {
     void loadCapabilities();
@@ -633,7 +692,8 @@ export default function CodingPage() {
       runState === "running" ||
       runState === "stopping" ||
       verificationRunning ||
-      sessionFrozen
+      sessionFrozen ||
+      hasPendingRecovery
     ) {
       return;
     }
@@ -725,6 +785,8 @@ export default function CodingPage() {
     if (!sessionId) return;
     const result = await discardCodingChanges(sessionId);
     setDraftChanges(result);
+    setRecovery(null);
+    setRecoveredState(null);
     setDraftNotice("修改草稿已放弃，临时副本已恢复到最初状态。");
   };
 
@@ -776,14 +838,7 @@ export default function CodingPage() {
       sessionId,
       draftChanges.revision,
     );
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    downloadFile(blob, filename);
     setDraftNotice("Diff 已下载，真实项目仍未发生改变。");
   };
 
@@ -796,6 +851,7 @@ export default function CodingPage() {
         draftChanges.revision,
       );
       setApplyResult(result);
+      setRecoveredState("applied");
       setCommitResult(null);
       setCommitError("");
       setDraftNotice(
@@ -823,6 +879,7 @@ export default function CodingPage() {
         applyResult.apply_id,
       );
       setApplyResult(result);
+      setRecoveredState("reverted");
       setCommitResult(null);
       setCommitError("");
       setDraftNotice("本次应用已撤销，专用项目副本已恢复。");
@@ -912,8 +969,103 @@ export default function CodingPage() {
     setCommitResult(null);
     setCommitError("");
     setDraftNotice("本次修改已结束，可以开始新的任务。");
+    setRecovery(null);
+    setRecoveredState(null);
+    setRecoveryConflict(null);
     setRunState("idle");
     await loadCapabilities();
+  };
+
+  const resumeRecovery = async () => {
+    if (!recovery?.pending || recoveryAction !== "idle") return;
+    setRecoveryAction("resuming");
+    setRecoveryError("");
+    setRecoveryNotice("");
+    setError("");
+    try {
+      const result = await resumeCodingRecovery();
+      closeStreamRef.current?.();
+      closeStreamRef.current = null;
+      setSessionId(result.id);
+      lastSeqRef.current = 0;
+      storeCodingSession(result.id, 0);
+      setEvents([]);
+      setDraftChanges(null);
+      setVerification(null);
+      setApplyResult(null);
+      setCommitResult(null);
+      setRecoveredState(result.status);
+      setRecoveryConflict(result.conflict);
+      setRunState("idle");
+      setDraftNotice(
+        result.conflict
+          ? "已安全恢复修改内容，但检测到外部变化。现在只允许查看或下载，不会覆盖人工内容。"
+          : "已恢复上次保存的修改。此前对话没有保存，你可以重新说明接下来要做什么。",
+      );
+      if (result.conflict) {
+        setRecovery((current) =>
+          current
+            ? {
+                ...current,
+                can_resume: false,
+                reason: result.conflict,
+                state: "conflict",
+              }
+            : current,
+        );
+      } else {
+        setRecovery(null);
+      }
+    } catch (requestError) {
+      setRecoveryError(describeError(requestError));
+    } finally {
+      setRecoveryAction("idle");
+    }
+  };
+
+  const downloadRecovery = async () => {
+    if (!recovery?.pending || recoveryAction !== "idle") return;
+    setRecoveryAction("downloading");
+    setRecoveryError("");
+    setRecoveryNotice("");
+    try {
+      const { blob, filename } = await getCodingRecoveryPatch();
+      downloadFile(blob, filename);
+      setRecoveryNotice("Diff 已下载，这份保存记录仍会继续保留。");
+    } catch (requestError) {
+      setRecoveryError(describeError(requestError));
+    } finally {
+      setRecoveryAction("idle");
+    }
+  };
+
+  const discardRecovery = async () => {
+    if (!recovery?.pending || recoveryAction !== "idle") return;
+    setRecoveryAction("discarding");
+    setRecoveryError("");
+    setRecoveryNotice("");
+    try {
+      await discardCodingRecovery();
+      closeStreamRef.current?.();
+      closeStreamRef.current = null;
+      setSessionId(null);
+      lastSeqRef.current = 0;
+      clearStoredCodingSession();
+      setEvents([]);
+      setDraftChanges(null);
+      setVerification(null);
+      setApplyResult(null);
+      setCommitResult(null);
+      setRecoveredState(null);
+      setRecoveryConflict(null);
+      setRecovery(null);
+      setRunState("idle");
+      setRecoveryNotice("已放弃这份恢复记录，可以开始新的修改任务。");
+    } catch (requestError) {
+      setRecoveryError(describeError(requestError));
+    } finally {
+      setRecoveryAction("idle");
+    }
   };
 
   return (
@@ -1014,6 +1166,34 @@ export default function CodingPage() {
         </div>
       </section>
 
+      {recovery?.pending && (!sessionId || recoveryConflict) ? (
+        <CodingRecoveryCard
+          action={recoveryAction}
+          error={recoveryError}
+          notice={recoveryNotice}
+          onDiscard={discardRecovery}
+          onDownload={downloadRecovery}
+          onResume={resumeRecovery}
+          recovery={recovery}
+        />
+      ) : recoveryNotice ? (
+        <p
+          aria-live="polite"
+          className="mb-5 rounded-lg bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100"
+          role="status"
+        >
+          {recoveryNotice}
+        </p>
+      ) : recoveryError ? (
+        <p
+          aria-live="assertive"
+          className="mb-5 rounded-lg bg-rose-300/10 px-4 py-3 text-sm text-rose-100"
+          role="alert"
+        >
+          {recoveryError}
+        </p>
+      ) : null}
+
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-5">
           <section
@@ -1102,7 +1282,8 @@ export default function CodingPage() {
                 !serviceAvailable ||
                 isBusy ||
                 verificationRunning ||
-                sessionFrozen
+                sessionFrozen ||
+                hasPendingRecovery
               }
               id="coding-prompt"
               maxLength={capabilities?.limits.max_prompt_chars ?? 20_000}
@@ -1147,7 +1328,8 @@ export default function CodingPage() {
                       !serviceAvailable ||
                       !prompt.trim() ||
                       verificationRunning ||
-                      sessionFrozen
+                      sessionFrozen ||
+                      hasPendingRecovery
                     }
                     type="submit"
                   >
@@ -1216,6 +1398,7 @@ export default function CodingPage() {
                 disabled={isBusy}
                 frozen={sessionFrozen}
                 loading={draftLoading}
+                readOnly={Boolean(recoveryConflict)}
                 onApply={applyDraft}
                 onClose={closeAppliedSession}
                 onCommit={commitAppliedDraft}

@@ -6,6 +6,8 @@ import type {
   CodingDraftChanges,
   CodingEvent,
   CodingPatchDownload,
+  CodingRecoveryResumeResponse,
+  CodingRecoveryStatus,
   CodingSessionResponse,
   CodingTurnResponse,
   CodingVerification,
@@ -77,6 +79,38 @@ export function createCodingSession() {
   return requestJson<CodingSessionResponse>("/api/coding/sessions", {
     method: "POST",
   });
+}
+
+export function getCodingRecovery() {
+  return requestJson<CodingRecoveryStatus>("/api/coding/recovery");
+}
+
+export function resumeCodingRecovery() {
+  return requestJson<CodingRecoveryResumeResponse>(
+    "/api/coding/recovery/resume",
+    { method: "POST" },
+  );
+}
+
+export function discardCodingRecovery() {
+  return requestJson<{ discarded: true }>(
+    "/api/coding/recovery/discard",
+    { method: "POST" },
+  );
+}
+
+export async function getCodingRecoveryPatch(): Promise<CodingPatchDownload> {
+  const response = await fetch("/api/coding/recovery/patch", {
+    headers: { Accept: "text/x-diff" },
+  });
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename =
+    disposition.match(/filename="([^"]+)"/)?.[1] ??
+    "modelmirror-recovered.patch";
+  return { blob: await response.blob(), filename };
 }
 
 export function getCodingSessionStatus(sessionId: string) {

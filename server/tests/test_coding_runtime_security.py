@@ -239,6 +239,92 @@ class _MemoryWriter:
         return None
 
 
+class _RestoredSessionAdapter:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def open(self, session):
+        session.transition(CodingSessionState.READY)
+        return session.append_event(CodingEventKind.SESSION_STARTED)
+
+    async def close(self, session) -> None:
+        self.closed = True
+        if session.state is not CodingSessionState.CLOSED:
+            session.active_turn_id = None
+            session.transition(CodingSessionState.CLOSED)
+
+
+@pytest.mark.asyncio
+async def test_worker_restores_one_safe_draft_and_rejects_snapshot_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "app.txt").write_text("before\n", encoding="utf-8")
+    server = CodingWorkerServer(
+        tmp_path / "worker.sock",
+        source_snapshot_path=source,
+        workspace_path=tmp_path / "workspace",
+        checkpoint_path=tmp_path / "checkpoint",
+    )
+    patch = """diff --git a/app.txt b/app.txt
+--- a/app.txt
++++ b/app.txt
+@@ -1 +1 @@
+-before
++after-731
+"""
+    adapter = _RestoredSessionAdapter()
+    monkeypatch.setenv("CODING_AGENT_MODE", "draft")
+    monkeypatch.setattr(
+        "server.coding_runtime.worker.create_acp_client",
+        lambda mode: adapter,
+    )
+    writer = _MemoryWriter()
+
+    await server._restore_session(
+        {
+            "revision": 6,
+            "patch": patch,
+            "paths": ["app.txt"],
+            "snapshot_fingerprint": server._source_fingerprint,
+        },
+        writer,
+    )
+
+    response = writer.frames[-1]
+    assert response["recovered"] is True
+    assert response["mode"] == "draft"
+    assert response["changes"]["revision"] == 6
+    assert response["changes"]["files"][0]["path"] == "app.txt"
+    assert response["event"]["type"] == "session_started"
+    assert (tmp_path / "workspace" / "app.txt").read_text(encoding="utf-8") == (
+        "after-731\n"
+    )
+    await server.close()
+    assert adapter.closed is True
+
+    mismatch_server = CodingWorkerServer(
+        tmp_path / "mismatch.sock",
+        source_snapshot_path=source,
+        workspace_path=tmp_path / "mismatch-workspace",
+        checkpoint_path=tmp_path / "mismatch-checkpoint",
+    )
+    with pytest.raises(CodingWorkerError) as mismatch:
+        await mismatch_server._restore_session(
+            {
+                "revision": 6,
+                "patch": patch,
+                "paths": ["app.txt"],
+                "snapshot_fingerprint": "0" * 64,
+            },
+            _MemoryWriter(),
+        )
+    assert mismatch.value.code == "snapshot_mismatch"
+    assert mismatch_server._sessions == {}
+
+
 class _DraftTurnAdapter:
     def __init__(
         self,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import math
 import os
 import re
 import time
@@ -22,9 +23,13 @@ from .draft_workspace import (
 )
 from .models import CodingEvent, CodingEventKind, CodingSession, CodingSessionState
 from .verification import (
+    MAX_VERIFICATION_DETAIL_CHARS,
+    MAX_VERIFICATION_SUMMARY_CHARS,
     VerificationResult,
     VerificationState,
+    VerificationStep,
     initial_verification_report,
+    sanitize_verification_output,
     select_verification_plan,
 )
 from .verifier_client import (
@@ -54,6 +59,7 @@ OPENCODE_PATH = "/usr/local/bin/opencode"
 RIPGREP_PATH = "/usr/bin/rg"
 INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
 SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
+SAFE_RECOVERY_REASON = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 CODING_AGENT_MODES = frozenset({"readonly", "draft"})
 MAX_AGENT_STEPS = 12
 MODEL_CONTEXT_TOKENS = 131_072
@@ -313,6 +319,10 @@ class CodingWorkerServer:
                 )
             elif action == "create_session":
                 await self._create_session(writer)
+            elif action == "restore_session":
+                await self._restore_session(request, writer)
+            elif action == "recovery_snapshot":
+                await self._recovery_snapshot(request, writer)
             elif action == "prompt":
                 await self._prompt(request, writer)
             elif action == "cancel":
@@ -424,6 +434,154 @@ class CodingWorkerServer:
                 "session_id": session.session_id,
                 "mode": mode,
                 "event": event.to_dict(),
+            },
+        )
+
+    async def _restore_session(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        revision = request.get("revision")
+        patch = request.get("patch")
+        paths = request.get("paths")
+        expected_fingerprint = request.get("snapshot_fingerprint")
+        verification = request.get("verification")
+        if (
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+            or not isinstance(patch, str)
+            or not isinstance(paths, list)
+            or not paths
+            or not all(isinstance(path, str) for path in paths)
+            or tuple(paths) != tuple(sorted(set(paths)))
+            or not isinstance(expected_fingerprint, str)
+        ):
+            raise CodingWorkerProtocolError(
+                "Coding recovery request is invalid.",
+                code="invalid_request",
+            )
+        if expected_fingerprint != self._source_fingerprint:
+            raise CodingWorkerError(
+                "Coding recovery snapshot does not match the runtime.",
+                code="snapshot_mismatch",
+            )
+        restored_verification = _validate_recovered_verification(
+            verification,
+            revision=revision,
+            paths=paths,
+        )
+
+        async with self._sessions_lock:
+            if self._sessions:
+                raise CodingWorkerError(
+                    "Coding runtime already has an active session.",
+                    code="concurrency_limit",
+                )
+            mode = coding_agent_mode()
+            if mode != "draft":
+                raise CodingWorkerError(
+                    "Coding recovery requires draft mode.",
+                    code="draft_unavailable",
+                )
+            session = CodingSession()
+            workspace = DraftWorkspace(
+                self._source_snapshot_path,
+                self._workspace_path,
+                self._checkpoint_path,
+                preserve_workspace_root=True,
+            )
+            try:
+                workspace.initialize()
+                report = workspace.restore_from_patch(
+                    patch,
+                    revision=revision,
+                    expected_paths=tuple(paths),
+                )
+                self._set_workspace_writable(workspace.workspace_root)
+                adapter = create_acp_client(mode)
+            except (DraftWorkspaceError, OSError, UnicodeError) as exc:
+                with contextlib.suppress(Exception):
+                    self._set_workspace_writable(workspace.workspace_root)
+                    workspace.destroy()
+                raise CodingWorkerError(
+                    "Coding recovery data was rejected.",
+                    code="recovery_invalid",
+                ) from exc
+            except Exception as exc:
+                with contextlib.suppress(Exception):
+                    self._set_workspace_writable(workspace.workspace_root)
+                    workspace.destroy()
+                raise CodingWorkerError(
+                    "Coding runtime could not prepare the recovered session.",
+                    code="agent_unavailable",
+                ) from exc
+            record = _WorkerSession(
+                session=session,
+                adapter=adapter,
+                workspace=workspace,
+                mode=mode,
+                verification=restored_verification,
+            )
+            self._sessions[session.session_id] = record
+        try:
+            event = await adapter.open(session)
+        except Exception:
+            async with self._sessions_lock:
+                self._sessions.pop(session.session_id, None)
+            await self._cleanup_record(record)
+            raise CodingWorkerError(
+                "Coding runtime could not start the recovered agent.",
+                code="agent_unavailable",
+            )
+        await self._send(
+            writer,
+            {
+                "ok": True,
+                "session_id": session.session_id,
+                "mode": mode,
+                "event": event.to_dict(),
+                "changes": report.to_dict(),
+                "recovered": True,
+            },
+        )
+
+    async def _recovery_snapshot(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        record = self._require_draft_session(request)
+        if record.turn_lock.locked():
+            raise CodingWorkerError(
+                "Coding draft is still changing.",
+                code="draft_busy",
+            )
+        await self._refresh_verification(record)
+        report = record.workspace.changes()
+        patch = "".join(item.diff for item in report.files)
+        verification = record.verification
+        if verification is not None and (
+            verification.get("state") != VerificationState.COMPLETED.value
+            or verification.get("revision") != report.revision
+            or verification.get("stale") is not False
+            or verification.get("result")
+            not in {
+                VerificationResult.PASSED.value,
+                VerificationResult.FAILED.value,
+                VerificationResult.NOT_APPLICABLE.value,
+            }
+        ):
+            verification = None
+        await self._send(
+            writer,
+            {
+                "ok": True,
+                "snapshot_fingerprint": self._source_fingerprint,
+                "changes": report.to_dict(),
+                "patch": patch,
+                "verification": verification,
             },
         )
 
@@ -1058,6 +1216,55 @@ class CodingWorkerClient:
     async def create_session(self) -> dict[str, Any]:
         return await self._request({"action": "create_session"}, timeout=130.0)
 
+    async def restore_session(
+        self,
+        *,
+        revision: int,
+        patch: str,
+        paths: list[str],
+        snapshot_fingerprint: str,
+        verification: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = await self._request(
+            {
+                "action": "restore_session",
+                "revision": revision,
+                "patch": patch,
+                "paths": paths,
+                "snapshot_fingerprint": snapshot_fingerprint,
+                "verification": verification,
+            },
+            timeout=130.0,
+        )
+        if (
+            result.get("recovered") is not True
+            or not isinstance(result.get("changes"), dict)
+        ):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted recovered draft state.",
+                code="invalid_response",
+            )
+        return result
+
+    async def recovery_snapshot(self, session_id: str) -> dict[str, Any]:
+        result = await self._request(
+            {"action": "recovery_snapshot", "session_id": session_id}
+        )
+        if (
+            not isinstance(result.get("snapshot_fingerprint"), str)
+            or not isinstance(result.get("changes"), dict)
+            or not isinstance(result.get("patch"), str)
+            or (
+                result.get("verification") is not None
+                and not isinstance(result.get("verification"), dict)
+            )
+        ):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted recovery state.",
+                code="invalid_response",
+            )
+        return result
+
     async def cancel(self, session_id: str) -> bool:
         result = await self._request(
             {"action": "cancel", "session_id": session_id}
@@ -1312,6 +1519,159 @@ class CodingWorkerClient:
             "Coding runtime request failed.",
             code=code if isinstance(code, str) else "worker_error",
         )
+
+
+def _validate_recovered_verification(
+    value: Any,
+    *,
+    revision: int,
+    paths: list[str],
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    keys = {
+        "revision",
+        "state",
+        "result",
+        "stale",
+        "reason",
+        "started_at",
+        "finished_at",
+        "steps",
+    }
+    if not isinstance(value, dict) or set(value) != keys:
+        raise CodingWorkerError(
+            "Recovered verification has an invalid shape.",
+            code="recovery_invalid",
+        )
+    reason = value["reason"]
+    timestamps = (value["started_at"], value["finished_at"])
+    if (
+        value["revision"] != revision
+        or value["state"] != VerificationState.COMPLETED.value
+        or value["result"]
+        not in {
+            VerificationResult.PASSED.value,
+            VerificationResult.FAILED.value,
+            VerificationResult.NOT_APPLICABLE.value,
+        }
+        or value["stale"] is not False
+        or (reason is not None and (
+            not isinstance(reason, str)
+            or SAFE_RECOVERY_REASON.fullmatch(reason) is None
+        ))
+        or value["finished_at"] is None
+        or any(
+            timestamp is not None
+            and (
+                isinstance(timestamp, bool)
+                or not isinstance(timestamp, (int, float))
+                or not math.isfinite(timestamp)
+                or timestamp < 0
+            )
+            for timestamp in timestamps
+        )
+        or not isinstance(value["steps"], list)
+    ):
+        raise CodingWorkerError(
+            "Recovered verification is inconsistent.",
+            code="recovery_invalid",
+        )
+
+    plan = select_verification_plan(paths)
+    if value["result"] == VerificationResult.NOT_APPLICABLE.value:
+        if plan.reason != "documentation_only" or reason != "documentation_only" or value["steps"]:
+            raise CodingWorkerError(
+                "Recovered verification does not match the draft.",
+                code="recovery_invalid",
+            )
+        return dict(value)
+    if not plan.runnable:
+        raise CodingWorkerError(
+            "Recovered verification does not match the draft.",
+            code="recovery_invalid",
+        )
+
+    expected_ids = tuple(step_id.value for step_id in plan.step_ids)
+    actual_ids: list[str] = []
+    step_results: list[str] = []
+    normalized_steps: list[dict[str, Any]] = []
+    step_keys = {
+        "id",
+        "label",
+        "state",
+        "result",
+        "duration_ms",
+        "summary",
+        "details",
+        "truncated",
+    }
+    for raw in value["steps"]:
+        if not isinstance(raw, dict) or set(raw) != step_keys:
+            raise CodingWorkerError(
+                "Recovered verification step is invalid.",
+                code="recovery_invalid",
+            )
+        step_id = raw["id"]
+        try:
+            expected_label = VerificationStep(
+                step_id=next(item for item in plan.step_ids if item.value == step_id)
+            ).to_dict()["label"]
+        except (StopIteration, TypeError, ValueError) as exc:
+            raise CodingWorkerError(
+                "Recovered verification step is invalid.",
+                code="recovery_invalid",
+            ) from exc
+        summary = raw["summary"]
+        details = raw["details"]
+        duration = raw["duration_ms"]
+        if (
+            raw["label"] != expected_label
+            or raw["state"] != VerificationState.COMPLETED.value
+            or raw["result"]
+            not in {VerificationResult.PASSED.value, VerificationResult.FAILED.value}
+            or (
+                duration is not None
+                and (
+                    isinstance(duration, bool)
+                    or not isinstance(duration, int)
+                    or not 0 <= duration <= 600_000
+                )
+            )
+            or not isinstance(summary, str)
+            or len(summary) > MAX_VERIFICATION_SUMMARY_CHARS
+            or sanitize_verification_output(
+                summary,
+                limit=MAX_VERIFICATION_SUMMARY_CHARS,
+                keep_tail=False,
+            ).text != summary
+            or not isinstance(details, str)
+            or len(details) > MAX_VERIFICATION_DETAIL_CHARS
+            or sanitize_verification_output(
+                details,
+                limit=MAX_VERIFICATION_DETAIL_CHARS,
+            ).text != details
+            or not isinstance(raw["truncated"], bool)
+        ):
+            raise CodingWorkerError(
+                "Recovered verification step is inconsistent.",
+                code="recovery_invalid",
+            )
+        actual_ids.append(step_id)
+        step_results.append(raw["result"])
+        normalized_steps.append(dict(raw))
+    if tuple(actual_ids) != expected_ids or (
+        value["result"] == VerificationResult.PASSED.value
+        and any(result != VerificationResult.PASSED.value for result in step_results)
+    ) or (
+        value["result"] == VerificationResult.FAILED.value
+        and VerificationResult.FAILED.value not in step_results
+    ):
+        raise CodingWorkerError(
+            "Recovered verification result is inconsistent.",
+            code="recovery_invalid",
+        )
+    return {**value, "steps": normalized_steps}
 
 
 def _event_from_dict(payload: dict[str, Any]) -> CodingEvent:

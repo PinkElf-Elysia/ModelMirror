@@ -1,6 +1,6 @@
 # 部署与运维指南
 
-最后更新日期：2026-07-31
+最后更新日期：2026-08-01
 维护人：模镜团队
 
 ## 支持边界
@@ -26,6 +26,9 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `coding-verifier` | 否 | `coding-verify` profile；无网络的草稿项目验证执行面，无宿主端口。 |
 | `coding-applier` | 否 | 独立 overlay 的 `coding-apply` profile；把已验证草稿写入固定专用工作树。 |
 | `coding-committer` | 否 | 独立 overlay 的 `coding-commit` profile；只在无远程独立仓库中创建本地提交。 |
+
+Coding 恢复没有新增常驻服务；`docker-compose.coding-recovery.yml` 只给 Server
+挂载独立加密存储，并提供一次性、无网络、只读的重建预检容器。
 
 启动默认栈：
 
@@ -105,11 +108,15 @@ docker compose -p modelmirror --profile omniroute up -d omniroute
 
 Office host：
 
-```bash
+```powershell
+$env:MODELMIRROR_DATA_ROOT = (Resolve-Path ".").Path
+./scripts/setup-office-dev-cert.ps1 -DataRoot $env:MODELMIRROR_DATA_ROOT
 docker compose -p modelmirror --profile office up -d office-host
 ```
 
-Office host 需要独立证书和浏览器/Office 加载项验收，不应因该可选服务异常而
+`MODELMIRROR_DATA_ROOT` 必须是绝对路径，并与 Server 使用的数据根目录一致。
+Compose 不会自动创建空证书目录；缺少 `localhost.crt` 或 `localhost.key` 时应先运行
+上述脚本。Office host 仍需要浏览器/Office 加载项验收，不应因该可选服务异常而
 误判默认核心栈不可用。
 
 ### 实验性代码助手
@@ -225,6 +232,41 @@ Committer 无网络、端口、Docker socket、模型密钥或 Git 凭据；目�
 alternates、共享 Git 目录、错误分支、脏索引和基线不匹配。有效提交存在时应用撤销
 会被阻止；先撤销提交可保留文件，再选择重新提交或撤销应用。
 
+#### 最近任务恢复与重建预检
+
+恢复功能必须显式加载 `docker-compose.coding-recovery.yml`。第一次启用前，由
+部署者明确创建专用目录；Compose 和预检都不会代为创建宿主路径：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:MODELMIRROR_DATA_ROOT\server\coding-recovery"
+```
+
+配置只使用绝对稳定数据根目录，默认保留 604800 秒（7 天）：
+
+```text
+CODING_RECOVERY_ENABLED=true
+CODING_RECOVERY_RETENTION_SECONDS=604800
+```
+
+每次重建共享栈前先取得独占窗口，再从实现工作树运行只读预检。它检查绝对数据
+根目录、非空 `server/.env`、恢复目录、实现与目标树指纹、固定分支、remote、
+alternates 和 Git 状态；任一失败返回非零，不打印密钥、不创建路径、不修改仓库：
+
+```powershell
+$env:CODING_IMPLEMENTATION_WORKTREE = (Get-Location).Path
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -f docker-compose.coding-recovery.yml -p modelmirror --profile coding-recovery-preflight run --rm coding-recovery-preflight
+if ($LASTEXITCODE -ne 0) { throw "Coding 恢复重建预检未通过" }
+```
+
+预检通过后才能重建；必须同时写出四个 Compose 文件：
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -f docker-compose.coding-recovery.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply --profile coding-commit up -d --build --force-recreate
+```
+
+SQLite 与 `recovery-master.key` 必须作为一组备份和恢复。不要只复制、删除或替换其中
+一个文件；错误密钥、损坏密文和不支持的 schema 会失败关闭，旧记录不会被覆盖。
+
 ## 反向代理
 
 `/api/chat` 和工作流运行使用 SSE。Nginx 必须关闭代理缓冲：
@@ -263,7 +305,8 @@ curl http://localhost:5173/studio
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
 - 启用后检查 Coding capabilities、Worker/Verifier/Applier/Committer health、验证取消
-  清理、四方快照指纹和源码 Git 状态。Capabilities 与日志不得返回目标绝对路径。
+  清理、四方快照指纹、恢复 pending/retention 和源码 Git 状态。Capabilities 与
+  日志不得返回目标绝对路径、恢复密钥或密文负载。
 
 ## 备份与恢复
 
@@ -286,14 +329,15 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：先停止 `coding-committer` 并不再加载
+- 代码助手：先设置 `CODING_RECOVERY_ENABLED=false` 或在后续启动中省略
+  `docker-compose.coding-recovery.yml`，即可恢复第五轮内存行为；这不会撤销已应用
+  文件或删除本地提交。恢复存储只在用户明确授权后单独清理。再停止 `coding-committer` 并不再加载
   `docker-compose.coding-commit.yml`，即可恢复第四轮受控应用能力，已有本地提交
   不会被删除。再停止 `coding-applier` 并省略 `docker-compose.coding-apply.yml`
   可恢复第三轮验证能力；无需改变或删除专用目标。再省略 `coding-verify` profile
   可恢复第二轮草稿能力。设置
   `CODING_AGENT_MODE=readonly` 可关闭草稿编辑；需要完全关闭时设置
-  `CODING_AGENT_ENABLED=false` 并停止 `coding-runtime`。没有持久化验证结果、
-  应用/提交凭据、会话或数据迁移需要恢复。
+  `CODING_AGENT_ENABLED=false` 并停止 `coding-runtime`。
 - 可选 profile 故障不得通过删除核心数据解决。
 
 legacy `/api/dify/*` 健康只表示兼容代理配置状态，不是平台健康门禁。

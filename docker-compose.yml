@@ -324,7 +324,12 @@ services:
     ports:
       - "8443:8443"
     volumes:
-      - ./server/office_host/certs:/certs:ro
+      - type: bind
+        source: ${MODELMIRROR_DATA_ROOT:-.}/server/office_host/certs
+        target: /certs
+        read_only: true
+        bind:
+          create_host_path: false
     user: "101:101"
     read_only: true
     cap_drop:

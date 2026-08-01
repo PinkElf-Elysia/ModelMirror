@@ -30,6 +30,7 @@ from .applier_client import (
     CodingApplierClient,
 )
 from .apply_models import (
+    ApplyFileReceipt,
     ApplyReceipt,
     ApplyState,
     not_applied_payload,
@@ -50,6 +51,16 @@ from .commit_models import (
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
 from .models import CodingEvent, CodingEventKind
 from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN
+from .recovery import (
+    DEFAULT_RECOVERY_RETENTION_SECONDS,
+    MAX_RECOVERY_RETENTION_SECONDS,
+    MIN_RECOVERY_RETENTION_SECONDS,
+    CodingRecoveryError,
+    CodingRecoveryStore,
+    RecoveryPayload,
+    RecoveryRecord,
+    RecoveryState,
+)
 from .verification import sanitize_verification_output, select_verification_plan
 from .worker import CodingWorkerClient, CodingWorkerError
 
@@ -83,6 +94,18 @@ class WorkerClient(Protocol):
     async def health(self) -> dict[str, Any]: ...
 
     async def create_session(self) -> dict[str, Any]: ...
+
+    async def restore_session(
+        self,
+        *,
+        revision: int,
+        patch: str,
+        paths: list[str],
+        snapshot_fingerprint: str,
+        verification: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def recovery_snapshot(self, session_id: str) -> dict[str, Any]: ...
 
     def prompt(
         self,
@@ -138,6 +161,16 @@ class ApplierClient(Protocol):
 
     async def revert(self, receipt: ApplyReceipt) -> ApplyReceipt: ...
 
+    async def reconcile(
+        self,
+        *,
+        operation_id: str,
+        revision: int,
+        patch: str,
+        paths: list[str],
+        expected_fingerprint: str,
+    ) -> tuple[str, ApplyReceipt | None]: ...
+
 
 class CommitterClient(Protocol):
     async def health(self) -> dict[str, Any]: ...
@@ -155,6 +188,14 @@ class CommitterClient(Protocol):
         receipt: CommitReceipt,
         apply_receipt: ApplyReceipt,
     ) -> CommitReceipt: ...
+
+    async def reconcile(
+        self,
+        *,
+        operation_id: str,
+        apply_receipt: ApplyReceipt,
+        message: str,
+    ) -> tuple[str, CommitReceipt | None]: ...
 
 
 class CodingTurnRequest(BaseModel):
@@ -337,6 +378,9 @@ class CodingApiSession:
     commit_reason: str | None = None
     commit_started_at: float | None = None
     commit_finished_at: float | None = None
+    recovery_id: str | None = None
+    recovery_created_at: float | None = None
+    recovery_conflict: str | None = None
 
 
 class CodingService:
@@ -349,6 +393,9 @@ class CodingService:
         worker: WorkerClient,
         applier: ApplierClient | None = None,
         committer: CommitterClient | None = None,
+        recovery_store: CodingRecoveryStore | None = None,
+        recovery_enabled: bool = False,
+        recovery_reason: str | None = None,
         ttl_seconds: float = SESSION_TTL_SECONDS,
         mode: str | None = None,
     ) -> None:
@@ -356,6 +403,9 @@ class CodingService:
         self.worker = worker
         self.applier = applier
         self.committer = committer
+        self.recovery_store = recovery_store
+        self.recovery_enabled = recovery_enabled
+        self.recovery_reason = recovery_reason
         self.ttl_seconds = ttl_seconds
         self.mode = _normalize_mode(
             mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
@@ -364,6 +414,7 @@ class CodingService:
         self._lock = asyncio.Lock()
 
     async def capabilities(self) -> dict[str, Any]:
+        recovery = await self.recovery_status()
         response = {
             "enabled": self.enabled,
             "available": False,
@@ -379,6 +430,18 @@ class CodingService:
                 "strategy": "adaptive",
                 "required_for_patch": False,
                 "max_duration_seconds": 600,
+            },
+            "recovery": {
+                "enabled": recovery["enabled"],
+                "available": recovery["available"],
+                "pending": recovery["pending"],
+                "retention_seconds": recovery["retention_seconds"],
+                "restores_conversation": False,
+                **(
+                    {"reason": recovery["reason"]}
+                    if recovery.get("reason") is not None
+                    else {}
+                ),
             },
         }
         if self.mode == "draft":
@@ -448,9 +511,102 @@ class CodingService:
         response["available"] = True
         return response
 
+    async def recovery_status(self) -> dict[str, Any]:
+        retention = (
+            self.recovery_store.retention_seconds
+            if self.recovery_store is not None
+            else DEFAULT_RECOVERY_RETENTION_SECONDS
+        )
+        base: dict[str, Any] = {
+            "enabled": self.recovery_enabled,
+            "available": self.recovery_store is not None,
+            "pending": False,
+            "retention_seconds": retention,
+            "restores_conversation": False,
+        }
+        if not self.recovery_enabled:
+            return {**base, "reason": "recovery_disabled"}
+        if self.recovery_store is None:
+            return {
+                **base,
+                "reason": _safe_code(
+                    self.recovery_reason or "recovery_storage_unavailable"
+                ),
+            }
+        record = await self._load_recovery_record(required=False)
+        if record is None:
+            if self.recovery_reason is not None:
+                return {**base, "available": False, "reason": self.recovery_reason}
+            return base
+        can_resume = self.enabled and self.mode == "draft"
+        reason: str | None = None
+        if not self.enabled:
+            can_resume = False
+            reason = "disabled"
+        elif self.mode != "draft":
+            can_resume = False
+            reason = "draft_unavailable"
+        else:
+            try:
+                health = await self.worker.health()
+                fingerprint = health.get("snapshot_fingerprint")
+                if (
+                    health.get("ok") is not True
+                    or health.get("configured") is not True
+                    or fingerprint != record.snapshot_fingerprint
+                ):
+                    can_resume = False
+                    reason = (
+                        "snapshot_mismatch"
+                        if isinstance(fingerprint, str)
+                        else "worker_unavailable"
+                    )
+            except Exception:
+                can_resume = False
+                reason = "worker_unavailable"
+        return {
+            **base,
+            **record.to_public(can_resume=can_resume, reason=reason),
+        }
+
+    async def recovery_patch(self) -> tuple[int, str]:
+        record = await self._require_recovery_record()
+        return record.revision, _safe_diff(record.payload.patch)
+
+    async def discard_recovery(self) -> dict[str, bool]:
+        conflict_record: CodingApiSession | None = None
+        async with self._lock:
+            active = list(self._sessions.values())
+            if active and not (
+                len(active) == 1 and active[0].state == "conflict"
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "session_active")
+            if active:
+                conflict_record = active[0]
+        record = await self._require_recovery_record()
+        assert self.recovery_store is not None
+        try:
+            discarded = await asyncio.to_thread(
+                self.recovery_store.discard,
+                recovery_id=record.recovery_id,
+            )
+        except CodingRecoveryError as exc:
+            self.recovery_reason = _safe_code(exc.code)
+            raise _recovery_http_error(exc) from exc
+        if not discarded:
+            raise _http_error(status.HTTP_409_CONFLICT, "recovery_changed")
+        if conflict_record is not None:
+            with contextlib.suppress(Exception):
+                await self.worker.close(conflict_record.worker_session_id)
+            async with self._lock:
+                self._sessions.pop(conflict_record.session_id, None)
+        return {"discarded": True}
+
     async def create_session(self) -> CodingApiSession:
         await self._require_available()
         await self.cleanup_expired()
+        if await self._load_recovery_record() is not None:
+            raise _http_error(status.HTTP_409_CONFLICT, "recovery_pending")
         async with self._lock:
             if any(record.state in ACTIVE_STATES for record in self._sessions.values()):
                 raise _http_error(
@@ -502,6 +658,97 @@ class CodingService:
                     status.HTTP_409_CONFLICT,
                     "concurrency_limit",
                 )
+            self._sessions[session_id] = record
+        return record
+
+    async def resume_recovery(self) -> CodingApiSession:
+        await self._require_available()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        await self.cleanup_expired()
+        recovery = await self._require_recovery_record()
+        async with self._lock:
+            if self._sessions:
+                raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
+        try:
+            health = await self.worker.health()
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        if health.get("snapshot_fingerprint") != recovery.snapshot_fingerprint:
+            raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
+        changes = _public_changes(recovery.payload.changes)
+        paths = [item["path"] for item in changes["files"]]
+        verification = (
+            _verification_from_worker(
+                {"verification": recovery.payload.verification}
+            )
+            if recovery.payload.verification is not None
+            else None
+        )
+        try:
+            result = await self.worker.restore_session(
+                revision=recovery.revision,
+                patch=recovery.payload.patch,
+                paths=paths,
+                snapshot_fingerprint=recovery.snapshot_fingerprint,
+                verification=verification,
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        session_id = result.get("session_id")
+        event_data = result.get("event")
+        restored_changes = result.get("changes")
+        if (
+            not isinstance(session_id, str)
+            or SAFE_IDENTIFIER.fullmatch(session_id) is None
+            or result.get("mode") != self.mode
+            or not isinstance(event_data, dict)
+            or _public_changes(restored_changes) != changes
+        ):
+            if isinstance(session_id, str) and session_id:
+                with contextlib.suppress(Exception):
+                    await self.worker.close(session_id)
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "invalid_worker_response",
+            )
+        record = CodingApiSession(
+            session_id=session_id,
+            worker_session_id=session_id,
+            recovery_id=recovery.recovery_id,
+            recovery_created_at=recovery.created_at,
+        )
+        initial = _event_from_payload(event_data)
+        if (
+            initial.kind is not CodingEventKind.SESSION_STARTED
+            or initial.seq != 1
+            or initial.session_id != session_id
+        ):
+            with contextlib.suppress(Exception):
+                await self.worker.close(session_id)
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "invalid_worker_response",
+            )
+        await self._append_event(record, initial)
+        try:
+            self._hydrate_recovered_session(record, recovery)
+            await self._reconcile_recovered_operations(
+                record,
+                recovery.payload.patch,
+                paths,
+                recovery.snapshot_fingerprint,
+            )
+            await self._persist_recovery(record, required=True)
+        except Exception:
+            with contextlib.suppress(Exception):
+                await self.worker.close(session_id)
+            raise
+        async with self._lock:
+            if self._sessions:
+                with contextlib.suppress(Exception):
+                    await self.worker.close(session_id)
+                raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
             self._sessions[session_id] = record
         return record
 
@@ -589,6 +836,7 @@ class CodingService:
                 payload = await self.worker.validate(record.worker_session_id)
             except CodingWorkerError as exc:
                 raise _worker_http_error(exc) from exc
+            await self._persist_recovery(record, required=True)
         return _public_changes(payload)
 
     async def discard(self, session_id: str) -> dict[str, Any]:
@@ -603,6 +851,7 @@ class CodingService:
             except CodingWorkerError as exc:
                 raise _worker_http_error(exc) from exc
             record.updated_at = time.time()
+            await self._persist_recovery(record, required=True)
         return _public_changes(payload)
 
     async def verification_start(
@@ -623,6 +872,7 @@ class CodingService:
             except CodingWorkerError as exc:
                 raise _worker_http_error(exc) from exc
             record.updated_at = time.time()
+            await self._persist_recovery(record, required=True)
         return _verification_from_worker(payload)
 
     async def verification_status(
@@ -642,7 +892,10 @@ class CodingService:
         except CodingWorkerError as exc:
             raise _worker_http_error(exc) from exc
         record.updated_at = time.time()
-        return _verification_from_worker(payload)
+        result = _verification_from_worker(payload)
+        if result["state"] == "completed":
+            await self._persist_recovery(record, required=True)
+        return result
 
     async def verification_cancel(
         self,
@@ -665,6 +918,7 @@ class CodingService:
             except CodingWorkerError as exc:
                 raise _worker_http_error(exc) from exc
             record.updated_at = time.time()
+            await self._persist_recovery(record, required=True)
         result = _verification_from_worker(payload)
         result["accepted"] = payload.get("accepted") is True
         return result
@@ -676,6 +930,7 @@ class CodingService:
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
         async with record.apply_lock:
+            self._require_not_recovery_conflict(record)
             if record.apply_revision == revision and record.apply_state in {
                 ApplyState.APPLIED,
                 ApplyState.REVERTED,
@@ -716,6 +971,13 @@ class CodingService:
             record.apply_finished_at = None
             record.updated_at = time.time()
             try:
+                await self._persist_recovery(record, required=True)
+            except HTTPException:
+                record.apply_state = ApplyState.FAILED
+                record.apply_reason = "recovery_storage_unavailable"
+                record.apply_finished_at = time.time()
+                raise
+            try:
                 assert self.applier is not None
                 receipt = await self.applier.apply(
                     operation_id=operation_id,
@@ -745,12 +1007,14 @@ class CodingService:
                 record.apply_reason = _safe_code(exc.code)
                 record.apply_finished_at = time.time()
                 record.updated_at = record.apply_finished_at
+                await self._persist_recovery(record, required=False)
                 raise _applier_http_error(exc) from exc
             record.apply_receipt = receipt
             record.apply_state = ApplyState.APPLIED
             record.apply_finished_at = time.time()
             record.state = "applied"
             record.updated_at = record.apply_finished_at
+            await self._persist_recovery(record, required=True)
             return self._public_apply(record, revision)
 
     async def apply_status(
@@ -776,6 +1040,7 @@ class CodingService:
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
         async with record.apply_lock:
+            self._require_not_recovery_conflict(record)
             apply_receipt = record.apply_receipt
             if (
                 apply_receipt is None
@@ -821,6 +1086,13 @@ class CodingService:
             record.commit_finished_at = None
             record.updated_at = record.commit_started_at
             try:
+                await self._persist_recovery(record, required=True)
+            except HTTPException:
+                record.commit_state = CommitState.FAILED
+                record.commit_reason = "recovery_storage_unavailable"
+                record.commit_finished_at = time.time()
+                raise
+            try:
                 assert self.committer is not None
                 receipt = await self.committer.commit(
                     operation_id=operation_id,
@@ -851,11 +1123,13 @@ class CodingService:
                 record.commit_reason = _safe_code(exc.code)
                 record.commit_finished_at = time.time()
                 record.updated_at = record.commit_finished_at
+                await self._persist_recovery(record, required=False)
                 raise _committer_http_error(exc) from exc
             record.commit_receipt = receipt
             record.commit_state = CommitState.COMMITTED
             record.commit_finished_at = time.time()
             record.updated_at = record.commit_finished_at
+            await self._persist_recovery(record, required=True)
             return self._public_commit(record, revision)
 
     async def commit_status(
@@ -880,6 +1154,7 @@ class CodingService:
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
         async with record.apply_lock:
+            self._require_not_recovery_conflict(record)
             apply_receipt = record.apply_receipt
             receipt = record.commit_receipt
             if (
@@ -901,6 +1176,12 @@ class CodingService:
             record.commit_reason = None
             record.updated_at = time.time()
             try:
+                await self._persist_recovery(record, required=True)
+            except HTTPException:
+                record.commit_state = CommitState.COMMITTED
+                record.commit_reason = "recovery_storage_unavailable"
+                raise
+            try:
                 undone = await self.committer.undo(receipt, apply_receipt)
                 if undone != receipt:
                     raise CommitterClientError(
@@ -912,11 +1193,13 @@ class CodingService:
                 record.commit_reason = _safe_code(exc.code)
                 record.commit_finished_at = time.time()
                 record.updated_at = record.commit_finished_at
+                await self._persist_recovery(record, required=False)
                 raise _committer_http_error(exc) from exc
             record.commit_state = CommitState.UNDONE
             record.commit_reason = None
             record.commit_finished_at = time.time()
             record.updated_at = record.commit_finished_at
+            await self._persist_recovery(record, required=True)
             return self._public_commit(record, revision)
 
     async def revert_apply(
@@ -930,6 +1213,7 @@ class CodingService:
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
         async with record.apply_lock:
+            self._require_not_recovery_conflict(record)
             receipt = record.apply_receipt
             if (
                 receipt is None
@@ -960,6 +1244,12 @@ class CodingService:
             record.apply_reason = None
             record.updated_at = time.time()
             try:
+                await self._persist_recovery(record, required=True)
+            except HTTPException:
+                record.apply_state = ApplyState.APPLIED
+                record.apply_reason = "recovery_storage_unavailable"
+                raise
+            try:
                 reverted = await self.applier.revert(receipt)
                 if reverted != receipt:
                     raise ApplierClientError(
@@ -971,11 +1261,13 @@ class CodingService:
                 record.apply_reason = _safe_code(exc.code)
                 record.apply_finished_at = time.time()
                 record.updated_at = record.apply_finished_at
+                await self._persist_recovery(record, required=False)
                 raise _applier_http_error(exc) from exc
             record.apply_state = ApplyState.REVERTED
             record.apply_finished_at = time.time()
             record.state = "reverted"
             record.updated_at = record.apply_finished_at
+            await self._persist_recovery(record, required=True)
             return self._public_apply(record, revision)
 
     async def close_applied_session(self, session_id: str) -> dict[str, bool]:
@@ -984,6 +1276,19 @@ class CodingService:
         if record.state not in {"applied", "reverted"}:
             raise _http_error(status.HTTP_409_CONFLICT, "session_not_frozen")
         async with record.apply_lock:
+            if record.recovery_id is not None and self.recovery_store is not None:
+                try:
+                    discarded = await asyncio.to_thread(
+                        self.recovery_store.discard,
+                        recovery_id=record.recovery_id,
+                    )
+                except CodingRecoveryError as exc:
+                    raise _recovery_http_error(exc) from exc
+                if not discarded:
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "recovery_changed",
+                    )
             try:
                 await self.worker.close(record.worker_session_id)
             except CodingWorkerError as exc:
@@ -1042,6 +1347,7 @@ class CodingService:
             for record in expired:
                 self._sessions.pop(record.session_id, None)
         for record in expired:
+            await self._persist_recovery(record, required=False)
             with contextlib.suppress(Exception):
                 await self.worker.close(record.worker_session_id)
         return len(expired)
@@ -1058,19 +1364,34 @@ class CodingService:
                     record.turn_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await record.turn_task
+                await self._persist_recovery(record, required=False)
                 with contextlib.suppress(Exception):
                     await self.worker.close(record.worker_session_id)
 
     async def _run_turn(self, record: CodingApiSession, prompt: str) -> None:
         try:
+            terminal_event: CodingEvent | None = None
             async for event in self.worker.prompt(record.worker_session_id, prompt):
-                await self._append_event(record, event)
                 if event.kind in {
                     CodingEventKind.TURN_COMPLETED,
                     CodingEventKind.CANCELLED,
                     CodingEventKind.FAILED,
                 }:
-                    record.state = "ready"
+                    terminal_event = event
+                else:
+                    await self._append_event(record, event)
+            if terminal_event is not None:
+                if self.recovery_store is not None and self.mode == "draft":
+                    saved = await self._persist_recovery(record, required=False)
+                    if not saved:
+                        record.state = "ready"
+                        await self._append_generated_failure(
+                            record,
+                            self.recovery_reason or "recovery_storage_unavailable",
+                        )
+                        return
+                await self._append_event(record, terminal_event)
+                record.state = "ready"
             if record.state in {"running", "cancelling"}:
                 record.state = "ready"
         except asyncio.CancelledError:
@@ -1129,6 +1450,252 @@ class CodingService:
         record.updated_at = time.time()
         async with record.condition:
             record.condition.notify_all()
+
+    async def _persist_recovery(
+        self,
+        record: CodingApiSession,
+        *,
+        required: bool,
+    ) -> bool:
+        if self.recovery_store is None or self.mode != "draft":
+            return False
+        try:
+            snapshot = await self.worker.recovery_snapshot(
+                record.worker_session_id
+            )
+            changes = _public_changes(snapshot.get("changes"))
+            if not changes["files"]:
+                if record.recovery_id is not None:
+                    discarded = await asyncio.to_thread(
+                        self.recovery_store.discard,
+                        recovery_id=record.recovery_id,
+                    )
+                    if not discarded:
+                        raise CodingRecoveryError(
+                            "Coding recovery record changed unexpectedly.",
+                            code="recovery_changed",
+                        )
+                record.recovery_id = None
+                record.recovery_created_at = None
+                return True
+            patch = _safe_diff(snapshot.get("patch"))
+            fingerprint = snapshot.get("snapshot_fingerprint")
+            if (
+                not isinstance(fingerprint, str)
+                or SNAPSHOT_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None
+                or changes["patch_bytes"] != len(patch.encode("utf-8"))
+            ):
+                raise CodingRecoveryError(
+                    "Coding recovery snapshot is inconsistent.",
+                    code="recovery_snapshot_invalid",
+                )
+            raw_verification = snapshot.get("verification")
+            verification = (
+                _verification_from_worker({"verification": raw_verification})
+                if raw_verification is not None
+                else None
+            )
+            recovery_id = record.recovery_id or secrets.token_urlsafe(18)
+            payload = RecoveryPayload(
+                patch=patch,
+                changes=changes,
+                verification=verification,
+                apply=_apply_storage_payload(record),
+                commit=_commit_storage_payload(record),
+                operation=_operation_storage_payload(record),
+            )
+            recovery = self.recovery_store.create_record(
+                recovery_id=recovery_id,
+                state=_recovery_state(record),
+                revision=changes["revision"],
+                snapshot_fingerprint=fingerprint,
+                payload=payload,
+                created_at=record.recovery_created_at,
+            )
+            await asyncio.to_thread(self.recovery_store.save, recovery)
+            record.recovery_id = recovery.recovery_id
+            record.recovery_created_at = recovery.created_at
+            self.recovery_reason = None
+            return True
+        except CodingWorkerError as exc:
+            error = CodingRecoveryError(
+                "Coding worker could not provide a recovery snapshot.",
+                code=_safe_code(exc.code),
+            )
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            error = CodingRecoveryError(
+                "Coding recovery snapshot was rejected.",
+                code=_safe_code(detail.get("code") or "recovery_snapshot_invalid"),
+            )
+        except CodingRecoveryError as exc:
+            error = exc
+        except Exception:
+            error = CodingRecoveryError(
+                "Coding recovery storage is unavailable.",
+                code="recovery_storage_unavailable",
+            )
+        self.recovery_reason = _safe_code(error.code)
+        if required:
+            raise _recovery_http_error(error) from error
+        return False
+
+    async def _load_recovery_record(
+        self,
+        *,
+        required: bool = True,
+    ) -> RecoveryRecord | None:
+        if self.recovery_store is None:
+            return None
+        try:
+            record = await asyncio.to_thread(self.recovery_store.load)
+        except CodingRecoveryError as exc:
+            self.recovery_reason = _safe_code(exc.code)
+            if required:
+                raise _recovery_http_error(exc) from exc
+            return None
+        self.recovery_reason = None
+        return record
+
+    async def _require_recovery_record(self) -> RecoveryRecord:
+        if not self.recovery_enabled or self.recovery_store is None:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                self.recovery_reason or "recovery_unavailable",
+            )
+        record = await self._load_recovery_record()
+        if record is None:
+            raise _http_error(status.HTTP_404_NOT_FOUND, "recovery_not_found")
+        return record
+
+    def _hydrate_recovered_session(
+        self,
+        record: CodingApiSession,
+        recovery: RecoveryRecord,
+    ) -> None:
+        _restore_apply_payload(record, recovery.payload.apply)
+        _restore_commit_payload(record, recovery.payload.commit)
+        _validate_operation_storage_payload(record, recovery.payload.operation)
+        if (
+            record.apply_revision not in {None, recovery.revision}
+            or record.commit_revision not in {None, recovery.revision}
+            or (
+                record.commit_receipt is not None
+                and record.apply_receipt is not None
+                and record.commit_receipt.apply_id
+                != record.apply_receipt.apply_id
+            )
+        ):
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "recovery_data_corrupt",
+            )
+        if recovery.state is RecoveryState.CONFLICT:
+            record.state = "conflict"
+            record.recovery_conflict = "recovery_conflict"
+        elif record.apply_state is ApplyState.REVERTED:
+            record.state = "reverted"
+        elif record.apply_state is ApplyState.APPLIED:
+            record.state = "applied"
+        else:
+            record.state = "ready"
+
+    async def _reconcile_recovered_operations(
+        self,
+        record: CodingApiSession,
+        patch: str,
+        paths: list[str],
+        fingerprint: str,
+    ) -> None:
+        operation = record.apply_operation_id
+        if operation is not None and record.apply_state is not ApplyState.NOT_APPLIED:
+            if self.applier is None:
+                self._mark_recovery_conflict(record, "applier_unavailable")
+                return
+            intended_revert = (
+                record.apply_receipt is not None
+                and record.apply_state in {ApplyState.REVERTING, ApplyState.FAILED}
+            )
+            try:
+                state, receipt = await self.applier.reconcile(
+                    operation_id=operation,
+                    revision=record.apply_revision or 0,
+                    patch=patch,
+                    paths=paths,
+                    expected_fingerprint=fingerprint,
+                )
+            except ApplierClientError as exc:
+                self._mark_recovery_conflict(record, _safe_code(exc.code))
+                return
+            if state == "conflict":
+                self._mark_recovery_conflict(record, "apply_recovery_conflict")
+                return
+            if state == "applied" and receipt is not None:
+                record.apply_receipt = receipt
+                record.apply_state = ApplyState.APPLIED
+                record.state = "applied"
+            elif state == "not_applied" and intended_revert:
+                record.apply_state = ApplyState.REVERTED
+                record.state = "reverted"
+            elif (
+                state == "not_applied"
+                and record.apply_state is ApplyState.REVERTED
+            ):
+                record.state = "reverted"
+            elif state == "not_applied" and record.apply_state in {
+                ApplyState.APPLYING,
+                ApplyState.FAILED,
+            }:
+                record.apply_state = ApplyState.NOT_APPLIED
+                record.apply_operation_id = None
+                record.apply_receipt = None
+                record.state = "ready"
+            else:
+                self._mark_recovery_conflict(record, "apply_recovery_conflict")
+                return
+
+        commit_operation = record.commit_operation_id
+        apply_receipt = record.apply_receipt
+        if (
+            commit_operation is None
+            or apply_receipt is None
+            or record.commit_state is CommitState.NOT_COMMITTED
+            or (
+                record.apply_state is ApplyState.REVERTED
+                and record.commit_state is CommitState.UNDONE
+            )
+        ):
+            return
+        if self.committer is None or record.commit_message is None:
+            self._mark_recovery_conflict(record, "committer_unavailable")
+            return
+        try:
+            state, receipt = await self.committer.reconcile(
+                operation_id=commit_operation,
+                apply_receipt=apply_receipt,
+                message=record.commit_message,
+            )
+        except CommitterClientError as exc:
+            self._mark_recovery_conflict(record, _safe_code(exc.code))
+            return
+        if state == "committed" and receipt is not None:
+            record.commit_receipt = receipt
+            record.commit_state = CommitState.COMMITTED
+        elif state == "undone" and receipt is not None:
+            record.commit_receipt = receipt
+            record.commit_state = CommitState.UNDONE
+        elif state == "not_committed" and record.commit_receipt is None:
+            record.commit_state = CommitState.FAILED
+            record.commit_reason = "commit_not_completed"
+        else:
+            self._mark_recovery_conflict(record, "commit_recovery_conflict")
+
+    @staticmethod
+    def _mark_recovery_conflict(record: CodingApiSession, reason: str) -> None:
+        record.state = "conflict"
+        record.recovery_conflict = _safe_code(reason)
+        record.apply_reason = record.recovery_conflict
+        record.commit_reason = record.recovery_conflict
 
     async def _require_available(self) -> None:
         capabilities = await self.capabilities()
@@ -1306,10 +1873,16 @@ class CodingService:
 
     @staticmethod
     def _require_mutable(record: CodingApiSession) -> None:
+        CodingService._require_not_recovery_conflict(record)
         if record.state in {"applied", "reverted"}:
             raise _http_error(status.HTTP_409_CONFLICT, "session_frozen")
         if record.apply_state in {ApplyState.APPLYING, ApplyState.REVERTING}:
             raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+
+    @staticmethod
+    def _require_not_recovery_conflict(record: CodingApiSession) -> None:
+        if record.state == "conflict":
+            raise _http_error(status.HTTP_409_CONFLICT, "recovery_conflict")
 
     @staticmethod
     def _public_apply(
@@ -1458,11 +2031,49 @@ def get_coding_service() -> CodingService:
             "CODING_COMMITTER_SOCKET_PATH",
             "/run/modelmirror-coding-commit/committer.sock",
         )
+        recovery_enabled = os.getenv(
+            "CODING_RECOVERY_ENABLED",
+            "false",
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        recovery_store: CodingRecoveryStore | None = None
+        recovery_reason: str | None = None
+        if recovery_enabled:
+            storage_path = Path(
+                os.getenv(
+                    "CODING_RECOVERY_STORAGE_DIR",
+                    "/var/lib/modelmirror/coding-recovery",
+                )
+            )
+            try:
+                retention = int(
+                    os.getenv(
+                        "CODING_RECOVERY_RETENTION_SECONDS",
+                        str(DEFAULT_RECOVERY_RETENTION_SECONDS),
+                    )
+                )
+                if (
+                    not storage_path.is_absolute()
+                    or not MIN_RECOVERY_RETENTION_SECONDS
+                    <= retention
+                    <= MAX_RECOVERY_RETENTION_SECONDS
+                ):
+                    raise ValueError("Recovery configuration is invalid")
+                recovery_store = CodingRecoveryStore(
+                    storage_path,
+                    retention_seconds=retention,
+                )
+            except CodingRecoveryError as exc:
+                recovery_reason = _safe_code(exc.code)
+            except (OSError, TypeError, ValueError):
+                recovery_reason = "recovery_not_configured"
         _service = CodingService(
             enabled=enabled,
             worker=CodingWorkerClient(Path(socket_path)),
             applier=CodingApplierClient(Path(applier_socket_path)),
             committer=CodingCommitterClient(Path(committer_socket_path)),
+            recovery_store=recovery_store,
+            recovery_enabled=recovery_enabled,
+            recovery_reason=recovery_reason,
         )
     return _service
 
@@ -1484,8 +2095,49 @@ router = APIRouter(
 
 
 @router.get("/capabilities")
-async def coding_capabilities() -> dict[str, Any]:
+async def coding_capabilities(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
     return await get_coding_service().capabilities()
+
+
+@router.get("/recovery")
+async def coding_recovery_status(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().recovery_status()
+
+
+@router.post("/recovery/resume")
+async def resume_coding_recovery(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    record = await get_coding_service().resume_recovery()
+    return {
+        "id": record.session_id,
+        "status": record.state,
+        "conversation_restored": False,
+        "conflict": record.recovery_conflict,
+    }
+
+
+@router.post("/recovery/discard")
+async def discard_coding_recovery(response: Response) -> dict[str, bool]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().discard_recovery()
+
+
+@router.get("/recovery/patch")
+async def download_coding_recovery_patch() -> Response:
+    revision, patch = await get_coding_service().recovery_patch()
+    return Response(
+        content=patch,
+        media_type="text/x-diff",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": (
+                f'attachment; filename="modelmirror-recovered-r{revision}.patch"'
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
@@ -1749,6 +2401,333 @@ def _event_from_payload(payload: dict[str, Any]) -> CodingEvent:
         ) from exc
 
 
+def _recovery_state(record: CodingApiSession) -> RecoveryState:
+    if record.state == "conflict":
+        return RecoveryState.CONFLICT
+    if record.commit_state is CommitState.COMMITTED:
+        return RecoveryState.COMMITTED
+    if record.commit_state is CommitState.UNDONE:
+        return RecoveryState.UNDONE
+    if record.apply_state is ApplyState.APPLIED:
+        return RecoveryState.APPLIED
+    if record.apply_state is ApplyState.REVERTED:
+        return RecoveryState.REVERTED
+    return RecoveryState.DRAFT
+
+
+def _apply_storage_payload(record: CodingApiSession) -> dict[str, Any]:
+    return {
+        "state": record.apply_state.value,
+        "revision": record.apply_revision,
+        "operation_id": record.apply_operation_id,
+        "receipt": (
+            _apply_receipt_to_storage(record.apply_receipt)
+            if record.apply_receipt is not None
+            else None
+        ),
+        "reason": record.apply_reason,
+        "started_at": record.apply_started_at,
+        "finished_at": record.apply_finished_at,
+    }
+
+
+def _commit_storage_payload(record: CodingApiSession) -> dict[str, Any]:
+    return {
+        "state": record.commit_state.value,
+        "revision": record.commit_revision,
+        "operation_id": record.commit_operation_id,
+        "message": record.commit_message,
+        "receipt": (
+            _commit_receipt_to_storage(record.commit_receipt)
+            if record.commit_receipt is not None
+            else None
+        ),
+        "reason": record.commit_reason,
+        "started_at": record.commit_started_at,
+        "finished_at": record.commit_finished_at,
+    }
+
+
+def _operation_storage_payload(record: CodingApiSession) -> dict[str, Any] | None:
+    if record.commit_operation_id is not None and record.commit_state in {
+        CommitState.COMMITTING,
+        CommitState.UNDOING,
+        CommitState.FAILED,
+    }:
+        return {
+            "kind": (
+                "commit_undo"
+                if record.commit_receipt is not None
+                else "commit"
+            ),
+            "state": record.commit_state.value,
+            "operation_id": record.commit_operation_id,
+        }
+    if record.apply_operation_id is not None and record.apply_state in {
+        ApplyState.APPLYING,
+        ApplyState.REVERTING,
+        ApplyState.FAILED,
+    }:
+        return {
+            "kind": (
+                "apply_revert"
+                if record.apply_receipt is not None
+                else "apply"
+            ),
+            "state": record.apply_state.value,
+            "operation_id": record.apply_operation_id,
+        }
+    return None
+
+
+def _validate_operation_storage_payload(
+    record: CodingApiSession,
+    value: dict[str, Any] | None,
+) -> None:
+    expected = _operation_storage_payload(record)
+    if value is None and expected is None:
+        return
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"kind", "state", "operation_id"}
+        or value != expected
+    ):
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "recovery_data_corrupt",
+        )
+
+
+def _restore_apply_payload(
+    record: CodingApiSession,
+    value: dict[str, Any] | None,
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict) or set(value) != {
+        "state",
+        "revision",
+        "operation_id",
+        "receipt",
+        "reason",
+        "started_at",
+        "finished_at",
+    }:
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "recovery_data_corrupt")
+    try:
+        apply_state = ApplyState(value["state"])
+        revision = value["revision"]
+        operation_id = value["operation_id"]
+        reason = value["reason"]
+        receipt = (
+            _apply_receipt_from_storage(value["receipt"])
+            if value["receipt"] is not None
+            else None
+        )
+        if (
+            (revision is not None and (
+                isinstance(revision, bool)
+                or not isinstance(revision, int)
+                or revision < 0
+            ))
+            or (operation_id is not None and (
+                not isinstance(operation_id, str)
+                or SAFE_IDENTIFIER.fullmatch(operation_id) is None
+            ))
+            or (reason is not None and (
+                not isinstance(reason, str) or len(reason) > 64
+            ))
+            or not _valid_optional_timestamp(value["started_at"])
+            or not _valid_optional_timestamp(value["finished_at"])
+            or (apply_state is ApplyState.NOT_APPLIED and any(
+                item is not None for item in (revision, operation_id, receipt)
+            ))
+            or (apply_state is not ApplyState.NOT_APPLIED and (
+                revision is None or operation_id is None
+            ))
+            or (apply_state in {
+                ApplyState.APPLIED,
+                ApplyState.REVERTING,
+                ApplyState.REVERTED,
+            } and receipt is None)
+            or (receipt is not None and (
+                receipt.revision != revision
+                or receipt.apply_id != operation_id
+            ))
+        ):
+            raise ValueError("Apply recovery is inconsistent")
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "recovery_data_corrupt",
+        ) from exc
+    record.apply_state = apply_state
+    record.apply_revision = revision
+    record.apply_operation_id = operation_id
+    record.apply_receipt = receipt
+    record.apply_reason = _safe_code(reason) if reason is not None else None
+    record.apply_started_at = value["started_at"]
+    record.apply_finished_at = value["finished_at"]
+
+
+def _restore_commit_payload(
+    record: CodingApiSession,
+    value: dict[str, Any] | None,
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict) or set(value) != {
+        "state",
+        "revision",
+        "operation_id",
+        "message",
+        "receipt",
+        "reason",
+        "started_at",
+        "finished_at",
+    }:
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "recovery_data_corrupt")
+    try:
+        commit_state = CommitState(value["state"])
+        revision = value["revision"]
+        operation_id = value["operation_id"]
+        message = value["message"]
+        reason = value["reason"]
+        receipt = (
+            _commit_receipt_from_storage(value["receipt"])
+            if value["receipt"] is not None
+            else None
+        )
+        if (
+            (revision is not None and (
+                isinstance(revision, bool)
+                or not isinstance(revision, int)
+                or revision < 0
+            ))
+            or (operation_id is not None and (
+                not isinstance(operation_id, str)
+                or SAFE_IDENTIFIER.fullmatch(operation_id) is None
+            ))
+            or (message is not None and normalize_commit_message(message) != message)
+            or (reason is not None and (
+                not isinstance(reason, str) or len(reason) > 64
+            ))
+            or not _valid_optional_timestamp(value["started_at"])
+            or not _valid_optional_timestamp(value["finished_at"])
+            or (commit_state is CommitState.NOT_COMMITTED and any(
+                item is not None
+                for item in (revision, operation_id, message, receipt)
+            ))
+            or (commit_state is not CommitState.NOT_COMMITTED and (
+                revision is None or operation_id is None or message is None
+            ))
+            or (commit_state in {
+                CommitState.COMMITTED,
+                CommitState.UNDOING,
+                CommitState.UNDONE,
+            } and receipt is None)
+            or (receipt is not None and (
+                receipt.revision != revision
+                or receipt.commit_id != operation_id
+                or receipt.message != message
+            ))
+        ):
+            raise ValueError("Commit recovery is inconsistent")
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "recovery_data_corrupt",
+        ) from exc
+    record.commit_state = commit_state
+    record.commit_revision = revision
+    record.commit_operation_id = operation_id
+    record.commit_message = message
+    record.commit_receipt = receipt
+    record.commit_reason = _safe_code(reason) if reason is not None else None
+    record.commit_started_at = value["started_at"]
+    record.commit_finished_at = value["finished_at"]
+
+
+def _apply_receipt_to_storage(receipt: ApplyReceipt) -> dict[str, Any]:
+    return {
+        "apply_id": receipt.apply_id,
+        "revision": receipt.revision,
+        "snapshot_fingerprint": receipt.snapshot_fingerprint,
+        "applied_at": receipt.applied_at,
+        "files": [
+            {
+                "path": item.path,
+                "existed_before": item.existed_before,
+                "before_sha256": item.before_sha256,
+                "after_sha256": item.after_sha256,
+            }
+            for item in receipt.files
+        ],
+    }
+
+
+def _apply_receipt_from_storage(value: Any) -> ApplyReceipt:
+    if not isinstance(value, dict) or set(value) != {
+        "apply_id",
+        "revision",
+        "snapshot_fingerprint",
+        "applied_at",
+        "files",
+    } or not isinstance(value["files"], list):
+        raise ValueError("Apply receipt is invalid")
+    files = tuple(
+        ApplyFileReceipt(**item)
+        for item in value["files"]
+        if isinstance(item, dict)
+        and set(item)
+        == {"path", "existed_before", "before_sha256", "after_sha256"}
+    )
+    if len(files) != len(value["files"]):
+        raise ValueError("Apply receipt files are invalid")
+    return ApplyReceipt(**{**value, "files": files})
+
+
+def _commit_receipt_to_storage(receipt: CommitReceipt) -> dict[str, Any]:
+    return {
+        "commit_id": receipt.commit_id,
+        "revision": receipt.revision,
+        "apply_id": receipt.apply_id,
+        "commit_sha": receipt.commit_sha,
+        "parent_sha": receipt.parent_sha,
+        "tree_sha": receipt.tree_sha,
+        "message": receipt.message,
+        "files": list(receipt.files),
+        "branch": receipt.branch,
+        "committed_at": receipt.committed_at,
+    }
+
+
+def _commit_receipt_from_storage(value: Any) -> CommitReceipt:
+    if not isinstance(value, dict) or set(value) != {
+        "commit_id",
+        "revision",
+        "apply_id",
+        "commit_sha",
+        "parent_sha",
+        "tree_sha",
+        "message",
+        "files",
+        "branch",
+        "committed_at",
+    } or not isinstance(value["files"], list):
+        raise ValueError("Commit receipt is invalid")
+    return CommitReceipt(**{**value, "files": tuple(value["files"])})
+
+
+def _valid_optional_timestamp(value: Any) -> bool:
+    return value is None or (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value >= 0
+    )
+
+
 def _public_event(event: CodingEvent) -> dict[str, Any]:
     data = event.data
     public_data: dict[str, Any]
@@ -1977,6 +2956,18 @@ def _worker_http_error(exc: CodingWorkerError) -> HTTPException:
         "verification_not_found",
     }:
         return _http_error(status.HTTP_404_NOT_FOUND, exc.code)
+    return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)
+
+
+def _recovery_http_error(exc: CodingRecoveryError) -> HTTPException:
+    if exc.code in {
+        "recovery_changed",
+        "recovery_conflict",
+        "snapshot_mismatch",
+    }:
+        return _http_error(status.HTTP_409_CONFLICT, exc.code)
+    if exc.code in {"invalid_recovery_payload", "recovery_snapshot_invalid"}:
+        return _http_error(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.code)
     return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, exc.code)
 
 

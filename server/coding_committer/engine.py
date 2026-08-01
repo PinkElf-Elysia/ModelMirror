@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 import tempfile
@@ -9,7 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from server.coding_runtime.apply_models import ApplyReceipt
+from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
 from server.coding_runtime.commit_models import (
     COMMIT_BRANCH,
     COMMIT_ID_PATTERN,
@@ -37,7 +38,7 @@ class _Operation:
     apply_receipt: ApplyReceipt
     message: str
     receipt: CommitReceipt
-    undone: bool = False
+    state: str = "committed"
 
 
 class CodingCommitterEngine:
@@ -68,7 +69,6 @@ class CodingCommitterEngine:
             raise CodingCommitError("Commit author email is invalid.", code="invalid_author")
         self._mutation_hook = mutation_hook
         self._lock = threading.Lock()
-        self._operations: dict[str, _Operation] = {}
         self._validate_roots()
         try:
             self._source_manifest = snapshot_manifest(self.source_root)
@@ -76,16 +76,40 @@ class CodingCommitterEngine:
             raise CodingCommitError(str(exc), code=exc.code) from exc
         self.source_fingerprint = self._source_manifest.fingerprint
         self._source_hashes = dict(self._source_manifest.file_hashes)
-        self._baseline_head, self._baseline_tree, self._baseline_entries = (
-            self._inspect_repository_baseline()
+        self._journal_root = (
+            self.target_root / ".git" / "modelmirror-coding" / "operations"
         )
+        self._operations = self._load_journals()
+        journal_parents = {
+            operation.receipt.parent_sha for operation in self._operations.values()
+        }
+        if len(journal_parents) > 1:
+            raise CodingCommitError(
+                "Commit recovery journals disagree on the baseline.",
+                code="recovery_journal_invalid",
+            )
+        journal_parent = next(iter(journal_parents), None)
+        self._baseline_head, self._baseline_tree, self._baseline_entries = (
+            self._inspect_repository_baseline(journal_parent)
+        )
+        for operation in self._operations.values():
+            if operation.apply_receipt.snapshot_fingerprint != self.source_fingerprint:
+                raise CodingCommitError(
+                    "Commit recovery journal snapshot is invalid.",
+                    code="recovery_journal_invalid",
+                )
         self._health_snapshot = {
             "configured": True,
-            "available": True,
+            "available": not any(
+                operation.state != "undone"
+                for operation in self._operations.values()
+            ),
             "target": "isolated_local_repository",
             "branch": COMMIT_BRANCH,
             "snapshot_fingerprint": self.source_fingerprint,
         }
+        if not self._health_snapshot["available"]:
+            self._health_snapshot["reason"] = "commit_recovery_pending"
 
     def health(self) -> dict[str, object]:
         return dict(self._health_snapshot)
@@ -112,14 +136,28 @@ class CodingCommitterEngine:
                         "Commit operation was reused with different input.",
                         code="operation_conflict",
                     )
-                if previous.undone:
+                state, reconciled = self._reconcile_locked(
+                    operation_id=operation_id,
+                    apply_receipt=apply_receipt,
+                    message=safe_message,
+                )
+                if state == "undone":
                     raise CodingCommitError(
                         "Commit operation was already undone.",
                         code="already_undone",
                     )
-                self._assert_committed_state(previous.receipt, apply_receipt)
-                return previous.receipt
-            if any(not operation.undone for operation in self._operations.values()):
+                if state == "committed" and reconciled is not None:
+                    return reconciled
+                if state == "conflict":
+                    raise CodingCommitError(
+                        "Commit recovery state is ambiguous.",
+                        code="commit_conflict",
+                    )
+            if any(
+                operation.state != "undone"
+                and operation.receipt.commit_id != operation_id
+                for operation in self._operations.values()
+            ):
                 raise CodingCommitError(
                     "A local commit already exists for this target.",
                     code="commit_already_exists",
@@ -130,11 +168,6 @@ class CodingCommitterEngine:
                 operation_id=operation_id,
                 apply_receipt=apply_receipt,
                 message=safe_message,
-            )
-            self._operations[operation_id] = _Operation(
-                apply_receipt=apply_receipt,
-                message=safe_message,
-                receipt=receipt,
             )
             self._health_snapshot = {
                 **self._health_snapshot,
@@ -156,9 +189,21 @@ class CodingCommitterEngine:
                     "Apply receipt does not match the commit.",
                     code="operation_conflict",
                 )
-            if operation.undone:
-                self._assert_undone_state(receipt, apply_receipt)
+            state, reconciled = self._reconcile_locked(
+                operation_id=receipt.commit_id,
+                apply_receipt=apply_receipt,
+                message=receipt.message,
+            )
+            if state == "undone":
+                assert reconciled is not None
                 return receipt
+            if state != "committed":
+                if state == "conflict":
+                    self._assert_committed_state(receipt, apply_receipt)
+                raise CodingCommitError(
+                    "Commit cannot be safely undone.",
+                    code="undo_conflict",
+                )
 
             self._assert_committed_state(receipt, apply_receipt)
             self._move_head_and_index(
@@ -172,8 +217,9 @@ class CodingCommitterEngine:
                 apply_receipt=operation.apply_receipt,
                 message=operation.message,
                 receipt=operation.receipt,
-                undone=True,
+                state="undone",
             )
+            self._write_journal(self._operations[receipt.commit_id])
             self._health_snapshot = {
                 key: value
                 for key, value in self._health_snapshot.items()
@@ -181,6 +227,223 @@ class CodingCommitterEngine:
             }
             self._health_snapshot["available"] = True
             return receipt
+
+    def reconcile(
+        self,
+        *,
+        operation_id: str,
+        apply_receipt: ApplyReceipt,
+        message: str,
+    ) -> tuple[str, CommitReceipt | None]:
+        if not COMMIT_ID_PATTERN.fullmatch(operation_id):
+            raise CodingCommitError(
+                "Commit operation id is invalid.",
+                code="invalid_request",
+            )
+        try:
+            safe_message = normalize_commit_message(message)
+        except ValueError as exc:
+            raise CodingCommitError(
+                "Commit message is invalid.",
+                code="invalid_message",
+            ) from exc
+        with self._lock:
+            return self._reconcile_locked(
+                operation_id=operation_id,
+                apply_receipt=apply_receipt,
+                message=safe_message,
+            )
+
+    def _reconcile_locked(
+        self,
+        *,
+        operation_id: str,
+        apply_receipt: ApplyReceipt,
+        message: str,
+    ) -> tuple[str, CommitReceipt | None]:
+        operation = self._operations.get(operation_id)
+        if operation is None:
+            try:
+                self._assert_repository_ready(apply_receipt)
+            except CodingCommitError:
+                return "conflict", None
+            return "not_committed", None
+        if operation.apply_receipt != apply_receipt or operation.message != message:
+            raise CodingCommitError(
+                "Commit operation was reused with different input.",
+                code="operation_conflict",
+            )
+        receipt = operation.receipt
+        try:
+            self._assert_committed_state(receipt, apply_receipt)
+        except CodingCommitError:
+            pass
+        else:
+            if operation.state != "committed":
+                operation = _Operation(
+                    apply_receipt=apply_receipt,
+                    message=message,
+                    receipt=receipt,
+                    state="committed",
+                )
+                self._operations[operation_id] = operation
+                self._write_journal(operation)
+            return "committed", receipt
+        try:
+            self._assert_undone_state(receipt, apply_receipt)
+        except CodingCommitError:
+            pass
+        else:
+            if operation.state != "undone":
+                operation = _Operation(
+                    apply_receipt=apply_receipt,
+                    message=message,
+                    receipt=receipt,
+                    state="undone",
+                )
+                self._operations[operation_id] = operation
+                self._write_journal(operation)
+            return "undone", receipt
+        try:
+            self._assert_repository_ready(apply_receipt)
+        except CodingCommitError:
+            return "conflict", None
+        return "not_committed", None
+
+    def _load_journals(self) -> dict[str, _Operation]:
+        if not self._journal_root.exists():
+            return {}
+        if self._journal_root.is_symlink() or not self._journal_root.is_dir():
+            raise CodingCommitError(
+                "Commit recovery journal directory is unsafe.",
+                code="recovery_journal_invalid",
+            )
+        operations: dict[str, _Operation] = {}
+        for path in sorted(self._journal_root.iterdir()):
+            if path.name.startswith("."):
+                if path.is_symlink() or not path.is_file():
+                    raise CodingCommitError(
+                        "Commit recovery temporary journal is unsafe.",
+                        code="recovery_journal_invalid",
+                    )
+                continue
+            if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+                raise CodingCommitError(
+                    "Commit recovery journal entry is unsafe.",
+                    code="recovery_journal_invalid",
+                )
+            try:
+                raw = path.read_bytes()
+                if not raw or len(raw) > 128 * 1024:
+                    raise ValueError("Journal size is invalid")
+                operation = _operation_from_payload(json.loads(raw.decode("utf-8")))
+            except (
+                OSError,
+                TypeError,
+                UnicodeError,
+                json.JSONDecodeError,
+                ValueError,
+            ) as exc:
+                raise CodingCommitError(
+                    "Commit recovery journal is invalid.",
+                    code="recovery_journal_invalid",
+                ) from exc
+            if path.name != f"{operation.receipt.commit_id}.json":
+                raise CodingCommitError(
+                    "Commit recovery journal identity is invalid.",
+                    code="recovery_journal_invalid",
+                )
+            operations[operation.receipt.commit_id] = operation
+        return operations
+
+    def _write_journal(self, operation: _Operation) -> None:
+        git_dir = self.target_root / ".git"
+        journal_parent = self._journal_root.parent
+        for directory in (journal_parent, self._journal_root):
+            if directory.exists():
+                if directory.is_symlink() or not directory.is_dir():
+                    raise CodingCommitError(
+                        "Commit recovery journal path is unsafe.",
+                        code="recovery_journal_unavailable",
+                    )
+            else:
+                try:
+                    directory.mkdir(mode=0o700)
+                except OSError as exc:
+                    raise CodingCommitError(
+                        "Commit recovery journal could not be created.",
+                        code="recovery_journal_unavailable",
+                    ) from exc
+            if not _is_relative_to(directory.resolve(), git_dir.resolve()):
+                raise CodingCommitError(
+                    "Commit recovery journal escaped the repository.",
+                    code="recovery_journal_unavailable",
+                )
+        encoded = json.dumps(
+            _operation_to_payload(operation),
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if len(encoded) > 128 * 1024:
+            raise CodingCommitError(
+                "Commit recovery journal is too large.",
+                code="recovery_journal_unavailable",
+            )
+        destination = self._journal_root / f"{operation.receipt.commit_id}.json"
+        if destination.is_symlink():
+            raise CodingCommitError(
+                "Commit recovery journal target is unsafe.",
+                code="recovery_journal_unavailable",
+            )
+        if not destination.exists():
+            try:
+                descriptor = os.open(
+                    destination,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                )
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                return
+            except FileExistsError:
+                pass
+            except OSError as exc:
+                raise CodingCommitError(
+                    "Commit recovery journal could not be written.",
+                    code="recovery_journal_unavailable",
+                ) from exc
+        temporary = self._journal_root / (
+            f".{operation.receipt.commit_id}.{os.getpid()}.{threading.get_ident()}"
+        )
+        try:
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if destination.is_symlink() or not destination.is_file():
+                raise CodingCommitError(
+                    "Commit recovery journal target changed.",
+                    code="recovery_journal_unavailable",
+                )
+            os.replace(temporary, destination)
+        except CodingCommitError:
+            temporary.unlink(missing_ok=True)
+            raise
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise CodingCommitError(
+                "Commit recovery journal could not be replaced.",
+                code="recovery_journal_unavailable",
+            ) from exc
 
     def _validate_roots(self) -> None:
         roots = (self.source_root, self.target_root, self.temporary_root)
@@ -205,16 +468,20 @@ class CodingCommitterEngine:
 
     def _inspect_repository_baseline(
         self,
+        expected_head: str | None = None,
     ) -> tuple[str, str, dict[str, _TreeEntry]]:
         self._assert_repository_metadata()
-        head = self._git_text("rev-parse", "--verify", "HEAD")
+        current_head = self._git_text("rev-parse", "--verify", "HEAD")
         branch = self._git_text("symbolic-ref", "--quiet", "HEAD")
         if branch != f"refs/heads/{COMMIT_BRANCH}":
             raise CodingCommitError("Target branch is not allowed.", code="wrong_branch")
+        head = expected_head or current_head
         tree = self._git_text("rev-parse", "HEAD^{tree}")
-        if self._git_text("write-tree") != tree:
+        if expected_head is not None:
+            tree = self._git_text("rev-parse", f"{expected_head}^{{tree}}")
+        if expected_head is None and self._git_text("write-tree") != tree:
             raise CodingCommitError("Target index contains changes.", code="dirty_index")
-        entries = self._read_tree_entries("HEAD")
+        entries = self._read_tree_entries(head)
         if set(entries) != set(self._source_hashes):
             raise CodingCommitError(
                 "Repository baseline paths do not match the source.",
@@ -341,6 +608,14 @@ class CodingCommitterEngine:
                 message=message,
                 files=tuple(item.path for item in apply_receipt.files),
             )
+            prepared = _Operation(
+                apply_receipt=apply_receipt,
+                message=message,
+                receipt=receipt,
+                state="prepared",
+            )
+            self._operations[operation_id] = prepared
+            self._write_journal(prepared)
             self._move_head_and_index(
                 old_head=self._baseline_head,
                 new_head=commit_sha,
@@ -349,6 +624,14 @@ class CodingCommitterEngine:
                 prepared_index=index_path,
             )
             self._assert_committed_state(receipt, apply_receipt)
+            committed = _Operation(
+                apply_receipt=apply_receipt,
+                message=message,
+                receipt=receipt,
+                state="committed",
+            )
+            self._operations[operation_id] = committed
+            self._write_journal(committed)
             return receipt
 
     def _move_head_and_index(
@@ -526,6 +809,127 @@ class CodingCommitterEngine:
     def _notify(self, phase: str) -> None:
         if self._mutation_hook is not None:
             self._mutation_hook(phase)
+
+
+def _operation_to_payload(operation: _Operation) -> dict[str, object]:
+    apply_receipt = operation.apply_receipt
+    receipt = operation.receipt
+    return {
+        "version": 1,
+        "state": operation.state,
+        "message": operation.message,
+        "apply_receipt": {
+            "apply_id": apply_receipt.apply_id,
+            "revision": apply_receipt.revision,
+            "snapshot_fingerprint": apply_receipt.snapshot_fingerprint,
+            "applied_at": apply_receipt.applied_at,
+            "files": [
+                {
+                    "path": item.path,
+                    "existed_before": item.existed_before,
+                    "before_sha256": item.before_sha256,
+                    "after_sha256": item.after_sha256,
+                }
+                for item in apply_receipt.files
+            ],
+        },
+        "commit_receipt": {
+            "commit_id": receipt.commit_id,
+            "revision": receipt.revision,
+            "apply_id": receipt.apply_id,
+            "commit_sha": receipt.commit_sha,
+            "parent_sha": receipt.parent_sha,
+            "tree_sha": receipt.tree_sha,
+            "message": receipt.message,
+            "files": list(receipt.files),
+            "branch": receipt.branch,
+            "committed_at": receipt.committed_at,
+        },
+    }
+
+
+def _operation_from_payload(value: object) -> _Operation:
+    if not isinstance(value, dict) or set(value) != {
+        "version",
+        "state",
+        "message",
+        "apply_receipt",
+        "commit_receipt",
+    }:
+        raise ValueError("Journal shape is invalid")
+    if value["version"] != 1 or value["state"] not in {
+        "prepared",
+        "committed",
+        "undone",
+    }:
+        raise ValueError("Journal version or state is invalid")
+    message = normalize_commit_message(value["message"])
+    apply_receipt = _apply_receipt_from_journal(value["apply_receipt"])
+    receipt = _commit_receipt_from_journal(value["commit_receipt"])
+    if (
+        receipt.revision != apply_receipt.revision
+        or receipt.apply_id != apply_receipt.apply_id
+        or receipt.message != message
+        or receipt.files != tuple(item.path for item in apply_receipt.files)
+    ):
+        raise ValueError("Journal receipts are inconsistent")
+    return _Operation(
+        apply_receipt=apply_receipt,
+        message=message,
+        receipt=receipt,
+        state=value["state"],
+    )
+
+
+def _apply_receipt_from_journal(value: object) -> ApplyReceipt:
+    if not isinstance(value, dict) or set(value) != {
+        "apply_id",
+        "revision",
+        "snapshot_fingerprint",
+        "applied_at",
+        "files",
+    }:
+        raise ValueError("Apply journal receipt is invalid")
+    raw_files = value["files"]
+    if not isinstance(raw_files, list) or not 1 <= len(raw_files) <= 20:
+        raise ValueError("Apply journal files are invalid")
+    files: list[ApplyFileReceipt] = []
+    for raw in raw_files:
+        if not isinstance(raw, dict) or set(raw) != {
+            "path",
+            "existed_before",
+            "before_sha256",
+            "after_sha256",
+        }:
+            raise ValueError("Apply journal file is invalid")
+        files.append(ApplyFileReceipt(**raw))
+    return ApplyReceipt(
+        apply_id=value["apply_id"],
+        revision=value["revision"],
+        snapshot_fingerprint=value["snapshot_fingerprint"],
+        applied_at=value["applied_at"],
+        files=tuple(files),
+    )
+
+
+def _commit_receipt_from_journal(value: object) -> CommitReceipt:
+    if not isinstance(value, dict) or set(value) != {
+        "commit_id",
+        "revision",
+        "apply_id",
+        "commit_sha",
+        "parent_sha",
+        "tree_sha",
+        "message",
+        "files",
+        "branch",
+        "committed_at",
+    }:
+        raise ValueError("Commit journal receipt is invalid")
+    files = value["files"]
+    if not isinstance(files, list) or any(not isinstance(path, str) for path in files):
+        raise ValueError("Commit journal files are invalid")
+    return CommitReceipt(**{**value, "files": tuple(files)})
 
 
 def _validate_identity(value: str, field: str) -> str:

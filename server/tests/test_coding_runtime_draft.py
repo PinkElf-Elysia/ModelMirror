@@ -78,6 +78,195 @@ def test_new_and_modified_text_files_produce_stable_revision_and_diff(
     assert workspace.patch(1).startswith("diff --git a/app.py b/app.py")
 
 
+def test_complete_patch_restores_exact_revision_content_and_diff(
+    tmp_path: Path,
+) -> None:
+    seed = _workspace(
+        tmp_path,
+        {
+            "app.py": "first = 1\nlast = 2",
+            "docs/kept.txt": "unchanged\n",
+        },
+    )
+    seed.begin_turn()
+    _write(seed, "app.py", "first = 7\nlast = 2")
+    _write(seed, "docs/recovered-731.txt", "随机恢复内容\n第二行")
+    original = seed.commit_turn()
+    patch = "".join(item.diff for item in original.files)
+
+    restored = DraftWorkspace(
+        seed.source_root,
+        tmp_path / "restored-workspace",
+        tmp_path / "restored-checkpoint",
+    )
+    restored.initialize()
+    report = restored.restore_from_patch(
+        patch,
+        revision=9,
+        expected_paths=tuple(item.path for item in original.files),
+    )
+
+    assert report.revision == 9
+    assert [item.path for item in report.files] == [
+        "app.py",
+        "docs/recovered-731.txt",
+    ]
+    assert (restored.workspace_root / "app.py").read_bytes() == (
+        seed.workspace_root / "app.py"
+    ).read_bytes()
+    assert (restored.workspace_root / "docs/recovered-731.txt").read_bytes() == (
+        seed.workspace_root / "docs/recovered-731.txt"
+    ).read_bytes()
+    assert restored.patch(9) == patch
+
+
+def test_recovery_makes_read_only_workspace_writable_before_reset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed = _workspace(tmp_path, {"docs/baseline.txt": "baseline\n"})
+    seed.begin_turn()
+    _write(seed, "docs/recovery-7319.md", "random recovery content")
+    original = seed.commit_turn()
+    patch = "".join(item.diff for item in original.files)
+
+    source_file = seed.source_root / "docs/baseline.txt"
+    source_file.chmod(0o400)
+    source_file.parent.chmod(0o500)
+    seed.source_root.chmod(0o500)
+
+    restored = DraftWorkspace(
+        seed.source_root,
+        tmp_path / "restored-read-only-workspace",
+        tmp_path / "restored-read-only-checkpoint",
+        preserve_workspace_root=True,
+    )
+    restored.initialize()
+    assert not ((restored.workspace_root / "docs").stat().st_mode & stat.S_IWUSR)
+
+    real_clear_contents = DraftWorkspace._clear_contents
+
+    def guarded_clear_contents(path: Path) -> None:
+        if path == restored.workspace_root:
+            assert path.stat().st_mode & stat.S_IWUSR
+            assert (path / "docs").stat().st_mode & stat.S_IWUSR
+        real_clear_contents(path)
+
+    monkeypatch.setattr(
+        DraftWorkspace,
+        "_clear_contents",
+        staticmethod(guarded_clear_contents),
+    )
+    report = restored.restore_from_patch(
+        patch,
+        revision=1,
+        expected_paths=("docs/recovery-7319.md",),
+    )
+
+    assert report.revision == 1
+    assert restored.patch(1) == patch
+    assert (restored.workspace_root / "docs/recovery-7319.md").read_text(
+        encoding="utf-8"
+    ) == "random recovery content"
+
+
+def test_restore_keeps_lightweight_failures_as_a_repairable_draft(
+    tmp_path: Path,
+) -> None:
+    seed = _workspace(tmp_path)
+    seed.begin_turn()
+    _write(seed, "broken.py", "def broken(:\n")
+    original = seed.commit_turn()
+    patch = "".join(item.diff for item in original.files)
+    restored = DraftWorkspace(
+        seed.source_root,
+        tmp_path / "restored-workspace",
+        tmp_path / "restored-checkpoint",
+    )
+    restored.initialize()
+
+    report = restored.restore_from_patch(
+        patch,
+        revision=4,
+        expected_paths=("broken.py",),
+    )
+
+    assert report.validation_status == "failed"
+    assert (restored.workspace_root / "broken.py").exists()
+    with pytest.raises(DraftValidationError, match="validation_failed"):
+        restored.patch(4)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        """diff --git a/safe.txt b/safe.txt
+new file mode 100644
+--- /dev/null
++++ b/safe.txt
+@@ -0,0 +1,2 @@
++only one line
+""",
+        f"""diff --git a/safe.txt b/safe.txt
+new file mode 100644
+--- /dev/null
++++ b/safe.txt
+@@ -0,0 +1 @@
++token={'sk-' + ('q' * 30)}
+""",
+    ],
+)
+def test_invalid_or_secret_recovery_rolls_back_without_partial_files(
+    tmp_path: Path,
+    patch: str,
+) -> None:
+    restored = _workspace(tmp_path, {"baseline.txt": "keep\n"})
+
+    with pytest.raises(DraftPolicyError):
+        restored.restore_from_patch(
+            patch,
+            revision=3,
+            expected_paths=("safe.txt",),
+        )
+
+    assert restored.revision == 0
+    assert restored.changes().files == ()
+    assert not (restored.workspace_root / "safe.txt").exists()
+    assert (restored.workspace_root / "baseline.txt").read_text(
+        encoding="utf-8"
+    ) == "keep\n"
+
+
+def test_recovery_patch_must_match_the_current_immutable_baseline(
+    tmp_path: Path,
+) -> None:
+    seed = _workspace(tmp_path, {"app.txt": "before\n"})
+    seed.begin_turn()
+    _write(seed, "app.txt", "after\n")
+    original = seed.commit_turn()
+    patch = "".join(item.diff for item in original.files).replace(
+        "-before\n", "-different\n"
+    )
+    restored = DraftWorkspace(
+        seed.source_root,
+        tmp_path / "restored-workspace",
+        tmp_path / "restored-checkpoint",
+    )
+    restored.initialize()
+
+    with pytest.raises(DraftPolicyError, match="recovery_patch_mismatch"):
+        restored.restore_from_patch(
+            patch,
+            revision=2,
+            expected_paths=("app.txt",),
+        )
+
+    assert restored.changes().files == ()
+    assert (restored.workspace_root / "app.txt").read_text(encoding="utf-8") == (
+        "before\n"
+    )
+
+
 def test_valid_changes_accumulate_across_turns_and_rollback_preserves_them(
     tmp_path: Path,
 ) -> None:
