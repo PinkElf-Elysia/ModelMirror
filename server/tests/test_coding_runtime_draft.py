@@ -120,6 +120,56 @@ def test_complete_patch_restores_exact_revision_content_and_diff(
     assert restored.patch(9) == patch
 
 
+def test_recovery_makes_read_only_workspace_writable_before_reset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed = _workspace(tmp_path, {"docs/baseline.txt": "baseline\n"})
+    seed.begin_turn()
+    _write(seed, "docs/recovery-7319.md", "random recovery content")
+    original = seed.commit_turn()
+    patch = "".join(item.diff for item in original.files)
+
+    source_file = seed.source_root / "docs/baseline.txt"
+    source_file.chmod(0o400)
+    source_file.parent.chmod(0o500)
+    seed.source_root.chmod(0o500)
+
+    restored = DraftWorkspace(
+        seed.source_root,
+        tmp_path / "restored-read-only-workspace",
+        tmp_path / "restored-read-only-checkpoint",
+        preserve_workspace_root=True,
+    )
+    restored.initialize()
+    assert not ((restored.workspace_root / "docs").stat().st_mode & stat.S_IWUSR)
+
+    real_clear_contents = DraftWorkspace._clear_contents
+
+    def guarded_clear_contents(path: Path) -> None:
+        if path == restored.workspace_root:
+            assert path.stat().st_mode & stat.S_IWUSR
+            assert (path / "docs").stat().st_mode & stat.S_IWUSR
+        real_clear_contents(path)
+
+    monkeypatch.setattr(
+        DraftWorkspace,
+        "_clear_contents",
+        staticmethod(guarded_clear_contents),
+    )
+    report = restored.restore_from_patch(
+        patch,
+        revision=1,
+        expected_paths=("docs/recovery-7319.md",),
+    )
+
+    assert report.revision == 1
+    assert restored.patch(1) == patch
+    assert (restored.workspace_root / "docs/recovery-7319.md").read_text(
+        encoding="utf-8"
+    ) == "random recovery content"
+
+
 def test_restore_keeps_lightweight_failures_as_a_repairable_draft(
     tmp_path: Path,
 ) -> None:

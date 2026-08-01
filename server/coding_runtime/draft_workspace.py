@@ -842,6 +842,7 @@ class DraftWorkspace:
             self._replace_tree(source, self.workspace_root)
             return
         self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self._make_tree_writable(self.workspace_root)
         self._clear_contents(self.workspace_root)
         shutil.copytree(
             source,
