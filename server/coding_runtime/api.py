@@ -2173,7 +2173,23 @@ class CodingService:
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "recovery_data_corrupt",
             )
-        if recovery.state is RecoveryState.CONFLICT:
+        legacy_repository_failure = (
+            recovery.state is RecoveryState.CONFLICT
+            and record.publish_state is PublishState.CONFLICT
+            and record.publish_reason == "repository_not_ready"
+            and record.publish_receipt is None
+        )
+        if legacy_repository_failure:
+            # v8 initially classified a local Publisher preflight failure as a
+            # remote conflict. Preserve the task and make that failure retryable.
+            record.publish_state = PublishState.FAILED
+            record.recovery_conflict = None
+            record.state = (
+                "applied"
+                if record.apply_state is ApplyState.APPLIED
+                else "ready"
+            )
+        elif recovery.state is RecoveryState.CONFLICT:
             record.state = "conflict"
             record.recovery_conflict = "recovery_conflict"
         elif record.publish_state in {PublishState.DRAFT, PublishState.READY}:
@@ -3877,7 +3893,6 @@ def _publish_error_is_conflict(code: str) -> bool:
         "repository_has_remote",
         "repository_mismatch",
         "repository_not_independent",
-        "repository_not_ready",
         "unsafe_repository",
         "wrong_branch",
     }

@@ -60,6 +60,8 @@ const publishReasonText: Record<string, string> = {
     "这份 PR 已在 GitHub 上发生变化。为避免覆盖，请由开发者在 GitHub 检查。",
   repository_mismatch:
     "GitHub 应用连接的不是约定项目，本次发布已停止。",
+  repository_not_ready:
+    "本地项目副本暂时无法完成发布前检查，请稍后按原内容重试。",
   unsafe_repository:
     "本地项目副本未通过发布前检查，请由开发者重新准备。",
   workflow_change_unsupported:

@@ -1912,6 +1912,159 @@ async def test_publish_conflict_and_unavailable_publisher_do_not_break_draft(
 
 
 @pytest.mark.asyncio
+async def test_local_publisher_preflight_failure_is_retryable(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    publisher = FakePublisher(publish_error="repository_not_ready")
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        publisher=publisher,
+        recovery_store=CodingRecoveryStore(tmp_path / "retryable-publish-recovery"),
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    title = "Retry local publisher preflight R8N42"
+    body = "The fixed local repository temporarily failed its read-only check."
+    async with client:
+        session_id = (await client.post("/api/coding/sessions")).json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "docs: retry publisher preflight R8N42",
+            },
+        )
+        request = {
+            "revision": 1,
+            "commit_id": committed.json()["commit_id"],
+            "title": title,
+            "body": body,
+        }
+        started = await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        failed = await _wait_publish_state(client, session_id, 1, "failed")
+        publisher.publish_error = None
+        retried = await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        draft = await _wait_publish_state(client, session_id, 1, "draft")
+
+    assert started.status_code == 202
+    assert failed["reason"] == "repository_not_ready"
+    assert retried.status_code == 202
+    assert draft["pr_number"] == 89
+    assert len(publisher.publish_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_legacy_local_preflight_conflict_recovers_as_retryable_failure(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "legacy-publish-conflict-recovery")
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    publisher = FakePublisher(publish_error="repository_not_ready")
+    client, service, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        publisher=publisher,
+        recovery_store=store,
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    title = "Recover local preflight conflict W9K31"
+    body = "A legacy local mount failure must remain retryable after restart."
+    async with client:
+        session_id = (await client.post("/api/coding/sessions")).json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "docs: recover publisher preflight W9K31",
+            },
+        )
+        request = {
+            "revision": 1,
+            "commit_id": committed.json()["commit_id"],
+            "title": title,
+            "body": body,
+        }
+        await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        await _wait_publish_state(client, session_id, 1, "failed")
+        record = service._sessions[session_id]
+        record.publish_state = PublishState.CONFLICT
+        record.publish_reason = "repository_not_ready"
+        record.state = "conflict"
+        record.recovery_conflict = "repository_not_ready"
+        await service._persist_recovery(record, required=True)
+    await service.shutdown()
+
+    recovered_publisher = FakePublisher(reconcile_state="not_published")
+    recovered_worker = FakeWorker(mode="draft")
+    recovered_worker.verification_state = "completed"
+    recovered_worker.verification_result = "passed"
+    recovered_client, _, _ = await make_client(
+        worker=recovered_worker,
+        applier=FakeApplier(reconcile_state="applied"),
+        committer=FakeCommitter(reconcile_state="committed"),
+        publisher=recovered_publisher,
+        recovery_store=store,
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    async with recovered_client:
+        resumed = await recovered_client.post("/api/coding/recovery/resume")
+        recovered_session_id = resumed.json()["id"]
+        status_response = await recovered_client.get(
+            f"/api/coding/sessions/{recovered_session_id}/publish",
+            params={"revision": 1},
+        )
+        retried = await recovered_client.post(
+            f"/api/coding/sessions/{recovered_session_id}/publish",
+            json=request,
+        )
+        draft = await _wait_publish_state(
+            recovered_client,
+            recovered_session_id,
+            1,
+            "draft",
+        )
+
+    assert resumed.status_code == 200
+    assert resumed.json()["conflict"] is None
+    assert status_response.json()["state"] == "failed"
+    assert retried.status_code == 202
+    assert draft["pr_number"] == 89
+    assert len(recovered_publisher.reconcile_calls) == 1
+    assert len(recovered_publisher.publish_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_published_task_recovers_same_draft_pr_without_republishing(
     make_client,
     tmp_path: Path,

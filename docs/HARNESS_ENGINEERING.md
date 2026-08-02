@@ -258,3 +258,7 @@ curl http://localhost:5173/models
    验证一次顺利的 happy path。
 9. **产品不自动清理不可逆外部结果。** 删除工作树、提交、远端分支或 PR 需要新的
    明确授权；功能回退只停止后续能力，并向用户说明已有外部内容仍需人工处理。
+10. **本地预检失败不能伪装成远端冲突。** 非 root 容器读取 Windows bind mount 时，
+    Git 可能因目录属主不同触发 `dubious ownership`，状态扫描也可能明显变慢。固定目标
+    必须显式配置精确 `safe.directory` 并保留有界超时；`repository_not_ready` 属于可重试
+    的本地失败，只有基础分支、远端分支或 PR 精确对账不一致才进入不可写冲突态。
