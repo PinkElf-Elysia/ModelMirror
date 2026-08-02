@@ -74,7 +74,9 @@ services:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,
-                timeout=15,
+                # Windows bind mounts can take about 25 seconds to refresh a
+                # clean repository; keep a bounded budget without skipping it.
+                timeout=45,
             )
             if result.returncode != 0:
                 stop(f"Git check failed for {root}")

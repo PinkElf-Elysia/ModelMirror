@@ -30,6 +30,17 @@ from server.coding_runtime.committer_client import (
     CommitterClientError,
 )
 from server.coding_runtime.models import CodingEvent, CodingEventKind
+from server.coding_runtime.publisher_client import (
+    PUBLISH_OPERATION_TIMEOUT_SECONDS,
+    CodingPublisherClient,
+    PublisherClientError,
+)
+from server.coding_runtime.publish_models import (
+    PublishCommit,
+    PublishManifest,
+    PublishReceipt,
+    PublishState,
+)
 from server.coding_runtime.recovery import CodingRecoveryStore
 from server.coding_runtime.worker import (
     CodingWorkerError,
@@ -218,8 +229,6 @@ class FakeWorker:
         scope: str = "current",
     ) -> str:
         self._require_revision(revision)
-        if not self.validation_passed:
-            raise CodingWorkerError("blocked", code="validation_failed")
         return await self.diff(session_id, self.change_path, revision)
 
     async def checkpoint_cycle(
@@ -487,6 +496,7 @@ class FakeCommitter:
         self.commit_calls: list[dict[str, Any]] = []
         self.undo_calls: list[tuple[CommitReceipt, ApplyReceipt]] = []
         self.reconcile_calls: list[dict[str, Any]] = []
+        self.next_parent_sha = "b" * 40
 
     async def health(self) -> dict[str, Any]:
         return {
@@ -502,17 +512,20 @@ class FakeCommitter:
         if self.commit_error is not None:
             raise CommitterClientError("commit failed", code=self.commit_error)
         apply_receipt = kwargs["apply_receipt"]
-        return CommitReceipt(
+        commit_sha = ("d" if len(self.commit_calls) == 1 else "e") * 40
+        receipt = CommitReceipt(
             commit_id=kwargs["operation_id"],
             revision=apply_receipt.revision,
             apply_id=apply_receipt.apply_id,
-            commit_sha=("d" if len(self.commit_calls) == 1 else "e") * 40,
-            parent_sha="b" * 40,
+            commit_sha=commit_sha,
+            parent_sha=self.next_parent_sha,
             tree_sha="f" * 40,
             message=kwargs["message"],
             files=tuple(item.path for item in apply_receipt.files),
             committed_at=20.0,
         )
+        self.next_parent_sha = commit_sha
+        return receipt
 
     async def undo(
         self,
@@ -542,6 +555,87 @@ class FakeCommitter:
         )
 
 
+class FakePublisher:
+    def __init__(
+        self,
+        *,
+        configured: bool = True,
+        available: bool = True,
+        publish_error: str | None = None,
+        ready_error: str | None = None,
+        reconcile_state: str = "draft",
+    ) -> None:
+        self.configured = configured
+        self.available = available
+        self.publish_error = publish_error
+        self.ready_error = ready_error
+        self.reconcile_state = reconcile_state
+        self.publish_calls: list[PublishManifest] = []
+        self.ready_calls: list[tuple[PublishManifest, PublishReceipt]] = []
+        self.reconcile_calls: list[PublishManifest] = []
+
+    async def health(self) -> dict[str, Any]:
+        return {
+            "configured": self.configured,
+            "available": self.available,
+            "provider": "github",
+            "target": "fixed_repository",
+            **({} if self.available else {"reason": "publisher_unavailable"}),
+        }
+
+    async def publish(self, manifest: PublishManifest) -> PublishReceipt:
+        self.publish_calls.append(manifest)
+        await asyncio.sleep(0)
+        if self.publish_error is not None:
+            raise PublisherClientError("publish failed", code=self.publish_error)
+        return self._receipt(manifest)
+
+    async def reconcile(
+        self,
+        manifest: PublishManifest,
+    ) -> tuple[str, PublishReceipt | None]:
+        self.reconcile_calls.append(manifest)
+        if self.reconcile_state not in {"draft", "ready"}:
+            return self.reconcile_state, None
+        return self.reconcile_state, self._receipt(
+            manifest,
+            ready=self.reconcile_state == "ready",
+        )
+
+    async def mark_ready(
+        self,
+        manifest: PublishManifest,
+        receipt: PublishReceipt,
+    ) -> PublishReceipt:
+        self.ready_calls.append((manifest, receipt))
+        await asyncio.sleep(0)
+        if self.ready_error is not None:
+            raise PublisherClientError("ready failed", code=self.ready_error)
+        return self._receipt(manifest, ready=True)
+
+    @staticmethod
+    def _receipt(
+        manifest: PublishManifest,
+        *,
+        ready: bool = False,
+    ) -> PublishReceipt:
+        return PublishReceipt(
+            publish_id=manifest.publish_id,
+            revision=manifest.revision,
+            repository_id=731,
+            repository="PinkElf-Elysia/ModelMirror",
+            base_branch="main",
+            branch=manifest.branch,
+            head_sha=manifest.head_sha,
+            pr_number=89,
+            pr_node_id="PR_kwDOExample89",
+            pr_url="https://github.com/PinkElf-Elysia/ModelMirror/pull/89",
+            state=PublishState.READY if ready else PublishState.DRAFT,
+            published_at=30.0,
+            ready_at=31.0 if ready else None,
+        )
+
+
 @pytest_asyncio.fixture
 async def make_client():
     services: list[CodingService] = []
@@ -552,9 +646,11 @@ async def make_client():
         worker: FakeWorker | None = None,
         applier: FakeApplier | None = None,
         committer: FakeCommitter | None = None,
+        publisher: FakePublisher | None = None,
         recovery_store: CodingRecoveryStore | None = None,
         recovery_enabled: bool = False,
         incremental_enabled: bool = False,
+        publish_enabled: bool = False,
         ttl_seconds: float = 1800,
     ) -> tuple[httpx.AsyncClient, CodingService, FakeWorker]:
         fake = worker or FakeWorker()
@@ -563,9 +659,11 @@ async def make_client():
             worker=fake,
             applier=applier,
             committer=committer,
+            publisher=publisher,
             recovery_store=recovery_store,
             recovery_enabled=recovery_enabled,
             incremental_enabled=incremental_enabled,
+            publish_enabled=publish_enabled,
             ttl_seconds=ttl_seconds,
             mode=fake.mode,
         )
@@ -604,6 +702,24 @@ def _sse_events(body: str) -> list[dict[str, Any]]:
         for line in body.splitlines()
         if line.startswith("data: ")
     ]
+
+
+async def _wait_publish_state(
+    client: httpx.AsyncClient,
+    session_id: str,
+    revision: int,
+    expected: str,
+) -> dict[str, Any]:
+    for _ in range(200):
+        response = await client.get(
+            f"/api/coding/sessions/{session_id}/publish",
+            params={"revision": revision},
+        )
+        assert response.status_code == 200
+        if response.json()["state"] == expected:
+            return response.json()
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"publish state did not become {expected}")
 
 
 @pytest.mark.asyncio
@@ -839,7 +955,7 @@ async def test_review_rejects_readonly_busy_stale_and_invalid_path(
 
 
 @pytest.mark.asyncio
-async def test_failed_check_keeps_review_but_blocks_patch(make_client) -> None:
+async def test_failed_check_keeps_review_and_allows_patch_download(make_client) -> None:
     worker = FakeWorker(mode="draft", validation_passed=False)
     client, _, _ = await make_client(worker=worker)
     async with client:
@@ -856,8 +972,8 @@ async def test_failed_check_keeps_review_but_blocks_patch(make_client) -> None:
     assert changes.status_code == 200
     assert changes.json()["validation_status"] == "failed"
     assert changes.json()["can_download"] is False
-    assert patch.status_code == 409
-    assert patch.json()["detail"]["code"] == "validation_failed"
+    assert patch.status_code == 200
+    assert patch.headers["content-type"].startswith("text/x-diff")
 
 
 @pytest.mark.asyncio
@@ -1067,7 +1183,8 @@ async def test_controlled_apply_is_gated_idempotent_frozen_and_revertible(
         "configured": True,
         "available": True,
         "target": "dedicated_worktree",
-        "requires_verification": True,
+        "requires_verification": False,
+        "allows_quality_risk_confirmation": True,
         "allows_not_applicable": True,
         "supports_revert": True,
     }
@@ -1095,7 +1212,7 @@ async def test_controlled_apply_is_gated_idempotent_frozen_and_revertible(
 
 
 @pytest.mark.asyncio
-async def test_controlled_apply_rejects_unverified_and_stale_results(
+async def test_controlled_apply_requires_confirmation_for_quality_risks(
     make_client,
 ) -> None:
     worker = FakeWorker(mode="draft")
@@ -1132,6 +1249,21 @@ async def test_controlled_apply_rejects_unverified_and_stale_results(
             f"/api/coding/sessions/{session_id}/apply",
             json={"revision": 1},
         )
+        worker.verification_state = "running"
+        running = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1, "confirm_quality_risks": True},
+        )
+        worker.verification_state = "completed"
+        worker.verification_result = "failed"
+        invalid_confirmation = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1, "confirm_quality_risks": "true"},
+        )
+        confirmed = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1, "confirm_quality_risks": True},
+        )
 
     assert not_run.json()["detail"]["code"] == "verification_required"
     assert failed.json()["detail"]["code"] == "verification_failed"
@@ -1140,7 +1272,10 @@ async def test_controlled_apply_rejects_unverified_and_stale_results(
         "dependency_change_unsupported"
     )
     assert validation_failed.json()["detail"]["code"] == "validation_failed"
-    assert applier.apply_calls == []
+    assert running.json()["detail"]["code"] == "verification_in_progress"
+    assert invalid_confirmation.status_code == 422
+    assert confirmed.json()["state"] == "applied"
+    assert len(applier.apply_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -1245,7 +1380,7 @@ async def test_revert_conflict_is_safe_and_does_not_retry(
 
 
 @pytest.mark.asyncio
-async def test_apply_serializes_mutations_and_failed_request_is_idempotent(
+async def test_apply_serializes_mutations_and_retries_same_operation_safely(
     make_client,
 ) -> None:
     worker = FakeWorker(mode="draft")
@@ -1272,6 +1407,7 @@ async def test_apply_serializes_mutations_and_failed_request_is_idempotent(
         )
         applier.release_apply.set()
         failed = await apply_task
+        applier.apply_error = None
         repeated = await client.post(
             f"/api/coding/sessions/{session_id}/apply",
             json={"revision": 1},
@@ -1283,9 +1419,12 @@ async def test_apply_serializes_mutations_and_failed_request_is_idempotent(
     assert failed.json()["detail"]["code"] == "target_changed"
     assert failed.headers["cache-control"] == "no-store"
     assert repeated.status_code == 200
-    assert repeated.json()["state"] == "failed"
-    assert repeated.json()["reason"] == "target_changed"
-    assert len(applier.apply_calls) == 1
+    assert repeated.json()["state"] == "applied"
+    assert len(applier.apply_calls) == 2
+    assert (
+        applier.apply_calls[0]["operation_id"]
+        == applier.apply_calls[1]["operation_id"]
+    )
 
 
 @pytest.mark.asyncio
@@ -1455,6 +1594,81 @@ async def test_incremental_continue_archives_cycle_and_opens_empty_next_cycle(
 
 
 @pytest.mark.asyncio
+async def test_publish_manifest_preserves_two_linear_local_commits(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    committer = FakeCommitter()
+    publisher = FakePublisher()
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=committer,
+        publisher=publisher,
+        recovery_store=CodingRecoveryStore(tmp_path / "linear-publish-recovery"),
+        recovery_enabled=True,
+        incremental_enabled=True,
+        publish_enabled=True,
+    )
+    async with client:
+        session_id = (await client.post("/api/coding/sessions")).json()["id"]
+        first_apply = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        first_commit = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": first_apply.json()["apply_id"],
+                "message": "docs: first random publish cycle D31A",
+            },
+        )
+        await client.post(
+            f"/api/coding/sessions/{session_id}/continue",
+            json={
+                "revision": 1,
+                "commit_id": first_commit.json()["commit_id"],
+            },
+        )
+        worker.current_empty = False
+        worker.revision = 2
+        worker.verification_revision = 2
+        worker.verification_state = "completed"
+        worker.verification_result = "passed"
+        second_apply = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 2},
+        )
+        second_commit = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 2,
+                "apply_id": second_apply.json()["apply_id"],
+                "message": "feature: second random publish cycle E42B",
+            },
+        )
+        await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json={
+                "revision": 2,
+                "commit_id": second_commit.json()["commit_id"],
+                "title": "Publish two linear random cycles D31A E42B",
+                "body": "The draft PR should retain both local commits.",
+            },
+        )
+        published = await _wait_publish_state(client, session_id, 2, "draft")
+
+    assert published["commit_count"] == 2
+    manifest = publisher.publish_calls[0]
+    assert [item.commit_sha for item in manifest.commits] == ["d" * 40, "e" * 40]
+    assert manifest.commits[1].parent_sha == manifest.commits[0].commit_sha
+
+
+@pytest.mark.asyncio
 async def test_commit_failure_reuses_operation_and_blocks_unsafe_apply_revert(
     make_client,
 ) -> None:
@@ -1526,6 +1740,440 @@ async def test_committer_unavailable_does_not_disable_existing_draft_features(
     assert capabilities.json()["commit"]["available"] is False
     assert capabilities.json()["commit"]["reason"] == "committer_not_configured"
     assert changes.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_github_publish_is_draft_idempotent_ready_and_frozen(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    publisher = FakePublisher()
+    store = CodingRecoveryStore(tmp_path / "publish-recovery")
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        publisher=publisher,
+        recovery_store=store,
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    title = "Publish reviewed random change A8F31"
+    body = "One local commit with a randomly named backend fixture."
+    async with client:
+        capabilities = await client.get("/api/coding/capabilities")
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "feature: publish random fixture A8F31",
+            },
+        )
+        rejected_secret = await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json={
+                "revision": 1,
+                "commit_id": committed.json()["commit_id"],
+                "title": title,
+                "body": "ghp_" + ("x" * 40),
+            },
+        )
+        request = {
+            "revision": 1,
+            "commit_id": committed.json()["commit_id"],
+            "title": title,
+            "body": body,
+        }
+        started = await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        draft = await _wait_publish_state(client, session_id, 1, "draft")
+        repeated = await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        blocked_turn = await client.post(
+            f"/api/coding/sessions/{session_id}/turns",
+            json={"prompt": "change one more file"},
+        )
+        blocked_undo = await client.post(
+            f"/api/coding/sessions/{session_id}/commit/undo",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "commit_id": committed.json()["commit_id"],
+            },
+        )
+        marking = await client.post(
+            f"/api/coding/sessions/{session_id}/publish/ready",
+            json={"revision": 1, "publish_id": draft["publish_id"]},
+        )
+        ready = await _wait_publish_state(client, session_id, 1, "ready")
+        repeated_ready = await client.post(
+            f"/api/coding/sessions/{session_id}/publish/ready",
+            json={"revision": 1, "publish_id": draft["publish_id"]},
+        )
+
+    assert capabilities.json()["publish"] == {
+        "enabled": True,
+        "configured": True,
+        "available": True,
+        "provider": "github",
+        "target": "fixed_repository",
+        "default_pr_state": "draft",
+        "supports_mark_ready": True,
+        "requires_exact_base": True,
+        "remote_merge": False,
+    }
+    assert rejected_secret.status_code == 422
+    assert started.status_code == 202
+    assert started.json()["state"] == "publishing"
+    assert repeated.status_code == 202
+    assert repeated.json()["pr_number"] == 89
+    assert len(publisher.publish_calls) == 1
+    assert blocked_turn.json()["detail"]["code"] == "session_frozen"
+    assert blocked_undo.json()["detail"]["code"] == "session_published"
+    assert marking.status_code == 202
+    assert ready["pr_url"].endswith("/pull/89")
+    assert ready["can_mark_ready"] is False
+    assert repeated_ready.json()["state"] == "ready"
+    assert len(publisher.ready_calls) == 1
+    serialized = json.dumps(ready)
+    assert "head_sha" not in serialized
+    assert "repository_id" not in serialized
+    persisted = b"".join(
+        path.read_bytes()
+        for path in (tmp_path / "publish-recovery").iterdir()
+        if path.is_file()
+    )
+    assert title.encode() not in persisted
+    assert store.load() is not None
+    assert store.load().payload.publish is not None
+
+
+@pytest.mark.asyncio
+async def test_publish_conflict_and_unavailable_publisher_do_not_break_draft(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    unavailable_client, _, _ = await make_client(
+        worker=FakeWorker(mode="draft"),
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        recovery_store=CodingRecoveryStore(tmp_path / "unavailable-recovery"),
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    async with unavailable_client:
+        capabilities = await unavailable_client.get("/api/coding/capabilities")
+        created = await unavailable_client.post("/api/coding/sessions")
+        changes = await unavailable_client.get(
+            f"/api/coding/sessions/{created.json()['id']}/changes"
+        )
+    assert capabilities.json()["available"] is True
+    assert capabilities.json()["publish"]["available"] is False
+    assert capabilities.json()["publish"]["reason"] == "publisher_not_configured"
+    assert changes.status_code == 200
+
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    publisher = FakePublisher(publish_error="base_branch_changed")
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        publisher=publisher,
+        recovery_store=CodingRecoveryStore(tmp_path / "conflict-recovery"),
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    async with client:
+        session_id = (await client.post("/api/coding/sessions")).json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "docs: publish base conflict B7E42",
+            },
+        )
+        await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json={
+                "revision": 1,
+                "commit_id": committed.json()["commit_id"],
+                "title": "Publish base conflict B7E42",
+                "body": "The remote base moved before upload.",
+            },
+        )
+        conflict = await _wait_publish_state(client, session_id, 1, "conflict")
+        patch_response = await client.get(
+            f"/api/coding/sessions/{session_id}/patch",
+            params={"revision": 1},
+        )
+    assert conflict["reason"] == "base_branch_changed"
+    assert patch_response.status_code == 200
+    assert len(publisher.publish_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_local_publisher_preflight_failure_is_retryable(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    publisher = FakePublisher(publish_error="repository_not_ready")
+    client, _, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        publisher=publisher,
+        recovery_store=CodingRecoveryStore(tmp_path / "retryable-publish-recovery"),
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    title = "Retry local publisher preflight R8N42"
+    body = "The fixed local repository temporarily failed its read-only check."
+    async with client:
+        session_id = (await client.post("/api/coding/sessions")).json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "docs: retry publisher preflight R8N42",
+            },
+        )
+        request = {
+            "revision": 1,
+            "commit_id": committed.json()["commit_id"],
+            "title": title,
+            "body": body,
+        }
+        started = await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        failed = await _wait_publish_state(client, session_id, 1, "failed")
+        publisher.publish_error = None
+        retried = await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        draft = await _wait_publish_state(client, session_id, 1, "draft")
+
+    assert started.status_code == 202
+    assert failed["reason"] == "repository_not_ready"
+    assert retried.status_code == 202
+    assert draft["pr_number"] == 89
+    assert len(publisher.publish_calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "legacy_reason",
+    [
+        "repository_not_ready",
+        "base_branch_changed",
+        "apply_recovery_conflict",
+    ],
+)
+async def test_legacy_local_conflict_recovers_as_retryable_failure(
+    make_client,
+    tmp_path: Path,
+    legacy_reason: str,
+) -> None:
+    store = CodingRecoveryStore(
+        tmp_path / f"legacy-publish-conflict-{legacy_reason}"
+    )
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    publisher = FakePublisher(publish_error="repository_not_ready")
+    client, service, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        publisher=publisher,
+        recovery_store=store,
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    title = "Recover local preflight conflict W9K31"
+    body = "A legacy local mount failure must remain retryable after restart."
+    async with client:
+        session_id = (await client.post("/api/coding/sessions")).json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "docs: recover publisher preflight W9K31",
+            },
+        )
+        request = {
+            "revision": 1,
+            "commit_id": committed.json()["commit_id"],
+            "title": title,
+            "body": body,
+        }
+        await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json=request,
+        )
+        await _wait_publish_state(client, session_id, 1, "failed")
+        record = service._sessions[session_id]
+        if legacy_reason in {"repository_not_ready", "base_branch_changed"}:
+            record.publish_state = PublishState.CONFLICT
+        else:
+            record.apply_reason = legacy_reason
+            record.commit_reason = legacy_reason
+        record.publish_reason = legacy_reason
+        record.state = "conflict"
+        record.recovery_conflict = legacy_reason
+        await service._persist_recovery(record, required=True)
+    await service.shutdown()
+
+    recovered_publisher = FakePublisher(reconcile_state="not_published")
+    recovered_worker = FakeWorker(mode="draft")
+    recovered_worker.verification_state = "completed"
+    recovered_worker.verification_result = "passed"
+    recovered_client, _, _ = await make_client(
+        worker=recovered_worker,
+        applier=FakeApplier(reconcile_state="applied"),
+        committer=FakeCommitter(reconcile_state="committed"),
+        publisher=recovered_publisher,
+        recovery_store=store,
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    async with recovered_client:
+        resumed = await recovered_client.post("/api/coding/recovery/resume")
+        recovered_session_id = resumed.json()["id"]
+        status_response = await recovered_client.get(
+            f"/api/coding/sessions/{recovered_session_id}/publish",
+            params={"revision": 1},
+        )
+        retried = await recovered_client.post(
+            f"/api/coding/sessions/{recovered_session_id}/publish",
+            json=request,
+        )
+        draft = await _wait_publish_state(
+            recovered_client,
+            recovered_session_id,
+            1,
+            "draft",
+        )
+
+    assert resumed.status_code == 200
+    assert resumed.json()["conflict"] is None
+    assert status_response.json()["state"] == "failed"
+    assert retried.status_code == 202
+    assert draft["pr_number"] == 89
+    assert len(recovered_publisher.reconcile_calls) == 1
+    assert len(recovered_publisher.publish_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_published_task_recovers_same_draft_pr_without_republishing(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "published-recovery")
+    worker = FakeWorker(mode="draft")
+    worker.verification_state = "completed"
+    worker.verification_result = "passed"
+    client, service, _ = await make_client(
+        worker=worker,
+        applier=FakeApplier(),
+        committer=FakeCommitter(),
+        publisher=FakePublisher(),
+        recovery_store=store,
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    async with client:
+        session_id = (await client.post("/api/coding/sessions")).json()["id"]
+        applied = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1},
+        )
+        committed = await client.post(
+            f"/api/coding/sessions/{session_id}/commit",
+            json={
+                "revision": 1,
+                "apply_id": applied.json()["apply_id"],
+                "message": "docs: recover publish fixture C913A",
+            },
+        )
+        await client.post(
+            f"/api/coding/sessions/{session_id}/publish",
+            json={
+                "revision": 1,
+                "commit_id": committed.json()["commit_id"],
+                "title": "Recover publish fixture C913A",
+                "body": "Restart after draft PR creation.",
+            },
+        )
+        await _wait_publish_state(client, session_id, 1, "draft")
+    await service.shutdown()
+
+    recovered_publisher = FakePublisher(reconcile_state="draft")
+    recovered_worker = FakeWorker(mode="draft")
+    recovered_worker.verification_state = "completed"
+    recovered_worker.verification_result = "passed"
+    recovered_client, _, _ = await make_client(
+        worker=recovered_worker,
+        applier=FakeApplier(reconcile_state="applied"),
+        committer=FakeCommitter(reconcile_state="committed"),
+        publisher=recovered_publisher,
+        recovery_store=store,
+        recovery_enabled=True,
+        publish_enabled=True,
+    )
+    async with recovered_client:
+        pending = await recovered_client.get("/api/coding/recovery")
+        blocked_discard = await recovered_client.post("/api/coding/recovery/discard")
+        resumed = await recovered_client.post("/api/coding/recovery/resume")
+        status_response = await recovered_client.get(
+            f"/api/coding/sessions/{resumed.json()['id']}/publish",
+            params={"revision": 1},
+        )
+    assert pending.json()["state"] == "published"
+    assert blocked_discard.json()["detail"]["code"] == (
+        "published_recovery_requires_resume"
+    )
+    assert resumed.json()["status"] == "published"
+    assert status_response.json()["state"] == "draft"
+    assert status_response.json()["pr_number"] == 89
+    assert recovered_publisher.publish_calls == []
+    assert len(recovered_publisher.reconcile_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -1685,7 +2333,7 @@ async def test_recovery_reconciles_applied_and_committed_receipts(
     recovered_worker = FakeWorker(mode="draft")
     recovered_worker.verification_state = "completed"
     recovered_worker.verification_result = "passed"
-    recovered_applier = FakeApplier(reconcile_state="applied")
+    recovered_applier = FakeApplier(reconcile_state="conflict")
     recovered_committer = FakeCommitter(reconcile_state="committed")
     recovered_client, _, _ = await make_client(
         worker=recovered_worker,
@@ -1704,7 +2352,7 @@ async def test_recovery_reconciles_applied_and_committed_receipts(
     assert resumed.json()["status"] == "applied"
     assert commit_status.json()["state"] == "committed"
     assert commit_status.json()["message"] == "feature: 恢复本地版本 8C31"
-    assert len(recovered_applier.reconcile_calls) == 1
+    assert recovered_applier.reconcile_calls == []
     assert len(recovered_committer.reconcile_calls) == 1
 
 
@@ -1932,3 +2580,34 @@ async def test_reconcile_clients_reject_inconsistent_socket_responses(
             message="feature: 恢复检查 4D2A",
         )
     assert invalid_commit.value.code == "invalid_response"
+
+    publisher = CodingPublisherClient(Path("/unused/publisher.sock"))
+    assert PUBLISH_OPERATION_TIMEOUT_SECONDS == 180.0
+
+    async def invalid_publish_response(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"state": "draft", "receipt": None}
+
+    monkeypatch.setattr(publisher, "_request", invalid_publish_response)
+    with pytest.raises(PublisherClientError) as invalid_publish:
+        await publisher.reconcile(
+            PublishManifest(
+                publish_id="p" * 24,
+                task_id="t" * 24,
+                revision=4,
+                snapshot_fingerprint=SNAPSHOT_FINGERPRINT,
+                base_sha="1" * 40,
+                head_sha="2" * 40,
+                commits=(
+                    PublishCommit(
+                        commit_id="c" * 24,
+                        commit_sha="2" * 40,
+                        parent_sha="1" * 40,
+                        message="docs: validate publisher response 4D2A",
+                        files=("docs/publisher-4D2A.md",),
+                    ),
+                ),
+                title="Validate publisher response 4D2A",
+                body="",
+            )
+        )
+    assert invalid_publish.value.code == "invalid_response"

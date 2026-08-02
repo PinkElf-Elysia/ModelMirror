@@ -52,6 +52,21 @@ from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
 from .cycles import MAX_INCREMENTAL_CYCLES, CodingCycle, CodingCycleHistory, CycleState
 from .models import CodingEvent, CodingEventKind
 from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN
+from .publisher_client import (
+    CodingPublisherClient,
+    PublisherClientError,
+)
+from .publish_models import (
+    MAX_PR_BODY_CHARS,
+    MAX_PR_TITLE_CHARS,
+    CodingPublishError,
+    PublishCommit,
+    PublishManifest,
+    PublishReceipt,
+    PublishState,
+    normalize_pr_body,
+    normalize_pr_title,
+)
 from .recovery import (
     DEFAULT_RECOVERY_RETENTION_SECONDS,
     MAX_RECOVERY_RETENTION_SECONDS,
@@ -81,6 +96,7 @@ ACTIVE_STATES = {
     "running",
     "cancelling",
     "applied",
+    "published",
     "reverted",
 }
 WINDOWS_ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/][^\s\"'<>]+")
@@ -205,6 +221,23 @@ class CommitterClient(Protocol):
     ) -> tuple[str, CommitReceipt | None]: ...
 
 
+class PublisherClient(Protocol):
+    async def health(self) -> dict[str, Any]: ...
+
+    async def publish(self, manifest: PublishManifest) -> PublishReceipt: ...
+
+    async def reconcile(
+        self,
+        manifest: PublishManifest,
+    ) -> tuple[str, PublishReceipt | None]: ...
+
+    async def mark_ready(
+        self,
+        manifest: PublishManifest,
+        receipt: PublishReceipt,
+    ) -> PublishReceipt: ...
+
+
 class CodingTurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -288,6 +321,10 @@ class VerificationRevisionRequest(BaseModel):
     revision: int = Field(ge=0)
 
 
+class ApplyRequest(VerificationRevisionRequest):
+    confirm_quality_risks: bool = Field(default=False, strict=True)
+
+
 class ApplyRevertRequest(VerificationRevisionRequest):
     apply_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
@@ -313,6 +350,36 @@ class ContinueCycleRequest(BaseModel):
 
     revision: int = Field(ge=0)
     commit_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class PublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=1)
+    commit_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    title: str = Field(min_length=1, max_length=MAX_PR_TITLE_CHARS)
+    body: str = Field(default="", max_length=MAX_PR_BODY_CHARS)
+
+    @field_validator("title")
+    @classmethod
+    def title_must_be_safe(cls, value: str) -> str:
+        try:
+            return normalize_pr_title(value)
+        except ValueError as exc:
+            raise ValueError("Pull request title is invalid") from exc
+
+    @field_validator("body")
+    @classmethod
+    def body_must_be_safe(cls, value: str) -> str:
+        try:
+            return normalize_pr_body(value)
+        except ValueError as exc:
+            raise ValueError("Pull request body is invalid") from exc
+
+
+class PublishReadyRequest(VerificationRevisionRequest):
+    revision: int = Field(ge=1)
+    publish_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class VerificationStepPayload(BaseModel):
@@ -392,6 +459,14 @@ class CodingApiSession:
     commit_reason: str | None = None
     commit_started_at: float | None = None
     commit_finished_at: float | None = None
+    publish_state: PublishState = PublishState.NOT_PUBLISHED
+    publish_revision: int | None = None
+    publish_manifest: PublishManifest | None = None
+    publish_receipt: PublishReceipt | None = None
+    publish_reason: str | None = None
+    publish_started_at: float | None = None
+    publish_finished_at: float | None = None
+    publish_task: asyncio.Task[None] | None = None
     recovery_id: str | None = None
     recovery_created_at: float | None = None
     recovery_conflict: str | None = None
@@ -409,10 +484,12 @@ class CodingService:
         worker: WorkerClient,
         applier: ApplierClient | None = None,
         committer: CommitterClient | None = None,
+        publisher: PublisherClient | None = None,
         recovery_store: CodingRecoveryStore | None = None,
         recovery_enabled: bool = False,
         recovery_reason: str | None = None,
         incremental_enabled: bool | None = None,
+        publish_enabled: bool | None = None,
         ttl_seconds: float = SESSION_TTL_SECONDS,
         mode: str | None = None,
     ) -> None:
@@ -420,6 +497,7 @@ class CodingService:
         self.worker = worker
         self.applier = applier
         self.committer = committer
+        self.publisher = publisher
         self.recovery_store = recovery_store
         self.recovery_enabled = recovery_enabled
         self.recovery_reason = recovery_reason
@@ -429,6 +507,12 @@ class CodingService:
             if incremental_enabled is None
             else incremental_enabled
         )
+        self.publish_enabled = (
+            os.getenv("CODING_GITHUB_PUBLISH_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"}
+            if publish_enabled is None
+            else publish_enabled
+        )
         self.ttl_seconds = ttl_seconds
         self.mode = _normalize_mode(
             mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
@@ -437,7 +521,7 @@ class CodingService:
         self._lock = asyncio.Lock()
 
     async def capabilities(self) -> dict[str, Any]:
-        recovery = await self.recovery_status()
+        recovery = await self.recovery_status(check_worker=False)
         response = {
             "enabled": self.enabled,
             "available": False,
@@ -474,6 +558,22 @@ class CodingService:
                 "commit_strategy": "linear",
                 "undo_scope": "latest",
             },
+            "publish": {
+                "enabled": self.publish_enabled,
+                "configured": False,
+                "available": False,
+                "provider": "github",
+                "target": "fixed_repository",
+                "default_pr_state": "draft",
+                "supports_mark_ready": True,
+                "requires_exact_base": True,
+                "remote_merge": False,
+                "reason": (
+                    "publisher_not_configured"
+                    if self.publish_enabled
+                    else "publish_disabled"
+                ),
+            },
         }
         if self.mode == "draft":
             response["limits"].update(
@@ -488,7 +588,8 @@ class CodingService:
                 "configured": False,
                 "available": False,
                 "target": "dedicated_worktree",
-                "requires_verification": True,
+                "requires_verification": False,
+                "allows_quality_risk_confirmation": True,
                 "allows_not_applicable": True,
                 "supports_revert": True,
                 "reason": "applier_not_configured",
@@ -535,10 +636,17 @@ class CodingService:
                     worker_verification.get("reason")
                 )
         if self.mode == "draft":
-            apply_capability = await self._apply_capability(health)
+            apply_capability, commit_capability, publish_capability = (
+                await asyncio.gather(
+                    self._apply_capability(health),
+                    self._commit_capability(health),
+                    self._publish_capability(),
+                )
+            )
             response["apply"] = apply_capability
             response["host_apply"] = apply_capability["available"] is True
-            response["commit"] = await self._commit_capability(health)
+            response["commit"] = commit_capability
+            response["publish"] = publish_capability
             response["incremental"]["available"] = bool(
                 self.incremental_enabled
                 and recovery["available"]
@@ -552,7 +660,11 @@ class CodingService:
         response["available"] = True
         return response
 
-    async def recovery_status(self) -> dict[str, Any]:
+    async def recovery_status(
+        self,
+        *,
+        check_worker: bool = True,
+    ) -> dict[str, Any]:
         retention = (
             self.recovery_store.retention_seconds
             if self.recovery_store is not None
@@ -587,7 +699,7 @@ class CodingService:
         elif self.mode != "draft":
             can_resume = False
             reason = "draft_unavailable"
-        else:
+        elif check_worker:
             try:
                 health = await self.worker.health()
                 fingerprint = health.get("snapshot_fingerprint")
@@ -625,6 +737,11 @@ class CodingService:
             if active:
                 conflict_record = active[0]
         record = await self._require_recovery_record()
+        if record.state is RecoveryState.PUBLISHED:
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "published_recovery_requires_resume",
+            )
         assert self.recovery_store is not None
         try:
             discarded = await asyncio.to_thread(
@@ -703,7 +820,7 @@ class CodingService:
         return record
 
     async def resume_recovery(self) -> CodingApiSession:
-        await self._require_available()
+        health = await self._require_available()
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         await self.cleanup_expired()
@@ -711,10 +828,6 @@ class CodingService:
         async with self._lock:
             if self._sessions:
                 raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
-        try:
-            health = await self.worker.health()
-        except CodingWorkerError as exc:
-            raise _worker_http_error(exc) from exc
         if health.get("snapshot_fingerprint") != recovery.snapshot_fingerprint:
             raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
         cumulative_changes = _public_changes(recovery.payload.changes)
@@ -918,6 +1031,7 @@ class CodingService:
                 and latest_commit is not None
                 and record.cycle_number < MAX_INCREMENTAL_CYCLES
                 and record.recovery_conflict is None
+                and record.publish_manifest is None
             ),
             "current_commit": latest_commit,
             "cycles": record.cycle_history.to_public(),
@@ -931,6 +1045,8 @@ class CodingService:
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
         async with record.apply_lock:
+            if record.publish_manifest is not None:
+                raise _http_error(status.HTTP_409_CONFLICT, "session_published")
             if not self.incremental_enabled or self.recovery_store is None:
                 raise _http_error(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1112,15 +1228,19 @@ class CodingService:
         self,
         session_id: str,
         revision: int,
+        *,
+        confirm_quality_risks: bool = False,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
-            if record.apply_revision == revision and record.apply_state in {
-                ApplyState.APPLIED,
-                ApplyState.REVERTED,
-                ApplyState.FAILED,
-            }:
+            if record.apply_revision == revision and (
+                record.apply_state in {ApplyState.APPLIED, ApplyState.REVERTED}
+                or (
+                    record.apply_state is ApplyState.FAILED
+                    and record.apply_receipt is not None
+                )
+            ):
                 return self._public_apply(record, revision)
             self._require_mutable(record)
             changes = await self._current_changes(record)
@@ -1131,11 +1251,19 @@ class CodingService:
             if (
                 changes["validation_status"] != "passed"
                 or changes["can_download"] is not True
-            ):
+            ) and not confirm_quality_risks:
                 raise _http_error(status.HTTP_409_CONFLICT, "validation_failed")
             verification = await self._current_verification(record, revision)
             paths = [item["path"] for item in changes["files"]]
-            if not _verification_allows_apply(verification, paths):
+            if verification["state"] == "running":
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    "verification_in_progress",
+                )
+            if (
+                not _verification_allows_apply(verification, paths)
+                and not confirm_quality_risks
+            ):
                 raise _http_error(
                     status.HTTP_409_CONFLICT,
                     _verification_apply_reason(verification),
@@ -1147,7 +1275,7 @@ class CodingService:
                 )
             except CodingWorkerError as exc:
                 raise _worker_http_error(exc) from exc
-            operation_id = secrets.token_urlsafe(18)
+            operation_id = record.apply_operation_id or secrets.token_urlsafe(18)
             record.apply_state = ApplyState.APPLYING
             record.apply_revision = revision
             record.apply_operation_id = operation_id
@@ -1226,6 +1354,8 @@ class CodingService:
         record = self._get_session(session_id)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
+            if record.publish_manifest is not None:
+                raise _http_error(status.HTTP_409_CONFLICT, "session_published")
             apply_receipt = record.apply_receipt
             if (
                 apply_receipt is None
@@ -1327,6 +1457,244 @@ class CodingService:
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         return self._public_commit(self._get_session(session_id), revision)
 
+    async def publish(
+        self,
+        session_id: str,
+        revision: int,
+        commit_id: str,
+        title: str,
+        body: str,
+    ) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        async with record.apply_lock:
+            self._require_not_recovery_conflict(record)
+            existing = record.publish_manifest
+            if existing is not None:
+                if (
+                    existing.revision != revision
+                    or existing.commits[-1].commit_id != commit_id
+                    or existing.title != title
+                    or existing.body != body
+                ):
+                    raise _http_error(status.HTTP_409_CONFLICT, "publish_already_started")
+                if record.publish_state in {PublishState.DRAFT, PublishState.READY}:
+                    return self._public_publish(record, revision)
+                if (
+                    record.publish_state in {
+                        PublishState.PUBLISHING,
+                        PublishState.MARKING_READY,
+                    }
+                    and record.publish_task is not None
+                    and not record.publish_task.done()
+                ):
+                    return self._public_publish(record, revision)
+                if record.publish_state is PublishState.CONFLICT:
+                    return self._public_publish(record, revision)
+                await self._require_publish_available()
+                manifest = existing
+            else:
+                receipt = record.commit_receipt
+                if (
+                    receipt is None
+                    or record.commit_state is not CommitState.COMMITTED
+                    or record.commit_revision != revision
+                    or receipt.commit_id != commit_id
+                ):
+                    raise _http_error(status.HTTP_409_CONFLICT, "commit_mismatch")
+                await self._require_publish_available()
+                try:
+                    manifest = self._build_publish_manifest(
+                        record,
+                        revision=revision,
+                        publish_id=secrets.token_urlsafe(18),
+                        title=title,
+                        body=body,
+                    )
+                except (CodingPublishError, TypeError, ValueError) as exc:
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "publish_manifest_invalid",
+                    ) from exc
+                record.publish_manifest = manifest
+                record.publish_revision = revision
+                record.publish_started_at = time.time()
+            record.publish_state = PublishState.PUBLISHING
+            record.publish_reason = None
+            record.publish_finished_at = None
+            record.updated_at = time.time()
+            await self._persist_recovery(record, required=True)
+            record.publish_task = asyncio.create_task(
+                self._run_publish(record, manifest)
+            )
+            return self._public_publish(record, revision)
+
+    async def publish_status(
+        self,
+        session_id: str,
+        revision: int,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        return self._public_publish(self._get_session(session_id), revision)
+
+    async def mark_publish_ready(
+        self,
+        session_id: str,
+        revision: int,
+        publish_id: str,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        record = self._get_session(session_id)
+        async with record.apply_lock:
+            self._require_not_recovery_conflict(record)
+            manifest = record.publish_manifest
+            receipt = record.publish_receipt
+            if (
+                manifest is None
+                or receipt is None
+                or manifest.publish_id != publish_id
+                or manifest.revision != revision
+                or receipt.publish_id != publish_id
+            ):
+                raise _http_error(status.HTTP_409_CONFLICT, "publish_mismatch")
+            if record.publish_state is PublishState.READY:
+                return self._public_publish(record, revision)
+            if (
+                record.publish_state is PublishState.MARKING_READY
+                and record.publish_task is not None
+                and not record.publish_task.done()
+            ):
+                return self._public_publish(record, revision)
+            if record.publish_state is PublishState.MARKING_READY:
+                record.publish_state = PublishState.DRAFT
+            if receipt.state is PublishState.READY:
+                record.publish_state = PublishState.READY
+                record.publish_reason = None
+                record.publish_finished_at = time.time()
+                record.state = "published"
+                await self._persist_recovery(record, required=True)
+                return self._public_publish(record, revision)
+            if record.publish_state not in {PublishState.DRAFT, PublishState.FAILED}:
+                raise _http_error(status.HTTP_409_CONFLICT, "publish_not_ready")
+            await self._require_publish_available()
+            record.publish_state = PublishState.MARKING_READY
+            record.publish_reason = None
+            record.updated_at = time.time()
+            await self._persist_recovery(record, required=True)
+            record.publish_task = asyncio.create_task(
+                self._run_mark_ready(record, manifest, receipt)
+            )
+            return self._public_publish(record, revision)
+
+    async def _run_publish(
+        self,
+        record: CodingApiSession,
+        manifest: PublishManifest,
+    ) -> None:
+        try:
+            assert self.publisher is not None
+            receipt = await self.publisher.publish(manifest)
+        except asyncio.CancelledError:
+            raise
+        except PublisherClientError as exc:
+            async with record.apply_lock:
+                self._record_publish_failure(record, exc.code)
+                await self._persist_recovery(record, required=False)
+            return
+        except Exception:
+            async with record.apply_lock:
+                self._record_publish_failure(record, "publisher_internal_error")
+                await self._persist_recovery(record, required=False)
+            return
+        async with record.apply_lock:
+            if (
+                receipt.publish_id != manifest.publish_id
+                or receipt.revision != manifest.revision
+                or receipt.branch != manifest.branch
+                or receipt.head_sha != manifest.head_sha
+            ):
+                self._record_publish_failure(record, "invalid_response")
+                await self._persist_recovery(record, required=False)
+                return
+            record.publish_receipt = receipt
+            if receipt.state is not PublishState.DRAFT:
+                self._mark_recovery_conflict(record, "remote_pr_conflict")
+                record.publish_state = PublishState.CONFLICT
+                await self._persist_recovery(record, required=False)
+                return
+            try:
+                await self._persist_recovery(record, required=True)
+                record.publish_state = PublishState.DRAFT
+                record.publish_reason = None
+                record.publish_finished_at = time.time()
+                record.state = "published"
+                record.updated_at = record.publish_finished_at
+                await self._persist_recovery(record, required=True)
+            except HTTPException:
+                self._record_publish_failure(record, "recovery_storage_unavailable")
+
+    async def _run_mark_ready(
+        self,
+        record: CodingApiSession,
+        manifest: PublishManifest,
+        receipt: PublishReceipt,
+    ) -> None:
+        try:
+            assert self.publisher is not None
+            ready = await self.publisher.mark_ready(manifest, receipt)
+        except asyncio.CancelledError:
+            raise
+        except PublisherClientError as exc:
+            async with record.apply_lock:
+                self._record_publish_failure(record, exc.code)
+                await self._persist_recovery(record, required=False)
+            return
+        except Exception:
+            async with record.apply_lock:
+                self._record_publish_failure(record, "publisher_internal_error")
+                await self._persist_recovery(record, required=False)
+            return
+        async with record.apply_lock:
+            if (
+                ready.publish_id != manifest.publish_id
+                or ready.revision != manifest.revision
+                or ready.pr_number != receipt.pr_number
+                or ready.state is not PublishState.READY
+            ):
+                self._record_publish_failure(record, "invalid_response")
+                await self._persist_recovery(record, required=False)
+                return
+            record.publish_receipt = ready
+            try:
+                await self._persist_recovery(record, required=True)
+                record.publish_state = PublishState.READY
+                record.publish_reason = None
+                record.publish_finished_at = time.time()
+                record.state = "published"
+                record.updated_at = record.publish_finished_at
+                await self._persist_recovery(record, required=True)
+            except HTTPException:
+                self._record_publish_failure(record, "recovery_storage_unavailable")
+
+    def _record_publish_failure(
+        self,
+        record: CodingApiSession,
+        reason: str,
+    ) -> None:
+        safe_reason = _safe_code(reason)
+        record.publish_state = (
+            PublishState.CONFLICT
+            if _publish_error_is_conflict(safe_reason)
+            else PublishState.FAILED
+        )
+        record.publish_reason = safe_reason
+        record.publish_finished_at = time.time()
+        record.updated_at = record.publish_finished_at
+        if record.publish_state is PublishState.CONFLICT:
+            record.state = "conflict"
+            record.recovery_conflict = safe_reason
+
     async def undo_commit(
         self,
         session_id: str,
@@ -1340,6 +1708,8 @@ class CodingService:
         record = self._get_session(session_id)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
+            if record.publish_manifest is not None:
+                raise _http_error(status.HTTP_409_CONFLICT, "session_published")
             apply_receipt = record.apply_receipt
             receipt = record.commit_receipt
             if (
@@ -1458,7 +1828,7 @@ class CodingService:
     async def close_applied_session(self, session_id: str) -> dict[str, bool]:
         await self.cleanup_expired()
         record = self._get_session(session_id)
-        if record.state not in {"applied", "reverted"}:
+        if record.state not in {"applied", "published", "reverted"}:
             raise _http_error(status.HTTP_409_CONFLICT, "session_not_frozen")
         async with record.apply_lock:
             if record.recovery_id is not None and self.recovery_store is not None:
@@ -1527,6 +1897,8 @@ class CodingService:
                 if record.state not in {"running", "cancelling"}
                 and record.apply_state
                 not in {ApplyState.APPLYING, ApplyState.REVERTING}
+                and record.publish_state
+                not in {PublishState.PUBLISHING, PublishState.MARKING_READY}
                 and current - record.updated_at >= self.ttl_seconds
             ]
             for record in expired:
@@ -1549,6 +1921,10 @@ class CodingService:
                     record.turn_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await record.turn_task
+                if record.publish_task is not None and not record.publish_task.done():
+                    record.publish_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await record.publish_task
                 await self._persist_recovery(record, required=False)
                 with contextlib.suppress(Exception):
                     await self.worker.close(record.worker_session_id)
@@ -1703,6 +2079,7 @@ class CodingService:
                 apply=_apply_storage_payload(record),
                 commit=_commit_storage_payload(record),
                 operation=_operation_storage_payload(record),
+                publish=_publish_storage_payload(record),
                 base_patch=base_patch,
                 base_changes=(
                     {"paths": _diff_paths(base_patch)} if base_patch else None
@@ -1782,10 +2159,32 @@ class CodingService:
     ) -> None:
         _restore_apply_payload(record, recovery.payload.apply)
         _restore_commit_payload(record, recovery.payload.commit)
+        _restore_publish_payload(record, recovery.payload.publish)
         _validate_operation_storage_payload(record, recovery.payload.operation)
+        if record.publish_manifest is not None:
+            manifest = record.publish_manifest
+            try:
+                rebuilt = self._build_publish_manifest(
+                    record,
+                    revision=manifest.revision,
+                    publish_id=manifest.publish_id,
+                    title=manifest.title,
+                    body=manifest.body,
+                )
+            except (TypeError, ValueError) as exc:
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "recovery_data_corrupt",
+                ) from exc
+            if rebuilt != manifest:
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "recovery_data_corrupt",
+                )
         if (
             record.apply_revision not in {None, recovery.revision}
             or record.commit_revision not in {None, recovery.revision}
+            or record.publish_revision not in {None, recovery.revision}
             or (
                 record.commit_receipt is not None
                 and record.apply_receipt is not None
@@ -1797,9 +2196,51 @@ class CodingService:
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "recovery_data_corrupt",
             )
-        if recovery.state is RecoveryState.CONFLICT:
+        legacy_repository_failure = (
+            recovery.state is RecoveryState.CONFLICT
+            and record.publish_state is PublishState.CONFLICT
+            and record.publish_reason == "repository_not_ready"
+            and record.publish_receipt is None
+        )
+        corrected_base_configuration = (
+            recovery.state is RecoveryState.CONFLICT
+            and record.publish_state is PublishState.CONFLICT
+            and record.publish_reason == "base_branch_changed"
+            and record.publish_receipt is None
+        )
+        legacy_apply_reconcile_failure = (
+            recovery.state is RecoveryState.CONFLICT
+            and record.apply_state is ApplyState.APPLIED
+            and record.apply_receipt is not None
+            and record.apply_reason == "apply_recovery_conflict"
+            and record.commit_reason == "apply_recovery_conflict"
+            and record.publish_reason == "apply_recovery_conflict"
+        )
+        if (
+            legacy_repository_failure
+            or corrected_base_configuration
+            or legacy_apply_reconcile_failure
+        ):
+            # v8 initially classified a local Publisher preflight failure as a
+            # remote conflict, and an in-process Applier reconciliation as an
+            # application conflict. A fixed base may also be corrected by the
+            # deployer. Preserve these tasks and reconcile again without writing.
+            if legacy_repository_failure or corrected_base_configuration:
+                record.publish_state = PublishState.FAILED
+            record.apply_reason = None
+            record.commit_reason = None
+            record.publish_reason = None
+            record.recovery_conflict = None
+            record.state = (
+                "applied"
+                if record.apply_state is ApplyState.APPLIED
+                else "ready"
+            )
+        elif recovery.state is RecoveryState.CONFLICT:
             record.state = "conflict"
             record.recovery_conflict = "recovery_conflict"
+        elif record.publish_state in {PublishState.DRAFT, PublishState.READY}:
+            record.state = "published"
         elif record.apply_state is ApplyState.REVERTED:
             record.state = "reverted"
         elif record.apply_state is ApplyState.APPLIED:
@@ -1814,8 +2255,21 @@ class CodingService:
         paths: list[str],
         fingerprint: str,
     ) -> None:
+        commit_reconciled = False
+        if (
+            record.apply_state is ApplyState.APPLIED
+            and record.commit_state in {CommitState.COMMITTED, CommitState.UNDONE}
+        ):
+            commit_reconciled = await self._reconcile_recovered_commit(record)
+            if record.state == "conflict":
+                return
+
         operation = record.apply_operation_id
-        if operation is not None and record.apply_state is not ApplyState.NOT_APPLIED:
+        if (
+            not commit_reconciled
+            and operation is not None
+            and record.apply_state is not ApplyState.NOT_APPLIED
+        ):
             if self.applier is None:
                 self._mark_recovery_conflict(record, "applier_unavailable")
                 return
@@ -1861,6 +2315,72 @@ class CodingService:
                 self._mark_recovery_conflict(record, "apply_recovery_conflict")
                 return
 
+        if not commit_reconciled:
+            commit_reconciled = await self._reconcile_recovered_commit(record)
+            if record.state == "conflict":
+                return
+        if not commit_reconciled:
+            return
+
+        manifest = record.publish_manifest
+        if manifest is None:
+            return
+        if self.publisher is None:
+            record.publish_state = PublishState.FAILED
+            record.publish_reason = "publisher_unavailable"
+            return
+        try:
+            publish_state, publish_receipt = await self.publisher.reconcile(manifest)
+        except PublisherClientError as exc:
+            reason = _safe_code(exc.code)
+            if _publish_error_is_conflict(reason):
+                self._mark_recovery_conflict(record, reason)
+                record.publish_state = PublishState.CONFLICT
+            else:
+                record.publish_state = PublishState.FAILED
+                record.publish_reason = reason
+            return
+        if publish_state == PublishState.CONFLICT.value:
+            self._mark_recovery_conflict(record, "remote_branch_conflict")
+            record.publish_state = PublishState.CONFLICT
+            return
+        if publish_state in {
+            PublishState.NOT_PUBLISHED.value,
+            "branch_pushed",
+        }:
+            if record.publish_receipt is not None:
+                self._mark_recovery_conflict(record, "publish_recovery_conflict")
+                record.publish_state = PublishState.CONFLICT
+            else:
+                record.publish_state = PublishState.FAILED
+                record.publish_reason = (
+                    "publish_not_completed"
+                    if publish_state == PublishState.NOT_PUBLISHED.value
+                    else "publish_incomplete"
+                )
+            return
+        if publish_receipt is None:
+            self._mark_recovery_conflict(record, "publish_recovery_conflict")
+            record.publish_state = PublishState.CONFLICT
+            return
+        if (
+            publish_receipt.state is PublishState.READY
+            and record.publish_state
+            not in {PublishState.MARKING_READY, PublishState.READY}
+        ):
+            self._mark_recovery_conflict(record, "remote_pr_conflict")
+            record.publish_state = PublishState.CONFLICT
+            return
+        record.publish_receipt = publish_receipt
+        record.publish_state = publish_receipt.state
+        record.publish_reason = None
+        record.publish_finished_at = time.time()
+        record.state = "published"
+
+    async def _reconcile_recovered_commit(
+        self,
+        record: CodingApiSession,
+    ) -> bool:
         commit_operation = record.commit_operation_id
         apply_receipt = record.apply_receipt
         if (
@@ -1872,10 +2392,10 @@ class CodingService:
                 and record.commit_state is CommitState.UNDONE
             )
         ):
-            return
+            return False
         if self.committer is None or record.commit_message is None:
             self._mark_recovery_conflict(record, "committer_unavailable")
-            return
+            return False
         try:
             state, receipt = await self.committer.reconcile(
                 operation_id=commit_operation,
@@ -1884,10 +2404,24 @@ class CodingService:
             )
         except CommitterClientError as exc:
             self._mark_recovery_conflict(record, _safe_code(exc.code))
-            return
+            return False
         if state == "committed" and receipt is not None:
             record.commit_receipt = receipt
             record.commit_state = CommitState.COMMITTED
+            if record.publish_manifest is not None:
+                expected = record.publish_manifest.commits[-1]
+                if (
+                    receipt.commit_id != expected.commit_id
+                    or receipt.commit_sha != expected.commit_sha
+                    or receipt.parent_sha != expected.parent_sha
+                    or receipt.message != expected.message
+                    or tuple(sorted(receipt.files)) != expected.files
+                ):
+                    self._mark_recovery_conflict(
+                        record,
+                        "commit_recovery_conflict",
+                    )
+                    return False
         elif state == "undone" and receipt is not None:
             record.commit_receipt = receipt
             record.commit_state = CommitState.UNDONE
@@ -1896,6 +2430,8 @@ class CodingService:
             record.commit_reason = "commit_not_completed"
         else:
             self._mark_recovery_conflict(record, "commit_recovery_conflict")
+            return False
+        return True
 
     @staticmethod
     def _mark_recovery_conflict(record: CodingApiSession, reason: str) -> None:
@@ -1903,12 +2439,31 @@ class CodingService:
         record.recovery_conflict = _safe_code(reason)
         record.apply_reason = record.recovery_conflict
         record.commit_reason = record.recovery_conflict
+        record.publish_reason = record.recovery_conflict
 
-    async def _require_available(self) -> None:
-        capabilities = await self.capabilities()
-        if capabilities["available"] is not True:
-            reason = str(capabilities.get("reason") or "unavailable")
-            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, reason)
+    async def _require_available(self) -> dict[str, Any]:
+        if not self.enabled:
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "disabled")
+        try:
+            health = await self.worker.health()
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        except Exception as exc:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "worker_unavailable",
+            ) from exc
+        if health.get("ok") is not True:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "worker_unavailable",
+            )
+        if health.get("configured") is not True:
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "not_configured")
+        worker_mode = health.get("mode")
+        if worker_mode not in {"readonly", "draft"} or worker_mode != self.mode:
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "mode_mismatch")
+        return health
 
     async def _apply_capability(
         self,
@@ -1918,7 +2473,8 @@ class CodingService:
             "configured": False,
             "available": False,
             "target": "dedicated_worktree",
-            "requires_verification": True,
+            "requires_verification": False,
+            "allows_quality_risk_confirmation": True,
             "allows_not_applicable": True,
             "supports_revert": True,
         }
@@ -2054,6 +2610,57 @@ class CodingService:
         )
         raise _http_error(status_code, reason)
 
+    async def _publish_capability(self) -> dict[str, Any]:
+        capability: dict[str, Any] = {
+            "enabled": self.publish_enabled,
+            "configured": False,
+            "available": False,
+            "provider": "github",
+            "target": "fixed_repository",
+            "default_pr_state": "draft",
+            "supports_mark_ready": True,
+            "requires_exact_base": True,
+            "remote_merge": False,
+        }
+        if not self.publish_enabled:
+            return {**capability, "reason": "publish_disabled"}
+        if not self.recovery_enabled or self.recovery_store is None:
+            return {**capability, "reason": "recovery_unavailable"}
+        if self.publisher is None:
+            return {**capability, "reason": "publisher_not_configured"}
+        try:
+            health = await self.publisher.health()
+        except PublisherClientError as exc:
+            return {**capability, "reason": _safe_code(exc.code)}
+        except Exception:
+            return {**capability, "reason": "publisher_unavailable"}
+        configured = health.get("configured") is True
+        response = {**capability, "configured": configured}
+        if not configured:
+            return {
+                **response,
+                "reason": _safe_code(
+                    health.get("reason") or "publisher_not_configured"
+                ),
+            }
+        if (
+            health.get("available") is not True
+            or health.get("provider") != "github"
+            or health.get("target") != "fixed_repository"
+        ):
+            return {
+                **response,
+                "reason": _safe_code(health.get("reason") or "publisher_unavailable"),
+            }
+        return {**response, "available": True}
+
+    async def _require_publish_available(self) -> None:
+        capability = await self._publish_capability()
+        if capability["available"] is True:
+            return
+        reason = str(capability.get("reason") or "publisher_unavailable")
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, reason)
+
     async def _current_changes(
         self,
         record: CodingApiSession,
@@ -2081,7 +2688,9 @@ class CodingService:
     @staticmethod
     def _require_mutable(record: CodingApiSession) -> None:
         CodingService._require_not_recovery_conflict(record)
-        if record.state in {"applied", "reverted"}:
+        if record.state in {"applied", "published", "reverted"} or (
+            record.publish_manifest is not None
+        ):
             raise _http_error(status.HTTP_409_CONFLICT, "session_frozen")
         if record.apply_state in {ApplyState.APPLYING, ApplyState.REVERTING}:
             raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
@@ -2165,6 +2774,99 @@ class CodingService:
             "reason": record.commit_reason,
         }
 
+    @staticmethod
+    def _build_publish_manifest(
+        record: CodingApiSession,
+        *,
+        revision: int,
+        publish_id: str,
+        title: str,
+        body: str,
+    ) -> PublishManifest:
+        current = record.commit_receipt
+        apply_receipt = record.apply_receipt
+        if (
+            current is None
+            or apply_receipt is None
+            or record.recovery_id is None
+            or current.revision != revision
+        ):
+            raise ValueError("Publish task is incomplete")
+        receipts: list[CommitReceipt] = []
+        for cycle in record.cycle_history.cycles:
+            if (
+                cycle.state is not CycleState.COMMITTED
+                or not isinstance(cycle.commit, dict)
+                or cycle.commit.get("state") != CommitState.COMMITTED.value
+            ):
+                raise ValueError("Publish history is incomplete")
+            receipts.append(_commit_receipt_from_storage(cycle.commit.get("receipt")))
+        receipts.append(current)
+        commits = tuple(
+            PublishCommit(
+                commit_id=receipt.commit_id,
+                commit_sha=receipt.commit_sha,
+                parent_sha=receipt.parent_sha,
+                message=receipt.message,
+                files=tuple(sorted(receipt.files)),
+            )
+            for receipt in receipts
+        )
+        return PublishManifest(
+            publish_id=publish_id,
+            task_id=record.recovery_id,
+            revision=revision,
+            snapshot_fingerprint=apply_receipt.snapshot_fingerprint,
+            base_sha=commits[0].parent_sha,
+            head_sha=commits[-1].commit_sha,
+            commits=commits,
+            title=title,
+            body=body,
+        )
+
+    @staticmethod
+    def _public_publish(
+        record: CodingApiSession,
+        revision: int,
+    ) -> dict[str, Any]:
+        manifest = record.publish_manifest
+        receipt = record.publish_receipt
+        if manifest is None or record.publish_revision != revision:
+            return {
+                "state": PublishState.NOT_PUBLISHED.value,
+                "revision": revision,
+                "publish_id": None,
+                "title": "",
+                "body": "",
+                "pr_number": None,
+                "pr_url": None,
+                "file_count": 0,
+                "commit_count": 0,
+                "started_at": None,
+                "finished_at": None,
+                "reason": None,
+                "can_mark_ready": False,
+            }
+        return {
+            "state": record.publish_state.value,
+            "revision": revision,
+            "publish_id": manifest.publish_id,
+            "title": manifest.title,
+            "body": manifest.body,
+            "pr_number": receipt.pr_number if receipt is not None else None,
+            "pr_url": receipt.pr_url if receipt is not None else None,
+            "file_count": len(manifest.files),
+            "commit_count": len(manifest.commits),
+            "started_at": record.publish_started_at,
+            "finished_at": record.publish_finished_at,
+            "reason": record.publish_reason,
+            "can_mark_ready": bool(
+                record.publish_state in {PublishState.DRAFT, PublishState.FAILED}
+                and receipt is not None
+                and receipt.state in {PublishState.DRAFT, PublishState.READY}
+            ),
+        }
+
     async def _review_record(self, session_id: str) -> CodingApiSession:
         await self.cleanup_expired()
         if self.mode != "draft":
@@ -2238,6 +2940,10 @@ def get_coding_service() -> CodingService:
             "CODING_COMMITTER_SOCKET_PATH",
             "/run/modelmirror-coding-commit/committer.sock",
         )
+        publisher_socket_path = os.getenv(
+            "CODING_PUBLISHER_SOCKET_PATH",
+            "/run/modelmirror-coding-publish/publisher.sock",
+        )
         recovery_enabled = os.getenv(
             "CODING_RECOVERY_ENABLED",
             "false",
@@ -2278,6 +2984,7 @@ def get_coding_service() -> CodingService:
             worker=CodingWorkerClient(Path(socket_path)),
             applier=CodingApplierClient(Path(applier_socket_path)),
             committer=CodingCommitterClient(Path(committer_socket_path)),
+            publisher=CodingPublisherClient(Path(publisher_socket_path)),
             recovery_store=recovery_store,
             recovery_enabled=recovery_enabled,
             recovery_reason=recovery_reason,
@@ -2527,11 +3234,15 @@ async def discard_coding_session(session_id: str) -> dict[str, Any]:
 @router.post("/sessions/{session_id}/apply")
 async def apply_coding_session(
     session_id: str,
-    payload: VerificationRevisionRequest,
+    payload: ApplyRequest,
     response: Response,
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    return await get_coding_service().apply(session_id, payload.revision)
+    return await get_coding_service().apply(
+        session_id,
+        payload.revision,
+        confirm_quality_risks=payload.confirm_quality_risks,
+    )
 
 
 @router.get("/sessions/{session_id}/apply")
@@ -2598,6 +3309,52 @@ async def undo_coding_session_commit(
     )
 
 
+@router.post(
+    "/sessions/{session_id}/publish",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def publish_coding_session(
+    session_id: str,
+    payload: PublishRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().publish(
+        session_id,
+        payload.revision,
+        payload.commit_id,
+        payload.title,
+        payload.body,
+    )
+
+
+@router.get("/sessions/{session_id}/publish")
+async def coding_publish_status(
+    session_id: str,
+    response: Response,
+    revision: int = Query(ge=1),
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().publish_status(session_id, revision)
+
+
+@router.post(
+    "/sessions/{session_id}/publish/ready",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def mark_coding_publish_ready(
+    session_id: str,
+    payload: PublishReadyRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().mark_publish_ready(
+        session_id,
+        payload.revision,
+        payload.publish_id,
+    )
+
+
 @router.post("/sessions/{session_id}/close")
 async def close_applied_coding_session(
     session_id: str,
@@ -2641,6 +3398,8 @@ def _event_from_payload(payload: dict[str, Any]) -> CodingEvent:
 def _recovery_state(record: CodingApiSession) -> RecoveryState:
     if record.state == "conflict":
         return RecoveryState.CONFLICT
+    if record.publish_state in {PublishState.DRAFT, PublishState.READY}:
+        return RecoveryState.PUBLISHED
     if record.commit_state is CommitState.COMMITTED:
         return RecoveryState.COMMITTED
     if record.commit_state is CommitState.UNDONE:
@@ -2682,6 +3441,24 @@ def _commit_storage_payload(record: CodingApiSession) -> dict[str, Any]:
         "reason": record.commit_reason,
         "started_at": record.commit_started_at,
         "finished_at": record.commit_finished_at,
+    }
+
+
+def _publish_storage_payload(record: CodingApiSession) -> dict[str, Any] | None:
+    if record.publish_manifest is None:
+        return None
+    return {
+        "state": record.publish_state.value,
+        "revision": record.publish_revision,
+        "manifest": record.publish_manifest.to_dict(),
+        "receipt": (
+            record.publish_receipt.to_dict()
+            if record.publish_receipt is not None
+            else None
+        ),
+        "reason": record.publish_reason,
+        "started_at": record.publish_started_at,
+        "finished_at": record.publish_finished_at,
     }
 
 
@@ -2883,6 +3660,73 @@ def _restore_commit_payload(
     record.commit_reason = _safe_code(reason) if reason is not None else None
     record.commit_started_at = value["started_at"]
     record.commit_finished_at = value["finished_at"]
+
+
+def _restore_publish_payload(
+    record: CodingApiSession,
+    value: dict[str, Any] | None,
+) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict) or set(value) != {
+        "state",
+        "revision",
+        "manifest",
+        "receipt",
+        "reason",
+        "started_at",
+        "finished_at",
+    }:
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "recovery_data_corrupt")
+    try:
+        publish_state = PublishState(value["state"])
+        revision = value["revision"]
+        manifest = PublishManifest.from_dict(value["manifest"])
+        receipt = (
+            PublishReceipt.from_dict(value["receipt"])
+            if value["receipt"] is not None
+            else None
+        )
+        reason = value["reason"]
+        if (
+            publish_state is PublishState.NOT_PUBLISHED
+            or isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+            or manifest.revision != revision
+            or (reason is not None and (
+                not isinstance(reason, str)
+                or len(reason) > 64
+                or _safe_code(reason) != reason
+            ))
+            or not _valid_optional_timestamp(value["started_at"])
+            or not _valid_optional_timestamp(value["finished_at"])
+            or (receipt is not None and (
+                receipt.publish_id != manifest.publish_id
+                or receipt.revision != revision
+                or receipt.branch != manifest.branch
+                or receipt.head_sha != manifest.head_sha
+            ))
+            or (publish_state in {PublishState.DRAFT, PublishState.READY} and (
+                receipt is None or receipt.state is not publish_state
+            ))
+            or (publish_state is PublishState.MARKING_READY and (
+                receipt is None or receipt.state is not PublishState.DRAFT
+            ))
+        ):
+            raise ValueError("Publish recovery is inconsistent")
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "recovery_data_corrupt",
+        ) from exc
+    record.publish_state = publish_state
+    record.publish_revision = revision
+    record.publish_manifest = manifest
+    record.publish_receipt = receipt
+    record.publish_reason = reason
+    record.publish_started_at = value["started_at"]
+    record.publish_finished_at = value["finished_at"]
 
 
 def _apply_receipt_to_storage(receipt: ApplyReceipt) -> dict[str, Any]:
@@ -3133,6 +3977,20 @@ def _diff_paths(diff: str) -> list[str]:
 def _safe_code(value: Any) -> str:
     code = re.sub(r"[^a-z0-9_-]", "_", str(value or "unknown").lower())
     return code[:64] or "unknown"
+
+
+def _publish_error_is_conflict(code: str) -> bool:
+    return code in {
+        "base_branch_changed",
+        "commit_mismatch",
+        "remote_branch_conflict",
+        "remote_pr_conflict",
+        "repository_has_remote",
+        "repository_mismatch",
+        "repository_not_independent",
+        "unsafe_repository",
+        "wrong_branch",
+    }
 
 
 def _verification_allows_apply(

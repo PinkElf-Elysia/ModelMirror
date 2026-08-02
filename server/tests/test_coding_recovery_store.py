@@ -214,6 +214,53 @@ def test_payload_rejects_patch_path_or_summary_mismatch() -> None:
     assert error.value.code == "invalid_recovery_payload"
 
 
+def test_v3_encrypts_publish_intent_and_rejects_publish_tokens(tmp_path: Path) -> None:
+    marker = "draft-pr-random-731"
+    store = CodingRecoveryStore(tmp_path)
+    record = store.create_record(
+        recovery_id=RECOVERY_ID,
+        state=RecoveryState.PUBLISHED,
+        revision=3,
+        snapshot_fingerprint=FINGERPRINT,
+        payload=_payload(
+            publish={
+                "state": "draft",
+                "title": marker,
+                "body": "准备发布 1 个文件。",
+                "publish_id": "p" * 24,
+            }
+        ),
+    )
+
+    store.save(record)
+
+    loaded = store.load()
+    assert loaded is not None
+    assert loaded.state is RecoveryState.PUBLISHED
+    assert loaded.payload.publish == record.payload.publish
+    assert marker.encode("utf-8") not in store.database_path.read_bytes()
+
+    with pytest.raises(CodingRecoveryError) as error:
+        _payload(publish={"token": "must-not-persist"})
+    assert error.value.code == "invalid_recovery_payload"
+
+
+def test_existing_v2_database_metadata_is_upgraded(tmp_path: Path) -> None:
+    store = CodingRecoveryStore(tmp_path)
+    store.save(_record(store))
+    with sqlite3.connect(store.database_path) as connection:
+        connection.execute("PRAGMA user_version = 2")
+        connection.execute(
+            "UPDATE coding_recovery SET schema_version = 2 WHERE slot = 1"
+        )
+
+    upgraded = CodingRecoveryStore(tmp_path)
+
+    assert upgraded.load() is not None
+    with sqlite3.connect(upgraded.database_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+
+
 def test_existing_unknown_schema_is_not_reinitialized(tmp_path: Path) -> None:
     database = tmp_path / "recovery.sqlite3"
     tmp_path.mkdir(exist_ok=True)

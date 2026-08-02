@@ -3,7 +3,6 @@ import {
   CircleAlert,
   FolderCheck,
   LoaderCircle,
-  LockKeyhole,
   Undo2,
   X,
 } from "lucide-react";
@@ -21,7 +20,7 @@ interface CodingApplyPanelProps {
   changes: CodingDraftChanges;
   disabled: boolean;
   error: string;
-  onApply: () => Promise<void>;
+  onApply: (confirmQualityRisks: boolean) => Promise<void>;
   onClose: () => Promise<void>;
   onRevert: () => Promise<void>;
   result: CodingApplyResult | null;
@@ -60,6 +59,8 @@ const reasonText: Record<string, string> = {
   verification_stale: "草稿已更新，请重新运行项目验证。",
 };
 
+const hardRetryFailures = new Set(["rollback_failed", "recovery_conflict"]);
+
 function describeError(error: unknown) {
   if (error instanceof CodingApiError) {
     return reasonText[error.code] ?? "操作未完成，请稍后重试。";
@@ -78,35 +79,36 @@ function gateMessage(
       "本地应用功能暂时不可用，仍可查看和下载修改。"
     );
   }
+  if (verification?.state === "running" && verification.stale === false) {
+    return "项目验证正在运行，可以停止或等待完成后再应用。";
+  }
+  const qualityWarnings: string[] = [];
   if (!changes.can_download || changes.validation_status !== "passed") {
-    return "请先修正常见问题检查发现的内容。";
+    qualityWarnings.push("常见问题检查发现了内容");
   }
   if (
     !verification ||
     verification.revision !== changes.revision ||
     verification.stale
   ) {
-    return "请先运行当前草稿的项目验证。";
-  }
-  if (verification.state === "running") {
-    return "项目验证正在运行，完成后即可应用。";
-  }
-  if (verification.result === "failed") {
-    return "项目验证发现问题，修正并重新通过后才能应用。";
-  }
-  if (
+    qualityWarnings.push("当前草稿尚未完成项目验证");
+  } else if (
     verification.result !== "passed" &&
     !(
       verification.result === "not_applicable" &&
       verification.reason === "documentation_only"
     )
   ) {
-    return (
-      reasonText[verification.reason ?? ""] ??
-      "当前验证结果还不能安全应用。"
+    qualityWarnings.push(
+      verification.result === "failed"
+        ? "项目验证发现了问题"
+        : "当前项目验证没有得出通过结果",
     );
   }
-  return "检查和项目验证已满足，可以写入专用项目副本。";
+  if (qualityWarnings.length) {
+    return `${qualityWarnings.join("，")}。你可以先修正，也可以确认风险后继续写入专用副本。`;
+  }
+  return "检查结果正常，可以写入专用项目副本。";
 }
 
 export default function CodingApplyPanel({
@@ -148,10 +150,9 @@ export default function CodingApplyPanel({
 
   const hasAppliedCopy = Boolean(result?.apply_id);
   const failedAttempt = result?.state === "failed" && !hasAppliedCopy;
-  const gateCopy = failedAttempt
-    ? reasonText[result?.reason ?? ""] ??
-      "本次写入未完成。请先继续修改草稿，生成新版本后再试。"
-    : gateMessage(capability, changes, verification);
+  const hardRetryFailure = Boolean(
+    failedAttempt && hardRetryFailures.has(result?.reason ?? ""),
+  );
   const verificationAllowsApply =
     verification?.revision === changes.revision &&
     verification.stale === false &&
@@ -159,11 +160,22 @@ export default function CodingApplyPanel({
     (verification.result === "passed" ||
       (verification.result === "not_applicable" &&
         verification.reason === "documentation_only"));
+  const hasQualityRisks =
+    changes.validation_status !== "passed" ||
+    !changes.can_download ||
+    !verificationAllowsApply;
+  const verificationRunning =
+    verification?.state === "running" && verification.stale === false;
   const canApply =
-    !failedAttempt &&
+    !hardRetryFailure &&
     capability?.available === true &&
-    changes.can_download &&
-    verificationAllowsApply;
+    !verificationRunning;
+  const gateCopy = hardRetryFailure
+    ? reasonText[result?.reason ?? ""] ??
+      "上次操作的结果无法确认，请由开发者检查专用项目副本。"
+    : failedAttempt
+      ? `${reasonText[result?.reason ?? ""] ?? "上次写入没有完成。"} 你可以在问题处理后重试当前草稿。`
+      : gateMessage(capability, changes, verification);
   const isApplied = result?.state === "applied";
   const isReverted = result?.state === "reverted";
   const failedAfterApply = result?.state === "failed" && hasAppliedCopy;
@@ -317,16 +329,18 @@ export default function CodingApplyPanel({
       className="mt-5 rounded-lg border border-white/10 bg-white/[0.025] p-4"
     >
       <div className="flex items-start gap-3">
-        {canApply ? (
+        {canApply && !hasQualityRisks ? (
           <FolderCheck
             aria-hidden="true"
             className="mt-0.5 shrink-0 text-emerald-200"
             size={18}
           />
         ) : (
-          <LockKeyhole
+          <CircleAlert
             aria-hidden="true"
-            className="mt-0.5 shrink-0 text-slate-400"
+            className={`mt-0.5 shrink-0 ${
+              canApply ? "text-amber-200" : "text-slate-400"
+            }`}
             size={18}
           />
         )}
@@ -337,7 +351,11 @@ export default function CodingApplyPanel({
           <p
             aria-live="polite"
             className={`mt-1 text-xs leading-5 ${
-              canApply ? "text-emerald-100/85" : "text-slate-400"
+              canApply && !hasQualityRisks
+                ? "text-emerald-100/85"
+                : canApply
+                  ? "text-amber-100/85"
+                  : "text-slate-400"
             }`}
           >
             {gateCopy}
@@ -358,12 +376,27 @@ export default function CodingApplyPanel({
       {confirmApply ? (
         <div
           aria-live="polite"
-          className="mt-4 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.065] p-3 text-sm text-emerald-50"
+          className={`mt-4 rounded-lg border p-3 text-sm ${
+            hasQualityRisks
+              ? "border-amber-300/20 bg-amber-300/[0.07] text-amber-50"
+              : "border-emerald-300/15 bg-emerald-300/[0.065] text-emerald-50"
+          }`}
         >
           <p className="font-semibold">
-            确认写入 {changes.file_count} 个文件吗？
+            {hasQualityRisks
+              ? `仍要写入 ${changes.file_count} 个文件吗？`
+              : `确认写入 ${changes.file_count} 个文件吗？`}
           </p>
-          <ul className="mt-2 space-y-1 text-xs leading-5 text-emerald-100/80">
+          {hasQualityRisks ? (
+            <p className="mt-2 text-xs leading-5 text-amber-100/85">
+              检查结果未全部通过，写入后可能需要继续修正。文件与仓库安全边界仍会再次检查。
+            </p>
+          ) : null}
+          <ul
+            className={`mt-2 space-y-1 text-xs leading-5 ${
+              hasQualityRisks ? "text-amber-100/80" : "text-emerald-100/80"
+            }`}
+          >
             <li>修改会写入预先准备的专用项目副本。</li>
             <li>不会提交，也不会上传到远程平台。</li>
             <li>你当前使用的项目目录不会改变。</li>
@@ -377,8 +410,14 @@ export default function CodingApplyPanel({
               返回检查
             </button>
             <button
-              className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-emerald-200 px-3 text-xs font-semibold text-emerald-950 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100"
-              onClick={() => void runAction("applying", onApply)}
+              className={`inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 ${
+                hasQualityRisks
+                  ? "bg-amber-200 text-amber-950 hover:bg-amber-100 focus-visible:ring-amber-100"
+                  : "bg-emerald-200 text-emerald-950 hover:bg-emerald-100 focus-visible:ring-emerald-100"
+              }`}
+              onClick={() =>
+                void runAction("applying", () => onApply(hasQualityRisks))
+              }
               type="button"
             >
               {action === "applying" ? (
@@ -388,7 +427,7 @@ export default function CodingApplyPanel({
                   size={14}
                 />
               ) : null}
-              确认应用
+              {hasQualityRisks ? "了解风险并应用" : "确认应用"}
             </button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import type {
   CodingDraftChanges,
   CodingEvent,
   CodingPatchDownload,
+  CodingPublishResult,
   CodingRecoveryResumeResponse,
   CodingRecoveryStatus,
   CodingSessionResponse,
@@ -248,12 +249,16 @@ export function cancelCodingVerification(
 export function applyCodingChanges(
   sessionId: string,
   revision: number,
+  confirmQualityRisks = false,
 ) {
   return requestJson<CodingApplyResult>(
     `/api/coding/sessions/${encodeURIComponent(sessionId)}/apply`,
     {
       method: "POST",
-      body: JSON.stringify({ revision }),
+      body: JSON.stringify({
+        revision,
+        confirm_quality_risks: confirmQualityRisks,
+      }),
     },
   );
 }
@@ -320,6 +325,50 @@ export function undoCodingCommit(
         apply_id: applyId,
         commit_id: commitId,
       }),
+    },
+  );
+}
+
+export function publishCodingChanges(
+  sessionId: string,
+  revision: number,
+  commitId: string,
+  title: string,
+  body: string,
+) {
+  return requestJson<CodingPublishResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/publish`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        revision,
+        commit_id: commitId,
+        title,
+        body,
+      }),
+    },
+  );
+}
+
+export function getCodingPublishStatus(
+  sessionId: string,
+  revision: number,
+) {
+  return requestJson<CodingPublishResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/publish?revision=${revision}`,
+  );
+}
+
+export function markCodingPublishReady(
+  sessionId: string,
+  revision: number,
+  publishId: string,
+) {
+  return requestJson<CodingPublishResult>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/publish/ready`,
+    {
+      method: "POST",
+      body: JSON.stringify({ revision, publish_id: publishId }),
     },
   );
 }

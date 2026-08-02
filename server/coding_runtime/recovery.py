@@ -19,7 +19,7 @@ from .cycles import CodingCycle, CodingCycleHistory
 from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN, PatchPolicyError, validate_patch
 
 
-RECOVERY_SCHEMA_VERSION = 2
+RECOVERY_SCHEMA_VERSION = 3
 DEFAULT_RECOVERY_RETENTION_SECONDS = 7 * 24 * 60 * 60
 MIN_RECOVERY_RETENTION_SECONDS = 60
 MAX_RECOVERY_RETENTION_SECONDS = 30 * 24 * 60 * 60
@@ -53,7 +53,7 @@ FORBIDDEN_RECOVERY_KEYS = frozenset(
 _PAYLOAD_KEYS_V1 = frozenset(
     {"patch", "changes", "verification", "apply", "commit", "operation"}
 )
-_PAYLOAD_KEYS = frozenset(
+_PAYLOAD_KEYS_V2 = frozenset(
     {
         *_PAYLOAD_KEYS_V1,
         "base_patch",
@@ -63,6 +63,7 @@ _PAYLOAD_KEYS = frozenset(
         "cycles",
     }
 )
+_PAYLOAD_KEYS = frozenset({*_PAYLOAD_KEYS_V2, "publish"})
 _CHANGE_KEYS = frozenset(
     {
         "revision",
@@ -86,6 +87,7 @@ class RecoveryState(StrEnum):
     REVERTED = "reverted"
     COMMITTED = "committed"
     UNDONE = "undone"
+    PUBLISHED = "published"
     CONFLICT = "conflict"
 
 
@@ -103,6 +105,7 @@ class RecoveryPayload:
     apply: dict[str, Any] | None = None
     commit: dict[str, Any] | None = None
     operation: dict[str, Any] | None = None
+    publish: dict[str, Any] | None = None
     base_patch: str = ""
     base_changes: dict[str, Any] | None = None
     active_patch: str = ""
@@ -117,6 +120,7 @@ class RecoveryPayload:
         keys = frozenset(value) if isinstance(value, dict) else frozenset()
         if not isinstance(value, dict) or keys not in {
             _PAYLOAD_KEYS_V1,
+            _PAYLOAD_KEYS_V2,
             _PAYLOAD_KEYS,
         }:
             raise CodingRecoveryError(
@@ -125,6 +129,7 @@ class RecoveryPayload:
             )
         try:
             legacy = keys == _PAYLOAD_KEYS_V1
+            incremental = keys in {_PAYLOAD_KEYS_V2, _PAYLOAD_KEYS}
             return cls(
                 patch=value["patch"],
                 changes=value["changes"],
@@ -132,13 +137,14 @@ class RecoveryPayload:
                 apply=value["apply"],
                 commit=value["commit"],
                 operation=value["operation"],
+                publish=value["publish"] if keys == _PAYLOAD_KEYS else None,
                 base_patch="" if legacy else value["base_patch"],
                 base_changes=None if legacy else value["base_changes"],
                 active_patch=value["patch"] if legacy else value["active_patch"],
                 active_changes=value["changes"] if legacy else value["active_changes"],
                 cycles=(
                     ()
-                    if legacy
+                    if not incremental
                     else tuple(_cycle_from_dict(item) for item in value["cycles"])
                 ),
             )
@@ -158,6 +164,7 @@ class RecoveryPayload:
             "apply": self.apply,
             "commit": self.commit,
             "operation": self.operation,
+            "publish": self.publish,
             "base_patch": self.base_patch,
             "base_changes": self.base_changes,
             "active_patch": self.active_patch,
@@ -371,7 +378,7 @@ class CodingRecoveryStore:
             if row["expires_at"] <= self._now():
                 connection.execute("DELETE FROM coding_recovery WHERE slot = 1")
                 return None
-            if row["schema_version"] not in {1, RECOVERY_SCHEMA_VERSION}:
+            if row["schema_version"] not in {1, 2, RECOVERY_SCHEMA_VERSION}:
                 raise CodingRecoveryError(
                     "Recovery schema is unsupported.",
                     code="recovery_schema_unsupported",
@@ -448,7 +455,7 @@ class CodingRecoveryStore:
                     """
                 )
                 connection.execute(f"PRAGMA user_version = {RECOVERY_SCHEMA_VERSION}")
-            elif current_version == 1:
+            elif current_version in {1, 2}:
                 connection.execute(f"PRAGMA user_version = {RECOVERY_SCHEMA_VERSION}")
             elif current_version != RECOVERY_SCHEMA_VERSION:
                 raise CodingRecoveryError(
@@ -637,7 +644,13 @@ def _validate_recovery_payload(payload: RecoveryPayload) -> None:
             "Recovery Patch is invalid.",
             code="invalid_recovery_payload",
         ) from exc
-    for value in (payload.verification, payload.apply, payload.commit, payload.operation):
+    for value in (
+        payload.verification,
+        payload.apply,
+        payload.commit,
+        payload.operation,
+        payload.publish,
+    ):
         if value is not None and not isinstance(value, dict):
             raise CodingRecoveryError(
                 "Recovery operation data is invalid.",

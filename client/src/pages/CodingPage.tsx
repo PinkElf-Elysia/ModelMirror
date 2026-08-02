@@ -36,6 +36,7 @@ import type {
   CodingDraftChanges,
   CodingEvent,
   CodingPlanEntry,
+  CodingPublishResult,
   CodingRecoveryStatus,
   CodingVerification,
 } from "../types/coding";
@@ -57,6 +58,7 @@ import {
   getCodingCommitStatus,
   getCodingHistory,
   getCodingPatch,
+  getCodingPublishStatus,
   getCodingRecovery,
   getCodingRecoveryPatch,
   getCodingSessionStatus,
@@ -64,6 +66,8 @@ import {
   startCodingTurn,
   startCodingVerification,
   resumeCodingRecovery,
+  markCodingPublishReady,
+  publishCodingChanges,
   revertCodingApply,
   undoCodingCommit,
   validateCodingChanges,
@@ -220,7 +224,7 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
           </li>
           <li>
             {isDraft
-              ? "只有你再次确认，才会保存为本地提交；不会上传，当前项目目录始终不受影响。"
+              ? "只有你再次确认，才会保存为本地提交；不会自动上传或合并，发布到 GitHub 还需单独确认。当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
           </li>
           <li>
@@ -267,6 +271,10 @@ export default function CodingPage() {
     null,
   );
   const [commitError, setCommitError] = useState("");
+  const [publishResult, setPublishResult] = useState<CodingPublishResult | null>(
+    null,
+  );
+  const [publishError, setPublishError] = useState("");
   const [cycleHistory, setCycleHistory] = useState<CodingCycleHistory | null>(null);
   const [recovery, setRecovery] = useState<CodingRecoveryStatus | null>(null);
   const [recoveryAction, setRecoveryAction] =
@@ -286,6 +294,9 @@ export default function CodingPage() {
   const isBusy = ["starting", "running", "stopping"].includes(runState);
   const verificationRunning =
     verification?.state === "running" && verification.stale === false;
+  const publishRunning =
+    publishResult?.state === "publishing" ||
+    publishResult?.state === "marking_ready";
   const sessionFrozen = Boolean(
     recoveryConflict ||
       recoveredState === "applied" ||
@@ -293,7 +304,8 @@ export default function CodingPage() {
       (applyResult?.apply_id &&
         ["applied", "reverting", "reverted", "failed"].includes(
           applyResult.state,
-        )),
+        )) ||
+      Boolean(publishResult?.publish_id),
   );
   const hasPendingRecovery = Boolean(
     recovery?.pending && (!sessionId || recoveryConflict),
@@ -317,6 +329,8 @@ export default function CodingPage() {
       setApplyError("");
       setCommitResult(null);
       setCommitError("");
+      setPublishResult(null);
+      setPublishError("");
       setCycleHistory(null);
       setRecoveredState(null);
       setRecoveryConflict(null);
@@ -346,7 +360,7 @@ export default function CodingPage() {
     try {
       const result = await getCodingCapabilities();
       setCapabilities(result);
-      if (result.recovery.enabled) {
+      if (result.recovery.pending) {
         await loadRecovery();
       } else {
         setRecovery(null);
@@ -361,6 +375,8 @@ export default function CodingPage() {
         setApplyError("");
         setCommitResult(null);
         setCommitError("");
+        setPublishResult(null);
+        setPublishError("");
       }
       setCapabilityState("ready");
     } catch {
@@ -533,6 +549,97 @@ export default function CodingPage() {
     serviceAvailable,
     sessionId,
   ]);
+
+  useEffect(() => {
+    if (
+      !isDraftMode ||
+      !sessionId ||
+      !draftChanges?.files.length ||
+      commitResult?.state !== "committed" ||
+      !commitResult.commit_id
+    ) {
+      setPublishResult(null);
+      setPublishError("");
+      return;
+    }
+    let active = true;
+    setPublishError("");
+    void getCodingPublishStatus(sessionId, draftChanges.revision)
+      .then((result) => {
+        if (active) setPublishResult(result);
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setPublishError(describeError(requestError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    commitResult?.commit_id,
+    commitResult?.state,
+    draftChanges?.files.length,
+    draftChanges?.revision,
+    isDraftMode,
+    resetExpiredSession,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    const publishRevision = publishResult?.revision;
+    if (!sessionId || !publishRunning || publishRevision === undefined) {
+      return;
+    }
+    let active = true;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const result = await getCodingPublishStatus(sessionId, publishRevision);
+        if (active) {
+          setPublishResult(result);
+          setPublishError("");
+        }
+      } catch (requestError) {
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setPublishError(describeError(requestError));
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 1_200);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [publishResult?.revision, publishRunning, resetExpiredSession, sessionId]);
+
+  useEffect(() => {
+    if (publishResult?.state === "draft") {
+      setDraftNotice("草稿 PR 已创建；不会自动合并。你可以打开查看或标记为可审阅。");
+    } else if (publishResult?.state === "ready") {
+      setDraftNotice("PR 已标记为可审阅；系统不会自动合并。");
+    } else if (publishResult?.state === "conflict") {
+      setDraftNotice("GitHub 上的内容已发生变化，本次任务已停止远程操作。");
+    } else if (publishResult?.state === "failed") {
+      setDraftNotice("远程操作未完成，本地修改和本地版本仍安全保留。");
+    }
+  }, [publishResult?.state]);
 
   useEffect(() => {
     if (!isDraftMode || !sessionId || capabilities?.incremental?.enabled !== true) {
@@ -747,6 +854,8 @@ export default function CodingPage() {
           setApplyError("");
           setCommitResult(null);
           setCommitError("");
+          setPublishResult(null);
+          setPublishError("");
         }
       }
       const after = lastSeqRef.current;
@@ -774,6 +883,8 @@ export default function CodingPage() {
         setApplyError("");
         setCommitResult(null);
         setCommitError("");
+        setPublishResult(null);
+        setPublishError("");
       }
       setRunState("error");
       setError(describeError(requestError));
@@ -870,18 +981,21 @@ export default function CodingPage() {
     setDraftNotice("Diff 已下载，真实项目仍未发生改变。");
   };
 
-  const applyDraft = async () => {
+  const applyDraft = async (confirmQualityRisks: boolean) => {
     if (!sessionId || !draftChanges) return;
     setApplyError("");
     try {
       const result = await applyCodingChanges(
         sessionId,
         draftChanges.revision,
+        confirmQualityRisks,
       );
       setApplyResult(result);
       setRecoveredState("applied");
       setCommitResult(null);
       setCommitError("");
+      setPublishResult(null);
+      setPublishError("");
       setDraftNotice(
         "修改已写入专用项目副本；没有提交或上传，当前项目目录没有改变。",
       );
@@ -910,6 +1024,8 @@ export default function CodingPage() {
       setRecoveredState("reverted");
       setCommitResult(null);
       setCommitError("");
+      setPublishResult(null);
+      setPublishError("");
       setDraftNotice("本次应用已撤销，专用项目副本已恢复。");
     } catch (requestError) {
       try {
@@ -934,12 +1050,62 @@ export default function CodingPage() {
         message,
       );
       setCommitResult(result);
+      setPublishResult(null);
+      setPublishError("");
       await refreshCycleHistory(sessionId);
-      setDraftNotice("已创建本地提交，只保存在专用项目副本中，不会上传。");
+      setDraftNotice("已创建本地提交，目前只保存在专用项目副本中，不会自动上传。");
     } catch (requestError) {
       try {
         setCommitResult(
           await getCodingCommitStatus(sessionId, draftChanges.revision),
+        );
+      } catch {
+        // Keep the original, safer error message.
+      }
+      throw requestError;
+    }
+  };
+
+  const publishCommittedDraft = async (title: string, body: string) => {
+    if (!sessionId || !draftChanges || !commitResult?.commit_id) return;
+    setPublishError("");
+    try {
+      const result = await publishCodingChanges(
+        sessionId,
+        draftChanges.revision,
+        commitResult.commit_id,
+        title,
+        body,
+      );
+      setPublishResult(result);
+      setDraftNotice("正在检查 GitHub 项目并创建草稿 PR，本地版本不会改变。");
+    } catch (requestError) {
+      try {
+        setPublishResult(
+          await getCodingPublishStatus(sessionId, draftChanges.revision),
+        );
+      } catch {
+        // Keep the original, safer error message.
+      }
+      throw requestError;
+    }
+  };
+
+  const markPublishedDraftReady = async () => {
+    if (!sessionId || !draftChanges || !publishResult?.publish_id) return;
+    setPublishError("");
+    try {
+      const result = await markCodingPublishReady(
+        sessionId,
+        draftChanges.revision,
+        publishResult.publish_id,
+      );
+      setPublishResult(result);
+      setDraftNotice("正在把草稿 PR 标记为可审阅；系统不会自动合并。");
+    } catch (requestError) {
+      try {
+        setPublishResult(
+          await getCodingPublishStatus(sessionId, draftChanges.revision),
         );
       } catch {
         // Keep the original, safer error message.
@@ -961,6 +1127,8 @@ export default function CodingPage() {
     setVerification(null);
     setApplyResult(null);
     setCommitResult(null);
+    setPublishResult(null);
+    setPublishError("");
     setRecoveredState(null);
     setEvents([]);
     setDraftNotice(`已开始第 ${history.active_cycle} 轮修改，此前保存的本地版本不会改变。`);
@@ -996,6 +1164,8 @@ export default function CodingPage() {
         commitResult.commit_id,
       );
       setCommitResult(result);
+      setPublishResult(null);
+      setPublishError("");
       setApplyResult(
         await getCodingApplyStatus(sessionId, draftChanges.revision),
       );
@@ -1027,6 +1197,8 @@ export default function CodingPage() {
     setApplyError("");
     setCommitResult(null);
     setCommitError("");
+    setPublishResult(null);
+    setPublishError("");
     setDraftNotice("本次修改已结束，可以开始新的任务。");
     setRecovery(null);
     setRecoveredState(null);
@@ -1053,6 +1225,8 @@ export default function CodingPage() {
       setVerification(null);
       setApplyResult(null);
       setCommitResult(null);
+      setPublishResult(null);
+      setPublishError("");
       setRecoveredState(result.status);
       setRecoveryConflict(result.conflict);
       setRunState("idle");
@@ -1115,6 +1289,8 @@ export default function CodingPage() {
       setVerification(null);
       setApplyResult(null);
       setCommitResult(null);
+      setPublishResult(null);
+      setPublishError("");
       setRecoveredState(null);
       setRecoveryConflict(null);
       setRecovery(null);
@@ -1469,11 +1645,16 @@ export default function CodingPage() {
                 onDiscard={discardDraft}
                 onDownload={downloadDraft}
                 onCancelVerification={stopVerification}
+                onMarkPublishReady={markPublishedDraftReady}
+                onPublish={publishCommittedDraft}
                 onRequestFix={prepareVerificationFix}
                 onRunVerification={runVerification}
                 onRevert={revertAppliedDraft}
                 onUndoCommit={undoAppliedCommit}
                 onValidate={checkDraft}
+                publishCapability={capabilities?.publish}
+                publishError={publishError}
+                publishResult={publishResult}
                 sessionId={sessionId}
                 verification={verification}
                 verificationAvailable={verificationAvailable}
