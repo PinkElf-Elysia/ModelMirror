@@ -136,15 +136,28 @@ class ProjectSnapshotBroker:
             for entry in entries
         )
 
-    def acquire(self, project_id: str, expected_head: str) -> SnapshotLease:
+    def check(self, project_id: str, expected_head: str) -> dict[str, Any]:
         if not _valid_opaque_id(project_id) or not _valid_object_id(expected_head):
+            raise ProjectSourceError("invalid_request", "Project check is invalid")
+        entry = self._find_entry(project_id)
+        summary = inspect_project(self._projects_root, entry)
+        if summary.state is not ProjectState.AVAILABLE or summary.head is None:
+            raise ProjectSourceError(summary.reason or "project_unavailable", "Project is unavailable")
+        if summary.head != expected_head.lower():
+            raise ProjectSourceError("project_changed", "Project HEAD changed")
+        return summary.to_public_dict()
+
+    def acquire(self, project_id: str, expected_head: str | None = None) -> SnapshotLease:
+        if not _valid_opaque_id(project_id) or (
+            expected_head is not None and not _valid_object_id(expected_head)
+        ):
             raise ProjectSourceError("invalid_request", "Snapshot request is invalid")
         with self._lock:
             entry = self._find_entry(project_id)
             summary = inspect_project(self._projects_root, entry)
             if summary.state is not ProjectState.AVAILABLE or not summary.head or not summary.branch:
                 raise ProjectSourceError(summary.reason or "project_unavailable", "Project is unavailable")
-            if summary.head != expected_head.lower():
+            if expected_head is not None and summary.head != expected_head.lower():
                 raise ProjectSourceError("project_changed", "Project HEAD changed")
             if self._active is not None:
                 if self._active.project_id == project_id and self._active.head == summary.head:
@@ -347,6 +360,14 @@ class CodingProjectSourceServer:
             _require_keys(request, {"action"})
             projects = await asyncio.to_thread(self._broker.list_projects)
             return {"projects": list(projects)}
+        if action == "check":
+            _require_keys(request, {"action", "project_id", "expected_head"})
+            project = await asyncio.to_thread(
+                self._broker.check,
+                request["project_id"],
+                request["expected_head"],
+            )
+            return {"project": project}
         if action == "acquire":
             _require_keys(request, {"action", "project_id", "expected_head"})
             lease = await asyncio.to_thread(
