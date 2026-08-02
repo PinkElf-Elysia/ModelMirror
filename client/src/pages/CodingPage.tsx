@@ -360,6 +360,7 @@ export default function CodingPage() {
   const pendingEventsRef = useRef<CodingEvent[]>([]);
   const pendingSessionStoreRef = useRef<StoredCodingSession | null>(null);
   const streamRenderTimerRef = useRef<number | null>(null);
+  const initialDraftLoadSessionRef = useRef<string | null>(null);
   const isDraftMode = capabilities?.mode === "draft";
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) ??
@@ -479,6 +480,7 @@ export default function CodingPage() {
       closeStreamRef.current?.();
       closeStreamRef.current = null;
       clearPendingStreamRender();
+      initialDraftLoadSessionRef.current = null;
       setSessionId(null);
       lastSeqRef.current = 0;
       clearStoredCodingSession();
@@ -526,6 +528,7 @@ export default function CodingPage() {
   }, []);
 
   const loadCapabilities = useCallback(async () => {
+    initialDraftLoadSessionRef.current = null;
     setCapabilityState("loading");
     setError("");
     try {
@@ -763,15 +766,19 @@ export default function CodingPage() {
       !isDraftMode ||
       !sessionId ||
       !serviceAvailable ||
+      isBusy ||
       draftChanges !== null ||
-      draftLoading
+      draftLoading ||
+      initialDraftLoadSessionRef.current === sessionId
     ) {
       return;
     }
+    initialDraftLoadSessionRef.current = sessionId;
     void refreshDraftChanges(sessionId, false);
   }, [
     draftChanges,
     draftLoading,
+    isBusy,
     isDraftMode,
     refreshDraftChanges,
     serviceAvailable,
@@ -1026,6 +1033,7 @@ export default function CodingPage() {
       queueStreamEvent(event, eventProject?.id ?? selectedProjectId);
       setTransportWarning("");
       if (event.type === "turn_completed") {
+        initialDraftLoadSessionRef.current = event.session_id;
         setRunState("idle");
         if (isDraftMode) {
           setDraftNotice("本轮已完成，修改草稿和检查结果已更新。");
@@ -1035,6 +1043,7 @@ export default function CodingPage() {
           );
         }
       } else if (event.type === "cancelled") {
+        initialDraftLoadSessionRef.current = event.session_id;
         setRunState("idle");
         if (isDraftMode) {
           setDraftNotice("本轮修改已撤销，此前保留的草稿不受影响。");
@@ -1044,6 +1053,7 @@ export default function CodingPage() {
           );
         }
       } else if (event.type === "failed") {
+        initialDraftLoadSessionRef.current = event.session_id;
         closeStreamRef.current?.();
         setRunState("error");
         setError(
@@ -1441,6 +1451,7 @@ export default function CodingPage() {
     closeStreamRef.current?.();
     closeStreamRef.current = null;
     clearPendingStreamRender();
+    initialDraftLoadSessionRef.current = null;
     setSessionId(null);
     lastSeqRef.current = 0;
     clearStoredCodingSession();
@@ -1472,6 +1483,7 @@ export default function CodingPage() {
       closeStreamRef.current?.();
       closeStreamRef.current = null;
       clearPendingStreamRender();
+      initialDraftLoadSessionRef.current = null;
       setSessionId(result.id);
       setSelectedProjectId(result.project.id);
       setProjects((current) => [
@@ -1542,6 +1554,7 @@ export default function CodingPage() {
       closeStreamRef.current?.();
       closeStreamRef.current = null;
       clearPendingStreamRender();
+      initialDraftLoadSessionRef.current = null;
       setSessionId(null);
       lastSeqRef.current = 0;
       clearStoredCodingSession();
