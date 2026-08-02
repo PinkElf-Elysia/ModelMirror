@@ -253,6 +253,13 @@ def test_project_source_compose_isolates_root_socket_and_snapshot() -> None:
     assert "/projects-root" not in repr(runtime)
     assert runtime["volumes"][0]["target"] == "/project-snapshots"
     assert runtime["volumes"][0]["read_only"] is True
+    snapshot_volume = compose["volumes"]["coding_project_snapshot"]
+    assert snapshot_volume["driver"] == "local"
+    assert snapshot_volume["driver_opts"] == {
+        "type": "tmpfs",
+        "device": "tmpfs",
+        "o": "size=256m,uid=65532,gid=65532,mode=0700",
+    }
     assert "apt-get install --yes --no-install-recommends git" in dockerfile
     assert "USER 65532:65532" in dockerfile
     assert 'CMD ["python", "-m", "server.coding_project_source.server"]' in dockerfile

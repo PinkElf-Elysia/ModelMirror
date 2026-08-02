@@ -65,3 +65,8 @@ services:
 volumes:
   coding_project_source_socket:
   coding_project_snapshot:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=256m,uid=65532,gid=65532,mode=0700"
