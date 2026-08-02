@@ -273,7 +273,7 @@ class FixedGitRunner:
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_COUNT": "4",
+            "GIT_CONFIG_COUNT": "5",
             "GIT_CONFIG_KEY_0": "http.extraHeader",
             "GIT_CONFIG_VALUE_0": f"Authorization: Basic {credential}",
             "GIT_CONFIG_KEY_1": "core.hooksPath",
@@ -282,6 +282,8 @@ class FixedGitRunner:
             "GIT_CONFIG_VALUE_2": self.proxy_url,
             "GIT_CONFIG_KEY_3": "credential.helper",
             "GIT_CONFIG_VALUE_3": "",
+            "GIT_CONFIG_KEY_4": "safe.directory",
+            "GIT_CONFIG_VALUE_4": str(self.target_root),
         }
         self._execute(
             (
@@ -299,7 +301,18 @@ class FixedGitRunner:
 
     def _git_text(self, *args: str) -> str:
         result = self._execute(
-            ("git", "-c", "core.hooksPath=", *args),
+            (
+                "git",
+                "-c",
+                f"safe.directory={self.target_root}",
+                "-c",
+                f"core.hooksPath={os.devnull}",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.untrackedCache=false",
+                *args,
+            ),
             env={
                 "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
                 "HOME": str(self.temporary_root),
@@ -307,7 +320,9 @@ class FixedGitRunner:
                 "GIT_CONFIG_NOSYSTEM": "1",
                 "GIT_CONFIG_GLOBAL": os.devnull,
             },
-            timeout=30,
+            # Git status over a Windows bind mount can legitimately exceed 30s.
+            # Keep the operation bounded by the same ceiling as the fixed push.
+            timeout=GIT_TIMEOUT_SECONDS,
             code="repository_not_ready",
         )
         return result.stdout.strip()

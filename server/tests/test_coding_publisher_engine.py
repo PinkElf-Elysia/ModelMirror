@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.serialization import (
 from server.coding_publisher.engine import (
     CodingPublisherEngine,
     FixedGitRunner,
+    GIT_TIMEOUT_SECONDS,
     HttpxGitHubTransport,
     PublisherConfig,
 )
@@ -346,11 +347,13 @@ def test_fixed_git_runner_rejects_dangerous_config_and_uses_fixed_push(
 ) -> None:
     target, temporary, manifest = _local_repository(tmp_path)
     calls: list[tuple[list[str], dict[str, str]]] = []
+    read_calls: list[tuple[list[str], dict[str, Any]]] = []
 
     def run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if args[:2] == ["git", "push"]:
             calls.append((args, kwargs["env"]))
             return subprocess.CompletedProcess(args, 0, "ok", "")
+        read_calls.append((args, kwargs))
         return subprocess.run(args, **kwargs)
 
     runner = FixedGitRunner(
@@ -376,6 +379,16 @@ def test_fixed_git_runner_rejects_dangerous_config_and_uses_fixed_push(
     assert env["GIT_CONFIG_VALUE_2"] == "http://coding-github-egress:8080"
     assert env["GIT_CONFIG_KEY_3"] == "credential.helper"
     assert env["GIT_CONFIG_VALUE_3"] == ""
+    assert env["GIT_CONFIG_COUNT"] == "5"
+    assert env["GIT_CONFIG_KEY_4"] == "safe.directory"
+    assert env["GIT_CONFIG_VALUE_4"] == str(target.resolve())
+
+    assert read_calls
+    assert all(
+        f"safe.directory={target.resolve()}" in read_args
+        and kwargs["timeout"] == GIT_TIMEOUT_SECONDS
+        for read_args, kwargs in read_calls
+    )
 
     _git(target, "config", "url.https://evil.invalid/.insteadOf", "https://github.com/")
     with pytest.raises(CodingPublishError) as unsafe:
