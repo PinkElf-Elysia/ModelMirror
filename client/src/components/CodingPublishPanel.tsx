@@ -52,6 +52,10 @@ const publishReasonText: Record<string, string> = {
     "等待 GitHub 的时间过长，结果暂时无法确认。请稍后查看状态。",
   publisher_unavailable:
     "GitHub 发布服务未启动。本地修改、检查和保存仍可正常使用。",
+  publish_incomplete:
+    "本地版本可能已经上传，但草稿 PR 尚未确认。按原内容重试会继续核对，不会重复上传。",
+  publish_not_completed:
+    "上次发布没有写入远程内容，可以按原内容安全重试。",
   recovery_storage_unavailable:
     "发布结果暂时无法安全保存，请稍后按原内容重试。",
   remote_branch_conflict:
