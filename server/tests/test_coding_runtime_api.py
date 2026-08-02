@@ -2329,7 +2329,7 @@ async def test_recovery_reconciles_applied_and_committed_receipts(
     recovered_worker = FakeWorker(mode="draft")
     recovered_worker.verification_state = "completed"
     recovered_worker.verification_result = "passed"
-    recovered_applier = FakeApplier(reconcile_state="applied")
+    recovered_applier = FakeApplier(reconcile_state="conflict")
     recovered_committer = FakeCommitter(reconcile_state="committed")
     recovered_client, _, _ = await make_client(
         worker=recovered_worker,
@@ -2348,7 +2348,7 @@ async def test_recovery_reconciles_applied_and_committed_receipts(
     assert resumed.json()["status"] == "applied"
     assert commit_status.json()["state"] == "committed"
     assert commit_status.json()["message"] == "feature: 恢复本地版本 8C31"
-    assert len(recovered_applier.reconcile_calls) == 1
+    assert recovered_applier.reconcile_calls == []
     assert len(recovered_committer.reconcile_calls) == 1
 
 

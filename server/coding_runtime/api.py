@@ -2244,8 +2244,21 @@ class CodingService:
         paths: list[str],
         fingerprint: str,
     ) -> None:
+        commit_reconciled = False
+        if (
+            record.apply_state is ApplyState.APPLIED
+            and record.commit_state in {CommitState.COMMITTED, CommitState.UNDONE}
+        ):
+            commit_reconciled = await self._reconcile_recovered_commit(record)
+            if record.state == "conflict":
+                return
+
         operation = record.apply_operation_id
-        if operation is not None and record.apply_state is not ApplyState.NOT_APPLIED:
+        if (
+            not commit_reconciled
+            and operation is not None
+            and record.apply_state is not ApplyState.NOT_APPLIED
+        ):
             if self.applier is None:
                 self._mark_recovery_conflict(record, "applier_unavailable")
                 return
@@ -2291,55 +2304,11 @@ class CodingService:
                 self._mark_recovery_conflict(record, "apply_recovery_conflict")
                 return
 
-        commit_operation = record.commit_operation_id
-        apply_receipt = record.apply_receipt
-        if (
-            commit_operation is None
-            or apply_receipt is None
-            or record.commit_state is CommitState.NOT_COMMITTED
-            or (
-                record.apply_state is ApplyState.REVERTED
-                and record.commit_state is CommitState.UNDONE
-            )
-        ):
-            return
-        if self.committer is None or record.commit_message is None:
-            self._mark_recovery_conflict(record, "committer_unavailable")
-            return
-        try:
-            state, receipt = await self.committer.reconcile(
-                operation_id=commit_operation,
-                apply_receipt=apply_receipt,
-                message=record.commit_message,
-            )
-        except CommitterClientError as exc:
-            self._mark_recovery_conflict(record, _safe_code(exc.code))
-            return
-        if state == "committed" and receipt is not None:
-            record.commit_receipt = receipt
-            record.commit_state = CommitState.COMMITTED
-            if record.publish_manifest is not None:
-                expected = record.publish_manifest.commits[-1]
-                if (
-                    receipt.commit_id != expected.commit_id
-                    or receipt.commit_sha != expected.commit_sha
-                    or receipt.parent_sha != expected.parent_sha
-                    or receipt.message != expected.message
-                    or tuple(sorted(receipt.files)) != expected.files
-                ):
-                    self._mark_recovery_conflict(
-                        record,
-                        "commit_recovery_conflict",
-                    )
-                    return
-        elif state == "undone" and receipt is not None:
-            record.commit_receipt = receipt
-            record.commit_state = CommitState.UNDONE
-        elif state == "not_committed" and record.commit_receipt is None:
-            record.commit_state = CommitState.FAILED
-            record.commit_reason = "commit_not_completed"
-        else:
-            self._mark_recovery_conflict(record, "commit_recovery_conflict")
+        if not commit_reconciled:
+            commit_reconciled = await self._reconcile_recovered_commit(record)
+            if record.state == "conflict":
+                return
+        if not commit_reconciled:
             return
 
         manifest = record.publish_manifest
@@ -2396,6 +2365,62 @@ class CodingService:
         record.publish_reason = None
         record.publish_finished_at = time.time()
         record.state = "published"
+
+    async def _reconcile_recovered_commit(
+        self,
+        record: CodingApiSession,
+    ) -> bool:
+        commit_operation = record.commit_operation_id
+        apply_receipt = record.apply_receipt
+        if (
+            commit_operation is None
+            or apply_receipt is None
+            or record.commit_state is CommitState.NOT_COMMITTED
+            or (
+                record.apply_state is ApplyState.REVERTED
+                and record.commit_state is CommitState.UNDONE
+            )
+        ):
+            return False
+        if self.committer is None or record.commit_message is None:
+            self._mark_recovery_conflict(record, "committer_unavailable")
+            return False
+        try:
+            state, receipt = await self.committer.reconcile(
+                operation_id=commit_operation,
+                apply_receipt=apply_receipt,
+                message=record.commit_message,
+            )
+        except CommitterClientError as exc:
+            self._mark_recovery_conflict(record, _safe_code(exc.code))
+            return False
+        if state == "committed" and receipt is not None:
+            record.commit_receipt = receipt
+            record.commit_state = CommitState.COMMITTED
+            if record.publish_manifest is not None:
+                expected = record.publish_manifest.commits[-1]
+                if (
+                    receipt.commit_id != expected.commit_id
+                    or receipt.commit_sha != expected.commit_sha
+                    or receipt.parent_sha != expected.parent_sha
+                    or receipt.message != expected.message
+                    or tuple(sorted(receipt.files)) != expected.files
+                ):
+                    self._mark_recovery_conflict(
+                        record,
+                        "commit_recovery_conflict",
+                    )
+                    return False
+        elif state == "undone" and receipt is not None:
+            record.commit_receipt = receipt
+            record.commit_state = CommitState.UNDONE
+        elif state == "not_committed" and record.commit_receipt is None:
+            record.commit_state = CommitState.FAILED
+            record.commit_reason = "commit_not_completed"
+        else:
+            self._mark_recovery_conflict(record, "commit_recovery_conflict")
+            return False
+        return True
 
     @staticmethod
     def _mark_recovery_conflict(record: CodingApiSession, reason: str) -> None:
