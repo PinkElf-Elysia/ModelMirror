@@ -2202,6 +2202,12 @@ class CodingService:
             and record.publish_reason == "repository_not_ready"
             and record.publish_receipt is None
         )
+        corrected_base_configuration = (
+            recovery.state is RecoveryState.CONFLICT
+            and record.publish_state is PublishState.CONFLICT
+            and record.publish_reason == "base_branch_changed"
+            and record.publish_receipt is None
+        )
         legacy_apply_reconcile_failure = (
             recovery.state is RecoveryState.CONFLICT
             and record.apply_state is ApplyState.APPLIED
@@ -2210,11 +2216,16 @@ class CodingService:
             and record.commit_reason == "apply_recovery_conflict"
             and record.publish_reason == "apply_recovery_conflict"
         )
-        if legacy_repository_failure or legacy_apply_reconcile_failure:
+        if (
+            legacy_repository_failure
+            or corrected_base_configuration
+            or legacy_apply_reconcile_failure
+        ):
             # v8 initially classified a local Publisher preflight failure as a
             # remote conflict, and an in-process Applier reconciliation as an
-            # application conflict. Preserve both tasks and reconcile again.
-            if legacy_repository_failure:
+            # application conflict. A fixed base may also be corrected by the
+            # deployer. Preserve these tasks and reconcile again without writing.
+            if legacy_repository_failure or corrected_base_configuration:
                 record.publish_state = PublishState.FAILED
             record.apply_reason = None
             record.commit_reason = None

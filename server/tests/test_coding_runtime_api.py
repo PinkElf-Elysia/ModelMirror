@@ -1994,7 +1994,11 @@ async def test_local_publisher_preflight_failure_is_retryable(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "legacy_reason",
-    ["repository_not_ready", "apply_recovery_conflict"],
+    [
+        "repository_not_ready",
+        "base_branch_changed",
+        "apply_recovery_conflict",
+    ],
 )
 async def test_legacy_local_conflict_recovers_as_retryable_failure(
     make_client,
@@ -2045,7 +2049,7 @@ async def test_legacy_local_conflict_recovers_as_retryable_failure(
         )
         await _wait_publish_state(client, session_id, 1, "failed")
         record = service._sessions[session_id]
-        if legacy_reason == "repository_not_ready":
+        if legacy_reason in {"repository_not_ready", "base_branch_changed"}:
             record.publish_state = PublishState.CONFLICT
         else:
             record.apply_reason = legacy_reason
