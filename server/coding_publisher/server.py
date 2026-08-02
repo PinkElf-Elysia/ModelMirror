@@ -201,7 +201,7 @@ def _build_engine() -> CodingPublisherEngine:
         installation_id=_positive_int_env("CODING_GITHUB_INSTALLATION_ID"),
         repository_id=_positive_int_env("CODING_GITHUB_REPOSITORY_ID"),
         repository=_required_env("CODING_GITHUB_REPOSITORY"),
-        base_branch="main",
+        base_branch=_required_env("CODING_GITHUB_BASE_BRANCH", default="main"),
         private_key=PRIVATE_KEY_PATH.read_bytes(),
     )
     return CodingPublisherEngine(
@@ -211,8 +211,8 @@ def _build_engine() -> CodingPublisherEngine:
     )
 
 
-def _required_env(name: str) -> str:
-    value = os.getenv(name, "")
+def _required_env(name: str, *, default: str = "") -> str:
+    value = os.getenv(name, default)
     if not value or value != value.strip() or len(value) > 256:
         raise ValueError(f"{name} is invalid")
     return value

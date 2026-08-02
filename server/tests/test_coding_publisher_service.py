@@ -189,6 +189,9 @@ def test_publish_compose_enforces_socket_and_network_isolation() -> None:
     )
     publisher = compose["services"]["coding-publisher"]
     egress = compose["services"]["coding-github-egress"]
+    assert publisher["environment"]["CODING_GITHUB_BASE_BRANCH"] == (
+        "${CODING_GITHUB_BASE_BRANCH:-main}"
+    )
 
     assert publisher["profiles"] == ["coding-publish"]
     assert publisher["networks"] == ["coding_publish_internal"]

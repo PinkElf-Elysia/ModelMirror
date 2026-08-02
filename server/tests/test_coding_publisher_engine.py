@@ -42,15 +42,30 @@ def _private_key() -> bytes:
     return key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
 
 
-def _config(key: bytes) -> PublisherConfig:
+def _config(key: bytes, *, base_branch: str = "main") -> PublisherConfig:
     return PublisherConfig(
         app_id=731,
         installation_id=1731,
         repository_id=2731,
         repository="PinkElf-Elysia/ModelMirror",
-        base_branch="main",
+        base_branch=base_branch,
         private_key=key,
     )
+
+
+def test_publisher_config_accepts_only_safe_fixed_base_branches() -> None:
+    key = _private_key()
+
+    assert (
+        _config(
+            key,
+            base_branch="codex/coding-github-publish-v8-acceptance-base",
+        ).base_branch
+        == "codex/coding-github-publish-v8-acceptance-base"
+    )
+    for value in ("HEAD", "refs/heads/main", "codex//unsafe", "codex/../main"):
+        with pytest.raises(ValueError, match="base branch"):
+            _config(key, base_branch=value)
 
 
 def _manifest(*, base_sha: str = BASE, head_sha: str = HEAD) -> PublishManifest:

@@ -52,6 +52,23 @@ _SAFE_LOCAL_CONFIG = frozenset(
 _TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_]{20,512}$")
 
 
+def _configured_branch_is_safe(value: object) -> bool:
+    if not isinstance(value, str) or BRANCH_PATTERN.fullmatch(value) is None:
+        return False
+    if (
+        value == "HEAD"
+        or value.startswith("refs/")
+        or ".." in value
+        or "//" in value
+        or "@{" in value
+    ):
+        return False
+    return all(
+        part and not part.startswith(".") and not part.endswith(".lock")
+        for part in value.split("/")
+    )
+
+
 class GitRunner(Protocol):
     def preflight(self, manifest: PublishManifest) -> None: ...
 
@@ -91,7 +108,7 @@ class PublisherConfig:
                 raise ValueError("GitHub App identifier is invalid")
         if not isinstance(self.repository, str) or REPOSITORY_PATTERN.fullmatch(self.repository) is None:
             raise ValueError("GitHub repository is invalid")
-        if self.base_branch != "main":
+        if not _configured_branch_is_safe(self.base_branch):
             raise ValueError("GitHub base branch is invalid")
         if not isinstance(self.private_key, bytes) or len(self.private_key) > 64 * 1024:
             raise ValueError("GitHub App private key is invalid")
