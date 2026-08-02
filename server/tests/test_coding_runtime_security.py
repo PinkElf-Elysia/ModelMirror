@@ -33,6 +33,12 @@ from server.coding_runtime.worker import (
     validate_runtime_dependencies,
 )
 from server.coding_runtime.verifier_client import VerifierClientError
+from server.coding_runtime.verification import (
+    VerificationResult,
+    VerificationState,
+    VerificationStep,
+    VerificationStepId,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -356,6 +362,103 @@ async def test_worker_restores_one_safe_draft_and_rejects_snapshot_drift(
         )
     assert mismatch.value.code == "snapshot_mismatch"
     assert mismatch_server._sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_worker_restores_cumulative_verification_for_incremental_draft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source"
+    (source / "docs").mkdir(parents=True)
+    (source / "server" / "tests").mkdir(parents=True)
+    (source / "docs" / "acceptance.md").write_text("before docs\n", encoding="utf-8")
+    (source / "server" / "tests" / "test_acceptance.py").write_text(
+        "assert 1 == 1\n",
+        encoding="utf-8",
+    )
+    server = CodingWorkerServer(
+        tmp_path / "worker.sock",
+        source_snapshot_path=source,
+        workspace_path=tmp_path / "workspace",
+        checkpoint_path=tmp_path / "checkpoint",
+    )
+    base_patch = """diff --git a/docs/acceptance.md b/docs/acceptance.md
+--- a/docs/acceptance.md
++++ b/docs/acceptance.md
+@@ -1 +1 @@
+-before docs
++after docs
+"""
+    active_patch = """diff --git a/server/tests/test_acceptance.py b/server/tests/test_acceptance.py
+--- a/server/tests/test_acceptance.py
++++ b/server/tests/test_acceptance.py
+@@ -1 +1 @@
+-assert 1 == 1
++assert 7 * 6 == 42
+"""
+    steps = []
+    for step_id in (
+        VerificationStepId.BACKEND_BASELINE_TESTS,
+        VerificationStepId.BACKEND_DRAFT_TESTS,
+        VerificationStepId.FRONTEND_BUILD,
+    ):
+        steps.append(
+            VerificationStep(
+                step_id=step_id,
+                state=VerificationState.COMPLETED,
+                result=VerificationResult.PASSED,
+                duration_ms=731,
+                summary="检查通过",
+                details="随机恢复检查 W9K31 通过",
+            ).to_dict()
+        )
+    verification = {
+        "revision": 2,
+        "state": "completed",
+        "result": "passed",
+        "stale": False,
+        "reason": None,
+        "started_at": 1700000000.0,
+        "finished_at": 1700000001.0,
+        "steps": steps,
+    }
+    adapter = _RestoredSessionAdapter()
+    monkeypatch.setenv("CODING_AGENT_MODE", "draft")
+    monkeypatch.setattr(
+        "server.coding_runtime.worker.create_acp_client",
+        lambda mode: adapter,
+    )
+    writer = _MemoryWriter()
+
+    await server._restore_session(
+        {
+            "revision": 2,
+            "patch": active_patch,
+            "paths": ["server/tests/test_acceptance.py"],
+            "base_patch": base_patch,
+            "base_paths": ["docs/acceptance.md"],
+            "snapshot_fingerprint": server._source_fingerprint,
+            "verification": verification,
+        },
+        writer,
+    )
+
+    response = writer.frames[-1]
+    assert response["recovered"] is True
+    assert server._sessions[response["session_id"]].verification == verification
+    assert response["changes"]["revision"] == 2
+    assert [item["path"] for item in response["changes"]["files"]] == [
+        "server/tests/test_acceptance.py"
+    ]
+    assert (tmp_path / "workspace" / "docs" / "acceptance.md").read_text(
+        encoding="utf-8"
+    ) == "after docs\n"
+    assert (
+        tmp_path / "workspace" / "server" / "tests" / "test_acceptance.py"
+    ).read_text(encoding="utf-8") == "assert 7 * 6 == 42\n"
+    await server.close()
+    assert adapter.closed is True
 
 
 class _DraftTurnAdapter:

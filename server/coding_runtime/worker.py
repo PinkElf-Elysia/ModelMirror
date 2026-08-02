@@ -476,10 +476,11 @@ class CodingWorkerServer:
                 "Coding recovery snapshot does not match the runtime.",
                 code="snapshot_mismatch",
             )
+        verification_paths = sorted(set(base_paths) | set(paths))
         restored_verification = _validate_recovered_verification(
             verification,
             revision=revision,
-            paths=paths,
+            paths=verification_paths,
         )
 
         async with self._sessions_lock:
