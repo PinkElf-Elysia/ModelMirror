@@ -2110,15 +2110,12 @@ class CodingService:
     async def close_applied_session(self, session_id: str) -> dict[str, bool]:
         await self.cleanup_expired()
         record = self._get_session(session_id)
-        is_local = record.project.get("kind") == ProjectKind.LOCAL_CLONE.value
-        if is_local:
-            if record.state in {"running", "cancelling"}:
-                raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
+        if record.state in {"running", "cancelling"}:
+            raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
+        if record.state not in {"applied", "published", "reverted"}:
             changes = await self._current_changes(record)
             if changes["files"]:
                 raise _http_error(status.HTTP_409_CONFLICT, "session_has_draft")
-        elif record.state not in {"applied", "published", "reverted"}:
-            raise _http_error(status.HTTP_409_CONFLICT, "session_not_frozen")
         async with record.apply_lock:
             if record.recovery_id is not None and self.recovery_store is not None:
                 try:

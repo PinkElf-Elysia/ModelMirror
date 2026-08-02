@@ -779,6 +779,39 @@ async def test_session_status_is_content_free_and_missing_is_explicit(
 
 
 @pytest.mark.asyncio
+async def test_empty_builtin_draft_session_can_close_without_apply(make_client) -> None:
+    worker = FakeWorker(mode="draft")
+    worker.current_empty = True
+    client, _, _ = await make_client(worker=worker)
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        closed = await client.post(f"/api/coding/sessions/{session_id}/close")
+        missing = await client.get(f"/api/coding/sessions/{session_id}")
+
+    assert closed.status_code == 200
+    assert closed.json() == {"closed": True}
+    assert worker.closed == [worker.session_id]
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_builtin_draft_session_with_changes_cannot_close(make_client) -> None:
+    worker = FakeWorker(mode="draft")
+    client, _, _ = await make_client(worker=worker)
+    async with client:
+        created = await client.post("/api/coding/sessions")
+        session_id = created.json()["id"]
+        rejected = await client.post(f"/api/coding/sessions/{session_id}/close")
+        current = await client.get(f"/api/coding/sessions/{session_id}")
+
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "session_has_draft"
+    assert worker.closed == []
+    assert current.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_sse_can_resume_after_sequence(make_client) -> None:
     client, _, _ = await make_client()
     async with client:

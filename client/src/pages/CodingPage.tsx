@@ -1695,7 +1695,7 @@ export default function CodingPage() {
             </p>
             {projectSelectionLocked ? (
               <p className="mt-1 text-xs leading-5 text-amber-100/80">
-                当前任务已绑定此项目。请先放弃、结束或处理完现有修改，再选择其他项目。
+                当前任务已绑定此项目。若本轮没有修改，可在下方结束当前任务；否则请先放弃或处理完现有修改。
               </p>
             ) : projectsError ? (
               <p className="mt-1 text-xs leading-5 text-amber-100/80">

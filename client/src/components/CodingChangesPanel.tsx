@@ -7,6 +7,7 @@ import {
   FileDiff,
   FilePlus2,
   LoaderCircle,
+  LogOut,
   RotateCcw,
   Save,
   Trash2,
@@ -64,7 +65,12 @@ interface CodingChangesPanelProps {
   verificationError: string;
 }
 
-type ActionState = "idle" | "checking" | "downloading" | "discarding";
+type ActionState =
+  | "idle"
+  | "checking"
+  | "closing"
+  | "downloading"
+  | "discarding";
 
 type CommitAction = "idle" | "closing" | "committing" | "undoing";
 
@@ -73,7 +79,9 @@ const reviewError: Record<string, string> = {
   validation_failed: "检查尚未通过，请先根据提示修正修改。",
   draft_is_empty: "当前没有可下载的修改。",
   draft_busy: "代码助手仍在处理，请等待本轮结束。",
+  session_has_draft: "当前还有修改草稿，请先放弃或处理完修改。",
   session_not_found: "本次修改草稿已经过期，请重新开始。",
+  turn_in_progress: "代码助手仍在处理，请等待本轮结束。",
   worker_unavailable: "暂时无法读取修改草稿，请稍后重试。",
 };
 
@@ -1077,6 +1085,31 @@ export default function CodingChangesPanel({
           </p>
         </div>
       )}
+
+      {!loading && changes && !hasChanges ? (
+        <div className="border-t border-white/10 px-4 py-4">
+          <p className="text-xs leading-5 text-slate-400">
+            如果不再继续追问，可以结束当前任务并选择其他项目。本次回答不会保存。
+          </p>
+          <button
+            className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled || readOnly || isActing}
+            onClick={() => void runAction("closing", onClose)}
+            type="button"
+          >
+            {action === "closing" ? (
+              <LoaderCircle
+                aria-hidden="true"
+                className="animate-spin motion-reduce:animate-none"
+                size={16}
+              />
+            ) : (
+              <LogOut aria-hidden="true" size={16} />
+            )}
+            结束当前任务
+          </button>
+        </div>
+      ) : null}
 
       {message ? (
         <div
