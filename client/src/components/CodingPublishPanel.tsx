@@ -34,6 +34,14 @@ const publishReasonText: Record<string, string> = {
     "GitHub 项目已更新，这份修改不再基于最新版本。请重新开始一份修改。",
   credential_rejected:
     "GitHub 授权未通过，请由开发者检查应用配置后再试。",
+  github_auth_failed:
+    "GitHub 授权刚才未能完成。本地版本仍安全保留，请稍后按原内容重试。",
+  github_pr_create_failed:
+    "本地版本已保留，但草稿 PR 尚未创建。请稍后按原内容重试。",
+  github_ready_failed:
+    "草稿 PR 已保留，但暂时未能标记为可审阅。请稍后重试。",
+  github_unavailable:
+    "GitHub 暂时没有返回可确认的结果。本地版本仍安全保留，请稍后重试。",
   installation_not_found:
     "GitHub 应用没有安装到约定项目，请由开发者检查配置。",
   invalid_response:
@@ -56,6 +64,8 @@ const publishReasonText: Record<string, string> = {
     "本地版本可能已经上传，但草稿 PR 尚未确认。按原内容重试会继续核对，不会重复上传。",
   publish_not_completed:
     "上次发布没有写入远程内容，可以按原内容安全重试。",
+  publish_result_unknown:
+    "GitHub 正在确认上次操作结果。请稍后按原内容重试，系统不会重复上传。",
   recovery_storage_unavailable:
     "发布结果暂时无法安全保存，请稍后按原内容重试。",
   remote_branch_conflict:
