@@ -273,7 +273,8 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
   固定仓库、基线 SHA、HEAD、线性提交链和系统分支。浏览器与 Agent 不能提供 URL、
   仓库、分支、路径、凭据或 Git 参数。
 - 发布前再次复核本地分支 `coding/local-draft`、干净状态、提交父子链、文件集、回执、
-  GitHub 仓库 ID 与 `main` SHA。`.github/workflows/**`、remote、alternates、Hook、
+  GitHub 仓库 ID 与固定基础分支 SHA。基础分支默认且生产环境必须使用 `main`；
+  `.github/workflows/**`、remote、alternates、Hook、
   credential helper、proxy、URL rewrite、非快进和 force push 全部失败关闭。
 - GitHub App 私钥只读挂载给 Publisher；单仓库安装令牌只申请 Contents/Pull requests
   写入和 Metadata 读取，最长一小时且只驻留内存。Publisher 不能直连公网，只能经
@@ -297,6 +298,7 @@ CODING_AGENT_MODEL=your-new-api-model-id
 CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
 CODING_INCREMENTAL_ENABLED=false
 CODING_GITHUB_PUBLISH_ENABLED=false
+CODING_GITHUB_BASE_BRANCH=main
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
@@ -309,6 +311,11 @@ CODING_GITHUB_PUBLISH_ENABLED=false
 `docker-compose.coding-publish.yml`。App ID、安装 ID、仓库 ID、`owner/repository`
 和私钥绝对路径的完整配置及重建命令见 [DEPLOYMENT.md](./DEPLOYMENT.md)；私钥正文
 和安装令牌不得写入 `.env`、日志、Git 配置或恢复数据库。
+
+实现分支尚未合并时，基于实现 HEAD 创建的验收仓库不可能与 GitHub `main` 精确匹配。
+真实远端验收可由部署者临时把 `CODING_GITHUB_BASE_BRANCH` 固定为一个精确指向任务基线
+SHA 的专用分支；该值不接受浏览器或 Agent 输入，发布仍要求远端 ref 与任务基线完全
+一致。验收后必须恢复为 `main`，临时分支按用户明确授权人工清理。
 
 人工重建命令：
 
