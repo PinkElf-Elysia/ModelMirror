@@ -321,6 +321,10 @@ class VerificationRevisionRequest(BaseModel):
     revision: int = Field(ge=0)
 
 
+class ApplyRequest(VerificationRevisionRequest):
+    confirm_quality_risks: bool = Field(default=False, strict=True)
+
+
 class ApplyRevertRequest(VerificationRevisionRequest):
     apply_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
@@ -517,7 +521,7 @@ class CodingService:
         self._lock = asyncio.Lock()
 
     async def capabilities(self) -> dict[str, Any]:
-        recovery = await self.recovery_status()
+        recovery = await self.recovery_status(check_worker=False)
         response = {
             "enabled": self.enabled,
             "available": False,
@@ -584,7 +588,8 @@ class CodingService:
                 "configured": False,
                 "available": False,
                 "target": "dedicated_worktree",
-                "requires_verification": True,
+                "requires_verification": False,
+                "allows_quality_risk_confirmation": True,
                 "allows_not_applicable": True,
                 "supports_revert": True,
                 "reason": "applier_not_configured",
@@ -631,11 +636,17 @@ class CodingService:
                     worker_verification.get("reason")
                 )
         if self.mode == "draft":
-            apply_capability = await self._apply_capability(health)
+            apply_capability, commit_capability, publish_capability = (
+                await asyncio.gather(
+                    self._apply_capability(health),
+                    self._commit_capability(health),
+                    self._publish_capability(),
+                )
+            )
             response["apply"] = apply_capability
             response["host_apply"] = apply_capability["available"] is True
-            response["commit"] = await self._commit_capability(health)
-            response["publish"] = await self._publish_capability()
+            response["commit"] = commit_capability
+            response["publish"] = publish_capability
             response["incremental"]["available"] = bool(
                 self.incremental_enabled
                 and recovery["available"]
@@ -649,7 +660,11 @@ class CodingService:
         response["available"] = True
         return response
 
-    async def recovery_status(self) -> dict[str, Any]:
+    async def recovery_status(
+        self,
+        *,
+        check_worker: bool = True,
+    ) -> dict[str, Any]:
         retention = (
             self.recovery_store.retention_seconds
             if self.recovery_store is not None
@@ -684,7 +699,7 @@ class CodingService:
         elif self.mode != "draft":
             can_resume = False
             reason = "draft_unavailable"
-        else:
+        elif check_worker:
             try:
                 health = await self.worker.health()
                 fingerprint = health.get("snapshot_fingerprint")
@@ -805,7 +820,7 @@ class CodingService:
         return record
 
     async def resume_recovery(self) -> CodingApiSession:
-        await self._require_available()
+        health = await self._require_available()
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         await self.cleanup_expired()
@@ -813,10 +828,6 @@ class CodingService:
         async with self._lock:
             if self._sessions:
                 raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
-        try:
-            health = await self.worker.health()
-        except CodingWorkerError as exc:
-            raise _worker_http_error(exc) from exc
         if health.get("snapshot_fingerprint") != recovery.snapshot_fingerprint:
             raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
         cumulative_changes = _public_changes(recovery.payload.changes)
@@ -1217,15 +1228,19 @@ class CodingService:
         self,
         session_id: str,
         revision: int,
+        *,
+        confirm_quality_risks: bool = False,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
-            if record.apply_revision == revision and record.apply_state in {
-                ApplyState.APPLIED,
-                ApplyState.REVERTED,
-                ApplyState.FAILED,
-            }:
+            if record.apply_revision == revision and (
+                record.apply_state in {ApplyState.APPLIED, ApplyState.REVERTED}
+                or (
+                    record.apply_state is ApplyState.FAILED
+                    and record.apply_receipt is not None
+                )
+            ):
                 return self._public_apply(record, revision)
             self._require_mutable(record)
             changes = await self._current_changes(record)
@@ -1236,11 +1251,19 @@ class CodingService:
             if (
                 changes["validation_status"] != "passed"
                 or changes["can_download"] is not True
-            ):
+            ) and not confirm_quality_risks:
                 raise _http_error(status.HTTP_409_CONFLICT, "validation_failed")
             verification = await self._current_verification(record, revision)
             paths = [item["path"] for item in changes["files"]]
-            if not _verification_allows_apply(verification, paths):
+            if verification["state"] == "running":
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    "verification_in_progress",
+                )
+            if (
+                not _verification_allows_apply(verification, paths)
+                and not confirm_quality_risks
+            ):
                 raise _http_error(
                     status.HTTP_409_CONFLICT,
                     _verification_apply_reason(verification),
@@ -1252,7 +1275,7 @@ class CodingService:
                 )
             except CodingWorkerError as exc:
                 raise _worker_http_error(exc) from exc
-            operation_id = secrets.token_urlsafe(18)
+            operation_id = record.apply_operation_id or secrets.token_urlsafe(18)
             record.apply_state = ApplyState.APPLYING
             record.apply_revision = revision
             record.apply_operation_id = operation_id
@@ -2382,11 +2405,29 @@ class CodingService:
         record.commit_reason = record.recovery_conflict
         record.publish_reason = record.recovery_conflict
 
-    async def _require_available(self) -> None:
-        capabilities = await self.capabilities()
-        if capabilities["available"] is not True:
-            reason = str(capabilities.get("reason") or "unavailable")
-            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, reason)
+    async def _require_available(self) -> dict[str, Any]:
+        if not self.enabled:
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "disabled")
+        try:
+            health = await self.worker.health()
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        except Exception as exc:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "worker_unavailable",
+            ) from exc
+        if health.get("ok") is not True:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "worker_unavailable",
+            )
+        if health.get("configured") is not True:
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "not_configured")
+        worker_mode = health.get("mode")
+        if worker_mode not in {"readonly", "draft"} or worker_mode != self.mode:
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "mode_mismatch")
+        return health
 
     async def _apply_capability(
         self,
@@ -2396,7 +2437,8 @@ class CodingService:
             "configured": False,
             "available": False,
             "target": "dedicated_worktree",
-            "requires_verification": True,
+            "requires_verification": False,
+            "allows_quality_risk_confirmation": True,
             "allows_not_applicable": True,
             "supports_revert": True,
         }
@@ -3156,11 +3198,15 @@ async def discard_coding_session(session_id: str) -> dict[str, Any]:
 @router.post("/sessions/{session_id}/apply")
 async def apply_coding_session(
     session_id: str,
-    payload: VerificationRevisionRequest,
+    payload: ApplyRequest,
     response: Response,
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    return await get_coding_service().apply(session_id, payload.revision)
+    return await get_coding_service().apply(
+        session_id,
+        payload.revision,
+        confirm_quality_risks=payload.confirm_quality_risks,
+    )
 
 
 @router.get("/sessions/{session_id}/apply")

@@ -229,8 +229,6 @@ class FakeWorker:
         scope: str = "current",
     ) -> str:
         self._require_revision(revision)
-        if not self.validation_passed:
-            raise CodingWorkerError("blocked", code="validation_failed")
         return await self.diff(session_id, self.change_path, revision)
 
     async def checkpoint_cycle(
@@ -957,7 +955,7 @@ async def test_review_rejects_readonly_busy_stale_and_invalid_path(
 
 
 @pytest.mark.asyncio
-async def test_failed_check_keeps_review_but_blocks_patch(make_client) -> None:
+async def test_failed_check_keeps_review_and_allows_patch_download(make_client) -> None:
     worker = FakeWorker(mode="draft", validation_passed=False)
     client, _, _ = await make_client(worker=worker)
     async with client:
@@ -974,8 +972,8 @@ async def test_failed_check_keeps_review_but_blocks_patch(make_client) -> None:
     assert changes.status_code == 200
     assert changes.json()["validation_status"] == "failed"
     assert changes.json()["can_download"] is False
-    assert patch.status_code == 409
-    assert patch.json()["detail"]["code"] == "validation_failed"
+    assert patch.status_code == 200
+    assert patch.headers["content-type"].startswith("text/x-diff")
 
 
 @pytest.mark.asyncio
@@ -1185,7 +1183,8 @@ async def test_controlled_apply_is_gated_idempotent_frozen_and_revertible(
         "configured": True,
         "available": True,
         "target": "dedicated_worktree",
-        "requires_verification": True,
+        "requires_verification": False,
+        "allows_quality_risk_confirmation": True,
         "allows_not_applicable": True,
         "supports_revert": True,
     }
@@ -1213,7 +1212,7 @@ async def test_controlled_apply_is_gated_idempotent_frozen_and_revertible(
 
 
 @pytest.mark.asyncio
-async def test_controlled_apply_rejects_unverified_and_stale_results(
+async def test_controlled_apply_requires_confirmation_for_quality_risks(
     make_client,
 ) -> None:
     worker = FakeWorker(mode="draft")
@@ -1250,6 +1249,21 @@ async def test_controlled_apply_rejects_unverified_and_stale_results(
             f"/api/coding/sessions/{session_id}/apply",
             json={"revision": 1},
         )
+        worker.verification_state = "running"
+        running = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1, "confirm_quality_risks": True},
+        )
+        worker.verification_state = "completed"
+        worker.verification_result = "failed"
+        invalid_confirmation = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1, "confirm_quality_risks": "true"},
+        )
+        confirmed = await client.post(
+            f"/api/coding/sessions/{session_id}/apply",
+            json={"revision": 1, "confirm_quality_risks": True},
+        )
 
     assert not_run.json()["detail"]["code"] == "verification_required"
     assert failed.json()["detail"]["code"] == "verification_failed"
@@ -1258,7 +1272,10 @@ async def test_controlled_apply_rejects_unverified_and_stale_results(
         "dependency_change_unsupported"
     )
     assert validation_failed.json()["detail"]["code"] == "validation_failed"
-    assert applier.apply_calls == []
+    assert running.json()["detail"]["code"] == "verification_in_progress"
+    assert invalid_confirmation.status_code == 422
+    assert confirmed.json()["state"] == "applied"
+    assert len(applier.apply_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -1363,7 +1380,7 @@ async def test_revert_conflict_is_safe_and_does_not_retry(
 
 
 @pytest.mark.asyncio
-async def test_apply_serializes_mutations_and_failed_request_is_idempotent(
+async def test_apply_serializes_mutations_and_retries_same_operation_safely(
     make_client,
 ) -> None:
     worker = FakeWorker(mode="draft")
@@ -1390,6 +1407,7 @@ async def test_apply_serializes_mutations_and_failed_request_is_idempotent(
         )
         applier.release_apply.set()
         failed = await apply_task
+        applier.apply_error = None
         repeated = await client.post(
             f"/api/coding/sessions/{session_id}/apply",
             json={"revision": 1},
@@ -1401,9 +1419,12 @@ async def test_apply_serializes_mutations_and_failed_request_is_idempotent(
     assert failed.json()["detail"]["code"] == "target_changed"
     assert failed.headers["cache-control"] == "no-store"
     assert repeated.status_code == 200
-    assert repeated.json()["state"] == "failed"
-    assert repeated.json()["reason"] == "target_changed"
-    assert len(applier.apply_calls) == 1
+    assert repeated.json()["state"] == "applied"
+    assert len(applier.apply_calls) == 2
+    assert (
+        applier.apply_calls[0]["operation_id"]
+        == applier.apply_calls[1]["operation_id"]
+    )
 
 
 @pytest.mark.asyncio
