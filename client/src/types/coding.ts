@@ -9,6 +9,45 @@ export type CodingEventType =
   | "cancelled"
   | "heartbeat";
 
+export type CodingProjectKind = "builtin" | "local_clone";
+
+export interface CodingProjectFeatures {
+  apply: boolean;
+  chat: boolean;
+  commit: boolean;
+  diff: boolean;
+  download: boolean;
+  draft: boolean;
+  publish: boolean;
+  recovery: boolean;
+  verification: boolean;
+}
+
+export interface CodingProjectSummary {
+  branch: string | null;
+  features: CodingProjectFeatures;
+  head: string | null;
+  id: string;
+  kind: CodingProjectKind;
+  name: string;
+  reason: string | null;
+  state: "available" | "unavailable";
+}
+
+export interface CodingProjectsStatus {
+  available: boolean;
+  configured: boolean;
+  default_project_id: "modelmirror";
+  enabled: boolean;
+  max_projects: number;
+  reason?: string;
+  selection: true;
+}
+
+export interface CodingProjectsResponse extends CodingProjectsStatus {
+  projects: CodingProjectSummary[];
+}
+
 export interface CodingCapabilities {
   available: boolean;
   enabled: boolean;
@@ -21,6 +60,7 @@ export interface CodingCapabilities {
     max_patch_bytes?: number;
   };
   mode: "readonly" | "draft";
+  projects: CodingProjectsStatus;
   host_apply?: boolean;
   apply?: {
     allows_not_applicable: true;
@@ -92,6 +132,7 @@ export interface CodingEventData {
   code?: string;
   entries?: CodingPlanEntry[];
   kind?: string;
+  project?: CodingProjectSummary;
   status?: string;
   stop_reason?: string;
   text?: string;
@@ -110,6 +151,7 @@ export interface CodingEvent {
 
 export interface CodingSessionResponse {
   id: string;
+  project: CodingProjectSummary;
   status: string;
 }
 
@@ -129,6 +171,7 @@ export interface CodingRecoveryStatus {
   expires_at?: number;
   file_count?: number;
   pending: boolean;
+  project?: CodingProjectSummary | null;
   reason?: string | null;
   restores_conversation: false;
   retention_seconds: number;
@@ -141,6 +184,7 @@ export interface CodingRecoveryResumeResponse {
   conflict: string | null;
   conversation_restored: false;
   id: string;
+  project: CodingProjectSummary;
   status: string;
 }
 

@@ -56,6 +56,17 @@ from .publisher_client import (
     CodingPublisherClient,
     PublisherClientError,
 )
+from .project_source_client import (
+    CodingProjectSourceClient,
+    ProjectSourceClientError,
+)
+from .projects import (
+    MAX_PROJECTS,
+    ProjectFeatures,
+    ProjectKind,
+    ProjectState,
+    ProjectSummary,
+)
 from .publish_models import (
     MAX_PR_BODY_CHARS,
     MAX_PR_TITLE_CHARS,
@@ -74,6 +85,7 @@ from .recovery import (
     CodingRecoveryError,
     CodingRecoveryStore,
     RecoveryPayload,
+    RecoveryProjectContext,
     RecoveryRecord,
     RecoveryState,
 )
@@ -110,7 +122,10 @@ SAFE_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
 class WorkerClient(Protocol):
     async def health(self) -> dict[str, Any]: ...
 
-    async def create_session(self) -> dict[str, Any]: ...
+    async def create_session(
+        self,
+        source: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
 
     async def restore_session(
         self,
@@ -120,6 +135,7 @@ class WorkerClient(Protocol):
         paths: list[str],
         snapshot_fingerprint: str,
         verification: dict[str, Any] | None = None,
+        source: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
     async def recovery_snapshot(self, session_id: str) -> dict[str, Any]: ...
@@ -236,6 +252,34 @@ class PublisherClient(Protocol):
         manifest: PublishManifest,
         receipt: PublishReceipt,
     ) -> PublishReceipt: ...
+
+
+class ProjectSourceClient(Protocol):
+    async def health(self) -> dict[str, Any]: ...
+
+    async def list_projects(self) -> list[dict[str, Any]]: ...
+
+    async def check(self, project_id: str, expected_head: str) -> dict[str, Any]: ...
+
+    async def acquire(
+        self,
+        project_id: str,
+        *,
+        expected_head: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def release(self, project_id: str, lease_id: str) -> bool: ...
+
+
+class CodingSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(
+        default="modelmirror",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
 
 
 class CodingTurnRequest(BaseModel):
@@ -434,6 +478,10 @@ class VerificationPayload(BaseModel):
 class CodingApiSession:
     session_id: str
     worker_session_id: str
+    project: dict[str, Any] = field(
+        default_factory=lambda: ProjectSummary.builtin().to_public_dict()
+    )
+    project_source: dict[str, Any] | None = None
     state: str = "ready"
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -485,6 +533,9 @@ class CodingService:
         applier: ApplierClient | None = None,
         committer: CommitterClient | None = None,
         publisher: PublisherClient | None = None,
+        project_source: ProjectSourceClient | None = None,
+        projects_enabled: bool | None = None,
+        projects_reason: str | None = None,
         recovery_store: CodingRecoveryStore | None = None,
         recovery_enabled: bool = False,
         recovery_reason: str | None = None,
@@ -498,6 +549,14 @@ class CodingService:
         self.applier = applier
         self.committer = committer
         self.publisher = publisher
+        self.project_source = project_source
+        self.projects_enabled = (
+            os.getenv("CODING_PROJECTS_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"}
+            if projects_enabled is None
+            else projects_enabled
+        )
+        self.projects_reason = projects_reason
         self.recovery_store = recovery_store
         self.recovery_enabled = recovery_enabled
         self.recovery_reason = recovery_reason
@@ -519,14 +578,19 @@ class CodingService:
         )
         self._sessions: dict[str, CodingApiSession] = {}
         self._lock = asyncio.Lock()
+        self._create_lock = asyncio.Lock()
 
     async def capabilities(self) -> dict[str, Any]:
-        recovery = await self.recovery_status(check_worker=False)
+        recovery, projects = await asyncio.gather(
+            self.recovery_status(check_worker=False),
+            self._projects_capability(),
+        )
         response = {
             "enabled": self.enabled,
             "available": False,
             "mode": self.mode,
             "workspace": "ModelMirror",
+            "projects": projects,
             "limits": {
                 "max_prompt_chars": MAX_PROMPT_CHARS,
                 "max_concurrency": 1,
@@ -660,6 +724,65 @@ class CodingService:
         response["available"] = True
         return response
 
+    async def project_catalog(self) -> dict[str, Any]:
+        builtin = ProjectSummary.builtin().to_public_dict()
+        capability = await self._projects_capability()
+        projects = [builtin]
+        if capability["available"] is True and self.project_source is not None:
+            try:
+                projects.extend(await self.project_source.list_projects())
+                self.projects_reason = None
+            except ProjectSourceClientError as exc:
+                capability = {
+                    **capability,
+                    "available": False,
+                    "reason": _safe_code(exc.code),
+                }
+                self.projects_reason = _safe_code(exc.code)
+            except Exception:
+                capability = {
+                    **capability,
+                    "available": False,
+                    "reason": "project_source_unavailable",
+                }
+                self.projects_reason = "project_source_unavailable"
+        return {**capability, "projects": projects}
+
+    async def _projects_capability(self) -> dict[str, Any]:
+        capability: dict[str, Any] = {
+            "enabled": self.projects_enabled,
+            "configured": False,
+            "available": False,
+            "selection": True,
+            "default_project_id": "modelmirror",
+            "max_projects": MAX_PROJECTS,
+        }
+        if not self.projects_enabled:
+            return {**capability, "reason": "projects_disabled"}
+        if self.project_source is None:
+            return {
+                **capability,
+                "reason": self.projects_reason or "project_source_not_configured",
+            }
+        try:
+            health = await self.project_source.health()
+        except ProjectSourceClientError as exc:
+            self.projects_reason = _safe_code(exc.code)
+            return {**capability, "reason": self.projects_reason}
+        except Exception:
+            self.projects_reason = "project_source_unavailable"
+            return {**capability, "reason": self.projects_reason}
+        configured = health.get("configured") is True
+        response = {**capability, "configured": configured}
+        if not configured or health.get("available") is not True:
+            reason = _safe_code(
+                health.get("reason") or "project_source_not_configured"
+            )
+            self.projects_reason = reason
+            return {**response, "reason": reason}
+        self.projects_reason = None
+        return {**response, "available": True}
+
     async def recovery_status(
         self,
         *,
@@ -691,6 +814,18 @@ class CodingService:
             if self.recovery_reason is not None:
                 return {**base, "available": False, "reason": self.recovery_reason}
             return base
+        try:
+            project = await self._load_recovery_project_context(record)
+        except HTTPException:
+            return {
+                **base,
+                **record.to_public(
+                    can_resume=False,
+                    reason=self.recovery_reason or "recovery_data_corrupt",
+                ),
+                "available": False,
+                "project": None,
+            }
         can_resume = self.enabled and self.mode == "draft"
         reason: str | None = None
         if not self.enabled:
@@ -699,6 +834,11 @@ class CodingService:
         elif self.mode != "draft":
             can_resume = False
             reason = "draft_unavailable"
+        elif project.kind is ProjectKind.LOCAL_CLONE and (
+            not self.projects_enabled or self.project_source is None
+        ):
+            can_resume = False
+            reason = "project_source_unavailable"
         elif check_worker:
             try:
                 health = await self.worker.health()
@@ -706,7 +846,10 @@ class CodingService:
                 if (
                     health.get("ok") is not True
                     or health.get("configured") is not True
-                    or fingerprint != record.snapshot_fingerprint
+                    or (
+                        project.kind is ProjectKind.BUILTIN
+                        and fingerprint != record.snapshot_fingerprint
+                    )
                 ):
                     can_resume = False
                     reason = (
@@ -714,12 +857,19 @@ class CodingService:
                         if isinstance(fingerprint, str)
                         else "worker_unavailable"
                     )
+                elif project.kind is ProjectKind.LOCAL_CLONE:
+                    assert self.project_source is not None and project.head is not None
+                    await self.project_source.check(project.project_id, project.head)
+            except ProjectSourceClientError as exc:
+                can_resume = False
+                reason = _safe_code(exc.code)
             except Exception:
                 can_resume = False
                 reason = "worker_unavailable"
         return {
             **base,
             **record.to_public(can_resume=can_resume, reason=reason),
+            "project": project.to_public(),
         }
 
     async def recovery_patch(self) -> tuple[int, str]:
@@ -754,70 +904,116 @@ class CodingService:
         if not discarded:
             raise _http_error(status.HTTP_409_CONFLICT, "recovery_changed")
         if conflict_record is not None:
-            with contextlib.suppress(Exception):
-                await self.worker.close(conflict_record.worker_session_id)
+            await self._close_worker_and_release(conflict_record, required=False)
             async with self._lock:
                 self._sessions.pop(conflict_record.session_id, None)
         return {"discarded": True}
 
-    async def create_session(self) -> CodingApiSession:
-        await self._require_available()
-        await self.cleanup_expired()
-        if await self._load_recovery_record() is not None:
-            raise _http_error(status.HTTP_409_CONFLICT, "recovery_pending")
-        async with self._lock:
-            if any(record.state in ACTIVE_STATES for record in self._sessions.values()):
-                raise _http_error(
-                    status.HTTP_409_CONFLICT,
-                    "concurrency_limit",
+    async def create_session(
+        self,
+        project_id: str = "modelmirror",
+    ) -> CodingApiSession:
+        async with self._create_lock:
+            await self._require_available()
+            await self.cleanup_expired()
+            if await self._load_recovery_record() is not None:
+                raise _http_error(status.HTTP_409_CONFLICT, "recovery_pending")
+            async with self._lock:
+                if any(
+                    record.state in ACTIVE_STATES
+                    for record in self._sessions.values()
+                ):
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "concurrency_limit",
+                    )
+            source: dict[str, Any] | None = None
+            if project_id != "modelmirror":
+                if not self.projects_enabled or self.project_source is None:
+                    raise _http_error(
+                        status.HTTP_503_SERVICE_UNAVAILABLE,
+                        "project_source_unavailable",
+                    )
+                try:
+                    source = await self.project_source.acquire(project_id)
+                except ProjectSourceClientError as exc:
+                    raise _project_source_http_error(exc) from exc
+            try:
+                result = (
+                    await self.worker.create_session(source)
+                    if source is not None
+                    else await self.worker.create_session()
                 )
-        try:
-            result = await self.worker.create_session()
-        except CodingWorkerError as exc:
-            raise _worker_http_error(exc) from exc
-        session_id = result.get("session_id")
-        worker_mode = result.get("mode")
-        event_data = result.get("event")
-        if (
-            not isinstance(session_id, str)
-            or not SAFE_IDENTIFIER.fullmatch(session_id)
-            or worker_mode != self.mode
-            or not isinstance(event_data, dict)
-        ):
-            if isinstance(session_id, str) and session_id:
-                with contextlib.suppress(Exception):
-                    await self.worker.close(session_id)
-            raise _http_error(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "invalid_worker_response",
-            )
-        record = CodingApiSession(
-            session_id=session_id,
-            worker_session_id=session_id,
-        )
-        initial = _event_from_payload(event_data)
-        if (
-            initial.kind is not CodingEventKind.SESSION_STARTED
-            or initial.seq != 1
-            or initial.session_id != session_id
-        ):
-            with contextlib.suppress(Exception):
-                await self.worker.close(session_id)
-            raise _http_error(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "invalid_worker_response",
-            )
-        await self._append_event(record, initial)
-        async with self._lock:
-            if any(existing.state in ACTIVE_STATES for existing in self._sessions.values()):
-                with contextlib.suppress(Exception):
-                    await self.worker.close(session_id)
-                raise _http_error(
-                    status.HTTP_409_CONFLICT,
-                    "concurrency_limit",
+            except CodingWorkerError as exc:
+                await self._release_project_source(source)
+                raise _worker_http_error(exc) from exc
+            except Exception:
+                await self._release_project_source(source)
+                raise
+            session_id = result.get("session_id")
+            worker_mode = result.get("mode")
+            event_data = result.get("event")
+            project = _project_from_source(source)
+            if (
+                not isinstance(session_id, str)
+                or not SAFE_IDENTIFIER.fullmatch(session_id)
+                or worker_mode != self.mode
+                or not isinstance(event_data, dict)
+                or (
+                    source is not None
+                    and not _worker_project_matches(result.get("project"), project)
                 )
-            self._sessions[session_id] = record
-        return record
+            ):
+                if isinstance(session_id, str) and session_id:
+                    await self._close_worker_session_and_release(
+                        session_id,
+                        source,
+                        required=False,
+                    )
+                else:
+                    await self._release_project_source(source)
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "invalid_worker_response",
+                )
+            record = CodingApiSession(
+                session_id=session_id,
+                worker_session_id=session_id,
+                project=project,
+                project_source=source,
+            )
+            initial = _event_from_payload(event_data)
+            if (
+                initial.kind is not CodingEventKind.SESSION_STARTED
+                or initial.seq != 1
+                or initial.session_id != session_id
+            ):
+                await self._close_worker_session_and_release(
+                    session_id,
+                    source,
+                    required=False,
+                )
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "invalid_worker_response",
+                )
+            await self._append_event(record, initial)
+            async with self._lock:
+                if any(
+                    existing.state in ACTIVE_STATES
+                    for existing in self._sessions.values()
+                ):
+                    await self._close_worker_session_and_release(
+                        session_id,
+                        source,
+                        required=False,
+                    )
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "concurrency_limit",
+                    )
+                self._sessions[session_id] = record
+            return record
 
     async def resume_recovery(self) -> CodingApiSession:
         health = await self._require_available()
@@ -825,11 +1021,32 @@ class CodingService:
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         await self.cleanup_expired()
         recovery = await self._require_recovery_record()
+        project_context = await self._load_recovery_project_context(recovery)
         async with self._lock:
             if self._sessions:
                 raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
-        if health.get("snapshot_fingerprint") != recovery.snapshot_fingerprint:
+        source: dict[str, Any] | None = None
+        if project_context.kind is ProjectKind.BUILTIN and (
+            health.get("snapshot_fingerprint") != recovery.snapshot_fingerprint
+        ):
             raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
+        if project_context.kind is ProjectKind.LOCAL_CLONE:
+            if (
+                not self.projects_enabled
+                or self.project_source is None
+                or project_context.head is None
+            ):
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "project_source_unavailable",
+                )
+            try:
+                source = await self.project_source.acquire(
+                    project_context.project_id,
+                    expected_head=project_context.head,
+                )
+            except ProjectSourceClientError as exc:
+                raise _project_source_http_error(exc) from exc
         cumulative_changes = _public_changes(recovery.payload.changes)
         active_changes = (
             _public_changes(recovery.payload.active_changes)
@@ -850,18 +1067,40 @@ class CodingService:
             if recovery.payload.verification is not None
             else None
         )
-        try:
-            result = await self.worker.restore_session(
-                revision=recovery.revision,
-                patch=active_patch,
-                paths=paths,
-                base_patch=recovery.payload.base_patch,
-                base_paths=base_paths,
-                snapshot_fingerprint=recovery.snapshot_fingerprint,
-                verification=verification,
+        if project_context.kind is ProjectKind.LOCAL_CLONE and any(
+            item is not None
+            for item in (
+                recovery.payload.verification,
+                recovery.payload.apply,
+                recovery.payload.commit,
+                recovery.payload.operation,
+                recovery.payload.publish,
             )
+        ):
+            await self._release_project_source(source)
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "recovery_data_corrupt",
+            )
+        try:
+            restore_arguments: dict[str, Any] = {
+                "revision": recovery.revision,
+                "patch": active_patch,
+                "paths": paths,
+                "base_patch": recovery.payload.base_patch,
+                "base_paths": base_paths,
+                "snapshot_fingerprint": recovery.snapshot_fingerprint,
+                "verification": verification,
+            }
+            if source is not None:
+                restore_arguments["source"] = source
+            result = await self.worker.restore_session(**restore_arguments)
         except CodingWorkerError as exc:
+            await self._release_project_source(source)
             raise _worker_http_error(exc) from exc
+        except Exception:
+            await self._release_project_source(source)
+            raise
         session_id = result.get("session_id")
         event_data = result.get("event")
         restored_changes = result.get("changes")
@@ -870,6 +1109,13 @@ class CodingService:
             or SAFE_IDENTIFIER.fullmatch(session_id) is None
             or result.get("mode") != self.mode
             or not isinstance(event_data, dict)
+            or (
+                source is not None
+                and not _worker_project_matches(
+                    result.get("project"),
+                    project_context.to_public(),
+                )
+            )
             or (
                 active_changes is not None
                 and _public_changes(restored_changes) != active_changes
@@ -880,8 +1126,13 @@ class CodingService:
             )
         ):
             if isinstance(session_id, str) and session_id:
-                with contextlib.suppress(Exception):
-                    await self.worker.close(session_id)
+                await self._close_worker_session_and_release(
+                    session_id,
+                    source,
+                    required=False,
+                )
+            else:
+                await self._release_project_source(source)
             raise _http_error(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "invalid_worker_response",
@@ -889,6 +1140,8 @@ class CodingService:
         record = CodingApiSession(
             session_id=session_id,
             worker_session_id=session_id,
+            project=project_context.to_public(),
+            project_source=source,
             recovery_id=recovery.recovery_id,
             recovery_created_at=recovery.created_at,
             cycle_number=len(recovery.payload.cycles) + 1,
@@ -900,30 +1153,40 @@ class CodingService:
             or initial.seq != 1
             or initial.session_id != session_id
         ):
-            with contextlib.suppress(Exception):
-                await self.worker.close(session_id)
+            await self._close_worker_session_and_release(
+                session_id,
+                source,
+                required=False,
+            )
             raise _http_error(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "invalid_worker_response",
             )
         await self._append_event(record, initial)
         try:
-            self._hydrate_recovered_session(record, recovery)
-            await self._reconcile_recovered_operations(
-                record,
-                active_patch,
-                paths,
-                recovery.snapshot_fingerprint,
-            )
+            if project_context.kind is ProjectKind.BUILTIN:
+                self._hydrate_recovered_session(record, recovery)
+                await self._reconcile_recovered_operations(
+                    record,
+                    active_patch,
+                    paths,
+                    recovery.snapshot_fingerprint,
+                )
             await self._persist_recovery(record, required=True)
         except Exception:
-            with contextlib.suppress(Exception):
-                await self.worker.close(session_id)
+            await self._close_worker_session_and_release(
+                session_id,
+                source,
+                required=False,
+            )
             raise
         async with self._lock:
             if self._sessions:
-                with contextlib.suppress(Exception):
-                    await self.worker.close(session_id)
+                await self._close_worker_session_and_release(
+                    session_id,
+                    source,
+                    required=False,
+                )
                 raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
             self._sessions[session_id] = record
         return record
@@ -945,10 +1208,13 @@ class CodingService:
             record.turn_task = asyncio.create_task(self._run_turn(record, prompt))
         return record
 
-    async def session_status(self, session_id: str) -> dict[str, str]:
+    async def session_status(self, session_id: str) -> dict[str, Any]:
         await self.cleanup_expired()
         record = self._get_session(session_id)
-        return {"state": record.state}
+        response: dict[str, Any] = {"state": record.state}
+        if not self._is_builtin_project(record):
+            response["project"] = record.project
+        return response
 
     async def cancel(self, session_id: str) -> bool:
         await self.cleanup_expired()
@@ -1028,6 +1294,7 @@ class CodingService:
             "max_cycles": MAX_INCREMENTAL_CYCLES,
             "can_continue": bool(
                 self.incremental_enabled
+                and self._is_builtin_project(record)
                 and latest_commit is not None
                 and record.cycle_number < MAX_INCREMENTAL_CYCLES
                 and record.recovery_conflict is None
@@ -1044,6 +1311,7 @@ class CodingService:
         commit_id: str,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
+        self._require_builtin_project(record)
         async with record.apply_lock:
             if record.publish_manifest is not None:
                 raise _http_error(status.HTTP_409_CONFLICT, "session_published")
@@ -1161,6 +1429,7 @@ class CodingService:
         revision: int,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
+        self._require_builtin_project(record)
         if record.apply_lock.locked():
             raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
         async with record.apply_lock:
@@ -1185,6 +1454,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
+        self._require_builtin_project(record)
         try:
             payload = await self.worker.verification_status(
                 record.worker_session_id,
@@ -1207,6 +1477,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
+        self._require_builtin_project(record)
         if record.apply_lock.locked():
             raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
         async with record.apply_lock:
@@ -1232,6 +1503,7 @@ class CodingService:
         confirm_quality_risks: bool = False,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
+        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             if record.apply_revision == revision and (
@@ -1339,6 +1611,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
+        self._require_builtin_project(record)
         return self._public_apply(record, revision)
 
     async def commit(
@@ -1352,6 +1625,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
+        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             if record.publish_manifest is not None:
@@ -1455,7 +1729,9 @@ class CodingService:
         await self.cleanup_expired()
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
-        return self._public_commit(self._get_session(session_id), revision)
+        record = self._get_session(session_id)
+        self._require_builtin_project(record)
+        return self._public_commit(record, revision)
 
     async def publish(
         self,
@@ -1466,6 +1742,7 @@ class CodingService:
         body: str,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
+        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             existing = record.publish_manifest
@@ -1536,7 +1813,9 @@ class CodingService:
         await self.cleanup_expired()
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
-        return self._public_publish(self._get_session(session_id), revision)
+        record = self._get_session(session_id)
+        self._require_builtin_project(record)
+        return self._public_publish(record, revision)
 
     async def mark_publish_ready(
         self,
@@ -1546,6 +1825,7 @@ class CodingService:
     ) -> dict[str, Any]:
         await self.cleanup_expired()
         record = self._get_session(session_id)
+        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             manifest = record.publish_manifest
@@ -1706,6 +1986,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
+        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             if record.publish_manifest is not None:
@@ -1767,6 +2048,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
+        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             receipt = record.apply_receipt
@@ -1828,8 +2110,12 @@ class CodingService:
     async def close_applied_session(self, session_id: str) -> dict[str, bool]:
         await self.cleanup_expired()
         record = self._get_session(session_id)
+        if record.state in {"running", "cancelling"}:
+            raise _http_error(status.HTTP_409_CONFLICT, "turn_in_progress")
         if record.state not in {"applied", "published", "reverted"}:
-            raise _http_error(status.HTTP_409_CONFLICT, "session_not_frozen")
+            changes = await self._current_changes(record)
+            if changes["files"]:
+                raise _http_error(status.HTTP_409_CONFLICT, "session_has_draft")
         async with record.apply_lock:
             if record.recovery_id is not None and self.recovery_store is not None:
                 try:
@@ -1844,10 +2130,7 @@ class CodingService:
                         status.HTTP_409_CONFLICT,
                         "recovery_changed",
                     )
-            try:
-                await self.worker.close(record.worker_session_id)
-            except CodingWorkerError as exc:
-                raise _worker_http_error(exc) from exc
+            await self._close_worker_and_release(record, required=True)
             async with self._lock:
                 self._sessions.pop(record.session_id, None)
         return {"closed": True}
@@ -1905,8 +2188,7 @@ class CodingService:
                 self._sessions.pop(record.session_id, None)
         for record in expired:
             await self._persist_recovery(record, required=False)
-            with contextlib.suppress(Exception):
-                await self.worker.close(record.worker_session_id)
+            await self._close_worker_and_release(record, required=False)
         return len(expired)
 
     async def shutdown(self) -> None:
@@ -1926,8 +2208,7 @@ class CodingService:
                     with contextlib.suppress(asyncio.CancelledError):
                         await record.publish_task
                 await self._persist_recovery(record, required=False)
-                with contextlib.suppress(Exception):
-                    await self.worker.close(record.worker_session_id)
+                await self._close_worker_and_release(record, required=False)
 
     async def _run_turn(self, record: CodingApiSession, prompt: str) -> None:
         try:
@@ -2065,6 +2346,11 @@ class CodingService:
                     "Coding recovery snapshot is inconsistent.",
                     code="recovery_snapshot_invalid",
                 )
+            if not _worker_project_matches(snapshot.get("project"), record.project):
+                raise CodingRecoveryError(
+                    "Coding recovery project is inconsistent.",
+                    code="recovery_snapshot_invalid",
+                )
             raw_verification = snapshot.get("verification")
             verification = (
                 _verification_from_worker({"verification": raw_verification})
@@ -2075,11 +2361,27 @@ class CodingService:
             payload = RecoveryPayload(
                 patch=cumulative_patch,
                 changes=cumulative_changes,
-                verification=verification,
-                apply=_apply_storage_payload(record),
-                commit=_commit_storage_payload(record),
-                operation=_operation_storage_payload(record),
-                publish=_publish_storage_payload(record),
+                verification=(verification if self._is_builtin_project(record) else None),
+                apply=(
+                    _apply_storage_payload(record)
+                    if self._is_builtin_project(record)
+                    else None
+                ),
+                commit=(
+                    _commit_storage_payload(record)
+                    if self._is_builtin_project(record)
+                    else None
+                ),
+                operation=(
+                    _operation_storage_payload(record)
+                    if self._is_builtin_project(record)
+                    else None
+                ),
+                publish=(
+                    _publish_storage_payload(record)
+                    if self._is_builtin_project(record)
+                    else None
+                ),
                 base_patch=base_patch,
                 base_changes=(
                     {"paths": _diff_paths(base_patch)} if base_patch else None
@@ -2096,7 +2398,12 @@ class CodingService:
                 payload=payload,
                 created_at=record.recovery_created_at,
             )
-            await asyncio.to_thread(self.recovery_store.save, recovery)
+            project_context = _recovery_project_context(record, recovery_id)
+            await asyncio.to_thread(
+                self.recovery_store.save,
+                recovery,
+                project_context,
+            )
             record.recovery_id = recovery.recovery_id
             record.recovery_created_at = recovery.created_at
             self.recovery_reason = None
@@ -2140,6 +2447,104 @@ class CodingService:
             return None
         self.recovery_reason = None
         return record
+
+    async def _load_recovery_project_context(
+        self,
+        record: RecoveryRecord,
+    ) -> RecoveryProjectContext:
+        if self.recovery_store is None:
+            return RecoveryProjectContext.builtin(record.recovery_id)
+        try:
+            context = await asyncio.to_thread(
+                self.recovery_store.load_project_context,
+                record.recovery_id,
+            )
+        except CodingRecoveryError as exc:
+            self.recovery_reason = _safe_code(exc.code)
+            raise _recovery_http_error(exc) from exc
+        return context or RecoveryProjectContext.builtin(record.recovery_id)
+
+    async def _release_project_source(
+        self,
+        source: dict[str, Any] | None,
+    ) -> bool:
+        if source is None or source.get("kind") != ProjectKind.LOCAL_CLONE.value:
+            return True
+        if self.project_source is None:
+            self.projects_reason = "project_source_unavailable"
+            return False
+        project_id = source.get("project_id")
+        lease_id = source.get("lease_id")
+        if not isinstance(project_id, str) or not isinstance(lease_id, str):
+            self.projects_reason = "invalid_project_source_response"
+            return False
+        try:
+            released = await self.project_source.release(project_id, lease_id)
+        except ProjectSourceClientError as exc:
+            self.projects_reason = _safe_code(exc.code)
+            return False
+        except Exception:
+            self.projects_reason = "project_source_unavailable"
+            return False
+        if not released:
+            self.projects_reason = "project_lease_changed"
+            return False
+        self.projects_reason = None
+        return True
+
+    async def _close_worker_and_release(
+        self,
+        record: CodingApiSession,
+        *,
+        required: bool,
+    ) -> bool:
+        released = await self._close_worker_session_and_release(
+            record.worker_session_id,
+            record.project_source,
+            required=required,
+        )
+        if released:
+            record.project_source = None
+        return released
+
+    async def _close_worker_session_and_release(
+        self,
+        worker_session_id: str,
+        source: dict[str, Any] | None,
+        *,
+        required: bool,
+    ) -> bool:
+        try:
+            await self.worker.close(worker_session_id)
+        except CodingWorkerError as exc:
+            if required:
+                raise _worker_http_error(exc) from exc
+            return False
+        except Exception:
+            if required:
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "worker_unavailable",
+                )
+            return False
+        released = await self._release_project_source(source)
+        if required and not released:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                self.projects_reason or "project_source_unavailable",
+            )
+        return released
+
+    @staticmethod
+    def _is_builtin_project(record: CodingApiSession) -> bool:
+        return record.project.get("kind") == ProjectKind.BUILTIN.value
+
+    def _require_builtin_project(self, record: CodingApiSession) -> None:
+        if not self._is_builtin_project(record):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "project_operation_unavailable",
+            )
 
     async def _require_recovery_record(self) -> RecoveryRecord:
         if not self.recovery_enabled or self.recovery_store is None:
@@ -2882,7 +3287,7 @@ class CodingService:
         self,
         record: CodingApiSession,
     ) -> None:
-        if self.mode != "draft":
+        if self.mode != "draft" or not self._is_builtin_project(record):
             return
         try:
             changes = _public_changes(
@@ -2944,6 +3349,14 @@ def get_coding_service() -> CodingService:
             "CODING_PUBLISHER_SOCKET_PATH",
             "/run/modelmirror-coding-publish/publisher.sock",
         )
+        projects_enabled = os.getenv(
+            "CODING_PROJECTS_ENABLED",
+            "false",
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        project_source_socket_path = os.getenv(
+            "CODING_PROJECT_SOURCE_SOCKET_PATH",
+            "/run/modelmirror-coding-projects/source.sock",
+        )
         recovery_enabled = os.getenv(
             "CODING_RECOVERY_ENABLED",
             "false",
@@ -2985,6 +3398,12 @@ def get_coding_service() -> CodingService:
             applier=CodingApplierClient(Path(applier_socket_path)),
             committer=CodingCommitterClient(Path(committer_socket_path)),
             publisher=CodingPublisherClient(Path(publisher_socket_path)),
+            project_source=(
+                CodingProjectSourceClient(Path(project_source_socket_path))
+                if projects_enabled
+                else None
+            ),
+            projects_enabled=projects_enabled,
             recovery_store=recovery_store,
             recovery_enabled=recovery_enabled,
             recovery_reason=recovery_reason,
@@ -3014,6 +3433,12 @@ async def coding_capabilities(response: Response) -> dict[str, Any]:
     return await get_coding_service().capabilities()
 
 
+@router.get("/projects")
+async def coding_projects(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().project_catalog()
+
+
 @router.get("/recovery")
 async def coding_recovery_status(response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -3027,6 +3452,7 @@ async def resume_coding_recovery(response: Response) -> dict[str, Any]:
     return {
         "id": record.session_id,
         "status": record.state,
+        "project": record.project,
         "conversation_restored": False,
         "conflict": record.recovery_conflict,
     }
@@ -3055,9 +3481,17 @@ async def download_coding_recovery_patch() -> Response:
 
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
-async def create_coding_session() -> dict[str, Any]:
-    record = await get_coding_service().create_session()
-    return {"id": record.session_id, "status": record.state}
+async def create_coding_session(
+    payload: CodingSessionRequest | None = None,
+) -> dict[str, Any]:
+    record = await get_coding_service().create_session(
+        payload.project_id if payload is not None else "modelmirror"
+    )
+    return {
+        "id": record.session_id,
+        "status": record.state,
+        "project": record.project,
+    }
 
 
 @router.post(
@@ -3076,7 +3510,7 @@ async def create_coding_turn(
 async def coding_session_status(
     session_id: str,
     response: Response,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     return await get_coding_service().session_status(session_id)
 
@@ -3362,6 +3796,88 @@ async def close_applied_coding_session(
 ) -> dict[str, bool]:
     response.headers["Cache-Control"] = "no-store"
     return await get_coding_service().close_applied_session(session_id)
+
+
+def _project_from_source(source: dict[str, Any] | None) -> dict[str, Any]:
+    if source is None:
+        return ProjectSummary.builtin().to_public_dict()
+    try:
+        summary = ProjectSummary(
+            project_id=str(source["project_id"]),
+            name=str(source["name"]),
+            kind=ProjectKind(source["kind"]),
+            state=ProjectState.AVAILABLE,
+            reason=None,
+            branch=str(source["branch"]),
+            head=str(source["head"]),
+            features=ProjectFeatures.local_draft(),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_project_source_response",
+        ) from exc
+    if summary.kind is not ProjectKind.LOCAL_CLONE:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_project_source_response",
+        )
+    return summary.to_public_dict()
+
+
+def _worker_project_matches(value: Any, expected: dict[str, Any]) -> bool:
+    if value is None and expected.get("kind") == ProjectKind.BUILTIN.value:
+        return True
+    if not isinstance(value, dict):
+        return False
+    for key in ("id", "name", "kind", "head"):
+        if value.get(key) != expected.get(key):
+            return False
+    expected_branch = expected.get("branch")
+    return expected_branch is None or value.get("branch") == expected_branch
+
+
+def _recovery_project_context(
+    record: CodingApiSession,
+    recovery_id: str,
+) -> RecoveryProjectContext:
+    if record.project.get("kind") == ProjectKind.BUILTIN.value:
+        return RecoveryProjectContext.builtin(recovery_id)
+    source = record.project_source
+    if not isinstance(source, dict):
+        raise CodingRecoveryError(
+            "Coding recovery project source is missing.",
+            code="recovery_snapshot_invalid",
+        )
+    try:
+        return RecoveryProjectContext(
+            recovery_id=recovery_id,
+            project_id=str(source["project_id"]),
+            kind=ProjectKind(source["kind"]),
+            name=str(source["name"]),
+            head=str(source["head"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CodingRecoveryError(
+            "Coding recovery project source is invalid.",
+            code="recovery_snapshot_invalid",
+        ) from exc
+
+
+def _project_source_http_error(exc: ProjectSourceClientError) -> HTTPException:
+    code = _safe_code(exc.code)
+    if code == "project_not_found":
+        return _http_error(status.HTTP_404_NOT_FOUND, code)
+    if code.startswith("project_") and code not in {
+        "project_source_unavailable",
+        "project_source_not_configured",
+        "project_source_internal_error",
+        "project_source_timeout",
+    }:
+        return _http_error(status.HTTP_409_CONFLICT, code)
+    if code == "snapshot_limit_exceeded":
+        return _http_error(status.HTTP_409_CONFLICT, code)
+    return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, code)
 
 
 def _event_from_payload(payload: dict[str, Any]) -> CodingEvent:

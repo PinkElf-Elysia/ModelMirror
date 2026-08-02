@@ -14,7 +14,8 @@ ARG RIPGREP_VERSION=14.1.1-1+b4
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CODING_AGENT_SOCKET_PATH=/run/modelmirror-coding/coding-runtime.sock
+    CODING_AGENT_SOCKET_PATH=/run/modelmirror-coding/coding-runtime.sock \
+    CODING_PROJECT_SNAPSHOT_PATH=/project-snapshots/current
 
 COPY --from=opencode_runtime /usr/local/bin/node /usr/local/bin/node
 COPY --from=opencode_runtime /usr/local/lib/node_modules/opencode-ai /usr/local/lib/node_modules/opencode-ai
@@ -26,7 +27,8 @@ RUN apt-get update \
     && ln -s ../lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode \
     && groupadd --gid 65532 coding \
     && useradd --uid 65532 --gid 65532 --home-dir /home/coding --no-create-home coding \
-    && mkdir -p /opt/modelmirror /opt/modelmirror-source /home/coding /workspace /run/modelmirror-coding \
+    && mkdir -p /opt/modelmirror /opt/modelmirror-source /home/coding /workspace \
+        /project-snapshots /run/modelmirror-coding \
     && chown -R coding:coding /home/coding /run/modelmirror-coding
 
 WORKDIR /opt/modelmirror

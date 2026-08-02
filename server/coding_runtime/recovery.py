@@ -17,6 +17,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from .draft_workspace import DraftLimits, DraftPolicyError, DraftWorkspace
 from .cycles import CodingCycle, CodingCycleHistory
 from .patch_policy import SNAPSHOT_FINGERPRINT_PATTERN, PatchPolicyError, validate_patch
+from .projects import ProjectFeatures, ProjectKind
 
 
 RECOVERY_SCHEMA_VERSION = 3
@@ -89,6 +90,105 @@ class RecoveryState(StrEnum):
     UNDONE = "undone"
     PUBLISHED = "published"
     CONFLICT = "conflict"
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryProjectContext:
+    recovery_id: str
+    project_id: str
+    kind: ProjectKind
+    name: str
+    head: str | None = None
+
+    def __post_init__(self) -> None:
+        if SAFE_RECOVERY_ID.fullmatch(self.recovery_id) is None:
+            raise ValueError("Recovery project id is invalid")
+        if (
+            not isinstance(self.project_id, str)
+            or not isinstance(self.name, str)
+            or not self.name
+            or self.name != self.name.strip()
+            or len(self.name) > 80
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in self.name
+            )
+        ):
+            raise ValueError("Recovery project context is invalid")
+        if self.kind is ProjectKind.BUILTIN:
+            if self.project_id != "modelmirror" or self.head is not None:
+                raise ValueError("Builtin recovery project context is invalid")
+        elif self.kind is ProjectKind.LOCAL_CLONE:
+            if (
+                re.fullmatch(r"local-[a-f0-9]{24}", self.project_id) is None
+                or self.head is None
+                or re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", self.head) is None
+            ):
+                raise ValueError("Local recovery project context is invalid")
+        else:
+            raise ValueError("Recovery project kind is invalid")
+
+    @classmethod
+    def builtin(cls, recovery_id: str) -> RecoveryProjectContext:
+        return cls(
+            recovery_id=recovery_id,
+            project_id="modelmirror",
+            kind=ProjectKind.BUILTIN,
+            name="ModelMirror",
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "recovery_id": self.recovery_id,
+            "project_id": self.project_id,
+            "kind": self.kind.value,
+            "name": self.name,
+            "head": self.head,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Any) -> RecoveryProjectContext:
+        if not isinstance(value, dict) or set(value) != {
+            "recovery_id",
+            "project_id",
+            "kind",
+            "name",
+            "head",
+        }:
+            raise CodingRecoveryError(
+                "Recovery project context is invalid.",
+                code="recovery_data_corrupt",
+            )
+        try:
+            return cls(
+                recovery_id=value["recovery_id"],
+                project_id=value["project_id"],
+                kind=ProjectKind(value["kind"]),
+                name=value["name"],
+                head=value["head"],
+            )
+        except (TypeError, ValueError) as exc:
+            raise CodingRecoveryError(
+                "Recovery project context is invalid.",
+                code="recovery_data_corrupt",
+            ) from exc
+
+    def to_public(self) -> dict[str, Any]:
+        features = (
+            ProjectFeatures.builtin()
+            if self.kind is ProjectKind.BUILTIN
+            else ProjectFeatures.local_draft()
+        )
+        return {
+            "id": self.project_id,
+            "name": self.name,
+            "kind": self.kind.value,
+            "state": "available",
+            "reason": None,
+            "branch": None,
+            "head": self.head[:12] if self.head else None,
+            "features": features.to_dict(),
+        }
 
 
 class CodingRecoveryError(RuntimeError):
@@ -331,9 +431,23 @@ class CodingRecoveryStore:
             expires_at=now + self.retention_seconds,
         )
 
-    def save(self, record: RecoveryRecord) -> RecoveryRecord:
+    def save(
+        self,
+        record: RecoveryRecord,
+        project_context: RecoveryProjectContext | None = None,
+    ) -> RecoveryRecord:
+        if project_context is not None and project_context.recovery_id != record.recovery_id:
+            raise CodingRecoveryError(
+                "Recovery project context does not match its record.",
+                code="invalid_recovery_payload",
+            )
         raw_payload = _canonical_json(record.to_dict())
         encrypted = self._fernet.encrypt(raw_payload)
+        encrypted_context = (
+            self._fernet.encrypt(_canonical_json(project_context.to_dict())).decode("ascii")
+            if project_context is not None
+            else None
+        )
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
@@ -366,6 +480,22 @@ class CodingRecoveryStore:
                     encrypted.decode("ascii"),
                 ),
             )
+            if encrypted_context is None:
+                connection.execute(
+                    "DELETE FROM coding_recovery_project_context WHERE slot = 1"
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO coding_recovery_project_context (
+                        slot, recovery_id, payload_ciphertext
+                    ) VALUES (1, ?, ?)
+                    ON CONFLICT(slot) DO UPDATE SET
+                        recovery_id = excluded.recovery_id,
+                        payload_ciphertext = excluded.payload_ciphertext
+                    """,
+                    (record.recovery_id, encrypted_context),
+                )
         return record
 
     def load(self) -> RecoveryRecord | None:
@@ -377,6 +507,9 @@ class CodingRecoveryStore:
                 return None
             if row["expires_at"] <= self._now():
                 connection.execute("DELETE FROM coding_recovery WHERE slot = 1")
+                connection.execute(
+                    "DELETE FROM coding_recovery_project_context WHERE slot = 1"
+                )
                 return None
             if row["schema_version"] not in {1, 2, RECOVERY_SCHEMA_VERSION}:
                 raise CodingRecoveryError(
@@ -409,6 +542,45 @@ class CodingRecoveryStore:
                 )
             return record
 
+    def load_project_context(
+        self,
+        recovery_id: str,
+    ) -> RecoveryProjectContext | None:
+        if SAFE_RECOVERY_ID.fullmatch(recovery_id) is None:
+            raise CodingRecoveryError(
+                "Recovery project id is invalid.",
+                code="recovery_data_corrupt",
+            )
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM coding_recovery_project_context WHERE slot = 1"
+            ).fetchone()
+            if row is None:
+                return None
+            if row["recovery_id"] != recovery_id:
+                raise CodingRecoveryError(
+                    "Recovery project context does not match its record.",
+                    code="recovery_data_corrupt",
+                )
+            try:
+                decrypted = self._fernet.decrypt(
+                    str(row["payload_ciphertext"]).encode("ascii")
+                )
+                context = RecoveryProjectContext.from_dict(
+                    json.loads(decrypted.decode("utf-8"))
+                )
+            except (InvalidToken, UnicodeError, json.JSONDecodeError) as exc:
+                raise CodingRecoveryError(
+                    "Recovery project context could not be authenticated.",
+                    code="recovery_data_corrupt",
+                ) from exc
+            if context.recovery_id != recovery_id:
+                raise CodingRecoveryError(
+                    "Recovery project context does not match its record.",
+                    code="recovery_data_corrupt",
+                )
+            return context
+
     def discard(self, *, recovery_id: str | None = None) -> bool:
         with self._lock, self._connect() as connection:
             if recovery_id is None:
@@ -422,7 +594,12 @@ class CodingRecoveryStore:
                     "DELETE FROM coding_recovery WHERE slot = 1 AND recovery_id = ?",
                     (recovery_id,),
                 )
-            return cursor.rowcount == 1
+            removed = cursor.rowcount == 1
+            if removed:
+                connection.execute(
+                    "DELETE FROM coding_recovery_project_context WHERE slot = 1"
+                )
+            return removed
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=15)
@@ -462,6 +639,15 @@ class CodingRecoveryStore:
                     "Recovery schema is unsupported.",
                     code="recovery_schema_unsupported",
                 )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS coding_recovery_project_context (
+                    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+                    recovery_id TEXT NOT NULL,
+                    payload_ciphertext TEXT NOT NULL
+                )
+                """
+            )
 
     def _resolve_master_key(self, master_key: bytes | str | None) -> bytes:
         if master_key is not None:

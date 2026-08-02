@@ -7,6 +7,7 @@ import {
   FileDiff,
   FilePlus2,
   LoaderCircle,
+  LogOut,
   RotateCcw,
   Save,
   Trash2,
@@ -39,6 +40,7 @@ interface CodingChangesPanelProps {
   disabled: boolean;
   frozen: boolean;
   loading: boolean;
+  localDraftOnly?: boolean;
   readOnly?: boolean;
   onApply: (confirmQualityRisks: boolean) => Promise<void>;
   onClose: () => Promise<void>;
@@ -63,7 +65,12 @@ interface CodingChangesPanelProps {
   verificationError: string;
 }
 
-type ActionState = "idle" | "checking" | "downloading" | "discarding";
+type ActionState =
+  | "idle"
+  | "checking"
+  | "closing"
+  | "downloading"
+  | "discarding";
 
 type CommitAction = "idle" | "closing" | "committing" | "undoing";
 
@@ -72,7 +79,9 @@ const reviewError: Record<string, string> = {
   validation_failed: "检查尚未通过，请先根据提示修正修改。",
   draft_is_empty: "当前没有可下载的修改。",
   draft_busy: "代码助手仍在处理，请等待本轮结束。",
+  session_has_draft: "当前还有修改草稿，请先放弃或处理完修改。",
   session_not_found: "本次修改草稿已经过期，请重新开始。",
+  turn_in_progress: "代码助手仍在处理，请等待本轮结束。",
   worker_unavailable: "暂时无法读取修改草稿，请稍后重试。",
 };
 
@@ -554,6 +563,7 @@ export default function CodingChangesPanel({
   disabled,
   frozen,
   loading,
+  localDraftOnly = false,
   readOnly = false,
   onApply,
   onClose,
@@ -657,7 +667,11 @@ export default function CodingChangesPanel({
       verification?.result === "not_applicable");
 
   const requestDownload = () => {
-    if (verificationSupportsDownload && changes?.can_download) {
+    if (!changes?.can_download) {
+      setMessage("请先修正检查发现的问题，再下载 Diff。");
+      return;
+    }
+    if (localDraftOnly || verificationSupportsDownload) {
       void runAction("downloading", onDownload);
       return;
     }
@@ -842,56 +856,67 @@ export default function CodingChangesPanel({
               ))}
             </ul>
 
-            <CodingVerificationPanel
-              available={verificationAvailable}
-              disabled={
-                disabled || readOnly || frozen || isActing
-              }
-              error={verificationError}
-              onCancel={onCancelVerification}
-              onRequestFix={onRequestFix}
-              onRun={onRunVerification}
-              verification={verification}
-            />
+            {localDraftOnly ? (
+              <div className="mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] p-3 text-sm text-cyan-100">
+                <p className="font-semibold">此项目只准备修改草稿</p>
+                <p className="mt-1 text-xs leading-5 text-slate-300">
+                  你可以逐项查看、检查并下载 Diff。页面不会运行项目验证，也不会把修改写入本地项目。
+                </p>
+              </div>
+            ) : (
+              <>
+                <CodingVerificationPanel
+                  available={verificationAvailable}
+                  disabled={disabled || readOnly || frozen || isActing}
+                  error={verificationError}
+                  onCancel={onCancelVerification}
+                  onRequestFix={onRequestFix}
+                  onRun={onRunVerification}
+                  verification={verification}
+                />
 
-            {commitResult?.state !== "committed" ? (
-              <CodingApplyPanel
-                capability={applyCapability}
-                changes={changes}
-                disabled={disabled || readOnly || isActing || verificationRunning}
-                error={applyError}
-                onApply={onApply}
-                onClose={onClose}
-                onRevert={onRevert}
-                result={applyResult}
-                verification={verification}
-              />
-            ) : null}
+                {commitResult?.state !== "committed" ? (
+                  <CodingApplyPanel
+                    capability={applyCapability}
+                    changes={changes}
+                    disabled={
+                      disabled || readOnly || isActing || verificationRunning
+                    }
+                    error={applyError}
+                    onApply={onApply}
+                    onClose={onClose}
+                    onRevert={onRevert}
+                    result={applyResult}
+                    verification={verification}
+                  />
+                ) : null}
 
-            <CodingCommitPanel
-              applyResult={applyResult}
-              capability={commitCapability}
-              changes={changes}
-              disabled={disabled || readOnly || isActing}
-              error={commitError}
-              onCommit={onCommit}
-              onContinue={onContinue}
-              onClose={onClose}
-              onUndo={onUndoCommit}
-              publishLocked={Boolean(publishResult?.publish_id)}
-              result={commitResult}
-            />
+                <CodingCommitPanel
+                  applyResult={applyResult}
+                  capability={commitCapability}
+                  changes={changes}
+                  disabled={disabled || readOnly || isActing}
+                  error={commitError}
+                  onCommit={onCommit}
+                  onContinue={onContinue}
+                  onClose={onClose}
+                  onUndo={onUndoCommit}
+                  publishLocked={Boolean(publishResult?.publish_id)}
+                  result={commitResult}
+                />
 
-            <CodingPublishPanel
-              capability={publishCapability}
-              changes={changes}
-              commit={commitResult}
-              disabled={disabled || readOnly || isActing}
-              error={publishError}
-              onMarkReady={onMarkPublishReady}
-              onPublish={onPublish}
-              result={publishResult}
-            />
+                <CodingPublishPanel
+                  capability={publishCapability}
+                  changes={changes}
+                  commit={commitResult}
+                  disabled={disabled || readOnly || isActing}
+                  error={publishError}
+                  onMarkReady={onMarkPublishReady}
+                  onPublish={onPublish}
+                  result={publishResult}
+                />
+              </>
+            )}
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
@@ -1036,16 +1061,18 @@ export default function CodingChangesPanel({
               </p>
             </div>
           </div>
-          <CodingVerificationPanel
-            available={verificationAvailable}
-            disabled
-            empty
-            error={verificationError}
-            onCancel={onCancelVerification}
-            onRequestFix={onRequestFix}
-            onRun={onRunVerification}
-            verification={verification}
-          />
+          {!localDraftOnly ? (
+            <CodingVerificationPanel
+              available={verificationAvailable}
+              disabled
+              empty
+              error={verificationError}
+              onCancel={onCancelVerification}
+              onRequestFix={onRequestFix}
+              onRun={onRunVerification}
+              verification={verification}
+            />
+          ) : null}
         </div>
       ) : (
         <div className="px-4 py-8 text-center">
@@ -1058,6 +1085,31 @@ export default function CodingChangesPanel({
           </p>
         </div>
       )}
+
+      {!loading && changes && !hasChanges ? (
+        <div className="border-t border-white/10 px-4 py-4">
+          <p className="text-xs leading-5 text-slate-400">
+            如果不再继续追问，可以结束当前任务并选择其他项目。本次回答不会保存。
+          </p>
+          <button
+            className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled || readOnly || isActing}
+            onClick={() => void runAction("closing", onClose)}
+            type="button"
+          >
+            {action === "closing" ? (
+              <LoaderCircle
+                aria-hidden="true"
+                className="animate-spin motion-reduce:animate-none"
+                size={16}
+              />
+            ) : (
+              <LogOut aria-hidden="true" size={16} />
+            )}
+            结束当前任务
+          </button>
+        </div>
+      ) : null}
 
       {message ? (
         <div

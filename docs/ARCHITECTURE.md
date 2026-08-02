@@ -38,6 +38,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | Browser / Sandbox sidecar | 受控浏览器和无网络沙箱执行。 |
 | OmniRoute sidecar | 可选兼容、诊断和紧急回退；不是普通用户控制面。 |
 | OpenCode + 最小 ACP Worker | 实验性代码问答与修改草稿执行面；单实例、默认关闭。 |
+| Coding Project Source | 无网络的受控项目清单与单槽 Git HEAD 快照服务；只有它可读取项目根目录。 |
 | Coding Verifier | 用户手动触发的草稿项目验证执行面；无网络、固定命令、可选启动。 |
 | Coding Applier | 把满足门禁的草稿原子写入固定专用工作树；无网络、无 Git 操作、可选启动。 |
 | Coding Committer | 把已应用文件保存到独立本地仓库；无网络、固定分支、只写隔离 `.git`。 |
@@ -69,6 +70,9 @@ flowchart LR
   API --> BROWSER["Browser sidecar"]
   API --> SANDBOX["Sandbox sidecar"]
   API -->|"Unix socket"| CODER["coding-runtime"]
+  API -->|"项目清单 / 私有 Unix socket"| PROJECTS["coding-project-source"]
+  ROOT["受控项目根目录"] -->|"只读"| PROJECTS
+  PROJECTS -->|"当前项目单槽快照"| CODER
   CODER -->|"internal network"| GW
   CODER -->|"Patch + revision / Unix socket"| VERIFY["coding-verifier"]
   VERIFY -. "network_mode: none" .-> OFFLINE["无网络"]
@@ -99,7 +103,7 @@ flowchart LR
 | 实验工作流 | `/workflow-native` | 静态校验和设计实验线，不替换 classic 主入口。 |
 | 知识 | `/rag`、`/rag/:kbId/pipeline`、`/rag/:kbId/evaluation`、`/rag/:kbId/inbox` | 本地资料库、流水线、评测和审批。 |
 | 数据 | `/datax`、`/datax/:projectId`、`/datax/:projectId/inbox` | 文件快照、语义指标和提案审批。 |
-| 实验代码协作 | `/coding` | 对固定快照问答，或准备、验证、应用、提交并恢复最近一份修改。 |
+| 实验代码协作 | `/coding` | 对内置 ModelMirror 或受控本地项目快照问答、准备草稿并恢复最近一份修改；完整闭环仅适用于内置项目。 |
 
 内部路径仍使用 `Xpert*` 类型和 `/agents/xpert/...` 兼容 API；面向用户统一显示
 “智能体”“Agent Studio”和“Agent App”。内部标识不得仅为改名而迁移。
@@ -156,6 +160,14 @@ flowchart LR
   净化源码快照复制到镜像内只读目录。
   Readonly 模式在会话副本上只读运行；Draft 模式把副本复制到 256 MiB 的
   `nosuid,noexec` tmpfs。宿主仓库从不挂载给 Worker，网络仅可到内部 newAPI。
+- Coding Project Source 只在显式加载项目 overlay 后存在。它是唯一只读挂载
+  `CODING_PROJECTS_ROOT` 的服务；Server 和 Runtime 既看不到整个项目根目录，也不接收
+  物理路径。服务按固定清单校验干净独立 Git 克隆，通过 `git ls-tree` 与
+  `git cat-file --batch` 从 HEAD blob 构造单槽快照，不读取工作区换行转换，也不运行
+  Hook、过滤器、凭据助手或联网操作。租约释放或失败时清空快照卷。
+- 自定义项目只开放问答、临时文本草稿、Diff、轻量检查、下载和项目绑定恢复。
+  Verifier、Applier、Committer 与 Publisher 对该来源明确不可用；停止 Project Source
+  不得降低内置 ModelMirror 的验证、应用、提交、恢复或发布能力。
 - Coding Verifier 是独立的可选进程边界。Worker 只向它发送当前 revision 的内部
   Patch、变化路径和快照指纹；Verifier 重新校验并应用到 1 GiB 临时副本。其根文件
   系统和基准快照只读，网络为 `none`，不接收模型密钥、宿主路径、Docker socket
@@ -180,6 +192,10 @@ flowchart LR
   最多保存一条记录，SQLite 明文字段仅含 revision、指纹、文件数和时间；规范化
   Patch、验证摘要及 Apply/Commit Receipt 使用本地 Fernet 密钥认证加密。密钥
   缺失、损坏、schema 不兼容或密文被篡改时失败关闭，不生成新密钥覆盖旧记录。
+- 自定义项目的 ID、类型、显示名和基准 HEAD 保存在同一 SQLite 的独立认证加密上下文
+  表中，不保存宿主路径，也不改变 recovery schema v3 的 `user_version`。旧记录没有
+  项目上下文时仍解释为内置 ModelMirror；项目被删除、变脏或 HEAD 改变时只允许下载
+  原始 Diff，不会把 Patch 应用到不同版本。
 - 恢复会从镜像内不可变基准重新复核并应用 Patch，再创建全新 Agent 会话；问题、
   回答、计划、工具过程和原始命令输出从不持久化。基准或验证环境指纹变化会使
   结果过期；应用/提交状态无法精确对账时进入只读冲突态，不重复写入或覆盖人工内容。
@@ -200,7 +216,8 @@ flowchart LR
 - 当前没有完整用户、组织、RBAC 或公网控制台安全模型。
 - 静态模型快照与实时目录需要定期校准，价格快照必须标注日期。
 - OmniRoute 是可选回退，不得成为普通用户必须理解的配置入口。
-- `/coding` 仅适用于本地单实例实验。Draft 只能新增或修改临时 UTF-8 文本；
+- `/coding` 仅适用于本地单实例实验。部署者可登记最多 50 个受控的干净独立克隆，
+  但同一时刻仍只有一个项目租约和一个 Agent 会话。Draft 只能新增或修改临时 UTF-8 文本；
   默认不会写回宿主目录。显式启用受控应用后，只有轻量检查通过且当前项目验证
   `passed`（纯文档允许 `not_applicable`）的 revision 才能写入固定专用工作树。
   当前主工作树不挂载给 Applier 或 Committer。显式启用隔离本地提交时，系统只在
@@ -210,7 +227,8 @@ flowchart LR
 - 应用成功后会话冻结；Diff、Patch 和验证结果仍可读。启用恢复 overlay 后，精确
   对账成功的应用、提交及其撤销能力可在重启后恢复；外部状态不明确时只允许查看和
   下载。有效本地提交存在时必须先撤销提交并保留文件，才可撤销应用。Agent 仍
-  不能使用 Shell、Git、测试命令或选择测试范围；系统仍不提供任意仓库选择、
+  不能使用 Shell、Git、测试命令或选择测试范围；自定义项目首轮也不能验证、应用、
+  提交或发布。系统仍不提供任意绝对路径、任意仓库选择、
   仓库/分支选择、force push、远端合并、删除/重命名、多 Agent、分布式
   Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。

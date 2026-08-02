@@ -5,6 +5,7 @@ import {
   Clock3,
   FilePenLine,
   FileSearch,
+  FolderOpen,
   RefreshCw,
   Send,
   ShieldCheck,
@@ -36,6 +37,7 @@ import type {
   CodingDraftChanges,
   CodingEvent,
   CodingPlanEntry,
+  CodingProjectSummary,
   CodingPublishResult,
   CodingRecoveryStatus,
   CodingVerification,
@@ -58,6 +60,7 @@ import {
   getCodingCommitStatus,
   getCodingHistory,
   getCodingPatch,
+  getCodingProjects,
   getCodingPublishStatus,
   getCodingRecovery,
   getCodingRecoveryPatch,
@@ -86,10 +89,33 @@ interface ToolActivity {
 interface StoredCodingSession {
   id: string;
   lastSeq: number;
+  projectId: string;
 }
 
 const CODING_SESSION_STORAGE_KEY = "modelmirror.coding.session.v1";
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const SAFE_PROJECT_ID = /^(?:modelmirror|local-[a-f0-9]{24})$/;
+const STREAM_RENDER_INTERVAL_MS = 80;
+const BUILTIN_PROJECT: CodingProjectSummary = {
+  branch: null,
+  features: {
+    apply: true,
+    chat: true,
+    commit: true,
+    diff: true,
+    download: true,
+    draft: true,
+    publish: true,
+    recovery: true,
+    verification: true,
+  },
+  head: null,
+  id: "modelmirror",
+  kind: "builtin",
+  name: "ModelMirror",
+  reason: null,
+  state: "available",
+};
 
 function readStoredCodingSession(): StoredCodingSession | null {
   if (typeof window === "undefined") return null;
@@ -106,17 +132,21 @@ function readStoredCodingSession(): StoredCodingSession | null {
     ) {
       return null;
     }
-    return { id: value.id, lastSeq: value.lastSeq as number };
+    const projectId =
+      typeof value.projectId === "string" && SAFE_PROJECT_ID.test(value.projectId)
+        ? value.projectId
+        : "modelmirror";
+    return { id: value.id, lastSeq: value.lastSeq as number, projectId };
   } catch {
     return null;
   }
 }
 
-function storeCodingSession(id: string, lastSeq: number) {
+function storeCodingSession(id: string, lastSeq: number, projectId: string) {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(
     CODING_SESSION_STORAGE_KEY,
-    JSON.stringify({ id, lastSeq }),
+    JSON.stringify({ id, lastSeq, projectId }),
   );
 }
 
@@ -141,6 +171,9 @@ const capabilityReason: Record<string, string> = {
   not_configured: "代码服务已启动，但所需的模型连接信息尚未配置。",
   worker_unavailable: "代码服务当前不可用，请确认服务是否已启动。",
   mode_mismatch: "代码服务的运行模式与页面配置不一致，请检查服务配置。",
+  projects_disabled: "本地项目选择尚未启用，仍可使用 ModelMirror。",
+  project_source_not_configured: "本地项目目录尚未配置，仍可使用 ModelMirror。",
+  project_source_unavailable: "暂时无法读取本地项目列表，仍可使用 ModelMirror。",
 };
 
 const errorMessage: Record<string, string> = {
@@ -163,6 +196,24 @@ const errorMessage: Record<string, string> = {
   recovery_storage_unavailable: "修改恢复服务暂时不可用，当前操作没有完成。",
   recovery_not_found: "这份保存记录已不存在，请刷新页面确认最新状态。",
   recovery_changed: "保存记录刚刚发生变化，请刷新页面后再试。",
+  project_changed: "这个项目已经更新，当前草稿只能下载，不能继续处理。",
+  project_dirty: "这个项目有尚未保存的改动，请先由开发者整理后再试。",
+  project_not_found: "这个项目已不在可选列表中，请重新选择。",
+  project_operation_unavailable:
+    "此项目当前只支持准备和下载修改草稿，不提供项目验证或写入。",
+  project_source_unavailable: "暂时无法读取本地项目，请稍后重试。",
+};
+
+const projectReason: Record<string, string> = {
+  git_alternates_not_allowed: "此项目使用了共享版本存储，暂时不能安全读取。",
+  git_inspection_failed: "暂时无法确认这个项目的状态。",
+  git_submodule_not_allowed: "此项目包含子项目，本轮暂不支持。",
+  git_symlink_not_allowed: "此项目包含链接文件，本轮暂不支持。",
+  git_worktree_not_allowed: "此项目不是独立副本，请改用独立克隆。",
+  project_dirty: "项目中有尚未保存的改动，请先整理为干净状态。",
+  project_not_found: "项目已从清单中移除。",
+  project_source_unavailable: "本地项目服务暂时不可用。",
+  snapshot_limit_exceeded: "项目文件数量或大小超出本轮限制。",
 };
 
 function describeError(error: unknown) {
@@ -197,7 +248,13 @@ function toolKindLabel(kind: string) {
   return "查阅代码";
 }
 
-function CodingSidebar({ isDraft }: { isDraft: boolean }) {
+function CodingSidebar({
+  isDraft,
+  localDraftOnly,
+}: {
+  isDraft: boolean;
+  localDraftOnly: boolean;
+}) {
   return (
     <div>
       <Link
@@ -213,17 +270,23 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
         </p>
         <ul className="mt-3 space-y-3 text-xs leading-5 text-slate-400">
           <li>
-            {isDraft
+            {localDraftOnly
+              ? "所有修改只保存在临时副本；你可以查看并下载 Diff，本地项目不会被写入。"
+              : isDraft
               ? "所有修改先保存在临时副本，只有你确认后才会写入专用项目副本。"
               : "只查看固定的 ModelMirror 项目代码。"}
           </li>
           <li>
-            {isDraft
+            {localDraftOnly
+              ? "本轮不运行项目验证，也不创建本地提交或 GitHub PR。"
+              : isDraft
               ? "代码助手不会自行运行检查；项目验证只在你手动启动时执行固定步骤。"
               : "不会执行命令、运行测试或访问外部网站。"}
           </li>
           <li>
-            {isDraft
+            {localDraftOnly
+              ? "代码助手不会执行命令、访问外部网站或启用项目内的扩展配置。"
+              : isDraft
               ? "只有你再次确认，才会保存为本地提交；不会自动上传或合并，发布到 GitHub 还需单独确认。当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
           </li>
@@ -246,6 +309,13 @@ export default function CodingPage() {
     useState<CapabilityState>("loading");
   const [capabilities, setCapabilities] = useState<CodingCapabilities | null>(
     null,
+  );
+  const [projects, setProjects] = useState<CodingProjectSummary[]>([
+    BUILTIN_PROJECT,
+  ]);
+  const [projectsError, setProjectsError] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    restoredSessionRef.current?.projectId ?? "modelmirror",
   );
   const [runState, setRunState] = useState<RunState>("idle");
   const [prompt, setPrompt] = useState("");
@@ -287,10 +357,30 @@ export default function CodingPage() {
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionProbeInFlightRef = useRef(false);
   const lastSeqRef = useRef(restoredSessionRef.current?.lastSeq ?? 0);
+  const pendingEventsRef = useRef<CodingEvent[]>([]);
+  const pendingSessionStoreRef = useRef<StoredCodingSession | null>(null);
+  const streamRenderTimerRef = useRef<number | null>(null);
+  const initialDraftLoadSessionRef = useRef<string | null>(null);
   const isDraftMode = capabilities?.mode === "draft";
+  const selectedProject =
+    projects.find((project) => project.id === selectedProjectId) ??
+    (recovery?.project?.id === selectedProjectId ? recovery.project : null) ??
+    (selectedProjectId === "modelmirror" ? BUILTIN_PROJECT : null);
+  const isLocalProject = selectedProject?.kind === "local_clone";
+  const supportsVerification = selectedProject?.features.verification !== false;
+  const supportsApply = selectedProject?.features.apply !== false;
+  const supportsCommit = selectedProject?.features.commit !== false;
+  const supportsPublish = selectedProject?.features.publish !== false;
   const verificationAvailable =
-    capabilities?.verification.available === true;
+    supportsVerification && capabilities?.verification.available === true;
   const serviceAvailable = capabilities?.available === true;
+  const selectedProjectAvailable = Boolean(
+    selectedProject &&
+      (sessionId ||
+        (selectedProject.state === "available" &&
+          (!isLocalProject || capabilities?.projects.available === true))),
+  );
+  const workspaceAvailable = serviceAvailable && selectedProjectAvailable;
   const isBusy = ["starting", "running", "stopping"].includes(runState);
   const verificationRunning =
     verification?.state === "running" && verification.stale === false;
@@ -310,11 +400,87 @@ export default function CodingPage() {
   const hasPendingRecovery = Boolean(
     recovery?.pending && (!sessionId || recoveryConflict),
   );
+  const projectSelectionLocked = Boolean(sessionId || recovery?.pending || isBusy);
+
+  const clearPendingStreamRender = useCallback(() => {
+    if (streamRenderTimerRef.current !== null) {
+      window.clearTimeout(streamRenderTimerRef.current);
+      streamRenderTimerRef.current = null;
+    }
+    pendingEventsRef.current = [];
+    pendingSessionStoreRef.current = null;
+  }, []);
+
+  const flushStreamRender = useCallback(() => {
+    if (streamRenderTimerRef.current !== null) {
+      window.clearTimeout(streamRenderTimerRef.current);
+      streamRenderTimerRef.current = null;
+    }
+
+    const pendingEvents = pendingEventsRef.current;
+    const pendingSession = pendingSessionStoreRef.current;
+    pendingEventsRef.current = [];
+    pendingSessionStoreRef.current = null;
+
+    if (pendingSession) {
+      storeCodingSession(
+        pendingSession.id,
+        pendingSession.lastSeq,
+        pendingSession.projectId,
+      );
+    }
+    if (!pendingEvents.length) return;
+
+    setEvents((current) => {
+      let turnStartIndex = -1;
+      pendingEvents.forEach((event, index) => {
+        if (event.type === "turn_started") turnStartIndex = index;
+      });
+      return turnStartIndex >= 0
+        ? pendingEvents.slice(turnStartIndex)
+        : [...current, ...pendingEvents];
+    });
+  }, []);
+
+  const queueStreamEvent = useCallback(
+    (event: CodingEvent, projectId: string) => {
+      if (event.type === "turn_started") {
+        pendingEventsRef.current = [event];
+      } else {
+        pendingEventsRef.current.push(event);
+      }
+      pendingSessionStoreRef.current = {
+        id: event.session_id,
+        lastSeq: event.seq,
+        projectId,
+      };
+
+      if (
+        event.type === "turn_started" ||
+        event.type === "turn_completed" ||
+        event.type === "cancelled" ||
+        event.type === "failed"
+      ) {
+        flushStreamRender();
+        return;
+      }
+      if (streamRenderTimerRef.current === null) {
+        streamRenderTimerRef.current = window.setTimeout(
+          flushStreamRender,
+          STREAM_RENDER_INTERVAL_MS,
+        );
+      }
+    },
+    [flushStreamRender],
+  );
+
   const resetExpiredSession = useCallback(
     (activeSessionId: string) => {
       if (sessionId !== activeSessionId) return false;
       closeStreamRef.current?.();
       closeStreamRef.current = null;
+      clearPendingStreamRender();
+      initialDraftLoadSessionRef.current = null;
       setSessionId(null);
       lastSeqRef.current = 0;
       clearStoredCodingSession();
@@ -341,7 +507,7 @@ export default function CodingPage() {
       );
       return true;
     },
-    [sessionId],
+    [clearPendingStreamRender, sessionId],
   );
 
   const loadRecovery = useCallback(async () => {
@@ -349,17 +515,32 @@ export default function CodingPage() {
     try {
       const result = await getCodingRecovery();
       setRecovery(result.pending ? result : null);
+      if (result.pending && result.project?.id) {
+        setSelectedProjectId(result.project.id);
+        setProjects((current) => [
+          ...current.filter((project) => project.id !== result.project?.id),
+          result.project as CodingProjectSummary,
+        ]);
+      }
     } catch (requestError) {
       setRecoveryError(describeError(requestError));
     }
   }, []);
 
   const loadCapabilities = useCallback(async () => {
+    initialDraftLoadSessionRef.current = null;
     setCapabilityState("loading");
     setError("");
     try {
       const result = await getCodingCapabilities();
       setCapabilities(result);
+      try {
+        const catalog = await getCodingProjects();
+        setProjects(catalog.projects.length ? catalog.projects : [BUILTIN_PROJECT]);
+        setProjectsError("");
+      } catch (requestError) {
+        setProjectsError(describeError(requestError));
+      }
       if (result.recovery.pending) {
         await loadRecovery();
       } else {
@@ -387,12 +568,61 @@ export default function CodingPage() {
 
   useEffect(() => {
     void loadCapabilities();
-    return () => closeStreamRef.current?.();
-  }, [loadCapabilities]);
+    return () => {
+      closeStreamRef.current?.();
+      if (pendingSessionStoreRef.current) {
+        const pendingSession = pendingSessionStoreRef.current;
+        storeCodingSession(
+          pendingSession.id,
+          pendingSession.lastSeq,
+          pendingSession.projectId,
+        );
+      }
+      clearPendingStreamRender();
+    };
+  }, [clearPendingStreamRender, loadCapabilities]);
+
+  useEffect(() => {
+    if (!sessionId || projects.some((project) => project.id === selectedProjectId)) {
+      return;
+    }
+    let active = true;
+    void getCodingSessionStatus(sessionId)
+      .then((result) => {
+        if (!active || !result.project) return;
+        setSelectedProjectId(result.project.id);
+        setProjects((current) => [
+          ...current.filter((project) => project.id !== result.project?.id),
+          result.project as CodingProjectSummary,
+        ]);
+      })
+      .catch((requestError) => {
+        if (
+          active &&
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [projects, resetExpiredSession, selectedProjectId, sessionId]);
+
+  useEffect(() => {
+    if (
+      !projectSelectionLocked &&
+      !projects.some((project) => project.id === selectedProjectId)
+    ) {
+      setSelectedProjectId("modelmirror");
+    }
+  }, [projectSelectionLocked, projects, selectedProjectId]);
 
   useEffect(() => {
     if (
       !isDraftMode ||
+      !supportsVerification ||
       !sessionId ||
       !draftChanges?.files.length
     ) {
@@ -426,6 +656,7 @@ export default function CodingPage() {
     isDraftMode,
     resetExpiredSession,
     sessionId,
+    supportsVerification,
     verificationAvailable,
   ]);
 
@@ -535,15 +766,19 @@ export default function CodingPage() {
       !isDraftMode ||
       !sessionId ||
       !serviceAvailable ||
+      isBusy ||
       draftChanges !== null ||
-      draftLoading
+      draftLoading ||
+      initialDraftLoadSessionRef.current === sessionId
     ) {
       return;
     }
+    initialDraftLoadSessionRef.current = sessionId;
     void refreshDraftChanges(sessionId, false);
   }, [
     draftChanges,
     draftLoading,
+    isBusy,
     isDraftMode,
     refreshDraftChanges,
     serviceAvailable,
@@ -553,6 +788,7 @@ export default function CodingPage() {
   useEffect(() => {
     if (
       !isDraftMode ||
+      !supportsPublish ||
       !sessionId ||
       !draftChanges?.files.length ||
       commitResult?.state !== "committed" ||
@@ -590,6 +826,7 @@ export default function CodingPage() {
     isDraftMode,
     resetExpiredSession,
     sessionId,
+    supportsPublish,
   ]);
 
   useEffect(() => {
@@ -642,15 +879,31 @@ export default function CodingPage() {
   }, [publishResult?.state]);
 
   useEffect(() => {
-    if (!isDraftMode || !sessionId || capabilities?.incremental?.enabled !== true) {
+    if (
+      !isDraftMode ||
+      !supportsCommit ||
+      !sessionId ||
+      capabilities?.incremental?.enabled !== true
+    ) {
       setCycleHistory(null);
       return;
     }
     void refreshCycleHistory(sessionId);
-  }, [capabilities?.incremental?.enabled, isDraftMode, refreshCycleHistory, sessionId]);
+  }, [
+    capabilities?.incremental?.enabled,
+    isDraftMode,
+    refreshCycleHistory,
+    sessionId,
+    supportsCommit,
+  ]);
 
   useEffect(() => {
-    if (!isDraftMode || !sessionId || !draftChanges?.files.length) {
+    if (
+      !isDraftMode ||
+      !supportsApply ||
+      !sessionId ||
+      !draftChanges?.files.length
+    ) {
       setApplyResult(null);
       setApplyError("");
       return;
@@ -681,11 +934,13 @@ export default function CodingPage() {
     isDraftMode,
     resetExpiredSession,
     sessionId,
+    supportsApply,
   ]);
 
   useEffect(() => {
     if (
       !isDraftMode ||
+      !supportsCommit ||
       !sessionId ||
       !draftChanges?.files.length ||
       applyResult?.state !== "applied" ||
@@ -723,6 +978,7 @@ export default function CodingPage() {
     isDraftMode,
     resetExpiredSession,
     sessionId,
+    supportsCommit,
   ]);
 
   const recoverExpiredSession = useCallback(
@@ -770,12 +1026,14 @@ export default function CodingPage() {
     (event: CodingEvent) => {
       if (event.seq <= lastSeqRef.current) return;
       lastSeqRef.current = event.seq;
-      storeCodingSession(event.session_id, event.seq);
+      const eventProject = event.data.project;
+      if (eventProject) {
+        setSelectedProjectId(eventProject.id);
+      }
+      queueStreamEvent(event, eventProject?.id ?? selectedProjectId);
       setTransportWarning("");
-      setEvents((current) =>
-        event.type === "turn_started" ? [event] : [...current, event],
-      );
       if (event.type === "turn_completed") {
+        initialDraftLoadSessionRef.current = event.session_id;
         setRunState("idle");
         if (isDraftMode) {
           setDraftNotice("本轮已完成，修改草稿和检查结果已更新。");
@@ -785,6 +1043,7 @@ export default function CodingPage() {
           );
         }
       } else if (event.type === "cancelled") {
+        initialDraftLoadSessionRef.current = event.session_id;
         setRunState("idle");
         if (isDraftMode) {
           setDraftNotice("本轮修改已撤销，此前保留的草稿不受影响。");
@@ -794,6 +1053,7 @@ export default function CodingPage() {
           );
         }
       } else if (event.type === "failed") {
+        initialDraftLoadSessionRef.current = event.session_id;
         closeStreamRef.current?.();
         setRunState("error");
         setError(
@@ -815,7 +1075,7 @@ export default function CodingPage() {
         setRunState("running");
       }
     },
-    [isDraftMode, refreshDraftChanges],
+    [isDraftMode, queueStreamEvent, refreshDraftChanges, selectedProjectId],
   );
 
   const submitPrompt = async (event?: FormEvent) => {
@@ -824,6 +1084,7 @@ export default function CodingPage() {
     if (
       !question ||
       !capabilities?.available ||
+      !selectedProjectAvailable ||
       runState === "starting" ||
       runState === "running" ||
       runState === "stopping" ||
@@ -843,11 +1104,12 @@ export default function CodingPage() {
     try {
       let activeSessionId = sessionId;
       if (!activeSessionId) {
-        const session = await createCodingSession();
+        const session = await createCodingSession(selectedProjectId);
         activeSessionId = session.id;
+        setSelectedProjectId(session.project.id);
         setSessionId(session.id);
         lastSeqRef.current = 0;
-        storeCodingSession(session.id, 0);
+        storeCodingSession(session.id, 0, session.project.id);
         if (isDraftMode) {
           setDraftChanges(null);
           setApplyResult(null);
@@ -1130,6 +1392,7 @@ export default function CodingPage() {
     setPublishResult(null);
     setPublishError("");
     setRecoveredState(null);
+    clearPendingStreamRender();
     setEvents([]);
     setDraftNotice(`已开始第 ${history.active_cycle} 轮修改，此前保存的本地版本不会改变。`);
     window.requestAnimationFrame(() => promptRef.current?.focus());
@@ -1187,6 +1450,8 @@ export default function CodingPage() {
     await closeCodingSession(sessionId);
     closeStreamRef.current?.();
     closeStreamRef.current = null;
+    clearPendingStreamRender();
+    initialDraftLoadSessionRef.current = null;
     setSessionId(null);
     lastSeqRef.current = 0;
     clearStoredCodingSession();
@@ -1217,9 +1482,16 @@ export default function CodingPage() {
       const result = await resumeCodingRecovery();
       closeStreamRef.current?.();
       closeStreamRef.current = null;
+      clearPendingStreamRender();
+      initialDraftLoadSessionRef.current = null;
       setSessionId(result.id);
+      setSelectedProjectId(result.project.id);
+      setProjects((current) => [
+        ...current.filter((project) => project.id !== result.project.id),
+        result.project,
+      ]);
       lastSeqRef.current = 0;
-      storeCodingSession(result.id, 0);
+      storeCodingSession(result.id, 0, result.project.id);
       setEvents([]);
       setDraftChanges(null);
       setVerification(null);
@@ -1281,6 +1553,8 @@ export default function CodingPage() {
       await discardCodingRecovery();
       closeStreamRef.current?.();
       closeStreamRef.current = null;
+      clearPendingStreamRender();
+      initialDraftLoadSessionRef.current = null;
       setSessionId(null);
       lastSeqRef.current = 0;
       clearStoredCodingSession();
@@ -1307,7 +1581,12 @@ export default function CodingPage() {
     <PageContainer
       contentClassName="min-w-0"
       maxWidthClassName="max-w-[1360px]"
-      sidebar={<CodingSidebar isDraft={isDraftMode} />}
+      sidebar={
+        <CodingSidebar
+          isDraft={isDraftMode}
+          localDraftOnly={Boolean(isLocalProject)}
+        />
+      }
     >
       <header className="mb-5 border-b border-white/10 pb-5">
         <Link
@@ -1326,10 +1605,14 @@ export default function CodingPage() {
                 ) : (
                   <ShieldCheck aria-hidden="true" size={14} />
                 )}
-                {isDraftMode ? "修改草稿，确认后可应用" : "只读实验"}
+                {isLocalProject
+                  ? "修改草稿，不会写入项目"
+                  : isDraftMode
+                    ? "修改草稿，确认后可应用"
+                    : "只读实验"}
               </span>
               <span className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs text-slate-300">
-                固定项目：ModelMirror
+                当前项目：{selectedProject?.name ?? "正在读取"}
               </span>
             </div>
             <h1 className="mt-3 text-2xl font-semibold tracking-[-0.025em] text-white sm:text-3xl">
@@ -1337,7 +1620,9 @@ export default function CodingPage() {
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               {isDraftMode
-                ? "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行项目验证，再决定下载 Diff、应用到专用项目副本或保存本地版本。"
+                ? isLocalProject
+                  ? "描述希望调整的内容。代码助手会在隔离的临时副本中准备修改；你可以逐个文件查看并下载 Diff，本地项目不会被改变。"
+                  : "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行项目验证，再决定下载 Diff、应用到专用项目副本或保存本地版本。"
                 : "你可以询问功能如何实现、页面与服务如何配合，或某段代码的作用。代码助手只能查看项目并回答，不会修改文件或执行命令。"}
             </p>
           </div>
@@ -1361,19 +1646,80 @@ export default function CodingPage() {
         </div>
       </header>
 
+      <section className="mb-5 rounded-lg border border-white/10 bg-ink-950/55 p-4">
+        <div className="flex items-start gap-3">
+          <FolderOpen
+            aria-hidden="true"
+            className="mt-0.5 shrink-0 text-cyan-200"
+            size={19}
+          />
+          <div className="min-w-0 flex-1">
+            <label
+              className="text-sm font-semibold text-white"
+              htmlFor="coding-project"
+            >
+              选择要处理的项目
+            </label>
+            <select
+              aria-describedby="coding-project-help"
+              className="mt-2 min-h-11 w-full max-w-xl rounded-lg border border-white/15 bg-surface-900 px-3 text-sm text-white outline-none transition focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={projectSelectionLocked}
+              id="coding-project"
+              onChange={(event) => {
+                setSelectedProjectId(event.target.value);
+                setError("");
+                setDraftError("");
+                setDraftNotice("");
+              }}
+              value={selectedProjectId}
+            >
+              {projects.map((project) => (
+                <option
+                  disabled={project.state !== "available"}
+                  key={project.id}
+                  value={project.id}
+                >
+                  {project.name}
+                  {project.kind === "builtin" ? "（完整功能）" : "（修改草稿）"}
+                  {project.state !== "available" ? " — 暂不可用" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400" id="coding-project-help">
+              {selectedProject?.state === "unavailable"
+                ? projectReason[selectedProject.reason ?? ""] ??
+                  "这个项目目前不能安全读取，请由开发者检查项目状态。"
+                : isLocalProject
+                  ? "可查看、准备修改并下载 Diff；不会写入本地项目，也不会运行项目验证、创建提交或发布 PR。"
+                  : "ModelMirror 提供修改审阅、项目验证、受控应用、本地提交和 GitHub 草稿 PR 的完整流程。"}
+            </p>
+            {projectSelectionLocked ? (
+              <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                当前任务已绑定此项目。若本轮没有修改，可在下方结束当前任务；否则请先放弃或处理完现有修改。
+              </p>
+            ) : projectsError ? (
+              <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                {capabilityReason[capabilities?.projects.reason ?? ""] ??
+                  "本地项目列表暂时不可用，仍可选择 ModelMirror。"}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
       <section
         aria-live="polite"
         className={`mb-5 flex items-start gap-3 rounded-lg px-4 py-3 ${
           capabilityState === "loading"
             ? "bg-white/[0.045] text-slate-300"
-            : serviceAvailable
+            : workspaceAvailable
               ? "bg-emerald-300/10 text-emerald-100"
               : "bg-amber-300/10 text-amber-100"
         }`}
       >
         {capabilityState === "loading" ? (
           <Clock3 aria-hidden="true" className="mt-0.5 shrink-0" size={18} />
-        ) : serviceAvailable ? (
+        ) : workspaceAvailable ? (
           <CheckCircle2 aria-hidden="true" className="mt-0.5 shrink-0" size={18} />
         ) : (
           <CircleAlert aria-hidden="true" className="mt-0.5 shrink-0" size={18} />
@@ -1382,21 +1728,28 @@ export default function CodingPage() {
           <p className="text-sm font-semibold">
             {capabilityState === "loading"
               ? "正在检查代码服务"
-              : serviceAvailable
+              : workspaceAvailable
                 ? isDraftMode
                   ? "代码助手可以准备修改草稿"
                   : "代码助手可以使用"
-                : "代码助手暂时不可用"}
+                : serviceAvailable
+                  ? "所选项目暂时不可用"
+                  : "代码助手暂时不可用"}
           </p>
           <p className="mt-1 text-xs leading-5 opacity-80">
             {capabilityState === "loading"
               ? "确认代码服务安全可用后，输入框会自动开放。"
-              : serviceAvailable
+              : workspaceAvailable
                 ? isDraftMode
-                  ? "修改会先保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
+                  ? isLocalProject
+                    ? "修改只保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
+                    : "修改会先保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
                   : "一次只处理一个问题，最长可输入 20,000 字符，闲置 30 分钟后会自动清理。"
-                : capabilityReason[capabilities?.reason ?? ""] ??
-                  (error || "暂时无法确认代码服务状态。")}
+                : serviceAvailable
+                  ? projectReason[selectedProject?.reason ?? ""] ??
+                    "所选项目暂时不可用，请重新选择或由开发者检查项目状态。"
+                  : capabilityReason[capabilities?.reason ?? ""] ??
+                    (error || "暂时无法确认代码服务状态。")}
           </p>
         </div>
       </section>
@@ -1451,7 +1804,7 @@ export default function CodingPage() {
             </div>
             <div
               aria-live="polite"
-              className={`${isDraftMode ? "min-h-24" : "min-h-[286px]"} p-4 sm:p-5`}
+              className={`${isDraftMode ? "min-h-24" : "min-h-[286px]"} [overflow-anchor:none] p-4 sm:p-5`}
             >
               {answer ? (
                 <div className="max-w-none break-words text-sm leading-7 text-slate-200 [&_a]:text-cyan-200 [&_a]:underline [&_blockquote]:my-4 [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-4 [&_code]:text-cyan-100 [&_h1]:mb-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:text-white [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-white [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:font-semibold [&_h3]:text-white [&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/35 [&_pre]:p-4 [&_table]:my-4 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:border [&_td]:border-white/10 [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-white/10 [&_th]:px-3 [&_th]:py-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5">
@@ -1459,15 +1812,15 @@ export default function CodingPage() {
                   {runState === "running" ? (
                     <span
                       aria-label="回答生成中"
-                      className="ml-1 inline-block h-4 w-1 animate-pulse bg-cyan-300 align-middle motion-reduce:animate-none"
+                      className="ml-1 inline-block h-4 w-1 bg-cyan-300/80 align-middle"
                     />
                   ) : null}
                 </div>
               ) : isBusy ? (
-                <div className="space-y-3" aria-label="代码分析中">
-                  <div className="h-4 w-4/5 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
-                  <div className="h-4 w-full animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
-                  <div className="h-4 w-2/3 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
+                <div className="space-y-3 opacity-75" aria-label="代码分析中">
+                  <div className="h-4 w-4/5 rounded bg-white/10" />
+                  <div className="h-4 w-full rounded bg-white/10" />
+                  <div className="h-4 w-2/3 rounded bg-white/10" />
                 </div>
               ) : (
                 <div
@@ -1514,7 +1867,7 @@ export default function CodingPage() {
               aria-describedby="coding-prompt-help"
               className="mt-3 min-h-32 w-full resize-y rounded-lg border border-white/10 bg-ink-950/75 px-3 py-3 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 hover:border-white/20 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={
-                !serviceAvailable ||
+                !workspaceAvailable ||
                 isBusy ||
                 verificationRunning ||
                 sessionFrozen ||
@@ -1560,7 +1913,7 @@ export default function CodingPage() {
                   <button
                     className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-4 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
                     disabled={
-                      !serviceAvailable ||
+                      !workspaceAvailable ||
                       !prompt.trim() ||
                       verificationRunning ||
                       sessionFrozen ||
@@ -1632,6 +1985,7 @@ export default function CodingPage() {
                 commitResult={commitResult}
                 disabled={isBusy}
                 frozen={sessionFrozen}
+                localDraftOnly={Boolean(isLocalProject)}
                 loading={draftLoading}
                 readOnly={Boolean(recoveryConflict)}
                 onApply={applyDraft}
@@ -1660,11 +2014,13 @@ export default function CodingPage() {
                 verificationAvailable={verificationAvailable}
                 verificationError={verificationError}
               />
-              <CodingHistoryPanel
-                disabled={isBusy}
-                history={cycleHistory}
-                onDownloadAll={downloadCumulativeDraft}
-              />
+              {!isLocalProject ? (
+                <CodingHistoryPanel
+                  disabled={isBusy}
+                  history={cycleHistory}
+                  onDownloadAll={downloadCumulativeDraft}
+                />
+              ) : null}
             </div>
           ) : null}
         </div>
