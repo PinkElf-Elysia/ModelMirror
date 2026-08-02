@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import CodingApplyPanel from "./CodingApplyPanel";
+import CodingPublishPanel from "./CodingPublishPanel";
 import CodingVerificationPanel from "./CodingVerificationPanel";
 import type {
   CodingApplyResult,
@@ -22,6 +23,7 @@ import type {
   CodingCommitResult,
   CodingDraftChanges,
   CodingDraftFile,
+  CodingPublishResult,
   CodingVerification,
 } from "../types/coding";
 import { CodingApiError, getCodingDiff } from "../utils/codingApi";
@@ -47,9 +49,14 @@ interface CodingChangesPanelProps {
   onCancelVerification: () => Promise<void>;
   onRequestFix: (prompt: string) => void;
   onRunVerification: () => Promise<void>;
+  onMarkPublishReady: () => Promise<void>;
+  onPublish: (title: string, body: string) => Promise<void>;
   onRevert: () => Promise<void>;
   onUndoCommit: () => Promise<void>;
   onValidate: () => Promise<void>;
+  publishCapability: CodingCapabilities["publish"];
+  publishError: string;
+  publishResult: CodingPublishResult | null;
   sessionId: string | null;
   verification: CodingVerification | null;
   verificationAvailable: boolean;
@@ -156,6 +163,7 @@ interface CodingCommitPanelProps {
   onContinue?: () => Promise<void>;
   onClose: () => Promise<void>;
   onUndo: () => Promise<void>;
+  publishLocked: boolean;
   result: CodingCommitResult | null;
 }
 
@@ -169,6 +177,7 @@ function CodingCommitPanel({
   onContinue,
   onClose,
   onUndo,
+  publishLocked,
   result,
 }: CodingCommitPanelProps) {
   const [action, setAction] = useState<CommitAction>("idle");
@@ -252,7 +261,9 @@ function CodingCommitPanel({
               已保存一个本地版本
             </h3>
             <p aria-live="polite" className="mt-1 text-xs leading-5 text-slate-300">
-              这份版本只保存在专用项目副本中，不会上传到远程平台。
+              {publishLocked
+                ? "这份本地版本已进入 GitHub 发布流程，不能再撤销或继续追加修改。"
+                : "这份版本只保存在专用项目副本中，不会上传到远程平台。"}
             </p>
             <dl className="mt-3 grid min-w-0 gap-2 text-xs sm:grid-cols-[88px_minmax(0,1fr)]">
               <dt className="text-slate-500">版本说明</dt>
@@ -270,7 +281,7 @@ function CodingCommitPanel({
         </div>
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          {onContinue ? (
+          {onContinue && !publishLocked ? (
             <button
               className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               disabled={disabled || waiting}
@@ -283,18 +294,20 @@ function CodingCommitPanel({
               继续修改
             </button>
           ) : null}
-          <button
-            className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-amber-300/30 px-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-            disabled={disabled || waiting || !result.can_undo}
-            onClick={() => {
-              setConfirmUndo(true);
-              setConfirmClose(false);
-            }}
-            type="button"
-          >
-            <Undo2 aria-hidden="true" size={16} />
-            撤销本地提交
-          </button>
+          {!publishLocked ? (
+            <button
+              className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-amber-300/30 px-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              disabled={disabled || waiting || !result.can_undo}
+              onClick={() => {
+                setConfirmUndo(true);
+                setConfirmClose(false);
+              }}
+              type="button"
+            >
+              <Undo2 aria-hidden="true" size={16} />
+              撤销本地提交
+            </button>
+          ) : null}
           <button
             className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
             disabled={disabled || waiting}
@@ -551,9 +564,14 @@ export default function CodingChangesPanel({
   onCancelVerification,
   onRequestFix,
   onRunVerification,
+  onMarkPublishReady,
+  onPublish,
   onRevert,
   onUndoCommit,
   onValidate,
+  publishCapability,
+  publishError,
+  publishResult,
   sessionId,
   verification,
   verificationAvailable,
@@ -860,7 +878,19 @@ export default function CodingChangesPanel({
               onContinue={onContinue}
               onClose={onClose}
               onUndo={onUndoCommit}
+              publishLocked={Boolean(publishResult?.publish_id)}
               result={commitResult}
+            />
+
+            <CodingPublishPanel
+              capability={publishCapability}
+              changes={changes}
+              commit={commitResult}
+              disabled={disabled || readOnly || isActing}
+              error={publishError}
+              onMarkReady={onMarkPublishReady}
+              onPublish={onPublish}
+              result={publishResult}
             />
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">

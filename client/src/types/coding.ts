@@ -50,6 +50,18 @@ export interface CodingCapabilities {
     requires_recovery: true;
     undo_scope: "latest";
   };
+  publish?: {
+    available: boolean;
+    configured: boolean;
+    default_pr_state: "draft";
+    enabled: boolean;
+    provider: "github";
+    reason?: string;
+    remote_merge: false;
+    requires_exact_base: true;
+    supports_mark_ready: true;
+    target: "fixed_repository";
+  };
   reason?: "disabled" | "not_configured" | "worker_unavailable" | string;
   recovery: {
     available: boolean;
@@ -285,4 +297,29 @@ export interface CodingCycleHistory {
   current_commit: CodingCommitResult | null;
   cycles: CodingCycleSummary[];
   max_cycles: number;
+}
+
+export type CodingPublishState =
+  | "not_published"
+  | "publishing"
+  | "draft"
+  | "marking_ready"
+  | "ready"
+  | "failed"
+  | "conflict";
+
+export interface CodingPublishResult {
+  body: string;
+  can_mark_ready: boolean;
+  commit_count: number;
+  file_count: number;
+  finished_at: number | null;
+  pr_number: number | null;
+  pr_url: string | null;
+  publish_id: string | null;
+  reason: string | null;
+  revision: number;
+  started_at: number | null;
+  state: CodingPublishState;
+  title: string;
 }
