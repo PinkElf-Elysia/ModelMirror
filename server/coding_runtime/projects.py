@@ -18,6 +18,49 @@ MAX_PROJECT_NAME_CHARS = 80
 MAX_PROJECT_PATH_CHARS = 512
 MAX_PROJECT_MANIFEST_BYTES = 256 * 1024
 GIT_INSPECTION_TIMEOUT_SECONDS = 10.0
+MAX_PROJECT_SNAPSHOT_FILES = 20_000
+MAX_PROJECT_SNAPSHOT_BYTES = 192 * 1024 * 1024
+MAX_PROJECT_SNAPSHOT_FILE_BYTES = 32 * 1024 * 1024
+MAX_PROJECT_AGENTS_BYTES = 64 * 1024
+
+_SNAPSHOT_HIDDEN_SEGMENTS = frozenset(
+    {
+        ".git",
+        ".codex",
+        ".agents",
+        ".idea",
+        ".vscode",
+        ".opencode",
+        "node_modules",
+        "dist",
+        "build",
+        ".vite",
+        "__pycache__",
+        ".pytest_cache",
+        "storage",
+        "uploads",
+        "artifacts",
+    }
+)
+_SNAPSHOT_HIDDEN_SUFFIXES = (
+    ".key",
+    ".pem",
+    ".p12",
+    ".pfx",
+    ".log",
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".pyc",
+)
+_SNAPSHOT_HIDDEN_NAMES = frozenset(
+    {
+        ".mcp.json",
+        "opencode.json",
+        "opencode.jsonc",
+        "credentials.json",
+    }
+)
 
 
 class ProjectKind(StrEnum):
@@ -279,6 +322,30 @@ def resolve_project_path(root: Path, relative_path: str) -> Path:
     if error is not None or project_path is None:
         raise ProjectCatalogError(error or "project_unavailable", "Project path is unavailable")
     return project_path
+
+
+def project_snapshot_path_is_allowed(path: str) -> bool:
+    if not isinstance(path, str) or not path or "\\" in path:
+        return False
+    if any(_is_control(character) for character in path):
+        return False
+    pure_path = PurePosixPath(path)
+    if pure_path.is_absolute() or any(part in {"", ".", ".."} for part in pure_path.parts):
+        return False
+    if pure_path.as_posix() != path:
+        return False
+    lowered = path.casefold()
+    parts = PurePosixPath(lowered).parts
+    name = parts[-1]
+    if name == "agents.md" and path != "AGENTS.md":
+        return False
+    return not (
+        any(part in _SNAPSHOT_HIDDEN_SEGMENTS for part in parts)
+        or name == ".env"
+        or name.startswith(".env.")
+        or name in _SNAPSHOT_HIDDEN_NAMES
+        or name.endswith(_SNAPSHOT_HIDDEN_SUFFIXES)
+    )
 
 
 def validate_git_tree(payload: bytes) -> None:

@@ -15,6 +15,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
 
 from server.coding_runtime.projects import (
+    MAX_PROJECT_AGENTS_BYTES,
+    MAX_PROJECT_SNAPSHOT_BYTES,
+    MAX_PROJECT_SNAPSHOT_FILE_BYTES,
+    MAX_PROJECT_SNAPSHOT_FILES,
     ProjectCatalogError,
     ProjectManifestEntry,
     ProjectState,
@@ -22,16 +26,13 @@ from server.coding_runtime.projects import (
     build_safe_git_environment,
     inspect_project,
     load_project_manifest,
+    project_snapshot_path_is_allowed,
     resolve_project_path,
     validate_git_tree,
 )
 
 
 MAX_SOURCE_FRAME_BYTES = 64 * 1024
-MAX_SNAPSHOT_FILES = 20_000
-MAX_SNAPSHOT_BYTES = 192 * 1024 * 1024
-MAX_SNAPSHOT_FILE_BYTES = 32 * 1024 * 1024
-MAX_ROOT_AGENTS_BYTES = 64 * 1024
 SNAPSHOT_BUILD_TIMEOUT_SECONDS = 60.0
 SOURCE_SOCKET_PATH = Path(
     os.getenv(
@@ -42,46 +43,6 @@ SOURCE_SOCKET_PATH = Path(
 PROJECTS_ROOT = Path(os.getenv("CODING_PROJECTS_ROOT", "/projects-root"))
 SNAPSHOT_SLOT = Path(os.getenv("CODING_PROJECT_SNAPSHOT_ROOT", "/snapshot-slot"))
 
-_HIDDEN_SEGMENTS = frozenset(
-    {
-        ".git",
-        ".codex",
-        ".agents",
-        ".idea",
-        ".vscode",
-        ".opencode",
-        "node_modules",
-        "dist",
-        "build",
-        ".vite",
-        "__pycache__",
-        ".pytest_cache",
-        "storage",
-        "uploads",
-        "artifacts",
-    }
-)
-_HIDDEN_SUFFIXES = (
-    ".key",
-    ".pem",
-    ".p12",
-    ".pfx",
-    ".log",
-    ".db",
-    ".sqlite",
-    ".sqlite3",
-    ".pyc",
-)
-_HIDDEN_NAMES = frozenset(
-    {
-        ".mcp.json",
-        "opencode.json",
-        "opencode.jsonc",
-        "credentials.json",
-    }
-)
-
-
 class ProjectSourceError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -90,10 +51,10 @@ class ProjectSourceError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class SnapshotLimits:
-    max_files: int = MAX_SNAPSHOT_FILES
-    max_bytes: int = MAX_SNAPSHOT_BYTES
-    max_file_bytes: int = MAX_SNAPSHOT_FILE_BYTES
-    max_agents_bytes: int = MAX_ROOT_AGENTS_BYTES
+    max_files: int = MAX_PROJECT_SNAPSHOT_FILES
+    max_bytes: int = MAX_PROJECT_SNAPSHOT_BYTES
+    max_file_bytes: int = MAX_PROJECT_SNAPSHOT_FILE_BYTES
+    max_agents_bytes: int = MAX_PROJECT_AGENTS_BYTES
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,8 +214,8 @@ class ProjectSnapshotBroker:
         if len(entries) > self._limits.max_files:
             raise ProjectSourceError("snapshot_file_limit_exceeded", "Project has too many files")
 
-        hidden_files = sum(1 for item in entries if _snapshot_path_is_hidden(item.path))
-        visible = tuple(item for item in entries if not _snapshot_path_is_hidden(item.path))
+        hidden_files = sum(1 for item in entries if not project_snapshot_path_is_allowed(item.path))
+        visible = tuple(item for item in entries if project_snapshot_path_is_allowed(item.path))
         fingerprint = hashlib.sha256()
         total_bytes = 0
         process = subprocess.Popen(
@@ -485,21 +446,6 @@ def _read_exact(stream: Any, size: int) -> bytes:
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
-
-
-def _snapshot_path_is_hidden(path: str) -> bool:
-    lowered = path.casefold()
-    parts = PurePosixPath(lowered).parts
-    name = parts[-1]
-    if name == "agents.md" and path != "AGENTS.md":
-        return True
-    return (
-        any(part in _HIDDEN_SEGMENTS for part in parts)
-        or name == ".env"
-        or name.startswith(".env.")
-        or name in _HIDDEN_NAMES
-        or name.endswith(_HIDDEN_SUFFIXES)
-    )
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:

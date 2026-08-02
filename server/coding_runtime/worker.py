@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import math
 import os
 import re
 import time
+import unicodedata
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +24,14 @@ from .draft_workspace import (
     DraftWorkspaceError,
 )
 from .models import CodingEvent, CodingEventKind, CodingSession, CodingSessionState
+from .projects import (
+    MAX_PROJECT_AGENTS_BYTES,
+    MAX_PROJECT_SNAPSHOT_BYTES,
+    MAX_PROJECT_SNAPSHOT_FILE_BYTES,
+    MAX_PROJECT_SNAPSHOT_FILES,
+    ProjectKind,
+    project_snapshot_path_is_allowed,
+)
 from .verification import (
     MAX_VERIFICATION_DETAIL_CHARS,
     MAX_VERIFICATION_SUMMARY_CHARS,
@@ -48,6 +58,9 @@ SOCKET_PATH = Path(
 )
 WORKSPACE_PATH = "/workspace"
 SOURCE_SNAPSHOT_PATH = Path("/opt/modelmirror-source")
+PROJECT_SNAPSHOT_PATH = Path(
+    os.getenv("CODING_PROJECT_SNAPSHOT_PATH", "/project-snapshots/current")
+)
 CHECKPOINT_PATH = Path("/tmp/modelmirror-coding-checkpoint")
 VERIFIER_SOCKET_PATH = Path(
     os.getenv(
@@ -142,6 +155,8 @@ def _permission_for_mode(mode: str) -> dict[str, Any]:
 def build_opencode_config(
     model_id: str,
     mode: str = "readonly",
+    *,
+    project_instructions: bool = False,
 ) -> dict[str, Any]:
     if not SAFE_MODEL_ID.fullmatch(model_id):
         raise CodingWorkerError(
@@ -157,9 +172,9 @@ def build_opencode_config(
         "agent": {
             agent_name: {
                 "description": (
-                    "Isolated ModelMirror change draft assistant"
+                    "Isolated project change draft assistant"
                     if mode == "draft"
-                    else "Read-only ModelMirror repository analyst"
+                    else "Read-only project analyst"
                 ),
                 "mode": "primary",
                 "steps": MAX_AGENT_STEPS,
@@ -188,13 +203,17 @@ def build_opencode_config(
         },
         "plugin": [],
         "mcp": {},
-        "instructions": [],
+        "instructions": ["/workspace/AGENTS.md"] if project_instructions else [],
         "share": "disabled",
         "autoupdate": False,
     }
 
 
-def create_acp_client(mode: str | None = None) -> AcpClient:
+def create_acp_client(
+    mode: str | None = None,
+    *,
+    project_instructions: bool = False,
+) -> AcpClient:
     active_mode = mode or coding_agent_mode()
     model_id = os.getenv("CODING_AGENT_MODEL", "").strip()
     gateway_key = os.getenv("CODING_AGENT_GATEWAY_KEY", "").strip()
@@ -204,7 +223,11 @@ def create_acp_client(mode: str | None = None) -> AcpClient:
             code="not_configured",
         )
     config_content = json.dumps(
-        build_opencode_config(model_id, active_mode),
+        build_opencode_config(
+            model_id,
+            active_mode,
+            project_instructions=project_instructions,
+        ),
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -248,8 +271,34 @@ class _WorkerSession:
     adapter: AcpClient
     workspace: DraftWorkspace
     mode: str
+    source: WorkspaceSource | None = None
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     verification: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceSource:
+    kind: ProjectKind
+    project_id: str
+    name: str
+    snapshot_path: Path
+    fingerprint: str
+    branch: str | None = None
+    head: str | None = None
+    lease_id: str | None = None
+
+    @property
+    def verification_available(self) -> bool:
+        return self.kind is ProjectKind.BUILTIN
+
+    def to_public_dict(self) -> dict[str, object]:
+        return {
+            "id": self.project_id,
+            "name": self.name,
+            "kind": self.kind.value,
+            "branch": self.branch,
+            "head": self.head[:12] if self.head else None,
+        }
 
 
 class CodingWorkerServer:
@@ -260,12 +309,14 @@ class CodingWorkerServer:
         socket_path: Path = SOCKET_PATH,
         *,
         source_snapshot_path: Path = SOURCE_SNAPSHOT_PATH,
+        project_snapshot_path: Path = PROJECT_SNAPSHOT_PATH,
         workspace_path: Path = Path(WORKSPACE_PATH),
         checkpoint_path: Path = CHECKPOINT_PATH,
         verifier: CodingVerifierClient | None = None,
     ) -> None:
         self._socket_path = socket_path
         self._source_snapshot_path = source_snapshot_path
+        self._project_snapshot_path = project_snapshot_path
         self._workspace_path = workspace_path
         self._checkpoint_path = checkpoint_path
         self._verifier = verifier or CodingVerifierClient(VERIFIER_SOCKET_PATH)
@@ -318,7 +369,7 @@ class CodingWorkerServer:
                     },
                 )
             elif action == "create_session":
-                await self._create_session(writer)
+                await self._create_session(request, writer)
             elif action == "restore_session":
                 await self._restore_session(request, writer)
             elif action == "recovery_snapshot":
@@ -382,7 +433,20 @@ class CodingWorkerServer:
         for record in records:
             await self._cleanup_record(record)
 
-    async def _create_session(self, writer: asyncio.StreamWriter) -> None:
+    async def _create_session(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        if set(request) not in ({"action"}, {"action", "source"}):
+            raise CodingWorkerProtocolError(
+                "Coding session request fields are invalid.",
+                code="invalid_request",
+            )
+        source = await asyncio.to_thread(
+            self._resolve_workspace_source,
+            request.get("source"),
+        )
         async with self._sessions_lock:
             if self._sessions:
                 raise CodingWorkerError(
@@ -392,7 +456,7 @@ class CodingWorkerServer:
             mode = coding_agent_mode()
             session = CodingSession()
             workspace = DraftWorkspace(
-                self._source_snapshot_path,
+                source.snapshot_path,
                 self._workspace_path,
                 self._checkpoint_path,
                 preserve_workspace_root=True,
@@ -403,7 +467,7 @@ class CodingWorkerServer:
                     self._set_workspace_read_only(workspace.workspace_root)
                 else:
                     self._set_workspace_writable(workspace.workspace_root)
-                adapter = create_acp_client(mode)
+                adapter = self._create_source_adapter(mode, source)
             except Exception as exc:
                 with contextlib.suppress(Exception):
                     self._set_workspace_writable(workspace.workspace_root)
@@ -417,10 +481,11 @@ class CodingWorkerServer:
                 adapter=adapter,
                 workspace=workspace,
                 mode=mode,
+                source=source,
             )
             self._sessions[session.session_id] = record
         try:
-            event = await adapter.open(session)
+            event = _event_with_project(await adapter.open(session), source)
         except Exception:
             async with self._sessions_lock:
                 self._sessions.pop(session.session_id, None)
@@ -435,6 +500,7 @@ class CodingWorkerServer:
                 "ok": True,
                 "session_id": session.session_id,
                 "mode": mode,
+                "project": source.to_public_dict(),
                 "event": event.to_dict(),
             },
         )
@@ -444,6 +510,22 @@ class CodingWorkerServer:
         request: dict[str, Any],
         writer: asyncio.StreamWriter,
     ) -> None:
+        allowed_keys = {
+            "action",
+            "revision",
+            "patch",
+            "paths",
+            "base_patch",
+            "base_paths",
+            "snapshot_fingerprint",
+            "verification",
+            "source",
+        }
+        if not set(request).issubset(allowed_keys):
+            raise CodingWorkerProtocolError(
+                "Coding recovery request fields are invalid.",
+                code="invalid_request",
+            )
         revision = request.get("revision")
         patch = request.get("patch")
         paths = request.get("paths")
@@ -471,7 +553,11 @@ class CodingWorkerServer:
                 "Coding recovery request is invalid.",
                 code="invalid_request",
             )
-        if expected_fingerprint != self._source_fingerprint:
+        source = await asyncio.to_thread(
+            self._resolve_workspace_source,
+            request.get("source"),
+        )
+        if expected_fingerprint != source.fingerprint:
             raise CodingWorkerError(
                 "Coding recovery snapshot does not match the runtime.",
                 code="snapshot_mismatch",
@@ -482,6 +568,11 @@ class CodingWorkerServer:
             revision=revision,
             paths=verification_paths,
         )
+        if not source.verification_available and restored_verification is not None:
+            raise CodingWorkerError(
+                "Project verification is unavailable for this source.",
+                code="project_operation_unavailable",
+            )
         mode = coding_agent_mode()
         if mode != "draft":
             raise CodingWorkerError(
@@ -506,7 +597,7 @@ class CodingWorkerServer:
                 )
             session = CodingSession()
             workspace = DraftWorkspace(
-                self._source_snapshot_path,
+                source.snapshot_path,
                 self._workspace_path,
                 self._checkpoint_path,
                 preserve_workspace_root=True,
@@ -521,7 +612,7 @@ class CodingWorkerServer:
                     expected_paths=tuple(paths),
                 )
                 self._set_workspace_writable(workspace.workspace_root)
-                adapter = create_acp_client(mode)
+                adapter = self._create_source_adapter(mode, source)
             except (DraftWorkspaceError, OSError, UnicodeError) as exc:
                 with contextlib.suppress(Exception):
                     self._set_workspace_writable(workspace.workspace_root)
@@ -543,11 +634,12 @@ class CodingWorkerServer:
                 adapter=adapter,
                 workspace=workspace,
                 mode=mode,
+                source=source,
                 verification=restored_verification,
             )
             self._sessions[session.session_id] = record
         try:
-            event = await adapter.open(session)
+            event = _event_with_project(await adapter.open(session), source)
         except Exception:
             async with self._sessions_lock:
                 self._sessions.pop(session.session_id, None)
@@ -562,6 +654,7 @@ class CodingWorkerServer:
                 "ok": True,
                 "session_id": session.session_id,
                 "mode": mode,
+                "project": source.to_public_dict(),
                 "event": event.to_dict(),
                 "changes": report.to_dict(),
                 "recovered": True,
@@ -601,7 +694,8 @@ class CodingWorkerServer:
             writer,
             {
                 "ok": True,
-                "snapshot_fingerprint": self._source_fingerprint,
+                "snapshot_fingerprint": self._record_source(record).fingerprint,
+                "project": self._record_source(record).to_public_dict(),
                 "changes": report.to_dict(),
                 "patch": patch,
                 "base_patch": record.workspace.cycle_patch,
@@ -728,7 +822,10 @@ class CodingWorkerServer:
             created_at=old_session.created_at,
             _next_seq=next_sequence,
         )
-        next_adapter = create_acp_client(record.mode)
+        next_adapter = CodingWorkerServer._create_source_adapter(
+            record.mode,
+            record.source,
+        )
         await old_adapter.close(old_session)
         try:
             await next_adapter.open(next_session)
@@ -886,6 +983,7 @@ class CodingWorkerServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         record = self._require_draft_session(request)
+        self._require_verification_available(record)
         revision = self._require_revision(request)
         await self._refresh_verification(record)
         if self._verification_running(record):
@@ -893,7 +991,8 @@ class CodingWorkerServer:
                 "Project verification is already running.",
                 code="verification_in_progress",
             )
-        if not self._source_fingerprint:
+        source = self._record_source(record)
+        if not source.fingerprint:
             raise CodingWorkerError(
                 "Project verification source is unavailable.",
                 code="verifier_unavailable",
@@ -907,7 +1006,7 @@ class CodingWorkerServer:
             revision=revision,
             patch=patch,
             paths=[item.path for item in report.files],
-            expected_fingerprint=self._source_fingerprint,
+            expected_fingerprint=source.fingerprint,
         )
         verification = self._store_verification(
             record,
@@ -925,6 +1024,7 @@ class CodingWorkerServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         record = self._require_draft_session(request)
+        self._require_verification_available(record)
         requested_revision = self._require_revision(request)
         current_revision = record.workspace.changes().revision
         stored_revision = (
@@ -955,6 +1055,7 @@ class CodingWorkerServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         record = self._require_draft_session(request)
+        self._require_verification_available(record)
         revision = self._require_revision(request)
         if (
             record.verification is None
@@ -1014,6 +1115,9 @@ class CodingWorkerServer:
         return {**capability, "available": True}
 
     async def _refresh_verification(self, record: _WorkerSession) -> None:
+        if record.source is not None and not record.source.verification_available:
+            record.verification = None
+            return
         if not self._verification_running(record):
             return
         assert record.verification is not None
@@ -1139,6 +1243,114 @@ class CodingWorkerServer:
                 code="draft_busy",
             )
         return record
+
+    @staticmethod
+    def _require_verification_available(record: _WorkerSession) -> None:
+        if record.source is not None and not record.source.verification_available:
+            raise CodingWorkerError(
+                "Project verification is unavailable for this source.",
+                code="project_operation_unavailable",
+            )
+
+    def _record_source(self, record: _WorkerSession) -> WorkspaceSource:
+        if record.source is not None:
+            return record.source
+        return WorkspaceSource(
+            kind=ProjectKind.BUILTIN,
+            project_id="modelmirror",
+            name="ModelMirror",
+            snapshot_path=self._source_snapshot_path,
+            fingerprint=self._source_fingerprint,
+        )
+
+    @staticmethod
+    def _create_source_adapter(
+        mode: str,
+        source: WorkspaceSource | None,
+    ) -> AcpClient:
+        if (
+            source is not None
+            and source.kind is ProjectKind.LOCAL_CLONE
+            and (source.snapshot_path / "AGENTS.md").is_file()
+        ):
+            return create_acp_client(mode, project_instructions=True)
+        return create_acp_client(mode)
+
+    def _resolve_workspace_source(self, payload: Any) -> WorkspaceSource:
+        if payload is None or payload == {"kind": ProjectKind.BUILTIN.value}:
+            return WorkspaceSource(
+                kind=ProjectKind.BUILTIN,
+                project_id="modelmirror",
+                name="ModelMirror",
+                snapshot_path=self._source_snapshot_path,
+                fingerprint=self._source_fingerprint,
+            )
+        expected_keys = {
+            "kind",
+            "lease_id",
+            "project_id",
+            "name",
+            "branch",
+            "head",
+            "fingerprint",
+            "file_count",
+            "total_bytes",
+            "hidden_files",
+            "created_at",
+        }
+        if not isinstance(payload, dict) or set(payload) != expected_keys:
+            raise CodingWorkerProtocolError(
+                "Coding project source is invalid.",
+                code="invalid_request",
+            )
+        if payload.get("kind") != ProjectKind.LOCAL_CLONE.value:
+            raise CodingWorkerProtocolError(
+                "Coding project source is invalid.",
+                code="invalid_request",
+            )
+        lease_path = self._project_snapshot_path / "lease.json"
+        workspace_path = self._project_snapshot_path / "workspace"
+        try:
+            if (
+                lease_path.is_symlink()
+                or not lease_path.is_file()
+                or lease_path.stat().st_size > 16 * 1024
+            ):
+                raise CodingWorkerError(
+                    "Project snapshot is unavailable.",
+                    code="snapshot_unavailable",
+                )
+            lease = json.loads(lease_path.read_text(encoding="utf-8"))
+        except CodingWorkerError:
+            raise
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise CodingWorkerError(
+                "Project snapshot is unavailable.",
+                code="snapshot_unavailable",
+            ) from exc
+        expected_lease = {key: value for key, value in payload.items() if key != "kind"}
+        if not isinstance(lease, dict) or lease != expected_lease:
+            raise CodingWorkerError(
+                "Project snapshot lease does not match.",
+                code="snapshot_mismatch",
+            )
+        _validate_local_source_metadata(lease)
+        fingerprint = _validate_local_snapshot(workspace_path, lease)
+        if fingerprint != lease["fingerprint"]:
+            raise CodingWorkerError(
+                "Project snapshot fingerprint does not match.",
+                code="snapshot_mismatch",
+            )
+        return WorkspaceSource(
+            kind=ProjectKind.LOCAL_CLONE,
+            project_id=lease["project_id"],
+            name=lease["name"],
+            snapshot_path=workspace_path,
+            fingerprint=fingerprint,
+            branch=lease["branch"],
+            head=lease["head"],
+            lease_id=lease["lease_id"],
+        )
 
     @staticmethod
     def _require_revision(request: dict[str, Any]) -> int:
@@ -1268,8 +1480,14 @@ class CodingWorkerClient:
     async def health(self) -> dict[str, Any]:
         return await self._request({"action": "health"})
 
-    async def create_session(self) -> dict[str, Any]:
-        return await self._request({"action": "create_session"}, timeout=130.0)
+    async def create_session(
+        self,
+        source: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        request: dict[str, Any] = {"action": "create_session"}
+        if source is not None:
+            request["source"] = source
+        return await self._request(request, timeout=130.0)
 
     async def restore_session(
         self,
@@ -1281,18 +1499,22 @@ class CodingWorkerClient:
         verification: dict[str, Any] | None = None,
         base_patch: str = "",
         base_paths: list[str] | None = None,
+        source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        request: dict[str, Any] = {
+            "action": "restore_session",
+            "revision": revision,
+            "patch": patch,
+            "paths": paths,
+            "base_patch": base_patch,
+            "base_paths": base_paths or [],
+            "snapshot_fingerprint": snapshot_fingerprint,
+            "verification": verification,
+        }
+        if source is not None:
+            request["source"] = source
         result = await self._request(
-            {
-                "action": "restore_session",
-                "revision": revision,
-                "patch": patch,
-                "paths": paths,
-                "base_patch": base_patch,
-                "base_paths": base_paths or [],
-                "snapshot_fingerprint": snapshot_fingerprint,
-                "verification": verification,
-            },
+            request,
             timeout=130.0,
         )
         if (
@@ -1608,6 +1830,179 @@ class CodingWorkerClient:
             "Coding runtime request failed.",
             code=code if isinstance(code, str) else "worker_error",
         )
+
+
+def _validate_local_source_metadata(lease: dict[str, Any]) -> None:
+    expected = {
+        "lease_id",
+        "project_id",
+        "name",
+        "branch",
+        "head",
+        "fingerprint",
+        "file_count",
+        "total_bytes",
+        "hidden_files",
+        "created_at",
+    }
+    if set(lease) != expected:
+        raise CodingWorkerError(
+            "Project snapshot metadata is invalid.",
+            code="snapshot_mismatch",
+        )
+    lease_id = lease["lease_id"]
+    project_id = lease["project_id"]
+    name = lease["name"]
+    branch = lease["branch"]
+    head = lease["head"]
+    fingerprint = lease["fingerprint"]
+    counts = (lease["file_count"], lease["total_bytes"], lease["hidden_files"])
+    created_at = lease["created_at"]
+    if (
+        not _safe_internal_id(lease_id)
+        or not _safe_internal_id(project_id)
+        or not project_id.startswith("local-")
+        or not isinstance(name, str)
+        or not name
+        or name != name.strip()
+        or name != unicodedata.normalize("NFC", name)
+        or len(name) > 80
+        or any(
+            unicodedata.category(character).startswith("C")
+            for character in name
+        )
+        or not isinstance(branch, str)
+        or not branch
+        or branch != branch.strip()
+        or len(branch) > 200
+        or any(
+            unicodedata.category(character).startswith("C")
+            for character in branch
+        )
+        or not _safe_hex(head, lengths={40, 64})
+        or not _safe_hex(fingerprint, lengths={64})
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in counts
+        )
+        or counts[0] > MAX_PROJECT_SNAPSHOT_FILES
+        or counts[1] > MAX_PROJECT_SNAPSHOT_BYTES
+        or counts[2] > MAX_PROJECT_SNAPSHOT_FILES
+        or isinstance(created_at, bool)
+        or not isinstance(created_at, (int, float))
+        or not math.isfinite(float(created_at))
+        or float(created_at) <= 0
+    ):
+        raise CodingWorkerError(
+            "Project snapshot metadata is invalid.",
+            code="snapshot_mismatch",
+        )
+
+
+def _validate_local_snapshot(root: Path, lease: dict[str, Any]) -> str:
+    try:
+        resolved = root.resolve(strict=True)
+    except OSError as exc:
+        raise CodingWorkerError(
+            "Project snapshot is unavailable.",
+            code="snapshot_unavailable",
+        ) from exc
+    if root.is_symlink() or not resolved.is_dir() or resolved.parent == resolved:
+        raise CodingWorkerError("Project snapshot is unsafe.", code="snapshot_unsafe")
+    digest = hashlib.sha256()
+    file_count = 0
+    total_bytes = 0
+    try:
+        for path in sorted(resolved.rglob("*")):
+            relative = path.relative_to(resolved).as_posix()
+            if path.is_symlink() or not project_snapshot_path_is_allowed(relative):
+                raise CodingWorkerError(
+                    "Project snapshot is unsafe.",
+                    code="snapshot_unsafe",
+                )
+            if path.is_dir():
+                continue
+            if not path.is_file():
+                raise CodingWorkerError(
+                    "Project snapshot is unsafe.",
+                    code="snapshot_unsafe",
+                )
+            size = path.stat().st_size
+            if size > MAX_PROJECT_SNAPSHOT_FILE_BYTES:
+                raise CodingWorkerError(
+                    "Project snapshot exceeds its limits.",
+                    code="snapshot_limit_exceeded",
+                )
+            file_count += 1
+            total_bytes += size
+            if file_count > MAX_PROJECT_SNAPSHOT_FILES or total_bytes > MAX_PROJECT_SNAPSHOT_BYTES:
+                raise CodingWorkerError(
+                    "Project snapshot exceeds its limits.",
+                    code="snapshot_limit_exceeded",
+                )
+            content = path.read_bytes()
+            if len(content) != size:
+                raise CodingWorkerError(
+                    "Project snapshot changed while loading.",
+                    code="snapshot_mismatch",
+                )
+            if relative == "AGENTS.md":
+                if size > MAX_PROJECT_AGENTS_BYTES:
+                    raise CodingWorkerError(
+                        "Project instructions exceed their limit.",
+                        code="snapshot_limit_exceeded",
+                    )
+                content.decode("utf-8", errors="strict")
+            content_hash = hashlib.sha256(content)
+            digest.update(relative.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(size).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(content_hash.digest())
+    except CodingWorkerError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise CodingWorkerError(
+            "Project snapshot is unsafe.",
+            code="snapshot_unsafe",
+        ) from exc
+    if file_count != lease["file_count"] or total_bytes != lease["total_bytes"]:
+        raise CodingWorkerError(
+            "Project snapshot metadata does not match.",
+            code="snapshot_mismatch",
+        )
+    return digest.hexdigest()
+
+
+def _safe_internal_id(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and 20 <= len(value) <= 64
+        and value.isascii()
+        and all(character.isalnum() or character in "-_" for character in value)
+    )
+
+
+def _safe_hex(value: Any, *, lengths: set[int]) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) in lengths
+        and value.isascii()
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _event_with_project(event: CodingEvent, source: WorkspaceSource) -> CodingEvent:
+    data = dict(event.data)
+    data["project"] = source.to_public_dict()
+    return CodingEvent(
+        session_id=event.session_id,
+        seq=event.seq,
+        kind=event.kind,
+        created_at=event.created_at,
+        turn_id=event.turn_id,
+        data=data,
+    )
 
 
 def _validate_recovered_verification(
