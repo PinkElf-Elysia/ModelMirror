@@ -74,6 +74,25 @@ Python site-packages directory; npm packages in the Verifier retain their
 license and package metadata under `/opt/modelmirror-client/node_modules`.
 Their upstream licenses remain unchanged.
 
+## Coding GitHub Publisher
+
+The optional `coding-publish` profile uses the official Python 3.12 slim image,
+Debian's Git and CA certificates, `httpx` 0.28.1, and `cryptography` 45.0.7.
+`httpx` is distributed under the BSD 3-Clause License. `cryptography` is
+distributed under either the Apache License 2.0 or the BSD 3-Clause License.
+Git is distributed under GPL-2.0; the image retains Debian's package notices.
+
+Projects:
+
+- https://github.com/encode/httpx
+- https://github.com/pyca/cryptography
+- https://git-scm.com/
+
+The Publisher and its allowlist egress proxy are independently implemented by
+ModelMirror. They use GitHub's public REST and GraphQL APIs with a deployment
+owned GitHub App; no GitHub source code, private key, JWT, or installation token
+is copied into the repository or image.
+
 ## Browser sidecar
 
 The isolated Browser sidecar uses Playwright 1.58.2 under the Apache License

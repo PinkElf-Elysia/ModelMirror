@@ -15,7 +15,7 @@
 - `/agents/studio`：Agent Studio，提供草稿、发布版本和运行闭环。
 - `/datax`、`/toolsets`、`/runtime`：数据、工具和运行诊断。
 - `/coding`：实验性代码协作；默认只读，也可准备、验证、受控应用、保存隔离本地
-  提交，并在重启后恢复最近一份安全草稿。
+  提交、恢复最近一份安全草稿，并把固定任务发布为 GitHub Draft PR。
 
 Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 `server/api/dify_proxy.py` 和旧 iframe 组件作为历史兼容代码，但默认前端路由
@@ -42,6 +42,8 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | Coding Applier | 把满足门禁的草稿原子写入固定专用工作树；无网络、无 Git 操作、可选启动。 |
 | Coding Committer | 把已应用文件保存到独立本地仓库；无网络、固定分支、只写隔离 `.git`。 |
 | Coding Recovery Store | 可选的单任务加密恢复存储；默认保留 7 天，不保存对话或工具过程。 |
+| Coding Publisher | 只读复核本地线性提交，经固定 GitHub App 创建 Draft PR；可选启动。 |
+| Coding GitHub Egress | 无凭据出口代理，只放行 `github.com:443` 与 `api.github.com:443`。 |
 
 ## 系统架构
 
@@ -77,6 +79,10 @@ flowchart LR
   COMMIT -->|"本地提交 / 保留文件撤销"| REPO["无远程独立仓库"]
   COMMIT -. "network_mode: none" .-> OFFLINE
   API -->|"Fernet 密文 + SQLite"| RECOVERY["最近一份 Coding 恢复记录"]
+  API -->|"独立 Unix socket"| PUBLISH["coding-publisher"]
+  REPO -->|"只读提交链"| PUBLISH
+  PUBLISH -->|"无凭据 HTTP CONNECT"| EGRESS["coding-github-egress"]
+  EGRESS -->|"固定域名 443"| GITHUB["GitHub.com 固定仓库"]
 ```
 
 ## 稳定路由
@@ -177,6 +183,14 @@ flowchart LR
 - 恢复会从镜像内不可变基准重新复核并应用 Patch，再创建全新 Agent 会话；问题、
   回答、计划、工具过程和原始命令输出从不持久化。基准或验证环境指纹变化会使
   结果过期；应用/提交状态无法精确对账时进入只读冲突态，不重复写入或覆盖人工内容。
+- Coding Publisher 只在显式加载发布 overlay 后存在。它只读挂载同一无远程独立仓库，
+  复核固定分支、HEAD、线性提交链、恢复回执和 GitHub 基础分支；目标分支只允许不存在
+  或精确指向任务 HEAD，禁止 force push、Hook、凭据助手和 URL 重写。
+- GitHub App 私钥只读挂载给 Publisher，单仓库安装令牌最长一小时且只驻留内存。
+  Publisher 不能直接出公网，只能使用无凭据 allowlist 代理；Runtime、Verifier、
+  Applier、Committer 和 Server 均不接收私钥或安装令牌。
+- 发布意图和 Draft/Ready 回执进入恢复 schema v3 的认证密文。push 或 PR 回执丢失时
+  按系统分支和 open PR 对账，禁止重复上传或创建；外部修改、关闭或基线漂移进入冲突态。
 - 视频、音频、Prompt 和首帧媒体正文不写入路由或视频任务审计。
 
 ## 当前风险与维护边界
@@ -190,11 +204,13 @@ flowchart LR
   默认不会写回宿主目录。显式启用受控应用后，只有轻量检查通过且当前项目验证
   `passed`（纯文档允许 `not_applicable`）的 revision 才能写入固定专用工作树。
   当前主工作树不挂载给 Applier 或 Committer。显式启用隔离本地提交时，系统只在
-  无远程独立克隆中创建一个本地提交，仍不推送或创建 PR。
+  无远程独立克隆中创建本地提交。显式启用发布 overlay 后，只有线性提交链可以一次性
+  推送到部署时固定的 GitHub.com 仓库并创建 Draft PR；用户再次确认才标记为 Ready，
+  产品不提供合并、关闭 PR 或删除远程分支。
 - 应用成功后会话冻结；Diff、Patch 和验证结果仍可读。启用恢复 overlay 后，精确
   对账成功的应用、提交及其撤销能力可在重启后恢复；外部状态不明确时只允许查看和
   下载。有效本地提交存在时必须先撤销提交并保留文件，才可撤销应用。Agent 仍
   不能使用 Shell、Git、测试命令或选择测试范围；系统仍不提供任意仓库选择、
-  远程操作、分支选择、删除/重命名、多次增量应用、多 Agent、分布式
+  仓库/分支选择、force push、远端合并、删除/重命名、多 Agent、分布式
   Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。

@@ -26,6 +26,8 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `coding-verifier` | 否 | `coding-verify` profile；无网络的草稿项目验证执行面，无宿主端口。 |
 | `coding-applier` | 否 | 独立 overlay 的 `coding-apply` profile；把已验证草稿写入固定专用工作树。 |
 | `coding-committer` | 否 | 独立 overlay 的 `coding-commit` profile；只在无远程独立仓库中创建本地提交。 |
+| `coding-publisher` | 否 | 独立 overlay 的 `coding-publish` profile；只读发布固定提交链。 |
+| `coding-github-egress` | 否 | 发布专用无凭据出口；只允许 GitHub.com 固定域名的 443 端口。 |
 
 Coding 恢复没有新增常驻服务；`docker-compose.coding-recovery.yml` 只给 Server
 挂载独立加密存储，并提供一次性、无网络、只读的重建预检容器。
@@ -267,6 +269,48 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
 SQLite 与 `recovery-master.key` 必须作为一组备份和恢复。不要只复制、删除或替换其中
 一个文件；错误密钥、损坏密文和不支持的 schema 会失败关闭，旧记录不会被覆盖。
 
+#### 发布为 GitHub 草稿 PR
+
+GitHub 发布必须继续使用上文的无 remote 独立克隆，并显式加载
+`docker-compose.coding-publish.yml`。GitHub App 只安装到一个固定仓库，权限限制为
+Contents `Read and write`、Pull requests `Read and write`、Metadata `Read-only`；
+不要授予 Administration、Actions、Workflows 或仓库删除权限。
+
+将 App 私钥保存为宿主上的只读文件，并在 Compose 读取的根 `.env` 或启动环境中只
+填写标识和绝对文件路径，不要粘贴私钥正文或安装令牌：
+
+```text
+CODING_GITHUB_PUBLISH_ENABLED=true
+CODING_GITHUB_APP_ID=<positive-integer>
+CODING_GITHUB_INSTALLATION_ID=<positive-integer>
+CODING_GITHUB_REPOSITORY_ID=<positive-integer>
+CODING_GITHUB_REPOSITORY=<owner/repository>
+CODING_GITHUB_APP_PRIVATE_KEY_FILE=C:\absolute\path\coding-github-app.pem
+```
+
+`CODING_GITHUB_REPOSITORY_ID` 必须是 App 安装范围内仓库的数字 ID；名称只用于再次
+核对身份。目标基础分支固定为 `main`，浏览器不能指定仓库、分支或 Git 参数。
+`CODING_GITHUB_ALLOW_SYNTHETIC_DNS` 默认 `false`，只供明确使用合成 DNS 地址的
+隔离测试环境开启，普通部署不得设置。
+
+共享栈重建前仍须先运行恢复预检。通过后再加载五个 Compose 文件；Publisher 只读
+挂载 `CODING_COMMIT_REPOSITORY`，私钥只读挂载，缺失路径因
+`create_host_path: false` 在启动前失败：
+
+```powershell
+$env:CODING_IMPLEMENTATION_WORKTREE = (Get-Location).Path
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -f docker-compose.coding-recovery.yml -p modelmirror --profile coding-recovery-preflight run --rm coding-recovery-preflight
+if ($LASTEXITCODE -ne 0) { throw "Coding 发布重建预检未通过" }
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -f docker-compose.coding-recovery.yml -f docker-compose.coding-publish.yml -p modelmirror --profile coding --profile coding-verify --profile coding-apply --profile coding-commit --profile coding-publish up -d --build --force-recreate
+docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docker-compose.coding-commit.yml -f docker-compose.coding-recovery.yml -f docker-compose.coding-publish.yml -p modelmirror --profile coding-publish ps
+curl http://localhost:8000/api/coding/capabilities
+```
+
+Publisher 无宿主端口、Docker socket 或工作区写权限，只能连接内部出口代理；出口
+代理不持有 App 私钥、JWT 或安装令牌。健康检查只证明 socket/进程可用，首次人工
+验收仍须确认固定仓库身份、精确 `main` SHA、Draft PR 和 Ready 二次确认。测试 PR
+和远端分支由用户在 GitHub 手工清理，产品没有远端删除权限。
+
 ## 反向代理
 
 `/api/chat` 和工作流运行使用 SSE。Nginx 必须关闭代理缓冲：
@@ -304,8 +348,8 @@ curl http://localhost:5173/studio
   不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
-- 启用后检查 Coding capabilities、Worker/Verifier/Applier/Committer health、验证取消
-  清理、四方快照指纹、恢复 pending/retention 和源码 Git 状态。Capabilities 与
+- 启用后检查 Coding capabilities、Worker/Verifier/Applier/Committer/Publisher health、
+  出口域名拒绝、验证取消清理、快照指纹、恢复 pending/retention 和源码 Git 状态。Capabilities 与
   日志不得返回目标绝对路径、恢复密钥或密文负载。
 
 ## 备份与恢复
@@ -329,7 +373,10 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：先设置 `CODING_RECOVERY_ENABLED=false` 或在后续启动中省略
+- 代码助手：先设置 `CODING_GITHUB_PUBLISH_ENABLED=false` 并在后续启动中省略
+  `docker-compose.coding-publish.yml`，即可恢复第七轮本地多轮能力；这不会删除已创建
+  的 GitHub 分支或 PR，远端内容只能由用户在 GitHub 明确处理。再设置
+  `CODING_RECOVERY_ENABLED=false` 或在后续启动中省略
   `docker-compose.coding-recovery.yml`，即可恢复第五轮内存行为；这不会撤销已应用
   文件或删除本地提交。恢复存储只在用户明确授权后单独清理。再停止 `coding-committer` 并不再加载
   `docker-compose.coding-commit.yml`，即可恢复第四轮受控应用能力，已有本地提交

@@ -12,12 +12,15 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 范围运行固定的后端测试或前端生产构建。部署者显式配置固定专用工作树后，用户
 可以把满足全部门禁的当前草稿应用到该副本；当目标是无远程的独立本地克隆时，
 还可以编辑中文说明并保存为一个真实本地提交。显式启用恢复 overlay 后，最近一份
-完整草稿及其脱敏检查、验证、应用和提交状态可在容器重启后继续。
+完整草稿及其脱敏检查、验证、应用和提交状态可在容器重启后继续。部署者再显式配置
+固定 GitHub App 和发布 overlay 后，用户可把线性本地提交创建为 Draft PR，并再次
+确认是否标记为 Ready。
 
 两种模式都只使用服务端固定的 ModelMirror 镜像快照。Draft 默认不会写回任何
 宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
-系统只在用户确认后向固定独立克隆创建本地提交，不上传、不创建 PR，也不支持
-删除、重命名、二进制、Agent Shell/测试命令、远程 Git 操作、多 Agent、完整 ACP、
+系统只在用户确认后向固定独立克隆创建本地提交；远程发布也只允许固定 GitHub.com
+仓库、系统分支和 Draft PR，不提供合并、关闭或远端清理。系统不支持删除、重命名、
+二进制、Agent Shell/测试命令、仓库或分支选择、多 Agent、完整 ACP、
 分布式 Worker、保存对话、多任务历史或生产级多租户。不要将该入口直接暴露到公网。
 
 ## 用户体验约束
@@ -47,6 +50,10 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 - 页面发现恢复记录时不自动覆盖当前内容，而是显示“继续上次修改”“下载 Diff”
   和“放弃这份修改”。继续后必须明确说明此前对话未保存；冲突态只保留查看、
   下载和放弃，不提供会覆盖外部内容的操作。
+- 本地提交完成后才显示“发布到 GitHub”。标题和说明可编辑；确认区必须明确会上传、
+  创建草稿 PR、不会合并。发布进行中只查询状态，不刷新整个页面。
+- Draft PR 成功后提供安全外链和“标记为可审阅”；Ready 必须再次原位确认。GitHub
+  基线变化、远端分支占用或 PR 被外部修改时使用日常语言提示，技术原因默认折叠。
 - `/coding` 独立懒加载，不侵入 ChatPage，也不新增前端依赖。
 
 ## 内部结构
@@ -69,6 +76,10 @@ flowchart LR
   API -->|"独立私有 Unix socket"| COMMIT["coding-committer"]
   COMMIT -->|"本地提交 / 保留文件撤销"| REPO["无远程独立仓库"]
   API -->|"认证加密"| RECOVERY["单槽 SQLite 恢复存储"]
+  API -->|"独立私有 Unix socket"| PUBLISH["coding-publisher"]
+  REPO -->|"只读线性提交链"| PUBLISH
+  PUBLISH -->|"无凭据代理"| EGRESS["coding-github-egress"]
+  EGRESS -->|"固定域名 443"| GITHUB["GitHub.com 固定仓库"]
   VERIFY -. "无网络、无宿主仓库" .-> HOST["宿主仓库"]
   WORK -. "不挂载" .-> HOST["宿主仓库"]
   APPLY -. "不挂载" .-> CURRENT["当前主工作树"]
@@ -106,6 +117,9 @@ flowchart LR
 | `POST /api/coding/sessions/{id}/commit/undo` | 撤销本次提交并保留文件；请求体只允许 revision、apply_id 与不透明 commit_id。 |
 | `GET /api/coding/sessions/{id}/history` | 查询当前轮、已完成轮次和是否还能继续，不返回 Patch 正文。 |
 | `POST /api/coding/sessions/{id}/continue` | 在最新本地提交后开始下一轮；请求体只允许 revision 与 commit_id。 |
+| `POST /api/coding/sessions/{id}/publish` | 持久化发布意图后异步创建 Draft PR；请求体只允许 revision、commit_id、title 与 body。 |
+| `GET /api/coding/sessions/{id}/publish?revision=` | 查询远程状态、PR 编号/URL和脱敏原因，不返回仓库配置或提交 SHA。 |
+| `POST /api/coding/sessions/{id}/publish/ready` | 再次确认后标记为 Ready；请求体只允许 revision 与不透明 publish_id。 |
 | `GET /api/coding/recovery` | 查询是否存在最近一份可恢复修改及安全状态，不返回内容正文。 |
 | `POST /api/coding/recovery/resume` | 从不可变基准和保存的 Patch 创建全新 Agent 会话。 |
 | `POST /api/coding/recovery/discard` | 只删除恢复记录，不修改专用副本或本地提交。 |
@@ -117,7 +131,8 @@ Draft 模式还返回 `host_apply` 与 `apply`：包含是否已配置、当前�
 `dedicated_worktree`、验证要求、纯文档例外和撤销能力；可选 `reason` 只是安全
 原因码，不含真实路径。启用提交 overlay 后还返回 `commit`：目标固定为
 `isolated_local_repository`，需要先应用、支持撤销、禁止远程操作，说明上限为
-2000 字符。
+2000 字符。发布 overlay 还返回 `publish`：固定 provider `github`、固定仓库、默认
+Draft、精确基础版本要求和 Ready 支持；不可用原因不影响本地能力。
 `recovery` 公开 enabled、available、pending、retention_seconds 和
 `restores_conversation=false`；不返回存储路径、密钥或加密负载。
 
@@ -246,8 +261,27 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
   当前轮增量。目标仓库保持线性父子提交关系，不允许选择分支或改写旧轮次。
 - 页面默认展示当前轮文件与 Diff，历史折叠显示，并可分别下载当前轮或全部累计修改。
   只允许撤销最新一轮；达到 10 轮后仍可查看、下载和结束任务。
-- 恢复 schema v2 保存已完成轮次和当前完整草稿；旧 v1 单轮记录仍可读取。恢复不包含
+- 恢复 schema v3 保存已完成轮次、当前完整草稿和加密发布意图/回执；旧 v1/v2 记录
+  仍可读取。恢复不包含
   此前对话，外部文件、索引或分支状态不明确时转为只读冲突态。
+
+## GitHub Draft PR 受控发布
+
+- `coding-publisher` 只读挂载无 remote 独立仓库；只接受 Server 根据恢复回执生成的
+  固定仓库、基线 SHA、HEAD、线性提交链和系统分支。浏览器与 Agent 不能提供 URL、
+  仓库、分支、路径、凭据或 Git 参数。
+- 发布前再次复核本地分支 `coding/local-draft`、干净状态、提交父子链、文件集、回执、
+  GitHub 仓库 ID 与 `main` SHA。`.github/workflows/**`、remote、alternates、Hook、
+  credential helper、proxy、URL rewrite、非快进和 force push 全部失败关闭。
+- GitHub App 私钥只读挂载给 Publisher；单仓库安装令牌只申请 Contents/Pull requests
+  写入和 Metadata 读取，最长一小时且只驻留内存。Publisher 不能直连公网，只能经
+  无凭据出口代理访问 `github.com:443` 和 `api.github.com:443`。
+- 分支固定为 `codex/modelmirror-<task-id>-<head-sha>`。push、PR 创建或回执落盘中断后，
+  系统先查询固定分支与 open PR；精确匹配才恢复，禁止重复 push、重复 PR 或覆盖远端。
+- 发布意图出现后任务冻结。外部修改/关闭 PR、占用分支或结果不明确时进入只读冲突态；
+  仍可查看 Diff、验证和历史，但不能继续修改、撤销提交或撤销应用。
+- 首次 PR 永远是 Draft；Ready 使用固定 GraphQL 操作并要求用户再次确认。产品不拥有
+  merge、close、删除分支、评论、标签、Reviewer 或 CI 状态管理能力。
 
 ## 配置与启动
 
@@ -260,6 +294,7 @@ CODING_AGENT_MODE=readonly
 CODING_AGENT_MODEL=your-new-api-model-id
 CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
 CODING_INCREMENTAL_ENABLED=false
+CODING_GITHUB_PUBLISH_ENABLED=false
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
@@ -268,6 +303,10 @@ CODING_INCREMENTAL_ENABLED=false
 多轮模式依赖恢复、Applier 和 Committer 同时可用；任一执行面缺失时 capabilities 会
 明确显示不可用，不会静默降级为可写多轮流程。恢复 overlay 默认开启该能力；设置
 `CODING_INCREMENTAL_ENABLED=false` 可立即回到第六轮单次流程。
+发布功能还要求恢复、Applier、Committer 与无 remote 独立仓库均可用，并显式加载
+`docker-compose.coding-publish.yml`。App ID、安装 ID、仓库 ID、`owner/repository`
+和私钥绝对路径的完整配置及重建命令见 [DEPLOYMENT.md](./DEPLOYMENT.md)；私钥正文
+和安装令牌不得写入 `.env`、日志、Git 配置或恢复数据库。
 
 人工重建命令：
 
@@ -312,7 +351,7 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
 - Windows 绑定目录不得在应用或提交请求中重复读取并哈希整个项目。启动时校验完整基准，运行时扫描全部路径与元数据，并只重新哈希变化文件。
 - 页面出现“等待时间过长”时，先查询对应 revision 的 apply/commit 状态并检查目标仓库；操作可能已经成功。必须使用原操作 ID 对账，禁止直接生成第二次写入或提交。
 - Applier 与 Committer 最多等待 90 秒。当前验收环境的参考值为：单文件应用约 21–28 秒，本地提交约 33 秒；明显超过时应检查绑定目录性能和重复扫描，不继续增加超时。
-- `docker ps` 的 healthy 仅是第一层检查。还必须从 Server 通过共享 Unix socket 调用四个 Coding 执行面的 health，确认 socket 路径存在且可连接。
+- `docker ps` 的 healthy 仅是第一层检查。还必须从 Server 通过各自 Unix socket 调用五个 Coding 执行面的 health，确认 socket 路径存在且可连接。
 - 多轮恢复中，累计修改可以位于 `base_patch`，当前轮 `patch` 可以为空；`patch/paths` 与 `base_patch/base_paths` 分别成对校验。恢复页连续返回 `invalid_request` 时优先检查这一契约。
 - 完整重建前检查 pending 恢复记录。源码快照指纹变化后旧记录只能下载或标记过期，不得改写指纹强行恢复。
 
@@ -356,10 +395,24 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
     Git HEAD 不产生重复提交；重启前人工改文件或分支时必须进入只读冲突态。
 20. 改变项目基准，确认不能继续应用但仍可下载保存的 Diff；相对数据根目录、空
     `server/.env`、脏目标或指纹不一致必须在共享栈重建前被预检拒绝。
+21. 用 2–3 轮随机文件名和正文完成线性提交后发布，确认远端 Draft PR 的提交顺序、
+    文件内容、标题和说明精确一致；重复点击只返回同一 PR。
+22. 分别在 push 后、PR 创建后和回执保存前重启 Server/Publisher，确认恢复到同一
+    Draft PR；预占系统分支或推进 `main` 后必须拒绝且不 force push、不创建第二个 PR。
+23. 在 GitHub 外部修改或关闭 Draft PR，确认任务进入只读冲突态且不覆盖远端；正常
+    Ready 后重复确认保持 Ready，系统不提供合并、关闭或删除分支。
+24. 尝试发布 workflow 文件、错误仓库/App 安装和权限不足配置，确认失败关闭且响应、
+    日志和恢复数据库没有私钥、JWT、安装令牌或随机秘密文本。
+25. 从 Publisher/出口代理请求其他公网域名必须失败；停止 Publisher 后，草稿、验证、
+    应用、本地提交、多轮恢复和下载仍正常。验收 PR 由用户在 GitHub 手工清理。
 
 ## 回退
 
-先设置 `CODING_RECOVERY_ENABLED=false` 或省略恢复 overlay，即恢复第五轮内存
+先设置 `CODING_GITHUB_PUBLISH_ENABLED=false` 或省略发布 overlay，即恢复第七轮
+本地多轮能力。此操作不会关闭或删除已创建的 GitHub PR/分支，远端内容只能由用户
+在 GitHub 明确处理。
+
+再设置 `CODING_RECOVERY_ENABLED=false` 或省略恢复 overlay，即恢复第五轮内存
 行为。恢复记录不会改变专用副本或本地提交；存储目录只在用户明确授权后清理。
 
 再停止 Committer 并在后续启动中省略提交 overlay，即可恢复第四轮能力；已创建的
