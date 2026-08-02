@@ -153,6 +153,45 @@ tmpfs，容器根文件系统仍只读，且不映射宿主端口或宿主仓库
 单实例能力，不应直接暴露到公网。完整边界和人工验收见
 [CODING_AGENT_INTEGRATION.md](./CODING_AGENT_INTEGRATION.md)。
 
+#### 受控本地项目草稿
+
+本地项目选择是可选能力。先准备一个专用、范围尽可能小的绝对根目录，并在根目录
+创建 `.modelmirror-coding-projects.json`：
+
+```json
+{
+  "version": 1,
+  "projects": [
+    { "name": "团队示例", "path": "team/example-project" }
+  ]
+}
+```
+
+清单最多 50 项；`path` 只能是根目录内规范化相对路径。每项必须是有有效分支和 HEAD
+的干净独立 Git 克隆，工作区、索引和未跟踪文件均为空。worktree 指针、alternates、
+子模块、符号链接、重复/大小写冲突路径和越界路径都会被拒绝。允许仓库存在 remote，
+但系统不读取、不返回也不连接它。不要把用户主目录或包含密钥的宽泛目录设为根目录。
+
+在 Compose 读取的根 `.env` 或当前 PowerShell 环境中配置：
+
+```powershell
+$env:CODING_PROJECTS_ENABLED = 'true'
+$env:CODING_PROJECTS_ROOT = 'C:\absolute\coding-projects'
+docker compose -f docker-compose.yml -f docker-compose.coding-projects.yml -p modelmirror --profile coding up -d --build --force-recreate server coding-runtime coding-project-source
+curl http://localhost:8000/api/coding/projects
+```
+
+必须显式加载 `docker-compose.coding-projects.yml`；变量缺失或不是绝对有效目录时应在
+重建前停止。只有无网络的 `coding-project-source` 只读挂载整个根目录，Server 与
+Runtime 只经私有 socket 和单槽快照卷取得所选项目的 HEAD 内容。快照上限为 20,000
+个文件、192 MiB，单文件 32 MiB；只读取根目录 UTF-8 `AGENTS.md`（最多 64 KiB），
+仓库内 OpenCode、插件、MCP、provider 和可执行配置均不会生效。
+
+自定义项目只支持问答、修改草稿、Diff、轻量检查、下载和重启恢复，不支持项目验证、
+应用、本地提交或 GitHub 发布。内置 ModelMirror 仍是默认项目并保留完整闭环；停止
+Project Source 后也必须继续可用。共享栈重建前应先确认根路径为绝对路径、清单可解析、
+所有登记仓库干净，并取得独占窗口；任一预检不通过时不要重建。
+
 `coding-verifier` 通过同一私有 socket volume 接收 Worker 生成的 Patch，不加入
 任何网络。容器使用非 root、只读根文件系统、1 GiB `nosuid,noexec` tmpfs，并固定
 为 2 CPU、3 GiB 内存和 256 PIDs；不挂载宿主仓库、密钥或 Docker socket。镜像
@@ -348,7 +387,7 @@ curl http://localhost:5173/studio
   不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
-- 启用后检查 Coding capabilities、Worker/Verifier/Applier/Committer/Publisher health、
+- 启用后检查 Coding capabilities、项目清单、Project Source/Worker/Verifier/Applier/Committer/Publisher health、
   出口域名拒绝、验证取消清理、快照指纹、恢复 pending/retention 和源码 Git 状态。Capabilities 与
   日志不得返回目标绝对路径、恢复密钥或密文负载。
 
@@ -373,7 +412,10 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：先设置 `CODING_GITHUB_PUBLISH_ENABLED=false` 并在后续启动中省略
+- 代码助手：先设置 `CODING_PROJECTS_ENABLED=false` 并在后续启动中省略
+  `docker-compose.coding-projects.yml`，即可恢复第八轮固定 ModelMirror 行为；项目
+  上下文表会被旧逻辑忽略，受控源仓库不会被修改。再设置
+  `CODING_GITHUB_PUBLISH_ENABLED=false` 并在后续启动中省略
   `docker-compose.coding-publish.yml`，即可恢复第七轮本地多轮能力；这不会删除已创建
   的 GitHub 分支或 PR，远端内容只能由用户在 GitHub 明确处理。再设置
   `CODING_RECOVERY_ENABLED=false` 或在后续启动中省略

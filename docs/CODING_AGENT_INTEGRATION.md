@@ -1,12 +1,12 @@
 # 代码助手接入说明
 
-最后更新日期：2026-08-01
+最后更新日期：2026-08-02
 维护人：模镜团队
 
 ## 当前状态
 
 `/coding` 是实验性的单实例代码协作入口。默认 `readonly` 模式允许用户用自然
-语言询问 ModelMirror 功能和代码关系；显式启用 `draft` 后，代码助手还可以在
+语言询问内置 ModelMirror 或部署者登记的受控本地项目；显式启用 `draft` 后，代码助手还可以在
 容器内一次性副本中准备可审阅的文本修改。页面会显示回答、修改文件、逐文件
 Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独立项目验证，按变化
 范围运行固定的后端测试或前端生产构建。部署者显式配置固定专用工作树后，用户
@@ -16,8 +16,9 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 固定 GitHub App 和发布 overlay 后，用户可把线性本地提交创建为 Draft PR，并再次
 确认是否标记为 Ready。
 
-两种模式都只使用服务端固定的 ModelMirror 镜像快照。Draft 默认不会写回任何
-宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
+ModelMirror 使用镜像内固定快照并保留完整闭环；自定义项目使用无网络 Project Source
+从干净独立克隆的 Git HEAD 生成单槽只读快照，只开放问答、草稿、Diff、下载和恢复。
+Draft 默认不会写回任何宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
 系统只在用户确认后向固定独立克隆创建本地提交；远程发布也只允许固定 GitHub.com
 仓库、系统分支和 Draft PR，不提供合并、关闭或远端清理。系统不支持删除、重命名、
 二进制、Agent Shell/测试命令、仓库或分支选择、多 Agent、完整 ACP、
@@ -27,6 +28,8 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 
 - 页面面向没有代码基础的用户，优先使用“代码助手”“分析步骤”“查阅记录”等
   直白说法。
+- 顶部项目选择明确区分 ModelMirror“完整功能”和自定义项目“可查看、准备修改并
+  下载 Diff”；活动会话或待恢复草稿存在时锁定选择，绝不静默切换或清空修改。
 - 页面不展示 ACP、OpenCode、进程、原始协议帧、真实绝对路径或完整工具输出。
 - 输入区先于回答区出现；服务不可用时明确禁用输入，不影响其他页面。
 - 回答和查阅记录逐步更新；上游提供结构化计划时同步显示。停止操作可重复执行，
@@ -62,6 +65,9 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 flowchart LR
   UI["/coding 页面"] --> API["FastAPI /api/coding"]
   API -->|"私有 Unix socket"| WORKER["coding-runtime"]
+  API -->|"项目清单 / 私有 Unix socket"| PROJECTS["coding-project-source"]
+  ROOT["受控项目根目录"] -->|"唯一只读挂载"| PROJECTS
+  PROJECTS -->|"当前项目单槽快照"| WORKER
   WORKER --> ACP["最小 ACP 客户端"]
   ACP --> OC["OpenCode 1.18.9"]
   SOURCE["只读基准快照 /opt/modelmirror-source"] -->|"会话创建时复制"| WORK["临时 /workspace"]
@@ -94,7 +100,8 @@ flowchart LR
 | 接口 | 用途 |
 | --- | --- |
 | `GET /api/coding/capabilities` | 查询功能是否启用、当前模式及输入/草稿限制。 |
-| `POST /api/coding/sessions` | 创建一个临时问答或草稿记录。 |
+| `GET /api/coding/projects` | 返回可选项目、状态、短 HEAD 和功能矩阵，不返回物理路径或 remote。 |
+| `POST /api/coding/sessions` | 创建临时问答或草稿记录；可选请求体只接受 `project_id`，省略时仍选择 ModelMirror。 |
 | `GET /api/coding/sessions/{id}` | 检查临时记录是否仍存在；不返回问题、回答或文件内容。 |
 | `POST /api/coding/sessions/{id}/turns` | 提交问题；请求体只允许 `prompt`。 |
 | `GET /api/coding/sessions/{id}/events?after=<seq>` | 通过 SSE 接收事件，并按序号续读。 |
@@ -135,6 +142,8 @@ Draft 模式还返回 `host_apply` 与 `apply`：包含是否已配置、当前�
 Draft、精确基础版本要求和 Ready 支持；不可用原因不影响本地能力。
 `recovery` 公开 enabled、available、pending、retention_seconds 和
 `restores_conversation=false`；不返回存储路径、密钥或加密负载。
+`projects` 公开 enabled、configured、available、selection、默认项目和最多项目数；
+会话开始事件、会话状态和恢复状态只携带项目 ID、显示名、来源、短 HEAD 与功能矩阵。
 
 公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、完成、失败、
 取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答或工具输出。
@@ -162,6 +171,27 @@ Draft、精确基础版本要求和 Ready 支持；不可用原因不影响本�
 `coding-runtime` 不映射宿主端口。FastAPI 只通过私有 Unix socket 使用它。
 OpenCode 子进程只继承固定 PATH/HOME、模型标识和专用网关连接信息，不继承
 FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷新只读快照。
+
+## 受控本地项目草稿
+
+- 部署者只通过根目录 `.modelmirror-coding-projects.json` 登记最多 50 个项目。名称供
+  用户识别，路径只在 Project Source 内使用；API 返回由规范化相对路径生成的稳定
+  不透明 ID，不返回根目录、相对路径、remote 或 Git 配置。
+- 项目必须是干净独立 Git 克隆，并拒绝 worktree 指针、alternates、子模块、符号链接
+  条目、脏索引、未跟踪文件及无效分支/HEAD。快照最多 20,000 个文件、192 MiB，单文件
+  32 MiB；敏感路径不进入快照，只返回隐藏数量。
+- 快照由固定 `git ls-tree` 与 `git cat-file --batch` 从 HEAD blob 构建，因而 Windows
+  CRLF 工作树也保持 Git 对象字节。命令不运行 Hook、过滤器、凭据助手或仓库脚本。
+  任何时刻快照卷只包含当前租约的一个项目，释放和失败均清空。
+- 仅根目录 UTF-8 `AGENTS.md`（最多 64 KiB）会显式带入会话；嵌套 AGENTS、OpenCode、
+  MCP、插件、provider 和其他可执行配置均隐藏且不会生效。Runtime 还会复核项目 ID、
+  HEAD、租约与快照指纹，避免跨项目串读。
+- 自定义项目沿用 20 个变化文件、单文件 512 KiB、Patch 1 MiB 限额，只允许新增或修改
+  UTF-8 文本。项目验证、应用、本地提交和发布接口固定返回
+  `project_operation_unavailable`，不会误用 ModelMirror 的执行面。
+- 加密恢复存储在独立上下文表保存项目 ID、来源、显示名和基准 HEAD，不保存宿主路径，
+  也不改变 recovery schema v3 的 `user_version`。旧记录自动视为 ModelMirror；项目
+  被删除、变脏或 HEAD 改变时禁止继续恢复，但仍可下载原始 Diff。
 
 ## 草稿事务与检查
 
@@ -299,6 +329,8 @@ CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
 CODING_INCREMENTAL_ENABLED=false
 CODING_GITHUB_PUBLISH_ENABLED=false
 CODING_GITHUB_BASE_BRANCH=main
+CODING_PROJECTS_ENABLED=false
+CODING_PROJECTS_ROOT=
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
@@ -311,6 +343,10 @@ CODING_GITHUB_BASE_BRANCH=main
 `docker-compose.coding-publish.yml`。App ID、安装 ID、仓库 ID、`owner/repository`
 和私钥绝对路径的完整配置及重建命令见 [DEPLOYMENT.md](./DEPLOYMENT.md)；私钥正文
 和安装令牌不得写入 `.env`、日志、Git 配置或恢复数据库。
+受控项目必须显式设置绝对 `CODING_PROJECTS_ROOT` 并加载
+`docker-compose.coding-projects.yml`；完整清单格式、限制与重建命令见
+[DEPLOYMENT.md](./DEPLOYMENT.md)。本轮未新增前端或后端第三方依赖；OpenCode 仍固定
+为 `1.18.9`（MIT），现有第三方声明无需新增条目。
 
 实现分支尚未合并时，基于实现 HEAD 创建的验收仓库不可能与 GitHub `main` 精确匹配。
 真实远端验收可由部署者临时把 `CODING_GITHUB_BASE_BRANCH` 固定为一个精确指向任务基线
@@ -414,10 +450,19 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
     日志和恢复数据库没有私钥、JWT、安装令牌或随机秘密文本。
 25. 从 Publisher/出口代理请求其他公网域名必须失败；停止 Publisher 后，草稿、验证、
     应用、本地提交、多轮恢复和下载仍正常。验收 PR 由用户在 GitHub 手工清理。
+26. 每次随机创建 Python、前端和混合三个干净独立克隆并登记；确认页面只展示清单项目，
+    选择项目 A 时不能读取项目 B 的随机标记，根目录 `AGENTS.md` 生效而仓库工具配置不生效。
+27. 分别制造脏索引、未跟踪文件、worktree、alternates、子模块、符号链接和超限仓库，
+    确认逐项拒绝；自定义项目生成 Diff 后，宿主仓库 `git status --short` 始终为空。
+28. 保存自定义项目草稿后分别重启 Server、Runtime 和 Project Source。HEAD 未变时恢复
+    精确 Diff；删除项目、弄脏仓库或推进 HEAD 后只允许下载，不显示此前对话或宿主路径。
+29. 停止 Project Source，确认内置 ModelMirror 的验证、应用、提交、恢复和发布完整可用。
 
 ## 回退
 
-先设置 `CODING_GITHUB_PUBLISH_ENABLED=false` 或省略发布 overlay，即恢复第七轮
+先设置 `CODING_PROJECTS_ENABLED=false` 并省略 `docker-compose.coding-projects.yml`，
+即恢复第八轮固定 ModelMirror 行为；不会修改任何受控源仓库，附加的加密项目上下文
+表会被旧逻辑忽略。再设置 `CODING_GITHUB_PUBLISH_ENABLED=false` 或省略发布 overlay，即恢复第七轮
 本地多轮能力。此操作不会关闭或删除已创建的 GitHub PR/分支，远端内容只能由用户
 在 GitHub 明确处理。
 
