@@ -292,16 +292,38 @@ class CodingApplierEngine:
         patch_sha256 = _sha256(patch.encode("utf-8"))
         with self._lock:
             previous = self._operations.get(operation_id)
-            if previous is not None and (
-                previous.revision != revision
-                or previous.snapshot_fingerprint != expected_fingerprint
-                or previous.patch_sha256 != patch_sha256
-                or previous.paths != safe_paths
-            ):
-                raise CodingApplyError(
-                    "Apply operation was reused with different input.",
-                    code="operation_conflict",
-                )
+            if previous is not None:
+                if (
+                    previous.revision != revision
+                    or previous.snapshot_fingerprint != expected_fingerprint
+                    or previous.patch_sha256 != patch_sha256
+                    or previous.paths != safe_paths
+                ):
+                    raise CodingApplyError(
+                        "Apply operation was reused with different input.",
+                        code="operation_conflict",
+                    )
+                if previous.reverted:
+                    try:
+                        self._assert_target_matches_expected()
+                    except CodingApplyError:
+                        self._record_health(
+                            available=False,
+                            reason="recovery_conflict",
+                        )
+                        return "conflict", None
+                    self._record_health(available=True)
+                    return "not_applied", None
+                try:
+                    self._assert_target_matches_receipt(previous.receipt)
+                except CodingApplyError:
+                    self._record_health(
+                        available=False,
+                        reason="recovery_conflict",
+                    )
+                    return "conflict", None
+                self._record_health(available=True)
+                return "applied", previous.receipt
             try:
                 self._assert_target_matches_expected()
             except CodingApplyError:

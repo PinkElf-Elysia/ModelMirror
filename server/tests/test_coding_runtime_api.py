@@ -1971,11 +1971,18 @@ async def test_local_publisher_preflight_failure_is_retryable(
 
 
 @pytest.mark.asyncio
-async def test_legacy_local_preflight_conflict_recovers_as_retryable_failure(
+@pytest.mark.parametrize(
+    "legacy_reason",
+    ["repository_not_ready", "apply_recovery_conflict"],
+)
+async def test_legacy_local_conflict_recovers_as_retryable_failure(
     make_client,
     tmp_path: Path,
+    legacy_reason: str,
 ) -> None:
-    store = CodingRecoveryStore(tmp_path / "legacy-publish-conflict-recovery")
+    store = CodingRecoveryStore(
+        tmp_path / f"legacy-publish-conflict-{legacy_reason}"
+    )
     worker = FakeWorker(mode="draft")
     worker.verification_state = "completed"
     worker.verification_result = "passed"
@@ -2017,10 +2024,14 @@ async def test_legacy_local_preflight_conflict_recovers_as_retryable_failure(
         )
         await _wait_publish_state(client, session_id, 1, "failed")
         record = service._sessions[session_id]
-        record.publish_state = PublishState.CONFLICT
-        record.publish_reason = "repository_not_ready"
+        if legacy_reason == "repository_not_ready":
+            record.publish_state = PublishState.CONFLICT
+        else:
+            record.apply_reason = legacy_reason
+            record.commit_reason = legacy_reason
+        record.publish_reason = legacy_reason
         record.state = "conflict"
-        record.recovery_conflict = "repository_not_ready"
+        record.recovery_conflict = legacy_reason
         await service._persist_recovery(record, required=True)
     await service.shutdown()
 

@@ -106,6 +106,45 @@ def test_applier_reconciles_applied_and_reverted_states_after_restart(
     assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
+def test_applier_reconcile_is_idempotent_while_process_stays_alive(
+    apply_roots: tuple[Path, Path, Path, str],
+) -> None:
+    source, target, staging, patch = apply_roots
+    engine = CodingApplierEngine(source, target, staging)
+    original = engine.apply(
+        operation_id=APPLY_OPERATION_ID,
+        revision=5,
+        patch=patch,
+        paths=["server/app.py"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+
+    state, recovered = engine.reconcile(
+        operation_id=APPLY_OPERATION_ID,
+        revision=5,
+        patch=patch,
+        paths=["server/app.py"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+
+    assert state == "applied"
+    assert recovered == original
+    assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 731\n"
+
+    engine.revert(original)
+    state, recovered = engine.reconcile(
+        operation_id=APPLY_OPERATION_ID,
+        revision=5,
+        patch=patch,
+        paths=["server/app.py"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+
+    assert state == "not_applied"
+    assert recovered is None
+    assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
 def test_applier_reconcile_reports_conflict_without_overwriting_external_change(
     apply_roots: tuple[Path, Path, Path, str],
 ) -> None:
