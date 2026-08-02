@@ -482,18 +482,27 @@ class CodingWorkerServer:
             revision=revision,
             paths=verification_paths,
         )
+        mode = coding_agent_mode()
+        if mode != "draft":
+            raise CodingWorkerError(
+                "Coding recovery requires draft mode.",
+                code="draft_unavailable",
+            )
+
+        # A Server restart can leave the Runtime's ephemeral session alive
+        # while the encrypted recovery record remains authoritative. Recovery
+        # is the only operation allowed to reclaim that orphaned single slot.
+        async with self._sessions_lock:
+            orphaned = tuple(self._sessions.values())
+            self._sessions.clear()
+        for stale_record in orphaned:
+            await self._cleanup_record(stale_record)
 
         async with self._sessions_lock:
             if self._sessions:
                 raise CodingWorkerError(
                     "Coding runtime already has an active session.",
                     code="concurrency_limit",
-                )
-            mode = coding_agent_mode()
-            if mode != "draft":
-                raise CodingWorkerError(
-                    "Coding recovery requires draft mode.",
-                    code="draft_unavailable",
                 )
             session = CodingSession()
             workspace = DraftWorkspace(

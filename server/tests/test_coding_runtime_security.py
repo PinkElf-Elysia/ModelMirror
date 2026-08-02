@@ -308,8 +308,26 @@ async def test_worker_restores_one_safe_draft_and_rejects_snapshot_drift(
     assert (tmp_path / "workspace" / "app.txt").read_text(encoding="utf-8") == (
         "after-731\n"
     )
-    await server.close()
+    first_session_id = response["session_id"]
+    replacement_adapter = _RestoredSessionAdapter()
+    monkeypatch.setattr(
+        "server.coding_runtime.worker.create_acp_client",
+        lambda mode: replacement_adapter,
+    )
+    replacement_writer = _MemoryWriter()
+    await server._restore_session(
+        {
+            "revision": 6,
+            "patch": patch,
+            "paths": ["app.txt"],
+            "snapshot_fingerprint": server._source_fingerprint,
+        },
+        replacement_writer,
+    )
+    assert replacement_writer.frames[-1]["session_id"] != first_session_id
     assert adapter.closed is True
+    await server.close()
+    assert replacement_adapter.closed is True
 
     incremental_server = CodingWorkerServer(
         tmp_path / "incremental.sock",
