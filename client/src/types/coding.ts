@@ -24,10 +24,11 @@ export interface CodingCapabilities {
   host_apply?: boolean;
   apply?: {
     allows_not_applicable: true;
+    allows_quality_risk_confirmation: true;
     available: boolean;
     configured: boolean;
     reason?: string;
-    requires_verification: true;
+    requires_verification: false;
     supports_revert: true;
     target: "dedicated_worktree";
   };

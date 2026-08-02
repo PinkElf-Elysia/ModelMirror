@@ -40,7 +40,7 @@ interface CodingChangesPanelProps {
   frozen: boolean;
   loading: boolean;
   readOnly?: boolean;
-  onApply: () => Promise<void>;
+  onApply: (confirmQualityRisks: boolean) => Promise<void>;
   onClose: () => Promise<void>;
   onCommit: (message: string) => Promise<void>;
   onContinue?: () => Promise<void>;
@@ -657,7 +657,7 @@ export default function CodingChangesPanel({
       verification?.result === "not_applicable");
 
   const requestDownload = () => {
-    if (verificationSupportsDownload) {
+    if (verificationSupportsDownload && changes?.can_download) {
       void runAction("downloading", onDownload);
       return;
     }
@@ -845,7 +845,7 @@ export default function CodingChangesPanel({
             <CodingVerificationPanel
               available={verificationAvailable}
               disabled={
-                disabled || readOnly || frozen || isActing || !changes.can_download
+                disabled || readOnly || frozen || isActing
               }
               error={verificationError}
               onCancel={onCancelVerification}
@@ -917,8 +917,7 @@ export default function CodingChangesPanel({
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
                 disabled={
                   disabled ||
-                  isActing ||
-                  !changes.can_download
+                  isActing
                 }
                 onClick={requestDownload}
                 type="button"

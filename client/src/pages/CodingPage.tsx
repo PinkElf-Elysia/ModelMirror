@@ -360,7 +360,7 @@ export default function CodingPage() {
     try {
       const result = await getCodingCapabilities();
       setCapabilities(result);
-      if (result.recovery.enabled) {
+      if (result.recovery.pending) {
         await loadRecovery();
       } else {
         setRecovery(null);
@@ -981,13 +981,14 @@ export default function CodingPage() {
     setDraftNotice("Diff 已下载，真实项目仍未发生改变。");
   };
 
-  const applyDraft = async () => {
+  const applyDraft = async (confirmQualityRisks: boolean) => {
     if (!sessionId || !draftChanges) return;
     setApplyError("");
     try {
       const result = await applyCodingChanges(
         sessionId,
         draftChanges.revision,
+        confirmQualityRisks,
       );
       setApplyResult(result);
       setRecoveredState("applied");

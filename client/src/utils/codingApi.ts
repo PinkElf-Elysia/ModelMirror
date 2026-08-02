@@ -249,12 +249,16 @@ export function cancelCodingVerification(
 export function applyCodingChanges(
   sessionId: string,
   revision: number,
+  confirmQualityRisks = false,
 ) {
   return requestJson<CodingApplyResult>(
     `/api/coding/sessions/${encodeURIComponent(sessionId)}/apply`,
     {
       method: "POST",
-      body: JSON.stringify({ revision }),
+      body: JSON.stringify({
+        revision,
+        confirm_quality_risks: confirmQualityRisks,
+      }),
     },
   );
 }
