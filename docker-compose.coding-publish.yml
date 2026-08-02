@@ -2,6 +2,7 @@ services:
   server:
     environment:
       CODING_PUBLISHER_SOCKET_PATH: /run/modelmirror-coding-publish/publisher.sock
+      CODING_GITHUB_PUBLISH_ENABLED: ${CODING_GITHUB_PUBLISH_ENABLED:-true}
     volumes:
       - coding_publish_socket:/run/modelmirror-coding-publish
 
