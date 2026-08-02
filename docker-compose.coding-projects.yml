@@ -1,0 +1,67 @@
+services:
+  server:
+    environment:
+      CODING_PROJECTS_ENABLED: ${CODING_PROJECTS_ENABLED:-true}
+      CODING_PROJECT_SOURCE_SOCKET_PATH: /run/modelmirror-coding-projects/source.sock
+    volumes:
+      - coding_project_source_socket:/run/modelmirror-coding-projects
+
+  coding-runtime:
+    volumes:
+      - type: volume
+        source: coding_project_snapshot
+        target: /project-snapshots
+        read_only: true
+
+  coding-project-source:
+    profiles:
+      - coding-projects
+    image: modelmirror-coding-project-source:local
+    build:
+      context: .
+      dockerfile: server/coding_project_source/Dockerfile
+    container_name: modelmirror-coding-project-source
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 96
+    cpus: 0.75
+    mem_limit: 384m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m,uid=65532,gid=65532,mode=0700
+      - /home/projectsource:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_PROJECT_SOURCE_SOCKET_PATH: /run/modelmirror-coding-projects/source.sock
+      CODING_PROJECTS_ROOT: /projects-root
+      CODING_PROJECT_SNAPSHOT_ROOT: /snapshot-slot
+    volumes:
+      - coding_project_source_socket:/run/modelmirror-coding-projects
+      - coding_project_snapshot:/snapshot-slot
+      - type: bind
+        source: ${CODING_PROJECTS_ROOT:?Set CODING_PROJECTS_ROOT to an absolute controlled projects directory}
+        target: /projects-root
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 5s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-projects/source.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  coding_project_source_socket:
+  coding_project_snapshot:

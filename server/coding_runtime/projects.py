@@ -273,6 +273,14 @@ def inspect_project(
     )
 
 
+def resolve_project_path(root: Path, relative_path: str) -> Path:
+    normalized = normalize_project_path(relative_path)
+    project_path, error = _resolve_project_path(Path(root), normalized)
+    if error is not None or project_path is None:
+        raise ProjectCatalogError(error or "project_unavailable", "Project path is unavailable")
+    return project_path
+
+
 def validate_git_tree(payload: bytes) -> None:
     seen_paths: set[str] = set()
     seen_folded_paths: set[str] = set()
@@ -349,6 +357,19 @@ def _resolve_project_path(root: Path, relative_path: str) -> tuple[Path | None, 
 
 
 def _run_git(project_path: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        build_safe_git_command(project_path, arguments),
+        cwd=project_path,
+        env=build_safe_git_environment(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=GIT_INSPECTION_TIMEOUT_SECONDS,
+    )
+
+
+def build_safe_git_environment() -> dict[str, str]:
     environment = {
         name: value
         for name, value in os.environ.items()
@@ -362,7 +383,11 @@ def _run_git(project_path: Path, arguments: Sequence[str]) -> subprocess.Complet
             "GIT_OPTIONAL_LOCKS": "0",
         }
     )
-    command = (
+    return environment
+
+
+def build_safe_git_command(project_path: Path, arguments: Sequence[str]) -> tuple[str, ...]:
+    return (
         "git",
         "-c",
         f"core.hooksPath={os.devnull}",
@@ -372,17 +397,9 @@ def _run_git(project_path: Path, arguments: Sequence[str]) -> subprocess.Complet
         "credential.helper=",
         "-c",
         f"core.attributesFile={os.devnull}",
+        "-c",
+        f"safe.directory={project_path}",
         *arguments,
-    )
-    return subprocess.run(
-        command,
-        cwd=project_path,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=GIT_INSPECTION_TIMEOUT_SECONDS,
     )
 
 
