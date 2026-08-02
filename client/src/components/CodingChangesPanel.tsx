@@ -263,7 +263,7 @@ function CodingCommitPanel({
             <p aria-live="polite" className="mt-1 text-xs leading-5 text-slate-300">
               {publishLocked
                 ? "这份本地版本已进入 GitHub 发布流程，不能再撤销或继续追加修改。"
-                : "这份版本只保存在专用项目副本中，不会上传到远程平台。"}
+                : "这份版本目前只保存在专用项目副本中，不会自动上传到远程平台。"}
             </p>
             <dl className="mt-3 grid min-w-0 gap-2 text-xs sm:grid-cols-[88px_minmax(0,1fr)]">
               <dt className="text-slate-500">版本说明</dt>
@@ -426,7 +426,7 @@ function CodingCommitPanel({
           </h3>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             {capability?.available
-              ? "填写版本说明后创建本地提交。只保存在专用副本，不会上传，也不会改变你当前使用的项目目录。"
+              ? "填写版本说明后创建本地提交。它只保存在专用副本，不会自动上传，也不会改变你当前使用的项目目录。"
               : unavailableCopy}
           </p>
         </div>
@@ -490,7 +490,7 @@ function CodingCommitPanel({
           <p className="font-semibold">确认保存 {changes.file_count} 个文件吗？</p>
           <ul className="mt-2 space-y-1 text-xs leading-5 text-cyan-100/80">
             <li>会在专用项目副本中创建一条本地版本记录。</li>
-            <li>不会提交到你当前使用的项目目录，也不会上传。</li>
+            <li>不会提交到你当前使用的项目目录，也不会自动上传；发布到 GitHub 需要另行确认。</li>
             <li>保存后仍可安全撤销记录，文件修改会继续保留。</li>
           </ul>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">

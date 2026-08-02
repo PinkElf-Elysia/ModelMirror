@@ -224,7 +224,7 @@ function CodingSidebar({ isDraft }: { isDraft: boolean }) {
           </li>
           <li>
             {isDraft
-              ? "只有你再次确认，才会保存为本地提交；不会上传，当前项目目录始终不受影响。"
+              ? "只有你再次确认，才会保存为本地提交；不会自动上传或合并，发布到 GitHub 还需单独确认。当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
           </li>
           <li>
@@ -1052,7 +1052,7 @@ export default function CodingPage() {
       setPublishResult(null);
       setPublishError("");
       await refreshCycleHistory(sessionId);
-      setDraftNotice("已创建本地提交，只保存在专用项目副本中，不会上传。");
+      setDraftNotice("已创建本地提交，目前只保存在专用项目副本中，不会自动上传。");
     } catch (requestError) {
       try {
         setCommitResult(
