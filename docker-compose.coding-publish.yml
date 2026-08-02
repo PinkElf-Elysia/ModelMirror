@@ -1,0 +1,118 @@
+services:
+  server:
+    environment:
+      CODING_PUBLISHER_SOCKET_PATH: /run/modelmirror-coding-publish/publisher.sock
+    volumes:
+      - coding_publish_socket:/run/modelmirror-coding-publish
+
+  coding-publisher:
+    profiles:
+      - coding-publish
+    image: modelmirror-coding-publisher:local
+    build:
+      context: .
+      dockerfile: server/coding_publisher/Dockerfile
+    container_name: modelmirror-coding-publisher
+    depends_on:
+      coding-github-egress:
+        condition: service_healthy
+    networks:
+      - coding_publish_internal
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 256m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m,uid=65532,gid=65532,mode=0700
+      - /temporary:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /home/publisher:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_PUBLISHER_SOCKET_PATH: /run/modelmirror-coding-publish/publisher.sock
+      CODING_GITHUB_APP_ID: ${CODING_GITHUB_APP_ID:?Set CODING_GITHUB_APP_ID}
+      CODING_GITHUB_INSTALLATION_ID: ${CODING_GITHUB_INSTALLATION_ID:?Set CODING_GITHUB_INSTALLATION_ID}
+      CODING_GITHUB_REPOSITORY_ID: ${CODING_GITHUB_REPOSITORY_ID:?Set CODING_GITHUB_REPOSITORY_ID}
+      CODING_GITHUB_REPOSITORY: ${CODING_GITHUB_REPOSITORY:?Set CODING_GITHUB_REPOSITORY}
+    volumes:
+      - coding_publish_socket:/run/modelmirror-coding-publish
+      - type: bind
+        source: ${CODING_COMMIT_REPOSITORY:?Set CODING_COMMIT_REPOSITORY to an independent local clone}
+        target: /target
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CODING_GITHUB_APP_PRIVATE_KEY_FILE:?Set CODING_GITHUB_APP_PRIVATE_KEY_FILE}
+        target: /run/secrets/coding-github-app-private-key.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 5s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-publish/publisher.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  coding-github-egress:
+    profiles:
+      - coding-publish
+    image: modelmirror-coding-publisher:local
+    build:
+      context: .
+      dockerfile: server/coding_publisher/Dockerfile
+    container_name: modelmirror-coding-github-egress
+    command: ["python", "-m", "server.coding_publisher.egress_proxy"]
+    networks:
+      - coding_publish_internal
+      - coding_publish_egress
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    cpus: 0.25
+    mem_limit: 128m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+      - /home/publisher:rw,nosuid,noexec,size=4m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_GITHUB_ALLOW_SYNTHETIC_DNS: ${CODING_GITHUB_ALLOW_SYNTHETIC_DNS:-false}
+    restart: unless-stopped
+    stop_grace_period: 5s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; s=socket.create_connection(('127.0.0.1',8080),3); s.close()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  coding_publish_socket:
+
+networks:
+  coding_publish_internal:
+    driver: bridge
+    internal: true
+  coding_publish_egress:
+    driver: bridge
