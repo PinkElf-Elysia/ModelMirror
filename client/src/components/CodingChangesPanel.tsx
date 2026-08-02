@@ -39,6 +39,7 @@ interface CodingChangesPanelProps {
   disabled: boolean;
   frozen: boolean;
   loading: boolean;
+  localDraftOnly?: boolean;
   readOnly?: boolean;
   onApply: (confirmQualityRisks: boolean) => Promise<void>;
   onClose: () => Promise<void>;
@@ -554,6 +555,7 @@ export default function CodingChangesPanel({
   disabled,
   frozen,
   loading,
+  localDraftOnly = false,
   readOnly = false,
   onApply,
   onClose,
@@ -657,7 +659,11 @@ export default function CodingChangesPanel({
       verification?.result === "not_applicable");
 
   const requestDownload = () => {
-    if (verificationSupportsDownload && changes?.can_download) {
+    if (!changes?.can_download) {
+      setMessage("请先修正检查发现的问题，再下载 Diff。");
+      return;
+    }
+    if (localDraftOnly || verificationSupportsDownload) {
       void runAction("downloading", onDownload);
       return;
     }
@@ -842,56 +848,67 @@ export default function CodingChangesPanel({
               ))}
             </ul>
 
-            <CodingVerificationPanel
-              available={verificationAvailable}
-              disabled={
-                disabled || readOnly || frozen || isActing
-              }
-              error={verificationError}
-              onCancel={onCancelVerification}
-              onRequestFix={onRequestFix}
-              onRun={onRunVerification}
-              verification={verification}
-            />
+            {localDraftOnly ? (
+              <div className="mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] p-3 text-sm text-cyan-100">
+                <p className="font-semibold">此项目只准备修改草稿</p>
+                <p className="mt-1 text-xs leading-5 text-slate-300">
+                  你可以逐项查看、检查并下载 Diff。页面不会运行项目验证，也不会把修改写入本地项目。
+                </p>
+              </div>
+            ) : (
+              <>
+                <CodingVerificationPanel
+                  available={verificationAvailable}
+                  disabled={disabled || readOnly || frozen || isActing}
+                  error={verificationError}
+                  onCancel={onCancelVerification}
+                  onRequestFix={onRequestFix}
+                  onRun={onRunVerification}
+                  verification={verification}
+                />
 
-            {commitResult?.state !== "committed" ? (
-              <CodingApplyPanel
-                capability={applyCapability}
-                changes={changes}
-                disabled={disabled || readOnly || isActing || verificationRunning}
-                error={applyError}
-                onApply={onApply}
-                onClose={onClose}
-                onRevert={onRevert}
-                result={applyResult}
-                verification={verification}
-              />
-            ) : null}
+                {commitResult?.state !== "committed" ? (
+                  <CodingApplyPanel
+                    capability={applyCapability}
+                    changes={changes}
+                    disabled={
+                      disabled || readOnly || isActing || verificationRunning
+                    }
+                    error={applyError}
+                    onApply={onApply}
+                    onClose={onClose}
+                    onRevert={onRevert}
+                    result={applyResult}
+                    verification={verification}
+                  />
+                ) : null}
 
-            <CodingCommitPanel
-              applyResult={applyResult}
-              capability={commitCapability}
-              changes={changes}
-              disabled={disabled || readOnly || isActing}
-              error={commitError}
-              onCommit={onCommit}
-              onContinue={onContinue}
-              onClose={onClose}
-              onUndo={onUndoCommit}
-              publishLocked={Boolean(publishResult?.publish_id)}
-              result={commitResult}
-            />
+                <CodingCommitPanel
+                  applyResult={applyResult}
+                  capability={commitCapability}
+                  changes={changes}
+                  disabled={disabled || readOnly || isActing}
+                  error={commitError}
+                  onCommit={onCommit}
+                  onContinue={onContinue}
+                  onClose={onClose}
+                  onUndo={onUndoCommit}
+                  publishLocked={Boolean(publishResult?.publish_id)}
+                  result={commitResult}
+                />
 
-            <CodingPublishPanel
-              capability={publishCapability}
-              changes={changes}
-              commit={commitResult}
-              disabled={disabled || readOnly || isActing}
-              error={publishError}
-              onMarkReady={onMarkPublishReady}
-              onPublish={onPublish}
-              result={publishResult}
-            />
+                <CodingPublishPanel
+                  capability={publishCapability}
+                  changes={changes}
+                  commit={commitResult}
+                  disabled={disabled || readOnly || isActing}
+                  error={publishError}
+                  onMarkReady={onMarkPublishReady}
+                  onPublish={onPublish}
+                  result={publishResult}
+                />
+              </>
+            )}
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
@@ -1036,16 +1053,18 @@ export default function CodingChangesPanel({
               </p>
             </div>
           </div>
-          <CodingVerificationPanel
-            available={verificationAvailable}
-            disabled
-            empty
-            error={verificationError}
-            onCancel={onCancelVerification}
-            onRequestFix={onRequestFix}
-            onRun={onRunVerification}
-            verification={verification}
-          />
+          {!localDraftOnly ? (
+            <CodingVerificationPanel
+              available={verificationAvailable}
+              disabled
+              empty
+              error={verificationError}
+              onCancel={onCancelVerification}
+              onRequestFix={onRequestFix}
+              onRun={onRunVerification}
+              verification={verification}
+            />
+          ) : null}
         </div>
       ) : (
         <div className="px-4 py-8 text-center">

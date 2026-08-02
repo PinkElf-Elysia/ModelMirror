@@ -32,6 +32,14 @@ const reasonText: Record<string, string> = {
     "项目已经更新，这份修改不能继续处理，但仍可下载后交给开发者查看。",
   worker_unavailable:
     "代码服务暂时不可用，这份修改仍安全保留，可以先下载备份。",
+  project_changed:
+    "这个项目已经更新，不能继续原来的修改，但仍可下载 Diff 留作参考。",
+  project_dirty:
+    "这个项目出现了新的本地改动。为避免混在一起，现在只允许下载或放弃。",
+  project_not_found:
+    "这个项目已不在可选列表中，现在只允许下载或放弃。",
+  project_source_unavailable:
+    "暂时无法读取这个项目，这份修改仍安全保留，可以先下载备份。",
   apply_recovery_conflict:
     "专用项目副本后来发生了变化。为避免覆盖人工内容，现在只允许查看、下载或放弃。",
   commit_recovery_conflict:
@@ -107,6 +115,11 @@ export default function CodingRecoveryCard({
             {stateText(recovery.state)}，共 {recovery.file_count ?? 0} 个文件。
             此前对话没有保存。
           </p>
+          {recovery.project ? (
+            <p className="mt-1 text-xs font-medium text-cyan-100/90">
+              对应项目：{recovery.project.name}
+            </p>
+          ) : null}
           <p className="mt-1 text-xs leading-5 text-slate-400">
             {reason} 上次保存：{formatSavedAt(recovery.updated_at)}。
           </p>

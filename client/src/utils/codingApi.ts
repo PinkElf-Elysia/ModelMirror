@@ -7,6 +7,8 @@ import type {
   CodingDraftChanges,
   CodingEvent,
   CodingPatchDownload,
+  CodingProjectsResponse,
+  CodingProjectSummary,
   CodingPublishResult,
   CodingRecoveryResumeResponse,
   CodingRecoveryStatus,
@@ -77,9 +79,16 @@ export function getCodingCapabilities() {
   return requestJson<CodingCapabilities>("/api/coding/capabilities");
 }
 
-export function createCodingSession() {
+export function getCodingProjects() {
+  return requestJson<CodingProjectsResponse>("/api/coding/projects");
+}
+
+export function createCodingSession(projectId = "modelmirror") {
   return requestJson<CodingSessionResponse>("/api/coding/sessions", {
     method: "POST",
+    ...(projectId === "modelmirror"
+      ? {}
+      : { body: JSON.stringify({ project_id: projectId }) }),
   });
 }
 
@@ -116,7 +125,7 @@ export async function getCodingRecoveryPatch(): Promise<CodingPatchDownload> {
 }
 
 export function getCodingSessionStatus(sessionId: string) {
-  return requestJson<{ state: string }>(
+  return requestJson<{ project?: CodingProjectSummary; state: string }>(
     `/api/coding/sessions/${encodeURIComponent(sessionId)}`,
   );
 }
