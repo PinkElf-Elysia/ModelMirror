@@ -95,6 +95,7 @@ interface StoredCodingSession {
 const CODING_SESSION_STORAGE_KEY = "modelmirror.coding.session.v1";
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const SAFE_PROJECT_ID = /^(?:modelmirror|local-[a-f0-9]{24})$/;
+const STREAM_RENDER_INTERVAL_MS = 80;
 const BUILTIN_PROJECT: CodingProjectSummary = {
   branch: null,
   features: {
@@ -356,6 +357,9 @@ export default function CodingPage() {
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionProbeInFlightRef = useRef(false);
   const lastSeqRef = useRef(restoredSessionRef.current?.lastSeq ?? 0);
+  const pendingEventsRef = useRef<CodingEvent[]>([]);
+  const pendingSessionStoreRef = useRef<StoredCodingSession | null>(null);
+  const streamRenderTimerRef = useRef<number | null>(null);
   const isDraftMode = capabilities?.mode === "draft";
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) ??
@@ -396,11 +400,85 @@ export default function CodingPage() {
     recovery?.pending && (!sessionId || recoveryConflict),
   );
   const projectSelectionLocked = Boolean(sessionId || recovery?.pending || isBusy);
+
+  const clearPendingStreamRender = useCallback(() => {
+    if (streamRenderTimerRef.current !== null) {
+      window.clearTimeout(streamRenderTimerRef.current);
+      streamRenderTimerRef.current = null;
+    }
+    pendingEventsRef.current = [];
+    pendingSessionStoreRef.current = null;
+  }, []);
+
+  const flushStreamRender = useCallback(() => {
+    if (streamRenderTimerRef.current !== null) {
+      window.clearTimeout(streamRenderTimerRef.current);
+      streamRenderTimerRef.current = null;
+    }
+
+    const pendingEvents = pendingEventsRef.current;
+    const pendingSession = pendingSessionStoreRef.current;
+    pendingEventsRef.current = [];
+    pendingSessionStoreRef.current = null;
+
+    if (pendingSession) {
+      storeCodingSession(
+        pendingSession.id,
+        pendingSession.lastSeq,
+        pendingSession.projectId,
+      );
+    }
+    if (!pendingEvents.length) return;
+
+    setEvents((current) => {
+      let turnStartIndex = -1;
+      pendingEvents.forEach((event, index) => {
+        if (event.type === "turn_started") turnStartIndex = index;
+      });
+      return turnStartIndex >= 0
+        ? pendingEvents.slice(turnStartIndex)
+        : [...current, ...pendingEvents];
+    });
+  }, []);
+
+  const queueStreamEvent = useCallback(
+    (event: CodingEvent, projectId: string) => {
+      if (event.type === "turn_started") {
+        pendingEventsRef.current = [event];
+      } else {
+        pendingEventsRef.current.push(event);
+      }
+      pendingSessionStoreRef.current = {
+        id: event.session_id,
+        lastSeq: event.seq,
+        projectId,
+      };
+
+      if (
+        event.type === "turn_started" ||
+        event.type === "turn_completed" ||
+        event.type === "cancelled" ||
+        event.type === "failed"
+      ) {
+        flushStreamRender();
+        return;
+      }
+      if (streamRenderTimerRef.current === null) {
+        streamRenderTimerRef.current = window.setTimeout(
+          flushStreamRender,
+          STREAM_RENDER_INTERVAL_MS,
+        );
+      }
+    },
+    [flushStreamRender],
+  );
+
   const resetExpiredSession = useCallback(
     (activeSessionId: string) => {
       if (sessionId !== activeSessionId) return false;
       closeStreamRef.current?.();
       closeStreamRef.current = null;
+      clearPendingStreamRender();
       setSessionId(null);
       lastSeqRef.current = 0;
       clearStoredCodingSession();
@@ -427,7 +505,7 @@ export default function CodingPage() {
       );
       return true;
     },
-    [sessionId],
+    [clearPendingStreamRender, sessionId],
   );
 
   const loadRecovery = useCallback(async () => {
@@ -487,8 +565,19 @@ export default function CodingPage() {
 
   useEffect(() => {
     void loadCapabilities();
-    return () => closeStreamRef.current?.();
-  }, [loadCapabilities]);
+    return () => {
+      closeStreamRef.current?.();
+      if (pendingSessionStoreRef.current) {
+        const pendingSession = pendingSessionStoreRef.current;
+        storeCodingSession(
+          pendingSession.id,
+          pendingSession.lastSeq,
+          pendingSession.projectId,
+        );
+      }
+      clearPendingStreamRender();
+    };
+  }, [clearPendingStreamRender, loadCapabilities]);
 
   useEffect(() => {
     if (!sessionId || projects.some((project) => project.id === selectedProjectId)) {
@@ -934,15 +1023,8 @@ export default function CodingPage() {
       if (eventProject) {
         setSelectedProjectId(eventProject.id);
       }
-      storeCodingSession(
-        event.session_id,
-        event.seq,
-        eventProject?.id ?? selectedProjectId,
-      );
+      queueStreamEvent(event, eventProject?.id ?? selectedProjectId);
       setTransportWarning("");
-      setEvents((current) =>
-        event.type === "turn_started" ? [event] : [...current, event],
-      );
       if (event.type === "turn_completed") {
         setRunState("idle");
         if (isDraftMode) {
@@ -983,7 +1065,7 @@ export default function CodingPage() {
         setRunState("running");
       }
     },
-    [isDraftMode, refreshDraftChanges, selectedProjectId],
+    [isDraftMode, queueStreamEvent, refreshDraftChanges, selectedProjectId],
   );
 
   const submitPrompt = async (event?: FormEvent) => {
@@ -1300,6 +1382,7 @@ export default function CodingPage() {
     setPublishResult(null);
     setPublishError("");
     setRecoveredState(null);
+    clearPendingStreamRender();
     setEvents([]);
     setDraftNotice(`已开始第 ${history.active_cycle} 轮修改，此前保存的本地版本不会改变。`);
     window.requestAnimationFrame(() => promptRef.current?.focus());
@@ -1357,6 +1440,7 @@ export default function CodingPage() {
     await closeCodingSession(sessionId);
     closeStreamRef.current?.();
     closeStreamRef.current = null;
+    clearPendingStreamRender();
     setSessionId(null);
     lastSeqRef.current = 0;
     clearStoredCodingSession();
@@ -1387,6 +1471,7 @@ export default function CodingPage() {
       const result = await resumeCodingRecovery();
       closeStreamRef.current?.();
       closeStreamRef.current = null;
+      clearPendingStreamRender();
       setSessionId(result.id);
       setSelectedProjectId(result.project.id);
       setProjects((current) => [
@@ -1456,6 +1541,7 @@ export default function CodingPage() {
       await discardCodingRecovery();
       closeStreamRef.current?.();
       closeStreamRef.current = null;
+      clearPendingStreamRender();
       setSessionId(null);
       lastSeqRef.current = 0;
       clearStoredCodingSession();
@@ -1705,7 +1791,7 @@ export default function CodingPage() {
             </div>
             <div
               aria-live="polite"
-              className={`${isDraftMode ? "min-h-24" : "min-h-[286px]"} p-4 sm:p-5`}
+              className={`${isDraftMode ? "min-h-24" : "min-h-[286px]"} [overflow-anchor:none] p-4 sm:p-5`}
             >
               {answer ? (
                 <div className="max-w-none break-words text-sm leading-7 text-slate-200 [&_a]:text-cyan-200 [&_a]:underline [&_blockquote]:my-4 [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-4 [&_code]:text-cyan-100 [&_h1]:mb-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:text-white [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-white [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:font-semibold [&_h3]:text-white [&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/35 [&_pre]:p-4 [&_table]:my-4 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:border [&_td]:border-white/10 [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-white/10 [&_th]:px-3 [&_th]:py-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5">
@@ -1713,15 +1799,15 @@ export default function CodingPage() {
                   {runState === "running" ? (
                     <span
                       aria-label="回答生成中"
-                      className="ml-1 inline-block h-4 w-1 animate-pulse bg-cyan-300 align-middle motion-reduce:animate-none"
+                      className="ml-1 inline-block h-4 w-1 bg-cyan-300/80 align-middle"
                     />
                   ) : null}
                 </div>
               ) : isBusy ? (
-                <div className="space-y-3" aria-label="代码分析中">
-                  <div className="h-4 w-4/5 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
-                  <div className="h-4 w-full animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
-                  <div className="h-4 w-2/3 animate-pulse rounded bg-white/10 motion-reduce:animate-none" />
+                <div className="space-y-3 opacity-75" aria-label="代码分析中">
+                  <div className="h-4 w-4/5 rounded bg-white/10" />
+                  <div className="h-4 w-full rounded bg-white/10" />
+                  <div className="h-4 w-2/3 rounded bg-white/10" />
                 </div>
               ) : (
                 <div
