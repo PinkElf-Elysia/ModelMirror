@@ -37,17 +37,20 @@
 
 ### 3.1 核验方法
 
-核验器只遍历当前 VoltAgent 快照中已经存在的链接，并执行以下只读检查：
+统一核验器只遍历当前精选目录、`anbeime/skill` 快照和 VoltAgent 快照中已经存在的链接，并执行以下只读检查：
 
-1. 从已收录来源页提取页面明确声明的 GitHub 仓库与 Skill 目录。
-2. 将分支解析为 GitHub 固定提交，并读取该提交的仓库树。
+1. 将 GitHub 默认分支或来源声明的版本解析为 40 位固定提交。
+2. 通过 GitHub 公开文件树读取该提交的完整路径，不下载或执行外部 Skill 脚本。
 3. 仅当目标目录中存在大小写一致的 `SKILL.md` 时开放安装。
-4. 来源页目录失效时，只允许在同一仓库固定提交中用“唯一同名 Skill 目录”修正；不唯一、已合并或语义改变时保持禁用。
-5. 安装请求携带已核验的 40 位提交 SHA，避免默认分支变化后安装未经审计的新内容。
+4. 仓库根链接依次检查根目录、唯一 Skill 文件、唯一同名目录和 frontmatter 名称精确匹配。
+5. 已声明目录失效时，只允许在同一仓库固定提交中用唯一同名目录或 frontmatter 精确名称修正；不唯一或语义改变时保持禁用。
+6. 所有 1,242 条用户可见记录都写入按 Skill ID 索引的结构化证据；网络或 GitHub 临时故障会终止整批生成，不覆盖上一版证据。
+7. 安装请求必须携带证据中的固定提交 SHA，避免默认分支变化后安装未经审计的新内容。
 
 维护命令：
 
 ```bash
+node scripts/verify-skill-install-sources.mjs
 node scripts/verify-official-skill-install-sources.mjs
 node scripts/audit-skill-experience.mjs
 ```
@@ -56,19 +59,19 @@ node scripts/audit-skill-experience.mjs
 
 ### 3.2 批次结果
 
-- 既有 Anthropic、OpenAI、Microsoft 三批共核验 185 项。
-- 本轮完整审计原“有安装说明”的 358 项：240 项通过，118 项未通过。
-- 本轮通过项覆盖 39 个 GitHub 仓库；其中 210 项与来源页目录一致，30 项通过唯一同名目录安全修正。
-- 本轮未通过项中，111 项在固定提交中缺少对应 `SKILL.md`，6 项仓库或版本不存在，1 项没有可证明的子目录。
-- 连同既有 Sentry、OpenAI、Microsoft 失配记录，目前共核验安装源 425 项，共阻止失配来源 153 项。
+- 统一核验覆盖 1,242 条用户可见记录、183 个 GitHub 仓库。
+- 原 963 项“可一键安装”中，772 项通过固定提交复核，191 项因目录或仓库证据不足降为待核验。
+- 117 项 GitHub 仓库根链接中，61 项通过确定性规则升级为可安装，56 项继续待核验。
+- 最终 833 项具备固定提交安装证据；其中 29 项使用仓库根 `SKILL.md`，26 项使用仓库内唯一 Skill，16 项通过唯一同名目录解析，1 项通过 frontmatter 名称精确匹配。
+- 400 项待核验记录的主要原因是：182 项声明路径失效、53 项存在多个候选目录、11 项仓库不可公开访问、1 项仓库没有 `SKILL.md`；其余来源没有当前安装器可证明的 GitHub 目录。
 
 聚合去重后的 1,242 项资源状态为：
 
 | 状态 | 数量 |
 | --- | ---: |
-| 可一键安装 | 963 |
+| 可一键安装 | 833 |
 | 有安装说明 | 0 |
-| 待核验来源 | 270 |
+| 待核验来源 | 400 |
 | 仅资料参考 | 9 |
 
 “待核验”不代表来源恶意，只表示当前证据不足以让模镜替用户执行安装。
@@ -139,4 +142,4 @@ cd client && npm.cmd run build
 python -m pytest server/tests/test_skill_integration.py -q
 ```
 
-体验策略集中在 `client/src/data/skillCatalogPolicy.ts`，批量核验证据位于 `client/src/data/officialSkillInstallSources.generated.ts`。如发现误映射，可删除对应证据项并重新运行审计；这不会删除原始目录记录或已安装 Skill。固定提交安装能力可通过回退安装请求的 `ref` 字段和后端对应分支恢复原行为。
+体验策略集中在 `client/src/data/skillCatalogPolicy.ts`，统一核验证据位于 `client/src/data/skillSourceVerification.generated.ts`，早期来源页核验明细仍保留在 `client/src/data/officialSkillInstallSources.generated.ts`。如发现误映射，应修正核验器规则后重新生成整份证据并运行审计；这不会删除原始目录记录或已安装 Skill。固定提交安装能力可通过回退统一证据提交恢复原行为。

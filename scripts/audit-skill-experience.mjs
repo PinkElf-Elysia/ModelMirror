@@ -7,12 +7,14 @@ import {
   describeSkillInChinese,
   hasAuditedInstallMismatch,
   hasReadableChinese,
-  inferInstallStatus,
 } from "../client/src/data/skillCatalogPolicy.ts";
 import {
   REJECTED_OFFICIAL_SKILL_INSTALL_SOURCES,
   VERIFIED_OFFICIAL_SKILL_INSTALL_SOURCES,
 } from "../client/src/data/officialSkillInstallSources.generated.ts";
+import {
+  SKILL_SOURCE_VERIFICATION,
+} from "../client/src/data/skillSourceVerification.generated.ts";
 
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(path), "utf8"));
@@ -20,33 +22,58 @@ function readJson(path) {
 
 const anbeime = readJson("client/src/data/anbeimeSkillCatalog.generated.json");
 const voltagent = readJson("client/src/data/voltagentSkillCatalog.generated.json");
-const sourceRecords = [
+
+function verificationFor(projectId) {
+  const verification = SKILL_SOURCE_VERIFICATION[projectId];
+  if (!verification) {
+    throw new Error(`缺少统一来源核验记录：${projectId}`);
+  }
+  return verification;
+}
+
+function installStatusFor(projectId) {
+  const verification = verificationFor(projectId);
+  return verification.status === "verified" ? "ready" : verification.status;
+}
+
+function sourceKeyFor(projectId) {
+  const verification = verificationFor(projectId);
+  return verification.status === "verified"
+    ? `${verification.repoUrl.toLowerCase()}#${verification.subPath}`
+    : undefined;
+}
+
+const primarySourceRecords = [
   {
+    id: "anthropic-pdf-skill",
     name: "PDF 文档处理技能",
     description: "让模型按标准流程处理 PDF 文档。",
     category: "内容与办公",
-    installStatus: "ready",
-    sourceKey: "https://github.com/anthropics/skills#skills/pdf",
+    installStatus: installStatusFor("anthropic-pdf-skill"),
+    sourceKey: sourceKeyFor("anthropic-pdf-skill"),
   },
   {
+    id: "anthropic-xlsx-skill",
     name: "XLSX 表格处理技能",
     description: "让模型理解电子表格任务并辅助分析。",
     category: "内容与办公",
-    installStatus: "ready",
-    sourceKey: "https://github.com/anthropics/skills#skills/xlsx",
+    installStatus: installStatusFor("anthropic-xlsx-skill"),
+    sourceKey: sourceKeyFor("anthropic-xlsx-skill"),
   },
   {
+    id: "mattpocock-tdd-skill",
     name: "TypeScript TDD 技能",
     description: "通过测试先行改进 TypeScript 工程质量。",
     category: "开发与测试",
-    installStatus: "ready",
-    sourceKey: "https://github.com/mattpocock/skills#skills/engineering/tdd",
+    installStatus: installStatusFor("mattpocock-tdd-skill"),
+    sourceKey: sourceKeyFor("mattpocock-tdd-skill"),
   },
   {
+    id: "agent-skills-standard",
     name: "Agent Skills 开放标准",
     description: "定义 Skill 文件夹结构和渐进加载方式。",
     category: "AI 与智能体",
-    installStatus: "reference",
+    installStatus: installStatusFor("agent-skills-standard"),
   },
   ...anbeime.projects.map((project) => {
     const input = {
@@ -57,14 +84,29 @@ const sourceRecords = [
     };
     const category = classifySkill(input);
     return {
+      id: project.id,
       name: project.name,
       description: describeSkillInChinese(input, category),
       category,
-      installStatus: "ready",
-      sourceKey: `${anbeime.source.repoUrl.toLowerCase()}#${project.subPath}`,
+      installStatus: installStatusFor(project.id),
+      sourceKey: sourceKeyFor(project.id),
     };
   }),
-  ...voltagent.projects.map((project) => {
+];
+
+const catalogSourceKeys = new Set(
+  primarySourceRecords.map((record) => record.sourceKey).filter(Boolean),
+);
+const voltagentSourceRecords = voltagent.projects
+  .filter((project) => {
+    const source = project.installSource ?? auditedInstallSource(project.sourceUrl);
+    if (!source) return true;
+    const sourceKey = `${source.repoUrl.toLowerCase()}#${source.subPath}`;
+    if (catalogSourceKeys.has(sourceKey)) return false;
+    catalogSourceKeys.add(sourceKey);
+    return true;
+  })
+  .map((project) => {
     const input = {
       name: project.name,
       description: project.description,
@@ -73,26 +115,67 @@ const sourceRecords = [
       tags: project.tags,
     };
     const category = classifySkill(input);
-    const installSource = project.installSource ?? auditedInstallSource(project.sourceUrl);
     return {
+      id: project.id,
       name: project.name,
       description: describeSkillInChinese(input, category),
       category,
-      installStatus: inferInstallStatus(project.sourceUrl, Boolean(installSource)),
-      sourceKey: installSource
-        ? `${installSource.repoUrl.toLowerCase()}#${installSource.subPath}`
-        : undefined,
+      installStatus: installStatusFor(project.id),
+      sourceKey: sourceKeyFor(project.id),
     };
-  }),
-];
+  });
 
 const seenSourceKeys = new Set();
-const records = sourceRecords.filter((record) => {
+const records = [...primarySourceRecords, ...voltagentSourceRecords].filter((record) => {
   if (!record.sourceKey) return true;
   if (seenSourceKeys.has(record.sourceKey)) return false;
   seenSourceKeys.add(record.sourceKey);
   return true;
 });
+
+const verificationEntries = Object.entries(SKILL_SOURCE_VERIFICATION);
+if (verificationEntries.length !== records.length) {
+  throw new Error(
+    `统一核验证据与目录数量不一致：${verificationEntries.length} / ${records.length}`,
+  );
+}
+const recordIds = new Set(records.map((record) => record.id));
+const verifiedSourceKeys = new Set();
+for (const [projectId, verification] of verificationEntries) {
+  if (!recordIds.has(projectId)) {
+    throw new Error(`统一核验证据不属于当前目录：${projectId}`);
+  }
+  if (verification.status === "verified") {
+    if (
+      !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(
+        verification.repoUrl,
+      ) ||
+      !/^[a-f0-9]{40}$/.test(verification.verifiedCommit) ||
+      verification.subPath === undefined ||
+      !verification.method
+    ) {
+      throw new Error(`可安装证据不完整：${projectId}`);
+    }
+    if (
+      verification.subPath &&
+      verification.subPath
+        .split("/")
+        .some(
+          (part) =>
+            !part || part === "." || part === ".." || !/^[A-Za-z0-9_.-]+$/.test(part),
+        )
+    ) {
+      throw new Error(`核验安装子目录不安全：${projectId} -> ${verification.subPath}`);
+    }
+    const sourceKey = `${verification.repoUrl.toLowerCase()}#${verification.subPath}`;
+    if (verifiedSourceKeys.has(sourceKey)) {
+      throw new Error(`可安装证据重复：${sourceKey}`);
+    }
+    verifiedSourceKeys.add(sourceKey);
+  } else if (!verification.reasonCode || !verification.reason) {
+    throw new Error(`不可安装证据缺少原因：${projectId}`);
+  }
+}
 
 const categoryCounts = Object.fromEntries(SKILL_CATEGORIES.map((category) => [category, 0]));
 const installStatusCounts = { ready: 0, manual: 0, pending: 0, reference: 0 };
@@ -214,6 +297,9 @@ if (
 console.log(`体验审计通过：${records.length} 条来源记录`);
 console.table(categoryCounts);
 console.table(installStatusCounts);
+console.log(
+  `统一核验证据：${installStatusCounts.ready} 项可固定提交安装，${installStatusCounts.pending} 项待核验，${installStatusCounts.reference} 项仅参考`,
+);
 console.log(`新增核验安装源：${auditedBatch} 项`);
 console.log(`已阻止失配安装源：${mismatchBatch} 项`);
 console.log(
