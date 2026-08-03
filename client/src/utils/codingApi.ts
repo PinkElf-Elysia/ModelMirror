@@ -1,5 +1,6 @@
 import type {
   CodingCancelResponse,
+  CodingCommandRequest,
   CodingApplyResult,
   CodingCapabilities,
   CodingCommitResult,
@@ -251,6 +252,43 @@ export function cancelCodingVerification(
     {
       method: "POST",
       body: JSON.stringify({ revision }),
+    },
+  );
+}
+
+export function confirmCodingVerification(
+  sessionId: string,
+  revision: number,
+  confirmationId: string,
+) {
+  return requestJson<CodingVerificationCancelResponse>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/verification/confirm`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        revision,
+        confirmation_id: confirmationId,
+      }),
+    },
+  );
+}
+
+export function getPendingCodingCommand(sessionId: string) {
+  return requestJson<{ pending: CodingCommandRequest | null }>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/commands/pending`,
+  );
+}
+
+export function decideCodingCommand(
+  sessionId: string,
+  requestId: string,
+  decision: "allow_once" | "reject",
+) {
+  return requestJson<{ request: CodingCommandRequest }>(
+    `/api/coding/sessions/${encodeURIComponent(sessionId)}/commands/${encodeURIComponent(requestId)}/decision`,
+    {
+      method: "POST",
+      body: JSON.stringify({ decision }),
     },
   );
 }

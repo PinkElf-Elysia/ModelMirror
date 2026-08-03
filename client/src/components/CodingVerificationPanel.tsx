@@ -20,12 +20,13 @@ interface CodingVerificationPanelProps {
   empty?: boolean;
   error: string;
   onCancel: () => Promise<void>;
+  onConfirm: () => Promise<void>;
   onRequestFix: (prompt: string) => void;
   onRun: () => Promise<void>;
   verification: CodingVerification | null;
 }
 
-type ActionState = "idle" | "starting" | "stopping";
+type ActionState = "idle" | "starting" | "stopping" | "confirming";
 
 const reasonText: Record<string, string> = {
   dependency_change_unsupported:
@@ -35,7 +36,14 @@ const reasonText: Record<string, string> = {
   verifier_unavailable: "项目验证服务未启动，仍可查看和下载修改。",
   snapshot_mismatch: "项目版本正在更新，暂时无法运行验证，请稍后重试。",
   verification_timeout: "检查等待时间过长，已自动停止。你可以稍后重新运行。",
+  runner_environment_not_ready:
+    "当前运行环境与项目依赖不一致，因此没有把环境问题误报为代码问题。你仍可查看和下载修改。",
+  no_project_checks: "此项目没有可运行的检查。你仍可查看和下载修改。",
 };
+
+function formatArgv(argv: string[]) {
+  return argv.map((argument) => JSON.stringify(argument)).join(" ");
+}
 
 function stepState(step: CodingVerificationStep) {
   if (step.state === "running") return "正在检查";
@@ -66,6 +74,14 @@ function statusCopy(verification: CodingVerification | null, empty: boolean) {
     return {
       title: "正在验证当前修改",
       description: "你可以继续查看文件；验证完成前不能开始新一轮修改。",
+      tone: "text-cyan-100",
+    };
+  }
+  if (verification.state === "awaiting_confirmation") {
+    return {
+      title: "等待你确认",
+      description:
+        "下方列出了准备运行的检查。确认后只会在临时项目副本中运行，不能联网，也不会改变你的本地项目。",
       tone: "text-cyan-100",
     };
   }
@@ -113,6 +129,7 @@ export default function CodingVerificationPanel({
   empty = false,
   error,
   onCancel,
+  onConfirm,
   onRequestFix,
   onRun,
   verification,
@@ -121,6 +138,9 @@ export default function CodingVerificationPanel({
   const copy = statusCopy(verification, empty);
   const isRunning =
     verification?.state === "running" && verification.stale === false;
+  const isAwaiting =
+    verification?.state === "awaiting_confirmation" &&
+    verification.stale === false;
   const failedSteps = empty
     ? []
     : verification?.steps.filter((step) => step.result === "failed") ?? [];
@@ -207,7 +227,35 @@ export default function CodingVerificationPanel({
           </div>
         </div>
 
-        {empty ? null : isRunning ? (
+        {empty ? null : isAwaiting ? (
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <button
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-white/15 px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={action !== "idle"}
+              onClick={() => void runAction("stopping", onCancel)}
+              type="button"
+            >
+              暂不运行
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-cyan-200 px-3 text-xs font-semibold text-slate-950 transition hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={action !== "idle"}
+              onClick={() => void runAction("confirming", onConfirm)}
+              type="button"
+            >
+              {action === "confirming" ? (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="animate-spin motion-reduce:animate-none"
+                  size={14}
+                />
+              ) : (
+                <Play aria-hidden="true" size={14} />
+              )}
+              允许这些检查
+            </button>
+          </div>
+        ) : isRunning ? (
           <button
             className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-300/30 px-3 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={action !== "idle"}
@@ -283,6 +331,23 @@ export default function CodingVerificationPanel({
                 <p className="mt-1.5 break-words text-xs leading-5 text-slate-400">
                   {step.summary}
                 </p>
+              ) : null}
+              {step.command ? (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs font-medium text-slate-400 outline-none hover:text-slate-200 focus-visible:ring-2 focus-visible:ring-cyan-300/60">
+                    查看命令
+                  </summary>
+                  <div className="mt-2 min-w-0 rounded-lg bg-black/25 p-3">
+                    <code className="block overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-5 text-slate-300">
+                      {formatArgv(step.command.argv)}
+                    </code>
+                    {step.command.cwd !== "." ? (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        运行位置：{step.command.cwd}
+                      </p>
+                    ) : null}
+                  </div>
+                </details>
               ) : null}
               {step.details ? (
                 <details className="mt-2">
