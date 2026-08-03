@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { McpProject } from "../data/mcpProjects";
+import {
+  mcpCatalogSources,
+  mcpRequirementLabels,
+  type McpProject,
+} from "../data/mcpProjects";
 
 type ConnectionState = "idle" | "connecting" | "connected" | "error";
 type InstallState = "idle" | "checking" | "installing" | "installed" | "error";
@@ -124,14 +128,37 @@ export default function McpServerCard({
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
 
-  const canConnect = Boolean(project.command?.length);
+  const canConnect =
+    project.compatibility === "local-stdio" && Boolean(project.command?.length);
+  const canInstall = canConnect && project.installMode === "one-click";
   const commandPreview = useMemo(
-    () => project.command?.join(" ") ?? "该项目暂未提供本地 stdio 启动命令",
-    [project.command],
+    () =>
+      project.command?.join(" ") ??
+      `等待适配：${project.requirements
+        .map((requirement) => mcpRequirementLabels[requirement])
+        .join("、")}`,
+    [project.command, project.requirements],
+  );
+  const sourceNames = useMemo(
+    () =>
+      project.sources
+        .map((sourceId) =>
+          mcpCatalogSources.find((source) => source.id === sourceId)?.name,
+        )
+        .filter((name) => name !== undefined),
+    [project.sources],
   );
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!canInstall) {
+      setInstallState("idle");
+      setInstallError("");
+      return () => {
+        cancelled = true;
+      };
+    }
 
     async function loadInstalledState() {
       setInstallState("checking");
@@ -158,7 +185,7 @@ export default function McpServerCard({
     return () => {
       cancelled = true;
     };
-  }, [project.id]);
+  }, [canInstall, project.id]);
 
   useEffect(() => {
     if (!restoredSession || restoredSession.session_id === sessionId) return;
@@ -223,7 +250,9 @@ export default function McpServerCard({
   }
 
   async function installProject() {
-    if (installState === "installing" || installState === "installed") return;
+    if (!canInstall || installState === "installing" || installState === "installed") {
+      return;
+    }
     setInstallState("installing");
     setInstallError("");
     try {
@@ -348,20 +377,26 @@ export default function McpServerCard({
   }
 
   return (
-    <article className="group relative isolate flex min-h-[360px] flex-col overflow-hidden rounded-lg border border-white/10 bg-ink-950/78 p-5 shadow-prism transition duration-300 hover:-translate-y-1 hover:border-hire-300/40 hover:bg-surface-900/92">
+    <article className="group relative isolate flex min-h-[360px] flex-col overflow-hidden rounded-lg border border-white/10 bg-ink-950/78 p-5 shadow-prism transition duration-200 hover:border-hire-300/40 hover:bg-surface-900/92">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(251,146,60,0.16),transparent_34%),radial-gradient(circle_at_82%_82%,rgba(36,217,255,0.13),transparent_36%)] opacity-80" />
       <div className="relative flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-lg font-semibold text-white">
-            工
+            {project.category.slice(0, 1)}
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap gap-2">
               <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-2.5 py-1 text-xs font-semibold text-brand-100">
-                万能工具招领
+                {project.category}
               </span>
-              <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2.5 py-1 text-xs font-semibold text-emerald-100">
-                {canConnect ? "可原生连接" : "展示项目"}
+              <span
+                className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                  canConnect
+                    ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                    : "border-amber-300/25 bg-amber-300/10 text-amber-100"
+                }`}
+              >
+                {canConnect ? "本地 stdio 可连" : "已收录 · 待适配"}
               </span>
             </div>
             <h2 className="mt-3 line-clamp-2 text-xl font-semibold leading-7 text-white">
@@ -375,11 +410,20 @@ export default function McpServerCard({
             >
               {project.repoName}
             </a>
+            <p className="mt-1 text-[11px] leading-4 text-slate-500">
+              清单来源：{sourceNames.join(" / ")}
+            </p>
           </div>
         </div>
-        <span className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-slate-200">
-          {formatStars(project.stars)} stars
-        </span>
+        {project.stars > 0 ? (
+          <span className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-slate-200">
+            {formatStars(project.stars)} stars
+          </span>
+        ) : (
+          <span className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-slate-300">
+            已核验
+          </span>
+        )}
       </div>
 
       <p className="relative mt-5 text-sm leading-6 text-slate-300">
@@ -399,8 +443,8 @@ export default function McpServerCard({
           <p className="mt-1 font-semibold text-white">{project.language}</p>
         </div>
         <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
-          <p className="text-xs text-slate-400">最近更新</p>
-          <p className="mt-1 font-semibold text-white">{project.updatedAt}</p>
+          <p className="text-xs text-slate-400">资料核验</p>
+          <p className="mt-1 font-semibold text-white">{project.verifiedAt}</p>
         </div>
       </div>
 
@@ -415,15 +459,49 @@ export default function McpServerCard({
         ))}
       </div>
 
+      {project.requirements.length > 0 ? (
+        <div className="relative mt-4 rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-3">
+          <p className="text-xs font-semibold text-amber-100">当前接入条件</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {project.requirements.map((requirement) => (
+              <span
+                className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-50"
+                key={requirement}
+              >
+                {mcpRequirementLabels[requirement]}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="relative mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-3 text-xs leading-5 text-emerald-50">
+          不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。
+        </div>
+      )}
+
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
-        <button
-          className="rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition duration-200 hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!canConnect || state === "connecting"}
-          onClick={() => void connect()}
-          type="button"
-        >
-          {state === "connecting" ? "连接中..." : state === "connected" ? "已连接" : "连接"}
-        </button>
+        {canConnect ? (
+          <button
+            className="rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition duration-200 hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={state === "connecting" || state === "connected"}
+            onClick={() => void connect()}
+            type="button"
+          >
+            {state === "connecting"
+              ? "连接中..."
+              : state === "connected"
+                ? "已连接"
+                : "连接 Server"}
+          </button>
+        ) : (
+          <button
+            className="cursor-not-allowed rounded-full border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-100 opacity-75"
+            disabled
+            type="button"
+          >
+            等待安全适配
+          </button>
+        )}
         {state === "connected" ? (
           <button
             className="rounded-full border border-rose-300/30 bg-rose-300/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/15"
@@ -433,38 +511,50 @@ export default function McpServerCard({
             断开连接
           </button>
         ) : null}
-        <button
-          className={`rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
-            installState === "installed"
-              ? "border-emerald-300/35 bg-emerald-300/12 text-emerald-100"
-              : "border-white/10 bg-white/[0.055] text-slate-100 hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-brand-100"
-          }`}
-          disabled={installState === "checking" || installState === "installing" || installState === "installed"}
-          onClick={() => void installProject()}
-          type="button"
-        >
-          {installState === "checking"
-            ? "检查中..."
-            : installState === "installing"
-              ? "安装中..."
-              : installState === "installed"
-                ? "已安装"
-                : "⚡ 安装"}
-        </button>
+        {canInstall ? (
+          <button
+            className={`rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
+              installState === "installed"
+                ? "border-emerald-300/35 bg-emerald-300/12 text-emerald-100"
+                : "border-white/10 bg-white/[0.055] text-slate-100 hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-brand-100"
+            }`}
+            disabled={
+              installState === "checking" ||
+              installState === "installing" ||
+              installState === "installed"
+            }
+            onClick={() => void installProject()}
+            type="button"
+          >
+            {installState === "checking"
+              ? "检查中..."
+              : installState === "installing"
+                ? "安装中..."
+                : installState === "installed"
+                  ? "已安装"
+                  : "安装 Server"}
+          </button>
+        ) : null}
         <button
           className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-300 transition duration-200 hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
           onClick={() => setIsInstallOpen(true)}
           type="button"
         >
-          命令
+          中文配置与使用
         </button>
       </div>
 
       <div className="relative mt-4 rounded-lg border border-white/10 bg-slate-950/55 p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold text-slate-300">stdio 命令</p>
-            <code className="mt-2 block break-all text-xs text-brand-100">
+            <p className="text-xs font-semibold text-slate-300">
+              {canConnect ? "stdio 命令" : "接入要求"}
+            </p>
+            <code
+              className={`mt-2 block break-all text-xs ${
+                canConnect ? "text-brand-100" : "text-amber-100"
+              }`}
+            >
               {commandPreview}
             </code>
           </div>
@@ -552,15 +642,21 @@ export default function McpServerCard({
 
       {isInstallOpen ? (
         <div
+          aria-labelledby={`mcp-guide-${project.id}`}
           aria-modal="true"
           className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/78 p-4 backdrop-blur-sm"
           role="dialog"
         >
-          <div className="surface-card w-full max-w-2xl rounded-lg p-6">
+          <div className="surface-card max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold text-hire-100">安装指令</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">
+                <p className="text-sm font-semibold text-hire-100">
+                  中文配置与使用指引
+                </p>
+                <h2
+                  className="mt-2 text-2xl font-semibold text-white"
+                  id={`mcp-guide-${project.id}`}
+                >
                   {project.name}
                 </h2>
               </div>
@@ -573,12 +669,87 @@ export default function McpServerCard({
                 关闭
               </button>
             </div>
-            <p className="mt-4 text-sm leading-6 text-slate-300">
-              {project.installNote}
-            </p>
-            <pre className="mt-4 max-h-72 overflow-auto rounded-lg border border-white/10 bg-slate-950/78 p-4 text-xs leading-5 text-brand-100">
-              <code>{project.installCommand}</code>
-            </pre>
+            <div
+              className={`mt-5 rounded-lg border p-4 ${
+                canConnect
+                  ? "border-emerald-300/25 bg-emerald-300/[0.08]"
+                  : "border-amber-300/25 bg-amber-300/[0.08]"
+              }`}
+            >
+              <p
+                className={`text-sm font-semibold ${
+                  canConnect ? "text-emerald-100" : "text-amber-100"
+                }`}
+              >
+                {canConnect ? "当前可本地 stdio 连接" : "当前仅收录，等待后续适配"}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {project.installNote}
+              </p>
+              {!canConnect ? (
+                <p className="mt-2 text-xs leading-5 text-amber-50/80">
+                  本页不会要求输入 Token，也不会跳转到 OAuth 或外站登录页面。
+                </p>
+              ) : null}
+            </div>
+
+            {project.requirements.length > 0 ? (
+              <section className="mt-5">
+                <h3 className="text-sm font-semibold text-white">接入条件</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {project.requirements.map((requirement) => (
+                    <span
+                      className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-50"
+                      key={requirement}
+                    >
+                      {mcpRequirementLabels[requirement]}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <section className="mt-5">
+              <h3 className="text-sm font-semibold text-white">配置步骤</h3>
+              <ol className="mt-3 space-y-3">
+                {project.configGuide.map((step, index) => (
+                  <li
+                    className="flex gap-3 text-sm leading-6 text-slate-300"
+                    key={step}
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-brand-300/25 bg-brand-300/10 text-xs font-semibold text-brand-100">
+                      {index + 1}
+                    </span>
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+
+            <section className="mt-5 rounded-lg border border-white/10 bg-white/[0.04] p-4">
+              <h3 className="text-sm font-semibold text-white">可以怎么用</h3>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+                {project.usageExamples.map((example) => (
+                  <li className="flex gap-2" key={example}>
+                    <span aria-hidden="true" className="text-brand-100">
+                      •
+                    </span>
+                    <span>{example}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            {canConnect ? (
+              <section className="mt-5">
+                <h3 className="text-sm font-semibold text-white">
+                  已核验的本地 stdio 命令
+                </h3>
+                <pre className="mt-3 max-h-72 overflow-auto rounded-lg border border-white/10 bg-slate-950/78 p-4 text-xs leading-5 text-brand-100">
+                  <code>{project.installCommand}</code>
+                </pre>
+              </section>
+            ) : null}
           </div>
         </div>
       ) : null}

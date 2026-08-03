@@ -375,3 +375,9 @@ python server/mcp/test_manager.py
 | `server/tests/test_mcp_multisession.py` | 多 session、TTL 与 ToolRegistry 集成测试。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
 | `client/src/data/mcpProjects.ts` | MCP 项目与可选 stdio 命令数据。 |
+
+## 7. 中文目录与后续适配
+
+`/mcps` 同时展示可本地 stdio 连接的 Server 和已收录但尚未适配的生态项目。带 OAuth、Token、额外运行时、桌面宿主、远程传输或外站认证要求的条目不得暴露 `command`，只能展示中文用途、接入条件和等待适配状态。
+
+来源同步、安全运行时、OAuth / Secret 代理、用户自定义连接和 MCP Builder 的阶段计划见 [MCP_CATALOG_ROADMAP.md](./MCP_CATALOG_ROADMAP.md)。
