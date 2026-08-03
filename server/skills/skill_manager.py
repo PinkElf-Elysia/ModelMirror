@@ -41,6 +41,7 @@ class InstalledSkill:
     repo_url: str
     sub_path: str
     installed_at: float
+    source_ref: str | None = None
 
 
 class SkillManager:
@@ -73,13 +74,19 @@ class SkillManager:
         self.metadata_path = self.installed_dir / "installed.json"
         self._lock = threading.RLock()
 
-    def install_skill(self, repo_url: str, sub_path: str = "") -> InstalledSkill:
+    def install_skill(
+        self,
+        repo_url: str,
+        sub_path: str = "",
+        source_ref: str | None = None,
+    ) -> InstalledSkill:
         """Install a Skill from a GitHub repository subdirectory.
 
         Args:
             repo_url: GitHub repository URL, or a local repository path only
                 when ``allow_local_repos`` is enabled for tests.
             sub_path: Repository subdirectory containing ``SKILL.md``.
+            source_ref: Optional audited 40-character Git commit to install.
 
         Returns:
             Metadata for the installed Skill.
@@ -87,6 +94,7 @@ class SkillManager:
 
         normalized_repo_url = self._validate_repo_url(repo_url)
         normalized_sub_path = self._validate_sub_path(sub_path)
+        normalized_source_ref = self._validate_source_ref(source_ref)
         skill_id = self._build_skill_id(normalized_repo_url, normalized_sub_path)
 
         with self._lock:
@@ -101,6 +109,7 @@ class SkillManager:
                     normalized_repo_url,
                     normalized_sub_path,
                     checkout_dir,
+                    normalized_source_ref,
                 )
                 source_dir = checkout_dir / normalized_sub_path if normalized_sub_path else checkout_dir
                 skill_md = source_dir / "SKILL.md"
@@ -118,6 +127,7 @@ class SkillManager:
                     normalized_repo_url,
                     normalized_sub_path,
                     target_dir / "SKILL.md",
+                    normalized_source_ref,
                 )
                 installed = self._read_metadata()
                 installed[skill_id] = asdict(metadata)
@@ -381,7 +391,28 @@ class SkillManager:
         repo_url: str,
         sub_path: str,
         checkout_dir: Path,
+        source_ref: str | None = None,
     ) -> None:
+        if source_ref:
+            self._run_command(["git", "init", str(checkout_dir)])
+            self._run_command(
+                ["git", "-C", str(checkout_dir), "remote", "add", "origin", repo_url]
+            )
+            self._run_command(
+                ["git", "-C", str(checkout_dir), "sparse-checkout", "init", "--cone"]
+            )
+            if sub_path:
+                self._run_command(
+                    ["git", "-C", str(checkout_dir), "sparse-checkout", "set", sub_path]
+                )
+            self._run_command(
+                ["git", "-C", str(checkout_dir), "fetch", "--depth", "1", "origin", source_ref]
+            )
+            self._run_command(
+                ["git", "-C", str(checkout_dir), "checkout", "--detach", "FETCH_HEAD"]
+            )
+            return
+
         clone_command = [
             "git",
             "clone",
@@ -423,6 +454,7 @@ class SkillManager:
         repo_url: str,
         sub_path: str,
         skill_md: Path,
+        source_ref: str | None = None,
     ) -> InstalledSkill:
         content = skill_md.read_text(encoding="utf-8", errors="replace")
         frontmatter = self._parse_frontmatter(content)
@@ -445,6 +477,7 @@ class SkillManager:
             repo_url=repo_url,
             sub_path=sub_path,
             installed_at=time.time(),
+            source_ref=source_ref,
         )
 
     @staticmethod
@@ -536,6 +569,15 @@ class SkillManager:
         if any(not re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts):
             raise SkillValidationError("Invalid Skill sub_path")
         return "/".join(parts)
+
+    @staticmethod
+    def _validate_source_ref(source_ref: str | None) -> str | None:
+        if source_ref is None:
+            return None
+        normalized = source_ref.strip().lower()
+        if not re.fullmatch(r"[a-f0-9]{40}", normalized):
+            raise SkillValidationError("Skill source ref must be a full Git commit SHA")
+        return normalized
 
     @staticmethod
     def _validate_skill_id(skill_id: str) -> str:

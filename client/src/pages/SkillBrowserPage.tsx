@@ -16,6 +16,7 @@ interface InstalledSkill {
   repo_url: string;
   sub_path: string;
   installed_at: number;
+  source_ref?: string | null;
 }
 
 interface InstalledSkillsResponse {
@@ -88,7 +89,9 @@ function isProjectInstalled(project: SkillProject, installedSkills: InstalledSki
   return installedSkills.some(
     (skill) =>
       skill.repo_url === project.installSource?.repoUrl &&
-      skill.sub_path === project.installSource?.subPath,
+      skill.sub_path === project.installSource?.subPath &&
+      (!project.installSource.verifiedCommit ||
+        skill.source_ref === project.installSource.verifiedCommit),
   );
 }
 
@@ -173,9 +176,16 @@ function MarketSkillCard({
         ) : null}
         <div className="mt-2 rounded-md bg-ink-950/80 p-2 text-xs leading-5 text-slate-300">
           {project.installSource ? (
-            <code className="break-all text-hire-100">
-              {project.installSource.repoUrl} / {project.installSource.subPath}
-            </code>
+            <div>
+              <code className="break-all text-hire-100">
+                {project.installSource.repoUrl} / {project.installSource.subPath}
+              </code>
+              {project.installSource.verifiedCommit ? (
+                <p className="mt-1 text-[11px] text-emerald-200/80">
+                  已核验固定提交 {project.installSource.verifiedCommit.slice(0, 12)}
+                </p>
+              ) : null}
+            </div>
           ) : project.installStatus === "manual" && project.installCommand ? (
             <code className="break-all text-sky-100">{project.installCommand}</code>
           ) : (
@@ -407,6 +417,7 @@ export default function SkillBrowserPage() {
         body: JSON.stringify({
           repo_url: project.installSource.repoUrl,
           sub_path: project.installSource.subPath,
+          ref: project.installSource.verifiedCommit,
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
@@ -614,7 +625,11 @@ export default function SkillBrowserPage() {
                 >
                   <option value="all">全部资源</option>
                   <option value="ready">可一键安装（{installStatusCounts.ready}）</option>
-                  <option value="manual">有安装说明（{installStatusCounts.manual}）</option>
+                  {installStatusCounts.manual > 0 ? (
+                    <option value="manual">
+                      有安装说明（{installStatusCounts.manual}）
+                    </option>
+                  ) : null}
                   <option value="pending">待核验来源（{installStatusCounts.pending}）</option>
                   <option value="reference">仅资料参考（{installStatusCounts.reference}）</option>
                 </select>
