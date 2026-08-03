@@ -52,11 +52,11 @@ some-skill/
 | --- | --- | --- |
 | 手工精选 | `client/src/data/skillProjects.ts` | 4 个基线条目 |
 | [anbeime/skill](https://github.com/anbeime/skill) | `011d53f4f238cf7cc8e2cdae8452fffaec7eb1ae` | 从本地 `skill-main` 与远端核对后生成 64 个项目，其中 2 个 SkillSet |
-| [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) | `6c82fb77e5bf84de77d1074b2d98d65d75ea730e` | README 索引去重后生成 1,178 个项目；原始索引有 475 个明确 GitHub 子目录，三批体验治理又核验 185 个来源并阻止 35 个失配来源 |
+| [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) | `6c82fb77e5bf84de77d1074b2d98d65d75ea730e` | README 索引去重后生成 1,178 个项目；原始索引有 475 个明确 GitHub 子目录，来源治理累计核验 425 个补充来源并阻止 153 个失配来源 |
 
-VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skill 安装。README 明确给出 GitHub `tree/.../<目录>` 或 `blob/.../SKILL.md` 的条目可直接生成 `installSource`；其他来源由 `skillCatalogPolicy.ts` 分成“有安装说明”“待核验来源”“仅资料参考”。只有逐项核对实际 `SKILL.md` 路径后，条目才会升级为一键安装。
+VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skill 安装。README 明确给出 GitHub `tree/.../<目录>` 或 `blob/.../SKILL.md` 的条目可直接生成 `installSource`；其余既有来源已经按来源页声明、GitHub 固定提交和实际 `SKILL.md` 路径完成审计。当前没有条目停留在“有安装说明”：核验通过的条目升级为一键安装，证据不足或失配的条目进入“待核验来源”。
 
-市场展示层将来源细分类收敛为 10 个稳定任务大类，并把晦涩英文说明转换成面向用户的中文能力说明。上游原文保留在 `sourceDescription` 中，用于搜索和追溯。完整治理规则与暂缓功能见 [Skill 体验治理与后续路线图](./SKILL_EXPERIENCE_ROADMAP.md)。当前冻结新增目录和 SkillHub 等外部市场接入。
+市场展示层将来源细分类收敛为 10 个稳定任务大类，并把晦涩英文说明转换成面向用户的中文能力说明。上游原文保留在 `sourceDescription` 中，用于搜索和追溯。完整治理规则与候选能力结论见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md)。三项候选能力没有排期或实施承诺，新增目录和 SkillHub 等外部市场继续延后。
 
 ## 2. 如何添加新的 Skill 到市场
 
@@ -166,15 +166,21 @@ curl http://localhost:8000/api/skills/installed
 ```bash
 curl -X POST http://localhost:8000/api/skills/install \
   -H "Content-Type: application/json" \
-  -d '{"repo_url":"https://github.com/anthropics/skills","sub_path":"skills/pdf"}'
+  -d '{"repo_url":"https://github.com/anthropics/skills","sub_path":"skills/pdf","ref":"b29e7cf65e5cb78a5ac33d582270551bc74a14eb"}'
 ```
 
-后端会执行：
+提供 `ref` 时，后端只接受完整 40 位 Git 提交 SHA，并执行固定提交安装：
 
 ```bash
-git clone --depth 1 --filter=blob:none --sparse https://github.com/anthropics/skills <tmp>
+git init <tmp>
+git -C <tmp> remote add origin https://github.com/anthropics/skills
+git -C <tmp> sparse-checkout init --cone
 git -C <tmp> sparse-checkout set skills/pdf
+git -C <tmp> fetch --depth 1 origin b29e7cf65e5cb78a5ac33d582270551bc74a14eb
+git -C <tmp> checkout --detach FETCH_HEAD
 ```
+
+没有 `ref` 的既有手工条目继续使用浅克隆默认分支的兼容路径。
 
 然后复制子目录到 `server/skills/installed/{skill_id}/`，并写入 `installed.json`。
 
@@ -218,7 +224,7 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 - `技能市场`：合并手工精选与两个生成目录，支持关键词、功能分类、Skill/SkillSet、可安装状态筛选；默认分批渲染 48 项，避免一次挂载全部索引卡片。
 - `已安装`：调用 `/api/skills/installed`，展示本地已安装 Skill，提供卸载按钮。
-- `工作区草稿`、`待审提案`：保留现有创作工作区；它们不等同于路线图中暂缓的上传 Skill 或 skill-creator 引导流程。
+- `工作区草稿`、`待审提案`：保留现有创作工作区；它们不等同于审计中暂缓的上传 Skill 或 skill-creator 引导流程。
 
 社区资源卡片同时显示原始来源与收录索引。安装第三方条目只会复制目录，不会在安装阶段自动执行脚本；用户仍需在激活前检查依赖、外部服务和凭据要求。
 

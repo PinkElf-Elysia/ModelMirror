@@ -9,6 +9,10 @@ import {
   hasReadableChinese,
   inferInstallStatus,
 } from "../client/src/data/skillCatalogPolicy.ts";
+import {
+  REJECTED_OFFICIAL_SKILL_INSTALL_SOURCES,
+  VERIFIED_OFFICIAL_SKILL_INSTALL_SOURCES,
+} from "../client/src/data/officialSkillInstallSources.generated.ts";
 
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(path), "utf8"));
@@ -114,14 +118,53 @@ if (sparseCategories.length > 0) {
 const auditedBatch = voltagent.projects.filter(
   (project) => !project.installSource && auditedInstallSource(project.sourceUrl),
 ).length;
-if (auditedBatch !== 185) {
-  throw new Error(`三批核验安装源应为 185 项，实际为 ${auditedBatch} 项`);
+if (auditedBatch !== 425) {
+  throw new Error(`核验安装源应为 425 项，实际为 ${auditedBatch} 项`);
 }
 const mismatchBatch = voltagent.projects.filter((project) =>
   hasAuditedInstallMismatch(project.sourceUrl),
 ).length;
-if (mismatchBatch !== 35) {
-  throw new Error(`来源失配记录应为 35 项，实际为 ${mismatchBatch} 项`);
+if (mismatchBatch !== 153) {
+  throw new Error(`来源失配记录应为 153 项，实际为 ${mismatchBatch} 项`);
+}
+
+const generatedVerifiedEntries = Object.entries(
+  VERIFIED_OFFICIAL_SKILL_INSTALL_SOURCES,
+);
+const generatedRejectedEntries = Object.entries(
+  REJECTED_OFFICIAL_SKILL_INSTALL_SOURCES,
+);
+if (generatedVerifiedEntries.length !== 240) {
+  throw new Error(`新增核验映射应为 240 项，实际为 ${generatedVerifiedEntries.length} 项`);
+}
+if (generatedRejectedEntries.length !== 118) {
+  throw new Error(`新增拒绝映射应为 118 项，实际为 ${generatedRejectedEntries.length} 项`);
+}
+const catalogSourceUrls = new Set(voltagent.projects.map((project) => project.sourceUrl));
+for (const [sourceUrl, source] of generatedVerifiedEntries) {
+  if (!catalogSourceUrls.has(sourceUrl)) {
+    throw new Error(`核验映射不属于当前目录：${sourceUrl}`);
+  }
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(source.repoUrl)) {
+    throw new Error(`核验仓库地址不合法：${source.repoUrl}`);
+  }
+  if (!/^[a-f0-9]{40}$/.test(source.verifiedCommit)) {
+    throw new Error(`核验提交不合法：${sourceUrl} -> ${source.verifiedCommit}`);
+  }
+}
+for (const [sourceUrl, rejection] of generatedRejectedEntries) {
+  if (!catalogSourceUrls.has(sourceUrl) || !rejection.reason) {
+    throw new Error(`拒绝映射不完整：${sourceUrl}`);
+  }
+  if (sourceUrl in VERIFIED_OFFICIAL_SKILL_INSTALL_SOURCES) {
+    throw new Error(`来源同时出现在通过和拒绝映射：${sourceUrl}`);
+  }
+}
+const repairedPathCount = generatedVerifiedEntries.filter(([, source]) =>
+  source.pathResolution.includes("修正"),
+).length;
+if (repairedPathCount !== 30) {
+  throw new Error(`唯一同名目录修正应为 30 项，实际为 ${repairedPathCount} 项`);
 }
 
 const auditedByRepository = {};
@@ -147,19 +190,24 @@ for (const project of voltagent.projects) {
   }
 }
 
-const expectedAuditedByRepository = {
+const expectedBaselineAuditedByRepository = {
   "https://github.com/anthropics/skills": 17,
   "https://github.com/openai/skills": 36,
   "https://github.com/microsoft/skills": 132,
 };
-const countsMatch = (actual, expected) =>
-  Object.keys(actual).length === Object.keys(expected).length &&
-  Object.entries(expected).every(([key, count]) => actual[key] === count);
-if (!countsMatch(auditedByRepository, expectedAuditedByRepository)) {
-  throw new Error(`核验仓库批次数量变化：${JSON.stringify(auditedByRepository)}`);
+if (
+  !Object.entries(expectedBaselineAuditedByRepository).every(
+    ([repoUrl, count]) => auditedByRepository[repoUrl] === count,
+  )
+) {
+  throw new Error(`基础核验仓库批次数量变化：${JSON.stringify(auditedByRepository)}`);
 }
-const expectedMismatchByPublisher = { getsentry: 28, openai: 6, microsoft: 1 };
-if (!countsMatch(mismatchByPublisher, expectedMismatchByPublisher)) {
+const expectedBaselineMismatchByPublisher = { getsentry: 28, openai: 6, microsoft: 1 };
+if (
+  !Object.entries(expectedBaselineMismatchByPublisher).every(
+    ([publisher, count]) => mismatchByPublisher[publisher] === count,
+  )
+) {
   throw new Error(`来源失配批次数量变化：${JSON.stringify(mismatchByPublisher)}`);
 }
 
@@ -168,5 +216,9 @@ console.table(categoryCounts);
 console.table(installStatusCounts);
 console.log(`新增核验安装源：${auditedBatch} 项`);
 console.log(`已阻止失配安装源：${mismatchBatch} 项`);
-console.table(auditedByRepository);
-console.table(mismatchByPublisher);
+console.log(
+  `本轮核验：${generatedVerifiedEntries.length} 项通过（${repairedPathCount} 项安全修正路径），${generatedRejectedEntries.length} 项未通过`,
+);
+console.log(
+  `本轮通过来源覆盖 ${new Set(generatedVerifiedEntries.map(([, source]) => source.repoUrl)).size} 个 GitHub 仓库`,
+);

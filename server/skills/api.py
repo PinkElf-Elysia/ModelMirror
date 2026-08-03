@@ -30,6 +30,12 @@ _skill_draft_store: WorkspaceSkillDraftStore | None = None
 class SkillInstallRequest(BaseModel):
     repo_url: str = Field(min_length=1, max_length=500)
     sub_path: str = Field(default="", max_length=260)
+    ref: str | None = Field(
+        default=None,
+        min_length=40,
+        max_length=40,
+        pattern=r"^[0-9a-fA-F]{40}$",
+    )
 
 
 class SkillPayload(BaseModel):
@@ -39,6 +45,7 @@ class SkillPayload(BaseModel):
     repo_url: str
     sub_path: str
     installed_at: float
+    source_ref: str | None = None
 
 
 class InstalledSkillsResponse(BaseModel):
@@ -101,6 +108,7 @@ def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
         repo_url=skill.repo_url,
         sub_path=skill.sub_path,
         installed_at=skill.installed_at,
+        source_ref=skill.source_ref,
     )
 
 
@@ -239,6 +247,7 @@ async def install_skill(payload: SkillInstallRequest) -> SkillPayload:
             get_skill_manager().install_skill,
             payload.repo_url,
             payload.sub_path,
+            payload.ref,
         )
         return _payload_from_skill(skill)
     except SkillValidationError as exc:
