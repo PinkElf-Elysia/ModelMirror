@@ -38,7 +38,8 @@ const reasonText: Record<string, string> = {
   verification_timeout: "检查等待时间过长，已自动停止。你可以稍后重新运行。",
   runner_environment_not_ready:
     "当前运行环境与项目依赖不一致，因此没有把环境问题误报为代码问题。你仍可查看和下载修改。",
-  no_project_checks: "此项目没有可运行的检查。你仍可查看和下载修改。",
+  no_project_checks:
+    "此项目没有配置可运行的测试或检查，因此无法判断代码是否正确；这不代表验证通过。",
 };
 
 function formatArgv(argv: string[]) {
@@ -106,7 +107,10 @@ function statusCopy(verification: CodingVerification | null, empty: boolean) {
       tone: "text-amber-100",
     };
   }
-  if (verification.result === "not_applicable") {
+  if (
+    verification.result === "not_applicable" &&
+    verification.reason !== "no_project_checks"
+  ) {
     return {
       title: "本次修改无需项目验证",
       description:

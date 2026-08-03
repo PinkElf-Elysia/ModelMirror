@@ -19,6 +19,7 @@ RUN apt-get update \
 WORKDIR /opt/modelmirror
 
 COPY server/coding_runtime/projects.py ./server/coding_runtime/projects.py
+COPY server/coding_runtime/commands.py ./server/coding_runtime/commands.py
 COPY server/coding_project_source/server.py ./server/coding_project_source/server.py
 
 RUN test "$(id -u projectsource)" = "65532" \

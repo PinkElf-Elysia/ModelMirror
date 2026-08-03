@@ -1558,7 +1558,7 @@ class CodingWorkerServer:
             result = {
                 "revision": revision,
                 "state": VerificationState.COMPLETED.value,
-                "result": VerificationResult.NOT_APPLICABLE.value,
+                "result": VerificationResult.NOT_RUN.value,
                 "stale": False,
                 "reason": "no_project_checks",
                 "started_at": None,

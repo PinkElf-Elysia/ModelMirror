@@ -226,6 +226,28 @@ async def test_custom_project_verification_previews_then_runs_exact_plan(
     assert verifier.commands[1]["paths"] == ["tests/test_app.py"]
 
 
+def test_custom_project_without_checks_is_not_reported_as_unnecessary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, record, _ = _record(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "server.coding_runtime.worker.detect_project_commands",
+        lambda *_args, **_kwargs: (),
+    )
+    (record.workspace.workspace_root / "app.py").write_text(
+        "VALUE = 999\n",
+        encoding="utf-8",
+    )
+    revision = record.workspace.cumulative_changes().revision
+
+    report = server._prepare_local_verification(record, revision)
+
+    assert report["state"] == "completed"
+    assert report["result"] == "not_run"
+    assert report["reason"] == "no_project_checks"
+
+
 def test_command_and_confirmation_payloads_cross_only_the_public_api_boundary() -> None:
     command = {
         "id": "command-1234567890abcdef12345678",
