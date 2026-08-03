@@ -11,6 +11,7 @@
 | 领域 | 存储 | 说明 |
 | --- | --- | --- |
 | 模型静态快照 | `client/src/data/models.ts` | 展示、能力与离线目录；实时可调用性来自后端目录。 |
+| Skill 静态目录 | `client/src/data/skillProjects.ts`、`client/src/data/*SkillCatalog.generated.json` | 手工精选与固定上游提交生成的外部目录快照。 |
 | 模型路由与视频任务 | `server/model_router/storage/router.sqlite3` | 连接、策略、候选统计、决策、压缩与视频任务元数据。 |
 | 路由凭据 | SQLite 加密字段 + `credential-master.key` | 只在后端解密，API 返回脱敏摘要。 |
 | RAG 元数据与流水线 | `server/rag/storage/` | metadata、候选/激活版本、处理和视觉产物。 |
@@ -24,6 +25,12 @@
 | 媒体正文 | 不持久化 | STT/TTS/视频请求媒体及视频生成 Prompt、首帧不进入任务数据库。 |
 
 Dify 数据库不属于当前主路径或备份范围。legacy Dify 代理只在显式配置后可用。
+
+## Skill 目录快照
+
+Skill 市场由手工精选条目与生成目录组合。组合目录使用 `kind: "skillset"`；
+`scripts/sync-*-skill-*.mjs` 根据固定上游 commit 生成 JSON 快照，禁止直接手改。
+只有明确指向 GitHub Skill 子目录的条目才生成一键安装源；其余条目仅作为外部参考。
 
 ## 租户边界
 
