@@ -178,6 +178,10 @@ class ProjectSnapshotBroker:
                 ):
                     raise ProjectSourceError("project_changed", "Project changed while snapshotting")
                 _write_json(staging / "lease.json", lease.to_dict())
+                _write_json(
+                    staging / "verification.json",
+                    _verification_sidecar(entry, lease),
+                )
                 staging.replace(self._snapshot_slot / "current")
                 self._active = lease
                 return lease
@@ -472,6 +476,33 @@ def _read_exact(stream: Any, size: int) -> bytes:
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
     path.write_bytes(encoded)
+
+
+def _verification_sidecar(
+    entry: ProjectManifestEntry,
+    lease: SnapshotLease,
+) -> dict[str, object]:
+    config = entry.verification
+    return {
+        "lease_id": lease.lease_id,
+        "project_id": lease.project_id,
+        "head": lease.head,
+        "fingerprint": lease.fingerprint,
+        "verification": {
+            "auto": config.auto,
+            "runner_pack": config.runner_pack,
+            "commands": [
+                {
+                    "name": command.name,
+                    "kind": command.kind.value,
+                    "argv": list(command.argv),
+                    "cwd": command.cwd,
+                    "timeout_seconds": command.timeout_seconds,
+                }
+                for command in config.commands
+            ],
+        },
+    }
 
 
 def _require_keys(request: dict[str, Any], expected: set[str]) -> None:

@@ -184,6 +184,22 @@ class WorkerClient(Protocol):
         revision: int,
     ) -> dict[str, Any]: ...
 
+    async def verification_confirm(
+        self,
+        session_id: str,
+        revision: int,
+        confirmation_id: str,
+    ) -> dict[str, Any]: ...
+
+    async def command_pending(self, session_id: str) -> dict[str, Any] | None: ...
+
+    async def command_decision(
+        self,
+        session_id: str,
+        request_id: str,
+        decision: str,
+    ) -> dict[str, Any]: ...
+
 
 class ApplierClient(Protocol):
     async def health(self) -> dict[str, Any]: ...
@@ -365,6 +381,20 @@ class VerificationRevisionRequest(BaseModel):
     revision: int = Field(ge=0)
 
 
+class VerificationConfirmRequest(VerificationRevisionRequest):
+    confirmation_id: str = Field(
+        min_length=20,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+
+
+class CommandDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["allow_once", "reject"]
+
+
 class ApplyRequest(VerificationRevisionRequest):
     confirm_quality_risks: bool = Field(default=False, strict=True)
 
@@ -426,16 +456,23 @@ class PublishReadyRequest(VerificationRevisionRequest):
     publish_id: str = Field(min_length=20, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class VerificationCommandPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command_id: str = Field(alias="id", min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=240)
+    kind: Literal["test", "build", "lint", "typecheck", "custom"]
+    argv: list[str] = Field(min_length=1, max_length=64)
+    cwd: str = Field(min_length=1, max_length=500)
+    timeout_seconds: int = Field(ge=1, le=300)
+
+
 class VerificationStepPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    step_id: Literal[
-        "backend_tests",
-        "backend_baseline_tests",
-        "backend_draft_tests",
-        "frontend_build",
-    ] = Field(alias="id")
-    label: str = Field(min_length=1, max_length=100)
+    step_id: str = Field(alias="id", min_length=1, max_length=128)
+    label: str = Field(min_length=1, max_length=240)
+    command: VerificationCommandPayload | None = None
     state: Literal["not_started", "running", "completed", "cancelled"]
     result: Literal["not_run", "passed", "failed", "not_applicable"]
     duration_ms: int | None = Field(default=None, ge=0, le=600_000)
@@ -448,13 +485,26 @@ class VerificationPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     revision: int = Field(ge=0)
-    state: Literal["not_started", "running", "completed", "cancelled"]
+    state: Literal[
+        "not_started",
+        "awaiting_confirmation",
+        "running",
+        "completed",
+        "cancelled",
+    ]
     result: Literal["not_run", "passed", "failed", "not_applicable"]
     stale: bool
     reason: str | None = Field(default=None, max_length=64)
     started_at: float | None = Field(default=None, ge=0)
     finished_at: float | None = Field(default=None, ge=0)
-    steps: list[VerificationStepPayload] = Field(max_length=4)
+    confirmation_id: str | None = Field(default=None, min_length=20, max_length=80)
+    plan_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[a-f0-9]{64}$",
+    )
+    steps: list[VerificationStepPayload] = Field(max_length=16)
 
     @model_validator(mode="after")
     def state_and_result_must_be_consistent(self) -> VerificationPayload:
@@ -463,8 +513,10 @@ class VerificationPayload(BaseModel):
             raise ValueError("Running verification must have a start time")
         if terminal and self.finished_at is None:
             raise ValueError("Terminal verification must have a finish time")
-        if self.state == "not_started" and self.result != "not_run":
+        if self.state in {"not_started", "awaiting_confirmation"} and self.result != "not_run":
             raise ValueError("Unstarted verification result is inconsistent")
+        if self.state == "awaiting_confirmation" and self.confirmation_id is None:
+            raise ValueError("Verification confirmation is missing")
         if self.state == "cancelled" and self.result != "not_run":
             raise ValueError("Cancelled verification result is inconsistent")
         if self.result in {"passed", "failed", "not_applicable"} and (
@@ -541,6 +593,7 @@ class CodingService:
         recovery_reason: str | None = None,
         incremental_enabled: bool | None = None,
         publish_enabled: bool | None = None,
+        commands_enabled: bool | None = None,
         ttl_seconds: float = SESSION_TTL_SECONDS,
         mode: str | None = None,
     ) -> None:
@@ -572,6 +625,12 @@ class CodingService:
             if publish_enabled is None
             else publish_enabled
         )
+        self.commands_enabled = (
+            os.getenv("CODING_PROJECT_COMMANDS_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"}
+            if commands_enabled is None
+            else commands_enabled
+        )
         self.ttl_seconds = ttl_seconds
         self.mode = _normalize_mode(
             mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
@@ -601,6 +660,21 @@ class CodingService:
                 "strategy": "adaptive",
                 "required_for_patch": False,
                 "max_duration_seconds": 600,
+            },
+            "commands": {
+                "enabled": self.commands_enabled,
+                "available": False,
+                "confirmation": "always",
+                "execution": "isolated_copy",
+                "network": False,
+                "persists_output": False,
+                "max_commands_per_turn": 20,
+                "max_duration_seconds": 300,
+                "reason": (
+                    "commands_unavailable"
+                    if self.commands_enabled
+                    else "commands_disabled"
+                ),
             },
             "recovery": {
                 "enabled": recovery["enabled"],
@@ -699,6 +773,26 @@ class CodingService:
                 response["verification"]["reason"] = _safe_code(
                     worker_verification.get("reason")
                 )
+        worker_commands = health.get("commands")
+        if self.mode == "draft" and isinstance(worker_commands, dict):
+            if (
+                self.commands_enabled
+                and worker_commands.get("enabled") is True
+                and worker_commands.get("available") is True
+                and worker_commands.get("confirmation") == "always"
+                and worker_commands.get("execution") == "isolated_copy"
+                and worker_commands.get("network") is False
+                and worker_commands.get("persists_output") is False
+            ):
+                response["commands"] = {
+                    **response["commands"],
+                    "available": True,
+                }
+                response["commands"].pop("reason", None)
+            else:
+                response["commands"]["reason"] = _safe_code(
+                    worker_commands.get("reason") or "commands_unavailable"
+                )
         if self.mode == "draft":
             apply_capability, commit_capability, publish_capability = (
                 await asyncio.gather(
@@ -726,11 +820,29 @@ class CodingService:
 
     async def project_catalog(self) -> dict[str, Any]:
         builtin = ProjectSummary.builtin().to_public_dict()
+        builtin["features"]["commands"] = False
         capability = await self._projects_capability()
         projects = [builtin]
         if capability["available"] is True and self.project_source is not None:
             try:
-                projects.extend(await self.project_source.list_projects())
+                local_projects = await self.project_source.list_projects()
+                commands_available = False
+                if self.commands_enabled:
+                    with contextlib.suppress(Exception):
+                        health = await self.worker.health()
+                        command_health = health.get("commands")
+                        commands_available = bool(
+                            isinstance(command_health, dict)
+                            and command_health.get("available") is True
+                        )
+                for project in local_projects:
+                    if not isinstance(project, dict):
+                        continue
+                    features = project.get("features")
+                    if isinstance(features, dict):
+                        features["commands"] = commands_available
+                        features["verification"] = commands_available
+                    projects.append(project)
                 self.projects_reason = None
             except ProjectSourceClientError as exc:
                 capability = {
@@ -1429,7 +1541,7 @@ class CodingService:
         revision: int,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
-        self._require_builtin_project(record)
+        self._require_project_verification_enabled(record)
         if record.apply_lock.locked():
             raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
         async with record.apply_lock:
@@ -1454,7 +1566,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        self._require_builtin_project(record)
+        self._require_project_verification_enabled(record)
         try:
             payload = await self.worker.verification_status(
                 record.worker_session_id,
@@ -1477,7 +1589,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        self._require_builtin_project(record)
+        self._require_project_verification_enabled(record)
         if record.apply_lock.locked():
             raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
         async with record.apply_lock:
@@ -1494,6 +1606,80 @@ class CodingService:
         result = _verification_from_worker(payload)
         result["accepted"] = payload.get("accepted") is True
         return result
+
+    async def verification_confirm(
+        self,
+        session_id: str,
+        revision: int,
+        confirmation_id: str,
+    ) -> dict[str, Any]:
+        record = await self._review_record(session_id)
+        if self._is_builtin_project(record):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "project_operation_unavailable",
+            )
+        if record.apply_lock.locked():
+            raise _http_error(status.HTTP_409_CONFLICT, "apply_in_progress")
+        async with record.apply_lock:
+            self._require_mutable(record)
+            try:
+                payload = await self.worker.verification_confirm(
+                    record.worker_session_id,
+                    revision,
+                    confirmation_id,
+                )
+            except CodingWorkerError as exc:
+                raise _worker_http_error(exc) from exc
+            record.updated_at = time.time()
+        result = _verification_from_worker(payload)
+        result["accepted"] = payload.get("accepted") is True
+        return result
+
+    async def command_pending(
+        self,
+        session_id: str,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        record = self._get_session(session_id)
+        if self._is_builtin_project(record):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "project_operation_unavailable",
+            )
+        try:
+            pending = await self.worker.command_pending(record.worker_session_id)
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return {"pending": _public_command_request(pending)}
+
+    async def command_decision(
+        self,
+        session_id: str,
+        request_id: str,
+        decision: str,
+    ) -> dict[str, Any]:
+        await self.cleanup_expired()
+        record = self._get_session(session_id)
+        if self._is_builtin_project(record):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "project_operation_unavailable",
+            )
+        if SAFE_IDENTIFIER.fullmatch(request_id) is None:
+            raise _http_error(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "invalid_request",
+            )
+        try:
+            resolved = await self.worker.command_decision(
+                record.worker_session_id,
+                request_id,
+                decision,
+            )
+        except CodingWorkerError as exc:
+            raise _worker_http_error(exc) from exc
+        return {"request": _public_command_request(resolved)}
 
     async def apply(
         self,
@@ -3287,7 +3473,9 @@ class CodingService:
         self,
         record: CodingApiSession,
     ) -> None:
-        if self.mode != "draft" or not self._is_builtin_project(record):
+        if self.mode != "draft":
+            return
+        if not self._is_builtin_project(record) and not self.commands_enabled:
             return
         try:
             changes = _public_changes(
@@ -3301,7 +3489,7 @@ class CodingService:
             raise _worker_http_error(exc) from exc
         verification = _verification_from_worker(payload)
         if (
-            verification["state"] == "running"
+            verification["state"] in {"awaiting_confirmation", "running"}
             and verification["stale"] is False
         ):
             raise _http_error(
@@ -3314,6 +3502,16 @@ class CodingService:
         if record is None:
             raise _http_error(status.HTTP_404_NOT_FOUND, "session_not_found")
         return record
+
+    def _require_project_verification_enabled(
+        self,
+        record: CodingApiSession,
+    ) -> None:
+        if not self._is_builtin_project(record) and not self.commands_enabled:
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "project_operation_unavailable",
+            )
 
 
 _service: CodingService | None = None
@@ -3581,6 +3779,44 @@ async def cancel_coding_verification(
     return await get_coding_service().verification_cancel(
         session_id,
         payload.revision,
+    )
+
+
+@router.post("/sessions/{session_id}/verification/confirm")
+async def confirm_coding_verification(
+    session_id: str,
+    payload: VerificationConfirmRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().verification_confirm(
+        session_id,
+        payload.revision,
+        payload.confirmation_id,
+    )
+
+
+@router.get("/sessions/{session_id}/commands/pending")
+async def pending_coding_command(
+    session_id: str,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().command_pending(session_id)
+
+
+@router.post("/sessions/{session_id}/commands/{request_id}/decision")
+async def decide_coding_command(
+    session_id: str,
+    request_id: str,
+    payload: CommandDecisionRequest,
+    response: Response,
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_coding_service().command_decision(
+        session_id,
+        request_id,
+        payload.decision,
     )
 
 
@@ -4358,6 +4594,36 @@ def _public_event(event: CodingEvent) -> dict[str, Any]:
         }
     elif event.kind is CodingEventKind.FAILED:
         public_data = {"code": _safe_code(data.get("code"))}
+    elif event.kind is CodingEventKind.COMMAND_REQUESTED:
+        public_data = {
+            "request_id": _safe_identifier(data.get("request_id")),
+            "command": _public_command(data.get("command")),
+            "expires_at": _safe_timestamp(data.get("expires_at")),
+        }
+    elif event.kind is CodingEventKind.COMMAND_RESOLVED:
+        result = data.get("result")
+        public_data = {
+            "request_id": _safe_identifier(data.get("request_id")),
+            "state": _safe_code(data.get("state")),
+            "result": (
+                None
+                if not isinstance(result, dict)
+                else {
+                    "status": _safe_code(result.get("status")),
+                    "exit_code": (
+                        result.get("exit_code")
+                        if type(result.get("exit_code")) is int
+                        else None
+                    ),
+                    "output": sanitize_verification_output(
+                        result.get("output", ""), limit=16_000
+                    ).text,
+                    "duration_seconds": _safe_duration(
+                        result.get("duration_seconds")
+                    ),
+                }
+            ),
+        }
     else:
         public_data = {}
     return {
@@ -4379,6 +4645,84 @@ def _sanitize_text(value: Any, limit: int) -> str:
     return text[:limit]
 
 
+def _safe_identifier(value: Any) -> str:
+    text = str(value or "")
+    return text if SAFE_IDENTIFIER.fullmatch(text) is not None else "invalid"
+
+
+def _safe_timestamp(value: Any) -> float | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        return None
+    return float(value)
+
+
+def _safe_duration(value: Any) -> float:
+    duration = _safe_timestamp(value)
+    return 0.0 if duration is None else min(duration, 600.0)
+
+
+def _public_command(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "invalid_worker_response")
+    try:
+        validated = VerificationCommandPayload.model_validate(value)
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "invalid_worker_response",
+        ) from exc
+    result = validated.model_dump(by_alias=True)
+    result["id"] = _safe_identifier(result["id"])
+    result["name"] = sanitize_verification_output(
+        result["name"], limit=240, keep_tail=False
+    ).text
+    result["argv"] = [
+        sanitize_verification_output(item, limit=1_000, keep_tail=False).text
+        for item in result["argv"]
+    ]
+    result["cwd"] = _sanitize_text(result["cwd"], 500)
+    return result
+
+
+def _public_command_request(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "invalid_worker_response")
+    request_id = _safe_identifier(value.get("request_id"))
+    if request_id == "invalid":
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "invalid_worker_response")
+    result = value.get("result")
+    return {
+        "request_id": request_id,
+        "command": _public_command(value.get("command")),
+        "state": _safe_code(value.get("state")),
+        "created_at": _safe_timestamp(value.get("created_at")),
+        "expires_at": _safe_timestamp(value.get("expires_at")),
+        "result": (
+            None
+            if not isinstance(result, dict)
+            else {
+                "status": _safe_code(result.get("status")),
+                "exit_code": (
+                    result.get("exit_code")
+                    if type(result.get("exit_code")) is int
+                    else None
+                ),
+                "output": sanitize_verification_output(
+                    result.get("output", ""), limit=16_000
+                ).text,
+                "duration_seconds": _safe_duration(result.get("duration_seconds")),
+            }
+        ),
+    }
+
+
 def _public_changes(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         validated = DraftChangesPayload.model_validate(payload)
@@ -4397,6 +4741,12 @@ def _public_changes(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _verification_from_worker(payload: dict[str, Any]) -> dict[str, Any]:
     verification = payload.get("verification")
+    if isinstance(verification, dict):
+        verification = {
+            key: value
+            for key, value in verification.items()
+            if not str(key).startswith("_")
+        }
     try:
         validated = VerificationPayload.model_validate(verification)
     except (TypeError, ValueError) as exc:
@@ -4411,7 +4761,10 @@ def _verification_from_worker(payload: dict[str, Any]) -> dict[str, Any]:
         else None
     )
     for step in result["steps"]:
-        step["label"] = _sanitize_text(step["label"], 100)
+        step["id"] = _safe_identifier(step["id"])
+        step["label"] = _sanitize_text(step["label"], 240)
+        if step.get("command") is not None:
+            step["command"] = _public_command(step["command"])
         step["summary"] = sanitize_verification_output(
             step["summary"],
             limit=500,
