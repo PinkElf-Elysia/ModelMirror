@@ -13,6 +13,15 @@ services:
         target: /project-snapshots
         read_only: true
 
+  coding-verifier:
+    environment:
+      CODING_PROJECT_SNAPSHOT_PATH: /project-snapshots/current
+    volumes:
+      - type: volume
+        source: coding_project_snapshot
+        target: /project-snapshots
+        read_only: true
+
   coding-project-source:
     profiles:
       - coding-projects
