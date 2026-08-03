@@ -675,10 +675,14 @@ class CodingWorkerServer:
                 code="snapshot_mismatch",
             )
         verification_paths = sorted(set(base_paths) | set(paths))
-        restored_verification = _validate_recovered_verification(
-            verification,
-            revision=revision,
-            paths=verification_paths,
+        restored_verification = (
+            None
+            if source.kind is ProjectKind.LOCAL_CLONE
+            else _validate_recovered_verification(
+                verification,
+                revision=revision,
+                paths=verification_paths,
+            )
         )
         if not source.verification_available and restored_verification is not None:
             raise CodingWorkerError(
@@ -761,6 +765,16 @@ class CodingWorkerServer:
                 command_events=command_events,
                 runner_token=runner_token,
             )
+            try:
+                if source.kind is ProjectKind.LOCAL_CLONE:
+                    record.verification = self._validate_recovered_local_verification(
+                        record,
+                        verification,
+                        revision=revision,
+                    )
+            except Exception:
+                await self._cleanup_record(record)
+                raise
             self._sessions[session.session_id] = record
         try:
             event = _event_with_project(await adapter.open(session), source)
@@ -1406,6 +1420,26 @@ class CodingWorkerServer:
                 "accepted": response.get("accepted") is True,
                 "verification": verification,
             },
+        )
+
+    def _validate_recovered_local_verification(
+        self,
+        record: _WorkerSession,
+        value: Any,
+        *,
+        revision: int,
+    ) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        expected = self._prepare_local_verification(
+            record,
+            revision,
+            replace=False,
+        )
+        return _validate_recovered_project_verification(
+            value,
+            revision=revision,
+            expected=expected,
         )
 
     async def _verification_confirm(
@@ -3216,6 +3250,209 @@ def _validate_recovered_verification(
             code="recovery_invalid",
         )
     return {**value, "steps": normalized_steps}
+
+
+def _validate_recovered_project_verification(
+    value: Any,
+    *,
+    revision: int,
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    base_keys = {
+        "revision",
+        "state",
+        "result",
+        "stale",
+        "reason",
+        "started_at",
+        "finished_at",
+        "steps",
+    }
+    planned_keys = base_keys | {"confirmation_id", "plan_fingerprint"}
+    if not isinstance(value, dict) or set(value) not in (base_keys, planned_keys):
+        raise CodingWorkerError(
+            "Recovered project verification has an invalid shape.",
+            code="recovery_invalid",
+        )
+    reason = value["reason"]
+    timestamps = (value["started_at"], value["finished_at"])
+    if (
+        value["revision"] != revision
+        or value["state"] != VerificationState.COMPLETED.value
+        or value["result"]
+        not in {
+            VerificationResult.PASSED.value,
+            VerificationResult.FAILED.value,
+            VerificationResult.NOT_APPLICABLE.value,
+        }
+        or value["stale"] is not False
+        or (
+            reason is not None
+            and (
+                not isinstance(reason, str)
+                or SAFE_RECOVERY_REASON.fullmatch(reason) is None
+            )
+        )
+        or value["finished_at"] is None
+        or any(
+            timestamp is not None
+            and (
+                isinstance(timestamp, bool)
+                or not isinstance(timestamp, (int, float))
+                or not math.isfinite(timestamp)
+                or timestamp < 0
+            )
+            for timestamp in timestamps
+        )
+        or not isinstance(value["steps"], list)
+    ):
+        raise CodingWorkerError(
+            "Recovered project verification is inconsistent.",
+            code="recovery_invalid",
+        )
+
+    expected_fingerprint = expected.get("plan_fingerprint")
+    if expected_fingerprint is None:
+        if (
+            set(value) == base_keys
+            and expected.get("result") == VerificationResult.NOT_APPLICABLE.value
+            and value["result"] == VerificationResult.NOT_APPLICABLE.value
+            and value["reason"] == expected.get("reason")
+            and value["steps"] == []
+        ):
+            return dict(value)
+        return _stale_project_verification(value, revision)
+
+    if (
+        set(value) != planned_keys
+        or value.get("confirmation_id") is not None
+        or not isinstance(value.get("plan_fingerprint"), str)
+        or not _safe_hex(value["plan_fingerprint"], lengths={64})
+        or value["result"]
+        not in {
+            VerificationResult.PASSED.value,
+            VerificationResult.FAILED.value,
+        }
+        or value["reason"] is not None
+        or value["started_at"] is None
+    ):
+        raise CodingWorkerError(
+            "Recovered project verification plan is invalid.",
+            code="recovery_invalid",
+        )
+    expected_steps = expected.get("steps")
+    if not isinstance(expected_steps, list):
+        raise CodingWorkerError(
+            "Current project verification plan is invalid.",
+            code="recovery_invalid",
+        )
+    expected_structure = [
+        (step.get("id"), step.get("label"), step.get("command"))
+        for step in expected_steps
+        if isinstance(step, dict)
+    ]
+    actual_structure = [
+        (step.get("id"), step.get("label"), step.get("command"))
+        for step in value["steps"]
+        if isinstance(step, dict)
+    ]
+    if (
+        value["plan_fingerprint"] != expected_fingerprint
+        or len(expected_structure) != len(expected_steps)
+        or len(actual_structure) != len(value["steps"])
+        or actual_structure != expected_structure
+    ):
+        return _stale_project_verification(value, revision)
+
+    step_keys = {
+        "id",
+        "label",
+        "command",
+        "state",
+        "result",
+        "duration_ms",
+        "summary",
+        "details",
+        "truncated",
+    }
+    step_results: list[str] = []
+    normalized_steps: list[dict[str, Any]] = []
+    for raw in value["steps"]:
+        if not isinstance(raw, dict) or set(raw) != step_keys:
+            raise CodingWorkerError(
+                "Recovered project verification step is invalid.",
+                code="recovery_invalid",
+            )
+        duration = raw["duration_ms"]
+        summary = raw["summary"]
+        details = raw["details"]
+        if (
+            raw["state"] != VerificationState.COMPLETED.value
+            or raw["result"]
+            not in {
+                VerificationResult.PASSED.value,
+                VerificationResult.FAILED.value,
+                VerificationResult.NOT_RUN.value,
+            }
+            or (
+                duration is not None
+                and (
+                    isinstance(duration, bool)
+                    or not isinstance(duration, int)
+                    or not 0 <= duration <= 600_000
+                )
+            )
+            or not isinstance(summary, str)
+            or len(summary) > MAX_VERIFICATION_SUMMARY_CHARS
+            or sanitize_verification_output(
+                summary,
+                limit=MAX_VERIFICATION_SUMMARY_CHARS,
+                keep_tail=False,
+            ).text
+            != summary
+            or not isinstance(details, str)
+            or len(details) > MAX_VERIFICATION_DETAIL_CHARS
+            or sanitize_verification_output(
+                details,
+                limit=MAX_VERIFICATION_DETAIL_CHARS,
+            ).text
+            != details
+            or not isinstance(raw["truncated"], bool)
+        ):
+            raise CodingWorkerError(
+                "Recovered project verification step is inconsistent.",
+                code="recovery_invalid",
+            )
+        step_results.append(raw["result"])
+        normalized_steps.append(dict(raw))
+    if (
+        value["result"] == VerificationResult.PASSED.value
+        and any(result != VerificationResult.PASSED.value for result in step_results)
+    ) or (
+        value["result"] == VerificationResult.FAILED.value
+        and VerificationResult.FAILED.value not in step_results
+    ):
+        raise CodingWorkerError(
+            "Recovered project verification result is inconsistent.",
+            code="recovery_invalid",
+        )
+    return {**value, "steps": normalized_steps}
+
+
+def _stale_project_verification(
+    previous: dict[str, Any],
+    revision: int,
+) -> dict[str, Any]:
+    return {
+        "revision": revision,
+        "state": VerificationState.COMPLETED.value,
+        "result": VerificationResult.NOT_RUN.value,
+        "stale": True,
+        "reason": "verification_plan_changed",
+        "started_at": previous.get("started_at"),
+        "finished_at": previous.get("finished_at"),
+        "steps": [],
+    }
 
 
 def _event_from_dict(payload: dict[str, Any]) -> CodingEvent:

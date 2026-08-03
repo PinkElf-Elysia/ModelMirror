@@ -1182,7 +1182,6 @@ class CodingService:
         if project_context.kind is ProjectKind.LOCAL_CLONE and any(
             item is not None
             for item in (
-                recovery.payload.verification,
                 recovery.payload.apply,
                 recovery.payload.commit,
                 recovery.payload.operation,
@@ -2547,7 +2546,7 @@ class CodingService:
             payload = RecoveryPayload(
                 patch=cumulative_patch,
                 changes=cumulative_changes,
-                verification=(verification if self._is_builtin_project(record) else None),
+                verification=verification,
                 apply=(
                     _apply_storage_payload(record)
                     if self._is_builtin_project(record)

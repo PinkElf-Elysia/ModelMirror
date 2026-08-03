@@ -12,10 +12,17 @@ from server.coding_runtime.api import _public_event, _verification_from_worker, 
 from server.coding_runtime.draft_workspace import DraftWorkspace
 from server.coding_runtime.models import CodingEventKind, CodingSession, CodingSessionState
 from server.coding_runtime.projects import ProjectKind
+from server.coding_runtime.recovery import CodingRecoveryStore
 from server.coding_runtime.worker import (
     CodingWorkerServer,
     WorkspaceSource,
     _WorkerSession,
+)
+from server.tests.test_coding_project_api import (
+    FakeProjectSource,
+    LocalProjectWorker,
+    PROJECT_ID,
+    _service,
 )
 
 
@@ -279,3 +286,106 @@ def test_command_and_confirmation_payloads_cross_only_the_public_api_boundary() 
     assert "/api/coding/sessions/{session_id}/verification/confirm" in paths
     assert "/api/coding/sessions/{session_id}/commands/pending" in paths
     assert "/api/coding/sessions/{session_id}/commands/{request_id}/decision" in paths
+
+
+@pytest.mark.asyncio
+async def test_local_verification_recovery_keeps_only_completed_matching_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, record, _ = _record(tmp_path, monkeypatch)
+    record.workspace.begin_turn()
+    (record.workspace.workspace_root / "app.py").write_text(
+        "VALUE = 73\n",
+        encoding="utf-8",
+    )
+    revision = record.workspace.commit_turn().revision
+    preview = server._prepare_local_verification(record, revision)
+    stored = {
+        key: value
+        for key, value in json.loads(json.dumps(preview)).items()
+        if not key.startswith("_")
+    }
+    stored.update(
+        {
+            "state": "completed",
+            "result": "passed",
+            "started_at": 1_785_600_001.0,
+            "finished_at": 1_785_600_002.0,
+            "confirmation_id": None,
+        }
+    )
+    for step in stored["steps"]:
+        step.update(
+            {
+                "state": "completed",
+                "result": "passed",
+                "duration_ms": 17,
+                "summary": "检查通过",
+                "details": "random-k7m4-ok",
+            }
+        )
+
+    restored = server._validate_recovered_local_verification(
+        record,
+        stored,
+        revision=revision,
+    )
+    assert restored is not None
+    assert restored["result"] == "passed"
+    assert restored["stale"] is False
+
+    changed_plan = json.loads(json.dumps(stored))
+    changed_plan["plan_fingerprint"] = "d" * 64
+    stale = server._validate_recovered_local_verification(
+        record,
+        changed_plan,
+        revision=revision,
+    )
+    assert stale is not None
+    assert stale["result"] == "not_run"
+    assert stale["stale"] is True
+    assert stale["reason"] == "verification_plan_changed"
+    assert stale["steps"] == []
+
+    record.verification = preview
+    awaiting_writer = _Writer()
+    await server._recovery_snapshot(
+        {"action": "recovery_snapshot", "session_id": record.session.session_id},
+        awaiting_writer,
+    )
+    assert awaiting_writer.frames[0]["verification"] is None
+
+    record.verification = stored
+    completed_writer = _Writer()
+    await server._recovery_snapshot(
+        {"action": "recovery_snapshot", "session_id": record.session.session_id},
+        completed_writer,
+    )
+    assert completed_writer.frames[0]["verification"]["result"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_api_persists_and_resumes_completed_local_verification(
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "local-verification-recovery")
+    first_worker = LocalProjectWorker()
+    first_worker.verification_state = "completed"
+    first_worker.verification_result = "passed"
+    first = _service(first_worker, FakeProjectSource(), store=store)
+    record = await first.create_session(PROJECT_ID)
+    assert await first._persist_recovery(record, required=True) is True
+    saved = store.load()
+    assert saved is not None
+    assert saved.payload.verification is not None
+    assert saved.payload.verification["result"] == "passed"
+    await first.shutdown()
+
+    second_worker = LocalProjectWorker()
+    second = _service(second_worker, FakeProjectSource(), store=store)
+    resumed = await second.resume_recovery()
+
+    assert resumed.project["id"] == PROJECT_ID
+    assert second_worker.restore_calls[0]["verification"]["result"] == "passed"
+    await second.shutdown()
