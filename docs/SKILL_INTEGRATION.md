@@ -52,9 +52,11 @@ some-skill/
 | --- | --- | --- |
 | 手工精选 | `client/src/data/skillProjects.ts` | 4 个基线条目 |
 | [anbeime/skill](https://github.com/anbeime/skill) | `011d53f4f238cf7cc8e2cdae8452fffaec7eb1ae` | 从本地 `skill-main` 与远端核对后生成 64 个项目，其中 2 个 SkillSet |
-| [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) | `6c82fb77e5bf84de77d1074b2d98d65d75ea730e` | README 索引去重后生成 1,178 个项目，其中 475 个具有可验证 GitHub 子目录，703 个仅作外部索引 |
+| [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) | `6c82fb77e5bf84de77d1074b2d98d65d75ea730e` | README 索引去重后生成 1,178 个项目；原始索引有 475 个明确 GitHub 子目录，三批体验治理又核验 185 个来源并阻止 35 个失配来源 |
 
-VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skill 安装。只有 README 明确给出 GitHub `tree/.../<目录>` 或 `blob/.../SKILL.md` 的条目才生成 `installSource`；`officialskills.sh`、仓库根链接及其他外部链接保留为可搜索参考。
+VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skill 安装。README 明确给出 GitHub `tree/.../<目录>` 或 `blob/.../SKILL.md` 的条目可直接生成 `installSource`；其他来源由 `skillCatalogPolicy.ts` 分成“有安装说明”“待核验来源”“仅资料参考”。只有逐项核对实际 `SKILL.md` 路径后，条目才会升级为一键安装。
+
+市场展示层将来源细分类收敛为 10 个稳定任务大类，并把晦涩英文说明转换成面向用户的中文能力说明。上游原文保留在 `sourceDescription` 中，用于搜索和追溯。完整治理规则与暂缓功能见 [Skill 体验治理与后续路线图](./SKILL_EXPERIENCE_ROADMAP.md)。当前冻结新增目录和 SkillHub 等外部市场接入。
 
 ## 2. 如何添加新的 Skill 到市场
 
@@ -88,6 +90,7 @@ client/src/data/voltagentSkillCatalog.generated.json
   updatedAt: "2026-06-16",
   installCommand: "git sparse-checkout 示例命令",
   installNote: "安装说明。",
+  installStatus: "ready",
   installSource: {
     repoUrl: "https://github.com/owner/repo",
     subPath: "skills/pdf"
@@ -100,7 +103,8 @@ client/src/data/voltagentSkillCatalog.generated.json
 
 - `installSource.repoUrl` 必须是 GitHub 仓库地址。
 - `installSource.subPath` 必须指向包含 `SKILL.md` 的目录。
-- 没有 `installSource` 的条目会显示为“仅作参考”，不能一键安装。
+- `installStatus` 必须是 `ready`、`manual`、`pending`、`reference` 之一。
+- 没有 `installSource` 的条目不能标为 `ready`，也不能一键安装。
 - `kind: "skillset"` 只用于真实组合包；如果可识别子技能，应同时填写 `includedSkills`。
 - 批量来源不要手改 `*.generated.json`，应重新运行同步脚本。
 
@@ -128,7 +132,7 @@ node scripts/sync-voltagent-skill-index.mjs <awesome-agent-skills-checkout> \
   --updated-at <YYYY-MM-DD>
 ```
 
-同步器只读取 README，不抓取或执行外部 Skill。它保留原始来源链接，并仅对后端当前可验证的 GitHub 子目录开放一键安装。
+同步器只读取 README，不抓取或执行外部 Skill。它保留原始来源链接；展示层负责统一中文说明、稳定分类和安装状态，且仅对后端当前可验证的 GitHub 子目录开放一键安装。
 
 两个脚本都支持 `--check`。传入与生成时相同的来源和快照参数，可验证已提交 JSON 是否过期。
 
@@ -210,10 +214,11 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 ## 4. 前端组件说明
 
-`/skills` 页面分为两个标签：
+`/skills` 页面包含四个标签：
 
 - `技能市场`：合并手工精选与两个生成目录，支持关键词、功能分类、Skill/SkillSet、可安装状态筛选；默认分批渲染 48 项，避免一次挂载全部索引卡片。
 - `已安装`：调用 `/api/skills/installed`，展示本地已安装 Skill，提供卸载按钮。
+- `工作区草稿`、`待审提案`：保留现有创作工作区；它们不等同于路线图中暂缓的上传 Skill 或 skill-creator 引导流程。
 
 社区资源卡片同时显示原始来源与收录索引。安装第三方条目只会复制目录，不会在安装阶段自动执行脚本；用户仍需在激活前检查依赖、外部服务和凭据要求。
 
@@ -245,6 +250,7 @@ python -m pytest server/tests/test_skill_integration.py -q
 ```bash
 node scripts/sync-anbeime-skill-catalog.mjs <anbeime-checkout> <其余快照参数> --check
 node scripts/sync-voltagent-skill-index.mjs <voltagent-checkout> <其余快照参数> --check
+node scripts/audit-skill-experience.mjs
 cd client && npm.cmd run build
 ```
 
@@ -256,7 +262,9 @@ cd client && npm.cmd run build
 - 卸载 Skill 并清理目录。
 - 默认生产配置拒绝非 GitHub 来源。
 - anbeime 目录无未分类项目、无重复 id，Skill 与 SkillSet 类型合法。
-- VoltAgent 索引只为 GitHub 明确子路径生成 `installSource`，外部索引保持不可安装。
+- 市场主说明均为可读中文，同时保留上游原文用于搜索与追溯。
+- 所有项目都归入 10 个稳定分类和 4 个安装状态之一。
+- VoltAgent 索引只为明确子路径或已完成批次审计的条目生成 `installSource`。
 
 手动验收：
 
