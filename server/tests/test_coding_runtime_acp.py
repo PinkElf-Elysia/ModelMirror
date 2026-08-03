@@ -100,8 +100,10 @@ def test_worker_config_is_read_only_and_child_env_is_allowlisted(
     assert client._config.environment["OPENCODE_PURE"] == "1"
     assert client._config.environment["OPENCODE_DISABLE_AUTOUPDATE"] == "1"
     assert client._config.environment["OPENCODE_DISABLE_MODELS_FETCH"] == "1"
+    assert client._config.environment["PYTHONPATH"] == "/opt/modelmirror"
     assert set(client._config.environment) == {
         "PATH",
+        "PYTHONPATH",
         "HOME",
         "OPENCODE_TEST_HOME",
         "XDG_CONFIG_HOME",

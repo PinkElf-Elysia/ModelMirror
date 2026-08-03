@@ -312,6 +312,7 @@ def create_acp_client(
     )
     child_environment = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PYTHONPATH": "/opt/modelmirror",
         "HOME": "/home/coding",
         "OPENCODE_TEST_HOME": "/home/coding",
         "XDG_CONFIG_HOME": "/home/coding/.config",
