@@ -253,6 +253,14 @@ def test_project_source_compose_isolates_root_socket_and_snapshot() -> None:
     assert "/projects-root" not in repr(runtime)
     assert runtime["volumes"][0]["target"] == "/project-snapshots"
     assert runtime["volumes"][0]["read_only"] is True
+    assert runtime["volumes"][0]["volume"] == {"nocopy": True}
+    snapshot_mount = broker["volumes"][1]
+    assert snapshot_mount == {
+        "type": "volume",
+        "source": "coding_project_snapshot",
+        "target": "/snapshot-slot",
+        "volume": {"nocopy": True},
+    }
     snapshot_volume = compose["volumes"]["coding_project_snapshot"]
     assert snapshot_volume["driver"] == "local"
     assert snapshot_volume["driver_opts"] == {

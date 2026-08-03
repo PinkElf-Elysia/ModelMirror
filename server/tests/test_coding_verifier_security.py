@@ -280,6 +280,7 @@ def test_compose_verifier_is_offline_and_unprivileged() -> None:
             "source": "coding_project_snapshot",
             "target": "/project-snapshots",
             "read_only": True,
+            "volume": {"nocopy": True},
         }
     ]
 
