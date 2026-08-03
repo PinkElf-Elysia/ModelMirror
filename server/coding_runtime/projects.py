@@ -5,14 +5,21 @@ import json
 import os
 import subprocess
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Sequence
 
+from .commands import (
+    CommandContractError,
+    ProjectVerificationConfig,
+    parse_project_verification,
+)
+
 
 PROJECT_MANIFEST_NAME = ".modelmirror-coding-projects.json"
-PROJECT_MANIFEST_VERSION = 1
+PROJECT_MANIFEST_VERSION = 2
+SUPPORTED_PROJECT_MANIFEST_VERSIONS = frozenset({1, 2})
 MAX_PROJECTS = 50
 MAX_PROJECT_NAME_CHARS = 80
 MAX_PROJECT_PATH_CHARS = 512
@@ -128,6 +135,9 @@ class ProjectManifestEntry:
     project_id: str
     name: str
     relative_path: str
+    verification: ProjectVerificationConfig = field(
+        default_factory=ProjectVerificationConfig
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,8 +227,12 @@ def load_project_manifest(root: Path) -> tuple[ProjectManifestEntry, ...]:
         raise ProjectCatalogError("project_manifest_invalid", "Project manifest is invalid") from exc
     if not isinstance(payload, dict) or set(payload) != {"version", "projects"}:
         raise ProjectCatalogError("project_manifest_invalid", "Project manifest shape is invalid")
-    if type(payload["version"]) is not int or payload["version"] != PROJECT_MANIFEST_VERSION:
+    if (
+        type(payload["version"]) is not int
+        or payload["version"] not in SUPPORTED_PROJECT_MANIFEST_VERSIONS
+    ):
         raise ProjectCatalogError("project_manifest_version_unsupported", "Project manifest version is unsupported")
+    manifest_version = payload["version"]
     projects = payload["projects"]
     if not isinstance(projects, list) or len(projects) > MAX_PROJECTS:
         raise ProjectCatalogError("project_manifest_invalid", "Project manifest project count is invalid")
@@ -227,10 +241,23 @@ def load_project_manifest(root: Path) -> tuple[ProjectManifestEntry, ...]:
     seen_paths: set[str] = set()
     seen_folded_paths: set[str] = set()
     for item in projects:
-        if not isinstance(item, dict) or set(item) != {"name", "path"}:
+        allowed_keys = (
+            {"name", "path"}
+            if manifest_version == 1
+            else {"name", "path", "verification"}
+        )
+        if (
+            not isinstance(item, dict)
+            or not {"name", "path"}.issubset(item)
+            or not set(item).issubset(allowed_keys)
+        ):
             raise ProjectCatalogError("project_manifest_invalid", "Project entry is invalid")
         name = _normalize_project_name(item["name"])
         relative_path = normalize_project_path(item["path"])
+        try:
+            verification = parse_project_verification(item.get("verification"))
+        except CommandContractError as exc:
+            raise ProjectCatalogError(exc.code, str(exc)) from exc
         folded_path = relative_path.casefold()
         if relative_path in seen_paths:
             raise ProjectCatalogError("manifest_path_duplicate", "Project path is duplicated")
@@ -243,6 +270,7 @@ def load_project_manifest(root: Path) -> tuple[ProjectManifestEntry, ...]:
                 project_id=build_project_id(relative_path),
                 name=name,
                 relative_path=relative_path,
+                verification=verification,
             )
         )
     return tuple(entries)
