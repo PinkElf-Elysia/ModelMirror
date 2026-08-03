@@ -125,6 +125,34 @@ def test_agent_command_is_structured_and_stable() -> None:
     assert first.command_id.startswith("command-")
 
 
+@pytest.mark.parametrize(
+    ("cwd", "expected"),
+    [
+        ("/workspace", "."),
+        ("/workspace/server/tests", "server/tests"),
+    ],
+)
+def test_agent_command_maps_only_fixed_workspace_cwd(cwd: str, expected: str) -> None:
+    command = normalize_agent_command(
+        argv=["python", "--version"],
+        cwd=cwd,
+        purpose="检查 Python 版本",
+        timeout_seconds=30,
+    )
+
+    assert command.cwd == expected
+
+    for unsafe_cwd in ("/tmp/workspace", "/workspace/../outside"):
+        with pytest.raises(CommandContractError) as unsafe:
+            normalize_agent_command(
+                argv=["python", "--version"],
+                cwd=unsafe_cwd,
+                purpose="检查 Python 版本",
+                timeout_seconds=30,
+            )
+        assert unsafe.value.code == "command_path_invalid"
+
+
 def test_auto_detection_combines_python_and_node_checks_without_duplicates(tmp_path: Path) -> None:
     (tmp_path / "tests").mkdir()
     (tmp_path / "package.json").write_text(

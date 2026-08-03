@@ -22,7 +22,8 @@ def _tool_definition() -> dict[str, Any]:
         "name": TOOL_NAME,
         "description": (
             "Request one structured Python or Node project check. The user must approve "
-            "each request before it runs in an isolated offline copy."
+            "each request before it runs in an isolated offline copy. Set cwd to '.' or "
+            "a project-relative directory; '/workspace' is accepted as the project root."
         ),
         "inputSchema": {
             "type": "object",
@@ -33,7 +34,13 @@ def _tool_definition() -> dict[str, Any]:
                     "minItems": 1,
                     "maxItems": 64,
                 },
-                "cwd": {"type": "string"},
+                "cwd": {
+                    "type": "string",
+                    "description": (
+                        "Project-relative directory. Use '.' or '/workspace' for the "
+                        "project root; do not use any other absolute path."
+                    ),
+                },
                 "purpose": {"type": "string", "minLength": 1, "maxLength": 240},
                 "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
             },

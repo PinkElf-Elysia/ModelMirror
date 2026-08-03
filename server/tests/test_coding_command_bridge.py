@@ -286,6 +286,7 @@ async def test_runner_mcp_exposes_only_structured_command_tool(monkeypatch) -> N
     tools = listed["result"]["tools"]
     assert [tool["name"] for tool in tools] == ["run_project_command"]
     assert tools[0]["inputSchema"]["additionalProperties"] is False
+    assert "/workspace" in tools[0]["inputSchema"]["properties"]["cwd"]["description"]
     assert captured["argv"] == ["python", "-m", "pytest", "-q"]
     assert called["result"]["isError"] is False
     assert json.loads(called["result"]["content"][0]["text"])["state"] == "rejected"

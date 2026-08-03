@@ -236,12 +236,18 @@ def normalize_agent_command(
     purpose: Any,
     timeout_seconds: Any,
 ) -> ProjectCommand:
+    normalized_cwd = cwd
+    if isinstance(cwd, str):
+        if cwd == "/workspace":
+            normalized_cwd = "."
+        elif cwd.startswith("/workspace/"):
+            normalized_cwd = cwd.removeprefix("/workspace/")
     return normalize_project_command(
         {
             "name": purpose,
             "kind": ProjectCommandKind.CUSTOM.value,
             "argv": argv,
-            "cwd": cwd,
+            "cwd": normalized_cwd,
             "timeout_seconds": timeout_seconds,
         },
         origin=ProjectCommandOrigin.AGENT,
