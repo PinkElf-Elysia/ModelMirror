@@ -2,7 +2,7 @@
 
 Skill 是模镜为 AI 打工人准备的“岗位手册”。每个 Skill 是一个包含 `SKILL.md` 的目录，可选携带脚本、模板、参考资料等资源。模镜后端负责安装、卸载和读取 Skill，前端负责在技能市场展示、管理已安装 Skill，并在面试间把选中的 `SKILL.md` 注入为系统提示词。
 
-最后更新日期：2026-06-16  
+最后更新日期：2026-08-02
 维护人：模镜团队
 
 ## 1. 概述
@@ -41,12 +41,34 @@ some-skill/
 
 当前 MVP 支持从 GitHub 仓库的指定子目录安装 Skill。生产默认只允许 `https://github.com/{owner}/{repo}` 来源，避免 SSRF 和任意路径读取。测试环境可以显式打开本地仓库来源。
 
+市场资源分为两种类型：
+
+- `skill`：一个可独立使用的 `SKILL.md` 目录。
+- `skillset`：包含多个子技能的组合包。若父目录自身有 `SKILL.md`，后端仍按单目录 sparse checkout 安装，并保留其子技能、脚本和参考资料。
+
+目录来源分为三层：
+
+| 来源 | 快照 | 导入结果 |
+| --- | --- | --- |
+| 手工精选 | `client/src/data/skillProjects.ts` | 4 个基线条目 |
+| [anbeime/skill](https://github.com/anbeime/skill) | `011d53f4f238cf7cc8e2cdae8452fffaec7eb1ae` | 从本地 `skill-main` 与远端核对后生成 64 个项目，其中 2 个 SkillSet |
+| [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) | `6c82fb77e5bf84de77d1074b2d98d65d75ea730e` | README 索引去重后生成 1,178 个项目，其中 475 个具有可验证 GitHub 子目录，703 个仅作外部索引 |
+
+VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skill 安装。只有 README 明确给出 GitHub `tree/.../<目录>` 或 `blob/.../SKILL.md` 的条目才生成 `installSource`；`officialskills.sh`、仓库根链接及其他外部链接保留为可搜索参考。
+
 ## 2. 如何添加新的 Skill 到市场
 
-市场数据位于：
+手工精选市场数据位于：
 
 ```text
 client/src/data/skillProjects.ts
+```
+
+自动生成目录位于：
+
+```text
+client/src/data/anbeimeSkillCatalog.generated.json
+client/src/data/voltagentSkillCatalog.generated.json
 ```
 
 新增条目时，优先填写 `installSource`：
@@ -58,6 +80,7 @@ client/src/data/skillProjects.ts
   repoName: "owner/repo",
   repoUrl: "https://github.com/owner/repo",
   category: "文档处理",
+  kind: "skill",
   description: "一句话说明这个 Skill 能帮用户完成什么。",
   readmeSummary: "README 摘要。",
   stars: 1200,
@@ -78,6 +101,36 @@ client/src/data/skillProjects.ts
 - `installSource.repoUrl` 必须是 GitHub 仓库地址。
 - `installSource.subPath` 必须指向包含 `SKILL.md` 的目录。
 - 没有 `installSource` 的条目会显示为“仅作参考”，不能一键安装。
+- `kind: "skillset"` 只用于真实组合包；如果可识别子技能，应同时填写 `includedSkills`。
+- 批量来源不要手改 `*.generated.json`，应重新运行同步脚本。
+
+### 2.1 同步 anbeime 本地目录
+
+先确认本地副本与远端提交一致，再运行：
+
+```bash
+node scripts/sync-anbeime-skill-catalog.mjs <anbeime-checkout> \
+  --commit <verified-main-sha> \
+  --stars <repo-stars> \
+  --updated-at <YYYY-MM-DD>
+```
+
+生成器会扫描实际 `SKILL.md`、按标准化内容去重、排除 `_template` 与占位文件、识别嵌套 SkillSet，并从 `scripts/`、`references/`、`assets/` 生成标签。
+
+同步过程保留第三方 `SKILL.md` 原文，不会替上游重写 frontmatter。当前 64 个 anbeime 项目中，33 个通过 Codex `quick_validate.py` 的严格格式检查；另外 31 个主要使用了上游自定义的 `dependency` 字段。模镜安装器只读取 `name`、`description` 并支持标题回退，因此这些条目可进入市场，但“可安装”不等于“已通过 Codex 严格格式认证”。使用前仍需审查第三方依赖、脚本和密钥要求。
+
+### 2.2 同步 VoltAgent 索引
+
+```bash
+node scripts/sync-voltagent-skill-index.mjs <awesome-agent-skills-checkout> \
+  --commit <verified-main-sha> \
+  --stars <repo-stars> \
+  --updated-at <YYYY-MM-DD>
+```
+
+同步器只读取 README，不抓取或执行外部 Skill。它保留原始来源链接，并仅对后端当前可验证的 GitHub 子目录开放一键安装。
+
+两个脚本都支持 `--check`。传入与生成时相同的来源和快照参数，可验证已提交 JSON 是否过期。
 
 ## 3. 后端 API 文档
 
@@ -159,8 +212,10 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 `/skills` 页面分为两个标签：
 
-- `技能市场`：展示 `skillProjects.ts` 中的 Skill 卡片，提供安装按钮。
+- `技能市场`：合并手工精选与两个生成目录，支持关键词、功能分类、Skill/SkillSet、可安装状态筛选；默认分批渲染 48 项，避免一次挂载全部索引卡片。
 - `已安装`：调用 `/api/skills/installed`，展示本地已安装 Skill，提供卸载按钮。
+
+社区资源卡片同时显示原始来源与收录索引。安装第三方条目只会复制目录，不会在安装阶段自动执行脚本；用户仍需在激活前检查依赖、外部服务和凭据要求。
 
 面试间 `/chat/:modelId` 增加 Skill 选择器：
 
@@ -185,6 +240,14 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 python -m pytest server/tests/test_skill_integration.py -q
 ```
 
+目录快照检查：
+
+```bash
+node scripts/sync-anbeime-skill-catalog.mjs <anbeime-checkout> <其余快照参数> --check
+node scripts/sync-voltagent-skill-index.mjs <voltagent-checkout> <其余快照参数> --check
+cd client && npm.cmd run build
+```
+
 覆盖范围：
 
 - 安装本地 mock Skill。
@@ -192,6 +255,8 @@ python -m pytest server/tests/test_skill_integration.py -q
 - 读取 `SKILL.md` 原文。
 - 卸载 Skill 并清理目录。
 - 默认生产配置拒绝非 GitHub 来源。
+- anbeime 目录无未分类项目、无重复 id，Skill 与 SkillSet 类型合法。
+- VoltAgent 索引只为 GitHub 明确子路径生成 `installSource`，外部索引保持不可安装。
 
 手动验收：
 

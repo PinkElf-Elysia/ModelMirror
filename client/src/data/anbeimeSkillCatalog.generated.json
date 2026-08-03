@@ -1,0 +1,983 @@
+{
+  "source": {
+    "repoName": "anbeime/skill",
+    "repoUrl": "https://github.com/anbeime/skill",
+    "commit": "011d53f4f238cf7cc8e2cdae8452fffaec7eb1ae",
+    "updatedAt": "2026-08-02",
+    "stars": 4605,
+    "discoveredSkillFiles": 69,
+    "catalogProjects": 64
+  },
+  "projects": [
+    {
+      "id": "anbeime-product-manager-toolkit",
+      "name": "product-manager-toolkit",
+      "kind": "skill",
+      "category": "产品与职业",
+      "description": "Comprehensive toolkit for product managers including RICE prioritization, customer interview analysis, PRD templates, discovery frameworks, and go-to-market strategies. Use for feature prioritization, user research sy...",
+      "subPath": "skills/product-manager-toolkit/product-manager-toolkit",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-tailored-resume-generator",
+      "name": "tailored-resume-generator",
+      "kind": "skill",
+      "category": "产品与职业",
+      "description": "Analyzes job descriptions and generates tailored resumes that highlight relevant experience, skills, and achievements to maximize interview chances",
+      "subPath": "skills/tailored-resume-generator/tailored-resume-generator",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-agentkit-multimedia-shopping",
+      "name": "agentkit-multimedia-shopping",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "基于ByteDance agentkit-samples多媒体用例的小省导购员数字人带货视频生成技能，整合多模态内容生成能力（图像、视频、音频），支持AI绘画、语音合成、视频生成，与小省导购员人设融合，9:16竖屏适配，直接对接带货视频生成流程",
+      "subPath": "skills/agentkit-multimedia-shopping/agentkit-multimedia-shopping",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-digital-avatar-shopping-video",
+      "name": "digital-avatar-shopping-video",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "小省导购员多智能体数字人口播带货视频生成系统，以\"小省导购员\"为核心人设，打造专业购物助手+数字人口播带货视频一体化服务。涵盖五大智能体（小省导购员、带货脚本师、数字人口播生成师、带货画面设计师、音画合成师），产出\"数字人口播+带货画面+字幕音效\"的成品视频，适配抖音、快手等短视频平台，支持淘宝、京东、拼多多、唯品会等全平台商品信息，具备知识库自动存取能力。",
+      "subPath": "skills/digital-avatar-shopping-video/digital-avatar-shopping-video",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-dream-video-prompt-generator",
+      "name": "dream-video-prompt-generator",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "小省导购员数字人带货版即梦视频提示词生成系统，基于四大智能体协同（提示词生成师、质量管控师、知识库运维师、跨环节适配师），按照\"主体+运动+场景+（镜头语言+光影+氛围）\"公式输出中英文双版提示词，适配5s短视频。确保人物一致性、视觉连贯性、情绪连贯性，支持知识库智能复用和跨工具适配（Suno音乐、AI绘画），为数字人带货视频提供高质量提示词生成服务。",
+      "subPath": "skills/dream-video-prompt-generator/dream-video-prompt-generator",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-ecommerce-copywriter",
+      "name": "ecommerce-copywriter",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "电商图片文案创作技能，支持多品类产品的吸引性文案生成，适用于电商平台的商品营销推广",
+      "subPath": "skills/ecommerce-copywriter/ecommerce-copywriter",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-ecommerce-full-pipeline",
+      "name": "ecommerce-full-pipeline",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "跨境电商全链路自动化工具。集成1688采集、智能清洗、多平台上架（微信小店/Shopify/TikTok）、推广方案（关键词/竞品分析/广告文案）、短视频创作（MoviePy竖屏视频）、一键代发、爆品挖掘（趋势聚合+6维评分）、闲鱼二手选品捡漏（品牌识别/虚标过滤/捡漏评分/价格监控）、全自动流水线（挖掘→采集→清洗→上架→推广→视频）。",
+      "subPath": "skills/ecommerce-full-pipeline/ecommerce-full-pipeline",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-ecommerce-video-marketing",
+      "name": "ecommerce-video-marketing",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "电商视频营销创作技能，支持多品类商品的营销视频脚本生成，包含6阶段创作流程、智能体提示词框架、8种商品类型模板，适用于电商平台、社交媒体、品牌推广",
+      "subPath": "skills/ecommerce-video-marketing/ecommerce-video-marketing",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-infinitetalk-shopping-avatar",
+      "name": "infinitetalk-shopping-avatar",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "专为InfiniteTalk项目设计的小省导购员数字人带货提示词生成技能，基于四大智能体协同（提示词生成师、质量管控师、知识库运维师、跨环节适配师），生成适配Image-to-Video模式的结构化提示词（角色固定特征+动作时序+场景环境+音频匹配+光影氛围+技术约束），支持9:16竖屏、5s/幕、音频同步（Suno+chinese-wav2vec2-base）、一致性管控（角色/视觉/情绪），直接对接模型推理流程",
+      "subPath": "skills/infinitetalk-shopping-avatar/infinitetalk-shopping-avatar",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-pet-commerce-creator",
+      "name": "pet-commerce-creator",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "萌宠带货短视频全流程创作技能，基于COZE视频大模型API，支持萌宠剧情/好物测评/品种科普/宠品带货等全类型创作，覆盖爆款解析反推、知识库联动、互动优化、素材批量下载、全素材整合，实现从创意到带货引流型成品视频的自动化生成，适配15-30秒竖屏9:16主流平台规格。",
+      "subPath": "skills/pet-commerce-creator/pet-commerce-creator",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-product-marketing-copywriter",
+      "name": "product-marketing-copywriter",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "产品营销文案创作技能，支持多品类产品的吸引性营销文案生成，适用于产品推广、品牌营销、销售转化",
+      "subPath": "skills/product-marketing-copywriter/product-marketing-copywriter",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-product-video-creator",
+      "name": "product-video-creator",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "多智能体协同的商品视频创作流水线，支持从商品信息到成视频的全流程创作：文案生成、故事策划、脚本创作、分镜设计、图片生成、字幕创作、音效推荐及视频合成；适用于电商商品宣传、品牌推广、社交媒体营销等场景",
+      "subPath": "skills/product-video-creator/product-video-creator",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-wechat-hotspot-publisher",
+      "name": "wechat-hotspot-publisher",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "智能采集热点话题，10分制筛选优质选题，AI生成爆款内容（标题/封面/标签/图片/HTML排版），支持素材上传和草稿箱发布，一键发布到微信公众号、小红书、B站等多平台",
+      "subPath": "skills/wechat-hotspot-publisher/wechat-hotspot-publisher",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-xiaohongshu-makeup",
+      "name": "xiaohongshu-makeup",
+      "kind": "skill",
+      "category": "电商与营销",
+      "description": "小红书美妆内容创作技能，支持笔记生成、笔记优化、文生图描述创作；适用于美妆护肤产品的内容创作、测评和营销推广",
+      "subPath": "skills/xiaohongshu-makeup/xiaohongshu-makeup",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-frontend-design",
+      "name": "frontend-design",
+      "kind": "skill",
+      "category": "界面与设计",
+      "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids gener...",
+      "subPath": "skills/frontend-design/frontend-design",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-pop-up-book-illustration",
+      "name": "pop-up-book-illustration",
+      "kind": "skill",
+      "category": "界面与设计",
+      "description": "生成3D纸艺弹出书风格插画，具备立体层次感、明亮温暖色调，适用于科技、教育、品牌展示等场景",
+      "subPath": "skills/pop-up-book-illustration/pop-up-book-illustration",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-web-design-analyzer",
+      "name": "web-design-analyzer",
+      "kind": "skill",
+      "category": "界面与设计",
+      "description": "分析网页截图，提取设计系统（Design System）并生成结构化数据和可用的 AI Coding Prompt。适用于 UI/UX 设计师和前端工程师需要从现有网页设计中提取设计规范、配色方案、排版系统和组件风格的场景。",
+      "subPath": "skills/web-design-analyzer/web-design-analyzer",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-web-to-app",
+      "name": "web-to-app",
+      "kind": "skill",
+      "category": "界面与设计",
+      "description": "将任意网页转换为桌面应用，支持 macOS/Windows/Linux 三大平台。使用 Rust + Tauri 技术栈，生成的应用体积小（约 5MB）、性能高。支持自定义图标、窗口大小、快捷键等丰富配置。",
+      "subPath": "skills/web-to-app/web-to-app",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-stock-analysis",
+      "name": "stock-analysis",
+      "kind": "skill",
+      "category": "金融分析",
+      "description": "股票个股分析，实时获取价格涨跌幅，计算技术指标和支撑位，识别缺口并判断支撑压力，智能预测未来3天走势并给出操作建议",
+      "subPath": "skills/stock-analysis/stock-analysis",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-chrome-automation",
+      "name": "chrome-automation",
+      "kind": "skill",
+      "category": "浏览器与自动化",
+      "description": "Connect to and control Google Chrome browser using agent-browser with CDP (Chrome DevTools Protocol). Use when the user wants to automate their existing Chrome browser, see browser actions in real-time, or needs to co...",
+      "subPath": "skills/chrome-automation/chrome-automation",
+      "language": "Markdown / Shell / PowerShell",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-article-illustrator",
+      "name": "article-illustrator",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "分析文章内容，在需要视觉辅助理解的位置生成插画。配图可以是信息补充、概念具象化，或引导读者想象。当用户要求\"给文章配图\"、\"为文章生成插图\"、\"添加配图\"时使用此技能。",
+      "subPath": "skills/article-illustrator/article-illustrator",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-baoyu-format-markdown",
+      "name": "baoyu-format-markdown",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "Formats plain text or markdown files with frontmatter, titles, summaries, headings, bold, lists, and code blocks. Use when user asks to \"format markdown\", \"beautify article\", \"add formatting\", or improve article layou...",
+      "subPath": "skills/content-creation-publisher/baoyu-format-markdown",
+      "language": "TypeScript / Markdown",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-baoyu-post-to-wechat",
+      "name": "baoyu-post-to-wechat",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "Posts content to WeChat Official Account (微信公众号) via API or Chrome CDP. Supports article posting (文章) with HTML, markdown, or plain text input, and image-text posting (图文) with multiple images. Use when user mentions ...",
+      "subPath": "skills/content-creation-publisher/baoyu-post-to-wechat",
+      "language": "Markdown / TypeScript / CSS",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-baoyu-post-to-x",
+      "name": "baoyu-post-to-x",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "Posts content and articles to X (Twitter). Supports regular posts with images/videos and X Articles (long-form Markdown). Uses real Chrome with CDP to bypass anti-automation. Use when user asks to \"post to X\", \"tweet\"...",
+      "subPath": "skills/content-creation-publisher/baoyu-post-to-x",
+      "language": "Markdown / TypeScript",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-baoyu-url-to-markdown",
+      "name": "baoyu-url-to-markdown",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "Fetch any URL and convert to markdown using Chrome CDP. Supports two modes - auto-capture on page load, or wait for user signal (for pages requiring login). Use when user wants to save a webpage as markdown.",
+      "subPath": "skills/content-creation-publisher/baoyu-url-to-markdown",
+      "language": "TypeScript / Markdown",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-bedtime-story",
+      "name": "bedtime-story",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "为3-12岁儿童提供温馨亲切的睡前寓言故事和成语典故讲解。支持用户唤醒后提供故事列表选择，或直接讲解指定故事/成语。讲解时保持亲切温馨的语气、0.6倍正常语速、通俗易懂的表达，为小朋友营造舒适的睡前氛围。",
+      "subPath": "skills/bedtime-story/bedtime-story",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-content-creation-publisher",
+      "name": "content-creation-publisher",
+      "kind": "skillset",
+      "category": "内容创作与发布",
+      "description": "内容创作与发布全流程技能，整合网页采集、Markdown格式化、智能配图、多平台发布（微信公众号、X/Twitter）功能，实现从内容获取到发布的一站式解决方案",
+      "subPath": "skills/content-creation-publisher",
+      "language": "Markdown / TypeScript / CSS",
+      "tags": [
+        "社区来源",
+        "技能包",
+        "5 个子技能"
+      ],
+      "includedSkills": [
+        "article-illustrator",
+        "baoyu-format-markdown",
+        "baoyu-post-to-wechat",
+        "baoyu-post-to-x",
+        "baoyu-url-to-markdown"
+      ]
+    },
+    {
+      "id": "anbeime-content-research-writer",
+      "name": "content-research-writer",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "Assists in writing high-quality content by conducting research, adding citations, improving hooks, iterating on outlines, and providing real-time feedback on each section. Transforms your writing process from solo eff...",
+      "subPath": "skills/content-research-writer",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-data-storytelling",
+      "name": "data-storytelling",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "Transform data into compelling narratives using visualization, context, and persuasive structure. Use when presenting analytics to stakeholders, creating data reports, or building executive presentations.",
+      "subPath": "skills/data-storytelling/data-storytelling",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-intelligent-content-system",
+      "name": "intelligent-content-system",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "智能内容创作与发布全流程系统。根据用户需求自动识别场景， 编排调用网页采集、智能配图、小红书图文生成、热点内容创作、多平台发布等技能， 实现从内容获取到发布的一站式自动化。 支持场景： - 网页内容采集与再创作（采集→配图→发布） - 热点内容创作（热点采集→AI生成→多平台发布） - 原创内容优化（配图→小红书图文→发布） - 单一功能调用（采集/配图/图文/发布） 支持平台：微信公众号、小红书、X/Twitter、B站",
+      "subPath": "skills/intelligent-content-system",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-wechatsync-publisher",
+      "name": "wechatsync-publisher",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "多平台内容发布助手，支持智能选题筛选、AI生成优质内容、一键发布到微信公众号等平台；支持内容格式自动适配（HTML/Markdown/纯文本）",
+      "subPath": "skills/wechatsync-publisher/wechatsync-publisher",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-qiaomu-x-article-publisher",
+      "name": "x-article-publisher",
+      "kind": "skill",
+      "category": "内容创作与发布",
+      "description": "Publish Markdown articles to X (Twitter) Articles editor with proper formatting. Use when user wants to publish a Markdown file/URL to X Articles, or mentions \"publish to X\", \"post article to Twitter\", \"X article\", or...",
+      "subPath": "skills/qiaomu-x-article-publisher",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-moltbook",
+      "name": "moltbook",
+      "kind": "skill",
+      "category": "社区与社交",
+      "description": "AI Agent的社交网络. 发布帖子、评论、点赞和创建社区。当用户明确要求时才会使用，否则不会使用。",
+      "subPath": "skills/moltbook",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-historical-interview-scripts",
+      "name": "historical-interview-scripts",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "生成历史名人现代访谈短视频文案，通过古今反差与网络热梗的爆笑结合，创作具有传播力的虚构趣味内容",
+      "subPath": "skills/historical-interview-scripts/historical-interview-scripts",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-historical-science-video-prod",
+      "name": "historical-science-video-prod",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "自动化生成历史科学类3分钟科普短视频的全流程素材包，包含口播文案、分镜脚本、Veo2提示词、人物形象规范等，适配即梦平台视频生成。",
+      "subPath": "skills/historical-science-video-prod/historical-science-video-prod",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-media-processor",
+      "name": "media-processor",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "提供基于 FFmpeg 和 ImageMagick 的多媒体处理能力，支持视频和图像的格式转换、分辨率调整、压缩等操作",
+      "subPath": "skills/media-processor/media-processor",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-remotion-video-enhancer",
+      "name": "remotion-video-enhancer",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "视频转场与动画增强工具，提取 Remotion 的动画理念，提供高级视频转场效果和 Framer Motion 交互式动画。可与 ppt-generator、nanobanana-ppt-visualizer、ppt-roadshow-generator Skill 协同工作。",
+      "subPath": "skills/remotion-video-enhancer/remotion-video-enhancer",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-three-body-video-creator",
+      "name": "three-body-video-creator",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "《三体》赛道AI视频创作工具,提供结构化的多智能体协作流程、素材生成与视频合成,涵盖选题深化、视觉设计、音频生成、视频制作全流程",
+      "subPath": "skills/three-body-video-creator/three-body-video-creator",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-video-creation-collaborator",
+      "name": "video-creation-collaborator",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "影品智创多智能体协同视频创作管理工具,提供11个智能体结构化分工、5阶段协同流程、质量管控标准与数据反馈机制,解决生图失真、视频合成瑕疵等问题,确保输出统一可控",
+      "subPath": "skills/video-creation-collaborator/video-creation-collaborator",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-video-creation-pro",
+      "name": "video-creation-pro",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "10大智能体协同的商品视频创作系统，全流程质量闭环（创作→质检→反馈迭代），强制使用COZE视频大模型API进行视频合成，彻底移除本地依赖包逻辑，适用于智能硬件、美妆护肤、家居家电等多品类商品视频创作",
+      "subPath": "skills/video-creation-pro/video-creation-pro",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-video-creation-suite",
+      "name": "video-creation-suite",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "完整的视频创作套件，支持原创创作、视频二创、视频分析三种模式，集成Coze Bot API、Edge-TTS、Suno API，涵盖多智能体协同、素材生成、视频合成全流程",
+      "subPath": "skills/video-creation-suite/video-creation-suite",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-video-frame-extractor",
+      "name": "video-frame-extractor",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "视频反推工具,支持视频抽帧、视觉模型分析、提示词生成,适用于视频创作参考、内容提取、场景分析",
+      "subPath": "skills/video-frame-extractor/video-frame-extractor",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-video-recreation",
+      "name": "video-recreation",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "完整的视频二创工具，支持视频反推、素材生成(图片/音效/背景音乐/配音/字幕)、视频合成、文件下载的全流程，集成Coze Bot API进行视觉分析，使用Edge-TTS进行语音合成",
+      "subPath": "skills/video-recreation/video-recreation",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-video-transcript-downloader",
+      "name": "video-transcript-downloader",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "Download videos, audio, subtitles, and clean paragraph-style transcripts from YouTube and any other yt-dlp supported site. Use when asked to “download this video”, “save this clip”, “rip audio”, “get subtitles”, “get ...",
+      "subPath": "skills/video-transcript-downloader/video-transcript-downloader",
+      "language": "JavaScript / Markdown",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-viral-video-copywriting",
+      "name": "viral-video-copywriting",
+      "kind": "skill",
+      "category": "视频创作",
+      "description": "专业的爆款短视频文案创作工具。通过对标抖音爆款视频，智能提取视频内容，深度拆解爆款因素，并结合用户需求创作出符合爆款规律的新文案。适用于短视频创作者、运营人员提升内容质量。",
+      "subPath": "skills/viral-video-copywriting/viral-video-copywriting",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-contract-review",
+      "name": "contract-review",
+      "kind": "skill",
+      "category": "文档与研究",
+      "description": "Contract review skill that adds comment-based issue annotations without changing original text. Enforces a three-layer review (basic, business, legal), writes structured comments (issue type, risk reason, revision sug...",
+      "subPath": "skills/legal-assistant-skills-main/contract-review",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-law-to-markdown",
+      "name": "law-to-markdown",
+      "kind": "skill",
+      "category": "文档与研究",
+      "description": "将法条/规范文件（.txt/.docx/.pdf）转为 Markdown。适用于用户要求“法条转 markdown”“pdf/docx 转 markdown”。处理 .pdf/.docx 时先检查是否已安装 mineru-ocr skill；未安装先引导安装，安装后优先用 mineru-ocr；仅在用户明确同意时再用本地回退方案。",
+      "subPath": "skills/legal-assistant-skills-main/law-to-markdown",
+      "language": "Python / Markdown",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-paper-analysis-assistant",
+      "name": "paper-analysis-assistant",
+      "kind": "skill",
+      "category": "文档与研究",
+      "description": "根据arXiv论文网址自动下载PDF并进行多维度分析，包括文本提取、词频分析、语音播报、播客对话生成、交互式网页、PPT、总结图和引用分析",
+      "subPath": "skills/paper-analysis-assistant/paper-analysis-assistant",
+      "language": "Python / Markdown",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-pdf-processing-pro",
+      "name": "PDF Processing Pro",
+      "kind": "skill",
+      "category": "文档与研究",
+      "description": "Production-ready PDF processing with forms, tables, OCR, validation, and batch operations. Use when working with complex PDF workflows in production environments, processing large volumes of PDFs, or requiring robust ...",
+      "subPath": "skills/pdf-processing-pro/pdf-processing-pro",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-poetry-music-visual",
+      "name": "poetry-music-visual",
+      "kind": "skill",
+      "category": "文化创作",
+      "description": "为古诗词提供配图与配乐的全流程创作指导；支持深度解析诗词意境、生成画面描述、提供配乐创作蓝图（Suno格式）；适用于诗词可视化、MV创作、文化传播等场景",
+      "subPath": "skills/poetry-music-visual/poetry-music-visual",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-infinitetalk",
+      "name": "infinitetalk",
+      "kind": "skill",
+      "category": "语音与数字人",
+      "description": "音频驱动的稀疏帧视频配音工具，支持音频驱动的 Video-to-Video 和 Image-to-Video 生成，实现精准的唇形、头部、身体姿态同步，支持无限时长视频生成",
+      "subPath": "skills/infinitetalk",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-qwen3-asr-assistant",
+      "name": "qwen3-asr-assistant",
+      "kind": "skill",
+      "category": "语音与数字人",
+      "description": "智能语音转文字助手，基于 Qwen3-ASR 模型，支持实时语音识别和智能文本改写。可以将录音转换为文字，并一键改写成邮件、笔记、社交媒体文案，支持复制、分享和录音拼接。适用于会议纪要、语音备忘、内容创作等多种场景。",
+      "subPath": "skills/qwen3-asr-assistant/qwen3-asr-assistant",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-qwen3-tts-local",
+      "name": "qwen3-tts-local",
+      "kind": "skill",
+      "category": "语音与数字人",
+      "description": "真正的本地语音合成服务，使用 Edge-TTS 引擎，零依赖、零配置、完全离线可用，支持多语言和多种音色",
+      "subPath": "skills/qwen3-tts-local/qwen3-tts-local",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-tts-voice-synthesis",
+      "name": "tts-voice-synthesis",
+      "kind": "skill",
+      "category": "语音与数字人",
+      "description": "智能语音合成服务，支持音色克隆、拟人化语义适配配音、流式实时生成、多语言与方言支持，提供 1.7B/0.6B 双模型选择",
+      "subPath": "skills/tts-voice-synthesis",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-json-canvas",
+      "name": "json-canvas",
+      "kind": "skill",
+      "category": "知识管理",
+      "description": "Create and edit JSON Canvas files (.canvas) with nodes, edges, groups, and connections. Use when working with .canvas files, creating visual canvases, mind maps, flowcharts, or when the user mentions Canvas files in O...",
+      "subPath": "skills/obsidian-skills-integrated/json-canvas",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-obsidian-skills-integrated",
+      "name": "Obsidian Skills - 官方知识管理技能集",
+      "kind": "skillset",
+      "category": "知识管理",
+      "description": "由 Obsidian CEO Steph Ango (kepano) 亲自开源的官方技能集，为 AI Agent 提供专业的 Obsidian 操作能力。",
+      "subPath": "skills/obsidian-skills-integrated",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "技能包",
+        "3 个子技能"
+      ],
+      "includedSkills": [
+        "json-canvas",
+        "obsidian-bases",
+        "obsidian-markdown"
+      ]
+    },
+    {
+      "id": "anbeime-obsidian-bases",
+      "name": "obsidian-bases",
+      "kind": "skill",
+      "category": "知识管理",
+      "description": "Create and edit Obsidian Bases (.base files) with views, filters, formulas, and summaries. Use when working with .base files, creating database-like views of notes, or when the user mentions Bases, table views, card v...",
+      "subPath": "skills/obsidian-skills-integrated/obsidian-bases",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-obsidian-markdown",
+      "name": "obsidian-markdown",
+      "kind": "skill",
+      "category": "知识管理",
+      "description": "Create and edit Obsidian Flavored Markdown with wikilinks, embeds, callouts, properties, and other Obsidian-specific syntax. Use when working with .md files in Obsidian, or when the user mentions wikilinks, callouts, ...",
+      "subPath": "skills/obsidian-skills-integrated/obsidian-markdown",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "独立技能"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-agent-team",
+      "name": "agent-team",
+      "kind": "skill",
+      "category": "智能体协作",
+      "description": "统一管理多智能体角色的团队协作框架，支持智能体动态组合、灵活协作和扩展新角色。智能体本质上是\"角色定义\"，可以根据任务需求灵活组建团队，实现从会议决策到系统构建的完整能力。智能体角色明确分工：有干活的、有指挥的、有挑毛病的，能实时看到沟通过程，共享数据库记忆，确保上下文一致。",
+      "subPath": "skills/agent-team/agent-team",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-multi-agent-meeting",
+      "name": "multi-agent-meeting",
+      "kind": "skill",
+      "category": "智能体协作",
+      "description": "模拟多个AI智能体协作开会并进行决策讨论的场景。适用于需要从多个专业角度分析问题、进行辩论和达成共识的场景，如项目决策、技术方案评审、商业策略制定等。",
+      "subPath": "skills/multi-agent-meeting/multi-agent-meeting",
+      "language": "Markdown",
+      "tags": [
+        "社区来源",
+        "说明型",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-nanobanana-ppt-visualizer",
+      "name": "nanobanana-ppt-visualizer",
+      "kind": "skill",
+      "category": "PPT 与演示",
+      "description": "PPT 视觉增强工具，支持多种风格渲染、交互式播放器生成和视频合成。可与 ppt-generator Skill 协同工作，实现从内容规划到视觉呈现的完整流程。",
+      "subPath": "skills/nanobanana-ppt-visualizer/nanobanana-ppt-visualizer",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-ppt-generator",
+      "name": "ppt-generator",
+      "kind": "skill",
+      "category": "PPT 与演示",
+      "description": "基于七角色协作的智能 PPT 生成与优化工具。支持主题生成、模板推荐、内容填充、AI 智能配图、文本润色和 PPTX 文件生成。适用于学术汇报、商业演示、培训课件、产品发布等多种场景。",
+      "subPath": "skills/ppt-generator/ppt-generator",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-ppt-roadshow-generator",
+      "name": "ppt-roadshow-generator",
+      "kind": "skill",
+      "category": "PPT 与演示",
+      "description": "PPT 路演视频全流程生成器，支持品牌风格学习、智能配音、音效音乐、字幕和一键视频合成。可一次性生成 15-100 页风格统一的完整路演视频。",
+      "subPath": "skills/ppt-roadshow-generator/ppt-roadshow-generator",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    },
+    {
+      "id": "anbeime-pptx-generator",
+      "name": "pptx-generator",
+      "kind": "skill",
+      "category": "PPT 与演示",
+      "description": "将 JSON 格式的 PPT 内容转换为标准的 .pptx 文件。使用 python-pptx 库，支持多种布局、图表、表格和样式。与 ppt-generator Skill 完全协同，可作为独立使用或与其他 PPT Skill 配合。",
+      "subPath": "skills/pptx-generator/pptx-generator",
+      "language": "Markdown / Python",
+      "tags": [
+        "社区来源",
+        "含脚本",
+        "含参考资料"
+      ],
+      "includedSkills": []
+    }
+  ]
+}

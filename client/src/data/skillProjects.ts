@@ -1,7 +1,12 @@
+import anbeimeCatalogJson from "./anbeimeSkillCatalog.generated.json";
+import voltagentCatalogJson from "./voltagentSkillCatalog.generated.json";
+
 export interface SkillInstallSource {
   repoUrl: string;
   subPath: string;
 }
+
+export type SkillProjectKind = "skill" | "skillset";
 
 export interface SkillProject {
   id: string;
@@ -9,6 +14,7 @@ export interface SkillProject {
   repoName: string;
   repoUrl: string;
   category: string;
+  kind: SkillProjectKind;
   description: string;
   readmeSummary: string;
   stars: number;
@@ -18,15 +24,66 @@ export interface SkillProject {
   installNote: string;
   installSource?: SkillInstallSource;
   tags: string[];
+  includedSkills?: string[];
+  sourceCommit?: string;
+  catalogName?: string;
+  catalogUrl?: string;
+  publisher?: string;
+  sourceGroup?: string;
 }
 
-export const skillProjects: SkillProject[] = [
+interface GeneratedSkillIndex {
+  source: {
+    repoName: string;
+    repoUrl: string;
+    commit: string;
+    updatedAt: string;
+    stars: number;
+  };
+  projects: Array<{
+    id: string;
+    name: string;
+    kind: SkillProjectKind;
+    category: string;
+    publisher: string;
+    sourceGroup: string;
+    description: string;
+    sourceUrl: string;
+    installSource: SkillInstallSource | null;
+    tags: string[];
+    includedSkills: string[];
+  }>;
+}
+
+interface GeneratedSkillCatalog {
+  source: {
+    repoName: string;
+    repoUrl: string;
+    commit: string;
+    updatedAt: string;
+    stars: number;
+  };
+  projects: Array<{
+    id: string;
+    name: string;
+    kind: SkillProjectKind;
+    category: string;
+    description: string;
+    subPath: string;
+    language: string;
+    tags: string[];
+    includedSkills: string[];
+  }>;
+}
+
+const curatedSkillProjects: SkillProject[] = [
   {
     id: "anthropic-pdf-skill",
     name: "PDF 文档处理技能",
     repoName: "anthropics/skills",
     repoUrl: "https://github.com/anthropics/skills",
     category: "文档处理",
+    kind: "skill",
     description:
       "让模型按标准流程处理 PDF：抽取内容、整理结构、摘要重点，适合合同、论文、报告和说明书。",
     readmeSummary:
@@ -49,6 +106,7 @@ export const skillProjects: SkillProject[] = [
     repoName: "anthropics/skills",
     repoUrl: "https://github.com/anthropics/skills",
     category: "数据办公",
+    kind: "skill",
     description:
       "让模型理解电子表格任务：读取工作簿、解释数据、辅助分析和生成表格处理建议。",
     readmeSummary:
@@ -71,6 +129,7 @@ export const skillProjects: SkillProject[] = [
     repoName: "mattpocock/skills",
     repoUrl: "https://github.com/mattpocock/skills",
     category: "工程开发",
+    kind: "skill",
     description:
       "把 AI 训练成更稳的 TypeScript 工程搭档，强调测试先行、逐步实现和代码质量反馈。",
     readmeSummary:
@@ -94,6 +153,7 @@ export const skillProjects: SkillProject[] = [
     repoName: "agentskills/agentskills",
     repoUrl: "https://github.com/agentskills/agentskills",
     category: "开放标准",
+    kind: "skill",
     description:
       "定义 Skill 文件夹结构、SKILL.md 元数据和渐进加载方式，适合团队统一扩展包格式。",
     readmeSummary:
@@ -107,5 +167,90 @@ export const skillProjects: SkillProject[] = [
       "这是规范与模板仓库，不是单个可安装 Skill；适合团队参考并创建自己的技能包。",
     tags: ["开放标准", "模板", "规范"],
   },
+];
+
+const anbeimeCatalog = anbeimeCatalogJson as GeneratedSkillCatalog;
+
+const anbeimeSkillProjects: SkillProject[] = anbeimeCatalog.projects.map((project) => ({
+  id: project.id,
+  name: project.name,
+  repoName: anbeimeCatalog.source.repoName,
+  repoUrl: anbeimeCatalog.source.repoUrl,
+  category: project.category,
+  kind: project.kind,
+  description: project.description,
+  readmeSummary:
+    project.kind === "skillset"
+      ? `该 SkillSet 包含 ${project.includedSkills.length} 个子技能，安装父目录时会一并保留相关 SKILL.md、脚本和参考资料。`
+      : "目录数据由本地 skill-main 与远端 main 提交核对后生成。安装前请检查第三方说明和运行依赖。",
+  stars: anbeimeCatalog.source.stars,
+  language: project.language,
+  updatedAt: anbeimeCatalog.source.updatedAt,
+  installCommand: `git clone --depth 1 --filter=blob:none --sparse ${anbeimeCatalog.source.repoUrl}\ncd skill\ngit sparse-checkout set ${project.subPath}`,
+  installNote:
+    "模镜只复制该目录，不会在安装时执行其中脚本。使用社区 Skill 前请先检查依赖、外部服务与凭据要求。",
+  installSource: {
+    repoUrl: anbeimeCatalog.source.repoUrl,
+    subPath: project.subPath,
+  },
+  tags: project.tags,
+  includedSkills: project.includedSkills,
+  sourceCommit: anbeimeCatalog.source.commit,
+  catalogName: anbeimeCatalog.source.repoName,
+  catalogUrl: anbeimeCatalog.source.repoUrl,
+}));
+
+const primarySkillProjects: SkillProject[] = [
+  ...curatedSkillProjects,
+  ...anbeimeSkillProjects,
+];
+
+const installedSourceKeys = new Set(
+  primarySkillProjects.flatMap((project) =>
+    project.installSource
+      ? [`${project.installSource.repoUrl.toLowerCase()}#${project.installSource.subPath}`]
+      : [],
+  ),
+);
+const voltagentCatalog = voltagentCatalogJson as GeneratedSkillIndex;
+const voltagentSkillProjects: SkillProject[] = voltagentCatalog.projects
+  .filter((project) => {
+    if (!project.installSource) return true;
+    const key = `${project.installSource.repoUrl.toLowerCase()}#${project.installSource.subPath}`;
+    if (installedSourceKeys.has(key)) return false;
+    installedSourceKeys.add(key);
+    return true;
+  })
+  .map((project) => ({
+    id: project.id,
+    name: project.name,
+    repoName: project.name,
+    repoUrl: project.sourceUrl,
+    category: project.category,
+    kind: project.kind,
+    description: project.description,
+    readmeSummary: `收录分组：${project.sourceGroup}。该条目来自 VoltAgent 维护的外部 Skill 索引。`,
+    stars: voltagentCatalog.source.stars,
+    language: "Markdown",
+    updatedAt: voltagentCatalog.source.updatedAt,
+    installCommand: project.installSource
+      ? `git clone --depth 1 --filter=blob:none --sparse ${project.installSource.repoUrl}\ncd skill\ngit sparse-checkout set ${project.installSource.subPath}`
+      : "",
+    installNote: project.installSource
+      ? "README 提供了明确的 GitHub Skill 子目录，模镜可执行 sparse checkout 安装。"
+      : "VoltAgent 条目仅提供外部索引链接，未发现可由当前后端验证的 GitHub 子目录，因此仅作参考。",
+    installSource: project.installSource ?? undefined,
+    tags: project.tags,
+    includedSkills: project.includedSkills,
+    sourceCommit: voltagentCatalog.source.commit,
+    catalogName: voltagentCatalog.source.repoName,
+    catalogUrl: voltagentCatalog.source.repoUrl,
+    publisher: project.publisher,
+    sourceGroup: project.sourceGroup,
+  }));
+
+export const skillProjects: SkillProject[] = [
+  ...primarySkillProjects,
+  ...voltagentSkillProjects,
 ];
 

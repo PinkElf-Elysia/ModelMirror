@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import PageContainer from "../components/PageContainer";
 import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
 import SkillDraftPanel from "../components/authoring/SkillDraftPanel";
-import { type SkillProject, skillProjects } from "../data/skillProjects";
+import {
+  type SkillProject,
+  type SkillProjectKind,
+  skillProjects,
+} from "../data/skillProjects";
 
 interface InstalledSkill {
   skill_id: string;
@@ -18,9 +22,20 @@ interface InstalledSkillsResponse {
 }
 
 type SkillTab = "market" | "installed" | "drafts" | "proposals";
+type SkillKindFilter = "all" | SkillProjectKind;
+type SkillAvailabilityFilter = "all" | "installable" | "reference";
+const MARKET_PAGE_SIZE = 48;
 
 function formatStars(stars: number) {
-  return `${(stars / 1000).toFixed(1)}k`;
+  return stars >= 1000 ? `${(stars / 1000).toFixed(1)}k` : `${stars}`;
+}
+
+function formatProjectKind(project: SkillProject) {
+  if (project.kind === "skillset") {
+    const includedCount = project.includedSkills?.length ?? 0;
+    return includedCount > 0 ? `SkillSet · ${includedCount} 项` : "SkillSet";
+  }
+  return "Skill";
 }
 
 function formatInstallTime(value: number) {
@@ -63,18 +78,33 @@ function MarketSkillCard({
 }) {
   const canInstall = Boolean(project.installSource);
   const isInstalling = installingId === project.id;
+  const installLabel = project.kind === "skillset" ? "安装技能包" : "安装技能";
+  const hasIncludedSkills =
+    project.kind === "skillset" && (project.includedSkills?.length ?? 0) > 0;
 
   return (
-    <article className="group relative overflow-hidden rounded-lg border border-white/10 bg-ink-950/70 p-5 shadow-prism transition duration-200 hover:-translate-y-1 hover:border-hire-300/35 hover:bg-white/[0.065]">
+    <article className="group relative overflow-hidden rounded-lg border border-white/10 bg-ink-950/70 p-5 transition duration-200 hover:border-hire-300/35 hover:bg-white/[0.065]">
       <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-hire-300/80 to-transparent opacity-0 transition group-hover:opacity-100" />
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold text-hire-200">{project.category}</p>
           <h3 className="mt-2 text-xl font-semibold text-white">{project.name}</h3>
-          <p className="mt-1 text-xs text-slate-500">{project.repoName}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            {project.repoName}
+            {project.catalogName && project.catalogName !== project.repoName
+              ? ` · ${project.catalogName}`
+              : ""}
+            {` · ★ ${formatStars(project.stars)}`}
+          </p>
         </div>
-        <span className="rounded-full border border-brand-300/25 bg-brand-300/10 px-3 py-1 text-xs font-semibold text-brand-100">
-          {formatStars(project.stars)}
+        <span
+          className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${
+            project.kind === "skillset"
+              ? "border-accent-300/30 bg-accent-300/10 text-accent-100"
+              : "border-brand-300/25 bg-brand-300/10 text-brand-100"
+          }`}
+        >
+          {formatProjectKind(project)}
         </span>
       </div>
 
@@ -94,7 +124,18 @@ function MarketSkillCard({
       </div>
 
       <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-        <p className="text-xs font-semibold text-slate-400">安装来源</p>
+        <p className="text-xs font-semibold text-slate-300">
+          {hasIncludedSkills
+            ? "技能包内容"
+            : project.kind === "skillset"
+              ? "技能包来源"
+              : "安装来源"}
+        </p>
+        {hasIncludedSkills ? (
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            {project.includedSkills?.join("、")}
+          </p>
+        ) : null}
         <code className="mt-2 block break-all rounded-md bg-ink-950/80 p-2 text-xs leading-5 text-hire-100">
           {project.installSource
             ? `${project.installSource.repoUrl} / ${project.installSource.subPath}`
@@ -103,21 +144,39 @@ function MarketSkillCard({
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-3">
-        <a
-          className="text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
-          href={project.repoUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          查看仓库
-        </a>
+        <div className="flex flex-wrap items-center gap-3">
+          <a
+            className="text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
+            href={project.repoUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            查看来源
+          </a>
+          {project.catalogUrl && project.catalogUrl !== project.repoUrl ? (
+            <a
+              className="text-xs font-semibold text-slate-500 underline decoration-white/15 underline-offset-4 transition hover:text-white"
+              href={project.catalogUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              查看索引
+            </a>
+          ) : null}
+        </div>
         <button
           className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_22px_rgba(251,146,60,0.22)] transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
           disabled={!canInstall || installed || isInstalling}
           onClick={() => onInstall(project)}
           type="button"
         >
-          {isInstalling ? "安装中..." : installed ? "已安装" : canInstall ? "⚡ 安装" : "仅作参考"}
+          {isInstalling
+            ? "安装中..."
+            : installed
+              ? "已安装"
+              : canInstall
+                ? installLabel
+                : "仅作参考"}
         </button>
       </div>
     </article>
@@ -171,22 +230,87 @@ export default function SkillBrowserPage() {
       ? requestedTab
       : "market",
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedKind, setSelectedKind] = useState<SkillKindFilter>("all");
+  const [selectedAvailability, setSelectedAvailability] =
+    useState<SkillAvailabilityFilter>("all");
+  const [visibleProjectCount, setVisibleProjectCount] = useState(MARKET_PAGE_SIZE);
   const [installedSkills, setInstalledSkills] = useState<InstalledSkill[]>([]);
   const [isLoadingInstalled, setIsLoadingInstalled] = useState(false);
   const [installingId, setInstallingId] = useState("");
   const [uninstallingId, setUninstallingId] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const totalStars = useMemo(
-    () => skillProjects.reduce((sum, project) => sum + project.stars, 0),
+  const categories = useMemo(
+    () =>
+      [...new Set(skillProjects.map((project) => project.category))].sort((left, right) =>
+        left.localeCompare(right, "zh-CN"),
+      ),
     [],
   );
-  const installableProjects = skillProjects.filter((project) => project.installSource);
+  const totalStars = useMemo(() => {
+    const countedRepositories = new Set<string>();
+    return skillProjects.reduce((sum, project) => {
+      const metricsSource = project.catalogUrl ?? project.repoUrl;
+      if (countedRepositories.has(metricsSource)) return sum;
+      countedRepositories.add(metricsSource);
+      return sum + project.stars;
+    }, 0);
+  }, []);
+  const catalogCount = useMemo(
+    () =>
+      new Set(skillProjects.map((project) => project.catalogUrl ?? project.repoUrl)).size,
+    [],
+  );
+  const skillsetCount = useMemo(
+    () => skillProjects.filter((project) => project.kind === "skillset").length,
+    [],
+  );
+  const installableProjects = useMemo(
+    () => skillProjects.filter((project) => project.installSource),
+    [],
+  );
+  const filteredProjects = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase("zh-CN");
+    return skillProjects.filter((project) => {
+      if (selectedCategory !== "all" && project.category !== selectedCategory) return false;
+      if (selectedKind !== "all" && project.kind !== selectedKind) return false;
+      if (selectedAvailability === "installable" && !project.installSource) return false;
+      if (selectedAvailability === "reference" && project.installSource) return false;
+      if (!normalizedQuery) return true;
+
+      const searchableText = [
+        project.name,
+        project.description,
+        project.category,
+        project.repoName,
+        project.catalogName ?? "",
+        project.publisher ?? "",
+        project.sourceGroup ?? "",
+        ...project.tags,
+        ...(project.includedSkills ?? []),
+      ]
+        .join(" ")
+        .toLocaleLowerCase("zh-CN");
+      return searchableText.includes(normalizedQuery);
+    });
+  }, [searchQuery, selectedAvailability, selectedCategory, selectedKind]);
+  const visibleProjects = filteredProjects.slice(0, visibleProjectCount);
+  const hasActiveFilters =
+    searchQuery.trim().length > 0 ||
+    selectedCategory !== "all" ||
+    selectedKind !== "all" ||
+    selectedAvailability !== "all";
 
   useEffect(() => {
     document.title = "模镜 - Skill 技能货架";
     void loadInstalledSkills();
   }, []);
+
+  useEffect(() => {
+    setVisibleProjectCount(MARKET_PAGE_SIZE);
+  }, [searchQuery, selectedAvailability, selectedCategory, selectedKind]);
 
   async function loadInstalledSkills() {
     setIsLoadingInstalled(true);
@@ -226,7 +350,9 @@ export default function SkillBrowserPage() {
         installed,
         ...current.filter((skill) => skill.skill_id !== installed.skill_id),
       ]);
-      setNotice(`${project.name} 已安装，可在面试间选择使用。`);
+      setNotice(
+        `${project.name} ${project.kind === "skillset" ? "技能包" : "技能"}已安装，可在面试间选择使用。`,
+      );
     } catch (installError) {
       setError(
         installError instanceof Error ? installError.message : "技能安装失败",
@@ -234,6 +360,14 @@ export default function SkillBrowserPage() {
     } finally {
       setInstallingId("");
     }
+  }
+
+  function resetMarketFilters() {
+    setSearchQuery("");
+    setSelectedCategory("all");
+    setSelectedKind("all");
+    setSelectedAvailability("all");
+    setVisibleProjectCount(MARKET_PAGE_SIZE);
   }
 
   async function uninstallSkill(skill: InstalledSkill) {
@@ -268,10 +402,10 @@ export default function SkillBrowserPage() {
         <div>
           <p className="text-sm font-semibold text-white">技能培训服务台</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            Skill 是 AI 打工人的岗位手册。安装后可在面试间激活，让模型按技能说明完成任务。
+            Skill 是单项岗位手册，SkillSet 是带多个子技能的组合包。安装后可在面试间激活。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">可安装技能</p>
+            <p className="text-xs text-slate-400">可安装资源</p>
             <p className="mt-1 text-sm font-semibold text-hire-100">
               {installableProjects.length} 个
             </p>
@@ -283,11 +417,14 @@ export default function SkillBrowserPage() {
             </p>
           </div>
           <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">GitHub 热度</p>
+            <p className="text-xs text-slate-400">目录来源</p>
             <p className="mt-1 text-sm font-semibold text-brand-100">
-              {formatStars(totalStars)} stars
+              {catalogCount} 个 · ★ {formatStars(totalStars)}
             </p>
           </div>
+          <p className="mt-4 text-xs leading-5 text-slate-500">
+            社区 Skill 安装时只复制目录，不自动执行脚本。激活前请检查依赖、外部服务和凭据要求。
+          </p>
         </div>
       }
     >
@@ -303,7 +440,7 @@ export default function SkillBrowserPage() {
               Skill 技能货架
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-              从技能市场领取岗位手册，安装到本地后即可在面试间激活。模型会把 Skill 当成系统级工作规范来执行。
+              按任务、分类和资源类型查找岗位手册。目录同时收录独立 Skill 与可一次安装的 SkillSet。
             </p>
           </div>
 
@@ -323,15 +460,15 @@ export default function SkillBrowserPage() {
               </div>
               <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                 <p className="text-lg font-semibold text-emerald-100">
-                  {installedSkills.length}
+                  {skillsetCount}
                 </p>
-                <p className="mt-1 truncate text-slate-400">已入职</p>
+                <p className="mt-1 truncate text-slate-400">SkillSet</p>
               </div>
               <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                 <p className="text-lg font-semibold text-brand-100">
-                  {formatStars(totalStars)}
+                  {categories.length}
                 </p>
-                <p className="mt-1 truncate text-slate-400">热度</p>
+                <p className="mt-1 truncate text-slate-400">分类</p>
               </div>
             </div>
           </div>
@@ -371,6 +508,94 @@ export default function SkillBrowserPage() {
           </button>
         </div>
 
+        {activeTab === "market" ? (
+          <div className="mb-5 rounded-lg border border-white/10 bg-white/[0.04] p-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_190px_170px_auto] lg:items-end">
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-300">搜索技能</span>
+                <input
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 transition focus:border-brand-300/50 focus:outline-none"
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="名称、能力、标签或仓库"
+                  type="search"
+                  value={searchQuery}
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-300">分类</span>
+                <select
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white transition focus:border-brand-300/50 focus:outline-none"
+                  onChange={(event) => setSelectedCategory(event.target.value)}
+                  value={selectedCategory}
+                >
+                  <option value="all">全部分类</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-300">安装状态</span>
+                <select
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white transition focus:border-brand-300/50 focus:outline-none"
+                  onChange={(event) =>
+                    setSelectedAvailability(event.target.value as SkillAvailabilityFilter)
+                  }
+                  value={selectedAvailability}
+                >
+                  <option value="all">全部资源</option>
+                  <option value="installable">可一键安装</option>
+                  <option value="reference">仅外部索引</option>
+                </select>
+              </label>
+
+              <fieldset>
+                <legend className="text-xs font-semibold text-slate-300">资源类型</legend>
+                <div className="mt-2 inline-flex rounded-lg border border-white/10 bg-ink-950/80 p-1">
+                  {[
+                    { id: "all", label: "全部" },
+                    { id: "skill", label: "Skill" },
+                    { id: "skillset", label: "SkillSet" },
+                  ].map((kind) => (
+                    <button
+                      aria-pressed={selectedKind === kind.id}
+                      className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${
+                        selectedKind === kind.id
+                          ? "bg-brand-300/20 text-brand-100"
+                          : "text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                      }`}
+                      key={kind.id}
+                      onClick={() => setSelectedKind(kind.id as SkillKindFilter)}
+                      type="button"
+                    >
+                      {kind.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+              <p aria-live="polite" className="text-sm text-slate-400">
+                显示 <span className="font-semibold text-white">{filteredProjects.length}</span> / {skillProjects.length} 项
+              </p>
+              {hasActiveFilters ? (
+                <button
+                  className="text-sm font-semibold text-brand-100 underline decoration-brand-300/30 underline-offset-4 transition hover:text-white"
+                  onClick={resetMarketFilters}
+                  type="button"
+                >
+                  清除筛选
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         {notice ? (
           <div className="mb-4 rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-4 py-3 text-sm text-emerald-50">
             {notice}
@@ -382,17 +607,46 @@ export default function SkillBrowserPage() {
           </div>
         ) : null}
 
-        {activeTab === "market" ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {skillProjects.map((project) => (
-              <MarketSkillCard
-                installed={isProjectInstalled(project, installedSkills)}
-                installingId={installingId}
-                key={project.id}
-                onInstall={(item) => void installSkill(item)}
-                project={project}
-              />
-            ))}
+        {activeTab === "market" && filteredProjects.length > 0 ? (
+          <div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {visibleProjects.map((project) => (
+                <MarketSkillCard
+                  installed={isProjectInstalled(project, installedSkills)}
+                  installingId={installingId}
+                  key={project.id}
+                  onInstall={(item) => void installSkill(item)}
+                  project={project}
+                />
+              ))}
+            </div>
+            {visibleProjects.length < filteredProjects.length ? (
+              <div className="mt-6 flex justify-center">
+                <button
+                  className="rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-white"
+                  onClick={() =>
+                    setVisibleProjectCount((current) => current + MARKET_PAGE_SIZE)
+                  }
+                  type="button"
+                >
+                  加载更多（剩余 {filteredProjects.length - visibleProjects.length} 项）
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : activeTab === "market" ? (
+          <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.04] px-6 py-12 text-center">
+            <p className="text-lg font-semibold text-white">没有匹配的技能资源。</p>
+            <p className="mt-2 text-sm text-slate-400">
+              换一个关键词、分类或资源类型，或者清除当前筛选。
+            </p>
+            <button
+              className="mt-5 rounded-full border border-brand-300/30 px-5 py-2 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/10"
+              onClick={resetMarketFilters}
+              type="button"
+            >
+              清除筛选
+            </button>
           </div>
         ) : activeTab === "installed" && installedSkills.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
