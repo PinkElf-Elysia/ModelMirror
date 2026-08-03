@@ -13,6 +13,7 @@ import {
 export interface SkillInstallSource {
   repoUrl: string;
   subPath: string;
+  verifiedCommit?: string;
 }
 
 export type SkillProjectKind = "skill" | "skillset";
@@ -243,7 +244,8 @@ const voltagentSkillProjects: SkillProject[] = voltagentCatalog.projects
   .map((project) => ({
     ...project,
     resolvedInstallSource:
-      project.installSource ?? auditedInstallSource(project.sourceUrl),
+      (project.installSource ??
+        auditedInstallSource(project.sourceUrl)) as SkillInstallSource | undefined,
   }))
   .filter((project) => {
     if (!project.resolvedInstallSource) return true;
@@ -298,7 +300,8 @@ const voltagentSkillProjects: SkillProject[] = voltagentCatalog.projects
       installSource: project.resolvedInstallSource,
       tags: project.tags,
       includedSkills: project.includedSkills,
-      sourceCommit: voltagentCatalog.source.commit,
+      sourceCommit:
+        project.resolvedInstallSource?.verifiedCommit ?? voltagentCatalog.source.commit,
       catalogName: voltagentCatalog.source.repoName,
       catalogUrl: voltagentCatalog.source.repoUrl,
       publisher: project.publisher,

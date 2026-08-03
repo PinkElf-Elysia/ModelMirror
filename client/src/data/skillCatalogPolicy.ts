@@ -1,3 +1,8 @@
+import {
+  REJECTED_OFFICIAL_SKILL_INSTALL_SOURCES,
+  VERIFIED_OFFICIAL_SKILL_INSTALL_SOURCES,
+} from "./officialSkillInstallSources.generated.ts";
+
 export const SKILL_CATEGORIES = [
   "AI 与智能体",
   "开发与测试",
@@ -251,6 +256,12 @@ export function describeSkillInChinese(
 }
 
 export function auditedInstallSource(sourceUrl: string) {
+  const verifiedSource =
+    VERIFIED_OFFICIAL_SKILL_INSTALL_SOURCES[
+      sourceUrl as keyof typeof VERIFIED_OFFICIAL_SKILL_INSTALL_SOURCES
+    ];
+  if (verifiedSource) return verifiedSource;
+
   const source = officialSkillsParts(sourceUrl);
   if (!source || source.repository !== "skills") return undefined;
 
@@ -285,6 +296,11 @@ export function auditedInstallSource(sourceUrl: string) {
 }
 
 export function hasAuditedInstallMismatch(sourceUrl: string) {
+  if (
+    sourceUrl in REJECTED_OFFICIAL_SKILL_INSTALL_SOURCES
+  ) {
+    return true;
+  }
   const source = officialSkillsParts(sourceUrl);
   if (!source || source.repository !== "skills") return false;
   if (source.owner === "getsentry") return true;
@@ -301,7 +317,7 @@ export function manualInstallCommand(sourceUrl: string) {
   }
   const parts = url.pathname.split("/").filter(Boolean);
   if (url.hostname.toLowerCase() !== "officialskills.sh" || parts.length < 3) return "";
-  return `npx skills add https://github.com/${parts[0]}/${parts[1]} --skill ${parts[2]}`;
+  return `请打开来源页核对其 GitHub 仓库，再执行页面提供的 ${parts[2]} 安装命令。`;
 }
 
 export function inferInstallStatus(

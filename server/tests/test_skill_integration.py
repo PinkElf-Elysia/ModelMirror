@@ -115,6 +115,68 @@ async def test_install_list_content_and_uninstall_skill(
 
 
 @pytest.mark.asyncio
+async def test_install_can_pin_a_verified_commit(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    repo = create_local_skill_repo(tmp_path)
+    verified_ref = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    skill_md = repo / "skills" / "pdf" / "SKILL.md"
+    skill_md.write_text(
+        skill_md.read_text(encoding="utf-8").replace(
+            "Extract and summarize PDF documents.",
+            "Unreviewed upstream description.",
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "change after audit"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+    response = await client.post(
+        "/api/skills/install",
+        json={
+            "repo_url": str(repo),
+            "sub_path": "skills/pdf",
+            "ref": verified_ref,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    installed = response.json()
+    assert installed["source_ref"] == verified_ref
+    assert installed["description"] == "Extract and summarize PDF documents."
+
+
+@pytest.mark.asyncio
+async def test_install_rejects_non_commit_source_ref(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    repo = create_local_skill_repo(tmp_path)
+    response = await client.post(
+        "/api/skills/install",
+        json={
+            "repo_url": str(repo),
+            "sub_path": "skills/pdf",
+            "ref": "main",
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_install_rejects_non_github_sources_by_default(
     tmp_path: Path,
 ) -> None:
