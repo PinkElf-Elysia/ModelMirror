@@ -43,72 +43,72 @@
 
 数据层必须满足以下约束：
 
-1. `local-stdio` 条目必须有非空 `command`，并且 `requirements` 为空。
-2. `planned` 条目不得向前端暴露可执行 `command`。
-3. 前端不得保存真实 Secret，也不得在仓库内出现真实凭证。
-4. 上游清单只用于发现项目；能否连接必须按模镜运行边界重新核验。
+1. 前端条目不得包含可执行 `command`、MCP URL、Header 或环境变量配置。
+2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变。
+3. `planned` 后端适配器不得包含可执行命令或端点，环境开关不能绕过状态门禁。
+4. 前端不得保存真实 Secret，也不得在仓库内出现真实凭证。
+5. 上游清单只用于发现项目；能否连接必须按模镜运行边界重新核验。
 
-## 4. 分阶段路线
+## 4. 适配架构与状态契约
 
-### 阶段 A：目录维护与来源同步
+批次 0 引入目录专用的受控适配器层：
 
-- 建立定期来源核验，记录项目链接失效、归档和重命名。
-- 补充来源版本或提交哈希，避免“核验日期”与真实内容漂移。
-- 为条目增加维护状态、许可证和最后活跃时间。
-- 增加数据契约测试，检查重复 ID、未知分类、缺失中文字段和错误适配状态。
+- 前端目录只保存中文展示资料、批次和风险说明，不再把命令或 URL 作为执行依据。
+- 后端 `server/mcp/catalog.py` 是项目 ID、连接方式、固定命令、配置字段、凭据槽和功能开关的唯一执行来源。
+- 前端只能按项目 ID 调用目录专用的准备、配置、连接、断开和工具调用 API，不允许提交命令、URL、Header、环境变量名或工作目录。
+- `planned` 条目即使被错误设置环境开关，也不能获得可执行命令；没有显式工具策略的新适配器不能调用工具。
+- 后端已有 Streamable HTTP / SSE、SSRF 校验、加密凭据引用和工具审批元数据，但“底座存在”不代表目录项目已经完成生产适配。
 
-验收门槛：目录更新不改变任何现有 stdio 命令，前端构建通过，条目状态校验无错误。
+目录状态统一为：
 
-### 阶段 B：安全运行时与远程传输适配
+- `planned`：已归入批次，尚未进入实现。
+- `adapting`：正在实现和核验，前端仍不可连接。
+- `ready`：安装、连接、权限、Smoke 和回退全部通过。
+- `blocked`：上游、运行环境或安全门槛存在明确阻塞。
 
-- 为 Python、Go、Rust、Java 和 Docker 设计隔离运行时镜像与资源配额。
-- 增加 Streamable HTTP / SSE 客户端，并限制目标域名、重定向和响应大小。
-- 对文件、网络、数据库和系统权限建立显式授权范围。
-- 为每种适配器补超时、重试、断开、审计和清理测试。
+## 5. 固定批次
 
-验收门槛：每种运行时都有独立沙盒、最小权限、资源上限和可回退开关；远程连接有 SSRF 防护与域名策略。
+目录数量在适配期间冻结为 100；以下 93 项必须且只能属于一个批次。
 
-### 阶段 C：OAuth 与 Secret 代理
+| 批次 | 能力与条目 | 数量 | 主要退出门槛 |
+| --- | --- | ---: | --- |
+| 0 | 现有 Node stdio 基线与适配 Harness | 7 | 100 项契约、服务端清单、功能开关、状态 API、现有行为回归 |
+| 1 | `calculator-mcp`、`time-mcp`、`vegalite-mcp` | 3 | 非 root Python 沙箱、默认断网、CPU/内存/时间/输出上限 |
+| 2 | `bibigpt-mcp`、`fetch-mcp`、`quickchart-mcp`、`airbnb-mcp`、`geowire-mcp` | 5 | 公网目标、DNS 重绑定、SSRF、重定向与响应大小验证 |
+| 3 | `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`manim-mcp`、`markitdown-mcp` | 5 | 目录授权、路径越界与符号链接防护、产物清理 |
+| 4 | AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、Snyk、VirusTotal | 16 | 加密凭据槽、固定出口域、只读工具清单、Secret 泄漏测试 |
+| 5 | DBHub、PostgreSQL、MongoDB、ClickHouse、Cognee、Graphiti、Hindsight、Redis、SQLite、DuckDB、Supabase | 11 | 只读账号、TLS、查询超时、行数限制、写入审批 |
+| 6 | Airtable、Asana、GitLab、中国电商经营、Notion、Mem0 | 6 | 修改预览与审批、幂等、限流、账号解绑 |
+| 7 | Chrome DevTools、Playwright、Puppeteer、Selenium | 4 | 临时浏览器、目标域、上传下载与会话清理边界 |
+| 8 | MCP Run Python、MCP Python Interpreter | 2 | 一次性断网容器、无宿主挂载、无 Docker socket、进程资源限制 |
+| 9 | Apify、Bright Data、Browserbase、E2B、Stripe、Terraform、Aiven、Alpaca、AWS KB、ElevenLabs、MiniMax、S3、Kubernetes、Semgrep | 14 | 费用/资源上限、目标预览、终止性操作强制审批 |
+| 10 | Gmail、Atlassian、Google Calendar、Google Drive、Microsoft 365、OneDrive、Sentry、Azure、Box、Cloudflare、GitHub、Linear、Neon、Slack | 14 | PKCE、state、最小 scope、刷新、撤销与解绑 |
+| 11 | 小红书、Ableton、Binary Ninja、Blender、Ghidra、JetBrains、ChatCrystal、Obsidian、OpenTabs、Zotero、Docker、Mobile、XcodeBuild | 13 | 版本化本机桥接、宿主校验、逐应用与目录授权 |
 
-- OAuth 使用服务端回调、PKCE、state 校验和最小 scope。
-- Secret 只存放在服务端加密存储，不通过前端目录数据或日志传递。
-- 支持 Token 到期、刷新、撤销和账号解绑。
-- 高风险工具在执行前展示目标资源与权限，并要求用户确认。
+每批在前一批验收完成后单独建分支和 PR；批内可以逐项开启功能开关，但不能绕过整批共享的安全门槛。
 
-验收门槛：完成威胁建模、Secret 泄漏测试、权限撤销测试和审计日志验证后，才能把相关条目改为可连接。
+## 6. 验收、发布和回退
 
-### 阶段 D：桌面宿主适配
+- 每个项目必须通过初始化、工具发现、代表性调用、超时、重连、断开与清理测试；Schema 漂移视为阻断。
+- 安全测试按批次覆盖 Secret 泄漏、SSRF、重定向、路径越界、沙箱逃逸、权限撤销、审批绕过和高风险操作默认关闭。
+- 前端必须显示中文批次、状态、连接方式、风险、限制和门槛；后端未返回 `executable=true` 时按钮不可连接。
+- 每个项目有独立服务端开关。回退只关闭开关、断开会话并清理沙箱，不删除目录条目或凭据。
+- 运行日志只记录项目 ID、状态、耗时、错误类别和策略事件，不记录 Secret、完整参数或工具返回正文。
 
-- 为 Blender、Zotero、Obsidian、IDE、Xcode 和逆向工具分别设计本机代理协议。
-- 明确桌面应用版本、插件版本、端口、文件目录和进程生命周期。
-- 禁止后端容器直接假设存在桌面 GUI 或用户登录态。
+## 7. 明确不进入本路线的远期能力
 
-验收门槛：宿主可发现、版本可校验、连接可撤销，并且不越过用户选定的文件与应用范围。
+- 用户自定义 MCP 连接不进入批次 0—11；目录配置只允许固定适配器声明的字段。
+- MCP Builder、可视化生成器和公开发布市场不进入批次 0—11。
+- 若未来立项，必须另行威胁建模、设计评审和建立独立路线，不复用目录适配功能开关直接放行。
 
-### 阶段 E：用户自定义连接（远期）
-
-用户自定义连接只有在前述适配器稳定后才进入设计：
-
-- 提供 schema 化表单，不接受任意 shell 字符串。
-- 命令、环境变量、目录、网络目标和 Secret 分开校验。
-- 默认在临时沙盒中进行只读探测，列出工具后再请求启用。
-- 提供连接健康检查、权限预览、导入导出和安全删除。
-
-### 阶段 F：MCP Builder（远期）
-
-MCP Builder 作为最后阶段规划：
-
-- 从受控模板创建 Server，不直接生成任意进程命令。
-- 内置工具 schema 编辑、Mock 数据、契约测试和 stdio 调试器。
-- 发布前执行权限声明、Secret 扫描、输入校验和沙盒 smoke test。
-- Builder 产物先进入私有草稿，经过人工审核后才能加入公共目录。
-
-## 5. 风险与回退
+## 8. 风险与回退
 
 主要风险是上游项目快速变化、条目说明过期，以及把“已收录”误解为“当前可安全运行”。前端必须持续使用明确的状态标签和禁用按钮表达边界。
 
-本轮回退只需恢复以下目录与展示文件，不涉及后端数据迁移或运行态变更：
+批次 0 不引入数据库迁移。回退时先断开目录会话，再恢复以下适配器、展示与文档文件；旧版 `/api/mcp/*` 接口保持兼容，可继续承载已有会话：
 
+- `server/mcp/catalog.py`
 - `client/src/data/mcpProjects.ts`
+- `client/src/data/mcpAdaptationPlan.ts`
 - `client/src/pages/McpBrowserPage.tsx`
 - `client/src/components/McpServerCard.tsx`

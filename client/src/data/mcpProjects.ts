@@ -1,3 +1,10 @@
+import {
+  getMcpAdaptation,
+  type McpAvailability,
+  type McpConnectionKind,
+  type McpRiskLevel,
+} from "./mcpAdaptationPlan";
+
 export const mcpCategories = [
   "浏览器与网页",
   "开发与代码",
@@ -21,7 +28,6 @@ export const mcpCategories = [
 
 export type McpCategory = (typeof mcpCategories)[number];
 export type McpInstallMode = "one-click" | "manual";
-export type McpCompatibility = "local-stdio" | "planned";
 export type McpCatalogSourceId = "awesome-mcp-zh" | "awesome-mcp-servers";
 export type McpRequirement =
   | "oauth"
@@ -58,9 +64,13 @@ export interface McpProject {
   installMode: McpInstallMode;
   installCommand: string;
   installNote: string;
-  command?: string[];
   tags: string[];
-  compatibility: McpCompatibility;
+  availability: McpAvailability;
+  connectionKind: McpConnectionKind;
+  adaptationWave: number;
+  risk: McpRiskLevel;
+  requiredCapabilities: string[];
+  adaptationLimitations: string[];
   requirements: McpRequirement[];
   configGuide: string[];
   usageExamples: string[];
@@ -69,13 +79,17 @@ export interface McpProject {
 
 interface McpProjectSeed extends Omit<
   McpProject,
-  | "compatibility"
+  | "availability"
+  | "connectionKind"
+  | "adaptationWave"
+  | "risk"
+  | "requiredCapabilities"
+  | "adaptationLimitations"
   | "requirements"
   | "configGuide"
   | "usageExamples"
   | "sources"
 > {
-  compatibility?: McpCompatibility;
   requirements?: McpRequirement[];
   configGuide?: string[];
   usageExamples?: string[];
@@ -123,7 +137,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand:
       '{\n  "mcpServers": {\n    "playwright": {\n      "command": "npx",\n      "args": ["@playwright/mcp@latest"]\n    }\n  }\n}',
     installNote: "官方 README 提供的标准 MCP 客户端配置，适合支持 stdio MCP 的宿主。",
-    command: ["npx", "-y", "@playwright/mcp@latest"],
     tags: ["微软官方", "浏览器自动化", "网页测试"],
   },
   {
@@ -144,7 +157,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
       '{\n  "mcpServers": {\n    "chrome-devtools": {\n      "command": "npx",\n      "args": ["-y", "chrome-devtools-mcp@latest", "--headless"]\n    }\n  }\n}',
     installNote:
       "模镜使用 headless 模式启动。后端运行环境仍需提供兼容版本的 Chrome 或 Chrome for Testing。",
-    command: ["npx", "-y", "chrome-devtools-mcp@latest", "--headless"],
     tags: ["Google 官方", "Chrome 调试", "性能分析"],
   },
   {
@@ -183,7 +195,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand: "npx ctx7 setup",
     installNote:
       "官方推荐用 ctx7 CLI 配置；模镜原生连接使用其 npm stdio Server。",
-    command: ["npx", "-y", "@upstash/context7-mcp"],
     tags: ["Upstash 官方", "最新文档", "代码生成"],
   },
   {
@@ -302,7 +313,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
       "npx -y @modelcontextprotocol/server-filesystem <allowed-directory>",
     installNote:
       "本地 stdio 模式需要允许访问的目录；模镜统一从 MCP 沙盒目录启动。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."],
     tags: ["官方参考", "文件系统", "沙盒工具"],
   },
   {
@@ -417,7 +427,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand:
       "npx -y @kimtaeyoon83/mcp-server-youtube-transcript",
     installNote: "官方 README 提供的标准 npm stdio 配置，不需要额外 API Key。",
-    command: ["npx", "-y", "@kimtaeyoon83/mcp-server-youtube-transcript"],
     tags: ["YouTube", "字幕提取", "无需密钥"],
   },
   {
@@ -474,7 +483,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand: "npx -y @modelcontextprotocol/server-memory",
     installNote:
       "模镜会在 MCP 沙盒工作目录启动该 Server，使默认 memory.jsonl 保留在受控目录内。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-memory"],
     tags: ["官方参考", "知识图谱", "本地记忆"],
   },
   {
@@ -493,7 +501,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y chatcrystal mcp",
     installNote: "npm 包要求 Node.js 20 或更高版本，模镜后端运行时满足该要求。",
-    command: ["npx", "-y", "chatcrystal", "mcp"],
     tags: ["编码对话", "本地知识库", "Windows"],
   },
   {
@@ -550,7 +557,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y 12306-mcp",
     installNote: "项目 README 提供的标准 npm stdio 启动方式，不需要额外 API Key。",
-    command: ["npx", "-y", "12306-mcp"],
     tags: ["中国铁路", "余票查询", "无需密钥"],
   },
   {
@@ -570,7 +576,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y @modelcontextprotocol/server-sequential-thinking",
     installNote: "官方 npm stdio Server，无需 API Key 或额外服务。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"],
     tags: ["官方参考", "问题拆解", "无需密钥"],
   },
   {
@@ -589,7 +594,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y @modelcontextprotocol/server-everything",
     installNote: "用于协议演示和测试，不建议作为生产业务 Server 使用。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-everything"],
     tags: ["官方参考", "协议测试", "无需密钥"],
   },
   {
@@ -638,7 +642,6 @@ function plannedMcp(input: ExpandedProjectInput): McpProjectSeed {
     installMode: "manual",
     installCommand: "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
     installNote: `${requirementText}。本轮不配置这些依赖，条目等待后续安全适配。`,
-    compatibility: "planned",
     configGuide: [
       `先确认接入条件：${requirementText}。`,
       "当前模镜不会收集凭证、打开外站认证，也不会启动额外运行时或桌面宿主。",
@@ -1686,16 +1689,6 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
   }),
 ];
 
-const localStdioIds = new Set([
-  "context7",
-  "filesystem-mcp",
-  "youtube-transcript-mcp",
-  "memory-mcp",
-  "12306-mcp",
-  "sequential-thinking-mcp",
-  "everything-mcp",
-]);
-
 const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
   "playwright-mcp": ["external-runtime", "system-permission"],
   "chrome-devtools-mcp": ["external-runtime", "system-permission"],
@@ -1719,7 +1712,10 @@ const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
 };
 
 function normalizeMcpProject(seed: McpProjectSeed): McpProject {
-  const isLocalStdio = localStdioIds.has(seed.id);
+  const adaptation = getMcpAdaptation(seed.id);
+  const isLocalStdio =
+    adaptation.availability === "ready" &&
+    adaptation.connectionKind === "local-stdio";
   const requirements = isLocalStdio
     ? []
     : (seed.requirements ?? originalRequirements[seed.id] ?? ["external-runtime"]);
@@ -1733,8 +1729,12 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
     installCommand: isLocalStdio
       ? seed.installCommand
       : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
-    command: isLocalStdio ? seed.command : undefined,
-    compatibility: isLocalStdio ? "local-stdio" : "planned",
+    availability: adaptation.availability,
+    connectionKind: adaptation.connectionKind,
+    adaptationWave: adaptation.wave,
+    risk: adaptation.risk,
+    requiredCapabilities: adaptation.requiredCapabilities,
+    adaptationLimitations: adaptation.limitations,
     requirements,
     configGuide:
       seed.configGuide ??

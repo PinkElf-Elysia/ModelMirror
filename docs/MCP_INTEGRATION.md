@@ -1,17 +1,17 @@
 # MCP 原生集成说明
 
-最后更新日期：2026-07-23
+最后更新日期：2026-08-02
 维护人：模镜团队
 
 ## 0. 产品入口与预算层级
 
-- `/mcps` 明确提供进入 `/toolsets` 的入口：前者负责 MCP 项目发现与即时连接，后者负责 MCP/API/内置 Provider 的草稿、凭据、工具语义、测试和不可变发布。
+- `/mcps` 负责冻结目录中的项目发现和预置适配器连接，不提供自定义命令、URL 或 MCP Builder。`/toolsets` 的通用草稿能力仍供其他产品路径使用，但不是目录条目的配置入口。
 - Tavily 与 Todos 作为稳定的内置默认 Toolset 存在。Todos 无需凭据即可直接绑定；Tavily 配置凭据时更新同一 Provider 实例，不重复生成不可发现的资源。
 - `XpertAgentConfig.max_concurrency` 与 `recursion_limit` 是整个 Xpert 执行树的全局预算；Toolset 的并行安全、`maxToolConcurrency`、`maxToolCalls`、`maxToolDepth` 和 `maxIterations` 是局部工具调用护栏。局部配置不能突破全局预算。
 
 ## 1. 概述
 
-MCP（Model Context Protocol）是一套让 AI 应用通过标准协议连接外部工具、资源和上下文的机制。模镜保留原 `/mcps` 即时连接入口，并新增 `/toolsets` 的版本化 MCP Runtime。后者支持 **Stdio、Streamable HTTP 与旧 SSE 兼容**：连接后发现工具 Schema，用户显式启停和配置工具，再发布不可变版本供 Workflow、Xpert、Goal 与 Handoff 绑定。
+MCP（Model Context Protocol）是一套让 AI 应用通过标准协议连接外部工具、资源和上下文的机制。`/mcps` 使用服务端受控适配器：前端只提交项目 ID，固定命令、传输、配置字段和工具策略由 `server/mcp/catalog.py` 管理。通用 `/toolsets` Runtime 支持 **Stdio、Streamable HTTP 与旧 SSE 兼容**，但目录条目不会把任意连接能力暴露给用户。
 
 `/toolsets` 现也承载同一版本模型下的 API Toolset。OpenAPI 3.0/3.1 与 OData v4 文档被编译为受控工具 Schema，并通过独立安全 HTTP 执行器调用；这不是 MCP transport，也不会改变 `/mcps` 的连接与安装职责。
 
@@ -57,10 +57,10 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
                │ HTTP REST
                ▼
 ┌─────────────────────────────┐
-│ FastAPI /api/mcp/*          │
-│ - 输入校验                  │
-│ - 每 IP 连接限流            │
-│ - session 生命周期管理      │
+│ FastAPI /api/mcp/catalog/*  │
+│ - 按项目 ID 解析固定适配器  │
+│ - 功能开关与生产状态门禁    │
+│ - 配置字段与工具策略校验    │
 └──────────────┬──────────────┘
                │ 官方 mcp Python SDK
                ▼
@@ -79,7 +79,14 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 └─────────────────────────────┘
 ```
 
-安全默认值：
+目录适配器安全默认值：
+
+- 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
+- 93 个待适配项目没有后端命令或端点；设置环境功能开关也不能使其可执行。
+- 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
+- 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
+
+兼容层仍保留以下默认值：
 
 - 后端只接受 `list[str]` 形式的命令，不使用 shell。
 - 拒绝 `;`、`&&`、`|`、重定向等 shell 特殊字符。
@@ -89,59 +96,48 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - 每个 session TTL 为 30 分钟，后台任务每 5 分钟清理一次；查询 sessions 或 registry 时也会触发一次轻量清理。
 - 全局 ToolRegistry 会聚合所有活跃 session 的工具，重名工具按首次出现保留。
 
-## 2. 如何添加新的 MCP Server
+## 2. 如何适配冻结目录中的 MCP Server
 
-前端 MCP 项目数据位于：
+适配期间目录冻结为 100 项，不新增条目。中文展示数据与后端执行清单分别位于：
 
 ```text
 client/src/data/mcpProjects.ts
-```
-
-新增条目时保留现有字段，并在支持本地 stdio 启动时添加可选字段：
-
-```ts
-command: ["npx", "-y", "@example/mcp-server"]
-```
-
-示例：
-
-```ts
-{
-  id: "filesystem-mcp",
-  name: "Filesystem MCP",
-  repoName: "modelcontextprotocol/servers",
-  repoUrl: "https://github.com/modelcontextprotocol/servers",
-  description: "把受控目录内的文件读写能力交给 AI。",
-  readmeSummary: "官方 npm 包描述为 MCP server for filesystem access。",
-  stars: 0,
-  language: "TypeScript",
-  updatedAt: "2026-06-16",
-  installCommand: "npx -y @modelcontextprotocol/server-filesystem <allowed-directory>",
-  installNote: "模镜后端会把工作目录限制在 server/mcp/sandboxes。",
-  command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."],
-  tags: ["官方示例", "文件系统", "沙盒工具"],
-}
+client/src/data/mcpAdaptationPlan.ts
+server/mcp/catalog.py
 ```
 
 接入检查清单：
 
-1. 确认包名真实存在，例如：
+1. 在前后端批次映射中确认项目 ID 唯一且批次一致。
+2. 核验上游版本、包名或远程端点，并在后端固定版本；不要把执行配置写进前端数据。
+3. 为适配器声明连接形态、允许的非敏感配置字段、凭据槽、网络/文件权限和独立功能开关。
+4. 发现全部工具并逐个标记只读、敏感、终止性和审批要求；未知工具默认不可调用。
+5. 通过初始化、代表性调用、超时、重连、清理、安全和回退 Smoke 后，才能把状态从 `adapting` 改为 `ready`。
+
+核验 npm 包示例：
 
 ```bash
 npm view @example/mcp-server version
 ```
 
-2. 确认 MCP Server 支持 stdio。
-3. 确认是否需要 API Key。需要密钥的 Server 不应把密钥写入 `command`，应改由后端环境变量白名单注入。
-4. 确认工具列表能正常返回：
-
-```bash
-python server/mcp/test_manager.py
-```
-
-如果 MCP Server 只能通过远程 HTTP/SSE 使用，可以继续展示安装信息，但不要添加 `command` 字段，避免前端显示“连接”能力。
+远程、凭据、OAuth、代码沙箱和桌面桥接的退出门槛见 [MCP_CATALOG_ROADMAP.md](./MCP_CATALOG_ROADMAP.md)。
 
 ## 3. 后端 API 文档
+
+### 目录专用 API
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/mcp/catalog/adapters` | 返回 100 项安全状态，不返回命令、端点或 Secret |
+| POST | `/api/mcp/catalog/{project_id}/prepare` | 使用后端固定安装配置准备已验收适配器 |
+| PUT | `/api/mcp/catalog/{project_id}/configuration` | 只接受清单允许的设置和 `credential_id` 绑定 |
+| POST | `/api/mcp/catalog/{project_id}/connect` | 按项目 ID 建立受控会话 |
+| DELETE | `/api/mcp/catalog/{project_id}/session` | 断开该目录项目的会话 |
+| POST | `/api/mcp/catalog/{project_id}/tools/{tool_name}/call` | 经项目工具策略调用已连接工具 |
+
+`planned` 项目的准备、连接和调用返回 `409`。配置包含命令、URL、Header、环境变量或工作目录时返回 `400`。
+
+以下 `/api/mcp/*` session API 为现有调用方保留兼容；目录前端不再向它们提交命令或直接调用工具。
 
 ### POST `/api/mcp/connect`
 
@@ -310,22 +306,24 @@ client/src/pages/McpBrowserPage.tsx
 
 状态流：
 
-1. 初始状态为 `idle`。
-2. 点击“连接”后进入 `connecting`，调用 `POST /api/mcp/connect`。
-3. 连接成功后进入 `connected`，读取工具列表。
-4. 对每个工具，根据 `inputSchema.properties` 动态生成表单：
+1. 页面先读取 `/api/mcp/catalog/adapters`；服务端未返回 `executable=true` 时连接按钮禁用。
+2. 点击“安装”调用 `POST /api/mcp/catalog/{project_id}/prepare`，浏览器不提交安装命令。
+3. 点击“连接”后进入 `connecting`，调用 `POST /api/mcp/catalog/{project_id}/connect`。
+4. 连接成功后进入 `connected`，读取工具列表。
+5. 对每个工具，根据 `inputSchema.properties` 动态生成表单：
    - `string` → 文本输入框。
    - `number` / `integer` → 数字输入框。
    - `boolean` → true/false 下拉。
    - `enum` → 下拉选择。
    - `object` / `array` → JSON 文本框。
-5. 点击“执行”后调用 `/api/mcp/{session_id}/call`，结果使用 Markdown 区域展示。
-6. 点击“断开连接”后调用 DELETE 并清理本地状态。
+6. 点击“执行”后调用目录项目的策略化工具端点，结果使用 Markdown 区域展示。
+7. 点击“断开连接”后按项目 ID 调用 DELETE 并清理本地状态。
 
 UI 状态要求：
 
 - 连接中按钮禁用。
-- 无 `command` 的项目显示“展示项目”，不可连接。
+- `planned`、`adapting`、`blocked` 或 `executable=false` 的项目不可连接。
+- 每张卡片显示固定批次、连接方式、风险、限制和生产验收门槛。
 - API 失败时在卡片内展示错误。
 - 未知 JSON Schema 字段不应导致页面崩溃。
 
@@ -341,6 +339,7 @@ python -m pip install -r server/requirements.txt
 
 ```bash
 python -m pytest server/tests/test_mcp_integration.py -q
+python -m pytest server/tests/test_mcp_catalog.py server/tests/test_mcp_multisession.py -q
 ```
 
 测试覆盖：
@@ -365,6 +364,7 @@ python server/mcp/test_manager.py
 | 文件 | 说明 |
 | --- | --- |
 | `server/mcp/manager.py` | MCPClientManager，负责 Stdio、Streamable HTTP 与旧 SSE session 生命周期。 |
+| `server/mcp/catalog.py` | 冻结目录、固定适配器、功能开关、配置门禁和目录 API。 |
 | `server/toolsets/` | Toolset/凭据 Store、版本发布、Schema 漂移与固定版本 Provider。 |
 | `client/src/pages/ToolsetsPage.tsx` | MCP Toolset 创建、连接、工具配置、测试和发布管理页。 |
 | `server/tests/test_toolset_*.py` | Toolset Store、API、连接、固定版本与安全回归。 |
@@ -373,11 +373,13 @@ python server/mcp/test_manager.py
 | `server/tests/mock_mcp_server.py` | 本地 mock MCP Server。 |
 | `server/tests/test_mcp_integration.py` | FastAPI MCP 端点集成测试。 |
 | `server/tests/test_mcp_multisession.py` | 多 session、TTL 与 ToolRegistry 集成测试。 |
+| `server/tests/test_mcp_catalog.py` | 100 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
-| `client/src/data/mcpProjects.ts` | MCP 项目与可选 stdio 命令数据。 |
+| `client/src/data/mcpProjects.ts` | MCP 中文展示资料；不能作为执行配置来源。 |
+| `client/src/data/mcpAdaptationPlan.ts` | 前端批次、状态、连接形态和风险展示。 |
 
 ## 7. 中文目录与后续适配
 
-`/mcps` 同时展示可本地 stdio 连接的 Server 和已收录但尚未适配的生态项目。带 OAuth、Token、额外运行时、桌面宿主、远程传输或外站认证要求的条目不得暴露 `command`，只能展示中文用途、接入条件和等待适配状态。
+`/mcps` 同时展示已通过生产验收的 Server 和按批次排队的生态项目。待适配条目只能展示中文用途、接入条件、批次和安全门槛；只有后端返回 `ready + executable` 才能连接。
 
 来源同步、安全运行时、OAuth / Secret 代理、用户自定义连接和 MCP Builder 的阶段计划见 [MCP_CATALOG_ROADMAP.md](./MCP_CATALOG_ROADMAP.md)。
