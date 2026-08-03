@@ -100,8 +100,10 @@ def test_worker_config_is_read_only_and_child_env_is_allowlisted(
     assert client._config.environment["OPENCODE_PURE"] == "1"
     assert client._config.environment["OPENCODE_DISABLE_AUTOUPDATE"] == "1"
     assert client._config.environment["OPENCODE_DISABLE_MODELS_FETCH"] == "1"
+    assert client._config.environment["PYTHONPATH"] == "/opt/modelmirror"
     assert set(client._config.environment) == {
         "PATH",
+        "PYTHONPATH",
         "HOME",
         "OPENCODE_TEST_HOME",
         "XDG_CONFIG_HOME",
@@ -147,6 +149,34 @@ async def test_acp_initializes_and_maps_streaming_updates() -> None:
     }
     assert session.state is CodingSessionState.CLOSED
     assert client.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_turn_started_is_observable_before_prompt_request_can_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = make_client()
+    session = CodingSession(state=CodingSessionState.READY)
+    client._session = session
+    client._acp_session_id = "acp-session"
+    prompt_requested = False
+
+    async def request(method: str, _params: dict[str, Any], **_kwargs: Any):
+        nonlocal prompt_requested
+        assert method == "session/prompt"
+        prompt_requested = True
+        return {"stopReason": "end_turn"}
+
+    monkeypatch.setattr(client, "_request", request)
+    stream = client.prompt(session, "Request a confirmed project command")
+
+    started = await anext(stream)
+
+    assert started.kind is CodingEventKind.TURN_STARTED
+    assert prompt_requested is False
+    remaining = [event async for event in stream]
+    assert prompt_requested is True
+    assert remaining[-1].kind is CodingEventKind.TURN_COMPLETED
 
 
 @pytest.mark.asyncio

@@ -32,6 +32,7 @@ import PageContainer from "../components/PageContainer";
 import type {
   CodingApplyResult,
   CodingCapabilities,
+  CodingCommandRequest,
   CodingCommitResult,
   CodingCycleHistory,
   CodingDraftChanges,
@@ -46,18 +47,21 @@ import {
   applyCodingChanges,
   cancelCodingTurn,
   cancelCodingVerification,
+  confirmCodingVerification,
   closeCodingSession,
   commitCodingChanges,
   continueCodingSession,
   CodingApiError,
   connectCodingEvents,
   createCodingSession,
+  decideCodingCommand,
   discardCodingRecovery,
   discardCodingChanges,
   getCodingCapabilities,
   getCodingApplyStatus,
   getCodingChanges,
   getCodingCommitStatus,
+  getPendingCodingCommand,
   getCodingHistory,
   getCodingPatch,
   getCodingProjects,
@@ -102,6 +106,7 @@ const BUILTIN_PROJECT: CodingProjectSummary = {
     apply: true,
     chat: true,
     commit: true,
+    commands: false,
     diff: true,
     download: true,
     draft: true,
@@ -190,6 +195,12 @@ const errorMessage: Record<string, string> = {
   verifier_unavailable: "项目验证服务未启动，仍可查看和下载修改。",
   snapshot_mismatch: "项目版本已经变化，当前操作不能继续；已有修改仍可查看和下载。",
   verification_not_found: "本次项目验证记录已失效，请重新运行。",
+  verification_confirmation_stale:
+    "检查内容已经变化，请重新查看命令并再次确认。",
+  command_request_not_found: "这项检查已结束或过期，无需再次处理。",
+  command_decision_invalid: "没有识别到这次选择，请重新操作。",
+  command_turn_inactive: "本轮处理已经结束，这项检查不会运行。",
+  runner_unauthorized: "检查请求已失效，请让代码助手重新提出。",
   recovery_pending: "发现一份未完成的修改，请先选择继续、下载或放弃。",
   recovery_conflict: "外部内容后来发生变化，为避免覆盖人工内容，现在只允许查看或下载。",
   recovery_data_corrupt: "保存的修改无法安全读取，请下载可用内容或联系开发者处理。",
@@ -248,6 +259,10 @@ function toolKindLabel(kind: string) {
   return "查阅代码";
 }
 
+function formatArgv(argv: string[]) {
+  return argv.map((argument) => JSON.stringify(argument)).join(" ");
+}
+
 function CodingSidebar({
   isDraft,
   localDraftOnly,
@@ -278,14 +293,14 @@ function CodingSidebar({
           </li>
           <li>
             {localDraftOnly
-              ? "本轮不运行项目验证，也不创建本地提交或 GitHub PR。"
+              ? "项目检查和代码助手提出的命令都需要你确认，只会在临时副本中运行。"
               : isDraft
               ? "代码助手不会自行运行检查；项目验证只在你手动启动时执行固定步骤。"
               : "不会执行命令、运行测试或访问外部网站。"}
           </li>
           <li>
             {localDraftOnly
-              ? "代码助手不会执行命令、访问外部网站或启用项目内的扩展配置。"
+              ? "检查不能联网，运行产生的文件会被丢弃；不会创建本地提交或 GitHub PR。"
               : isDraft
               ? "只有你再次确认，才会保存为本地提交；不会自动上传或合并，发布到 GitHub 还需单独确认。当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
@@ -298,6 +313,87 @@ function CodingSidebar({
         </ul>
       </div>
     </div>
+  );
+}
+
+function CodingCommandConfirmation({
+  action,
+  error,
+  onDecision,
+  request,
+}: {
+  action: "idle" | "allowing" | "rejecting";
+  error: string;
+  onDecision: (decision: "allow_once" | "reject") => Promise<void>;
+  request: CodingCommandRequest;
+}) {
+  return (
+    <section
+      aria-live="polite"
+      aria-labelledby="coding-command-title"
+      className="order-2 rounded-lg border border-cyan-300/25 bg-cyan-300/[0.07] p-4"
+    >
+      <div className="flex items-start gap-3">
+        <ShieldCheck
+          aria-hidden="true"
+          className="mt-0.5 shrink-0 text-cyan-200"
+          size={19}
+        />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-white" id="coding-command-title">
+            代码助手希望运行一项检查
+          </h2>
+          <p className="mt-1 text-sm font-medium text-cyan-100">
+            {request.command.name}
+          </p>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-300">
+            只会在临时项目副本中运行，不能联网，也不会改变你的本地项目。
+          </p>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-300 outline-none hover:text-white focus-visible:ring-2 focus-visible:ring-cyan-300/70">
+              查看命令
+            </summary>
+            <div className="mt-2 min-w-0 rounded-lg bg-black/25 p-3">
+              <code className="block overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-5 text-slate-300">
+                {formatArgv(request.command.argv)}
+              </code>
+              {request.command.cwd !== "." ? (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  运行位置：{request.command.cwd}
+                </p>
+              ) : null}
+            </div>
+          </details>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <button
+              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={action !== "idle"}
+              onClick={() => void onDecision("reject")}
+              type="button"
+            >
+              {action === "rejecting" ? "正在拒绝" : "暂不运行"}
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-cyan-200 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={action !== "idle"}
+              onClick={() => void onDecision("allow_once")}
+              type="button"
+            >
+              {action === "allowing" ? "正在开始" : "允许本次运行"}
+            </button>
+          </div>
+          <p aria-live="polite" className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+            <Clock3 aria-hidden="true" size={13} />
+            等待你确认时，代码助手会暂停这项检查。
+          </p>
+          {error ? (
+            <p className="mt-2 text-xs leading-5 text-rose-100" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -333,6 +429,12 @@ export default function CodingPage() {
   const [verification, setVerification] =
     useState<CodingVerification | null>(null);
   const [verificationError, setVerificationError] = useState("");
+  const [pendingCommand, setPendingCommand] =
+    useState<CodingCommandRequest | null>(null);
+  const [commandAction, setCommandAction] = useState<
+    "idle" | "allowing" | "rejecting"
+  >("idle");
+  const [commandError, setCommandError] = useState("");
   const [applyResult, setApplyResult] = useState<CodingApplyResult | null>(
     null,
   );
@@ -368,11 +470,15 @@ export default function CodingPage() {
     (selectedProjectId === "modelmirror" ? BUILTIN_PROJECT : null);
   const isLocalProject = selectedProject?.kind === "local_clone";
   const supportsVerification = selectedProject?.features.verification !== false;
+  const supportsCommands = selectedProject?.features.commands === true;
   const supportsApply = selectedProject?.features.apply !== false;
   const supportsCommit = selectedProject?.features.commit !== false;
   const supportsPublish = selectedProject?.features.publish !== false;
   const verificationAvailable =
-    supportsVerification && capabilities?.verification.available === true;
+    supportsVerification &&
+    (isLocalProject
+      ? capabilities?.commands.available === true
+      : capabilities?.verification.available === true);
   const serviceAvailable = capabilities?.available === true;
   const selectedProjectAvailable = Boolean(
     selectedProject &&
@@ -384,6 +490,11 @@ export default function CodingPage() {
   const isBusy = ["starting", "running", "stopping"].includes(runState);
   const verificationRunning =
     verification?.state === "running" && verification.stale === false;
+  const verificationActive =
+    verification?.stale === false &&
+    ["awaiting_confirmation", "running"].includes(
+      verification?.state ?? "",
+    );
   const publishRunning =
     publishResult?.state === "publishing" ||
     publishResult?.state === "marking_ready";
@@ -491,6 +602,9 @@ export default function CodingPage() {
       setDraftNotice("");
       setVerification(null);
       setVerificationError("");
+      setPendingCommand(null);
+      setCommandAction("idle");
+      setCommandError("");
       setApplyResult(null);
       setApplyError("");
       setCommitResult(null);
@@ -552,6 +666,9 @@ export default function CodingPage() {
         setDraftNotice("");
         setVerification(null);
         setVerificationError("");
+        setPendingCommand(null);
+        setCommandAction("idle");
+        setCommandError("");
         setApplyResult(null);
         setApplyError("");
         setCommitResult(null);
@@ -707,6 +824,47 @@ export default function CodingPage() {
     sessionId,
     verification?.revision,
     verificationRunning,
+  ]);
+
+  useEffect(() => {
+    if (
+      !sessionId ||
+      !isLocalProject ||
+      !supportsCommands ||
+      capabilities?.commands.available !== true
+    ) {
+      setPendingCommand(null);
+      setCommandAction("idle");
+      setCommandError("");
+      return;
+    }
+    let active = true;
+    void getPendingCodingCommand(sessionId)
+      .then(({ pending }) => {
+        if (!active) return;
+        setPendingCommand(pending);
+        setCommandError("");
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setCommandError(describeError(requestError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    capabilities?.commands.available,
+    isLocalProject,
+    resetExpiredSession,
+    sessionId,
+    supportsCommands,
   ]);
 
   const answer = useMemo(
@@ -1032,8 +1190,30 @@ export default function CodingPage() {
       }
       queueStreamEvent(event, eventProject?.id ?? selectedProjectId);
       setTransportWarning("");
-      if (event.type === "turn_completed") {
+      if (
+        event.type === "command_requested" &&
+        event.data.request_id &&
+        event.data.command
+      ) {
+        setPendingCommand({
+          command: event.data.command,
+          created_at: event.created_at,
+          expires_at: event.data.expires_at ?? null,
+          request_id: event.data.request_id,
+          result: null,
+          state: "awaiting_confirmation",
+        });
+        setCommandAction("idle");
+        setCommandError("");
+      } else if (event.type === "command_resolved") {
+        setPendingCommand((current) =>
+          current?.request_id === event.data.request_id ? null : current,
+        );
+        setCommandAction("idle");
+      } else if (event.type === "turn_completed") {
         initialDraftLoadSessionRef.current = event.session_id;
+        setPendingCommand(null);
+        setCommandAction("idle");
         setRunState("idle");
         if (isDraftMode) {
           setDraftNotice("本轮已完成，修改草稿和检查结果已更新。");
@@ -1044,6 +1224,8 @@ export default function CodingPage() {
         }
       } else if (event.type === "cancelled") {
         initialDraftLoadSessionRef.current = event.session_id;
+        setPendingCommand(null);
+        setCommandAction("idle");
         setRunState("idle");
         if (isDraftMode) {
           setDraftNotice("本轮修改已撤销，此前保留的草稿不受影响。");
@@ -1054,6 +1236,8 @@ export default function CodingPage() {
         }
       } else if (event.type === "failed") {
         initialDraftLoadSessionRef.current = event.session_id;
+        setPendingCommand(null);
+        setCommandAction("idle");
         closeStreamRef.current?.();
         setRunState("error");
         setError(
@@ -1088,7 +1272,7 @@ export default function CodingPage() {
       runState === "starting" ||
       runState === "running" ||
       runState === "stopping" ||
-      verificationRunning ||
+      verificationActive ||
       sessionFrozen ||
       hasPendingRecovery
     ) {
@@ -1101,6 +1285,9 @@ export default function CodingPage() {
     setTransportWarning("");
     setDraftError("");
     setDraftNotice("");
+    setPendingCommand(null);
+    setCommandAction("idle");
+    setCommandError("");
     try {
       let activeSessionId = sessionId;
       if (!activeSessionId) {
@@ -1216,6 +1403,41 @@ export default function CodingPage() {
       setVerification(result);
     } catch (requestError) {
       setVerificationError(describeError(requestError));
+    }
+  };
+
+  const confirmVerification = async () => {
+    if (!sessionId || !verification?.confirmation_id) return;
+    setVerificationError("");
+    try {
+      const result = await confirmCodingVerification(
+        sessionId,
+        verification.revision,
+        verification.confirmation_id,
+      );
+      setVerification(result);
+    } catch (requestError) {
+      setVerificationError(describeError(requestError));
+    }
+  };
+
+  const decidePendingCommand = async (
+    decision: "allow_once" | "reject",
+  ) => {
+    if (!sessionId || !pendingCommand || commandAction !== "idle") return;
+    setCommandAction(decision === "allow_once" ? "allowing" : "rejecting");
+    setCommandError("");
+    try {
+      await decideCodingCommand(
+        sessionId,
+        pendingCommand.request_id,
+        decision,
+      );
+      setPendingCommand(null);
+    } catch (requestError) {
+      setCommandError(describeError(requestError));
+    } finally {
+      setCommandAction("idle");
     }
   };
 
@@ -1690,7 +1912,7 @@ export default function CodingPage() {
                 ? projectReason[selectedProject.reason ?? ""] ??
                   "这个项目目前不能安全读取，请由开发者检查项目状态。"
                 : isLocalProject
-                  ? "可查看、准备修改并下载 Diff；不会写入本地项目，也不会运行项目验证、创建提交或发布 PR。"
+                  ? "可查看、准备修改、确认离线检查并下载 Diff；不会写入本地项目、创建提交或发布 PR。"
                   : "ModelMirror 提供修改审阅、项目验证、受控应用、本地提交和 GitHub 草稿 PR 的完整流程。"}
             </p>
             {projectSelectionLocked ? (
@@ -1742,7 +1964,7 @@ export default function CodingPage() {
               : workspaceAvailable
                 ? isDraftMode
                   ? isLocalProject
-                    ? "修改只保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
+                    ? "修改只保存在临时副本。你可以审阅文件，并确认是否运行离线项目检查。"
                     : "修改会先保存在临时副本。回答结束后，页面会自动列出文件并检查常见问题。"
                   : "一次只处理一个问题，最长可输入 20,000 字符，闲置 30 分钟后会自动清理。"
                 : serviceAvailable
@@ -1799,7 +2021,9 @@ export default function CodingPage() {
               <span className="rounded-full bg-white/[0.055] px-2.5 py-1 text-xs text-slate-300">
                 {answer && runState === "idle"
                   ? "回答完成"
-                  : statusLabel(runState)}
+                  : pendingCommand
+                    ? "等待你确认"
+                    : statusLabel(runState)}
               </span>
             </div>
             <div
@@ -1809,7 +2033,7 @@ export default function CodingPage() {
               {answer ? (
                 <div className="max-w-none break-words text-sm leading-7 text-slate-200 [&_a]:text-cyan-200 [&_a]:underline [&_blockquote]:my-4 [&_blockquote]:border-l [&_blockquote]:border-white/20 [&_blockquote]:pl-4 [&_code]:text-cyan-100 [&_h1]:mb-4 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:text-white [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-white [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:font-semibold [&_h3]:text-white [&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-3 [&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-black/35 [&_pre]:p-4 [&_table]:my-4 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:border [&_td]:border-white/10 [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-white/10 [&_th]:px-3 [&_th]:py-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
-                  {runState === "running" ? (
+                  {runState === "running" && !pendingCommand ? (
                     <span
                       aria-label="回答生成中"
                       className="ml-1 inline-block h-4 w-1 bg-cyan-300/80 align-middle"
@@ -1869,7 +2093,7 @@ export default function CodingPage() {
               disabled={
                 !workspaceAvailable ||
                 isBusy ||
-                verificationRunning ||
+                verificationActive ||
                 sessionFrozen ||
                 hasPendingRecovery
               }
@@ -1915,7 +2139,7 @@ export default function CodingPage() {
                     disabled={
                       !workspaceAvailable ||
                       !prompt.trim() ||
-                      verificationRunning ||
+                      verificationActive ||
                       sessionFrozen ||
                       hasPendingRecovery
                     }
@@ -1941,6 +2165,15 @@ export default function CodingPage() {
             >
               {error || transportWarning}
             </div>
+          ) : null}
+
+          {pendingCommand ? (
+            <CodingCommandConfirmation
+              action={commandAction}
+              error={commandError}
+              onDecision={decidePendingCommand}
+              request={pendingCommand}
+            />
           ) : null}
 
           {draftNotice && isDraftMode ? (
@@ -1999,6 +2232,7 @@ export default function CodingPage() {
                 onDiscard={discardDraft}
                 onDownload={downloadDraft}
                 onCancelVerification={stopVerification}
+                onConfirmVerification={confirmVerification}
                 onMarkPublishReady={markPublishedDraftReady}
                 onPublish={publishCommittedDraft}
                 onRequestFix={prepareVerificationFix}

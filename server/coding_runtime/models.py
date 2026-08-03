@@ -15,6 +15,8 @@ class CodingEventKind(StrEnum):
     PLAN = "plan"
     ANSWER_DELTA = "answer_delta"
     TOOL_STATUS = "tool_status"
+    COMMAND_REQUESTED = "command_requested"
+    COMMAND_RESOLVED = "command_resolved"
     TURN_COMPLETED = "turn_completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

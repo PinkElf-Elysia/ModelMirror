@@ -49,6 +49,7 @@ interface CodingChangesPanelProps {
   onDiscard: () => Promise<void>;
   onDownload: () => Promise<void>;
   onCancelVerification: () => Promise<void>;
+  onConfirmVerification: () => Promise<void>;
   onRequestFix: (prompt: string) => void;
   onRunVerification: () => Promise<void>;
   onMarkPublishReady: () => Promise<void>;
@@ -572,6 +573,7 @@ export default function CodingChangesPanel({
   onDiscard,
   onDownload,
   onCancelVerification,
+  onConfirmVerification,
   onRequestFix,
   onRunVerification,
   onMarkPublishReady,
@@ -659,7 +661,10 @@ export default function CodingChangesPanel({
   );
   const isActing = action !== "idle";
   const verificationRunning =
-    verification?.state === "running" && verification.stale === false;
+    verification?.stale === false &&
+    ["awaiting_confirmation", "running"].includes(
+      verification?.state ?? "",
+    );
   const verificationSupportsDownload =
     verification?.revision === changes?.revision &&
     verification?.stale === false &&
@@ -857,12 +862,24 @@ export default function CodingChangesPanel({
             </ul>
 
             {localDraftOnly ? (
-              <div className="mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] p-3 text-sm text-cyan-100">
-                <p className="font-semibold">此项目只准备修改草稿</p>
-                <p className="mt-1 text-xs leading-5 text-slate-300">
-                  你可以逐项查看、检查并下载 Diff。页面不会运行项目验证，也不会把修改写入本地项目。
-                </p>
-              </div>
+              <>
+                <div className="mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.07] p-3 text-sm text-cyan-100">
+                  <p className="font-semibold">本地项目保持不变</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">
+                    你可以查看 Diff、运行确认过的检查并下载修改。所有检查都在临时副本中完成，不会写入本地项目。
+                  </p>
+                </div>
+                <CodingVerificationPanel
+                  available={verificationAvailable}
+                  disabled={disabled || readOnly || frozen || isActing}
+                  error={verificationError}
+                  onCancel={onCancelVerification}
+                  onConfirm={onConfirmVerification}
+                  onRequestFix={onRequestFix}
+                  onRun={onRunVerification}
+                  verification={verification}
+                />
+              </>
             ) : (
               <>
                 <CodingVerificationPanel
@@ -870,6 +887,7 @@ export default function CodingChangesPanel({
                   disabled={disabled || readOnly || frozen || isActing}
                   error={verificationError}
                   onCancel={onCancelVerification}
+                  onConfirm={onConfirmVerification}
                   onRequestFix={onRequestFix}
                   onRun={onRunVerification}
                   verification={verification}
@@ -1068,6 +1086,7 @@ export default function CodingChangesPanel({
               empty
               error={verificationError}
               onCancel={onCancelVerification}
+              onConfirm={onConfirmVerification}
               onRequestFix={onRequestFix}
               onRun={onRunVerification}
               verification={verification}

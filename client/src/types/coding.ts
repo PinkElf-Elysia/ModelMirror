@@ -4,6 +4,8 @@ export type CodingEventType =
   | "plan"
   | "answer_delta"
   | "tool_status"
+  | "command_requested"
+  | "command_resolved"
   | "turn_completed"
   | "failed"
   | "cancelled"
@@ -21,6 +23,7 @@ export interface CodingProjectFeatures {
   publish: boolean;
   recovery: boolean;
   verification: boolean;
+  commands?: boolean;
 }
 
 export interface CodingProjectSummary {
@@ -82,6 +85,17 @@ export interface CodingCapabilities {
     supports_undo: true;
     target: "isolated_local_repository";
   };
+  commands: {
+    available: boolean;
+    confirmation: "always";
+    enabled: boolean;
+    execution: "isolated_copy";
+    max_commands_per_turn: number;
+    max_duration_seconds: number;
+    network: false;
+    persists_output: false;
+    reason?: string;
+  };
   incremental?: {
     available: boolean;
     commit_strategy: "linear";
@@ -134,10 +148,15 @@ export interface CodingEventData {
   kind?: string;
   project?: CodingProjectSummary;
   status?: string;
+  state?: string;
   stop_reason?: string;
   text?: string;
   title?: string;
   tool_call_id?: string;
+  request_id?: string;
+  command?: CodingProjectCommand;
+  expires_at?: number | null;
+  result?: CodingCommandResult | null;
 }
 
 export interface CodingEvent {
@@ -233,6 +252,7 @@ export interface CodingPatchDownload {
 
 export type CodingVerificationState =
   | "not_started"
+  | "awaiting_confirmation"
   | "running"
   | "completed"
   | "cancelled";
@@ -244,13 +264,10 @@ export type CodingVerificationResult =
   | "not_applicable";
 
 export interface CodingVerificationStep {
+  command?: CodingProjectCommand | null;
   details: string;
   duration_ms: number | null;
-  id:
-    | "backend_tests"
-    | "backend_baseline_tests"
-    | "backend_draft_tests"
-    | "frontend_build";
+  id: string;
   label: string;
   result: CodingVerificationResult;
   state: CodingVerificationState;
@@ -259,6 +276,7 @@ export interface CodingVerificationStep {
 }
 
 export interface CodingVerification {
+  confirmation_id?: string | null;
   finished_at: number | null;
   reason: string | null;
   result: CodingVerificationResult;
@@ -267,11 +285,44 @@ export interface CodingVerification {
   started_at: number | null;
   state: CodingVerificationState;
   steps: CodingVerificationStep[];
+  plan_fingerprint?: string | null;
 }
 
 export interface CodingVerificationCancelResponse
   extends CodingVerification {
   accepted: boolean;
+}
+
+export interface CodingProjectCommand {
+  argv: string[];
+  cwd: string;
+  id: string;
+  kind: "test" | "build" | "lint" | "typecheck" | "custom";
+  name: string;
+  timeout_seconds: number;
+}
+
+export interface CodingCommandResult {
+  duration_seconds: number;
+  exit_code: number | null;
+  output: string;
+  status: string;
+}
+
+export interface CodingCommandRequest {
+  command: CodingProjectCommand;
+  created_at: number | null;
+  expires_at: number | null;
+  request_id: string;
+  result: CodingCommandResult | null;
+  state:
+    | "awaiting_confirmation"
+    | "running"
+    | "completed"
+    | "rejected"
+    | "timed_out"
+    | "cancelled"
+    | "failed";
 }
 
 export type CodingApplyState =

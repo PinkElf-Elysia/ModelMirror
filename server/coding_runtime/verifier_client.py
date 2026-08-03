@@ -73,7 +73,61 @@ class CodingVerifierClient:
     async def close(self, *, session_id: str) -> None:
         await self._request({"action": "close", "session_id": session_id})
 
-    async def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def execute_command(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        source: dict[str, Any],
+        patch: str,
+        paths: Sequence[str],
+        command: dict[str, Any],
+        runner_pack_id: str | None,
+        max_duration_seconds: float,
+    ) -> dict[str, Any]:
+        response = await self._request(
+            {
+                "action": "execute_command",
+                "session_id": session_id,
+                "request_id": request_id,
+                "source": source,
+                "patch": patch,
+                "paths": list(paths),
+                "command": command,
+                "runner_pack_id": runner_pack_id,
+                "max_duration_seconds": max_duration_seconds,
+            },
+            timeout=max(5.0, min(float(max_duration_seconds) + 10.0, 610.0)),
+        )
+        result = response.get("command")
+        if not isinstance(result, dict):
+            raise VerifierClientError(
+                "Project command response is invalid.",
+                code="invalid_response",
+            )
+        return result
+
+    async def cancel_command(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+    ) -> bool:
+        response = await self._request(
+            {
+                "action": "cancel_command",
+                "session_id": session_id,
+                "request_id": request_id,
+            }
+        )
+        return response.get("accepted") is True
+
+    async def _request(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(
@@ -105,7 +159,7 @@ class CodingVerifierClient:
             await writer.drain()
             raw = await asyncio.wait_for(
                 reader.readline(),
-                timeout=self._timeout,
+                timeout=timeout or self._timeout,
             )
             if not raw or len(raw) > MAX_VERIFIER_FRAME_BYTES:
                 raise VerifierClientError(

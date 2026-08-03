@@ -17,11 +17,12 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 确认是否标记为 Ready。
 
 ModelMirror 使用镜像内固定快照并保留完整闭环；自定义项目使用无网络 Project Source
-从干净独立克隆的 Git HEAD 生成单槽只读快照，只开放问答、草稿、Diff、下载和恢复。
+从干净独立克隆的 Git HEAD 生成单槽只读快照，开放问答、草稿、Diff、下载、恢复和
+逐次确认的离线项目检查。
 Draft 默认不会写回任何宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
 系统只在用户确认后向固定独立克隆创建本地提交；远程发布也只允许固定 GitHub.com
 仓库、系统分支和 Draft PR，不提供合并、关闭或远端清理。系统不支持删除、重命名、
-二进制、Agent Shell/测试命令、仓库或分支选择、多 Agent、完整 ACP、
+二进制、直接 Shell、未经确认的命令、仓库或分支选择、多 Agent、完整 ACP、
 分布式 Worker、保存对话、多任务历史或生产级多租户。不要将该入口直接暴露到公网。
 
 ## 用户体验约束
@@ -39,6 +40,8 @@ Draft 默认不会写回任何宿主目录；受控应用也只允许写入预�
 - “放弃修改”必须二次确认；检查失败时保留草稿供修正，但禁用下载。
 - “项目验证”由用户手动运行，使用“检查服务代码”“检查页面构建”等日常语言。
   运行时可停止，失败详情默认折叠；“让代码助手修复”只填入摘要，不自动提交。
+- 自定义项目先完整列出检查名称，再由用户一次确认本批固定命令；代码助手临时提出的
+  每条命令都单独显示确认卡。精确参数默认折叠，拒绝不是错误，等待确认不持续旋转。
 - 未运行或失败的项目验证不阻止下载，但必须原位警告并让用户再次确认；验证服务
   未启动时，Diff、轻量检查和下载继续可用。
 - “应用到本地项目副本”仅在门禁满足时启用；确认区必须说明文件数量、不会提交或
@@ -74,6 +77,9 @@ flowchart LR
   OC --> WORK
   OC -->|"内部网络"| GW["newAPI"]
   WORKER -->|"revision + 内部 Patch"| VERIFY["coding-verifier"]
+  OC -->|"固定系统 MCP"| RUNNER["逐次确认命令桥"]
+  RUNNER -->|"用户允许一次"| VERIFY
+  PACKS["可选只读离线依赖包"] --> VERIFY
   SOURCE2["Verifier 只读基准快照"] --> VERIFY
   VERIFY --> CHECKS["固定后端测试 / 前端构建"]
   API -->|"独立私有 Unix socket"| APPLY["coding-applier"]
@@ -114,6 +120,9 @@ flowchart LR
 | `POST /api/coding/sessions/{id}/verification` | 为指定 revision 启动项目验证；返回 `202`。 |
 | `GET /api/coding/sessions/{id}/verification?revision=` | 查询运行状态、结论和固定步骤摘要。 |
 | `POST /api/coding/sessions/{id}/verification/cancel` | 停止指定 revision 的验证；重复调用安全。 |
+| `POST /api/coding/sessions/{id}/verification/confirm` | 确认自定义项目当前 revision 的固定检查计划。 |
+| `GET /api/coding/sessions/{id}/commands/pending` | SSE 重连后查询当前待确认命令，不返回内部令牌。 |
+| `POST /api/coding/sessions/{id}/commands/{request_id}/decision` | 对一条代码助手命令选择 `allow_once` 或 `reject`。 |
 | `POST /api/coding/sessions/{id}/apply` | 应用指定 revision；请求体只允许 `revision`。Windows 绑定目录扫描较慢时最多等待 90 秒。 |
 | `POST /api/coding/sessions/{id}/commit` | 保存本地提交；Windows 绑定目录扫描较慢时最多等待 90 秒。 |
 | `GET /api/coding/sessions/{id}/apply?revision=` | 查询应用、撤销状态和是否仍可撤销。 |
@@ -145,8 +154,8 @@ Draft、精确基础版本要求和 Ready 支持；不可用原因不影响本�
 `projects` 公开 enabled、configured、available、selection、默认项目和最多项目数；
 会话开始事件、会话状态和恢复状态只携带项目 ID、显示名、来源、短 HEAD 与功能矩阵。
 
-公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、完成、失败、
-取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答或工具输出。
+公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、命令待确认、命令已处理、
+完成、失败、取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答、命令审批或工具输出。
 计划事件是可选能力：OpenCode 1.18.9 的 ACP 会话不保证每轮产生结构化计划，
 没有计划事件时页面直接展示查阅记录和流式回答。
 
@@ -187,8 +196,8 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
   MCP、插件、provider 和其他可执行配置均隐藏且不会生效。Runtime 还会复核项目 ID、
   HEAD、租约与快照指纹，避免跨项目串读。
 - 自定义项目沿用 20 个变化文件、单文件 512 KiB、Patch 1 MiB 限额，只允许新增或修改
-  UTF-8 文本。项目验证、应用、本地提交和发布接口固定返回
-  `project_operation_unavailable`，不会误用 ModelMirror 的执行面。
+  UTF-8 文本。项目验证与逐次确认命令仅在临时副本中运行；应用、本地提交和发布接口固定
+  返回 `project_operation_unavailable`，不会误用 ModelMirror 的执行面。
 - 加密恢复存储在独立上下文表保存项目 ID、来源、显示名和基准 HEAD，不保存宿主路径，
   也不改变 recovery schema v3 的 `user_version`。旧记录自动视为 ModelMirror；项目
   被删除、变脏或 HEAD 改变时禁止继续恢复，但仍可下载原始 Diff。
@@ -208,6 +217,29 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 
 这些轻量检查不是完整项目测试。项目验证是额外的用户手动步骤；无论结果如何，
 下载后的 Patch 仍需由开发者审阅。
+
+## 自定义项目命令与验证
+
+- 项目清单 version 2 可配置最多 8 条检查；version 1 继续有效。系统还会识别根目录
+  Python 测试配置，以及根 `package.json` 的 `test`、`typecheck`、`lint`、`build` 脚本。
+  每条检查只包含规范化 argv、项目内相对 cwd、日常语言名称和 1–300 秒超时。
+- OpenCode 仍禁止 `bash`、`task`、仓库 MCP、插件与联网工具。只有产品注入的固定
+  `modelmirror-runner` MCP 可提出结构化命令；浏览器确认后由 Runtime 授予一次执行权，
+  不接受 shell 字符串、环境变量、stdin、宿主路径或网络设置。
+- 每轮最多提出 20 条命令，同时只等待或运行 1 条，累计执行不超过 600 秒。确认 300 秒
+  后失效；拒绝或超时作为普通工具结果返回代码助手，不结束本轮。整体停止会拒绝待确认
+  请求、终止运行进程组并清理临时工作区。
+- Verifier 每次复核项目 ID、HEAD、租约、快照指纹、Patch、cwd、argv 和可选 Runner Pack，
+  再复制到独立 tmpfs 执行；它无网络且不继承模型、Git 或宿主凭据。命令生成的缓存、构建
+  产物和文件修改在返回结果前全部丢弃，草稿与宿主项目不会改变。
+- 可选 Runner Pack 只读挂载给 Verifier，声明 Linux、Python 3.12、Node 22、依赖输入哈希
+  和安全相对依赖路径。Pack ID 必须对应不可变内容；内容更新必须使用新 ID，才能使计划
+  指纹和旧验证结果可靠过期。缺失、失配或不安全的 Pack 只显示“运行环境未就绪”。
+- 修改测试时，测试类检查先运行不含草稿测试改动的基准版本，再运行完整草稿。修改依赖
+  清单时自动验证不联网安装依赖，而是返回“运行环境未就绪”；基础 Python/Node 命令仍可
+  单独逐次确认。
+- 待确认命令、决定和输出不持久化。只有完成且经过脱敏的项目验证结论可以随完整草稿加密
+  保存；恢复时重新计算 HEAD、Patch、命令计划和 Pack ID 指纹，不一致即标记过期并要求重跑。
 
 ## 隔离项目验证
 
@@ -331,6 +363,8 @@ CODING_GITHUB_PUBLISH_ENABLED=false
 CODING_GITHUB_BASE_BRANCH=main
 CODING_PROJECTS_ENABLED=false
 CODING_PROJECTS_ROOT=
+CODING_PROJECT_COMMANDS_ENABLED=false
+CODING_RUNNER_PACKS_ROOT=
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
@@ -345,7 +379,10 @@ CODING_PROJECTS_ROOT=
 和安装令牌不得写入 `.env`、日志、Git 配置或恢复数据库。
 受控项目必须显式设置绝对 `CODING_PROJECTS_ROOT` 并加载
 `docker-compose.coding-projects.yml`；完整清单格式、限制与重建命令见
-[DEPLOYMENT.md](./DEPLOYMENT.md)。本轮未新增前端或后端第三方依赖；OpenCode 仍固定
+[DEPLOYMENT.md](./DEPLOYMENT.md)。自定义项目命令还需加载
+`docker-compose.coding-commands.yml`；`CODING_RUNNER_PACKS_ROOT` 可省略，此时仅使用镜像内
+Python 3.12、Node 22/npm 与已有锁定依赖。若设置该变量，必须使用部署者控制的绝对目录，
+每个 Pack 使用不可变版本 ID，且只读挂载给 Verifier。本轮未新增前端或后端第三方依赖；OpenCode 仍固定
 为 `1.18.9`（MIT），现有第三方声明无需新增条目。
 
 实现分支尚未合并时，基于实现 HEAD 创建的验收仓库不可能与 GitHub `main` 精确匹配。
@@ -399,6 +436,13 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
 - `docker ps` 的 healthy 仅是第一层检查。还必须从 Server 通过各自 Unix socket 调用五个 Coding 执行面的 health，确认 socket 路径存在且可连接。
 - 多轮恢复中，累计修改可以位于 `base_patch`，当前轮 `patch` 可以为空；`patch/paths` 与 `base_patch/base_paths` 分别成对校验。恢复页连续返回 `invalid_request` 时优先检查这一契约。
 - 完整重建前检查 pending 恢复记录。源码快照指纹变化后旧记录只能下载或标记过期，不得改写指纹强行恢复。
+- 命令确认不能依赖供应商的非标准 raw input；只接受产品定义的四个结构化字段。曾出现的
+  “页面看似等待、后端实际没有可恢复请求”来自把确认状态只放在 SSE 瞬时事件中；当前必须
+  同时维护可查询 pending 状态，并让重复决定幂等失败而不是重复执行。
+- 不要为降低等待感而轮询整页或缩短安全清理。高频刷新会造成页面闪烁，命令卡应由事件增量
+  更新，断线时只补查 pending；等待用户确认时停止动画，但保留整体取消。
+- Runner Pack 失配属于环境问题，不是代码失败；不得为了“通过”而联网安装、复用宿主
+  `node_modules` 或降低哈希检查。命令输出返回前必须先清理工作区，防止成功路径遗漏产物清理。
 
 1. 以 `CODING_AGENT_MODE=readonly` 提交一个可从当前源码验证的问题，确认流式
    回答、取消和只读行为仍正常。
@@ -457,8 +501,20 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
 28. 保存自定义项目草稿后分别重启 Server、Runtime 和 Project Source。HEAD 未变时恢复
     精确 Diff；删除项目、弄脏仓库或推进 HEAD 后只允许下载，不显示此前对话或宿主路径。
 29. 停止 Project Source，确认内置 ModelMirror 的验证、应用、提交、恢复和发布完整可用。
+30. 为随机 Python 项目加入 `calc_k7m4.py` 和先失败后通过的断言；项目验证先列出精确 argv，
+    确认后按顺序运行。修改测试文件时必须先运行基准测试，再运行草稿测试。
+31. 为随机 Node 项目加入脚本 `verify_q9t2`；整组确认 test/build 后检查顺序。拒绝一条 Agent
+    命令并让另一条等待超时，代码助手应继续回答，页面不闪烁且整体停止始终可用。
+32. 批准会写入 `generated_r8v3.txt` 的命令，确认命令可以成功，但草稿、受控源仓库和恢复记录
+    均没有该文件；Shell、`../`、绝对路径、环境注入和公网请求必须拒绝或无网络失败。
+33. 分别改变 Pack ID、输入哈希、平台和内部链接，确认只禁用对应环境。待确认和运行中重启
+    Server、Runtime 或 Verifier 后不得残留占用；继续时只恢复上一份完整草稿，不恢复命令或输出。
 
 ## 回退
+
+先设置 `CODING_PROJECT_COMMANDS_ENABLED=false` 并省略
+`docker-compose.coding-commands.yml`，即恢复第九轮本地项目草稿能力；停止 Verifier 不影响
+问答、草稿、Diff、下载或恢复，也不会删除已有 Runner Pack。
 
 先设置 `CODING_PROJECTS_ENABLED=false` 并省略 `docker-compose.coding-projects.yml`，
 即恢复第八轮固定 ModelMirror 行为；不会修改任何受控源仓库，附加的加密项目上下文

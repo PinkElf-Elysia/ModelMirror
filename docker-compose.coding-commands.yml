@@ -1,0 +1,19 @@
+services:
+  server:
+    environment:
+      CODING_PROJECT_COMMANDS_ENABLED: ${CODING_PROJECT_COMMANDS_ENABLED:-true}
+
+  coding-runtime:
+    environment:
+      CODING_PROJECT_COMMANDS_ENABLED: ${CODING_PROJECT_COMMANDS_ENABLED:-true}
+
+  coding-verifier:
+    environment:
+      CODING_RUNNER_PACKS_ROOT: /runner-packs
+    volumes:
+      - type: bind
+        source: ${CODING_RUNNER_PACKS_ROOT:-./server/coding_verifier}
+        target: /runner-packs
+        read_only: true
+        bind:
+          create_host_path: false

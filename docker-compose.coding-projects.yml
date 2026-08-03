@@ -12,6 +12,19 @@ services:
         source: coding_project_snapshot
         target: /project-snapshots
         read_only: true
+        volume:
+          nocopy: true
+
+  coding-verifier:
+    environment:
+      CODING_PROJECT_SNAPSHOT_PATH: /project-snapshots/current
+    volumes:
+      - type: volume
+        source: coding_project_snapshot
+        target: /project-snapshots
+        read_only: true
+        volume:
+          nocopy: true
 
   coding-project-source:
     profiles:
@@ -40,7 +53,11 @@ services:
       CODING_PROJECT_SNAPSHOT_ROOT: /snapshot-slot
     volumes:
       - coding_project_source_socket:/run/modelmirror-coding-projects
-      - coding_project_snapshot:/snapshot-slot
+      - type: volume
+        source: coding_project_snapshot
+        target: /snapshot-slot
+        volume:
+          nocopy: true
       - type: bind
         source: ${CODING_PROJECTS_ROOT:?Set CODING_PROJECTS_ROOT to an absolute controlled projects directory}
         target: /projects-root

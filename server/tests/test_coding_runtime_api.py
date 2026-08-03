@@ -87,6 +87,7 @@ class FakeWorker:
         self.verification_reason: str | None = None
         self.restore_calls: list[dict[str, Any]] = []
         self.current_empty = False
+        self.session_exists = True
 
     async def health(self) -> dict[str, Any]:
         if self.fail_health:
@@ -110,6 +111,7 @@ class FakeWorker:
         }
 
     async def create_session(self) -> dict[str, Any]:
+        self.session_exists = True
         return {
             "ok": True,
             "session_id": self.session_id,
@@ -118,6 +120,7 @@ class FakeWorker:
         }
 
     async def restore_session(self, **kwargs: Any) -> dict[str, Any]:
+        self.session_exists = True
         self.restore_calls.append(kwargs)
         self.revision = kwargs["revision"]
         self.current_empty = not bool(kwargs.get("paths"))
@@ -199,7 +202,13 @@ class FakeWorker:
         self.release.set()
         return True
 
+    async def session_status(self, session_id: str) -> dict[str, Any]:
+        if not self.session_exists:
+            raise CodingWorkerError("missing", code="session_not_found")
+        return {"state": "ready"}
+
     async def close(self, session_id: str) -> None:
+        self.session_exists = False
         self.closed.append(session_id)
 
     async def changes(self, session_id: str) -> dict[str, Any]:
@@ -2266,6 +2275,55 @@ async def test_recovery_persists_draft_without_conversation_and_resumes_explicit
     assert status_response.json() == {"state": "ready"}
     assert discard_while_active.json()["detail"]["code"] == "session_active"
     assert len(resumed_worker.restore_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_recovery_discard_prunes_session_lost_after_worker_restart(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    store = CodingRecoveryStore(tmp_path / "recovery-discard-after-restart")
+    client, _, _ = await make_client(
+        worker=worker,
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with client:
+        session_id = await _create_and_start(client, "RANDOM_DISCARD_4D91")
+        await client.get(f"/api/coding/sessions/{session_id}/events")
+        worker.session_exists = False
+
+        discarded = await client.post("/api/coding/recovery/discard")
+        old_session = await client.get(f"/api/coding/sessions/{session_id}")
+
+    assert discarded.json() == {"discarded": True}
+    assert old_session.status_code == 404
+    assert store.load() is None
+
+
+@pytest.mark.asyncio
+async def test_recovery_resume_prunes_session_lost_after_worker_restart(
+    make_client,
+    tmp_path: Path,
+) -> None:
+    worker = FakeWorker(mode="draft")
+    store = CodingRecoveryStore(tmp_path / "recovery-resume-after-restart")
+    client, _, _ = await make_client(
+        worker=worker,
+        recovery_store=store,
+        recovery_enabled=True,
+    )
+    async with client:
+        session_id = await _create_and_start(client, "RANDOM_RESUME_B72C")
+        await client.get(f"/api/coding/sessions/{session_id}/events")
+        worker.session_exists = False
+
+        resumed = await client.post("/api/coding/recovery/resume")
+
+    assert resumed.status_code == 200
+    assert resumed.json()["conversation_restored"] is False
+    assert len(worker.restore_calls) == 1
 
 
 @pytest.mark.asyncio
