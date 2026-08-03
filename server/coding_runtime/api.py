@@ -989,6 +989,7 @@ class CodingService:
         return record.revision, _safe_diff(record.payload.patch)
 
     async def discard_recovery(self) -> dict[str, bool]:
+        await self._prune_missing_worker_sessions()
         conflict_record: CodingApiSession | None = None
         async with self._lock:
             active = list(self._sessions.values())
@@ -1132,6 +1133,7 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         await self.cleanup_expired()
+        await self._prune_missing_worker_sessions()
         recovery = await self._require_recovery_record()
         project_context = await self._load_recovery_project_context(recovery)
         async with self._lock:
@@ -2691,6 +2693,28 @@ class CodingService:
         if released:
             record.project_source = None
         return released
+
+    async def _prune_missing_worker_sessions(self) -> int:
+        async with self._lock:
+            records = list(self._sessions.values())
+        removed = 0
+        for record in records:
+            try:
+                await self.worker.session_status(record.worker_session_id)
+            except CodingWorkerError as exc:
+                if exc.code != "session_not_found":
+                    continue
+                released = await self._release_project_source(record.project_source)
+                if not released:
+                    continue
+                async with self._lock:
+                    if self._sessions.get(record.session_id) is record:
+                        self._sessions.pop(record.session_id, None)
+                        record.project_source = None
+                        removed += 1
+            except Exception:
+                continue
+        return removed
 
     async def _close_worker_session_and_release(
         self,

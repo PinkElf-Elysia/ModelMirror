@@ -473,6 +473,8 @@ class CodingWorkerServer:
                 await self._prompt(request, writer)
             elif action == "cancel":
                 await self._cancel(request, writer)
+            elif action == "session_status":
+                await self._session_status(request, writer)
             elif action == "close":
                 await self._close_session(request, writer)
             elif action == "changes":
@@ -1079,6 +1081,22 @@ class CodingWorkerServer:
             await record.command_bridge.cancel_pending(reason="turn_cancelled")
         accepted = await record.adapter.cancel(record.session)
         await self._send(writer, {"ok": True, "accepted": accepted})
+
+    async def _session_status(
+        self,
+        request: dict[str, Any],
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        if set(request) != {"action", "session_id"}:
+            raise CodingWorkerProtocolError(
+                "Session status request is invalid.",
+                code="invalid_request",
+            )
+        record = self._require_session(request)
+        await self._send(
+            writer,
+            {"ok": True, "state": record.session.state.value},
+        )
 
     async def _command_pending(
         self,
@@ -2590,6 +2608,17 @@ class CodingWorkerClient:
             {"action": "cancel", "session_id": session_id}
         )
         return result.get("accepted") is True
+
+    async def session_status(self, session_id: str) -> dict[str, Any]:
+        result = await self._request(
+            {"action": "session_status", "session_id": session_id}
+        )
+        if not isinstance(result.get("state"), str):
+            raise CodingWorkerProtocolError(
+                "Coding worker omitted session state.",
+                code="invalid_response",
+            )
+        return result
 
     async def close(self, session_id: str) -> None:
         await self._request({"action": "close", "session_id": session_id})
