@@ -73,11 +73,14 @@ RIPGREP_PATH = "/usr/bin/rg"
 INTERNAL_GATEWAY_BASE_URL = "http://new-api:3000/v1"
 SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 SAFE_RECOVERY_REASON = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+SAFE_RUNNER_TOKEN = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 CODING_AGENT_MODES = frozenset({"readonly", "draft"})
 MAX_AGENT_STEPS = 12
 MODEL_CONTEXT_TOKENS = 131_072
 MODEL_OUTPUT_TOKENS = 8_192
 REQUIRED_RUNTIME_EXECUTABLES = (Path(OPENCODE_PATH), Path(RIPGREP_PATH))
+RUNNER_MCP_SOCKET_PATH = "/tmp/modelmirror-runner.sock"
+RUNNER_MCP_NAME = "modelmirror-runner"
 
 
 class CodingWorkerError(RuntimeError):
@@ -115,13 +118,17 @@ def validate_runtime_dependencies(
         )
 
 
-def _permission_for_mode(mode: str) -> dict[str, Any]:
+def _permission_for_mode(
+    mode: str,
+    *,
+    commands_enabled: bool = False,
+) -> dict[str, Any]:
     if mode not in CODING_AGENT_MODES:
         raise CodingWorkerError(
             "Coding Agent mode is not configured safely.",
             code="not_configured",
         )
-    return {
+    permission: dict[str, Any] = {
         "*": "deny",
         "read": {
             "*": "allow",
@@ -150,6 +157,9 @@ def _permission_for_mode(mode: str) -> dict[str, Any]:
         "todowrite": "deny",
         "doom_loop": "deny",
     }
+    if commands_enabled:
+        permission[f"{RUNNER_MCP_NAME}_*"] = "allow"
+    return permission
 
 
 def build_opencode_config(
@@ -157,13 +167,22 @@ def build_opencode_config(
     mode: str = "readonly",
     *,
     project_instructions: bool = False,
+    commands_enabled: bool = False,
+    runner_token: str = "",
 ) -> dict[str, Any]:
     if not SAFE_MODEL_ID.fullmatch(model_id):
         raise CodingWorkerError(
             "Coding Agent model is not configured safely.",
             code="not_configured",
         )
-    permission = _permission_for_mode(mode)
+    if commands_enabled and (
+        mode != "draft" or SAFE_RUNNER_TOKEN.fullmatch(runner_token) is None
+    ):
+        raise CodingWorkerError(
+            "Coding project commands are not configured safely.",
+            code="not_configured",
+        )
+    permission = _permission_for_mode(mode, commands_enabled=commands_enabled)
     agent_name = "draft" if mode == "draft" else "readonly"
     return {
         "$schema": "https://opencode.ai/config.json",
@@ -202,7 +221,22 @@ def build_opencode_config(
             }
         },
         "plugin": [],
-        "mcp": {},
+        "mcp": (
+            {
+                RUNNER_MCP_NAME: {
+                    "type": "local",
+                    "command": ["python", "-m", "coding_runtime.runner_mcp"],
+                    "environment": {
+                        "MODELMIRROR_RUNNER_SOCKET": RUNNER_MCP_SOCKET_PATH,
+                        "MODELMIRROR_RUNNER_TOKEN": runner_token,
+                    },
+                    "enabled": True,
+                    "timeout": 310_000,
+                }
+            }
+            if commands_enabled
+            else {}
+        ),
         "instructions": ["/workspace/AGENTS.md"] if project_instructions else [],
         "share": "disabled",
         "autoupdate": False,
@@ -213,6 +247,8 @@ def create_acp_client(
     mode: str | None = None,
     *,
     project_instructions: bool = False,
+    commands_enabled: bool = False,
+    runner_token: str = "",
 ) -> AcpClient:
     active_mode = mode or coding_agent_mode()
     model_id = os.getenv("CODING_AGENT_MODEL", "").strip()
@@ -227,6 +263,8 @@ def create_acp_client(
             model_id,
             active_mode,
             project_instructions=project_instructions,
+            commands_enabled=commands_enabled,
+            runner_token=runner_token,
         ),
         ensure_ascii=False,
         separators=(",", ":"),
