@@ -240,6 +240,11 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.mcp.catalog import (
+        MCPCatalogService,
+        configure_mcp_catalog,
+        router as mcp_catalog_router,
+    )
     from server.mcp.manager import (
         MCPClientError,
         MCPClientManager,
@@ -250,6 +255,11 @@ try:
     )
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
+    from mcp.catalog import (
+        MCPCatalogService,
+        configure_mcp_catalog,
+        router as mcp_catalog_router,
+    )
     from mcp.manager import (
         MCPClientError,
         MCPClientManager,
@@ -763,6 +773,7 @@ app.include_router(model_catalog_router)
 app.include_router(omniroute_router)
 app.include_router(multimodal_router)
 app.include_router(coding_router)
+app.include_router(mcp_catalog_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -772,6 +783,13 @@ tool_registry = ToolRegistry()
 workflow_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
 toolset_store = ToolsetStore()
 toolset_credential_store = CredentialStore(toolset_store.storage_dir)
+mcp_catalog_service = MCPCatalogService(
+    mcp_manager,
+    mcp_installer,
+    tool_registry,
+    credential_validator=toolset_credential_store.get_public,
+)
+configure_mcp_catalog(mcp_catalog_service)
 toolset_service = ToolsetService(
     toolset_store,
     toolset_credential_store,
@@ -1363,8 +1381,14 @@ def mcp_server_id_from_command(server_command: list[str]) -> str:
 async def cleanup_mcp_idle_sessions_and_registry() -> list[str]:
     cleaned_ids = await mcp_manager.cleanup_idle_sessions()
     if cleaned_ids:
+        await mcp_catalog_service.forget_sessions(cleaned_ids)
         await tool_registry.unregister_sessions(cleaned_ids)
     return cleaned_ids
+
+
+async def cleanup_mcp_session_state(session_ids: list[str]) -> None:
+    await mcp_catalog_service.forget_sessions(session_ids)
+    await tool_registry.unregister_sessions(session_ids)
 
 
 def validate_content(messages: list[ChatMessage]) -> None:
@@ -12686,7 +12710,7 @@ configure_xpert_evolutions(
 @app.on_event("startup")
 async def start_mcp_ttl_cleanup() -> None:
     await asyncio.to_thread(datax_service.recover_import_jobs)
-    mcp_manager.start_ttl_cleanup(on_cleanup=tool_registry.unregister_sessions)
+    mcp_manager.start_ttl_cleanup(on_cleanup=cleanup_mcp_session_state)
     builtin_warnings = await toolset_service.ensure_builtin_toolsets()
     for warning in builtin_warnings:
         logger.warning("Builtin Provider Toolset initialization failed: %s", warning)
@@ -12720,6 +12744,7 @@ async def shutdown_mcp_sessions() -> None:
         await client_tool_coordinator.stop()
     if automation_coordinator is not None:
         await automation_coordinator.stop()
+    await mcp_catalog_service.clear_sessions()
     await toolset_service.close()
     await mcp_manager.stop_ttl_cleanup()
     await mcp_manager.close_all()
