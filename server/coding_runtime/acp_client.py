@@ -138,6 +138,8 @@ class AcpClient:
             raise ValueError("Prompt must not be empty")
 
         turn_id = session.begin_turn()
+        yield session.append_event(CodingEventKind.TURN_STARTED, turn_id=turn_id)
+
         prompt_task = asyncio.create_task(
             self._request(
                 "session/prompt",
@@ -149,7 +151,6 @@ class AcpClient:
             )
         )
         await asyncio.sleep(0)
-        yield session.append_event(CodingEventKind.TURN_STARTED, turn_id=turn_id)
 
         try:
             while True:

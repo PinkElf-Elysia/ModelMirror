@@ -152,6 +152,34 @@ async def test_acp_initializes_and_maps_streaming_updates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_turn_started_is_observable_before_prompt_request_can_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = make_client()
+    session = CodingSession(state=CodingSessionState.READY)
+    client._session = session
+    client._acp_session_id = "acp-session"
+    prompt_requested = False
+
+    async def request(method: str, _params: dict[str, Any], **_kwargs: Any):
+        nonlocal prompt_requested
+        assert method == "session/prompt"
+        prompt_requested = True
+        return {"stopReason": "end_turn"}
+
+    monkeypatch.setattr(client, "_request", request)
+    stream = client.prompt(session, "Request a confirmed project command")
+
+    started = await anext(stream)
+
+    assert started.kind is CodingEventKind.TURN_STARTED
+    assert prompt_requested is False
+    remaining = [event async for event in stream]
+    assert prompt_requested is True
+    assert remaining[-1].kind is CodingEventKind.TURN_COMPLETED
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("mode", "expected"),
     [
