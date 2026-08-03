@@ -7,6 +7,7 @@ import {
   type SkillProjectKind,
   skillProjects,
 } from "../data/skillProjects";
+import type { SkillInstallStatus } from "../data/skillCatalogPolicy";
 
 interface InstalledSkill {
   skill_id: string;
@@ -23,8 +24,34 @@ interface InstalledSkillsResponse {
 
 type SkillTab = "market" | "installed" | "drafts" | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
-type SkillAvailabilityFilter = "all" | "installable" | "reference";
+type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 const MARKET_PAGE_SIZE = 48;
+
+const INSTALL_STATUS_DETAILS: Record<
+  SkillInstallStatus,
+  { label: string; action: string; className: string }
+> = {
+  ready: {
+    label: "可一键安装",
+    action: "",
+    className: "border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
+  },
+  manual: {
+    label: "有安装说明",
+    action: "查看安装说明",
+    className: "border-sky-300/30 bg-sky-300/10 text-sky-100",
+  },
+  pending: {
+    label: "待核验来源",
+    action: "查看并核验",
+    className: "border-amber-300/30 bg-amber-300/10 text-amber-100",
+  },
+  reference: {
+    label: "仅资料参考",
+    action: "查看资料",
+    className: "border-white/15 bg-white/[0.055] text-slate-300",
+  },
+};
 
 function formatStars(stars: number) {
   return stars >= 1000 ? `${(stars / 1000).toFixed(1)}k` : `${stars}`;
@@ -79,6 +106,7 @@ function MarketSkillCard({
   const canInstall = Boolean(project.installSource);
   const isInstalling = installingId === project.id;
   const installLabel = project.kind === "skillset" ? "安装技能包" : "安装技能";
+  const installStatus = INSTALL_STATUS_DETAILS[project.installStatus];
   const hasIncludedSkills =
     project.kind === "skillset" && (project.includedSkills?.length ?? 0) > 0;
 
@@ -97,15 +125,22 @@ function MarketSkillCard({
             {` · ★ ${formatStars(project.stars)}`}
           </p>
         </div>
-        <span
-          className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${
-            project.kind === "skillset"
-              ? "border-accent-300/30 bg-accent-300/10 text-accent-100"
-              : "border-brand-300/25 bg-brand-300/10 text-brand-100"
-          }`}
-        >
-          {formatProjectKind(project)}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+              project.kind === "skillset"
+                ? "border-accent-300/30 bg-accent-300/10 text-accent-100"
+                : "border-brand-300/25 bg-brand-300/10 text-brand-100"
+            }`}
+          >
+            {formatProjectKind(project)}
+          </span>
+          <span
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${installStatus.className}`}
+          >
+            {installStatus.label}
+          </span>
+        </div>
       </div>
 
       <p className="mt-4 min-h-20 text-sm leading-6 text-slate-300">
@@ -136,11 +171,17 @@ function MarketSkillCard({
             {project.includedSkills?.join("、")}
           </p>
         ) : null}
-        <code className="mt-2 block break-all rounded-md bg-ink-950/80 p-2 text-xs leading-5 text-hire-100">
-          {project.installSource
-            ? `${project.installSource.repoUrl} / ${project.installSource.subPath}`
-            : "参考资料，无一键安装源"}
-        </code>
+        <div className="mt-2 rounded-md bg-ink-950/80 p-2 text-xs leading-5 text-slate-300">
+          {project.installSource ? (
+            <code className="break-all text-hire-100">
+              {project.installSource.repoUrl} / {project.installSource.subPath}
+            </code>
+          ) : project.installStatus === "manual" && project.installCommand ? (
+            <code className="break-all text-sky-100">{project.installCommand}</code>
+          ) : (
+            project.installNote
+          )}
+        </div>
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-3">
@@ -164,20 +205,25 @@ function MarketSkillCard({
             </a>
           ) : null}
         </div>
-        <button
-          className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_22px_rgba(251,146,60,0.22)] transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
-          disabled={!canInstall || installed || isInstalling}
-          onClick={() => onInstall(project)}
-          type="button"
-        >
-          {isInstalling
-            ? "安装中..."
-            : installed
-              ? "已安装"
-              : canInstall
-                ? installLabel
-                : "仅作参考"}
-        </button>
+        {canInstall ? (
+          <button
+            className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_22px_rgba(251,146,60,0.22)] transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
+            disabled={installed || isInstalling}
+            onClick={() => onInstall(project)}
+            type="button"
+          >
+            {isInstalling ? "安装中..." : installed ? "已安装" : installLabel}
+          </button>
+        ) : (
+          <a
+            className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-white"
+            href={project.repoUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {installStatus.action}
+          </a>
+        )}
       </div>
     </article>
   );
@@ -242,13 +288,15 @@ export default function SkillBrowserPage() {
   const [uninstallingId, setUninstallingId] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const categories = useMemo(
-    () =>
-      [...new Set(skillProjects.map((project) => project.category))].sort((left, right) =>
-        left.localeCompare(right, "zh-CN"),
-      ),
-    [],
-  );
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    skillProjects.forEach((project) => {
+      counts.set(project.category, (counts.get(project.category) ?? 0) + 1);
+    });
+    return [...counts.entries()].sort(([left], [right]) =>
+      left.localeCompare(right, "zh-CN"),
+    );
+  }, []);
   const totalStars = useMemo(() => {
     const countedRepositories = new Set<string>();
     return skillProjects.reduce((sum, project) => {
@@ -268,21 +316,38 @@ export default function SkillBrowserPage() {
     [],
   );
   const installableProjects = useMemo(
-    () => skillProjects.filter((project) => project.installSource),
+    () => skillProjects.filter((project) => project.installStatus === "ready"),
     [],
   );
+  const installStatusCounts = useMemo(() => {
+    const counts: Record<SkillInstallStatus, number> = {
+      ready: 0,
+      manual: 0,
+      pending: 0,
+      reference: 0,
+    };
+    skillProjects.forEach((project) => {
+      counts[project.installStatus] += 1;
+    });
+    return counts;
+  }, []);
   const filteredProjects = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase("zh-CN");
     return skillProjects.filter((project) => {
       if (selectedCategory !== "all" && project.category !== selectedCategory) return false;
       if (selectedKind !== "all" && project.kind !== selectedKind) return false;
-      if (selectedAvailability === "installable" && !project.installSource) return false;
-      if (selectedAvailability === "reference" && project.installSource) return false;
+      if (
+        selectedAvailability !== "all" &&
+        project.installStatus !== selectedAvailability
+      ) {
+        return false;
+      }
       if (!normalizedQuery) return true;
 
       const searchableText = [
         project.name,
         project.description,
+        project.sourceDescription ?? "",
         project.category,
         project.repoName,
         project.catalogName ?? "",
@@ -530,9 +595,9 @@ export default function SkillBrowserPage() {
                   value={selectedCategory}
                 >
                   <option value="all">全部分类</option>
-                  {categories.map((category) => (
+                  {categories.map(([category, count]) => (
                     <option key={category} value={category}>
-                      {category}
+                      {category}（{count}）
                     </option>
                   ))}
                 </select>
@@ -548,8 +613,10 @@ export default function SkillBrowserPage() {
                   value={selectedAvailability}
                 >
                   <option value="all">全部资源</option>
-                  <option value="installable">可一键安装</option>
-                  <option value="reference">仅外部索引</option>
+                  <option value="ready">可一键安装（{installStatusCounts.ready}）</option>
+                  <option value="manual">有安装说明（{installStatusCounts.manual}）</option>
+                  <option value="pending">待核验来源（{installStatusCounts.pending}）</option>
+                  <option value="reference">仅资料参考（{installStatusCounts.reference}）</option>
                 </select>
               </label>
 
