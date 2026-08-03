@@ -4,16 +4,17 @@ import {
   auditedInstallSource,
   classifySkill,
   describeSkillInChinese,
-  hasAuditedInstallMismatch,
-  inferInstallStatus,
-  manualInstallCommand,
   type SkillInstallStatus,
 } from "./skillCatalogPolicy";
+import {
+  SKILL_SOURCE_VERIFICATION,
+  type SkillSourceVerificationEvidence,
+} from "./skillSourceVerification.generated";
 
 export interface SkillInstallSource {
   repoUrl: string;
   subPath: string;
-  verifiedCommit?: string;
+  verifiedCommit: string;
 }
 
 export type SkillProjectKind = "skill" | "skillset";
@@ -42,6 +43,13 @@ export interface SkillProject {
   catalogUrl?: string;
   publisher?: string;
   sourceGroup?: string;
+  verification: SkillSourceVerificationEvidence;
+}
+
+interface CatalogSkillInstallSource {
+  repoUrl: string;
+  subPath: string;
+  verifiedCommit?: string;
 }
 
 interface GeneratedSkillIndex {
@@ -61,10 +69,49 @@ interface GeneratedSkillIndex {
     sourceGroup: string;
     description: string;
     sourceUrl: string;
-    installSource: SkillInstallSource | null;
+    installSource: CatalogSkillInstallSource | null;
     tags: string[];
     includedSkills: string[];
   }>;
+}
+
+const skillVerificationById = SKILL_SOURCE_VERIFICATION as Record<
+  string,
+  SkillSourceVerificationEvidence
+>;
+
+function verificationFor(projectId: string) {
+  return (
+    skillVerificationById[projectId] ?? {
+      status: "pending",
+      sourceUrl: "",
+      reasonCode: "no-install-source",
+      reason: "该目录记录尚未进入统一来源核验。",
+    }
+  );
+}
+
+function installStatusFor(projectId: string): SkillInstallStatus {
+  const verification = verificationFor(projectId);
+  if (verification.status === "verified") return "ready";
+  return verification.status;
+}
+
+function installSourceFor(projectId: string): SkillInstallSource | undefined {
+  const verification = verificationFor(projectId);
+  if (
+    verification.status !== "verified" ||
+    !verification.repoUrl ||
+    verification.subPath === undefined ||
+    !verification.verifiedCommit
+  ) {
+    return undefined;
+  }
+  return {
+    repoUrl: verification.repoUrl,
+    subPath: verification.subPath,
+    verifiedCommit: verification.verifiedCommit,
+  };
 }
 
 interface GeneratedSkillCatalog {
@@ -106,12 +153,10 @@ const curatedSkillProjects: SkillProject[] = [
     installCommand:
       "git clone --depth 1 --filter=blob:none --sparse https://github.com/anthropics/skills\ncd skills\ngit sparse-checkout set skills/pdf",
     installNote: "模镜会通过后端 Skill 管理器执行 sparse checkout，只安装 skills/pdf 子目录。",
-    installStatus: "ready",
-    installSource: {
-      repoUrl: "https://github.com/anthropics/skills",
-      subPath: "skills/pdf",
-    },
+    installStatus: installStatusFor("anthropic-pdf-skill"),
+    installSource: installSourceFor("anthropic-pdf-skill"),
     tags: ["官方示例", "PDF", "文档摘要"],
+    verification: verificationFor("anthropic-pdf-skill"),
   },
   {
     id: "anthropic-xlsx-skill",
@@ -130,12 +175,10 @@ const curatedSkillProjects: SkillProject[] = [
     installCommand:
       "git clone --depth 1 --filter=blob:none --sparse https://github.com/anthropics/skills\ncd skills\ngit sparse-checkout set skills/xlsx",
     installNote: "模镜会通过后端 Skill 管理器执行 sparse checkout，只安装 skills/xlsx 子目录。",
-    installStatus: "ready",
-    installSource: {
-      repoUrl: "https://github.com/anthropics/skills",
-      subPath: "skills/xlsx",
-    },
+    installStatus: installStatusFor("anthropic-xlsx-skill"),
+    installSource: installSourceFor("anthropic-xlsx-skill"),
     tags: ["官方示例", "Excel", "数据分析"],
+    verification: verificationFor("anthropic-xlsx-skill"),
   },
   {
     id: "mattpocock-tdd-skill",
@@ -155,12 +198,10 @@ const curatedSkillProjects: SkillProject[] = [
       "git clone --depth 1 --filter=blob:none --sparse https://github.com/mattpocock/skills\ncd skills\ngit sparse-checkout set skills/engineering/tdd",
     installNote:
       "模镜会通过后端 Skill 管理器执行 sparse checkout，只安装 skills/engineering/tdd 子目录。",
-    installStatus: "ready",
-    installSource: {
-      repoUrl: "https://github.com/mattpocock/skills",
-      subPath: "skills/engineering/tdd",
-    },
+    installStatus: installStatusFor("mattpocock-tdd-skill"),
+    installSource: installSourceFor("mattpocock-tdd-skill"),
     tags: ["TypeScript", "TDD", "工程质量"],
+    verification: verificationFor("mattpocock-tdd-skill"),
   },
   {
     id: "agent-skills-standard",
@@ -180,8 +221,9 @@ const curatedSkillProjects: SkillProject[] = [
       "git clone https://github.com/agentskills/agentskills.git\n# 参考 template 目录创建内部 Skill",
     installNote:
       "这是规范与模板仓库，不是单个可安装 Skill；适合团队参考并创建自己的技能包。",
-    installStatus: "reference",
+    installStatus: installStatusFor("agent-skills-standard"),
     tags: ["开放标准", "模板", "规范"],
+    verification: verificationFor("agent-skills-standard"),
   },
 ];
 
@@ -195,6 +237,7 @@ const anbeimeSkillProjects: SkillProject[] = anbeimeCatalog.projects.map((projec
     tags: project.tags,
   };
   const category = classifySkill(policyInput);
+  const verification = verificationFor(project.id);
   return {
     id: project.id,
     name: project.name,
@@ -214,16 +257,14 @@ const anbeimeSkillProjects: SkillProject[] = anbeimeCatalog.projects.map((projec
     installCommand: `git clone --depth 1 --filter=blob:none --sparse ${anbeimeCatalog.source.repoUrl}\ncd skill\ngit sparse-checkout set ${project.subPath}`,
     installNote:
       "模镜只复制该目录，不会在安装时执行其中脚本。使用社区 Skill 前请先检查依赖、外部服务与凭据要求。",
-    installStatus: "ready",
-    installSource: {
-      repoUrl: anbeimeCatalog.source.repoUrl,
-      subPath: project.subPath,
-    },
+    installStatus: installStatusFor(project.id),
+    installSource: installSourceFor(project.id),
     tags: project.tags,
     includedSkills: project.includedSkills,
     sourceCommit: anbeimeCatalog.source.commit,
     catalogName: anbeimeCatalog.source.repoName,
     catalogUrl: anbeimeCatalog.source.repoUrl,
+    verification,
   };
 });
 
@@ -241,15 +282,20 @@ const installedSourceKeys = new Set(
 );
 const voltagentCatalog = voltagentCatalogJson as GeneratedSkillIndex;
 const voltagentSkillProjects: SkillProject[] = voltagentCatalog.projects
-  .map((project) => ({
-    ...project,
-    resolvedInstallSource:
-      (project.installSource ??
-        auditedInstallSource(project.sourceUrl)) as SkillInstallSource | undefined,
-  }))
+  .map((project) => {
+    const verification = verificationFor(project.id);
+    return {
+      ...project,
+      verification,
+      catalogInstallSource:
+        project.installSource ?? auditedInstallSource(project.sourceUrl),
+      resolvedInstallSource: installSourceFor(project.id),
+    };
+  })
   .filter((project) => {
-    if (!project.resolvedInstallSource) return true;
-    const key = `${project.resolvedInstallSource.repoUrl.toLowerCase()}#${project.resolvedInstallSource.subPath}`;
+    const source = project.resolvedInstallSource ?? project.catalogInstallSource;
+    if (!source) return true;
+    const key = `${source.repoUrl.toLowerCase()}#${source.subPath}`;
     if (installedSourceKeys.has(key)) return false;
     installedSourceKeys.add(key);
     return true;
@@ -263,12 +309,7 @@ const voltagentSkillProjects: SkillProject[] = voltagentCatalog.projects
       tags: project.tags,
     };
     const category = classifySkill(policyInput);
-    const installStatus = inferInstallStatus(
-      project.sourceUrl,
-      Boolean(project.resolvedInstallSource),
-    );
-    const manualCommand = manualInstallCommand(project.sourceUrl);
-    const wasAudited = !project.installSource && Boolean(project.resolvedInstallSource);
+    const installStatus = installStatusFor(project.id);
     return {
       id: project.id,
       name: project.name,
@@ -284,28 +325,21 @@ const voltagentSkillProjects: SkillProject[] = voltagentCatalog.projects
       updatedAt: voltagentCatalog.source.updatedAt,
       installCommand: project.resolvedInstallSource
         ? `git clone --depth 1 --filter=blob:none --sparse ${project.resolvedInstallSource.repoUrl}\ncd skill\ngit sparse-checkout set ${project.resolvedInstallSource.subPath}`
-        : manualCommand,
+        : "",
       installNote: project.resolvedInstallSource
-        ? wasAudited
-          ? "该安装源已在批次审计中核对 GitHub 仓库的 SKILL.md 路径，可由模镜执行 sparse checkout 安装。"
-          : "索引提供了明确的 GitHub Skill 子目录，模镜可执行 sparse checkout 安装。"
-        : installStatus === "manual"
-          ? "来源页提供外部 CLI 安装命令；当前需离开模镜手动执行，后续批次将继续核验其 GitHub 子目录。"
-          : installStatus === "pending"
-            ? hasAuditedInstallMismatch(project.sourceUrl)
-              ? "来源页给出的 Skill 名称或路径与当前 GitHub 仓库树不一致，已暂停安装并等待上游修正或再次核验。"
-              : "已定位 GitHub 仓库，但尚未核对具体 SKILL.md 子目录，因此暂不开放一键安装。"
-            : "这是资料或产品页面，尚未发现可由当前后端验证的 Skill 安装目录。",
+        ? "该安装源已核对固定 Git 提交中的 SKILL.md，可由模镜按提交执行安装。"
+        : project.verification.reason ??
+          "该来源尚未形成可由当前安装器验证的 Skill 安装目录。",
       installStatus,
       installSource: project.resolvedInstallSource,
       tags: project.tags,
       includedSkills: project.includedSkills,
-      sourceCommit:
-        project.resolvedInstallSource?.verifiedCommit ?? voltagentCatalog.source.commit,
+      sourceCommit: project.resolvedInstallSource?.verifiedCommit,
       catalogName: voltagentCatalog.source.repoName,
       catalogUrl: voltagentCatalog.source.repoUrl,
       publisher: project.publisher,
       sourceGroup: project.sourceGroup,
+      verification: project.verification,
     };
   });
 
