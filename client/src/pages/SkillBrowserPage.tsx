@@ -7,6 +7,10 @@ import {
   type SkillProjectKind,
   skillProjects,
 } from "../data/skillProjects";
+import {
+  findSkillsForNeed,
+  type SkillNeedMatch,
+} from "../data/skillNeedMatcher";
 import type { SkillInstallStatus } from "../data/skillCatalogPolicy";
 
 interface InstalledSkill {
@@ -27,6 +31,11 @@ type SkillTab = "market" | "installed" | "drafts" | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 const MARKET_PAGE_SIZE = 48;
+const NEED_EXAMPLES = [
+  "分析 Excel 销售数据",
+  "为 React 网页编写自动化测试",
+  "审计 Postgres 数据库安全",
+] as const;
 
 const INSTALL_STATUS_DETAILS: Record<
   SkillInstallStatus,
@@ -239,6 +248,100 @@ function MarketSkillCard({
   );
 }
 
+function NeedMatchCard({
+  installed,
+  installingId,
+  match,
+  onInstall,
+  onLocate,
+}: {
+  installed: boolean;
+  installingId: string;
+  match: SkillNeedMatch<SkillProject>;
+  onInstall: (project: SkillProject) => void;
+  onLocate: (project: SkillProject) => void;
+}) {
+  const { project, reasons } = match;
+  const installStatus = INSTALL_STATUS_DETAILS[project.installStatus];
+  const canInstall =
+    project.installStatus === "ready" && Boolean(project.installSource);
+  const isInstalling = installingId === project.id;
+
+  return (
+    <article className="rounded-lg border border-brand-300/20 bg-ink-950/65 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-brand-100">{project.category}</p>
+          <h3 className="mt-1 truncate text-base font-semibold text-white">
+            {project.name}
+          </h3>
+          <p className="mt-1 truncate text-xs text-slate-500">
+            {project.repoName}
+          </p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${installStatus.className}`}
+        >
+          {installStatus.label}
+        </span>
+      </div>
+
+      <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">
+        {project.description}
+      </p>
+      <div className="mt-3 space-y-2">
+        {reasons.slice(0, 3).map((reason) => (
+          <div
+            className="flex items-start gap-2 text-xs leading-5"
+            key={`${reason.type}-${reason.matchedTerms.join("-")}`}
+          >
+            <span className="shrink-0 rounded-full bg-brand-300/10 px-2 py-0.5 font-semibold text-brand-100">
+              {reason.label}
+            </span>
+            <span className="text-slate-400">
+              {reason.matchedTerms.join("、")}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {!canInstall ? (
+        <p className="mt-3 text-xs leading-5 text-amber-100/80">
+          {project.installNote}
+        </p>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-white"
+          onClick={() => onLocate(project)}
+          type="button"
+        >
+          在货架中查看
+        </button>
+        <a
+          className="px-2 py-1.5 text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
+          href={project.repoUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          查看来源
+        </a>
+        {canInstall ? (
+          <button
+            className="ml-auto rounded-full bg-hire-300 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+            disabled={installed || isInstalling}
+            onClick={() => onInstall(project)}
+            type="button"
+          >
+            {isInstalling ? "安装中..." : installed ? "已安装" : "一键安装"}
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
 function InstalledSkillCard({
   onUninstall,
   skill,
@@ -287,6 +390,8 @@ export default function SkillBrowserPage() {
       : "market",
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [needQuery, setNeedQuery] = useState("");
+  const [submittedNeed, setSubmittedNeed] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedKind, setSelectedKind] = useState<SkillKindFilter>("all");
   const [selectedAvailability, setSelectedAvailability] =
@@ -341,6 +446,10 @@ export default function SkillBrowserPage() {
     });
     return counts;
   }, []);
+  const needMatches = useMemo(
+    () => findSkillsForNeed(submittedNeed, skillProjects),
+    [submittedNeed],
+  );
   const filteredProjects = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase("zh-CN");
     return skillProjects.filter((project) => {
@@ -436,6 +545,27 @@ export default function SkillBrowserPage() {
     } finally {
       setInstallingId("");
     }
+  }
+
+  function submitNeedSearch(value: string) {
+    const normalized = value.trim().slice(0, 500);
+    setNeedQuery(normalized);
+    setSubmittedNeed(normalized);
+  }
+
+  function locateRecommendedSkill(project: SkillProject) {
+    setSearchQuery(project.name);
+    setSelectedCategory("all");
+    setSelectedKind("all");
+    setSelectedAvailability("all");
+    setVisibleProjectCount(MARKET_PAGE_SIZE);
+    window.requestAnimationFrame(() =>
+      window.requestAnimationFrame(() =>
+        document
+          .getElementById("skill-market-results")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      ),
+    );
   }
 
   function resetMarketFilters() {
@@ -585,6 +715,126 @@ export default function SkillBrowserPage() {
         </div>
 
         {activeTab === "market" ? (
+          <section className="mb-5">
+            <div className="grid gap-5 rounded-lg border border-brand-300/20 bg-surface-900/75 p-5 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  submitNeedSearch(needQuery);
+                }}
+              >
+                <label className="block" htmlFor="skill-need-query">
+                  <span className="text-sm font-semibold text-white">
+                    描述你要完成的事
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-400">
+                    本地分析任务、工具和目标，推荐结果不会自动安装，也不会查询外部市场。
+                  </span>
+                </label>
+                <textarea
+                  className="mt-3 min-h-24 w-full resize-y rounded-lg border border-white/10 bg-ink-950/80 px-4 py-3 text-sm leading-6 text-white placeholder:text-slate-400 transition focus:border-brand-300/50 focus:outline-none"
+                  id="skill-need-query"
+                  maxLength={500}
+                  onChange={(event) => setNeedQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                      event.preventDefault();
+                      submitNeedSearch(needQuery);
+                    }
+                  }}
+                  placeholder="例如：为 React 网页编写 Playwright 自动化测试，并能检查交互和错误"
+                  value={needQuery}
+                />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    className="rounded-full bg-brand-200 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+                    disabled={!needQuery.trim()}
+                    type="submit"
+                  >
+                    寻找合适的 Skill
+                  </button>
+                  {submittedNeed ? (
+                    <button
+                      className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+                      onClick={() => {
+                        setNeedQuery("");
+                        setSubmittedNeed("");
+                      }}
+                      type="button"
+                    >
+                      清除推荐
+                    </button>
+                  ) : null}
+                  <span className="text-xs text-slate-500">
+                    Ctrl / ⌘ + Enter 快速查找
+                  </span>
+                </div>
+              </form>
+
+              <div className="rounded-lg border border-white/10 bg-ink-950/55 p-4">
+                <p className="text-xs font-semibold text-slate-300">试试这些需求</p>
+                <div className="mt-3 flex flex-col gap-2">
+                  {NEED_EXAMPLES.map((example) => (
+                    <button
+                      className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-left text-xs leading-5 text-slate-300 transition hover:border-brand-300/30 hover:bg-brand-300/10 hover:text-white"
+                      key={example}
+                      onClick={() => submitNeedSearch(example)}
+                      type="button"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {submittedNeed ? (
+              <div className="mt-5">
+                <div
+                  aria-live="polite"
+                  className="mb-4 flex flex-wrap items-center justify-between gap-2"
+                >
+                  <p className="text-sm font-semibold text-white">
+                    {needMatches.length > 0
+                      ? `找到 ${needMatches.length} 个较相关的 Skill`
+                      : "当前目录没有可靠匹配"}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    依据名称、标签、分类与能力说明进行本地可解释排序
+                  </p>
+                </div>
+                {needMatches.length > 0 ? (
+                  <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                    {needMatches.map((match) => (
+                      <NeedMatchCard
+                        installed={isProjectInstalled(
+                          match.project,
+                          installedSkills,
+                        )}
+                        installingId={installingId}
+                        key={match.project.id}
+                        match={match}
+                        onInstall={(project) => void installSkill(project)}
+                        onLocate={locateRecommendedSkill}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-white/15 bg-ink-950/45 px-5 py-7 text-center">
+                    <p className="text-sm font-semibold text-white">
+                      现有 1,242 项目录暂未覆盖这项需求。
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">
+                      请补充具体工具、输入或输出；本轮不会伪造 Skill，也不会转向未批准的外部市场。
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === "market" ? (
           <div className="mb-5 rounded-lg border border-white/10 bg-white/[0.04] p-4">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_190px_170px_auto] lg:items-end">
               <label className="block">
@@ -690,7 +940,7 @@ export default function SkillBrowserPage() {
         ) : null}
 
         {activeTab === "market" && filteredProjects.length > 0 ? (
-          <div>
+          <div id="skill-market-results">
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               {visibleProjects.map((project) => (
                 <MarketSkillCard

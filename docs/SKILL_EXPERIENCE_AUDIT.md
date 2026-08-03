@@ -78,7 +78,7 @@ node scripts/audit-skill-experience.mjs
 
 ## 4. 候选能力审计
 
-本节不是产品计划，不包含排期、里程碑、接口设计或实施承诺。三项候选能力均不在本阶段实现。
+本节记录三项候选能力的审计结论。第一轮仅实现“按需求寻找 Skill”；上传 Skill 与通过 `skill-creator` 创建 Skill 仍不进入本轮计划，外部市场继续延后。
 
 ### 4.1 允许用户上传 Skill
 
@@ -98,19 +98,18 @@ node scripts/audit-skill-experience.mjs
 
 ### 4.2 辅助用户寻找满足需求的 Skill
 
-当前证据：市场已有关键词、中文说明、原文、分类、标签和安装状态筛选，但没有基于任务约束的语义匹配或解释层。
+当前实现：`client/src/data/skillNeedMatcher.ts` 在浏览器本地规范化中英文需求，通过任务词、工具别名、分类和同义词匹配现有目录；不调用模型、后端推荐接口、外部搜索或市场。
 
-可行性判断：可以优先基于本地目录构建解释性推荐，不需要连接外部市场；但评价标准与误匹配成本尚未定义。
+排序依据依次覆盖名称、子技能、标签、中文介绍、分类和来源介绍。安装状态只在相关度接近时用于排序；每次最多返回 6 项，并展示命中的字段和关键词。高度相关的待核验项可以出现，但只有 `ready` 项显示安装按钮。
 
-主要缺口与风险：
+安全与边界：
 
-- 用户需求中的输入、输出、工具、权限和数据边界可能被错误抽取。
-- 只按名称或向量相似度排序会产生“看起来相关但不能完成任务”的结果。
-- 上游说明可能包含提示注入或夸大能力，不能直接作为可信系统指令。
-- 推荐结果若自动安装，会把检索误差扩大为本地状态变更。
-- 无匹配时必须明确承认目录缺口，不能伪造 Skill 或转向未批准市场。
+- 推荐只读取目录元数据，不执行来源说明，也不会自动安装。
+- 无可靠结果时明确提示目录暂未覆盖，不伪造 Skill、不查询外部市场。
+- 词典式匹配可解释且稳定，但不会推断复杂权限、数据边界或深层语义；这些约束仍需用户阅读来源与安装提示确认。
+- 需求输入限制为 500 个字符，结果和理由由同一份本地目录确定，便于离线复现。
 
-审计结论：暂不进入计划或实现。当前搜索仍是目录筛选，不宣称能理解需求或自动推荐。
+验收由 `scripts/audit-skill-need-matcher.mjs` 覆盖 PDF、表格分析、网页自动化测试、数据库安全、中英文表达、状态排序、解释理由和无匹配场景。
 
 ### 4.3 通过 skill-creator 创建 Skill
 
@@ -138,8 +137,9 @@ SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验�
 
 ```bash
 node scripts/audit-skill-experience.mjs
+node scripts/audit-skill-need-matcher.mjs
 cd client && npm.cmd run build
 python -m pytest server/tests/test_skill_integration.py -q
 ```
 
-体验策略集中在 `client/src/data/skillCatalogPolicy.ts`，统一核验证据位于 `client/src/data/skillSourceVerification.generated.ts`，早期来源页核验明细仍保留在 `client/src/data/officialSkillInstallSources.generated.ts`。如发现误映射，应修正核验器规则后重新生成整份证据并运行审计；这不会删除原始目录记录或已安装 Skill。固定提交安装能力可通过回退统一证据提交恢复原行为。
+体验策略集中在 `client/src/data/skillCatalogPolicy.ts`，统一核验证据位于 `client/src/data/skillSourceVerification.generated.ts`，需求匹配位于 `client/src/data/skillNeedMatcher.ts`，早期来源页核验明细仍保留在 `client/src/data/officialSkillInstallSources.generated.ts`。如发现误映射，应修正核验器规则后重新生成整份证据并运行审计；这不会删除原始目录记录或已安装 Skill。固定提交安装能力与需求匹配可分别回退对应提交，不影响共享栈。
