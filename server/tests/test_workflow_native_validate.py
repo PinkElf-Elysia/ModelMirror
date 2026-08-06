@@ -796,6 +796,39 @@ async def test_validate_agent_invalid_mode(client: httpx.AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_validate_agent_strategy_and_parallel_tool_calls(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "agent",
+        "type": "agent",
+        "data": {
+            "kind": "agent",
+            "agentMode": "tool_first",
+            "agentStrategy": "unsupported",
+            "parallelToolCalls": "sometimes",
+            "instruction": "????{{user_input}}",
+            "modelId": "deepseek/deepseek-chat",
+            "outputVariable": "agent_output",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "agent_output"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "agent"},
+        {"id": "e2", "source": "agent", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+
+    assert data["valid"] is False
+    assert {
+        "invalid_agent_strategy",
+        "invalid_parallel_tool_calls",
+    }.issubset(issue_codes(data))
+
+
+@pytest.mark.asyncio
 async def test_validate_agent_task_ok(client: httpx.AsyncClient) -> None:
     workflow = linear_workflow()
     workflow["nodes"][1] = {
@@ -1635,6 +1668,41 @@ async def test_validate_workflow_agent_node_ok(client: httpx.AsyncClient) -> Non
 
     assert data["valid"] is True
     assert data["issues"] == []
+
+
+@pytest.mark.asyncio
+async def test_validate_workflow_agent_strategy_and_parallel_tool_calls(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "workflow_agent",
+        "type": "workflow_agent",
+        "data": {
+            "kind": "workflow_agent",
+            "agentName": "research-agent",
+            "modelId": "deepseek/deepseek-chat",
+            "rolePrompt": "????????",
+            "taskInput": "????{{user_input}}",
+            "toolMode": "mcp_tools",
+            "agentStrategy": "unsupported",
+            "parallelToolCalls": "sometimes",
+            "outputVariable": "agent_output",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "agent_output"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "workflow_agent"},
+        {"id": "e2", "source": "workflow_agent", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+
+    assert data["valid"] is False
+    assert {
+        "invalid_workflow_agent_strategy",
+        "invalid_workflow_agent_parallel_tool_calls",
+    }.issubset(issue_codes(data))
 
 
 @pytest.mark.asyncio

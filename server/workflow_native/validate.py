@@ -851,17 +851,41 @@ def validate_node_configuration(
                 )
             )
 
+        agent_strategy = str(data.get("agentStrategy") or "auto").strip()
+        if agent_strategy not in {"auto", "function_calling", "react"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_agent_strategy",
+                    message=(
+                        "Agent agentStrategy must be auto, function_calling, or react."
+                    ),
+                    node_id=node.id,
+                )
+            )
+
+        parallel_tool_calls = str(
+            data.get("parallelToolCalls") or "false"
+        ).strip().lower()
+        if parallel_tool_calls not in {"true", "false"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_parallel_tool_calls",
+                    message="Agent parallelToolCalls must be true or false.",
+                    node_id=node.id,
+                )
+            )
+
         max_iterations = str(data.get("maxIterations") or "").strip()
         if max_iterations:
             try:
                 max_iterations_value = int(max_iterations)
             except ValueError:
                 max_iterations_value = 0
-            if max_iterations_value < 1:
+            if max_iterations_value < 1 or max_iterations_value > 20:
                 issues.append(
                     ValidationIssue(
                         code="invalid_max_iterations",
-                        message="Agent maxIterations must be a positive integer.",
+                        message="Agent maxIterations must be between 1 and 20.",
                         node_id=node.id,
                     )
                 )
@@ -928,6 +952,31 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="invalid_workflow_agent_tool_mode",
                     message="Workflow agent toolMode must be none or mcp_tools.",
+                    node_id=node.id,
+                )
+            )
+
+        agent_strategy = str(data.get("agentStrategy") or "auto").strip()
+        if agent_strategy not in {"auto", "function_calling", "react"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_workflow_agent_strategy",
+                    message=(
+                        "Workflow agent agentStrategy must be auto, "
+                        "function_calling, or react."
+                    ),
+                    node_id=node.id,
+                )
+            )
+
+        parallel_tool_calls = str(
+            data.get("parallelToolCalls") or "false"
+        ).strip().lower()
+        if parallel_tool_calls not in {"true", "false"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_workflow_agent_parallel_tool_calls",
+                    message="Workflow agent parallelToolCalls must be true or false.",
                     node_id=node.id,
                 )
             )

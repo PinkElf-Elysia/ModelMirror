@@ -16,6 +16,11 @@ from server.xpert_runtime import (
     RuntimeToolResult,
     WorkflowExecutionStore,
 )
+from server.xpert_runtime.agent_strategy import (
+    AgentModelError,
+    AgentModelTurn,
+    AgentToolCall,
+)
 from server.xpert_runtime.todo_store import RuntimeTodoStore
 
 
@@ -27,6 +32,13 @@ async def client():
         base_url="http://testserver",
     ) as async_client:
         yield async_client
+
+
+@pytest.fixture(autouse=True)
+def default_to_legacy_agent_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep pre-V2 integration cases on their original runtime path."""
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
 
 
 @pytest.mark.asyncio
@@ -801,6 +813,7 @@ async def test_workflow_agent_mcp_tool_mode_uses_runtime_toolset(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
     provider, restore_provider = _install_fake_tool_provider()
     responses = iter(
         [
@@ -915,6 +928,7 @@ async def test_workflow_agent_executes_safe_parallel_tool_batch_in_decision_orde
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
     provider, restore_provider = _install_fake_tool_provider()
     provider.tools[0].parallel_safe = True
     provider.tools.append(
@@ -990,6 +1004,7 @@ async def test_workflow_agent_terminal_tool_ends_without_model_summary(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
     provider, restore_provider = _install_fake_tool_provider()
     provider.tools[0].terminal = True
     decisions: list[str] = []
@@ -1044,6 +1059,7 @@ async def test_workflow_agent_tool_policy_denial_does_not_crash_workflow(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
     provider, restore_provider = _install_fake_tool_provider()
 
     async def fake_collect_chat_completion_text(*args, **kwargs):
@@ -1144,6 +1160,7 @@ async def test_legacy_agent_tool_first_uses_runtime_toolset(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
     provider, restore_provider = _install_fake_tool_provider()
     responses = iter(
         [
@@ -1222,6 +1239,286 @@ async def test_legacy_agent_tool_first_uses_runtime_toolset(
     assert agent_end["output"] == "legacy final"
     assert len(provider.calls) == 1
     assert provider.calls[0].tool_name == "fetch"
+
+
+def _agent_strategy_workflow(
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "kind": "agent",
+        "agentMode": "tool_first",
+        "instruction": "请处理：{{user_input}}",
+        "modelId": "test/model",
+        "toolNames": "fetch",
+        "maxIterations": "3",
+        "outputVariable": "agent_output",
+    }
+    data.update(overrides or {})
+    return {
+        "id": "agent-v2-workflow",
+        "title": "agent v2 workflow",
+        "nodes": [
+            {
+                "id": "input",
+                "type": "input",
+                "data": {"kind": "input", "variableName": "user_input"},
+            },
+            {"id": "agent", "type": "agent", "data": data},
+            {
+                "id": "output",
+                "type": "output",
+                "data": {"kind": "output", "outputVariable": "agent_output"},
+            },
+        ],
+        "edges": [
+            {"id": "e1", "source": "input", "target": "agent"},
+            {"id": "e2", "source": "agent", "target": "output"},
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_agent_strategy_v2_function_calling_uses_runtime_toolset(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+
+    class FakeAgentModelClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.responses = iter(
+                [
+                    AgentModelTurn(
+                        tool_calls=[
+                            AgentToolCall(
+                                call_id="call_v2",
+                                name="fetch",
+                                raw_arguments='{"query":"v2 agent"}',
+                            )
+                        ],
+                        finish_reason="tool_calls",
+                    ),
+                    AgentModelTurn(content="v2 final", finish_reason="stop"),
+                ]
+            )
+
+        async def complete(self, **kwargs: Any) -> AgentModelTurn:
+            return next(self.responses)
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+    monkeypatch.setattr(main_module, "OpenAICompatibleAgentModelClient", FakeAgentModelClient)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={
+                "workflow": _agent_strategy_workflow(
+                    {"agentStrategy": "function_calling"}
+                ),
+                "inputs": {"user_input": "v2"},
+            },
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    agent_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end" and event.get("node_id") == "agent"
+    )
+    assert agent_end["output"] == "v2 final"
+    assert len(provider.calls) == 1
+    assert provider.calls[0].arguments == {"query": "v2 agent"}
+    assert any(
+        event.get("event") == "node_delta"
+        and event.get("node_id") == "agent"
+        and event.get("strategy") == "function_calling"
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_workflow_agent_strategy_v2_react_uses_runtime_toolset(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+
+    class FakeAgentModelClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.responses = iter(
+                [
+                    AgentModelTurn(
+                        content=(
+                            "Thought: use fetch\n"
+                            'Action: {"action":"fetch","action_input":{"query":"react"}}'
+                        )
+                    ),
+                    AgentModelTurn(content="FinalAnswer: react final"),
+                ]
+            )
+
+        async def complete(self, **kwargs: Any) -> AgentModelTurn:
+            return next(self.responses)
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+    monkeypatch.setattr(main_module, "OpenAICompatibleAgentModelClient", FakeAgentModelClient)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _workflow_agent_strategy_workflow(
+        {
+            "toolMode": "mcp_tools",
+            "agentStrategy": "react",
+            "toolNames": "fetch",
+        }
+    )
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "react"}},
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    agent_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end"
+        and event.get("node_id") == "workflow_agent"
+    )
+    assert agent_end["output"] == "react final"
+    assert len(provider.calls) == 1
+    assert provider.calls[0].arguments == {"query": "react"}
+
+
+@pytest.mark.asyncio
+async def test_agent_strategy_v2_auto_safely_falls_back_to_react(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+
+    class FakeAgentModelClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.responses = iter(
+                [
+                    AgentModelError(
+                        "unknown parameter: tools",
+                        status_code=400,
+                        param="tools",
+                    ),
+                    AgentModelTurn(content="FinalAnswer: auto fallback"),
+                ]
+            )
+
+        async def complete(self, **kwargs: Any) -> AgentModelTurn:
+            response = next(self.responses)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+    monkeypatch.setattr(main_module, "OpenAICompatibleAgentModelClient", FakeAgentModelClient)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={
+                "workflow": _agent_strategy_workflow(),
+                "inputs": {"user_input": "auto"},
+            },
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    agent_end = next(
+        event
+        for event in events
+        if event.get("event") == "node_end" and event.get("node_id") == "agent"
+    )
+    assert agent_end["output"] == "auto fallback"
+    assert provider.calls == []
+    assert any(
+        event.get("event") == "node_delta"
+        and event.get("strategy") == "react"
+        and "回退" in str(event.get("output"))
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_workflow_agent_v2_missing_whitelist_tool_stops_before_model(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, restore_provider = _install_fake_tool_provider()
+    model_client_inits = 0
+
+    class FakeAgentModelClient:
+        def __init__(self, **kwargs: Any) -> None:
+            nonlocal model_client_inits
+            model_client_inits += 1
+
+        async def complete(self, **kwargs: Any) -> AgentModelTurn:
+            raise AssertionError("model must not be called for a missing whitelist tool")
+
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", True)
+    monkeypatch.setattr(main_module, "OpenAICompatibleAgentModelClient", FakeAgentModelClient)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "workflow_mcp_provider", provider)
+    workflow = _workflow_agent_strategy_workflow(
+        {
+            "toolMode": "mcp_tools",
+            "toolNames": "missing-tool",
+            "retryOnFailure": "true",
+            "fallbackModelId": "fallback/model",
+            "exceptionHandling": "empty_output",
+        }
+    )
+    try:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": workflow, "inputs": {"user_input": "missing"}},
+        )
+    finally:
+        restore_provider()
+
+    assert response.status_code == 200, response.text
+    events = _parse_sse_events(response.text)
+    workflow_meta = next(
+        event for event in events if event.get("event") == "workflow_meta"
+    )
+    child_run = await _workflow_agent_run(client, workflow_meta["run_id"])
+    checkpoint_types = await _checkpoint_types(client, child_run["run_id"])
+    assert model_client_inits == 0
+    assert provider.calls == []
+    assert checkpoint_types.count("workflow_agent.failed_attempt") == 1
+    assert "workflow_agent.retry" not in checkpoint_types
+    assert "workflow_agent.fallback_model" not in checkpoint_types
 
 
 def _parse_sse_events(sse_text: str) -> list[dict]:
