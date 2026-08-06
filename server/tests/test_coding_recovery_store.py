@@ -23,6 +23,13 @@ new file mode 100644
 @@ -0,0 +1 @@
 +恢复标记 alpha-731
 """
+DELETION_PATCH = """diff --git a/docs/removed.txt b/docs/removed.txt
+deleted file mode 100644
+--- a/docs/removed.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-remove random-8421
+"""
 
 
 def _changes(*, validation_status: str = "passed") -> dict[str, object]:
@@ -212,6 +219,31 @@ def test_payload_rejects_patch_path_or_summary_mismatch() -> None:
         _payload(changes=changes)
 
     assert error.value.code == "invalid_recovery_payload"
+
+
+def test_payload_accepts_canonical_deleted_file_summary() -> None:
+    changes = {
+        "revision": 4,
+        "files": [
+            {
+                "path": "docs/removed.txt",
+                "status": "deleted",
+                "additions": 0,
+                "deletions": 1,
+            }
+        ],
+        "file_count": 1,
+        "additions": 0,
+        "deletions": 1,
+        "patch_bytes": len(DELETION_PATCH.encode("utf-8")),
+        "validation_status": "passed",
+        "can_download": True,
+        "checks": [],
+    }
+
+    payload = _payload(patch=DELETION_PATCH, changes=changes)
+
+    assert payload.changes["files"][0]["status"] == "deleted"
 
 
 def test_v3_encrypts_publish_intent_and_rejects_publish_tokens(tmp_path: Path) -> None:

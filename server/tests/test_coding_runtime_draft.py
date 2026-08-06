@@ -377,7 +377,6 @@ def test_rollback_makes_read_only_snapshot_writable_before_checkpoint_overlay(
 @pytest.mark.parametrize(
     ("mutation", "expected_code"),
     [
-        (lambda root: (root / "app.py").unlink(), "deletion_not_allowed"),
         (
             lambda root: (root / "binary.bin").write_bytes(b"safe\x00unsafe"),
             "binary_file_not_allowed",
@@ -455,18 +454,134 @@ def test_tracked_env_examples_may_exist_but_cannot_be_changed(
     assert not (workspace.workspace_root / ".env.local").exists()
 
 
-def test_rename_is_rejected_as_a_deletion(tmp_path: Path) -> None:
+def test_delete_is_a_stable_draft_and_cancel_restores_that_state(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(
+        tmp_path,
+        {"docs/remove-k7m4.txt": "random line one\nrandom line two\n"},
+    )
+    workspace.begin_turn()
+    (workspace.workspace_root / "docs/remove-k7m4.txt").unlink()
+
+    report = workspace.commit_turn()
+
+    assert report.revision == 1
+    assert [(item.path, item.status) for item in report.files] == [
+        ("docs/remove-k7m4.txt", "deleted")
+    ]
+    assert (report.additions, report.deletions) == (0, 2)
+    deletion_diff = workspace.diff_for("docs/remove-k7m4.txt", 1)
+    assert "deleted file mode 100644" in deletion_diff
+    assert "+++ /dev/null" in deletion_diff
+
+    workspace.begin_turn()
+    _write(workspace, "cancelled.txt", "do not keep\n")
+    rolled_back = workspace.rollback_turn()
+
+    assert [(item.path, item.status) for item in rolled_back.files] == [
+        ("docs/remove-k7m4.txt", "deleted")
+    ]
+    assert not (workspace.workspace_root / "docs/remove-k7m4.txt").exists()
+    assert not (workspace.workspace_root / "cancelled.txt").exists()
+
+
+def test_move_is_recorded_as_one_delete_and_one_add(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path, {"old.txt": "content\n"})
     workspace.begin_turn()
     (workspace.workspace_root / "old.txt").rename(
         workspace.workspace_root / "new.txt"
     )
 
-    with pytest.raises(DraftPolicyError, match="deletion_not_allowed"):
-        workspace.commit_turn()
+    report = workspace.commit_turn()
 
-    assert (workspace.workspace_root / "old.txt").exists()
-    assert not (workspace.workspace_root / "new.txt").exists()
+    assert [(item.path, item.status) for item in report.files] == [
+        ("new.txt", "added"),
+        ("old.txt", "deleted"),
+    ]
+    assert not (workspace.workspace_root / "old.txt").exists()
+    assert (workspace.workspace_root / "new.txt").read_text(encoding="utf-8") == (
+        "content\n"
+    )
+
+
+def test_deleted_file_remains_deleted_across_cycle_checkpoint(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path, {"old.txt": "remove after cycle\n"})
+    workspace.begin_turn()
+    (workspace.workspace_root / "old.txt").unlink()
+    first = workspace.commit_turn()
+
+    assert workspace.checkpoint_cycle(first.revision).files == ()
+    workspace.begin_turn()
+    _write(workspace, "temporary.txt", "cancelled\n")
+    workspace.rollback_turn()
+
+    assert not (workspace.workspace_root / "old.txt").exists()
+    assert not (workspace.workspace_root / "temporary.txt").exists()
+    cumulative = workspace.cumulative_changes()
+    assert [(item.path, item.status) for item in cumulative.files] == [
+        ("old.txt", "deleted")
+    ]
+
+
+def test_deleted_patch_restores_exactly_and_rejects_tampered_headers(
+    tmp_path: Path,
+) -> None:
+    seed = _workspace(tmp_path, {"remove.txt": "random-731\n"})
+    seed.begin_turn()
+    (seed.workspace_root / "remove.txt").unlink()
+    original = seed.commit_turn()
+    patch = seed.patch(original.revision)
+
+    restored = DraftWorkspace(
+        seed.source_root,
+        tmp_path / "restored-delete-workspace",
+        tmp_path / "restored-delete-checkpoint",
+    )
+    restored.initialize()
+    report = restored.restore_from_patch(
+        patch,
+        revision=7,
+        expected_paths=("remove.txt",),
+    )
+
+    assert report.files[0].status == "deleted"
+    assert not (restored.workspace_root / "remove.txt").exists()
+    assert restored.patch(7) == patch
+
+    tampered = patch.replace("+++ /dev/null", "+++ b/remove.txt")
+    fresh = DraftWorkspace(
+        seed.source_root,
+        tmp_path / "tampered-delete-workspace",
+        tmp_path / "tampered-delete-checkpoint",
+    )
+    fresh.initialize()
+    with pytest.raises(DraftPolicyError, match="recovery_patch_invalid"):
+        fresh.restore_from_patch(
+            tampered,
+            revision=8,
+            expected_paths=("remove.txt",),
+        )
+    assert (fresh.workspace_root / "remove.txt").read_text(encoding="utf-8") == (
+        "random-731\n"
+    )
+
+
+def test_deleting_binary_or_secret_content_fails_and_rolls_back(tmp_path: Path) -> None:
+    secret = f"token={'sk-' + ('x' * 30)}\n"
+    for name, content, code in (
+        ("binary.bin", b"unsafe\x00content", "binary_file_not_allowed"),
+        ("secret.txt", secret, "secret_detected"),
+    ):
+        case_root = tmp_path / f"case-{name}"
+        case_root.mkdir()
+        workspace = _workspace(case_root, {name: content})
+        workspace.begin_turn()
+        (workspace.workspace_root / name).unlink()
+        with pytest.raises(DraftPolicyError) as error:
+            workspace.commit_turn()
+        assert error.value.code == code
+        assert (workspace.workspace_root / name).exists()
 
 
 def test_symlink_is_rejected_when_supported(tmp_path: Path) -> None:
