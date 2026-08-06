@@ -535,7 +535,10 @@ class CodingCommitterEngine:
                     "New apply path already exists.",
                     code="receipt_mismatch",
                 )
-            self._current_hashes[item.path] = item.after_sha256
+            if item.after_sha256 is None:
+                self._current_hashes.pop(item.path, None)
+            else:
+                self._current_hashes[item.path] = item.after_sha256
         self._current_head = receipt.commit_sha
         self._current_tree = receipt.tree_sha
         self._current_entries = self._read_tree_entries(receipt.commit_sha)
@@ -647,8 +650,12 @@ class CodingCommitterEngine:
                     raise CodingCommitError("Apply receipt does not match baseline.", code="receipt_mismatch")
             elif item.path in expected_hashes:
                 raise CodingCommitError("New apply path already exists.", code="receipt_mismatch")
-            expected_hashes[item.path] = item.after_sha256
-            expected_entries.add(("file", item.path))
+            if item.after_sha256 is None:
+                expected_hashes.pop(item.path, None)
+                expected_entries.discard(("file", item.path))
+            else:
+                expected_hashes[item.path] = item.after_sha256
+                expected_entries.add(("file", item.path))
             parent = PurePosixPath(item.path).parent
             while str(parent) not in {"", "."}:
                 expected_entries.add(("directory", parent.as_posix()))
@@ -753,6 +760,15 @@ class CodingCommitterEngine:
             index_path = Path(directory) / "index"
             self._run_git("read-tree", self._current_head, index_path=index_path)
             for item in apply_receipt.files:
+                if item.after_sha256 is None:
+                    self._run_git(
+                        "update-index",
+                        "--force-remove",
+                        "--",
+                        item.path,
+                        index_path=index_path,
+                    )
+                    continue
                 mode = self._current_entries[item.path].mode if item.existed_before else "100644"
                 object_id = self._git_text(
                     "hash-object",
