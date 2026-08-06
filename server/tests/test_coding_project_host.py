@@ -53,7 +53,20 @@ def test_pairing_is_single_use_and_persists_only_hashed_secrets(tmp_path) -> Non
     assert code not in persisted
     assert token not in persisted
     assert pairing.code_hash not in persisted
-    assert host.token_prefix in persisted
+    assert token[:8] not in persisted
+    assert set(json.loads(persisted)["hosts"][0]) == {
+        "host_id",
+        "device_id",
+        "name",
+        "token_hash",
+        "version",
+        "platform",
+        "status",
+        "connection_id",
+        "created_at",
+        "updated_at",
+        "last_heartbeat_at",
+    }
 
     restored = ProjectHostStore(state)
     assert restored.host_status()["paired"] is True
@@ -71,10 +84,27 @@ def test_authentication_revoke_and_stale_heartbeat_fail_closed(tmp_path) -> None
 
     now[0] += 61
     assert store.host_status()["available"] is False
+    store.register_project(host_id, _project())
     store.revoke(host_id)
+    assert store.list_projects() == []
     with pytest.raises(ProjectHostError) as revoked:
         store.authenticate(host_id, token)
     assert revoked.value.code == "project_host_unavailable"
+
+
+@pytest.mark.parametrize("version", ["2.0.0", "0.9.0", "1.0", "latest"])
+def test_pairing_rejects_incompatible_or_malformed_helper_versions(tmp_path, version) -> None:
+    store = ProjectHostStore(tmp_path / "state.json")
+    _pairing, code = store.create_pairing("Windows 项目助手")
+
+    with pytest.raises(ProjectHostError) as invalid:
+        store.consume_pairing(
+            code,
+            device_id="pdev_0123456789abcdef0123456789abcdef",
+            version=version,
+            platform="windows",
+        )
+    assert invalid.value.code == "project_host_version_invalid"
 
 
 def test_second_device_requires_explicitly_revoking_the_paired_host(tmp_path) -> None:

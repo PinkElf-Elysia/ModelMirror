@@ -52,7 +52,6 @@ class ProjectHost:
     device_id: str
     name: str
     token_hash: str
-    token_prefix: str
     version: str
     platform: str
     status: Literal["online", "offline", "revoked"] = "offline"
@@ -192,7 +191,6 @@ class ProjectHostStore:
                     device_id=device_id,
                     name=pairing.name,
                     token_hash=self._hash_secret(token),
-                    token_prefix=token[:8],
                     version=version,
                     platform=platform,
                     status="online",
@@ -205,7 +203,6 @@ class ProjectHostStore:
                 host = existing
                 host.name = pairing.name
                 host.token_hash = self._hash_secret(token)
-                host.token_prefix = token[:8]
                 host.version = version
                 host.platform = platform
                 host.status = "online"
@@ -263,6 +260,16 @@ class ProjectHostStore:
             host.status = "revoked"
             host.connection_id = None
             host.updated_at = self._clock()
+            self._projects = {
+                project_id: project
+                for project_id, project in self._projects.items()
+                if project.host_id != host_id
+            }
+            self._selections = {
+                request_id: selection
+                for request_id, selection in self._selections.items()
+                if selection.host_id != host_id
+            }
             self._persist_unlocked()
             return host
 
@@ -434,7 +441,13 @@ class ProjectHostStore:
             if not isinstance(payload, dict) or payload.get("version") != 1:
                 raise ValueError("invalid state")
             for raw in payload.get("hosts", []):
-                host = ProjectHost(**raw)
+                if not isinstance(raw, dict):
+                    raise ValueError("invalid host state")
+                sanitized = dict(raw)
+                # Batch previews briefly persisted a token prefix. Ignore that
+                # legacy field while ensuring it is never written again.
+                sanitized.pop("token_prefix", None)
+                host = ProjectHost(**sanitized)
                 if HOST_ID_PATTERN.fullmatch(host.host_id) and DEVICE_ID_PATTERN.fullmatch(host.device_id):
                     host.status = "revoked" if host.status == "revoked" else "offline"
                     host.connection_id = None
@@ -520,4 +533,4 @@ def _valid_reason(value: Any) -> bool:
 
 
 def _valid_version(value: Any) -> bool:
-    return isinstance(value, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value) is not None
+    return isinstance(value, str) and re.fullmatch(r"1\.[0-9]+\.[0-9]+", value) is not None

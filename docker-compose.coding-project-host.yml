@@ -1,0 +1,97 @@
+services:
+  server:
+    environment:
+      CODING_PROJECT_HOST_ENABLED: ${CODING_PROJECT_HOST_ENABLED:-true}
+      CODING_PROJECT_SOURCE_SOCKET_PATH: /run/modelmirror-coding-projects/source.sock
+      CODING_PROJECT_HOST_STATE_PATH: /var/lib/modelmirror/coding-project-host/state.json
+      CODING_PROJECT_UPLOAD_ROOT: /project-uploads
+    volumes:
+      - coding_project_source_socket:/run/modelmirror-coding-projects
+      - coding_project_host_state:/var/lib/modelmirror/coding-project-host
+      - coding_project_host_uploads:/project-uploads
+
+  coding-runtime:
+    volumes:
+      - type: volume
+        source: coding_project_snapshot
+        target: /project-snapshots
+        read_only: true
+        volume:
+          nocopy: true
+
+  coding-verifier:
+    environment:
+      CODING_PROJECT_SNAPSHOT_PATH: /project-snapshots/current
+    volumes:
+      - type: volume
+        source: coding_project_snapshot
+        target: /project-snapshots
+        read_only: true
+        volume:
+          nocopy: true
+
+  coding-project-source:
+    profiles:
+      - coding-project-host
+    image: modelmirror-coding-project-source:local
+    build:
+      context: .
+      dockerfile: server/coding_project_source/Dockerfile
+    container_name: modelmirror-coding-project-source
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 96
+    cpus: 0.75
+    mem_limit: 384m
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=16m,uid=65532,gid=65532,mode=0700
+      - /home/projectsource:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+      - /projects-root:rw,nosuid,noexec,size=1m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_PROJECT_SOURCE_SOCKET_PATH: /run/modelmirror-coding-projects/source.sock
+      CODING_PROJECTS_ROOT: /projects-root
+      CODING_PROJECT_SNAPSHOT_ROOT: /snapshot-slot
+      CODING_PROJECT_UPLOAD_ROOT: /project-uploads
+    volumes:
+      - coding_project_source_socket:/run/modelmirror-coding-projects
+      - type: volume
+        source: coding_project_snapshot
+        target: /snapshot-slot
+        volume:
+          nocopy: true
+      - coding_project_host_uploads:/project-uploads
+    restart: unless-stopped
+    stop_grace_period: 5s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding-projects/source.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  coding_project_source_socket:
+  coding_project_snapshot:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=256m,uid=65532,gid=65532,mode=0700"
+  coding_project_host_state:
+  coding_project_host_uploads:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=256m,uid=65532,gid=65532,mode=0700"

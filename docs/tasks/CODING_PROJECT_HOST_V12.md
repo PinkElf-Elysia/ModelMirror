@@ -59,3 +59,50 @@
 - 自动验证覆盖配对、撤销、DPAPI边界、Git资格、CRLF快照、篡改/超限、断线清理、API、恢复和前端构建。
 - 执行 Coding 专项、`py_compile`、全量 `server/tests/`、前端生产构建和全部 Coding Compose配置检查。
 - 完成 7 个本地提交后停止；用户确认共享栈窗口前不重建，人工验收通过前不推送、不创建 PR。
+
+## 8. 批次执行记录
+
+| 批次 | 本地提交 | 结果 |
+| --- | --- | --- |
+| 0 | `325663c` | 固定 PR #98 基线、L4 数据边界、停止点和回退。 |
+| 1 | `718316a` | 完成路径无关的配对、主机与项目领域契约。 |
+| 2 | `ef29e1d` | 完成 Windows DPAPI、系统文件夹选择和 Git 资格检查。 |
+| 3 | `996863d` | 完成 HEAD blob 快照、分块传输和 Broker 双重校验。 |
+| 4 | `76be434` | 完成主机项目 API、动态租约及项目化恢复。 |
+| 5 | `fd633a6` | 完成连接、添加、重命名、移除授权和项目选择体验。 |
+| 6 | 本提交 | 完成独立部署 overlay、协议加固、文档与全量门禁。 |
+
+批次 5 生产构建中 Coding 懒加载块为 33.78 KiB gzip；相对任务卡记录的第十一轮
+30.94 KiB 增加约 2.84 KiB，低于 8 KiB 门禁，且未增加前端依赖。助手状态不保存
+配对码、明文令牌、令牌前缀或宿主路径；便携包和构建产物均不纳入 Git。
+
+## 9. 交付状态与下一轮边界
+
+第十二轮完成自动验证后必须停在容器重建和人工验收之前。本任务没有占用或迁移共享
+栈；不得在当前分支提前实现第十三轮。第十三轮必须以第十二轮合并后的最新
+`origin/main` 为基线，另建 `codex/coding-direct-writeback-v13` 分支，避免把用户
+项目写入能力与首次接入同时交付。
+
+## 10. 部署与失败经验
+
+便携助手由 `scripts/build-coding-project-host.ps1` 生成，固定依赖
+`websockets==16.0` 与 `pyinstaller==6.14.1`，构建产物不提交。主机项目不要求旧版
+`CODING_PROJECTS_ROOT`，部署时加载 `docker-compose.coding-project-host.yml`：
+
+```powershell
+$env:CODING_PROJECT_HOST_ENABLED='true'
+docker compose -f docker-compose.yml -f docker-compose.coding-project-host.yml `
+  -f docker-compose.coding-commands.yml -p modelmirror `
+  --profile coding --profile coding-verify --profile coding-project-host config --quiet
+```
+
+需要恢复时再按原有预检门禁加载 `docker-compose.coding-recovery.yml`。独立 overlay
+只增加路径无关状态卷、短时上传 tmpfs、单槽快照 tmpfs 与无网络 Project Source；
+Server 和浏览器仍看不到物理路径。省略 overlay 或设置
+`CODING_PROJECT_HOST_ENABLED=false` 即回到 PR #98。
+
+本轮确认的失败经验：v1 协议不能只校验语义版本格式，必须拒绝主版本不兼容的助手；
+令牌前缀也属于不必要的认证材料，不落盘；助手离线时保留摘要用于恢复判断，但显式
+撤销时必须同步移除项目摘要。Project Source 新增导入模块后，Dockerfile必须同步复制
+模块并预建只读根目录中的上传挂载点，否则 Compose 配置虽通过、容器仍会启动失败。
+前端只能低频轮询单个配对或选择请求，不能借此刷新整页或重建活动会话。
