@@ -141,6 +141,7 @@ if (verificationEntries.length !== records.length) {
 }
 const recordIds = new Set(records.map((record) => record.id));
 const verifiedSourceKeys = new Set();
+let sourcePageVerifiedCount = 0;
 for (const [projectId, verification] of verificationEntries) {
   if (!recordIds.has(projectId)) {
     throw new Error(`统一核验证据不属于当前目录：${projectId}`);
@@ -166,6 +167,18 @@ for (const [projectId, verification] of verificationEntries) {
         )
     ) {
       throw new Error(`核验安装子目录不安全：${projectId} -> ${verification.subPath}`);
+    }
+    if (verification.declaredUrl && !verification.method.startsWith("source-page-")) {
+      throw new Error(`来源页核验证据缺少专用核验方式：${projectId}`);
+    }
+    if (verification.method.startsWith("source-page-")) {
+      if (
+        !verification.sourceUrl.startsWith("https://officialskills.sh/") ||
+        !verification.declaredUrl?.startsWith("https://github.com/")
+      ) {
+        throw new Error(`来源页核验证据缺少声明链路：${projectId}`);
+      }
+      sourcePageVerifiedCount += 1;
     }
     const sourceKey = `${verification.repoUrl.toLowerCase()}#${verification.subPath}`;
     if (verifiedSourceKeys.has(sourceKey)) {
@@ -308,3 +321,4 @@ console.log(
 console.log(
   `本轮通过来源覆盖 ${new Set(generatedVerifiedEntries.map(([, source]) => source.repoUrl)).size} 个 GitHub 仓库`,
 );
+console.log(`OfficialSkills 来源页新增固定提交证据：${sourcePageVerifiedCount} 项`);
