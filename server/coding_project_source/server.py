@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -31,6 +32,12 @@ from server.coding_runtime.projects import (
     resolve_project_path,
     validate_git_tree,
 )
+from server.coding_runtime.host_snapshot import (
+    MAX_HOST_ARCHIVE_BYTES,
+    HostSnapshotError,
+    extract_host_snapshot_archive,
+    sha256_file,
+)
 
 
 MAX_SOURCE_FRAME_BYTES = 64 * 1024
@@ -43,6 +50,9 @@ SOURCE_SOCKET_PATH = Path(
 )
 PROJECTS_ROOT = Path(os.getenv("CODING_PROJECTS_ROOT", "/projects-root"))
 SNAPSHOT_SLOT = Path(os.getenv("CODING_PROJECT_SNAPSHOT_ROOT", "/snapshot-slot"))
+UPLOAD_ROOT = Path(os.getenv("CODING_PROJECT_UPLOAD_ROOT", "/project-uploads"))
+UPLOAD_ROOT_MARKER = ".modelmirror-coding-project-uploads"
+SAFE_UPLOAD_FILE = re.compile(r"^[a-f0-9]{32}\.(?:tar\.gz|uploading)$")
 
 class ProjectSourceError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -100,42 +110,121 @@ class ProjectSnapshotBroker:
         self,
         projects_root: Path = PROJECTS_ROOT,
         snapshot_slot: Path = SNAPSHOT_SLOT,
+        upload_root: Path = UPLOAD_ROOT,
         *,
         limits: SnapshotLimits | None = None,
     ) -> None:
         self._projects_root = Path(projects_root)
         self._snapshot_slot = Path(snapshot_slot)
+        self._upload_root = Path(upload_root)
         self._limits = limits or SnapshotLimits()
         self._lock = threading.Lock()
         self._active: SnapshotLease | None = None
         self._prepare_slot()
+        self._prepare_upload_root()
 
     def health(self) -> dict[str, object]:
         try:
             projects = load_project_manifest(self._projects_root)
         except (ProjectCatalogError, ProjectSourceError):
-            return {
-                "service": "coding-project-source",
-                "configured": False,
-                "available": False,
-                "reason": "project_source_not_configured",
-                "active": self._active is not None,
-            }
+            projects = ()
         return {
             "service": "coding-project-source",
             "configured": True,
             "available": True,
             "reason": None,
             "project_count": len(projects),
+            "host_imports": True,
             "active": self._active is not None,
         }
 
     def list_projects(self) -> tuple[dict[str, Any], ...]:
-        entries = load_project_manifest(self._projects_root)
+        try:
+            entries = load_project_manifest(self._projects_root)
+        except ProjectCatalogError:
+            entries = ()
         return tuple(
             inspect_project(self._projects_root, entry).to_public_dict()
             for entry in entries
         )
+
+    def import_uploaded(
+        self,
+        upload_id: str,
+        archive_sha256: str,
+        *,
+        project_id: str,
+        name: str,
+        branch: str,
+        head: str,
+    ) -> SnapshotLease:
+        if not _valid_upload_id(upload_id) or not _valid_sha256(archive_sha256):
+            raise ProjectSourceError("invalid_request", "Host snapshot import is invalid")
+        archive = self._upload_root / f"{upload_id}.tar.gz"
+        with self._lock:
+            if self._active is not None:
+                if self._active.project_id == project_id and self._active.head == head.lower():
+                    archive.unlink(missing_ok=True)
+                    return self._active
+                archive.unlink(missing_ok=True)
+                raise ProjectSourceError("snapshot_busy", "Another project snapshot is active")
+            if archive.is_symlink() or not archive.is_file():
+                raise ProjectSourceError("snapshot_upload_missing", "Host snapshot upload is missing")
+            if archive.stat().st_size > MAX_HOST_ARCHIVE_BYTES:
+                archive.unlink(missing_ok=True)
+                raise ProjectSourceError("snapshot_archive_too_large", "Host snapshot is too large")
+            if not secrets.compare_digest(sha256_file(archive), archive_sha256):
+                archive.unlink(missing_ok=True)
+                raise ProjectSourceError("snapshot_upload_digest_mismatch", "Host snapshot digest changed")
+            self._clear_slot()
+            staging = self._snapshot_slot / f".staging-{secrets.token_hex(12)}"
+            workspace = staging / "workspace"
+            try:
+                staging.mkdir(parents=True, mode=0o700)
+                result = extract_host_snapshot_archive(
+                    archive,
+                    workspace,
+                    expected_project_id=project_id,
+                    expected_name=name,
+                    expected_branch=branch,
+                    expected_head=head.lower(),
+                )
+                lease = SnapshotLease(
+                    lease_id=secrets.token_urlsafe(24),
+                    project_id=result.project_id,
+                    name=result.name,
+                    branch=result.branch,
+                    head=result.head,
+                    fingerprint=result.fingerprint,
+                    file_count=result.file_count,
+                    total_bytes=result.total_bytes,
+                    hidden_files=result.hidden_files,
+                    created_at=time.time(),
+                )
+                _write_json(staging / "lease.json", lease.to_dict())
+                _write_json(
+                    staging / "verification.json",
+                    {
+                        "lease_id": lease.lease_id,
+                        "project_id": lease.project_id,
+                        "head": lease.head,
+                        "fingerprint": lease.fingerprint,
+                        "verification": {"auto": True, "runner_pack": None, "commands": []},
+                    },
+                )
+                staging.replace(self._snapshot_slot / "current")
+                self._active = lease
+                return lease
+            except HostSnapshotError as exc:
+                shutil.rmtree(staging, ignore_errors=True)
+                self._clear_slot()
+                raise ProjectSourceError(exc.code, str(exc)) from exc
+            except Exception:
+                shutil.rmtree(staging, ignore_errors=True)
+                self._clear_slot()
+                raise
+            finally:
+                archive.unlink(missing_ok=True)
 
     def check(self, project_id: str, expected_head: str) -> dict[str, Any]:
         if not _valid_opaque_id(project_id) or not _valid_object_id(expected_head):
@@ -263,6 +352,7 @@ class ProjectSnapshotBroker:
         with self._lock:
             self._active = None
             self._clear_slot()
+            self._clear_uploads()
 
     def _find_entry(self, project_id: str) -> ProjectManifestEntry:
         for entry in load_project_manifest(self._projects_root):
@@ -367,6 +457,32 @@ class ProjectSnapshotBroker:
         self._snapshot_slot.mkdir(parents=True, exist_ok=True)
         self._clear_slot()
 
+    def _prepare_upload_root(self) -> None:
+        if self._upload_root.is_symlink():
+            raise ProjectSourceError("snapshot_upload_root_unsafe", "Snapshot upload root is unsafe")
+        self._upload_root.mkdir(parents=True, exist_ok=True)
+        marker = self._upload_root / UPLOAD_ROOT_MARKER
+        if not marker.exists():
+            if any(self._upload_root.iterdir()):
+                raise ProjectSourceError("snapshot_upload_root_unsafe", "Snapshot upload root is unsafe")
+            marker.write_text("v1\n", encoding="ascii")
+        if marker.is_symlink() or not marker.is_file() or marker.read_text(encoding="ascii") != "v1\n":
+            raise ProjectSourceError("snapshot_upload_root_unsafe", "Snapshot upload root is unsafe")
+        self._clear_uploads()
+
+    def _clear_uploads(self) -> None:
+        if self._upload_root.is_symlink() or not self._upload_root.is_dir():
+            raise ProjectSourceError("snapshot_upload_root_unsafe", "Snapshot upload root is unsafe")
+        for child in self._upload_root.iterdir():
+            if child.name == UPLOAD_ROOT_MARKER:
+                continue
+            if SAFE_UPLOAD_FILE.fullmatch(child.name) is None:
+                raise ProjectSourceError("snapshot_upload_root_unsafe", "Snapshot upload root contains an unknown entry")
+            if child.is_file() or child.is_symlink():
+                child.unlink()
+            else:
+                raise ProjectSourceError("snapshot_upload_root_unsafe", "Snapshot upload root contains an unsafe entry")
+
     def _clear_slot(self) -> None:
         if self._snapshot_slot.is_symlink() or not self._snapshot_slot.is_dir():
             raise ProjectSourceError("snapshot_slot_unsafe", "Snapshot slot is unsafe")
@@ -434,6 +550,21 @@ class CodingProjectSourceServer:
                 self._broker.acquire,
                 request["project_id"],
                 request["expected_head"],
+            )
+            return {"lease": lease.to_dict()}
+        if action == "import_uploaded":
+            _require_keys(
+                request,
+                {"action", "upload_id", "archive_sha256", "project_id", "name", "branch", "head"},
+            )
+            lease = await asyncio.to_thread(
+                self._broker.import_uploaded,
+                request["upload_id"],
+                request["archive_sha256"],
+                project_id=request["project_id"],
+                name=request["name"],
+                branch=request["branch"],
+                head=request["head"],
             )
             return {"lease": lease.to_dict()}
         if action == "release":
@@ -591,6 +722,18 @@ def _valid_object_id(value: Any) -> bool:
         and len(value) in {40, 64}
         and value.isascii()
         and all(character in "0123456789abcdefABCDEF" for character in value)
+    )
+
+
+def _valid_upload_id(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 32 and all(
+        character in "0123456789abcdef" for character in value
+    )
+
+
+def _valid_sha256(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value
     )
 
 

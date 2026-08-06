@@ -26,6 +26,10 @@ from server.coding_runtime.project_host import (
     PROJECT_HOST_PROTOCOL,
     PROJECT_ID_PATTERN,
 )
+from server.coding_runtime.host_snapshot import (
+    HostSnapshotResult,
+    create_host_snapshot_archive,
+)
 from server.coding_runtime.projects import (
     MAX_PROJECT_NAME_CHARS,
     build_safe_git_command,
@@ -197,6 +201,39 @@ class ProjectHostRegistry:
             if value is None:
                 raise ProjectHostHelperError("project_not_found")
             return dict(value)
+
+    def create_snapshot(self, project_id: str, destination: Path) -> HostSnapshotResult:
+        registered = self.project(project_id)
+        inspected = inspect_git_project(
+            registered["path"],
+            self.device_secret,
+        )
+        if inspected["project_id"] != project_id:
+            raise ProjectHostHelperError("project_identity_changed")
+        inspected["name"] = registered["name"]
+        self.remember_project(inspected)
+        try:
+            result = create_host_snapshot_archive(
+                Path(inspected["path"]),
+                destination,
+                project_id=project_id,
+                name=inspected["name"],
+                branch=inspected["branch"],
+                head=inspected["head"],
+            )
+            rechecked = inspect_git_project(
+                registered["path"],
+                self.device_secret,
+            )
+            if any(
+                rechecked[key] != inspected[key]
+                for key in ("project_id", "branch", "head")
+            ):
+                destination.unlink(missing_ok=True)
+                raise ProjectHostHelperError("project_changed")
+            return result
+        except Exception as exc:
+            raise ProjectHostHelperError(getattr(exc, "code", "snapshot_failed")) from exc
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():

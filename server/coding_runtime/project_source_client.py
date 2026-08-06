@@ -15,6 +15,7 @@ MAX_PROJECT_SOURCE_FRAME_BYTES = 64 * 1024
 PROJECT_SOURCE_TIMEOUT_SECONDS = 15.0
 PROJECT_SOURCE_ACQUIRE_TIMEOUT_SECONDS = 130.0
 SAFE_LOCAL_PROJECT_ID = re.compile(r"^local-[a-f0-9]{24}$")
+SAFE_HOST_PROJECT_ID = re.compile(r"^hostgit_[a-f0-9]{32}$")
 SAFE_INTERNAL_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 SAFE_OBJECT_ID = re.compile(r"^[a-f0-9]{40}|[a-f0-9]{64}$")
 SAFE_PUBLIC_OBJECT_ID = re.compile(r"^[a-f0-9]{7,12}$")
@@ -136,6 +137,31 @@ class CodingProjectSourceClient:
                 code="invalid_project_source_response",
             )
         return released
+
+    async def import_uploaded(
+        self,
+        *,
+        upload_id: str,
+        archive_sha256: str,
+        project_id: str,
+        name: str,
+        branch: str,
+        head: str,
+    ) -> dict[str, Any]:
+        response = await self._request(
+            {
+                "action": "import_uploaded",
+                "upload_id": upload_id,
+                "archive_sha256": archive_sha256,
+                "project_id": project_id,
+                "name": name,
+                "branch": branch,
+                "head": head,
+            },
+            timeout=PROJECT_SOURCE_ACQUIRE_TIMEOUT_SECONDS,
+        )
+        lease = _validate_lease(response.get("lease"), project_id)
+        return {"kind": ProjectKind.HOST_GIT.value, **lease}
 
     async def _request(
         self,
@@ -289,7 +315,43 @@ def _valid_project_features(value: Any) -> bool:
 
 
 def _valid_local_id(value: Any) -> bool:
-    return isinstance(value, str) and SAFE_LOCAL_PROJECT_ID.fullmatch(value) is not None
+    return isinstance(value, str) and (
+        SAFE_LOCAL_PROJECT_ID.fullmatch(value) is not None
+        or SAFE_HOST_PROJECT_ID.fullmatch(value) is not None
+    )
+
+
+def _validate_lease(value: Any, project_id: str) -> dict[str, Any]:
+    expected = {
+        "lease_id", "project_id", "name", "branch", "head", "fingerprint",
+        "file_count", "total_bytes", "hidden_files", "created_at",
+    }
+    if not isinstance(value, dict) or set(value) != expected or value.get("project_id") != project_id:
+        raise ProjectSourceClientError(
+            "Project source lease is invalid.",
+            code="invalid_project_source_response",
+        )
+    if (
+        not _valid_local_id(value.get("project_id"))
+        or not _valid_internal_id(value.get("lease_id"))
+        or not _valid_name(value.get("name"))
+        or not _valid_branch(value.get("branch"))
+        or not isinstance(value.get("head"), str)
+        or SAFE_OBJECT_ID.fullmatch(value["head"]) is None
+        or not isinstance(value.get("fingerprint"), str)
+        or SAFE_FINGERPRINT.fullmatch(value["fingerprint"]) is None
+        or not _valid_count(value.get("file_count"), maximum=20_000)
+        or not _valid_count(value.get("total_bytes"), maximum=192 * 1024 * 1024)
+        or not _valid_count(value.get("hidden_files"), maximum=20_000)
+        or not isinstance(value.get("created_at"), (int, float))
+        or isinstance(value.get("created_at"), bool)
+        or not math.isfinite(float(value["created_at"]))
+    ):
+        raise ProjectSourceClientError(
+            "Project source lease is invalid.",
+            code="invalid_project_source_response",
+        )
+    return dict(value)
 
 
 def _valid_internal_id(value: Any) -> bool:
