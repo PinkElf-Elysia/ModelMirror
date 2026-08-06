@@ -1,6 +1,6 @@
 # 代码助手接入说明
 
-最后更新日期：2026-08-02
+最后更新日期：2026-08-05
 维护人：模镜团队
 
 ## 当前状态
@@ -18,25 +18,29 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 
 ModelMirror 使用镜像内固定快照并保留完整闭环；自定义项目使用无网络 Project Source
 从干净独立克隆的 Git HEAD 生成单槽只读快照，开放问答、草稿、Diff、下载、恢复和
-逐次确认的离线项目检查。
+逐次确认的离线项目检查。清单 version 3 可逐项目授权无 remote、固定分支的独立克隆；
+用户确认后，可把草稿原子写入所选项目并保存一个本地版本。
 Draft 默认不会写回任何宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
 系统只在用户确认后向固定独立克隆创建本地提交；远程发布也只允许固定 GitHub.com
-仓库、系统分支和 Draft PR，不提供合并、关闭或远端清理。系统不支持删除、重命名、
-二进制、直接 Shell、未经确认的命令、仓库或分支选择、多 Agent、完整 ACP、
+仓库、系统分支和 Draft PR，不提供合并、关闭或远端清理。草稿支持删除与移动普通
+UTF-8 文本，但不支持目录、符号链接、二进制、直接 Shell、未经确认的命令、任意仓库
+或分支选择、多 Agent、完整 ACP、
 分布式 Worker、保存对话、多任务历史或生产级多租户。不要将该入口直接暴露到公网。
 
 ## 用户体验约束
 
 - 页面面向没有代码基础的用户，优先使用“代码助手”“分析步骤”“查阅记录”等
   直白说法。
-- 顶部项目选择明确区分 ModelMirror“完整功能”和自定义项目“可查看、准备修改并
-  下载 Diff”；活动会话或待恢复草稿存在时锁定选择，绝不静默切换或清空修改。
+- 顶部项目选择明确区分 ModelMirror“完整功能”、已授权项目“可写入本地”和其他
+  自定义项目“修改草稿”；活动会话或待恢复草稿存在时锁定选择，绝不静默切换或清空修改。
 - 页面不展示 ACP、OpenCode、进程、原始协议帧、真实绝对路径或完整工具输出。
 - 输入区先于回答区出现；服务不可用时明确禁用输入，不影响其他页面。
 - 回答和查阅记录逐步更新；上游提供结构化计划时同步显示。停止操作可重复执行，
   不要求用户理解会话状态。
 - Draft 模式明确显示“修改草稿，不会直接改变项目”。回答完成后自动列出文件、
   增删行和检查结果；逐文件 Diff 在页面内滚动，不撑宽移动端。
+- 删除文件使用独立状态与图标；移动显示为旧路径删除和新路径新增，用户不需要理解
+  内部 Patch 表示。写回前页面始终提示修改仍在临时副本中。
 - “放弃修改”必须二次确认；检查失败时保留草稿供修正，但禁用下载。
 - “项目验证”由用户手动运行，使用“检查服务代码”“检查页面构建”等日常语言。
   运行时可停止，失败详情默认折叠；“让代码助手修复”只填入摘要，不自动提交。
@@ -47,6 +51,9 @@ Draft 默认不会写回任何宿主目录；受控应用也只允许写入预�
 - “应用到本地项目副本”仅在门禁满足时启用；确认区必须说明文件数量、不会提交或
   上传、当前项目目录不改变。目标不匹配或已有修改时使用日常语言提示，技术原因
   默认折叠。
+- 对逐项目授权的自定义克隆，操作显示为“写入所选本地项目”；确认区明确真实所选项目
+  会改变、不会自动保存本地版本或上传，并说明发现外部修改会停止。未授权或 Writer
+  不可用只降级为查看、验证与下载。
 - 应用成功后明确显示“修改已应用”，冻结输入与修改操作，但保留 Diff、验证和
   下载；提供“撤销本次应用”和“结束本次修改”。撤销不得覆盖之后的人工改动。
 - 独立本地仓库可用时，页面显示“保存一个可找回的本地版本”，预填系统建议并允许
@@ -71,6 +78,8 @@ flowchart LR
   API -->|"项目清单 / 私有 Unix socket"| PROJECTS["coding-project-source"]
   ROOT["受控项目根目录"] -->|"唯一只读挂载"| PROJECTS
   PROJECTS -->|"当前项目单槽快照"| WORKER
+  API -->|"独立私有 Unix socket"| WRITER["coding-project-writer"]
+  WRITER -->|"确认后原子写入 / 本地提交"| ROOT
   WORKER --> ACP["最小 ACP 客户端"]
   ACP --> OC["OpenCode 1.18.9"]
   SOURCE["只读基准快照 /opt/modelmirror-source"] -->|"会话创建时复制"| WORK["临时 /workspace"]
@@ -96,6 +105,7 @@ flowchart LR
   WORK -. "不挂载" .-> HOST["宿主仓库"]
   APPLY -. "不挂载" .-> CURRENT["当前主工作树"]
   COMMIT -. "不挂载" .-> CURRENT
+  WRITER -. "无网络" .-> HOST
 ```
 
 浏览器只接收供应商无关的 `CodingEvent`。OpenCode 和 ACP 是后端实现细节，
@@ -153,6 +163,8 @@ Draft、精确基础版本要求和 Ready 支持；不可用原因不影响本�
 `restores_conversation=false`；不返回存储路径、密钥或加密负载。
 `projects` 公开 enabled、configured、available、selection、默认项目和最多项目数；
 会话开始事件、会话状态和恢复状态只携带项目 ID、显示名、来源、短 HEAD 与功能矩阵。
+`project_writeback` 公开 enabled、configured、available、固定目标、删除/移动、撤销和
+本地提交能力；项目列表只返回功能矩阵与安全原因码，不返回清单路径或物理项目路径。
 
 公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、命令待确认、命令已处理、
 完成、失败、取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答、命令审批或工具输出。
@@ -195,8 +207,9 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 - 仅根目录 UTF-8 `AGENTS.md`（最多 64 KiB）会显式带入会话；嵌套 AGENTS、OpenCode、
   MCP、插件、provider 和其他可执行配置均隐藏且不会生效。Runtime 还会复核项目 ID、
   HEAD、租约与快照指纹，避免跨项目串读。
-- 自定义项目沿用 20 个变化文件、单文件 512 KiB、Patch 1 MiB 限额，只允许新增或修改
-  UTF-8 文本。项目验证与逐次确认命令仅在临时副本中运行；应用、本地提交和发布接口固定
+- 自定义项目沿用 20 个变化文件、单文件 512 KiB、Patch 1 MiB 限额，允许新增、修改、
+  删除或移动 UTF-8 普通文本。项目验证与逐次确认命令仅在临时副本中运行；只有 version 3
+  逐项目授权、无 remote 且固定分支的独立克隆开放应用与本地提交，发布和多轮接口仍固定
   返回 `project_operation_unavailable`，不会误用 ModelMirror 的执行面。
 - 加密恢复存储在独立上下文表保存项目 ID、来源、显示名和基准 HEAD，不保存宿主路径，
   也不改变 recovery schema v3 的 `user_version`。旧记录自动视为 ModelMirror；项目
@@ -207,8 +220,8 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 - 会话创建时把只读基准快照复制到临时工作区；会话关闭、过期或容器重启后清除。
 - 每轮开始前建立轻量检查点。取消、模型/协议失败或硬性安全违规只回滚本轮，
   之前已完成的合法草稿继续保留。
-- 只允许新增或修改 UTF-8 文本；禁止删除、重命名、二进制、符号链接、秘密模式、
-  环境文件、越界路径和禁止目录。
+- 允许新增、修改、删除或移动 UTF-8 普通文本；移动规范化为删除旧路径与新增新路径。
+  禁止目录、目标覆盖、二进制、符号链接、秘密模式、环境文件、越界路径和禁止目录。
 - 最多变化 20 个文件，单文件最终大小 512 KiB，总 Patch 1 MiB。
 - 自动检查 Python AST、JSON、冲突标记、新增尾随空白、Diff 完整性和安全策略。
   Python/JSON 等可修正问题保留草稿并显示警告，用户确认后仍可下载或应用；硬性安全
@@ -257,6 +270,26 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
   1 GiB 临时工作区。
 - 输出按步骤聚合、脱敏和截断。验证期间禁止新 Agent 轮次与放弃草稿，但 Diff 和
   Patch 保持可读；revision 变化后旧结果标记 stale。
+
+## 自定义项目受控写入与本地版本
+
+- 清单 version 3 通过 `writeback.enabled=true` 逐项目授权。v1/v2、未声明授权、存在
+  remote 或不在 `coding/local-draft` 分支的项目保持草稿能力，但不会显示写入入口。
+- `coding-project-writer` 是唯一可写挂载 `CODING_PROJECTS_ROOT` 的执行面；Server、
+  Runtime、Verifier 和浏览器只使用不透明项目 ID。Writer 无网络、端口、Docker socket、
+  模型密钥、远程凭据，并与其他 Coding socket 隔离。
+- 应用前再次复核清单授权、基准 HEAD、固定分支、remote、索引、工作区、Patch 限额和
+  每个原文件哈希；先在 tmpfs 预演，再原子写入。多文件任一步失败恢复已写文件，重复
+  请求使用同一操作 ID 并返回同一回执。
+- 删除只允许基准中存在的普通 UTF-8 文本；移动是旧路径删除与不存在的新路径新增。
+  目录、符号链接、二进制、敏感路径、目标覆盖和越界始终失败关闭。撤销只在所有目标
+  仍精确保持应用后状态时执行，不能覆盖之后的人工改动。
+- 本地提交在同一受控克隆和固定分支中使用临时索引、固定 Git plumbing 与
+  compare-and-swap 引用更新，不运行 Hook、过滤器、签名或凭据助手。撤销提交保留文件；
+  有效提交存在时必须先撤销提交，才能撤销写入。
+- 加密恢复保存操作意图和脱敏回执。Server 或 Writer 在回执窗口重启后，只有 HEAD、
+  索引、工作区哈希和 Writer 日志精确一致才恢复操作；不明确时进入只读冲突态，不重复
+  写入或提交。
 
 ## 受控应用与撤销
 
@@ -365,6 +398,8 @@ CODING_PROJECTS_ENABLED=false
 CODING_PROJECTS_ROOT=
 CODING_PROJECT_COMMANDS_ENABLED=false
 CODING_RUNNER_PACKS_ROOT=
+CODING_FILE_OPERATIONS_ENABLED=true
+CODING_PROJECT_WRITEBACK_ENABLED=false
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
@@ -384,6 +419,10 @@ CODING_RUNNER_PACKS_ROOT=
 Python 3.12、Node 22/npm 与已有锁定依赖。若设置该变量，必须使用部署者控制的绝对目录，
 每个 Pack 使用不可变版本 ID，且只读挂载给 Verifier。本轮未新增前端或后端第三方依赖；OpenCode 仍固定
 为 `1.18.9`（MIT），现有第三方声明无需新增条目。
+自定义项目写回还必须使用清单 v3，逐项目设置 `writeback.enabled=true`，并加载
+`docker-compose.coding-writeback.yml`。目标必须无 remote 且固定在
+`coding/local-draft`；省略 overlay 或关闭 `CODING_PROJECT_WRITEBACK_ENABLED` 只会让
+写入/提交不可用，不影响草稿、验证、命令、下载或 ModelMirror 完整闭环。
 
 实现分支尚未合并时，基于实现 HEAD 创建的验收仓库不可能与 GitHub `main` 精确匹配。
 真实远端验收可由部署者临时把 `CODING_GITHUB_BASE_BRANCH` 固定为一个精确指向任务基线
@@ -509,8 +548,23 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
     均没有该文件；Shell、`../`、绝对路径、环境注入和公网请求必须拒绝或无网络失败。
 33. 分别改变 Pack ID、输入哈希、平台和内部链接，确认只禁用对应环境。待确认和运行中重启
     Server、Runtime 或 Verifier 后不得残留占用；继续时只恢复上一份完整草稿，不恢复命令或输出。
+34. 在清单 v3 随机登记两个无 remote、固定在 `coding/local-draft` 的独立克隆，只给其中
+    一个设置 `writeback.enabled=true`；页面只能为已授权项目显示“可写入本地”。
+35. 在已授权项目中随机新增 `note_h6q9.txt`、修改一个 Python 文件、删除一个旧文本并把
+    `guide_a3p7.md` 移到随机新路径；确认 Diff 状态、增删统计和写入后文件精确一致。
+36. 在写入前后分别注入额外文件、人工改动、HEAD 变化、错误分支和 remote，确认操作拒绝、
+    不留下部分写入；正常撤销精确恢复，撤销前人工改文件时不得覆盖。
+37. 保存本地版本后核对固定作者、说明、父提交和文件集合；重复点击不新增提交。撤销提交
+    保留文件，再撤销写入恢复基准。Server/Writer 在各操作回执前重启后不得重复写入或提交。
+38. 停止 Writer 或关闭项目授权，确认自定义项目仍可问答、修改草稿、验证、逐次确认命令、
+    下载和恢复；项目 B 的随机标记始终不能被项目 A 的 Writer 请求读取或修改。
 
 ## 回退
+
+先设置 `CODING_PROJECT_WRITEBACK_ENABLED=false` 并省略
+`docker-compose.coding-writeback.yml`，自定义项目立即回到草稿、验证、命令、下载和恢复；
+已有文件或本地提交不会被自动撤销。设置 `CODING_FILE_OPERATIONS_ENABLED=false` 可单独
+关闭删除/移动工具，不影响新增、修改或只读问答。
 
 先设置 `CODING_PROJECT_COMMANDS_ENABLED=false` 并省略
 `docker-compose.coding-commands.yml`，即恢复第九轮本地项目草稿能力；停止 Verifier 不影响
