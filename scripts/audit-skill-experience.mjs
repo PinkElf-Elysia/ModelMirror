@@ -22,10 +22,9 @@ function readJson(path) {
 
 const anbeime = readJson("client/src/data/anbeimeSkillCatalog.generated.json");
 const voltagent = readJson("client/src/data/voltagentSkillCatalog.generated.json");
-const voltagentById = new Map(
-  voltagent.projects.map((project) => [project.id, project]),
+const skillSetIndex = readJson(
+  "client/src/data/skillSetMembers.generated.json",
 );
-
 function isSafeSubPath(subPath) {
   return (
     subPath === "" ||
@@ -62,9 +61,14 @@ function installStatusFor(projectId) {
 
 function sourceKeyFor(projectId) {
   const verification = verificationFor(projectId);
-  return verification.status === "verified"
+  return verification.status === "verified" &&
+    verification.installMode === "direct"
     ? `${verification.repoUrl.toLowerCase()}#${verification.subPath}`
     : undefined;
+}
+
+function verifiedKindFor(projectId, declaredKind) {
+  return verificationFor(projectId).verifiedKind ?? declaredKind;
 }
 
 const primarySourceRecords = [
@@ -73,6 +77,7 @@ const primarySourceRecords = [
     name: "PDF 文档处理技能",
     description: "让模型按标准流程处理 PDF 文档。",
     category: "内容与办公",
+    kind: verifiedKindFor("anthropic-pdf-skill", "skill"),
     installStatus: installStatusFor("anthropic-pdf-skill"),
     sourceKey: sourceKeyFor("anthropic-pdf-skill"),
   },
@@ -81,6 +86,7 @@ const primarySourceRecords = [
     name: "XLSX 表格处理技能",
     description: "让模型理解电子表格任务并辅助分析。",
     category: "内容与办公",
+    kind: verifiedKindFor("anthropic-xlsx-skill", "skill"),
     installStatus: installStatusFor("anthropic-xlsx-skill"),
     sourceKey: sourceKeyFor("anthropic-xlsx-skill"),
   },
@@ -89,6 +95,7 @@ const primarySourceRecords = [
     name: "TypeScript TDD 技能",
     description: "通过测试先行改进 TypeScript 工程质量。",
     category: "开发与测试",
+    kind: verifiedKindFor("mattpocock-tdd-skill", "skill"),
     installStatus: installStatusFor("mattpocock-tdd-skill"),
     sourceKey: sourceKeyFor("mattpocock-tdd-skill"),
   },
@@ -97,6 +104,7 @@ const primarySourceRecords = [
     name: "Agent Skills 开放标准",
     description: "定义 Skill 文件夹结构和渐进加载方式。",
     category: "AI 与智能体",
+    kind: verifiedKindFor("agent-skills-standard", "skill"),
     installStatus: installStatusFor("agent-skills-standard"),
   },
   ...anbeime.projects.map((project) => {
@@ -112,6 +120,7 @@ const primarySourceRecords = [
       name: project.name,
       description: describeSkillInChinese(input, category),
       category,
+      kind: verifiedKindFor(project.id, project.kind),
       installStatus: installStatusFor(project.id),
       sourceKey: sourceKeyFor(project.id),
     };
@@ -144,6 +153,7 @@ const voltagentSourceRecords = voltagent.projects
       name: project.name,
       description: describeSkillInChinese(input, category),
       category,
+      kind: verifiedKindFor(project.id, project.kind),
       installStatus: installStatusFor(project.id),
       sourceKey: sourceKeyFor(project.id),
     };
@@ -167,9 +177,10 @@ const recordIds = new Set(records.map((record) => record.id));
 const verifiedSourceKeys = new Set();
 let sourcePageVerifiedCount = 0;
 let githubRenameVerifiedCount = 0;
-let unsupportedSkillsetCount = 0;
 const githubHistoryReasonCounts = {};
 const githubPendingReasonCounts = {};
+const verifiedKindTransitions = {};
+const structuralSkillSetCounts = { package: 0, members: 0 };
 for (const [projectId, verification] of verificationEntries) {
   if (!recordIds.has(projectId)) {
     throw new Error(`统一核验证据不属于当前目录：${projectId}`);
@@ -180,18 +191,68 @@ for (const [projectId, verification] of verificationEntries) {
         verification.repoUrl,
       ) ||
       !/^[a-f0-9]{40}$/.test(verification.verifiedCommit) ||
-      verification.subPath === undefined ||
+      !["skill", "skillset"].includes(verification.declaredKind) ||
+      !["skill", "skillset"].includes(verification.verifiedKind) ||
+      !["direct", "members"].includes(verification.installMode) ||
+      verification.scopeSubPath === undefined ||
+      !isSafeSubPath(verification.scopeSubPath) ||
+      !Number.isInteger(verification.skillDocumentCount) ||
+      verification.skillDocumentCount < 1 ||
+      !Number.isInteger(verification.topMemberCount) ||
+      verification.topMemberCount < 1 ||
+      !Number.isInteger(verification.nestedSkillCount) ||
+      verification.nestedSkillCount < 0 ||
       !verification.method
     ) {
       throw new Error(`可安装证据不完整：${projectId}`);
     }
-    if (!isSafeSubPath(verification.subPath)) {
-      throw new Error(`核验安装子目录不安全：${projectId} -> ${verification.subPath}`);
+    const transition = `${verification.declaredKind}->${verification.verifiedKind}`;
+    verifiedKindTransitions[transition] =
+      (verifiedKindTransitions[transition] ?? 0) + 1;
+    if (verification.installMode === "direct") {
+      if (
+        verification.subPath === undefined ||
+        !isSafeSubPath(verification.subPath) ||
+        verification.skillSetId
+      ) {
+        throw new Error(`直接安装证据不完整：${projectId}`);
+      }
+      if (
+        verification.verifiedKind === "skillset" &&
+        (verification.skillsetMode !== "package" ||
+          verification.skillDocumentCount < 2 ||
+          verification.nestedSkillCount < 1)
+      ) {
+        throw new Error(`父级 SkillSet 结构不完整：${projectId}`);
+      }
+      if (
+        verification.verifiedKind === "skill" &&
+        verification.skillsetMode !== undefined
+      ) {
+        throw new Error(`普通 Skill 不应保留 SkillSet 模式：${projectId}`);
+      }
+      const sourceKey = `${verification.repoUrl.toLowerCase()}#${verification.subPath}`;
+      if (verifiedSourceKeys.has(sourceKey)) {
+        throw new Error(`可安装证据重复：${sourceKey}`);
+      }
+      verifiedSourceKeys.add(sourceKey);
+    } else if (
+      verification.verifiedKind !== "skillset" ||
+      verification.skillsetMode !== "members" ||
+      verification.subPath !== undefined ||
+      verification.skillSetId !== projectId ||
+      verification.topMemberCount < 2 ||
+      !skillSetIndex.skillSets[projectId]
+    ) {
+      throw new Error(`成员型 SkillSet 证据不完整：${projectId}`);
     }
-    if (verification.declaredUrl && !verification.method.startsWith("source-page-")) {
-      throw new Error(`来源页核验证据缺少专用核验方式：${projectId}`);
+    if (verification.verifiedKind === "skillset") {
+      structuralSkillSetCounts[verification.skillsetMode] += 1;
     }
-    if (verification.method.startsWith("source-page-")) {
+    if (
+      verification.method.startsWith("source-page-") ||
+      (verification.method === "git-skill-tree" && verification.declaredUrl)
+    ) {
       if (
         !verification.sourceUrl.startsWith("https://officialskills.sh/") ||
         !verification.declaredUrl?.startsWith("https://github.com/")
@@ -230,25 +291,15 @@ for (const [projectId, verification] of verificationEntries) {
       }
       githubRenameVerifiedCount += 1;
     }
-    const sourceKey = `${verification.repoUrl.toLowerCase()}#${verification.subPath}`;
-    if (verifiedSourceKeys.has(sourceKey)) {
-      throw new Error(`可安装证据重复：${sourceKey}`);
-    }
-    verifiedSourceKeys.add(sourceKey);
   } else {
-    if (!verification.reasonCode || !verification.reason) {
+    if (
+      !verification.reasonCode ||
+      !verification.reason ||
+      !["skill", "skillset"].includes(verification.declaredKind) ||
+      verification.installMode !== "none" ||
+      verification.verifiedKind !== undefined
+    ) {
       throw new Error(`不可安装证据缺少原因：${projectId}`);
-    }
-    if (verification.reasonCode === "multi-skillset-install-unsupported") {
-      const project = voltagentById.get(projectId);
-      if (
-        verification.status !== "pending" ||
-        project?.kind !== "skillset" ||
-        !verification.sourceUrl.startsWith("https://github.com/")
-      ) {
-        throw new Error(`多目录 SkillSet 原因与目录记录冲突：${projectId}`);
-      }
-      unsupportedSkillsetCount += 1;
     }
     if (
       [
@@ -284,9 +335,7 @@ for (const [projectId, verification] of verificationEntries) {
 
 const expectedGithubPendingReasons = {
   "declared-path-removed": 171,
-  "declared-path-never-seen": 11,
-  "multi-skillset-install-unsupported": 32,
-  "ambiguous-skill-path": 21,
+  "declared-path-never-seen": 4,
   "repository-not-found": 11,
   "no-skill-file": 1,
 };
@@ -302,8 +351,96 @@ if (
   );
 }
 
+const expectedKindTransitions = {
+  "skill->skill": 836,
+  "skillset->skillset": 36,
+  "skill->skillset": 44,
+  "skillset->skill": 6,
+};
+if (
+  Object.keys(verifiedKindTransitions).length !==
+    Object.keys(expectedKindTransitions).length ||
+  !Object.entries(expectedKindTransitions).every(
+    ([transition, count]) => verifiedKindTransitions[transition] === count,
+  )
+) {
+  throw new Error(
+    `Skill/SkillSet 类型迁移分布变化：${JSON.stringify(verifiedKindTransitions)}`,
+  );
+}
+if (
+  structuralSkillSetCounts.package !== 10 ||
+  structuralSkillSetCounts.members !== 70
+) {
+  throw new Error(
+    `SkillSet 安装模式分布变化：${JSON.stringify(structuralSkillSetCounts)}`,
+  );
+}
+
+const referencedMemberIds = new Set();
+const memberSourceKeys = new Set();
+for (const [skillSetId, skillSet] of Object.entries(skillSetIndex.skillSets)) {
+  const verification = verificationFor(skillSetId);
+  if (
+    verification.installMode !== "members" ||
+    skillSet.id !== skillSetId ||
+    skillSet.repoUrl !== verification.repoUrl ||
+    skillSet.verifiedCommit !== verification.verifiedCommit ||
+    skillSet.scopeSubPath !== verification.scopeSubPath ||
+    skillSet.memberIds.length !== verification.topMemberCount ||
+    new Set(skillSet.memberIds).size !== skillSet.memberIds.length
+  ) {
+    throw new Error(`SkillSet 成员索引与统一证据冲突：${skillSetId}`);
+  }
+  const memberPaths = [];
+  for (const memberId of skillSet.memberIds) {
+    const member = skillSetIndex.members[memberId];
+    if (
+      !member ||
+      member.id !== memberId ||
+      member.repoUrl !== skillSet.repoUrl ||
+      member.verifiedCommit !== skillSet.verifiedCommit ||
+      !isSafeSubPath(member.subPath) ||
+      !member.subPath ||
+      !/^[a-f0-9]{40}$/.test(member.directoryTreeSha) ||
+      !Number.isInteger(member.nestedSkillCount) ||
+      member.nestedSkillCount < 0
+    ) {
+      throw new Error(`SkillSet 成员安装证据不完整：${skillSetId} -> ${memberId}`);
+    }
+    memberPaths.push(member.subPath);
+    if (!referencedMemberIds.has(memberId)) {
+      const sourceKey = `${member.repoUrl.toLowerCase()}#${member.verifiedCommit}#${member.subPath}`;
+      if (memberSourceKeys.has(sourceKey)) {
+        throw new Error(`全局 SkillSet 成员安装映射重复：${sourceKey}`);
+      }
+      memberSourceKeys.add(sourceKey);
+    }
+    referencedMemberIds.add(memberId);
+  }
+  for (const memberPath of memberPaths) {
+    if (
+      memberPaths.some(
+        (candidate) =>
+          candidate !== memberPath && candidate.startsWith(`${memberPath}/`),
+      )
+    ) {
+      throw new Error(`SkillSet 顶层成员存在祖先重叠：${skillSetId}`);
+    }
+  }
+}
+if (
+  referencedMemberIds.size !== Object.keys(skillSetIndex.members).length ||
+  referencedMemberIds.size !== 3541
+) {
+  throw new Error(
+    `SkillSet 成员注册表存在未引用记录：${referencedMemberIds.size} / ${Object.keys(skillSetIndex.members).length}`,
+  );
+}
+
 const categoryCounts = Object.fromEntries(SKILL_CATEGORIES.map((category) => [category, 0]));
 const installStatusCounts = { ready: 0, manual: 0, pending: 0, reference: 0 };
+const verifiedKindCounts = { skill: 0, skillset: 0 };
 for (const record of records) {
   if (!(record.category in categoryCounts)) {
     throw new Error(`未归类：${record.name} -> ${record.category}`);
@@ -316,6 +453,16 @@ for (const record of records) {
   }
   categoryCounts[record.category] += 1;
   installStatusCounts[record.installStatus] += 1;
+  verifiedKindCounts[record.kind] += 1;
+}
+
+if (
+  installStatusCounts.ready !== 922 ||
+  installStatusCounts.pending !== 311 ||
+  installStatusCounts.reference !== 9 ||
+  installStatusCounts.manual !== 0
+) {
+  throw new Error(`安装状态基线变化：${JSON.stringify(installStatusCounts)}`);
 }
 
 const sparseCategories = Object.entries(categoryCounts).filter(([, count]) => count < 3);
@@ -422,6 +569,7 @@ if (
 console.log(`体验审计通过：${records.length} 条来源记录`);
 console.table(categoryCounts);
 console.table(installStatusCounts);
+console.table(verifiedKindCounts);
 console.log(
   `统一核验证据：${installStatusCounts.ready} 项可固定提交安装，${installStatusCounts.pending} 项待核验，${installStatusCounts.reference} 项仅参考`,
 );
@@ -435,7 +583,10 @@ console.log(
 );
 console.log(`OfficialSkills 来源页新增固定提交证据：${sourcePageVerifiedCount} 项`);
 console.log(`GitHub R100 重命名升级：${githubRenameVerifiedCount} 项`);
-console.log(`多目录 SkillSet 继续禁用：${unsupportedSkillsetCount} 项`);
+console.log(
+  `结构化 SkillSet：${structuralSkillSetCounts.package} 个父级包，${structuralSkillSetCounts.members} 个成员集合，${referencedMemberIds.size} 个去重成员`,
+);
+console.table(verifiedKindTransitions);
 console.table(githubHistoryReasonCounts);
 console.log("GitHub 待核验批次分布：");
 console.table(githubPendingReasonCounts);

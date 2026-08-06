@@ -2,7 +2,7 @@
 
 Skill 是模镜为 AI 打工人准备的“岗位手册”。每个 Skill 是一个包含 `SKILL.md` 的目录，可选携带脚本、模板、参考资料等资源。模镜后端负责安装、卸载和读取 Skill，前端负责在技能市场展示、管理已安装 Skill，并在面试间把选中的 `SKILL.md` 注入为系统提示词。
 
-最后更新日期：2026-08-02
+最后更新日期：2026-08-06
 维护人：模镜团队
 
 ## 1. 概述
@@ -41,10 +41,13 @@ some-skill/
 
 当前 MVP 支持从 GitHub 仓库的指定子目录安装 Skill。生产默认只允许 `https://github.com/{owner}/{repo}` 来源，避免 SSRF 和任意路径读取。测试环境可以显式打开本地仓库来源。
 
-市场资源分为两种类型：
+市场资源按固定提交中的真实目录结构分为两种类型：
 
-- `skill`：一个可独立使用的 `SKILL.md` 目录。
-- `skillset`：包含多个子技能的组合包。若父目录自身有 `SKILL.md`，后端仍按单目录 sparse checkout 安装，并保留其子技能、脚本和参考资料。
+- `skill`：核验范围内只有一个顶层 `SKILL.md`，直接安装该目录。
+- `skillset/package`：范围根目录自身有 `SKILL.md`，并包含其他后代 Skill；按父目录整体安装并保留其中资源。
+- `skillset/members`：范围根目录没有 `SKILL.md`，但包含至少两个顶层 Skill；集合本身不安装，用户在详情中逐项安装成员。
+
+类型不再根据名称中的 `skills`、`bundle`、`suite` 或 `pack` 推断。当前基线包含 80 个经结构证明的 SkillSet：10 个父级组合包和 70 个成员集合；成员来源按完整目录 tree SHA 去重后共 3,541 项。成员索引位于独立 JSON 文件，仅在打开集合详情时加载，不进入首屏包，也暂不参与全局需求匹配。
 
 目录来源分为三层：
 
@@ -105,7 +108,9 @@ client/src/data/voltagentSkillCatalog.generated.json
 - `installSource.subPath` 必须指向包含 `SKILL.md` 的目录。
 - `installStatus` 必须是 `ready`、`manual`、`pending`、`reference` 之一。
 - 没有 `installSource` 的条目不能标为 `ready`，也不能一键安装。
-- `kind: "skillset"` 只用于真实组合包；如果可识别子技能，应同时填写 `includedSkills`。
+- `kind` 由统一结构核验证据覆盖，不得仅依据名称或用途声明 SkillSet。
+- `ready` 必须是具有一个固定提交来源的 `direct` 模式，或具有至少两个固定提交成员来源的 `members` 模式。
+- `members` 集合不得设置整体安装源；每个成员必须指向同一来源仓库、同一固定提交下包含 `SKILL.md` 的目录。
 - 批量来源不要手改 `*.generated.json`，应重新运行同步脚本。
 
 ### 2.1 同步 anbeime 本地目录
@@ -223,6 +228,7 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 `/skills` 页面包含四个标签：
 
 - `技能市场`：合并手工精选与两个生成目录，支持关键词、功能分类、Skill/SkillSet、可安装状态筛选；默认分批渲染 48 项，避免一次挂载全部索引卡片。
+- 父级组合包显示“安装技能包”；成员集合显示“成员可安装”和“查看成员”，详情支持本地名称/路径搜索、每页 50 项分页和成员逐项安装，不提供整仓批量安装。
 - `已安装`：调用 `/api/skills/installed`，展示本地已安装 Skill，提供卸载按钮。
 - `工作区草稿`、`待审提案`：保留现有创作工作区；它们不等同于审计中暂缓的上传 Skill 或 skill-creator 引导流程。
 
@@ -256,6 +262,7 @@ python -m pytest server/tests/test_skill_integration.py -q
 ```bash
 node scripts/sync-anbeime-skill-catalog.mjs <anbeime-checkout> <其余快照参数> --check
 node scripts/sync-voltagent-skill-index.mjs <voltagent-checkout> <其余快照参数> --check
+node scripts/audit-github-skill-tree.mjs
 node scripts/audit-skill-experience.mjs
 cd client && npm.cmd run build
 ```
@@ -271,6 +278,8 @@ cd client && npm.cmd run build
 - 市场主说明均为可读中文，同时保留上游原文用于搜索与追溯。
 - 所有项目都归入 10 个稳定分类和 4 个安装状态之一。
 - VoltAgent 索引只为明确子路径或已完成批次审计的条目生成 `installSource`。
+- SkillSet 分类只依赖固定提交中的真实 `SKILL.md` 层级；组合包根目录必须存在 `SKILL.md`，成员集合不得具有整体安装源。
+- 全局成员注册表不存在重复安装映射或跨仓库成员，重叠集合通过同一成员 ID 同步已安装状态。
 
 手动验收：
 
