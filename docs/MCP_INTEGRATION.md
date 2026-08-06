@@ -1,6 +1,6 @@
 # MCP 原生集成说明
 
-最后更新日期：2026-08-05
+最后更新日期：2026-08-06
 维护人：模镜团队
 
 ## 0. 产品入口与预算层级
@@ -82,7 +82,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 13 ready / 85 planned / 2 blocked；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 17 ready / 80 planned / 3 blocked；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
 
@@ -102,6 +102,15 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - 单跳请求超时 12 秒、最多重定向 3 次、原始响应最多 2 MiB、工具输出最多 128 KiB；Nominatim 固定为每秒最多 1 次。
 - Fetch 只接受公网 HTTPS 工具参数并遵守 robots.txt；QuickChart 只生成受控 URL，不写文件；GeoWire 只开放无 Key 的 OSM/OSRM 子集。
 - BibiGPT 因 OAuth / API Key 要求保持 `blocked`；Airbnb 因上游公开页面 schema 漂移保持 `blocked`，两者都没有命令、端点或登录入口。
+
+批次 3 的四个可用本地文件适配器通过固定 `file_proxy.py` 接入独立 `mcp-files` sidecar：
+
+- `modelmirror-mcp-files:wave3-v1` 使用完整依赖锁，运行时断网且不下载代码；容器为 UID/GID 65532、只读根文件系统、`network_mode: none`、移除 capabilities、`no-new-privileges`、1 GiB/1.5 CPU/128 PIDs，最多 4 个会话。
+- 服务端创建绑定租户与项目的不透明工作区。客户端不提交宿主路径、工作目录、环境变量或 URI；上传可包含多文件、文件夹和安全 ZIP，封存后输入卷只读。选择文件夹时前端先按适配器扩展名白名单预检，不支持的路径会被列出；只有用户明确点击“跳过并上传”后才提交支持的文件，ZIP 内容仍由服务端完整校验。
+- 普通输入工作区闲置 24 小时后清理，产物保留 7 天；Basic Memory 工作区持久保存，删除前需要独立强确认。单文件最多 64 MiB，工作区最多 5000 个文件/512 MiB，ZIP 压缩比最多 20:1。
+- 工具参数中的 `x-modelmirror-input` 只允许 `workspace-file`、`workspace-directory`、`artifact-name`，前端渲染受控选择器，不提供原始路径输入。
+- `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`markitdown-mcp` 分别锁定兼容 0.22.1、1.0.4、0.6.2、0.1.7；Manim 因依赖第 8 批任意代码执行隔离而保持 `blocked`，没有连接按钮。
+- 工具 effect 为 `read`、`artifact-create`、`state-write` 或 `terminal`。写状态工具先返回 409 `approval_required`，确认端点只执行服务端冻结的参数；5 分钟过期、重连、重配、参数变化、跨会话、输入版本或状态漂移都会使审批失效。
 
 兼容层仍保留以下默认值：
 
@@ -151,6 +160,13 @@ npm view @example/mcp-server version
 | POST | `/api/mcp/catalog/{project_id}/connect` | 按项目 ID 建立受控会话 |
 | DELETE | `/api/mcp/catalog/{project_id}/session` | 断开该目录项目的会话 |
 | POST | `/api/mcp/catalog/{project_id}/tools/{tool_name}/call` | 经项目工具策略调用已连接工具 |
+| GET/POST | `/api/mcp/catalog/{project_id}/workspaces` | 列出或创建当前项目的受控工作区 |
+| POST | `/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/files` | 上传多文件、目录相对路径或安全 ZIP |
+| POST | `/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/seal` | 封存输入并生成不可变 manifest 摘要 |
+| GET/DELETE | `/api/mcp/catalog/{project_id}/workspaces/{workspace_id}` | 查看容量、文件和产物，或按保留策略清理工作区 |
+| GET | `/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/artifacts/{artifact_id}/download` | 通过不透明产物 ID 下载当前项目产物 |
+| POST | `/api/mcp/catalog/{project_id}/approvals/{approval_id}/confirm` | 一次性确认并执行服务端冻结的写入调用 |
+| DELETE | `/api/mcp/catalog/{project_id}/approvals/{approval_id}` | 取消尚未执行的一次性审批 |
 
 `planned` 项目的准备、连接和调用返回 `409`。配置包含命令、URL、Header、环境变量或工作目录时返回 `400`。
 
@@ -324,17 +340,19 @@ client/src/pages/McpBrowserPage.tsx
 状态流：
 
 1. 页面先读取 `/api/mcp/catalog/adapters`；服务端未返回 `executable=true` 时连接按钮禁用。
-2. 点击“安装”调用 `POST /api/mcp/catalog/{project_id}/prepare`，浏览器不提交安装命令。
-3. 点击“连接”后进入 `connecting`，调用 `POST /api/mcp/catalog/{project_id}/connect`。
-4. 连接成功后进入 `connected`，读取工具列表。
-5. 对每个工具，根据 `inputSchema.properties` 动态生成表单：
+2. 文件适配器先创建工作区，上传文件/文件夹或 ZIP；文件夹中若含不支持类型，页面先展示路径摘要并要求用户确认跳过，未确认时不发出上传请求。检查容量与到期时间后封存，才可绑定 `workspace_id`；Manim 始终只显示中文阻断说明。
+3. 点击“安装”调用 `POST /api/mcp/catalog/{project_id}/prepare`，浏览器不提交安装命令。
+4. 点击“连接”后进入 `connecting`，调用 `POST /api/mcp/catalog/{project_id}/connect`；未绑定已封存工作区时服务端拒绝连接。
+5. 连接成功后进入 `connected`，读取工具列表。
+6. 对每个工具，根据 `inputSchema.properties` 动态生成表单：
    - `string` → 文本输入框。
    - `number` / `integer` → 数字输入框。
    - `boolean` → true/false 下拉。
    - `enum` → 下拉选择。
    - `object` / `array` → JSON 文本框。
-6. 点击“执行”后调用目录项目的策略化工具端点，结果使用 Markdown 区域展示。
-7. 点击“断开连接”后按项目 ID 调用 DELETE 并清理本地状态。
+   - `x-modelmirror-input` → 工作区文件/目录选择器或受限产物名，不显示原始路径框。
+7. 点击“执行”后调用目录项目的策略化工具端点；若返回 `approval_required`，中文确认对话框展示影响摘要，确认后执行被冻结参数，结果与产物下载入口在卡片内展示。
+8. 点击“断开连接”后按项目 ID 调用 DELETE 并清理本地状态；工作区按自身保留策略独立存在或清理。
 
 UI 状态要求：
 
@@ -356,7 +374,7 @@ python -m pip install -r server/requirements.txt
 
 ```bash
 python -m pytest server/tests/test_mcp_integration.py -q
-python -m pytest server/tests/test_mcp_catalog.py server/tests/test_mcp_compute_adapters.py server/tests/test_mcp_multisession.py -q
+python -m pytest server/tests/test_mcp_catalog.py server/tests/test_mcp_compute_adapters.py server/tests/test_mcp_file_workspaces.py server/tests/test_mcp_multisession.py -q
 ```
 
 测试覆盖：
@@ -384,10 +402,15 @@ python server/mcp/test_manager.py
 | `server/mcp/catalog.py` | 冻结目录、固定适配器、功能开关、配置门禁和目录 API。 |
 | `server/mcp/sandbox_proxy.py` | 把固定项目 ID 的 stdio 流代理到断网 sandbox sidecar。 |
 | `server/mcp/public_proxy.py` | 把批次 2 固定项目 ID 的 stdio 流代理到公网策略 sidecar。 |
+| `server/mcp/file_proxy.py` | 把批次 3 固定项目 ID 和服务端工作区 ID 代理到断网文件 sidecar。 |
+| `server/mcp/workspace.py` | 工作区、上传/ZIP 校验、封存 manifest、产物与保留期管理。 |
 | `server/sandbox_sidecar/compute_mcp.py` | 批次 1 的三个内置 Python MCP 工具契约。 |
 | `server/sandbox_sidecar/public_mcp.py` | 批次 2 的内置公网 MCP 兼容契约。 |
 | `server/sandbox_sidecar/safe_http.py` | 公网 HTTPS、DNS 固定、SSRF、重定向与响应上限策略。 |
 | `server/sandbox_sidecar/public_server.py` | 公网 MCP 子进程的非 root、只读 Unix-socket sidecar。 |
+| `server/sandbox_sidecar/file_mcp.py` | Basic Memory、Excel、Git 与 MarkItDown 的固定本地兼容契约。 |
+| `server/sandbox_sidecar/file_server.py` | 批次 3 断网 Unix-socket sidecar、四会话上限与进程清理。 |
+| `server/sandbox_sidecar/Dockerfile.files` | `modelmirror-mcp-files:wave3-v1` 独立锁定镜像。 |
 | `server/toolsets/` | Toolset/凭据 Store、版本发布、Schema 漂移与固定版本 Provider。 |
 | `client/src/pages/ToolsetsPage.tsx` | MCP Toolset 创建、连接、工具配置、测试和发布管理页。 |
 | `server/tests/test_toolset_*.py` | Toolset Store、API、连接、固定版本与安全回归。 |
@@ -399,7 +422,10 @@ python server/mcp/test_manager.py
 | `server/tests/test_mcp_catalog.py` | 100 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
 | `server/tests/test_mcp_compute_adapters.py` | 批次 1 工具契约、输入上限、URL 拒绝与沙箱配置测试。 |
 | `server/tests/test_mcp_public_adapters.py` | 批次 2 SSRF、DNS、robots、响应上限、工具契约与容器隔离测试。 |
+| `server/tests/test_mcp_file_workspaces.py` | 批次 3 路径/ZIP、租户隔离、产物越权和一次性审批安全测试。 |
+| `server/mcp/smoke_file_adapters.py` | 四个文件适配器初始化、发现、代表调用、重连、源文件不变和清理 smoke。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
+| `client/src/components/McpWorkspacePanel.tsx` | 中文工作区上传、封存、绑定、容量/到期、产物下载和清理面板。 |
 | `client/src/data/mcpProjects.ts` | MCP 中文展示资料；不能作为执行配置来源。 |
 | `client/src/data/mcpAdaptationPlan.ts` | 前端批次、状态、连接形态和风险展示。 |
 

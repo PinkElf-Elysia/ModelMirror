@@ -117,6 +117,49 @@ services:
       retries: 5
       start_period: 10s
 
+  mcp-files:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.files
+    image: modelmirror-mcp-files:wave3-v1
+    container_name: modelmirror-mcp-files
+    network_mode: none
+    environment:
+      MCP_FILES_MAX_SESSIONS: "4"
+      MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
+      MCP_FILE_INPUT_ROOT: /inputs
+      MCP_FILE_OUTPUT_ROOT: /outputs
+      MCP_FILE_MEMORY_ROOT: /memory
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_files_socket:/run/modelmirror-files-mcp
+      - mcp_file_inputs:/inputs:ro
+      - mcp_file_outputs:/outputs
+      - mcp_memory:/memory
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-files-mcp/files-mcp.sock'); s.sendall((json.dumps({'action':'health'})+'\\n').encode()); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
   omniroute:
     image: diegosouzapw/omniroute:3.8.48@sha256:badb560971fdc23c2fb84b3e8695116239ff215b4cca4b07076201a8efae7f0d
     container_name: modelmirror-omniroute
@@ -187,6 +230,8 @@ services:
         condition: service_healthy
       mcp-public:
         condition: service_healthy
+      mcp-files:
+        condition: service_healthy
       new-api:
         condition: service_healthy
     env_file:
@@ -225,6 +270,13 @@ services:
       SANDBOX_SOCKET_PATH: /run/modelmirror-sandbox/sandbox.sock
       SANDBOX_WORKSPACE_ROOT: /app/sandbox-workspaces
       MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
+      MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
+      MCP_CATALOG_STORAGE_DIR: /app/mcp/storage
+      MCP_FILE_INPUT_ROOT: /app/mcp-file-inputs
+      MCP_FILE_OUTPUT_ROOT: /app/mcp-file-outputs
+      MCP_FILE_MEMORY_ROOT: /app/mcp-memory
+      MCP_FILE_RUNTIME_UID: "65532"
+      MCP_FILE_RUNTIME_GID: "65532"
       BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
       BROWSER_DATA_ROOT: /app/browser-data
       CODING_AGENT_ENABLED: ${CODING_AGENT_ENABLED:-false}
@@ -243,9 +295,14 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/server/toolsets/storage:/app/toolsets/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/model_router/storage:/app/model_router/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/world/storage:/app/world/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/mcp/storage:/app/mcp/storage
       - sandbox_socket:/run/modelmirror-sandbox
       - sandbox_workspaces:/app/sandbox-workspaces:ro
       - mcp_public_socket:/run/modelmirror-public-mcp
+      - mcp_files_socket:/run/modelmirror-files-mcp
+      - mcp_file_inputs:/app/mcp-file-inputs
+      - mcp_file_outputs:/app/mcp-file-outputs
+      - mcp_memory:/app/mcp-memory
       - browser_socket:/run/modelmirror-browser
       - browser_data:/app/browser-data:ro
       - coding_socket:/run/modelmirror-coding
@@ -399,6 +456,10 @@ volumes:
   sandbox_socket:
   sandbox_workspaces:
   mcp_public_socket:
+  mcp_files_socket:
+  mcp_file_inputs:
+  mcp_file_outputs:
+  mcp_memory:
   browser_socket:
   browser_data:
   coding_socket:

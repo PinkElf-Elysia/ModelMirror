@@ -258,6 +258,7 @@ try:
         MCPSessionNotFoundError,
         validate_server_command,
     )
+    from server.mcp.workspace import MCPCatalogWorkspaceStore
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
     from mcp.catalog import (
@@ -273,6 +274,7 @@ except ModuleNotFoundError:
         MCPSessionNotFoundError,
         validate_server_command,
     )
+    from mcp.workspace import MCPCatalogWorkspaceStore
     from registry.tool_registry import ToolRegistry
 
 try:
@@ -794,11 +796,14 @@ tool_registry = ToolRegistry()
 workflow_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
 toolset_store = ToolsetStore()
 toolset_credential_store = CredentialStore(toolset_store.storage_dir)
+mcp_catalog_workspace_store = MCPCatalogWorkspaceStore()
 mcp_catalog_service = MCPCatalogService(
     mcp_manager,
     mcp_installer,
     tool_registry,
     credential_validator=toolset_credential_store.get_public,
+    workspace_store=mcp_catalog_workspace_store,
+    tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
 )
 configure_mcp_catalog(mcp_catalog_service)
 toolset_service = ToolsetService(

@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MCP_FILES_SOCKET_PATH=/run/modelmirror-files-mcp/files-mcp.sock \
+    MCP_FILE_INPUT_ROOT=/inputs \
+    MCP_FILE_OUTPUT_ROOT=/outputs \
+    MCP_FILE_MEMORY_ROOT=/memory
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 65532 sandbox \
+    && useradd --uid 65532 --gid 65532 --home-dir /tmp --no-create-home sandbox \
+    && mkdir -p /opt/modelmirror /inputs /outputs /memory /run/modelmirror-files-mcp \
+    && chown -R sandbox:sandbox /outputs /memory /run/modelmirror-files-mcp
+
+WORKDIR /opt/modelmirror
+COPY file-requirements.txt file-requirements.lock ./
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r file-requirements.lock
+COPY __init__.py engine.py landlock_exec.py file_landlock_exec.py file_mcp.py file_server.py ./sandbox_sidecar/
+COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-files/THIRD_PARTY_NOTICES.md
+
+USER 65532:65532
+CMD ["python", "-m", "sandbox_sidecar.file_server"]
