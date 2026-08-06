@@ -22,6 +22,7 @@ from server.coding_runtime.projects import (
     ProjectCatalogError,
     ProjectManifestEntry,
     ProjectState,
+    WRITEBACK_BRANCH,
     build_safe_git_command,
     build_safe_git_environment,
     inspect_project,
@@ -153,29 +154,61 @@ class ProjectSnapshotBroker:
         ):
             raise ProjectSourceError("invalid_request", "Snapshot request is invalid")
         with self._lock:
-            entry = self._find_entry(project_id)
-            summary = inspect_project(self._projects_root, entry)
-            if summary.state is not ProjectState.AVAILABLE or not summary.head or not summary.branch:
-                raise ProjectSourceError(summary.reason or "project_unavailable", "Project is unavailable")
-            if expected_head is not None and summary.head != expected_head.lower():
-                raise ProjectSourceError("project_changed", "Project HEAD changed")
             if self._active is not None:
-                if self._active.project_id == project_id and self._active.head == summary.head:
+                if (
+                    self._active.project_id == project_id
+                    and (expected_head is None or self._active.head == expected_head.lower())
+                ):
                     return self._active
                 raise ProjectSourceError("snapshot_busy", "Another project snapshot is active")
+            entry = self._find_entry(project_id)
+            summary = inspect_project(self._projects_root, entry)
+            snapshot_head = expected_head.lower() if expected_head is not None else summary.head
+            if (
+                summary.state is ProjectState.AVAILABLE
+                and summary.head is not None
+                and summary.branch is not None
+                and (snapshot_head is None or summary.head == snapshot_head)
+            ):
+                branch = summary.branch
+                current_head = summary.head
+                snapshot_head = summary.head
+            elif expected_head is not None and entry.writeback_enabled:
+                branch, current_head = self._writeback_recovery_identity(
+                    entry,
+                    expected_head.lower(),
+                    summary,
+                )
+                snapshot_head = expected_head.lower()
+            else:
+                reason = (
+                    "project_changed"
+                    if summary.state is ProjectState.AVAILABLE
+                    else summary.reason or "project_unavailable"
+                )
+                raise ProjectSourceError(reason, "Project is unavailable")
+            assert snapshot_head is not None
 
             self._clear_slot()
             staging = self._snapshot_slot / f".staging-{secrets.token_hex(12)}"
             workspace = staging / "workspace"
             try:
                 workspace.mkdir(parents=True, mode=0o700)
-                lease = self._build_snapshot(entry, summary.branch, summary.head, staging, workspace)
+                lease = self._build_snapshot(entry, branch, snapshot_head, staging, workspace)
                 rechecked = inspect_project(self._projects_root, entry)
-                if (
-                    rechecked.state is not ProjectState.AVAILABLE
-                    or rechecked.head != summary.head
-                    or rechecked.branch != summary.branch
-                ):
+                if snapshot_head == current_head and rechecked.state is ProjectState.AVAILABLE:
+                    stable = rechecked.head == current_head and rechecked.branch == branch
+                else:
+                    try:
+                        checked_branch, checked_head = self._writeback_recovery_identity(
+                            entry,
+                            snapshot_head,
+                            rechecked,
+                        )
+                        stable = checked_branch == branch and checked_head == current_head
+                    except ProjectSourceError:
+                        stable = False
+                if not stable:
                     raise ProjectSourceError("project_changed", "Project changed while snapshotting")
                 _write_json(staging / "lease.json", lease.to_dict())
                 _write_json(
@@ -189,6 +222,29 @@ class ProjectSnapshotBroker:
                 shutil.rmtree(staging, ignore_errors=True)
                 self._clear_slot()
                 raise
+
+    def _writeback_recovery_identity(
+        self,
+        entry: ProjectManifestEntry,
+        expected_head: str,
+        summary: Any,
+    ) -> tuple[str, str]:
+        if summary.state is not ProjectState.AVAILABLE and summary.reason != "git_repository_dirty":
+            raise ProjectSourceError(summary.reason or "project_unavailable", "Project is unavailable")
+        project_path = resolve_project_path(self._projects_root, entry.relative_path)
+        branch = _git_text(project_path, ("symbolic-ref", "--quiet", "--short", "HEAD"))
+        current_head = _git_text(project_path, ("rev-parse", "--verify", "HEAD^{commit}")).lower()
+        if branch != WRITEBACK_BRANCH:
+            raise ProjectSourceError("writeback_branch_required", "Project branch changed")
+        remote = _run_git(project_path, ("remote",))
+        if remote.returncode != 0:
+            raise ProjectSourceError("git_inspection_failed", "Project could not be inspected")
+        if remote.stdout.strip():
+            raise ProjectSourceError("git_remote_not_allowed", "Project remote is not allowed")
+        ancestor = _run_git(project_path, ("merge-base", "--is-ancestor", expected_head, current_head))
+        if ancestor.returncode != 0:
+            raise ProjectSourceError("project_changed", "Project baseline is unavailable")
+        return branch, current_head
 
     def release(self, project_id: str, lease_id: str) -> bool:
         if not _valid_opaque_id(project_id) or not _valid_opaque_id(lease_id):
@@ -426,6 +482,16 @@ def _run_git(project_path: Path, arguments: Sequence[str]) -> subprocess.Complet
         check=False,
         timeout=10,
     )
+
+
+def _git_text(project_path: Path, arguments: Sequence[str]) -> str:
+    result = _run_git(project_path, arguments)
+    if result.returncode != 0:
+        raise ProjectSourceError("git_inspection_failed", "Project could not be inspected")
+    try:
+        return result.stdout.decode("utf-8", errors="strict").strip()
+    except UnicodeError as exc:
+        raise ProjectSourceError("git_inspection_failed", "Project metadata is invalid") from exc
 
 
 def _parse_tree(payload: bytes) -> tuple[_TreeEntry, ...]:

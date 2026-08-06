@@ -78,6 +78,7 @@ class _Operation:
     source_root: Path
     commit_root: Path
     committer: CodingCommitterEngine | None = None
+    committer_apply: ApplyReceipt | None = None
     commit_receipt: CommitReceipt | None = None
     reverted: bool = False
 
@@ -245,6 +246,7 @@ class CodingProjectWriterEngine:
                 apply_receipt=operation.internal_apply,
                 message=message,
             )
+            operation.committer_apply = operation.internal_apply
             operation.commit_receipt = receipt
             return receipt
 
@@ -269,7 +271,7 @@ class CodingProjectWriterEngine:
                 raise ProjectWriterError("operation_conflict")
             receipt = operation.committer.undo(
                 commit_receipt,
-                operation.internal_apply,
+                operation.committer_apply or operation.internal_apply,
             )
             operation.commit_receipt = None
             return receipt
@@ -338,6 +340,94 @@ class CodingProjectWriterEngine:
                 shutil.rmtree(operation_root, ignore_errors=True)
                 raise
 
+    def reconcile_commit(
+        self,
+        *,
+        project_id: str,
+        expected_head: str,
+        operation_id: str,
+        revision: int,
+        patch: str,
+        paths: Sequence[str],
+        expected_fingerprint: str,
+        apply_receipt: ApplyReceipt,
+        commit_operation_id: str,
+        message: str,
+    ) -> tuple[str, ApplyReceipt, CommitReceipt | None]:
+        self._validate_common(project_id, expected_head, operation_id)
+        if not COMMIT_ID_PATTERN.fullmatch(commit_operation_id):
+            raise ProjectWriterError("invalid_request")
+        with self._lock:
+            entry = self._find_entry(project_id)
+            if not entry.writeback_enabled:
+                raise ProjectWriterError("writeback_not_enabled")
+            target = resolve_project_path(self.projects_root, entry.relative_path)
+            self._require_recovery_repository(target, expected_head)
+            safe_paths = self._validate_patch(patch, paths)
+            operation_root, source, staging, commit_root = self._prepare_operation_root(
+                operation_id,
+                target,
+            )
+            try:
+                self._reverse_patch(source, patch)
+                if self._visible_fingerprint(source) != expected_fingerprint:
+                    raise ProjectWriterError("snapshot_mismatch")
+                applier = CodingApplierEngine(source, target, staging)
+                apply_state, reconstructed = applier.reconcile(
+                    operation_id=operation_id,
+                    revision=revision,
+                    patch=patch,
+                    paths=safe_paths,
+                    expected_fingerprint=applier.source_fingerprint,
+                )
+                if apply_state != "applied" or reconstructed is None:
+                    raise ProjectWriterError("recovery_conflict")
+                internal_apply = replace(
+                    apply_receipt,
+                    snapshot_fingerprint=applier.source_fingerprint,
+                )
+                if (
+                    apply_receipt.apply_id != operation_id
+                    or apply_receipt.revision != revision
+                    or apply_receipt.snapshot_fingerprint != expected_fingerprint
+                    or apply_receipt.files != reconstructed.files
+                ):
+                    raise ProjectWriterError("operation_conflict")
+                commit_root.mkdir(parents=True, exist_ok=True)
+                committer = CodingCommitterEngine(
+                    source,
+                    target,
+                    commit_root,
+                    author_name=self.author_name,
+                    author_email=self.author_email,
+                )
+                state, receipt = committer.reconcile(
+                    operation_id=commit_operation_id,
+                    apply_receipt=internal_apply,
+                    message=message,
+                )
+                if state == "conflict":
+                    raise ProjectWriterError("commit_recovery_conflict")
+                self._operations[operation_id] = _Operation(
+                    project_id=project_id,
+                    expected_head=expected_head,
+                    patch=patch,
+                    paths=safe_paths,
+                    expected_fingerprint=expected_fingerprint,
+                    internal_apply=reconstructed,
+                    public_apply=apply_receipt,
+                    applier=applier,
+                    source_root=source,
+                    commit_root=commit_root,
+                    committer=committer,
+                    committer_apply=internal_apply,
+                    commit_receipt=receipt if state == "committed" else None,
+                )
+                return state, apply_receipt, receipt
+            except BaseException:
+                shutil.rmtree(operation_root, ignore_errors=True)
+                raise
+
     def _require_clean_write_target(
         self,
         project_id: str,
@@ -366,6 +456,33 @@ class CodingProjectWriterEngine:
             raise ProjectWriterError(
                 "project_changed" if head != expected_head else "git_remote_not_allowed"
             )
+
+    def _require_recovery_repository(self, target: Path, expected_head: str) -> None:
+        git_dir = target / ".git"
+        if git_dir.is_symlink() or not git_dir.is_dir():
+            raise ProjectWriterError("git_repository_required")
+        branch = self._git_text(target, "symbolic-ref", "--quiet", "--short", "HEAD")
+        current_head = self._git_text(target, "rev-parse", "--verify", "HEAD^{commit}")
+        remotes = self._git(target, "remote")
+        if branch != WRITEBACK_BRANCH:
+            raise ProjectWriterError("writeback_branch_required")
+        if remotes.stdout.strip():
+            raise ProjectWriterError("git_remote_not_allowed")
+        ancestor = subprocess.run(
+            build_safe_git_command(
+                target,
+                ("merge-base", "--is-ancestor", expected_head, current_head),
+            ),
+            cwd=target,
+            env=build_safe_git_environment(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+        if ancestor.returncode != 0:
+            raise ProjectWriterError("project_changed")
 
     def _find_entry(self, project_id: str) -> ProjectManifestEntry:
         if SAFE_PROJECT_ID.fullmatch(project_id) is None:
@@ -595,6 +712,45 @@ class CodingProjectWriterServer:
             return {
                 "state": state,
                 "receipt": _apply_receipt_payload(receipt) if receipt else None,
+            }
+        if action == "reconcile_commit":
+            _require_keys(
+                request,
+                {
+                    "action",
+                    "project_id",
+                    "expected_head",
+                    "operation_id",
+                    "revision",
+                    "patch",
+                    "paths",
+                    "expected_fingerprint",
+                    "apply_receipt",
+                    "commit_operation_id",
+                    "message",
+                },
+            )
+            state, apply_receipt, commit_receipt = await asyncio.to_thread(
+                self.engine.reconcile_commit,
+                project_id=request["project_id"],
+                expected_head=request["expected_head"],
+                operation_id=request["operation_id"],
+                revision=request["revision"],
+                patch=request["patch"],
+                paths=request["paths"],
+                expected_fingerprint=request["expected_fingerprint"],
+                apply_receipt=_apply_receipt(request["apply_receipt"]),
+                commit_operation_id=request["commit_operation_id"],
+                message=request["message"],
+            )
+            return {
+                "state": state,
+                "apply_receipt": _apply_receipt_payload(apply_receipt),
+                "commit_receipt": (
+                    _commit_receipt_payload(commit_receipt)
+                    if commit_receipt is not None
+                    else None
+                ),
             }
         if action == "revert":
             _require_keys(

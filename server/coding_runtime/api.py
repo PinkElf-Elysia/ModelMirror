@@ -60,6 +60,10 @@ from .project_source_client import (
     CodingProjectSourceClient,
     ProjectSourceClientError,
 )
+from .project_writer_client import (
+    CodingProjectWriterClient,
+    ProjectWriterClientError,
+)
 from .projects import (
     MAX_PROJECTS,
     ProjectFeatures,
@@ -253,6 +257,28 @@ class CommitterClient(Protocol):
     ) -> tuple[str, CommitReceipt | None]: ...
 
 
+class ProjectWriterClient(Protocol):
+    async def health(self) -> dict[str, Any]: ...
+
+    async def apply(self, **kwargs: Any) -> ApplyReceipt: ...
+
+    async def revert(self, **kwargs: Any) -> ApplyReceipt: ...
+
+    async def commit(self, **kwargs: Any) -> CommitReceipt: ...
+
+    async def undo(self, **kwargs: Any) -> CommitReceipt: ...
+
+    async def reconcile_apply(
+        self,
+        **kwargs: Any,
+    ) -> tuple[str, ApplyReceipt | None]: ...
+
+    async def reconcile_commit(
+        self,
+        **kwargs: Any,
+    ) -> tuple[str, ApplyReceipt, CommitReceipt | None]: ...
+
+
 class PublisherClient(Protocol):
     async def health(self) -> dict[str, Any]: ...
 
@@ -315,7 +341,7 @@ class DraftFilePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(min_length=1, max_length=500)
-    status: Literal["added", "modified"]
+    status: Literal["added", "modified", "deleted"]
     additions: int = Field(ge=0, le=1_000_000)
     deletions: int = Field(ge=0, le=1_000_000)
 
@@ -586,6 +612,7 @@ class CodingService:
         committer: CommitterClient | None = None,
         publisher: PublisherClient | None = None,
         project_source: ProjectSourceClient | None = None,
+        project_writer: ProjectWriterClient | None = None,
         projects_enabled: bool | None = None,
         projects_reason: str | None = None,
         recovery_store: CodingRecoveryStore | None = None,
@@ -594,6 +621,7 @@ class CodingService:
         incremental_enabled: bool | None = None,
         publish_enabled: bool | None = None,
         commands_enabled: bool | None = None,
+        project_writeback_enabled: bool | None = None,
         ttl_seconds: float = SESSION_TTL_SECONDS,
         mode: str | None = None,
     ) -> None:
@@ -603,6 +631,7 @@ class CodingService:
         self.committer = committer
         self.publisher = publisher
         self.project_source = project_source
+        self.project_writer = project_writer
         self.projects_enabled = (
             os.getenv("CODING_PROJECTS_ENABLED", "false").strip().lower()
             in {"1", "true", "yes", "on"}
@@ -631,6 +660,12 @@ class CodingService:
             if commands_enabled is None
             else commands_enabled
         )
+        self.project_writeback_enabled = (
+            os.getenv("CODING_PROJECT_WRITEBACK_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"}
+            if project_writeback_enabled is None
+            else project_writeback_enabled
+        )
         self.ttl_seconds = ttl_seconds
         self.mode = _normalize_mode(
             mode if mode is not None else os.getenv("CODING_AGENT_MODE", "readonly")
@@ -640,9 +675,10 @@ class CodingService:
         self._create_lock = asyncio.Lock()
 
     async def capabilities(self) -> dict[str, Any]:
-        recovery, projects = await asyncio.gather(
+        recovery, projects, project_writeback = await asyncio.gather(
             self.recovery_status(check_worker=False),
             self._projects_capability(),
+            self._project_writeback_capability(),
         )
         response = {
             "enabled": self.enabled,
@@ -650,6 +686,7 @@ class CodingService:
             "mode": self.mode,
             "workspace": "ModelMirror",
             "projects": projects,
+            "project_writeback": project_writeback,
             "limits": {
                 "max_prompt_chars": MAX_PROMPT_CHARS,
                 "max_concurrency": 1,
@@ -822,6 +859,7 @@ class CodingService:
         builtin = ProjectSummary.builtin().to_public_dict()
         builtin["features"]["commands"] = False
         capability = await self._projects_capability()
+        writeback = await self._project_writeback_capability()
         projects = [builtin]
         if capability["available"] is True and self.project_source is not None:
             try:
@@ -842,6 +880,13 @@ class CodingService:
                     if isinstance(features, dict):
                         features["commands"] = commands_available
                         features["verification"] = commands_available
+                        if features.get("apply") is True and writeback["available"] is not True:
+                            features["apply"] = False
+                            features["commit"] = False
+                            project["writeback_reason"] = writeback.get(
+                                "reason",
+                                "project_writer_unavailable",
+                            )
                     projects.append(project)
                 self.projects_reason = None
             except ProjectSourceClientError as exc:
@@ -859,6 +904,41 @@ class CodingService:
                 }
                 self.projects_reason = "project_source_unavailable"
         return {**capability, "projects": projects}
+
+    async def _project_writeback_capability(self) -> dict[str, Any]:
+        capability: dict[str, Any] = {
+            "enabled": self.project_writeback_enabled,
+            "configured": False,
+            "available": False,
+            "target": "selected_local_repository",
+            "supports_delete": True,
+            "supports_move": True,
+            "supports_revert": True,
+            "supports_commit": True,
+            "remote_operations": False,
+        }
+        if not self.project_writeback_enabled:
+            return {**capability, "reason": "project_writeback_disabled"}
+        if self.project_writer is None:
+            return {**capability, "reason": "project_writer_not_configured"}
+        try:
+            health = await self.project_writer.health()
+        except ProjectWriterClientError as exc:
+            return {**capability, "reason": _safe_code(exc.code)}
+        except Exception:
+            return {**capability, "reason": "project_writer_unavailable"}
+        configured = health.get("configured") is True
+        response = {**capability, "configured": configured}
+        if not configured or health.get("available") is not True:
+            return {
+                **response,
+                "reason": _safe_code(
+                    health.get("reason") or "project_writer_unavailable"
+                ),
+            }
+        if health.get("target") != "selected_local_repository":
+            return {**response, "reason": "project_writer_mismatch"}
+        return {**response, "available": True}
 
     async def _projects_capability(self) -> dict[str, Any]:
         capability: dict[str, Any] = {
@@ -1189,20 +1269,6 @@ class CodingService:
             if recovery.payload.verification is not None
             else None
         )
-        if project_context.kind is ProjectKind.LOCAL_CLONE and any(
-            item is not None
-            for item in (
-                recovery.payload.apply,
-                recovery.payload.commit,
-                recovery.payload.operation,
-                recovery.payload.publish,
-            )
-        ):
-            await self._release_project_source(source)
-            raise _http_error(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "recovery_data_corrupt",
-            )
         try:
             restore_arguments: dict[str, Any] = {
                 "revision": recovery.revision,
@@ -1258,10 +1324,34 @@ class CodingService:
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 "invalid_worker_response",
             )
+        resumed_project = project_context.to_public()
+        if project_context.kind is ProjectKind.LOCAL_CLONE:
+            if self.project_source is not None:
+                with contextlib.suppress(Exception):
+                    projects = await self.project_source.list_projects()
+                    match = next(
+                        (
+                            item
+                            for item in projects
+                            if isinstance(item, dict)
+                            and item.get("id") == project_context.project_id
+                        ),
+                        None,
+                    )
+                    if match is not None:
+                        resumed_project = match
+            if recovery.payload.apply is not None:
+                features = resumed_project.get("features")
+                if isinstance(features, dict):
+                    features["apply"] = True
+                    features["commit"] = True
+                resumed_project["state"] = ProjectState.AVAILABLE.value
+                resumed_project["reason"] = None
+                resumed_project["writeback_reason"] = None
         record = CodingApiSession(
             session_id=session_id,
             worker_session_id=session_id,
-            project=project_context.to_public(),
+            project=resumed_project,
             project_source=source,
             recovery_id=recovery.recovery_id,
             recovery_created_at=recovery.created_at,
@@ -1285,14 +1375,13 @@ class CodingService:
             )
         await self._append_event(record, initial)
         try:
-            if project_context.kind is ProjectKind.BUILTIN:
-                self._hydrate_recovered_session(record, recovery)
-                await self._reconcile_recovered_operations(
-                    record,
-                    active_patch,
-                    paths,
-                    recovery.snapshot_fingerprint,
-                )
+            self._hydrate_recovered_session(record, recovery)
+            await self._reconcile_recovered_operations(
+                record,
+                active_patch,
+                paths,
+                recovery.snapshot_fingerprint,
+            )
             await self._persist_recovery(record, required=True)
         except Exception:
             await self._close_worker_session_and_release(
@@ -1698,7 +1787,6 @@ class CodingService:
         confirm_quality_risks: bool = False,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
-        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             if record.apply_revision == revision and (
@@ -1710,6 +1798,12 @@ class CodingService:
             ):
                 return self._public_apply(record, revision)
             self._require_mutable(record)
+            writer_context: tuple[str, str, str] | None = None
+            if self._is_builtin_project(record):
+                expected_fingerprint = await self._require_apply_available()
+            else:
+                writer_context = await self._require_project_writer_available(record)
+                expected_fingerprint = writer_context[2]
             changes = await self._current_changes(record)
             if changes["revision"] != revision:
                 raise _http_error(status.HTTP_409_CONFLICT, "stale_revision")
@@ -1735,7 +1829,6 @@ class CodingService:
                     status.HTTP_409_CONFLICT,
                     _verification_apply_reason(verification),
                 )
-            expected_fingerprint = await self._require_apply_available()
             try:
                 patch = _safe_diff(
                     await self.worker.patch(record.worker_session_id, revision)
@@ -1758,22 +1851,43 @@ class CodingService:
                 record.apply_finished_at = time.time()
                 raise
             try:
-                assert self.applier is not None
-                receipt = await self.applier.apply(
-                    operation_id=operation_id,
-                    revision=revision,
-                    patch=patch,
-                    paths=paths,
-                    expected_fingerprint=expected_fingerprint,
-                )
+                if writer_context is None:
+                    assert self.applier is not None
+                    receipt = await self.applier.apply(
+                        operation_id=operation_id,
+                        revision=revision,
+                        patch=patch,
+                        paths=paths,
+                        expected_fingerprint=expected_fingerprint,
+                    )
+                else:
+                    assert self.project_writer is not None
+                    receipt = await self.project_writer.apply(
+                        project_id=writer_context[0],
+                        expected_head=writer_context[1],
+                        operation_id=operation_id,
+                        revision=revision,
+                        patch=patch,
+                        paths=paths,
+                        expected_fingerprint=expected_fingerprint,
+                    )
                 if (
                     receipt.revision != revision
                     or receipt.snapshot_fingerprint != expected_fingerprint
                     or [item.path for item in receipt.files] != paths
                 ):
                     try:
-                        await self.applier.revert(receipt)
-                    except ApplierClientError as revert_exc:
+                        if writer_context is None:
+                            assert self.applier is not None
+                            await self.applier.revert(receipt)
+                        else:
+                            assert self.project_writer is not None
+                            await self.project_writer.revert(
+                                project_id=writer_context[0],
+                                expected_head=writer_context[1],
+                                receipt=receipt,
+                            )
+                    except (ApplierClientError, ProjectWriterClientError) as revert_exc:
                         raise ApplierClientError(
                             "Coding application response could not be recovered.",
                             code="rollback_failed",
@@ -1782,7 +1896,7 @@ class CodingService:
                         "Coding application receipt does not match the request.",
                         code="invalid_response",
                     )
-            except ApplierClientError as exc:
+            except (ApplierClientError, ProjectWriterClientError) as exc:
                 record.apply_state = ApplyState.FAILED
                 record.apply_reason = _safe_code(exc.code)
                 record.apply_finished_at = time.time()
@@ -1806,7 +1920,6 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        self._require_builtin_project(record)
         return self._public_apply(record, revision)
 
     async def commit(
@@ -1820,7 +1933,6 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             if record.publish_manifest is not None:
@@ -1858,6 +1970,7 @@ class CodingService:
             )
             if not retrying_unknown_result:
                 await self._require_commit_available(
+                    record,
                     apply_receipt.snapshot_fingerprint
                 )
             operation_id = record.commit_operation_id or secrets.token_urlsafe(18)
@@ -1877,12 +1990,23 @@ class CodingService:
                 record.commit_finished_at = time.time()
                 raise
             try:
-                assert self.committer is not None
-                receipt = await self.committer.commit(
-                    operation_id=operation_id,
-                    apply_receipt=apply_receipt,
-                    message=message,
-                )
+                if self._is_builtin_project(record):
+                    assert self.committer is not None
+                    receipt = await self.committer.commit(
+                        operation_id=operation_id,
+                        apply_receipt=apply_receipt,
+                        message=message,
+                    )
+                else:
+                    project_id, expected_head, _ = self._project_writer_context(record)
+                    assert self.project_writer is not None
+                    receipt = await self.project_writer.commit(
+                        project_id=project_id,
+                        expected_head=expected_head,
+                        operation_id=operation_id,
+                        apply_receipt=apply_receipt,
+                        message=message,
+                    )
                 expected_files = tuple(item.path for item in apply_receipt.files)
                 if (
                     receipt.commit_id != operation_id
@@ -1892,8 +2016,19 @@ class CodingService:
                     or receipt.files != expected_files
                 ):
                     try:
-                        await self.committer.undo(receipt, apply_receipt)
-                    except CommitterClientError as undo_exc:
+                        if self._is_builtin_project(record):
+                            assert self.committer is not None
+                            await self.committer.undo(receipt, apply_receipt)
+                        else:
+                            project_id, expected_head, _ = self._project_writer_context(record)
+                            assert self.project_writer is not None
+                            await self.project_writer.undo(
+                                project_id=project_id,
+                                expected_head=expected_head,
+                                apply_receipt=apply_receipt,
+                                commit_receipt=receipt,
+                            )
+                    except (CommitterClientError, ProjectWriterClientError) as undo_exc:
                         raise CommitterClientError(
                             "Invalid commit response could not be recovered.",
                             code="rollback_failed",
@@ -1902,7 +2037,7 @@ class CodingService:
                         "Commit receipt does not match the request.",
                         code="invalid_response",
                     )
-            except CommitterClientError as exc:
+            except (CommitterClientError, ProjectWriterClientError) as exc:
                 record.commit_state = CommitState.FAILED
                 record.commit_reason = _safe_code(exc.code)
                 record.commit_finished_at = time.time()
@@ -1925,7 +2060,6 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        self._require_builtin_project(record)
         return self._public_commit(record, revision)
 
     async def publish(
@@ -2181,7 +2315,6 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             if record.publish_manifest is not None:
@@ -2201,8 +2334,11 @@ class CodingService:
                 return self._public_commit(record, revision)
             if record.commit_state is not CommitState.COMMITTED:
                 raise _http_error(status.HTTP_409_CONFLICT, "commit_not_undoable")
-            if self.committer is None:
-                raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "committer_unavailable")
+            if self._is_builtin_project(record):
+                if self.committer is None:
+                    raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "committer_unavailable")
+            elif self.project_writer is None:
+                raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "project_writer_unavailable")
             record.commit_state = CommitState.UNDOING
             record.commit_reason = None
             record.updated_at = time.time()
@@ -2213,13 +2349,24 @@ class CodingService:
                 record.commit_reason = "recovery_storage_unavailable"
                 raise
             try:
-                undone = await self.committer.undo(receipt, apply_receipt)
+                if self._is_builtin_project(record):
+                    assert self.committer is not None
+                    undone = await self.committer.undo(receipt, apply_receipt)
+                else:
+                    project_id, expected_head, _ = self._project_writer_context(record)
+                    assert self.project_writer is not None
+                    undone = await self.project_writer.undo(
+                        project_id=project_id,
+                        expected_head=expected_head,
+                        apply_receipt=apply_receipt,
+                        commit_receipt=receipt,
+                    )
                 if undone != receipt:
                     raise CommitterClientError(
                         "Commit undo receipt does not match.",
                         code="invalid_response",
                     )
-            except CommitterClientError as exc:
+            except (CommitterClientError, ProjectWriterClientError) as exc:
                 record.commit_state = CommitState.COMMITTED
                 record.commit_reason = _safe_code(exc.code)
                 record.commit_finished_at = time.time()
@@ -2243,7 +2390,6 @@ class CodingService:
         if self.mode != "draft":
             raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
         record = self._get_session(session_id)
-        self._require_builtin_project(record)
         async with record.apply_lock:
             self._require_not_recovery_conflict(record)
             receipt = record.apply_receipt
@@ -2267,10 +2413,16 @@ class CodingService:
                 if record.apply_state is ApplyState.FAILED:
                     return self._public_apply(record, revision)
                 raise _http_error(status.HTTP_409_CONFLICT, "apply_not_revertible")
-            if self.applier is None:
+            if self._is_builtin_project(record):
+                if self.applier is None:
+                    raise _http_error(
+                        status.HTTP_503_SERVICE_UNAVAILABLE,
+                        "applier_unavailable",
+                    )
+            elif self.project_writer is None:
                 raise _http_error(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
-                    "applier_unavailable",
+                    "project_writer_unavailable",
                 )
             record.apply_state = ApplyState.REVERTING
             record.apply_reason = None
@@ -2282,13 +2434,23 @@ class CodingService:
                 record.apply_reason = "recovery_storage_unavailable"
                 raise
             try:
-                reverted = await self.applier.revert(receipt)
+                if self._is_builtin_project(record):
+                    assert self.applier is not None
+                    reverted = await self.applier.revert(receipt)
+                else:
+                    project_id, expected_head, _ = self._project_writer_context(record)
+                    assert self.project_writer is not None
+                    reverted = await self.project_writer.revert(
+                        project_id=project_id,
+                        expected_head=expected_head,
+                        receipt=receipt,
+                    )
                 if reverted != receipt:
                     raise ApplierClientError(
                         "Coding revert receipt does not match.",
                         code="invalid_response",
                     )
-            except ApplierClientError as exc:
+            except (ApplierClientError, ProjectWriterClientError) as exc:
                 record.apply_state = ApplyState.FAILED
                 record.apply_reason = _safe_code(exc.code)
                 record.apply_finished_at = time.time()
@@ -2557,21 +2719,9 @@ class CodingService:
                 patch=cumulative_patch,
                 changes=cumulative_changes,
                 verification=verification,
-                apply=(
-                    _apply_storage_payload(record)
-                    if self._is_builtin_project(record)
-                    else None
-                ),
-                commit=(
-                    _commit_storage_payload(record)
-                    if self._is_builtin_project(record)
-                    else None
-                ),
-                operation=(
-                    _operation_storage_payload(record)
-                    if self._is_builtin_project(record)
-                    else None
-                ),
+                apply=_apply_storage_payload(record),
+                commit=_commit_storage_payload(record),
+                operation=_operation_storage_payload(record),
                 publish=(
                     _publish_storage_payload(record)
                     if self._is_builtin_project(record)
@@ -2877,6 +3027,14 @@ class CodingService:
         paths: list[str],
         fingerprint: str,
     ) -> None:
+        if not self._is_builtin_project(record):
+            await self._reconcile_recovered_project_writeback(
+                record,
+                patch,
+                paths,
+                fingerprint,
+            )
+            return
         commit_reconciled = False
         if (
             record.apply_state is ApplyState.APPLIED
@@ -2998,6 +3156,114 @@ class CodingService:
         record.publish_reason = None
         record.publish_finished_at = time.time()
         record.state = "published"
+
+    async def _reconcile_recovered_project_writeback(
+        self,
+        record: CodingApiSession,
+        patch: str,
+        paths: list[str],
+        fingerprint: str,
+    ) -> None:
+        if self.project_writer is None:
+            self._mark_recovery_conflict(record, "project_writer_unavailable")
+            return
+        try:
+            project_id, expected_head, expected_fingerprint = (
+                self._project_writer_context(record)
+            )
+        except HTTPException:
+            self._mark_recovery_conflict(record, "project_changed")
+            return
+        if expected_fingerprint != fingerprint:
+            self._mark_recovery_conflict(record, "snapshot_mismatch")
+            return
+        apply_operation = record.apply_operation_id
+        apply_receipt = record.apply_receipt
+        if (
+            apply_operation is not None
+            and apply_receipt is not None
+            and record.commit_operation_id is not None
+            and record.commit_message is not None
+            and record.commit_state is not CommitState.NOT_COMMITTED
+        ):
+            try:
+                state, restored_apply, commit_receipt = (
+                    await self.project_writer.reconcile_commit(
+                        project_id=project_id,
+                        expected_head=expected_head,
+                        operation_id=apply_operation,
+                        revision=record.apply_revision or 0,
+                        patch=patch,
+                        paths=paths,
+                        expected_fingerprint=fingerprint,
+                        apply_receipt=apply_receipt,
+                        commit_operation_id=record.commit_operation_id,
+                        message=record.commit_message,
+                    )
+                )
+            except ProjectWriterClientError as exc:
+                self._mark_recovery_conflict(record, _safe_code(exc.code))
+                return
+            record.apply_receipt = restored_apply
+            record.apply_state = ApplyState.APPLIED
+            if state == "committed" and commit_receipt is not None:
+                record.commit_receipt = commit_receipt
+                record.commit_state = CommitState.COMMITTED
+                record.state = "applied"
+                return
+            if state == "undone" and commit_receipt is not None:
+                record.commit_receipt = commit_receipt
+                record.commit_state = CommitState.UNDONE
+                record.state = "applied"
+                return
+            if state == "not_committed" and record.commit_receipt is None:
+                record.commit_state = CommitState.FAILED
+                record.commit_reason = "commit_not_completed"
+                record.state = "applied"
+                return
+            self._mark_recovery_conflict(record, "commit_recovery_conflict")
+            return
+
+        if apply_operation is None or record.apply_state is ApplyState.NOT_APPLIED:
+            return
+        intended_revert = (
+            apply_receipt is not None
+            and record.apply_state in {ApplyState.REVERTING, ApplyState.FAILED}
+        )
+        try:
+            state, receipt = await self.project_writer.reconcile_apply(
+                project_id=project_id,
+                expected_head=expected_head,
+                operation_id=apply_operation,
+                revision=record.apply_revision or 0,
+                patch=patch,
+                paths=paths,
+                expected_fingerprint=fingerprint,
+            )
+        except ProjectWriterClientError as exc:
+            self._mark_recovery_conflict(record, _safe_code(exc.code))
+            return
+        if state == "conflict":
+            self._mark_recovery_conflict(record, "apply_recovery_conflict")
+        elif state == "applied" and receipt is not None:
+            record.apply_receipt = receipt
+            record.apply_state = ApplyState.APPLIED
+            record.state = "applied"
+        elif state == "not_applied" and intended_revert:
+            record.apply_state = ApplyState.REVERTED
+            record.state = "reverted"
+        elif state == "not_applied" and record.apply_state is ApplyState.REVERTED:
+            record.state = "reverted"
+        elif state == "not_applied" and record.apply_state in {
+            ApplyState.APPLYING,
+            ApplyState.FAILED,
+        }:
+            record.apply_state = ApplyState.NOT_APPLIED
+            record.apply_operation_id = None
+            record.apply_receipt = None
+            record.state = "ready"
+        else:
+            self._mark_recovery_conflict(record, "apply_recovery_conflict")
 
     async def _reconcile_recovered_commit(
         self,
@@ -3213,7 +3479,16 @@ class CodingService:
             }
         return {**response, "available": True}
 
-    async def _require_commit_available(self, expected_fingerprint: str) -> None:
+    async def _require_commit_available(
+        self,
+        record: CodingApiSession,
+        expected_fingerprint: str,
+    ) -> None:
+        if not self._is_builtin_project(record):
+            _, _, fingerprint = await self._require_project_writer_available(record)
+            if fingerprint != expected_fingerprint:
+                raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
+            return
         capability = await self._commit_capability(
             {"snapshot_fingerprint": expected_fingerprint}
         )
@@ -3231,6 +3506,43 @@ class CodingService:
             else status.HTTP_409_CONFLICT
         )
         raise _http_error(status_code, reason)
+
+    async def _require_project_writer_available(
+        self,
+        record: CodingApiSession,
+    ) -> tuple[str, str, str]:
+        features = record.project.get("features")
+        if not isinstance(features, dict) or features.get("apply") is not True:
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                _safe_code(record.project.get("writeback_reason") or "project_operation_unavailable"),
+            )
+        capability = await self._project_writeback_capability()
+        if capability["available"] is not True:
+            reason = str(capability.get("reason") or "project_writer_unavailable")
+            raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, reason)
+        return self._project_writer_context(record)
+
+    @staticmethod
+    def _project_writer_context(
+        record: CodingApiSession,
+    ) -> tuple[str, str, str]:
+        source = record.project_source
+        if not isinstance(source, dict):
+            raise _http_error(status.HTTP_409_CONFLICT, "project_changed")
+        project_id = source.get("project_id")
+        head = source.get("head")
+        fingerprint = source.get("fingerprint")
+        if (
+            not isinstance(project_id, str)
+            or record.project.get("id") != project_id
+            or not isinstance(head, str)
+            or re.fullmatch(r"(?:[a-f0-9]{40}|[a-f0-9]{64})", head) is None
+            or not isinstance(fingerprint, str)
+            or SNAPSHOT_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None
+        ):
+            raise _http_error(status.HTTP_409_CONFLICT, "project_changed")
+        return project_id, head, fingerprint
 
     async def _publish_capability(self) -> dict[str, Any]:
         capability: dict[str, Any] = {
@@ -3586,6 +3898,14 @@ def get_coding_service() -> CodingService:
             "CODING_PROJECT_SOURCE_SOCKET_PATH",
             "/run/modelmirror-coding-projects/source.sock",
         )
+        project_writeback_enabled = os.getenv(
+            "CODING_PROJECT_WRITEBACK_ENABLED",
+            "false",
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        project_writer_socket_path = os.getenv(
+            "CODING_PROJECT_WRITER_SOCKET_PATH",
+            "/run/modelmirror-coding-writeback/writer.sock",
+        )
         recovery_enabled = os.getenv(
             "CODING_RECOVERY_ENABLED",
             "false",
@@ -3632,7 +3952,13 @@ def get_coding_service() -> CodingService:
                 if projects_enabled
                 else None
             ),
+            project_writer=(
+                CodingProjectWriterClient(Path(project_writer_socket_path))
+                if project_writeback_enabled
+                else None
+            ),
             projects_enabled=projects_enabled,
+            project_writeback_enabled=project_writeback_enabled,
             recovery_store=recovery_store,
             recovery_enabled=recovery_enabled,
             recovery_reason=recovery_reason,
