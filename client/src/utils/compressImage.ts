@@ -1,4 +1,4 @@
-const MAX_IMAGE_DIMENSION = 1024;
+const MAX_IMAGE_DIMENSION = 2048;
 const MAX_DATA_URL_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_IMAGE_TYPES = new Set([
   "image/png",
@@ -17,7 +17,11 @@ function loadImage(src: string) {
   });
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: "image/jpeg" | "image/png" | "image/webp",
+  quality?: number,
+) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -27,7 +31,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
         }
         resolve(blob);
       },
-      "image/jpeg",
+      type,
       quality,
     );
   });
@@ -70,22 +74,58 @@ export async function compressImage(file: File): Promise<string> {
   try {
     const image = await loadImage(objectUrl);
     const size = getScaledSize(image.naturalWidth, image.naturalHeight);
-    const canvas = document.createElement("canvas");
-    canvas.width = size.width;
-    canvas.height = size.height;
+    const createCanvas = (withWhiteBackground: boolean) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size.width;
+      canvas.height = size.height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("当前浏览器不支持图片压缩。");
+      }
+      if (withWhiteBackground) {
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, size.width, size.height);
+      }
+      context.drawImage(image, 0, 0, size.width, size.height);
+      return canvas;
+    };
 
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("当前浏览器不支持图片压缩。");
-    }
+    const preferredType =
+      file.type === "image/png"
+        ? "image/png"
+        : file.type === "image/webp"
+          ? "image/webp"
+          : "image/jpeg";
+    const preferredCanvas = createCanvas(false);
+    const qualities =
+      preferredType === "image/png"
+        ? [undefined]
+        : [0.88, 0.8, 0.72, 0.64, 0.56, 0.48];
 
-    context.drawImage(image, 0, 0, size.width, size.height);
-
-    for (const quality of [0.8, 0.72, 0.64, 0.56, 0.48]) {
-      const blob = await canvasToBlob(canvas, quality);
+    for (const quality of qualities) {
+      const blob = await canvasToBlob(
+        preferredCanvas,
+        preferredType,
+        quality,
+      );
       const dataUrl = await blobToDataUrl(blob);
       if (new Blob([dataUrl]).size <= MAX_DATA_URL_BYTES) {
         return dataUrl;
+      }
+    }
+
+    if (preferredType === "image/png") {
+      const jpegCanvas = createCanvas(true);
+      for (const quality of [0.88, 0.8, 0.72, 0.64, 0.56, 0.48]) {
+        const blob = await canvasToBlob(
+          jpegCanvas,
+          "image/jpeg",
+          quality,
+        );
+        const dataUrl = await blobToDataUrl(blob);
+        if (new Blob([dataUrl]).size <= MAX_DATA_URL_BYTES) {
+          return dataUrl;
+        }
       }
     }
 

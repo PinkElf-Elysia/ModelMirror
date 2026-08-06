@@ -24,8 +24,8 @@
 | 持久化 | 多数 Runtime/Xpert 元数据使用文件型 Store；RAG 使用 Chroma/FTS，Data X 使用 DuckDB | `server/xpert_runtime/`、`server/xperts/`、`server/rag/`、`server/datax/` |
 | 隔离服务 | Compose 包含 Browser 和 Sandbox sidecar；另有 new-api、server、client，可选 office-host | `docker-compose.yml` |
 | Dify | 只保留 `/api/dify/*` 兼容代理和旧 iframe 组件；主前端路由与 Compose 不依赖 Dify | `client/src/App.tsx`、`server/api/dify_proxy.py`、`docker-compose.yml` |
-| 多模态 | 已有 STT/TTS、Chat 音频附件、原生音频流、独立音乐任务、直接 OpenAI WebRTC 实时语音、视频理解和独立视频任务；新增入口均受功能开关与能力档案控制 | `server/multimodal/`、`client/src/components/*Workspace.tsx` |
-| 模型快照 | 原 493 个 OpenRouter 快照模型保持不变；`/models` 额外展示 2 个直接 OpenAI Realtime 档案 | `client/src/data/models.ts`、`client/src/pages/ModelListPage.tsx` |
+| 多模态 | 图片识别与图片生成已按输入/输出方向拆分；图片生成使用专用完整响应工作区；另有 STT/TTS、Chat 音频附件、原生音频流、独立音乐任务、直接 OpenAI WebRTC 实时语音、视频理解和独立视频任务。入口均受实时能力与功能开关控制 | `server/multimodal/`、`client/src/components/*Workspace.tsx` |
+| 模型快照 | 当前合并 517 个 OpenRouter 快照模型（462 个实时目录模型与 55 个保留历史模型）；`/models` 额外展示 2 个直接 OpenAI Realtime 档案 | `client/src/data/models.ts`、`client/src/pages/ModelListPage.tsx` |
 | 前端验证 | 只有 `dev`、`build`、`preview` 脚本，没有独立 lint/test 脚本 | `client/package.json` |
 | 后端验证 | pytest 测试位于 `server/tests/` | `server/tests/`、`server/requirements.txt` |
 | CI | 仓库当前没有 `.github/workflows/` | 文件系统检查 |

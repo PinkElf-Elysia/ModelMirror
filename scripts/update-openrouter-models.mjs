@@ -180,11 +180,18 @@ async function main() {
   const start = source.indexOf(ARRAY_MARKER);
   const end = source.indexOf(ARRAY_END_MARKER, start);
   const generatedAt = new Date().toISOString();
+  const newestPublishedAt = new Date(
+    Math.max(0, ...liveModels.map((model) => model.created)) * 1000,
+  ).toISOString();
   const header = source
     .slice(0, start)
     .replace(
-      /\/\/ Generated[^\r\n]*/,
+      /\/\/ (?:Generated|Merged with OpenRouter model catalog on)[^\r\n]*/,
       `// Merged with OpenRouter model catalog on ${generatedAt}.`,
+    )
+    .replace(
+      /\/\/ Refreshed with entries published through[^\r\n]*/,
+      `// Refreshed with entries published through ${newestPublishedAt}.`,
     )
     .replace(/\/\/ Source:[^\r\n]*/, `// Source: ${CATALOG_URL}`);
   const nextSource =

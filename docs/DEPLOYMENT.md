@@ -404,6 +404,8 @@ curl http://localhost:5173/studio
 
 - 前端：回退镜像或静态产物，不迁移业务数据。
 - 后端：回退镜像；schema 变更必须保证旧数据仍可读取。
+- 图片识别或生成：分别关闭 `MULTIMODAL_IMAGE_ANALYSIS_ENABLED` 和
+  `MULTIMODAL_IMAGE_GENERATION_ENABLED`；静态目录仍可浏览，文本、音频和视频链路不受影响。
 - 视频生成或分析：将两个 `MULTIMODAL_VIDEO_*_ENABLED` 设为 `false`，保留任务元数据。
 - Chat 音视频：分别关闭 `MULTIMODAL_CHAT_AUDIO_ENABLED`、
   `MULTIMODAL_MICROPHONE_ENABLED`、`MULTIMODAL_STREAMING_AUDIO_ENABLED`

@@ -55,6 +55,8 @@ server/
 | `OMNIROUTE_ENABLED` / `OMNIROUTE_API_KEY` | 可选侧车兼容。 |
 | `MULTIMODAL_VIDEO_ANALYSIS_ENABLED` | 视频理解入口，默认关闭。 |
 | `MULTIMODAL_VIDEO_GENERATION_ENABLED` | 视频生成入口，默认关闭。 |
+| `MULTIMODAL_IMAGE_ANALYSIS_ENABLED` | 图片识别实时能力核实与 Chat 图片输入，默认开启。 |
+| `MULTIMODAL_IMAGE_GENERATION_ENABLED` | 专用图片生成/编辑工作区，默认开启。 |
 | `MULTIMODAL_CHAT_AUDIO_ENABLED` | Chat 音频附件与直接理解，默认关闭。 |
 | `MULTIMODAL_MICROPHONE_ENABLED` | 录音完成后提交，默认关闭。 |
 | `MULTIMODAL_STREAMING_AUDIO_ENABLED` | 已验证模型的原生流式语音输出，默认关闭。 |

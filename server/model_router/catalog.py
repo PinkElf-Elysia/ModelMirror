@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 try:
-    from server.omniroute.catalog import OmniRouteCatalogService
+    from server.omniroute.catalog import (
+        OmniRouteCatalogService,
+        normalize_model,
+    )
     from server.omniroute.schemas import (
         ModelCandidate,
         ModelCatalogResponse,
@@ -14,7 +17,7 @@ try:
         RouterStatusResponse,
     )
 except ModuleNotFoundError:
-    from omniroute.catalog import OmniRouteCatalogService
+    from omniroute.catalog import OmniRouteCatalogService, normalize_model
     from omniroute.schemas import (
         ModelCandidate,
         ModelCatalogResponse,
@@ -142,24 +145,40 @@ class NativeCatalogService:
         service: ModelRouterService,
         connection: RouterConnection,
     ) -> list[ModelCandidate]:
-        result, model_ids = await service.fetch_connection_models(connection.id)
+        result, records = await service.fetch_connection_model_records(
+            connection.id
+        )
         if not result.ok:
             return []
-        return [
-            ModelCandidate(
-                profile_id=f"native:{connection.id}:{model_id}",
-                invocation_id=model_id,
-                root=model_id,
-                name=model_id.rsplit("/", 1)[-1],
-                provider=connection.name,
-                type="chat",
-                source="native",
-                connection_id=connection.id,
-                invocable=True,
-                availability="live",
+        models: list[ModelCandidate] = []
+        for record in records:
+            architecture = record.get("architecture")
+            architecture = architecture if isinstance(architecture, dict) else {}
+            normalized = normalize_model(
+                {
+                    **record,
+                    "input_modalities": (
+                        record.get("input_modalities")
+                        or architecture.get("input_modalities")
+                    ),
+                    "output_modalities": (
+                        record.get("output_modalities")
+                        or architecture.get("output_modalities")
+                    ),
+                }
             )
-            for model_id in model_ids
-        ]
+            if normalized is None:
+                continue
+            normalized.profile_id = (
+                f"native:{connection.id}:{normalized.invocation_id}"
+            )
+            normalized.provider = connection.name
+            normalized.source = "native"
+            normalized.connection_id = connection.id
+            normalized.invocable = True
+            normalized.availability = "live"
+            models.append(normalized)
+        return models
 
     @staticmethod
     def _routes(

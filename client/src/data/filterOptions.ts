@@ -1,6 +1,6 @@
 import {
-  type Category,
   type InputModality,
+  type JobCapability,
   type Provider,
   type SupportedParameter,
   models,
@@ -22,11 +22,11 @@ export const CONTEXT_RANGE_LIMIT: RangeValue = { min: 0, max: 1_000_000 };
 export const PROMPT_PRICE_CNY_LIMIT: RangeValue = { min: 0, max: 600 };
 
 export const inputModalityOptions: Option<InputModality>[] = [
-  { value: "text", label: "文本", icon: "文" },
-  { value: "image", label: "图片", icon: "图" },
-  { value: "audio", label: "音频", icon: "音" },
-  { value: "video", label: "视频", icon: "影" },
-  { value: "file", label: "文件", icon: "档" },
+  { value: "text", label: "文字输入", icon: "文" },
+  { value: "image", label: "图片输入", icon: "图" },
+  { value: "audio", label: "音频输入", icon: "音" },
+  { value: "video", label: "视频输入", icon: "影" },
+  { value: "file", label: "文件输入", icon: "档" },
 ];
 
 export const contextQuickOptions = [
@@ -70,26 +70,26 @@ export const seriesOptions: Option<string>[] = [
   "MiniMax",
 ].map((series) => ({ value: series, label: series }));
 
-export const categoryOptions: Option<Category>[] = [
-  { value: "chat", label: "对话" },
-  { value: "coding", label: "编程" },
-  { value: "math", label: "数学" },
-  { value: "reasoning", label: "推理" },
-  { value: "roleplay", label: "角色扮演" },
-  { value: "translation", label: "翻译" },
-  { value: "analysis", label: "分析" },
-  { value: "vision", label: "视觉" },
-  { value: "multimodal", label: "多模态" },
-  { value: "image_generation", label: "图片生成" },
-  { value: "audio", label: "音频" },
-  { value: "speech", label: "语音合成" },
+export const jobCapabilityOptions: Option<JobCapability>[] = [
+  { value: "text_chat", label: "文字对话" },
+  { value: "coding", label: "编程开发" },
+  { value: "reasoning", label: "推理分析" },
+  { value: "tool_use", label: "工具调用" },
+  { value: "document_understanding", label: "文档理解" },
+  { value: "image_understanding", label: "图片识别" },
+  { value: "image_generation", label: "图片生成/编辑" },
+  { value: "audio_understanding", label: "音频理解" },
   { value: "transcription", label: "语音转写" },
-  { value: "video", label: "视频" },
-  { value: "embeddings", label: "向量" },
-  { value: "rerank", label: "重排序" },
-  { value: "low_cost", label: "低成本" },
-  { value: "long_context", label: "长上下文" },
+  { value: "speech_synthesis", label: "语音合成" },
+  { value: "music_generation", label: "音乐生成" },
+  { value: "realtime_voice", label: "实时语音" },
+  { value: "video_understanding", label: "视频理解" },
+  { value: "video_generation", label: "视频生成" },
+  { value: "embedding", label: "向量化" },
+  { value: "rerank", label: "检索重排" },
+  { value: "translation", label: "翻译" },
   { value: "safety", label: "安全审核" },
+  { value: "world_generation", label: "3D 世界生成" },
 ];
 
 export const supportedParameterOptions: Option<SupportedParameter>[] = [
