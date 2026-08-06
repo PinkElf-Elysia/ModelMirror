@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import os
 import platform
+import resource
 import sys
 from pathlib import Path
 
@@ -63,7 +64,7 @@ def _syscall_numbers() -> tuple[int, int, int]:
     raise RuntimeError(f"Unsupported Landlock architecture: {machine}")
 
 
-def _apply_landlock(workspace: Path) -> None:
+def _apply_landlock(workspace: Path, *, workspace_writable: bool = True) -> None:
     create_nr, add_nr, restrict_nr = _syscall_numbers()
     libc = ctypes.CDLL(None, use_errno=True)
     abi = libc.syscall(create_nr, 0, 0, LANDLOCK_CREATE_RULESET_VERSION)
@@ -107,11 +108,18 @@ def _apply_landlock(workspace: Path) -> None:
             os.close(fd)
 
     try:
-        for path in (Path("/usr"), Path("/bin"), Path("/lib"), Path("/lib64"), Path("/etc")):
+        for path in (
+            Path("/usr"),
+            Path("/bin"),
+            Path("/lib"),
+            Path("/lib64"),
+            Path("/etc"),
+            Path("/opt/modelmirror"),
+        ):
             add_path(path, READ_EXECUTE)
         for path in (Path("/dev/null"), Path("/dev/urandom"), Path("/dev/random")):
             add_path(path, ACCESS_FS_READ_FILE | ACCESS_FS_WRITE_FILE)
-        add_path(workspace, WORKSPACE_ACCESS)
+        add_path(workspace, WORKSPACE_ACCESS if workspace_writable else READ_EXECUTE)
         if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             errno = ctypes.get_errno()
             raise RuntimeError(f"no_new_privs failed (errno={errno}).")
@@ -122,17 +130,46 @@ def _apply_landlock(workspace: Path) -> None:
         os.close(ruleset_fd)
 
 
+def _apply_compute_limits() -> None:
+    limits = (
+        (resource.RLIMIT_CPU, (60, 60)),
+        (resource.RLIMIT_AS, (256 * 1024 * 1024, 256 * 1024 * 1024)),
+        (resource.RLIMIT_FSIZE, (0, 0)),
+        (resource.RLIMIT_NOFILE, (64, 64)),
+    )
+    for limit, value in limits:
+        resource.setrlimit(limit, value)
+
+
 def main() -> int:
-    if len(sys.argv) < 3 or sys.argv[2] != "--":
-        print("usage: landlock_exec.py WORKSPACE -- COMMAND [ARGS...]", file=sys.stderr)
+    options: set[str] = set()
+    separator_index = 2
+    while separator_index < len(sys.argv) and sys.argv[separator_index] != "--":
+        option = sys.argv[separator_index]
+        if option not in {"--read-only", "--compute-limits"}:
+            print(f"unsupported sandbox option: {option}", file=sys.stderr)
+            return 64
+        options.add(option)
+        separator_index += 1
+    if len(sys.argv) <= separator_index or sys.argv[separator_index] != "--":
+        print(
+            "usage: landlock_exec.py WORKSPACE [--read-only] "
+            "[--compute-limits] -- COMMAND [ARGS...]",
+            file=sys.stderr,
+        )
         return 64
     workspace = Path(sys.argv[1]).resolve(strict=True)
-    command = sys.argv[3:]
+    command = sys.argv[separator_index + 1 :]
     if not command:
         print("command is required", file=sys.stderr)
         return 64
     try:
-        _apply_landlock(workspace)
+        if "--compute-limits" in options:
+            _apply_compute_limits()
+        _apply_landlock(
+            workspace,
+            workspace_writable="--read-only" not in options,
+        )
     except Exception as exc:
         print(f"sandbox isolation failed: {exc}", file=sys.stderr)
         return 126

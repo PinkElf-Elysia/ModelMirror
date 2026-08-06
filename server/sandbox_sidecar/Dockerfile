@@ -20,7 +20,9 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && chown -R sandbox:sandbox /workspaces /run/modelmirror-sandbox
 
 WORKDIR /opt/modelmirror
-COPY __init__.py engine.py landlock_exec.py server.py ./sandbox_sidecar/
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
+COPY __init__.py compute_mcp.py engine.py landlock_exec.py server.py smoke_child.py ./sandbox_sidecar/
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-sandbox/THIRD_PARTY_NOTICES.md
 
 USER 65532:65532

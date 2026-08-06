@@ -203,7 +203,7 @@ export default function McpBrowserPage() {
               MCP 工具采购
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-              从 {mcpProjects.length} 个中文化条目中按场景、批次与生产验收状态筛选。当前冻结 7 个可用项，其余 93 个必须逐批通过安全门槛后才会开放。
+              从 {mcpProjects.length} 个中文化条目中按场景、批次与生产验收状态筛选。当前已有 {readyCount} 个项目通过验收，其余 {plannedCount + adaptingCount + blockedCount} 个仍需逐批通过安全门槛。
             </p>
           </div>
 
@@ -315,7 +315,7 @@ export default function McpBrowserPage() {
                 ，并按模镜的受控适配器边界重新分类、翻译和核验。
               </p>
               <p className="mt-2 text-xs leading-5 text-slate-400">
-                核验日期 2026-08-02 · 目录数量冻结 · 当前不提供自定义连接、MCP Builder 或外站认证入口
+                第 1 批核验日期 2026-08-05 · 目录数量冻结 · 当前不提供自定义连接、MCP Builder 或外站认证入口
               </p>
             </div>
 
@@ -424,7 +424,7 @@ export default function McpBrowserPage() {
             </h2>
             <p className="mt-1 text-sm text-slate-400">
               {activeView === "servers"
-                ? "本地可连项由后端以 stdio 启动；待适配项只展示中文配置边界和使用场景。"
+                ? "可用项由后端固定适配器启动；第 1 批运行在断网 Python 沙箱，待适配项只展示中文配置边界。"
                 : "这里聚合所有已连接 MCP Server 的工具；重名工具按首次出现保留。"}
             </p>
           </div>

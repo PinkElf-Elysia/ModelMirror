@@ -1680,8 +1680,8 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/wrtnlabs/calculator-mcp",
     category: "通用工具",
     description: "执行确定性的数学计算，减少语言模型直接心算产生的误差。",
-    readmeSummary: "社区计算器 MCP Server，提供基础与扩展数学运算工具。",
-    language: "Python",
+    readmeSummary: "社区 Node.js 计算器 MCP Server，提供基础数学运算工具；模镜使用固定 Python 兼容适配器复现其首批工具契约。",
+    language: "TypeScript",
     tags: ["计算器", "确定性计算", "数学工具"],
     requirements: ["external-runtime"],
     usageExamples: ["计算复合公式结果", "在工作流中校验数值"],
@@ -1713,10 +1713,12 @@ const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
 
 function normalizeMcpProject(seed: McpProjectSeed): McpProject {
   const adaptation = getMcpAdaptation(seed.id);
+  const isReady = adaptation.availability === "ready";
   const isLocalStdio =
-    adaptation.availability === "ready" &&
-    adaptation.connectionKind === "local-stdio";
-  const requirements = isLocalStdio
+    isReady && adaptation.connectionKind === "local-stdio";
+  const isBundledSandbox =
+    isReady && adaptation.connectionKind === "sandboxed-stdio";
+  const requirements = isReady
     ? []
     : (seed.requirements ?? originalRequirements[seed.id] ?? ["external-runtime"]);
   const requirementText = requirements
@@ -1728,7 +1730,12 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
     installMode: isLocalStdio ? "one-click" : "manual",
     installCommand: isLocalStdio
       ? seed.installCommand
-      : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
+      : isBundledSandbox
+        ? "内置隔离适配器由服务端固定部署，无需安装命令。"
+        : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
+    installNote: isBundledSandbox
+      ? "适配器随断网 Python 沙箱镜像固定部署；浏览器不会提交命令、目录或环境变量。"
+      : seed.installNote,
     availability: adaptation.availability,
     connectionKind: adaptation.connectionKind,
     adaptationWave: adaptation.wave,
@@ -1744,6 +1751,12 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
             "安装完成后点击“连接 Server”，后端会在 MCP 沙盒目录启动进程。",
             "连接成功后展开工具表单，确认参数范围再执行；随时可以断开连接。",
           ]
+        : isBundledSandbox
+          ? [
+              "无需安装 Python、uv、npm 或上游包；点击“连接 Server”即可启动受控适配器。",
+              "每次连接都在断网、非 root、只读文件系统的临时沙箱内运行，结束后自动清理。",
+              "工具参数、运行时间和返回大小均有限制；超出安全范围时会返回中文错误并拒绝执行。",
+            ]
         : [
             `先确认接入条件：${requirementText}。`,
             "当前模镜不会收集凭证、打开外站认证，也不会启动额外运行时或桌面宿主。",
