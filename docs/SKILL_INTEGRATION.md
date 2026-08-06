@@ -249,6 +249,8 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 
 4. 如果同时选择知识库，前端会把 Skill 说明与用户问题一起传入 RAG 查询，不改变现有 RAG API。
 
+私有 Xpert、工作流、Goal 与 Handoff 可选择启用本地目录发现和审批式固定 SHA 安装；完整运行时边界见 [私有 Agent Skill 按需路由](./SKILL_RUNTIME_ROUTER.md)。
+
 ## 5. 测试指南
 
 后端测试不依赖外网，会在临时目录创建本地 git 仓库作为 mock Skill 源：

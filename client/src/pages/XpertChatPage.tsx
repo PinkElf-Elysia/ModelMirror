@@ -53,6 +53,11 @@ interface XpertRunEvent {
   approval_status?: string;
   request_type?: "tool_call" | "final_output" | "manual_input";
   tool_name?: string;
+  status?: string;
+  candidate_id?: string;
+  activated_skill_id?: string;
+  source_ref?: string;
+  result_count?: number;
   sequence?: number;
   suggestions?: string[];
   conversation_title?: string;
@@ -156,6 +161,13 @@ function eventSummary(event: XpertRunEvent) {
   if (event.event === "workflow_meta") return "运行已登记";
   if (event.event === "workflow_end") return "最终回答已生成";
   if (event.event === "error") return event.message || "运行失败";
+  if (event.event === "skill_runtime_status") {
+    if (event.status === "find") return `本地 Skill 检索完成：${event.result_count ?? 0} 项候选`;
+    if (event.status === "enable") return `已为本轮激活 ${event.activated_skill_id ?? event.candidate_id ?? "Skill"}`;
+    if (event.status === "install") return `已安装并仅授权本轮使用：${event.activated_skill_id ?? "Skill"}`;
+    if (event.status === "upgrade") return `已升级并仅授权本轮使用：${event.activated_skill_id ?? "Skill"}`;
+    if (event.status === "reject") return `已拒绝候选：${event.candidate_id ?? "Skill"}`;
+  }
   return event.output || event.message || event.node_title || event.event;
 }
 

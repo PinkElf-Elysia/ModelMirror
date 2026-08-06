@@ -1536,6 +1536,67 @@ async def test_sandbox_shell_requires_bound_hitl_and_valid_config(
 
 
 @pytest.mark.asyncio
+async def test_skill_catalog_install_requires_search_limit_and_bound_hitl(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = middleware_binding_workflow()
+    skills = workflow["nodes"][-1]
+    skills["id"] = "skills-runtime"
+    skills["data"].update(
+        {
+            "runtimeMiddlewareId": "skills_runtime",
+            "runtimeMiddlewareKind": "runtime_middleware.skills_runtime",
+            "runtimeMiddlewareConfig": {
+                "catalog_search": False,
+                "catalog_install": True,
+                "max_catalog_installs": 4,
+            },
+        }
+    )
+    workflow["edges"][-1]["source"] = "skills-runtime"
+
+    invalid = await validate(client, workflow)
+    codes = issue_codes(invalid)
+    assert "skill_catalog_install_requires_search" in codes
+    assert "skill_catalog_install_requires_hitl" in codes
+    assert "invalid_skill_catalog_install_limit" in codes
+
+    skills["data"]["runtimeMiddlewareConfig"] = {
+        "catalog_search": True,
+        "catalog_install": True,
+        "max_catalog_installs": 3,
+    }
+    workflow["nodes"].append(
+        {
+            "id": "skill-hitl",
+            "type": "runtime_middleware",
+            "data": {
+                "kind": "runtime_middleware",
+                "runtimeMiddlewareId": "human_in_the_loop",
+                "runtimeMiddlewareKind": "runtime_middleware.human_in_the_loop",
+                "middlewarePriority": "30",
+                "runtimeMiddlewareConfig": {
+                    "interrupt_on_tools": "skill_install",
+                    "final_confirmation": False,
+                },
+            },
+        }
+    )
+    workflow["edges"].append(
+        {
+            "id": "bind-skill-hitl",
+            "source": "skill-hitl",
+            "target": "workflow_agent",
+            "sourceHandle": "middleware-binding",
+            "targetHandle": "middleware",
+        }
+    )
+
+    valid = await validate(client, workflow)
+    assert valid["valid"] is True, valid["issues"]
+
+
+@pytest.mark.asyncio
 async def test_validate_agent_task_node_ok(client: httpx.AsyncClient) -> None:
     workflow = linear_workflow()
     workflow["nodes"][1] = {

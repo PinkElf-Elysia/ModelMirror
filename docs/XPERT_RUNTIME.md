@@ -248,6 +248,8 @@ Workspaces are scoped to conversation, goal/step, handoff, or workflow task/node
 
 Sandbox and Skill tools still pass through the Agent pipeline, permission policy, durable HITL, audit, and safe checkpoint handling. `sandbox_shell.require_approval` is enforced during validation and again when the Agent runtime is compiled. Published Xpert Apps reject these middleware types. See `docs/XPERT_SANDBOX.md`.
 
+Private Agents may optionally enable local verified-catalog discovery and approval-gated fixed-SHA Skill installation. Activation remains scoped to the current run, while the installed package is global. See `docs/SKILL_RUNTIME_ROUTER.md`.
+
 ## Agent-Bound Middleware Core
 
 Classic workflow supports a non-control binding edge from `runtime_middleware` to `workflow_agent` through `sourceHandle="middleware-binding"` and `targetHandle="middleware"`. Binding nodes are excluded from topological scheduling, variable reachability, and independent execution. A middleware node can bind to one Agent only and cannot simultaneously participate in control flow. Bound middleware is ordered by priority and node ID; legacy linear middleware remains compatible.

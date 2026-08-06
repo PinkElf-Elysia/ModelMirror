@@ -33,6 +33,40 @@ interface RuntimeApprovalPanelProps {
   onResolved?: (approval: RuntimeApproval) => void | Promise<void>;
 }
 
+interface SkillInstallApproval {
+  candidate_id: string;
+  name: string;
+  repo_url: string;
+  sub_path: string;
+  current_sha?: string | null;
+  target_sha: string;
+  install_action: "install" | "upgrade";
+}
+
+function skillInstallApproval(approval: RuntimeApproval): SkillInstallApproval | null {
+  const value = approval.metadata.skill_approval;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.candidate_id !== "string" ||
+    typeof candidate.name !== "string" ||
+    typeof candidate.repo_url !== "string" ||
+    typeof candidate.sub_path !== "string" ||
+    typeof candidate.target_sha !== "string"
+  ) {
+    return null;
+  }
+  return {
+    candidate_id: candidate.candidate_id,
+    name: candidate.name,
+    repo_url: candidate.repo_url,
+    sub_path: candidate.sub_path,
+    current_sha: typeof candidate.current_sha === "string" ? candidate.current_sha : null,
+    target_sha: candidate.target_sha,
+    install_action: candidate.install_action === "upgrade" ? "upgrade" : "install",
+  };
+}
+
 function approvalError(payload: unknown, fallback: string) {
   if (payload && typeof payload === "object") {
     const detail = (payload as { detail?: unknown }).detail;
@@ -227,6 +261,7 @@ export default function RuntimeApprovalPanel({
           const busy = busyId === approval.approval_id;
           const message = messageDrafts[approval.approval_id] ?? "";
           const replacement = replacementDrafts[approval.approval_id] ?? "";
+          const skillApproval = skillInstallApproval(approval);
           return (
             <article
               className="rounded-lg border border-white/10 bg-ink-950/55 p-3"
@@ -253,7 +288,36 @@ export default function RuntimeApprovalPanel({
                 </span>
               </div>
 
-              {approval.request_type === "tool_call" || approval.request_type === "browser_domain" ? (
+              {skillApproval ? (
+                <div className="mt-3 rounded-md border border-cyan-300/20 bg-cyan-300/[0.07] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-cyan-50">
+                      {skillApproval.install_action === "upgrade" ? "升级 Skill" : "安装 Skill"}：{skillApproval.name}
+                    </p>
+                    <span className="rounded-full border border-amber-200/25 bg-amber-200/10 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                      全局安装 · 仅本轮授权
+                    </span>
+                  </div>
+                  <dl className="mt-2 grid gap-2 text-[11px] sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <dt className="text-slate-500">来源仓库</dt>
+                      <dd className="mt-0.5 break-all text-slate-200">{skillApproval.repo_url}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-slate-500">Skill 目录</dt>
+                      <dd className="mt-0.5 break-all text-slate-200">{skillApproval.sub_path || "."}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-slate-500">当前 SHA</dt>
+                      <dd className="mt-0.5 break-all font-mono text-slate-300">{skillApproval.current_sha || "未安装"}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-slate-500">目标 SHA（已核验）</dt>
+                      <dd className="mt-0.5 break-all font-mono text-emerald-200">{skillApproval.target_sha}</dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : approval.request_type === "tool_call" || approval.request_type === "browser_domain" ? (
                 <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-black/25 p-2.5 text-[11px] leading-5 text-slate-300">
                   {JSON.stringify(approval.arguments, null, 2)}
                 </pre>
