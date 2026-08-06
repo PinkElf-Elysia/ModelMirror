@@ -9,7 +9,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from server.skills.finder import SkillFinder, SkillFinderError
+try:
+    from server.skills.finder import SkillFinder, SkillFinderError
+except ModuleNotFoundError as exc:  # Docker image copies server/* directly into /app.
+    if exc.name != "server":
+        raise
+    from skills.finder import SkillFinder, SkillFinderError
 
 from .capabilities import CapabilityRegistry
 from .sandbox_client import SandboxClientError, SandboxClientProtocol

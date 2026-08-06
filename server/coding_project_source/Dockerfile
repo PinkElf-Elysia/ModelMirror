@@ -20,6 +20,7 @@ WORKDIR /opt/modelmirror
 
 COPY server/coding_runtime/projects.py ./server/coding_runtime/projects.py
 COPY server/coding_runtime/commands.py ./server/coding_runtime/commands.py
+COPY server/coding_runtime/project_host.py ./server/coding_runtime/project_host.py
 COPY server/coding_runtime/host_snapshot.py ./server/coding_runtime/host_snapshot.py
 COPY server/coding_project_source/server.py ./server/coding_project_source/server.py
 

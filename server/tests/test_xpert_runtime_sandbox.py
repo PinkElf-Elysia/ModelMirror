@@ -39,6 +39,17 @@ class FakeSkillManager:
         return self.skill.root
 
 
+def test_server_image_flat_layout_keeps_skill_finder_importable() -> None:
+    root = Path(__file__).resolve().parents[2]
+    dockerfile = (root / "server/Dockerfile").read_text(encoding="utf-8")
+    toolset = (root / "server/xpert_runtime/sandbox_toolset.py").read_text(encoding="utf-8")
+
+    assert "WORKDIR /app" in dockerfile
+    assert "COPY skills ./skills" in dockerfile
+    assert "except ModuleNotFoundError" in toolset
+    assert "from skills.finder import SkillFinder, SkillFinderError" in toolset
+
+
 def test_engine_enforces_paths_quota_binary_and_idempotency(tmp_path: Path) -> None:
     engine = SandboxEngine(tmp_path / "workspaces", require_landlock=False)
     base = {
