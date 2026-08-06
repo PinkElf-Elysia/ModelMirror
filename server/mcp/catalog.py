@@ -188,6 +188,10 @@ SANDBOX_PROXY = (
     sys.executable,
     str(Path(__file__).resolve().with_name("sandbox_proxy.py")),
 )
+PUBLIC_SANDBOX_PROXY = (
+    sys.executable,
+    str(Path(__file__).resolve().with_name("public_proxy.py")),
+)
 WAVE_ONE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "calculator-mcp": (
         "0.2.1-compatible-python-v1",
@@ -200,6 +204,31 @@ WAVE_ONE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "vegalite-mcp": (
         "0.0.1-compatible-python-v1",
         ("save_data", "visualize_data"),
+    ),
+}
+
+WAVE_TWO_ADAPTERS: dict[str, tuple[str, tuple[str, ...], str]] = {
+    "fetch-mcp": (
+        "0.6.3-secure-compatible-v1",
+        ("fetch",),
+        "validated-public-https:user-supplied-host",
+    ),
+    "quickchart-mcp": (
+        "1.0.6-secure-compatible-v1",
+        ("generate_chart",),
+        "allowlist:quickchart.io",
+    ),
+    "geowire-mcp": (
+        "0.6.2-secure-compatible-v1",
+        (
+            "search_places",
+            "geocode_address",
+            "reverse_geocode",
+            "get_directions",
+            "distance_matrix",
+            "list_geo_providers",
+        ),
+        "allowlist:nominatim.openstreetmap.org,router.project-osrm.org",
     ),
 }
 
@@ -442,6 +471,102 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             operation_timeout=10.0,
             max_output_bytes=128 * 1024,
         )
+
+    for project_id, (
+        adapter_version,
+        tool_names,
+        network_policy,
+    ) in WAVE_TWO_ADAPTERS.items():
+        project_limitations = {
+            "fetch-mcp": (
+                "仅允许用户明确提供的公网 HTTPS URL；每次请求和重定向都会重新执行 DNS 与 SSRF 校验。",
+                "固定遵守 robots.txt；最多重定向 3 次，原始响应不超过 1 MiB，工具返回不超过 128 KiB。",
+            ),
+            "quickchart-mcp": (
+                "仅生成 quickchart.io 的受控 Chart.js 图表 URL；拒绝远程引用、脚本回调和超大配置。",
+                "本批关闭上游 download_chart，本地文件写入将在文件处理批次单独适配。",
+            ),
+            "geowire-mcp": (
+                "仅开放无需 Key 的 Nominatim 与公共 OSRM 子集，并保留 OpenStreetMap 来源标注。",
+                "Nominatim 固定为每秒最多 1 次；公共 OSRM 仅开放驾车模式和受限坐标数量。",
+            ),
+        }[project_id]
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=2,
+            availability="ready",
+            connection_kind="sandboxed-stdio",
+            risk="medium",
+            required_capabilities=(
+                "public-remote-policy",
+                "ssrf-protection",
+                "dns-pinning",
+                "redirect-response-limits",
+            ),
+            limitations=project_limitations,
+            adapter_version=adapter_version,
+            runtime_image="modelmirror-sandbox:wave2-public-v1",
+            network_policy=network_policy,
+            filesystem_policy="read-only-empty-workspace",
+            resource_limits=(
+                ("cpu", "1 core / 60 CPU seconds per session"),
+                ("memory", "256 MiB per process / 512 MiB sidecar"),
+                ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                ("request_timeout", "12 seconds per HTTPS hop"),
+                ("operation_timeout", "45 seconds"),
+                ("redirects", "maximum 3, revalidated each hop"),
+                ("raw_response", "maximum 2 MiB"),
+                ("tool_output", "128 KiB"),
+            ),
+            server_command=(*PUBLIC_SANDBOX_PROXY, project_id),
+            preparation_kind="bundled",
+            tool_policies={
+                name: CatalogToolPolicy(read_only=True)
+                for name in tool_names
+            },
+            enabled_by_default=True,
+            operation_timeout=45.0,
+            max_output_bytes=128 * 1024,
+        )
+
+    manifests["bibigpt-mcp"] = CatalogAdapterManifest(
+        project_id="bibigpt-mcp",
+        wave=2,
+        availability="blocked",
+        connection_kind="remote-mcp",
+        risk="medium",
+        required_capabilities=(
+            "oauth-pkce",
+            "oauth-revocation",
+            "scope-review",
+        ),
+        limitations=(
+            "上游远程 MCP 当前要求 OAuth 2.1 或 API Key 才能执行工具，不再满足本批无凭据门槛。",
+            "已转入第 10 批 OAuth 适配；完成服务端 PKCE、撤销、解绑与最小 scope 前不提供登录或连接入口。",
+        ),
+        network_policy="blocked:authentication-required",
+        filesystem_policy="not-applicable",
+    )
+
+    manifests["airbnb-mcp"] = CatalogAdapterManifest(
+        project_id="airbnb-mcp",
+        wave=2,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="medium",
+        required_capabilities=(
+            "public-remote-policy",
+            "ssrf-protection",
+            "schema-drift-recovery",
+        ),
+        limitations=(
+            "Airbnb 0.3.0 当前公开搜索页未返回其固定依赖的数据节点，代表调用触发工具契约漂移阻断。",
+            "在上游恢复稳定公开契约并重新通过 robots.txt、代表调用和回归 smoke 前，不提供连接或绕过入口。",
+        ),
+        adapter_version="0.3.0-blocked-schema-drift",
+        network_policy="blocked:upstream-schema-drift",
+        filesystem_policy="read-only-empty-workspace",
+    )
 
     for wave, project_ids in WAVE_PROJECTS.items():
         connection_kind, risk, capabilities, limitations = WAVE_METADATA[wave]

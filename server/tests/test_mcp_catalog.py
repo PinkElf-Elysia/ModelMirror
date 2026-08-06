@@ -15,6 +15,7 @@ from server.mcp.catalog import (
     CATALOG_ADAPTERS,
     LOCAL_STDIO_ADAPTERS,
     WAVE_ONE_ADAPTERS,
+    WAVE_TWO_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
@@ -141,17 +142,26 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
     assert set(phased).isdisjoint(LOCAL_STDIO_ADAPTERS)
     assert set(CATALOG_ADAPTERS) == set(phased) | set(LOCAL_STDIO_ADAPTERS)
     assert set(WAVE_ONE_ADAPTERS) == set(WAVE_PROJECTS[1])
+    assert set(WAVE_TWO_ADAPTERS) == set(WAVE_PROJECTS[2]) - {
+        "bibigpt-mcp",
+        "airbnb-mcp",
+    }
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 10
+    ) == 13
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 90
+    ) == 85
+    assert sum(
+        manifest.availability == "blocked"
+        for manifest in CATALOG_ADAPTERS.values()
+    ) == 2
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
+        "blocked",
     }
 
 
@@ -184,7 +194,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["fetch-mcp"]
+    manifest = CATALOG_ADAPTERS["basic-memory-mcp"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
@@ -209,15 +219,16 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 10
-            assert payload["planned"] == 90
+            assert payload["ready"] == 13
+            assert payload["planned"] == 85
+            assert payload["blocked"] == 2
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
             assert '"endpoint"' not in serialized
 
             blocked = await client.post(
-                "/api/mcp/catalog/fetch-mcp/connect"
+                "/api/mcp/catalog/bibigpt-mcp/connect"
             )
             assert blocked.status_code == 409
             assert "尚未通过生产级适配验收" in blocked.text
@@ -319,6 +330,61 @@ async def test_wave_one_adapter_uses_bundled_sandbox_profile() -> None:
     assert set(public["tool_policies"]) == set(
         WAVE_ONE_ADAPTERS["calculator-mcp"][1]
     )
+
+
+@pytest.mark.asyncio
+async def test_wave_two_adapter_uses_fixed_public_sidecar_profile() -> None:
+    service, manager, installer, _ = make_service()
+
+    prepared = await service.prepare("fetch-mcp")
+    assert prepared["prepared"] is True
+    assert prepared["metadata"]["adapter_version"] == "0.6.3-secure-compatible-v1"
+    assert prepared["metadata"]["runtime_image"] == "modelmirror-sandbox:wave2-public-v1"
+    assert installer.calls == []
+
+    connected = await service.connect("fetch-mcp")
+    assert connected["tools_count"] == 1
+    assert manager.profiles == [
+        {
+            "transport": "stdio",
+            "server_command": list(CATALOG_ADAPTERS["fetch-mcp"].server_command),
+            "network_policy": "validated-public-https:user-supplied-host",
+            "reconnect_attempts": 1,
+            "operation_timeout": 45.0,
+        }
+    ]
+    public = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "fetch-mcp"
+    )
+    assert public["availability"] == "ready"
+    assert public["executable"] is True
+    assert public["connection_kind"] == "sandboxed-stdio"
+    assert set(public["tool_policies"]) == {"fetch"}
+
+
+def test_bibigpt_is_fail_closed_until_oauth_wave() -> None:
+    manifest = CATALOG_ADAPTERS["bibigpt-mcp"]
+
+    assert manifest.availability == "blocked"
+    assert manifest.wave == 2
+    assert manifest.connection_kind == "remote-mcp"
+    assert manifest.server_command == ()
+    assert manifest.endpoint == ""
+    assert manifest.executable is False
+    assert "oauth-pkce" in manifest.required_capabilities
+
+
+def test_airbnb_is_fail_closed_on_upstream_schema_drift() -> None:
+    manifest = CATALOG_ADAPTERS["airbnb-mcp"]
+
+    assert manifest.availability == "blocked"
+    assert manifest.wave == 2
+    assert manifest.server_command == ()
+    assert manifest.executable is False
+    assert manifest.network_policy == "blocked:upstream-schema-drift"
+    assert "schema-drift-recovery" in manifest.required_capabilities
 
 
 @pytest.mark.asyncio

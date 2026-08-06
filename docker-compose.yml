@@ -76,6 +76,47 @@ services:
       retries: 5
       start_period: 10s
 
+  mcp-public:
+    build:
+      context: ./server/sandbox_sidecar
+    container_name: modelmirror-mcp-public
+    command: ["python", "-m", "sandbox_sidecar.public_server"]
+    networks:
+      - mcp_public_egress
+    environment:
+      MCP_PUBLIC_MAX_SESSIONS: "6"
+      MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
+      MCP_PUBLIC_WORKSPACE_ROOT: /workspaces
+      # Docker Desktop/VPN DNS may map public hosts into RFC 2544 Fake-IP space.
+      # Literal IP URLs and every other non-global range remain denied.
+      MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspaces:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_public_socket:/run/modelmirror-public-mcp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-public-mcp/public-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   omniroute:
     image: diegosouzapw/omniroute:3.8.48@sha256:badb560971fdc23c2fb84b3e8695116239ff215b4cca4b07076201a8efae7f0d
     container_name: modelmirror-omniroute
@@ -144,6 +185,8 @@ services:
         condition: service_healthy
       sandbox:
         condition: service_healthy
+      mcp-public:
+        condition: service_healthy
       new-api:
         condition: service_healthy
     env_file:
@@ -179,6 +222,7 @@ services:
       GOAL_COORDINATOR_ENABLED: "true"
       SANDBOX_SOCKET_PATH: /run/modelmirror-sandbox/sandbox.sock
       SANDBOX_WORKSPACE_ROOT: /app/sandbox-workspaces
+      MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
       BROWSER_DATA_ROOT: /app/browser-data
       CODING_AGENT_ENABLED: ${CODING_AGENT_ENABLED:-false}
@@ -198,6 +242,7 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/server/world/storage:/app/world/storage
       - sandbox_socket:/run/modelmirror-sandbox
       - sandbox_workspaces:/app/sandbox-workspaces:ro
+      - mcp_public_socket:/run/modelmirror-public-mcp
       - browser_socket:/run/modelmirror-browser
       - browser_data:/app/browser-data:ro
       - coding_socket:/run/modelmirror-coding
@@ -348,6 +393,7 @@ volumes:
   omniroute-data:
   sandbox_socket:
   sandbox_workspaces:
+  mcp_public_socket:
   browser_socket:
   browser_data:
   coding_socket:
@@ -358,3 +404,5 @@ networks:
   coding_internal:
     driver: bridge
     internal: true
+  mcp_public_egress:
+    driver: bridge

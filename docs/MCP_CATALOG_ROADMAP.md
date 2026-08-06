@@ -15,16 +15,17 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-05，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0 的 7 个 Node stdio Server 与批次 1 的 3 个隔离 Python 适配器已标记为 `ready`；其余 90 个条目继续保持 `planned`。
+截至 2026-08-05，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0 的 7 个 Node stdio Server、批次 1 的 3 个断网计算适配器，以及批次 2 的 Fetch、QuickChart、GeoWire 已标记为 `ready`；Airbnb 与 BibiGPT 标记为 `blocked`，其余 85 个条目保持 `planned`。当前状态合计为 13 ready / 85 planned / 2 blocked。
 
 ## 2. 当前边界与明确不实现
 
-批次 1 只增加三个固定、断网的内置计算适配器，不扩大授权、远程访问或任意执行能力：
+批次 1—2 只增加固定的内置兼容适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar。两批都不扩大账号授权、任意连接或任意执行能力：
 
 - 不接受用户指定的 Python 包、解释器、命令、工作目录或其他额外运行时。
 - 不实现 OAuth 回调、Token / API Key 输入、保存、刷新或注入。
 - 不打开外站认证登录页，也不提供认证按钮或深链。
-- 不连接 Streamable HTTP、SSE 等远程 MCP 端点。
+- 不把 Streamable HTTP、SSE 或任意 MCP URL 暴露为目录配置；批次 2 仅由固定 stdio 适配器访问受控公共 HTTPS 服务。
+- Fetch 的用户 URL 只是工具参数，只允许公网 HTTPS，并逐次执行 DNS、SSRF、重定向和响应大小校验；它不是自定义 MCP 连接入口。
 - 不接管 Blender、Zotero、Obsidian、JetBrains、Xcode、Ghidra 等桌面宿主。
 - 不提供用户自定义 MCP 连接。
 - 不提供 MCP Builder、可视化生成器或发布市场流程。
@@ -44,7 +45,7 @@
 数据层必须满足以下约束：
 
 1. 前端条目不得包含可执行 `command`、MCP URL、Header 或环境变量配置。
-2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1 的 3 项使用完整的逐工具策略。
+2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1—2 的 6 项使用完整的逐工具策略。
 3. `planned` 后端适配器不得包含可执行命令或端点，环境开关不能绕过状态门禁。
 4. 前端不得保存真实 Secret，也不得在仓库内出现真实凭证。
 5. 上游清单只用于发现项目；能否连接必须按模镜运行边界重新核验。
@@ -74,7 +75,7 @@
 | --- | --- | ---: | --- |
 | 0 | 现有 Node stdio 基线与适配 Harness | 7 | 100 项契约、服务端清单、功能开关、状态 API、现有行为回归 |
 | 1 | `calculator-mcp`、`time-mcp`、`vegalite-mcp` | 3 | **已实现**：非 root Python 沙箱、默认断网、只读文件、CPU/内存/时间/输出上限 |
-| 2 | `bibigpt-mcp`、`fetch-mcp`、`quickchart-mcp`、`airbnb-mcp`、`geowire-mcp` | 5 | 公网目标、DNS 重绑定、SSRF、重定向与响应大小验证 |
+| 2 | `bibigpt-mcp`、`fetch-mcp`、`quickchart-mcp`、`airbnb-mcp`、`geowire-mcp` | 5 | **已完成门槛判定**：Fetch、QuickChart、GeoWire 可用；BibiGPT 因 OAuth、Airbnb 因上游 schema 漂移受阻 |
 | 3 | `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`manim-mcp`、`markitdown-mcp` | 5 | 目录授权、路径越界与符号链接防护、产物清理 |
 | 4 | AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、Snyk、VirusTotal | 16 | 加密凭据槽、固定出口域、只读工具清单、Secret 泄漏测试 |
 | 5 | DBHub、PostgreSQL、MongoDB、ClickHouse、Cognee、Graphiti、Hindsight、Redis、SQLite、DuckDB、Supabase | 11 | 只读账号、TLS、查询超时、行数限制、写入审批 |
@@ -86,6 +87,14 @@
 | 11 | 小红书、Ableton、Binary Ninja、Blender、Ghidra、JetBrains、ChatCrystal、Obsidian、OpenTabs、Zotero、Docker、Mobile、XcodeBuild | 13 | 版本化本机桥接、宿主校验、逐应用与目录授权 |
 
 每批在前一批验收完成后单独建分支和 PR；批内可以逐项开启功能开关，但不能绕过整批共享的安全门槛。
+
+批次 2 的执行结论：
+
+- `fetch-mcp` 固定兼容上游 0.6.3，只允许公网 HTTPS，遵守 robots.txt；每次 DNS 与重定向都重新校验并固定连接地址。
+- `quickchart-mcp` 固定兼容上游 1.0.6，仅开放 `generate_chart`；拒绝远程引用和脚本回调，本批不开放本地文件下载。
+- `geowire-mcp` 固定兼容上游 0.6.2，只开放无需 Key 的 Nominatim / OSRM 子集；Nominatim 固定每秒最多 1 次，OSRM 仅开放受限驾车查询。
+- `bibigpt-mcp` 的上游远程 MCP 现在要求 OAuth 2.1 或 API Key，转入第 10 批授权适配；当前不展示登录入口。
+- `airbnb-mcp` 0.3.0 的公开搜索页数据节点发生漂移，代表调用失败；在上游恢复稳定契约并重新通过 smoke 前保持不可连接。
 
 ## 6. 验收、发布和回退
 
@@ -105,10 +114,11 @@
 
 主要风险是上游项目快速变化、条目说明过期，以及把“已收录”误解为“当前可安全运行”。前端必须持续使用明确的状态标签和禁用按钮表达边界。
 
-批次 0—1 不引入数据库迁移。批次 1 回退时关闭三个 `MCP_CATALOG_ENABLE_*` 开关、断开目录会话并停止 sandbox sidecar，再恢复以下适配器、展示与文档文件；旧版 `/api/mcp/*` 接口保持兼容：
+批次 0—2 不引入数据库迁移。批次 2 回退时关闭 `MCP_CATALOG_ENABLE_FETCH_MCP`、`MCP_CATALOG_ENABLE_QUICKCHART_MCP`、`MCP_CATALOG_ENABLE_GEOWIRE_MCP`，断开目录会话并停止 `mcp-public` sidecar；Airbnb 与 BibiGPT 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容：
 
 - `server/mcp/catalog.py`
 - `server/mcp/sandbox_proxy.py`
+- `server/mcp/public_proxy.py`
 - `server/sandbox_sidecar/`
 - `client/src/data/mcpProjects.ts`
 - `client/src/data/mcpAdaptationPlan.ts`

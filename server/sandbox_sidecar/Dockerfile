@@ -16,13 +16,13 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 65532 sandbox \
     && useradd --uid 65532 --gid 65532 --home-dir /workspaces --no-create-home sandbox \
-    && mkdir -p /opt/modelmirror /workspaces /run/modelmirror-sandbox \
-    && chown -R sandbox:sandbox /workspaces /run/modelmirror-sandbox
+    && mkdir -p /opt/modelmirror /workspaces /run/modelmirror-sandbox /run/modelmirror-public-mcp \
+    && chown -R sandbox:sandbox /workspaces /run/modelmirror-sandbox /run/modelmirror-public-mcp
 
 WORKDIR /opt/modelmirror
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
-COPY __init__.py compute_mcp.py engine.py landlock_exec.py server.py smoke_child.py ./sandbox_sidecar/
+COPY __init__.py compute_mcp.py engine.py landlock_exec.py public_mcp.py public_server.py safe_http.py server.py smoke_child.py ./sandbox_sidecar/
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-sandbox/THIRD_PARTY_NOTICES.md
 
 USER 65532:65532
