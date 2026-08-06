@@ -421,7 +421,7 @@ class WorkspaceSource:
     @property
     def verification_available(self) -> bool:
         return self.kind is ProjectKind.BUILTIN or (
-            self.kind is ProjectKind.LOCAL_CLONE
+            self.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
             and coding_project_commands_enabled()
         )
 
@@ -720,7 +720,7 @@ class CodingWorkerServer:
         verification_paths = sorted(set(base_paths) | set(paths))
         restored_verification = (
             None
-            if source.kind is ProjectKind.LOCAL_CLONE
+            if source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
             else _validate_recovered_verification(
                 verification,
                 revision=revision,
@@ -809,7 +809,7 @@ class CodingWorkerServer:
                 runner_token=runner_token,
             )
             try:
-                if source.kind is ProjectKind.LOCAL_CLONE:
+                if source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}:
                     record.verification = self._validate_recovered_local_verification(
                         record,
                         verification,
@@ -1338,7 +1338,7 @@ class CodingWorkerServer:
                 code="verification_in_progress",
             )
         source = self._record_source(record)
-        if source.kind is ProjectKind.LOCAL_CLONE:
+        if source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}:
             verification = self._prepare_local_verification(record, revision)
             await self._send(
                 writer,
@@ -1429,7 +1429,7 @@ class CodingWorkerServer:
             )
             return
         source = self._record_source(record)
-        if source.kind is ProjectKind.LOCAL_CLONE:
+        if source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}:
             if record.verification_task is not None:
                 record.verification_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -1520,7 +1520,7 @@ class CodingWorkerServer:
         revision = self._require_revision(request)
         confirmation_id = request.get("confirmation_id")
         source = self._record_source(record)
-        if source.kind is not ProjectKind.LOCAL_CLONE:
+        if source.kind not in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}:
             raise CodingWorkerError(
                 "Verification confirmation is not required.",
                 code="project_operation_unavailable",
@@ -1572,7 +1572,7 @@ class CodingWorkerServer:
         replace: bool = True,
     ) -> dict[str, Any]:
         source = self._record_source(record)
-        if source.kind is not ProjectKind.LOCAL_CLONE:
+        if source.kind not in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}:
             raise CodingWorkerError(
                 "Project verification is unavailable.",
                 code="project_operation_unavailable",
@@ -1912,7 +1912,10 @@ class CodingWorkerServer:
         remaining_seconds: float,
     ) -> CommandExecutionResult:
         source = self._record_source(record)
-        if source.kind is not ProjectKind.LOCAL_CLONE or source.lease_payload is None:
+        if (
+            source.kind not in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
+            or source.lease_payload is None
+        ):
             raise CodingWorkerError(
                 "Project commands are unavailable.",
                 code="project_operation_unavailable",
@@ -2029,7 +2032,7 @@ class CodingWorkerServer:
             return
         if (
             record.source is not None
-            and record.source.kind is ProjectKind.LOCAL_CLONE
+            and record.source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
         ):
             if record.verification_task is not None and record.verification_task.done():
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -2063,7 +2066,7 @@ class CodingWorkerServer:
         report = record.workspace.changes()
         if (
             record.source is not None
-            and record.source.kind is ProjectKind.LOCAL_CLONE
+            and record.source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
         ):
             return {
                 "revision": report.revision,
@@ -2209,7 +2212,7 @@ class CodingWorkerServer:
         event_queue: asyncio.Queue[CodingEvent] = asyncio.Queue()
         if not (
             mode == "draft"
-            and source.kind is ProjectKind.LOCAL_CLONE
+            and source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
             and coding_project_commands_enabled()
         ):
             return "", None, event_queue
@@ -2270,11 +2273,11 @@ class CodingWorkerServer:
         commands_enabled = bool(
             runner_token
             and source is not None
-            and source.kind is ProjectKind.LOCAL_CLONE
+            and source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
         )
         project_instructions = bool(
             source is not None
-            and source.kind is ProjectKind.LOCAL_CLONE
+            and source.kind in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}
             and (source.snapshot_path / "AGENTS.md").is_file()
         )
         if commands_enabled:
@@ -2315,7 +2318,14 @@ class CodingWorkerServer:
                 "Coding project source is invalid.",
                 code="invalid_request",
             )
-        if payload.get("kind") != ProjectKind.LOCAL_CLONE.value:
+        try:
+            source_kind = ProjectKind(payload.get("kind"))
+        except ValueError as exc:
+            raise CodingWorkerProtocolError(
+                "Coding project source is invalid.",
+                code="invalid_request",
+            ) from exc
+        if source_kind not in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}:
             raise CodingWorkerProtocolError(
                 "Coding project source is invalid.",
                 code="invalid_request",
@@ -2346,7 +2356,7 @@ class CodingWorkerServer:
                 "Project snapshot lease does not match.",
                 code="snapshot_mismatch",
             )
-        _validate_local_source_metadata(lease)
+        _validate_local_source_metadata(lease, kind=source_kind)
         fingerprint = _validate_local_snapshot(workspace_path, lease)
         if fingerprint != lease["fingerprint"]:
             raise CodingWorkerError(
@@ -2357,7 +2367,7 @@ class CodingWorkerServer:
         if not verification_path.exists() and not coding_project_commands_enabled():
             verification = ProjectVerificationConfig()
             return WorkspaceSource(
-                kind=ProjectKind.LOCAL_CLONE,
+                kind=source_kind,
                 project_id=lease["project_id"],
                 name=lease["name"],
                 snapshot_path=workspace_path,
@@ -2408,7 +2418,7 @@ class CodingWorkerServer:
                 code="snapshot_mismatch",
             ) from exc
         return WorkspaceSource(
-            kind=ProjectKind.LOCAL_CLONE,
+            kind=source_kind,
             project_id=lease["project_id"],
             name=lease["name"],
             snapshot_path=workspace_path,
@@ -2996,7 +3006,11 @@ class CodingWorkerClient:
         )
 
 
-def _validate_local_source_metadata(lease: dict[str, Any]) -> None:
+def _validate_local_source_metadata(
+    lease: dict[str, Any],
+    *,
+    kind: ProjectKind,
+) -> None:
     expected = {
         "lease_id",
         "project_id",
@@ -3025,7 +3039,14 @@ def _validate_local_source_metadata(lease: dict[str, Any]) -> None:
     if (
         not _safe_internal_id(lease_id)
         or not _safe_internal_id(project_id)
-        or not project_id.startswith("local-")
+        or (
+            kind is ProjectKind.LOCAL_CLONE
+            and not project_id.startswith("local-")
+        )
+        or (
+            kind is ProjectKind.HOST_GIT
+            and re.fullmatch(r"hostgit_[a-f0-9]{32}", project_id) is None
+        )
         or not isinstance(name, str)
         or not name
         or name != name.strip()

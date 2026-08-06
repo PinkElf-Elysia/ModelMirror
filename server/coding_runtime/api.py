@@ -60,6 +60,12 @@ from .project_source_client import (
     CodingProjectSourceClient,
     ProjectSourceClientError,
 )
+from .project_host import PROJECT_ID_PATTERN, ProjectHostError
+from .project_host_api import (
+    ProjectHostRuntime,
+    create_project_host_runtime,
+    project_host_router,
+)
 from .project_writer_client import (
     CodingProjectWriterClient,
     ProjectWriterClientError,
@@ -308,6 +314,17 @@ class ProjectSourceClient(Protocol):
         project_id: str,
         *,
         expected_head: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def import_uploaded(
+        self,
+        *,
+        upload_id: str,
+        archive_sha256: str,
+        project_id: str,
+        name: str,
+        branch: str,
+        head: str,
     ) -> dict[str, Any]: ...
 
     async def release(self, project_id: str, lease_id: str) -> bool: ...
@@ -612,9 +629,12 @@ class CodingService:
         committer: CommitterClient | None = None,
         publisher: PublisherClient | None = None,
         project_source: ProjectSourceClient | None = None,
+        project_host: ProjectHostRuntime | None = None,
         project_writer: ProjectWriterClient | None = None,
         projects_enabled: bool | None = None,
         projects_reason: str | None = None,
+        project_host_enabled: bool = False,
+        project_host_reason: str | None = None,
         recovery_store: CodingRecoveryStore | None = None,
         recovery_enabled: bool = False,
         recovery_reason: str | None = None,
@@ -631,6 +651,7 @@ class CodingService:
         self.committer = committer
         self.publisher = publisher
         self.project_source = project_source
+        self.project_host = project_host
         self.project_writer = project_writer
         self.projects_enabled = (
             os.getenv("CODING_PROJECTS_ENABLED", "false").strip().lower()
@@ -639,6 +660,8 @@ class CodingService:
             else projects_enabled
         )
         self.projects_reason = projects_reason
+        self.project_host_enabled = project_host_enabled
+        self.project_host_reason = project_host_reason
         self.recovery_store = recovery_store
         self.recovery_enabled = recovery_enabled
         self.recovery_reason = recovery_reason
@@ -686,6 +709,28 @@ class CodingService:
             "mode": self.mode,
             "workspace": "ModelMirror",
             "projects": projects,
+            "project_host": (
+                self.project_host.capability(
+                    enabled=self.project_host_enabled,
+                    reason=self.project_host_reason,
+                )
+                if self.project_host is not None
+                else {
+                    "enabled": self.project_host_enabled,
+                    "paired": False,
+                    "available": False,
+                    "platform": "windows",
+                    "selection": True,
+                    "remembers_projects": True,
+                    "direct_writeback": False,
+                    "reason": self.project_host_reason
+                    or (
+                        "project_host_not_configured"
+                        if self.project_host_enabled
+                        else "project_host_disabled"
+                    ),
+                }
+            ),
             "project_writeback": project_writeback,
             "limits": {
                 "max_prompt_chars": MAX_PROMPT_CHARS,
@@ -861,18 +906,18 @@ class CodingService:
         capability = await self._projects_capability()
         writeback = await self._project_writeback_capability()
         projects = [builtin]
+        commands_available = False
+        if self.commands_enabled:
+            with contextlib.suppress(Exception):
+                health = await self.worker.health()
+                command_health = health.get("commands")
+                commands_available = bool(
+                    isinstance(command_health, dict)
+                    and command_health.get("available") is True
+                )
         if capability["available"] is True and self.project_source is not None:
             try:
                 local_projects = await self.project_source.list_projects()
-                commands_available = False
-                if self.commands_enabled:
-                    with contextlib.suppress(Exception):
-                        health = await self.worker.health()
-                        command_health = health.get("commands")
-                        commands_available = bool(
-                            isinstance(command_health, dict)
-                            and command_health.get("available") is True
-                        )
                 for project in local_projects:
                     if not isinstance(project, dict):
                         continue
@@ -903,6 +948,18 @@ class CodingService:
                     "reason": "project_source_unavailable",
                 }
                 self.projects_reason = "project_source_unavailable"
+        if self.project_host is not None:
+            known_ids = {
+                item.get("id") for item in projects if isinstance(item, dict)
+            }
+            for project in self.project_host.list_projects():
+                if project.get("id") in known_ids:
+                    continue
+                features = project.get("features")
+                if isinstance(features, dict):
+                    features["commands"] = commands_available
+                    features["verification"] = commands_available
+                projects.append(project)
         return {**capability, "projects": projects}
 
     async def _project_writeback_capability(self) -> dict[str, Any]:
@@ -1031,6 +1088,15 @@ class CodingService:
         ):
             can_resume = False
             reason = "project_source_unavailable"
+        elif project.kind is ProjectKind.HOST_GIT and (
+            not self.projects_enabled
+            or self.project_source is None
+            or self.project_host is None
+            or project.head is None
+            or project.branch is None
+        ):
+            can_resume = False
+            reason = self.project_host_reason or "project_host_unavailable"
         elif check_worker:
             try:
                 health = await self.worker.health()
@@ -1052,7 +1118,21 @@ class CodingService:
                 elif project.kind is ProjectKind.LOCAL_CLONE:
                     assert self.project_source is not None and project.head is not None
                     await self.project_source.check(project.project_id, project.head)
+                elif project.kind is ProjectKind.HOST_GIT:
+                    assert (
+                        self.project_host is not None
+                        and project.head is not None
+                        and project.branch is not None
+                    )
+                    self.project_host.check_project(
+                        project.project_id,
+                        project.head,
+                        project.branch,
+                    )
             except ProjectSourceClientError as exc:
+                can_resume = False
+                reason = _safe_code(exc.code)
+            except ProjectHostError as exc:
                 can_resume = False
                 reason = _safe_code(exc.code)
             except Exception:
@@ -1128,18 +1208,21 @@ class CodingService:
                         status.HTTP_503_SERVICE_UNAVAILABLE,
                         "project_source_unavailable",
                     )
-                try:
-                    source = await self.project_source.acquire(project_id)
-                    project = await self.project_source.check(
-                        project_id,
-                        str(source["head"]),
-                    )
-                except ProjectSourceClientError as exc:
-                    await self._release_project_source(source)
-                    raise _project_source_http_error(exc) from exc
-                except Exception:
-                    await self._release_project_source(source)
-                    raise
+                if PROJECT_ID_PATTERN.fullmatch(project_id) is not None:
+                    source, project = await self._acquire_host_project(project_id)
+                else:
+                    try:
+                        source = await self.project_source.acquire(project_id)
+                        project = await self.project_source.check(
+                            project_id,
+                            str(source["head"]),
+                        )
+                    except ProjectSourceClientError as exc:
+                        await self._release_project_source(source)
+                        raise _project_source_http_error(exc) from exc
+                    except Exception:
+                        await self._release_project_source(source)
+                        raise
             try:
                 result = (
                     await self.worker.create_session(source)
@@ -1216,6 +1299,64 @@ class CodingService:
                 self._sessions[session_id] = record
             return record
 
+    async def _acquire_host_project(
+        self,
+        project_id: str,
+        *,
+        expected_head: str | None = None,
+        expected_branch: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if self.project_host is None or self.project_source is None:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                self.project_host_reason or "project_host_unavailable",
+            )
+        transfer_id: str | None = None
+        try:
+            transfer = await self.project_host.request_snapshot(
+                project_id,
+                expected_head=expected_head,
+                expected_branch=expected_branch,
+            )
+            transfer_id = str(transfer["upload_id"])
+            project = transfer["project"]
+            source = await self.project_source.import_uploaded(
+                upload_id=transfer_id,
+                archive_sha256=str(transfer["archive_sha256"]),
+                project_id=project_id,
+                name=str(project["name"]),
+                branch=str(project["branch"]),
+                head=str(project["head"]),
+            )
+        except ProjectHostError as exc:
+            raise _project_host_http_error(exc) from exc
+        except ProjectSourceClientError as exc:
+            raise _project_source_http_error(exc) from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "invalid_project_host_response",
+            ) from exc
+        finally:
+            if transfer_id is not None:
+                self.project_host.finish_transfer(transfer_id)
+        public_project = _project_from_source(source)
+        if (
+            source.get("kind") != ProjectKind.HOST_GIT.value
+            or public_project.get("id") != project_id
+            or (expected_head is not None and source.get("head") != expected_head)
+            or (
+                expected_branch is not None
+                and source.get("branch") != expected_branch
+            )
+        ):
+            await self._release_project_source(source)
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "invalid_project_source_response",
+            )
+        return source, public_project
+
     async def resume_recovery(self) -> CodingApiSession:
         health = await self._require_available()
         if self.mode != "draft":
@@ -1249,6 +1390,17 @@ class CodingService:
                 )
             except ProjectSourceClientError as exc:
                 raise _project_source_http_error(exc) from exc
+        elif project_context.kind is ProjectKind.HOST_GIT:
+            if project_context.head is None or project_context.branch is None:
+                raise _http_error(
+                    status.HTTP_409_CONFLICT,
+                    "recovery_data_corrupt",
+                )
+            source, _ = await self._acquire_host_project(
+                project_context.project_id,
+                expected_head=project_context.head,
+                expected_branch=project_context.branch,
+            )
         cumulative_changes = _public_changes(recovery.payload.changes)
         active_changes = (
             _public_changes(recovery.payload.active_changes)
@@ -1348,6 +1500,8 @@ class CodingService:
                 resumed_project["state"] = ProjectState.AVAILABLE.value
                 resumed_project["reason"] = None
                 resumed_project["writeback_reason"] = None
+        elif project_context.kind is ProjectKind.HOST_GIT and source is not None:
+            resumed_project = _project_from_source(source)
         record = CodingApiSession(
             session_id=session_id,
             worker_session_id=session_id,
@@ -2813,7 +2967,10 @@ class CodingService:
         self,
         source: dict[str, Any] | None,
     ) -> bool:
-        if source is None or source.get("kind") != ProjectKind.LOCAL_CLONE.value:
+        if source is None or source.get("kind") not in {
+            ProjectKind.LOCAL_CLONE.value,
+            ProjectKind.HOST_GIT.value,
+        }:
             return True
         if self.project_source is None:
             self.projects_reason = "project_source_unavailable"
@@ -2836,6 +2993,38 @@ class CodingService:
             return False
         self.projects_reason = None
         return True
+
+    async def project_locked(self, project_id: str) -> bool:
+        async with self._lock:
+            if any(
+                record.project.get("id") == project_id
+                for record in self._sessions.values()
+            ):
+                return True
+        recovery = await self._load_recovery_record(required=False)
+        if recovery is None:
+            return False
+        try:
+            context = await self._load_recovery_project_context(recovery)
+        except HTTPException:
+            return True
+        return context.project_id == project_id
+
+    async def any_host_project_locked(self) -> bool:
+        async with self._lock:
+            if any(
+                record.project.get("kind") == ProjectKind.HOST_GIT.value
+                for record in self._sessions.values()
+            ):
+                return True
+        recovery = await self._load_recovery_record(required=False)
+        if recovery is None:
+            return False
+        try:
+            context = await self._load_recovery_project_context(recovery)
+        except HTTPException:
+            return True
+        return context.kind is ProjectKind.HOST_GIT
 
     async def _close_worker_and_release(
         self,
@@ -3894,6 +4083,20 @@ def get_coding_service() -> CodingService:
             "CODING_PROJECTS_ENABLED",
             "false",
         ).strip().lower() in {"1", "true", "yes", "on"}
+        project_host_enabled = os.getenv(
+            "CODING_PROJECT_HOST_ENABLED",
+            "false",
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        project_host: ProjectHostRuntime | None = None
+        project_host_reason: str | None = None
+        if project_host_enabled:
+            try:
+                project_host = create_project_host_runtime()
+            except ProjectHostError as exc:
+                project_host_reason = _safe_code(exc.code)
+            except (OSError, TypeError, ValueError):
+                project_host_reason = "project_host_not_configured"
+        any_projects_enabled = projects_enabled or project_host_enabled
         project_source_socket_path = os.getenv(
             "CODING_PROJECT_SOURCE_SOCKET_PATH",
             "/run/modelmirror-coding-projects/source.sock",
@@ -3949,15 +4152,18 @@ def get_coding_service() -> CodingService:
             publisher=CodingPublisherClient(Path(publisher_socket_path)),
             project_source=(
                 CodingProjectSourceClient(Path(project_source_socket_path))
-                if projects_enabled
+                if any_projects_enabled
                 else None
             ),
+            project_host=project_host,
             project_writer=(
                 CodingProjectWriterClient(Path(project_writer_socket_path))
                 if project_writeback_enabled
                 else None
             ),
-            projects_enabled=projects_enabled,
+            projects_enabled=any_projects_enabled,
+            project_host_enabled=project_host_enabled,
+            project_host_reason=project_host_reason,
             project_writeback_enabled=project_writeback_enabled,
             recovery_store=recovery_store,
             recovery_enabled=recovery_enabled,
@@ -3980,6 +4186,7 @@ router = APIRouter(
     tags=["coding"],
     lifespan=_coding_lifespan,
 )
+router.include_router(project_host_router)
 
 
 @router.get("/capabilities")
@@ -4395,26 +4602,28 @@ def _project_from_source(source: dict[str, Any] | None) -> dict[str, Any]:
     if source is None:
         return ProjectSummary.builtin().to_public_dict()
     try:
+        kind = ProjectKind(source["kind"])
+        if kind not in {ProjectKind.LOCAL_CLONE, ProjectKind.HOST_GIT}:
+            raise ValueError("unsupported project source")
         summary = ProjectSummary(
             project_id=str(source["project_id"]),
             name=str(source["name"]),
-            kind=ProjectKind(source["kind"]),
+            kind=kind,
             state=ProjectState.AVAILABLE,
             reason=None,
             branch=str(source["branch"]),
             head=str(source["head"]),
-            features=ProjectFeatures.local_draft(),
+            features=(
+                ProjectFeatures.host_git()
+                if kind is ProjectKind.HOST_GIT
+                else ProjectFeatures.local_draft()
+            ),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise _http_error(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "invalid_project_source_response",
         ) from exc
-    if summary.kind is not ProjectKind.LOCAL_CLONE:
-        raise _http_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "invalid_project_source_response",
-        )
     return summary.to_public_dict()
 
 
@@ -4449,6 +4658,11 @@ def _recovery_project_context(
             kind=ProjectKind(source["kind"]),
             name=str(source["name"]),
             head=str(source["head"]),
+            branch=(
+                str(source["branch"])
+                if source.get("kind") == ProjectKind.HOST_GIT.value
+                else None
+            ),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise CodingRecoveryError(
@@ -4469,6 +4683,19 @@ def _project_source_http_error(exc: ProjectSourceClientError) -> HTTPException:
     }:
         return _http_error(status.HTTP_409_CONFLICT, code)
     if code == "snapshot_limit_exceeded":
+        return _http_error(status.HTTP_409_CONFLICT, code)
+    return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, code)
+
+
+def _project_host_http_error(exc: ProjectHostError) -> HTTPException:
+    code = _safe_code(exc.code)
+    if code in {"project_not_found", "project_host_not_found"}:
+        return _http_error(status.HTTP_404_NOT_FOUND, code)
+    if code in {
+        "project_changed",
+        "project_active",
+        "project_host_request_mismatch",
+    }:
         return _http_error(status.HTTP_409_CONFLICT, code)
     return _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, code)
 
