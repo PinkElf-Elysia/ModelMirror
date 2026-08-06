@@ -159,6 +159,118 @@ async def test_install_can_pin_a_verified_commit(
     assert installed["description"] == "Extract and summarize PDF documents."
 
 
+def test_upgrade_failure_rolls_back_previous_skill(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = create_local_skill_repo(tmp_path)
+    manager = SkillManager(
+        installed_dir=tmp_path / "installed",
+        tmp_dir=tmp_path / "tmp",
+        allow_local_repos=True,
+        git_timeout_seconds=20,
+    )
+    first_ref = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    original = manager.install_skill(str(repo), "skills/pdf", first_ref)
+    original_content = manager.get_skill_content(original.skill_id)
+
+    skill_md = repo / "skills" / "pdf" / "SKILL.md"
+    skill_md.write_text(
+        original_content.replace("PDF documents", "changed PDF documents"),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "upgrade"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    next_ref = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    def fail_metadata_write(_skills: dict[str, dict[str, object]]) -> None:
+        raise OSError("simulated metadata failure")
+
+    monkeypatch.setattr(manager, "_write_metadata", fail_metadata_write)
+    with pytest.raises(OSError, match="simulated metadata failure"):
+        manager.install_skill(str(repo), "skills/pdf", next_ref)
+
+    assert manager.get_skill_content(original.skill_id) == original_content
+    restored = manager.list_installed_skills()[0]
+    assert restored.source_ref == first_ref
+    assert not list((tmp_path / "installed").glob(".*.backup-*"))
+
+
+def test_upgrade_replace_failure_restores_previous_skill(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = create_local_skill_repo(tmp_path)
+    manager = SkillManager(
+        installed_dir=tmp_path / "installed",
+        tmp_dir=tmp_path / "tmp",
+        allow_local_repos=True,
+        git_timeout_seconds=20,
+    )
+    first_ref = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    original = manager.install_skill(str(repo), "skills/pdf", first_ref)
+    original_content = manager.get_skill_content(original.skill_id)
+
+    skill_md = repo / "skills" / "pdf" / "SKILL.md"
+    skill_md.write_text(
+        original_content.replace("PDF documents", "changed PDF documents"),
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "upgrade"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    next_ref = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    original_rename = Path.rename
+
+    def fail_staging_replace(path: Path, target: Path) -> Path:
+        if path.name.startswith(f".{original.skill_id}.staging-"):
+            raise OSError("simulated replacement failure")
+        return original_rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", fail_staging_replace)
+    with pytest.raises(OSError, match="simulated replacement failure"):
+        manager.install_skill(str(repo), "skills/pdf", next_ref)
+
+    assert manager.get_skill_content(original.skill_id) == original_content
+    restored = manager.list_installed_skills()[0]
+    assert restored.source_ref == first_ref
+    assert not list((tmp_path / "installed").glob(".*.backup-*"))
+    assert not list((tmp_path / "installed").glob(".*.staging-*"))
+
+
 @pytest.mark.asyncio
 async def test_install_rejects_non_commit_source_ref(
     client: httpx.AsyncClient,

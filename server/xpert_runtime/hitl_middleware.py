@@ -48,11 +48,25 @@ def build_human_in_the_loop_middleware(
             or f"{task_id}:{node_id}:{iteration}:{request.tool_name}"
         )
         scope_type, scope_id = _approval_scope(context, task_id)
-        allowed = ["approve"]
-        if allow_edit:
-            allowed.append("edit")
-        if allow_reject:
-            allowed.append("reject")
+        skill_approval = request.metadata.get("skill_approval")
+        if request.tool_name == "skill_install" and isinstance(skill_approval, dict):
+            allowed = ["approve", "reject"]
+            approval_description = (
+                "安装已核验 Skill 需要人工审批\n\n"
+                f"Skill: {skill_approval.get('name') or '-'}\n"
+                f"来源: {skill_approval.get('repo_url') or '-'}\n"
+                f"目录: {skill_approval.get('sub_path') or '.'}\n"
+                f"当前 SHA: {skill_approval.get('current_sha') or '未安装'}\n"
+                f"目标 SHA: {skill_approval.get('target_sha') or '-'}\n"
+                "影响: 全局安装，仅授权当前 Agent 运行使用"
+            )
+        else:
+            allowed = ["approve"]
+            if allow_edit:
+                allowed.append("edit")
+            if allow_reject:
+                allowed.append("reject")
+            approval_description = f"{description_prefix}\n\nTool: {request.tool_name}"
         try:
             approval = store.create_request(
                 action_key=action_key,
@@ -67,9 +81,7 @@ def build_human_in_the_loop_middleware(
                 allowed_decisions=allowed,
                 tool_name=request.tool_name,
                 arguments=request.arguments,
-                description=(
-                    f"{description_prefix}\n\nTool: {request.tool_name}"
-                ),
+                description=approval_description,
                 metadata={
                     "middleware_node_id": spec.node_id,
                     "middleware_priority": spec.priority,
@@ -77,6 +89,11 @@ def build_human_in_the_loop_middleware(
                     "capability": request.metadata.get("capability"),
                     "tool_input_schema": dict(
                         request.metadata.get("tool_input_schema") or {}
+                    ),
+                    "skill_approval": (
+                        dict(skill_approval)
+                        if isinstance(skill_approval, dict)
+                        else None
                     ),
                 },
             )
@@ -167,6 +184,7 @@ async def _apply_resolution(
                 "is_error": True,
                 "approval_rejected": True,
                 "approval_id": resolved.get("approval_id"),
+                "rejected_candidate_id": request.arguments.get("candidate_id"),
             },
         )
     raise RuntimeMiddlewareFatalError(f"Unsupported approval decision: {decision}.")

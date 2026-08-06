@@ -4568,6 +4568,42 @@ async def _run_workflow_response(
             scheduler = middleware_spec(specs, "scheduler")
             xpert_authoring = middleware_spec(specs, "xpert_authoring")
             skill_creator = middleware_spec(specs, "skill_creator")
+            if skills_runtime is not None and workflow_truthy(
+                skills_runtime.config.get("catalog_install", False)
+            ):
+                if not workflow_truthy(
+                    skills_runtime.config.get("catalog_search", False)
+                ):
+                    raise RuntimeMiddlewareFatalError(
+                        "skills_runtime catalog_install requires catalog_search."
+                    )
+                skill_hitl_tools = {
+                    item.strip()
+                    for item in re.split(
+                        r"[,\n]",
+                        str(
+                            hitl.config.get("interrupt_on_tools")
+                            if hitl is not None
+                            else ""
+                        ),
+                    )
+                    if item.strip()
+                }
+                if not ({"skill_install", "*"} & skill_hitl_tools):
+                    raise RuntimeMiddlewareFatalError(
+                        "skills_runtime catalog_install requires human_in_the_loop approval coverage."
+                    )
+            if skills_runtime is not None:
+                try:
+                    max_catalog_installs = int(
+                        skills_runtime.config.get("max_catalog_installs", 3)
+                    )
+                except (TypeError, ValueError):
+                    max_catalog_installs = 0
+                if not 1 <= max_catalog_installs <= 3:
+                    raise RuntimeMiddlewareFatalError(
+                        "skills_runtime max_catalog_installs must be between 1 and 3."
+                    )
             if (
                 sandbox_shell is not None
                 and workflow_truthy(
@@ -5306,8 +5342,19 @@ async def _run_workflow_response(
                         tool for tool in sandbox_tools if tool.name.startswith("sandbox_")
                     )
                 if include_skills:
+                    skills_spec = (
+                        middleware_spec(middleware_specs, "skills_runtime")
+                        if middleware_specs is not None
+                        else None
+                    )
+                    skills_config = dict(skills_spec.config) if skills_spec else {}
+                    allowed_skill_tools = {"skill_list", "skill_read", "skill_stage"}
+                    if workflow_truthy(skills_config.get("catalog_search", False)):
+                        allowed_skill_tools.update({"skill_find", "skill_enable"})
+                    if workflow_truthy(skills_config.get("catalog_install", False)):
+                        allowed_skill_tools.add("skill_install")
                     tools.extend(
-                        tool for tool in sandbox_tools if tool.name.startswith("skill_")
+                        tool for tool in sandbox_tools if tool.name in allowed_skill_tools
                     )
             if include_browser and runtime_run_type != "xpert_app":
                 tools.extend(await workflow_browser_provider.list_tools())
@@ -5572,6 +5619,11 @@ async def _run_workflow_response(
                     required_tools.update({"todo_list", "todo_create", "todo_update"})
                 if include_skills:
                     required_tools.update({"skill_list", "skill_read", "skill_stage"})
+                    skills_spec = middleware_spec(middleware_specs, "skills_runtime")
+                    if skills_spec is not None and workflow_truthy(
+                        skills_spec.config.get("catalog_search", False)
+                    ):
+                        required_tools.add("skill_find")
                 if include_browser:
                     required_tools.update(
                         {"browser_navigate", "browser_snapshot", "browser_read"}
@@ -6109,6 +6161,20 @@ async def _run_workflow_response(
                 "Do not output text outside the JSON object.\n\nAvailable tools:\n"
                 f"{tool_descriptions}"
             )
+            skills_spec = middleware_spec(middleware_specs or [], "skills_runtime")
+            if (
+                include_skills
+                and skills_spec is not None
+                and workflow_truthy(skills_spec.config.get("catalog_search", False))
+            ):
+                react_system_prompt += (
+                    "\n\nSkill discovery policy: use skill_find only when the currently "
+                    "enabled capabilities are insufficient. Do not guess candidate IDs. "
+                    "For an installed result, call skill_enable; for a missing or stale "
+                    "verified catalog result, call skill_install and wait for user approval. "
+                    "After activation, call skill_read before following the Skill, and call "
+                    "skill_stage only when its package resources are needed."
+                )
             persisted_tool_memory: list[Any] = []
             xpert_id = str(runtime_metadata.get("xpert_id") or "").strip()
             conversation_id = str(
@@ -6149,7 +6215,96 @@ async def _run_workflow_response(
                 0,
                 int(pending_state.get("tool_calls_used") or 0),
             )
+            active_skill_ids = {
+                str(item)
+                for item in (pending_state.get("active_skill_ids") or [])
+                if str(item).strip()
+            }
+            denied_skill_candidate_ids = {
+                str(item)
+                for item in (pending_state.get("denied_skill_candidate_ids") or [])
+                if str(item).strip()
+            }
+            catalog_install_count = max(
+                0,
+                int(pending_state.get("catalog_install_count") or 0),
+            )
             run_tool_memory: list[str] = []
+
+            async def apply_skill_runtime_result(
+                tool_name: str,
+                arguments: dict[str, Any],
+                result: RuntimeToolResult,
+            ) -> None:
+                nonlocal catalog_install_count
+                if not tool_name.startswith("skill_"):
+                    return
+                metadata = dict(result.metadata or {})
+                candidate_id = str(arguments.get("candidate_id") or "").strip()
+                if metadata.get("approval_rejected") and candidate_id:
+                    denied_skill_candidate_ids.add(candidate_id)
+                activated_skill_id = str(
+                    metadata.get("activated_skill_id") or ""
+                ).strip()
+                if activated_skill_id:
+                    active_skill_ids.add(activated_skill_id)
+                increment = int(metadata.get("catalog_install_increment") or 0)
+                if increment > 0:
+                    catalog_install_count += increment
+                event_name = str(metadata.get("skill_runtime_event") or "").strip()
+                if not event_name and metadata.get("approval_rejected"):
+                    event_name = "reject"
+                if run_id and event_name:
+                    await run_registry.record_checkpoint(
+                        run_id,
+                        event_type=f"workflow_agent.skill_{event_name}",
+                        title=f"Skill {event_name}",
+                        summary=(
+                            f"candidate={candidate_id or '-'} "
+                            f"active={len(active_skill_ids)} installs={catalog_install_count}"
+                        ),
+                        severity="warning" if event_name == "reject" else "info",
+                        metadata={
+                            "candidate_id": candidate_id or None,
+                            "activated_skill_id": activated_skill_id or None,
+                            "source_ref": metadata.get("source_ref"),
+                            "install_action": metadata.get("install_action"),
+                            "result_count": metadata.get("result_count"),
+                            "query_hash": metadata.get("query_hash"),
+                            "catalog_fingerprint": metadata.get(
+                                "catalog_fingerprint"
+                            ),
+                            "catalog_install_count": catalog_install_count,
+                        },
+                    )
+
+            async def append_skill_runtime_event(
+                tool_name: str,
+                arguments: dict[str, Any],
+                result: RuntimeToolResult,
+            ) -> None:
+                if not tool_name.startswith("skill_"):
+                    return
+                await apply_skill_runtime_result(tool_name, arguments, result)
+                metadata = dict(result.metadata or {})
+                event_name = str(metadata.get("skill_runtime_event") or "").strip()
+                if metadata.get("approval_rejected"):
+                    event_name = "reject"
+                events.append(
+                    {
+                        "event": "skill_runtime_status",
+                        "node_id": node.id,
+                        "node_title": title,
+                        "node_type": kind,
+                        "tool_name": tool_name,
+                        "status": event_name or "completed",
+                        "candidate_id": arguments.get("candidate_id"),
+                        "activated_skill_id": metadata.get("activated_skill_id"),
+                        "source_ref": metadata.get("source_ref"),
+                        "result_count": metadata.get("result_count"),
+                        "run_id": run_id,
+                    }
+                )
 
             async def remember_tool_result(
                 tool: Any,
@@ -6211,6 +6366,11 @@ async def _run_workflow_response(
                     "external_xpert_tools": list(external_xpert_tools or []),
                     "toolset_resources": list(toolset_resources or []),
                     "max_tool_depth": max_tool_depth,
+                    "active_skill_ids": sorted(active_skill_ids),
+                    "denied_skill_candidate_ids": sorted(
+                        denied_skill_candidate_ids
+                    ),
+                    "catalog_install_count": catalog_install_count,
                 }
                 if batch_id:
                     metadata["parallel_batch_id"] = batch_id
@@ -6289,6 +6449,11 @@ async def _run_workflow_response(
                     interrupt.continuation["agent_state"] = pending_state
                     raise
                 tool_calls_used += 1
+                await append_skill_runtime_event(
+                    pending_tool_name,
+                    pending_arguments,
+                    call_result,
+                )
                 pending_result_text = runtime_tool_result_text(call_result)
                 await remember_tool_result(
                     pending_tool,
@@ -6510,6 +6675,11 @@ async def _run_workflow_response(
                                 middleware_context=middleware_context,
                                 middleware_specs=middleware_specs,
                             )
+                            await append_skill_runtime_event(
+                                batch_tool_name,
+                                batch_arguments,
+                                batch_result,
+                            )
                             batch_result_text = runtime_tool_result_text(batch_result)
                             await remember_tool_result(
                                 batch_tool,
@@ -6666,9 +6836,19 @@ async def _run_workflow_response(
                             "tool_name": tool_name,
                             "arguments": dict(arguments),
                             "tool_calls_used": tool_calls_used,
+                            "active_skill_ids": sorted(active_skill_ids),
+                            "denied_skill_candidate_ids": sorted(
+                                denied_skill_candidate_ids
+                            ),
+                            "catalog_install_count": catalog_install_count,
                         }
                         raise
                     tool_calls_used += 1
+                    await append_skill_runtime_event(
+                        tool_name,
+                        arguments,
+                        call_result,
+                    )
                     tool_result_text = runtime_tool_result_text(call_result)
                     await remember_tool_result(
                         matched_tool,
@@ -9375,6 +9555,10 @@ async def _run_workflow_response(
                                             ),
                                         )
                                     for agent_event in agent_events:
+                                        if agent_event.get("event") == "skill_runtime_status":
+                                            workflow_execution_store.append_event(
+                                                task_id, agent_event
+                                            )
                                         yield sse_payload(agent_event)
                                     if structured_spec is None and ralph_spec is None:
                                         yield sse_payload(

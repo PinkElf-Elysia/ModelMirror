@@ -362,6 +362,52 @@ class SkillFinder:
             )
         return candidate
 
+    def resolve_with_status(
+        self,
+        candidate_id: str,
+        candidate_fingerprint: str,
+        *,
+        active_skill_ids: Iterable[str] = (),
+    ) -> dict[str, Any]:
+        candidate = self.resolve(candidate_id, candidate_fingerprint)
+        active = {str(skill_id) for skill_id in active_skill_ids}
+        _, installed_by_source = self._installed_candidates()
+        installed_skill = None
+        availability = "missing"
+        if candidate["sourceType"] == "installed":
+            installed_skill = next(
+                (
+                    skill
+                    for skill in installed_by_source.values()
+                    if skill.skill_id == candidate["installedSkillId"]
+                ),
+                None,
+            )
+            if installed_skill is None:
+                raise SkillFinderError(
+                    "Installed Skill changed. Run skill_find again.",
+                    code="skill_candidate_stale",
+                )
+            availability = "active" if installed_skill.skill_id in active else "installed"
+        else:
+            source = candidate["installSource"]
+            installed_skill = installed_by_source.get(
+                _source_key(source["repoUrl"], source["subPath"])
+            )
+            if installed_skill is not None:
+                if installed_skill.skill_id in active:
+                    availability = "active"
+                elif (installed_skill.source_ref or "").lower() == source["verifiedCommit"]:
+                    availability = "installed"
+                else:
+                    availability = "stale"
+        return {
+            **candidate,
+            "availability": availability,
+            "installedSkillId": installed_skill.skill_id if installed_skill else None,
+            "installedSourceRef": installed_skill.source_ref if installed_skill else None,
+        }
+
     def find(
         self,
         need: str,

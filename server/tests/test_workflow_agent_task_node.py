@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +11,14 @@ import pytest_asyncio
 
 import server.main as main_module
 from server.main import app
+from server.skills.finder import SkillFinder, _fingerprint
+from server.skills.skill_manager import InstalledSkill
 from server.xpert_runtime import (
     RuntimeApprovalStore,
     RuntimeTool,
     RuntimeToolResult,
+    SandboxToolsetProvider,
+    SandboxWorkspaceStore,
     WorkflowExecutionStore,
 )
 from server.xpert_runtime.agent_strategy import (
@@ -35,10 +40,13 @@ async def client():
 
 
 @pytest.fixture(autouse=True)
-def default_to_legacy_agent_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+def default_to_legacy_agent_strategy(monkeypatch: pytest.MonkeyPatch):
     """Keep pre-V2 integration cases on their original runtime path."""
 
+    main_module.request_windows.clear()
     monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
+    yield
+    main_module.request_windows.clear()
 
 
 @pytest.mark.asyncio
@@ -2062,6 +2070,238 @@ async def test_bound_hitl_pauses_and_resumes_tool_call_exactly_once(
         )
     finally:
         restore_provider()
+
+
+@pytest.mark.asyncio
+async def test_skill_router_install_resume_activates_only_current_agent_run(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class RouterSkillManager:
+        def __init__(self) -> None:
+            self.items: list[InstalledSkill] = []
+            self.read_count = 0
+
+        def list_installed_skills(self) -> list[InstalledSkill]:
+            return list(self.items)
+
+        def install_skill(
+            self, repo_url: str, sub_path: str, source_ref: str
+        ) -> InstalledSkill:
+            assert repo_url == "https://github.com/example/router-skills"
+            assert sub_path == "skills/pdf"
+            installed = InstalledSkill(
+                skill_id="router-pdf",
+                name="Router PDF",
+                description="Extract PDF contracts.",
+                repo_url=repo_url,
+                sub_path=sub_path,
+                source_ref=source_ref,
+                installed_at=time.time(),
+            )
+            self.items = [installed]
+            return installed
+
+        def get_skill_content(self, skill_id: str) -> str:
+            assert skill_id == "router-pdf"
+            self.read_count += 1
+            return "# Router PDF\n\nRead the contract before extracting fields."
+
+        def get_skill_directory(self, skill_id: str) -> Path:
+            raise AssertionError(f"skill_stage was not expected: {skill_id}")
+
+    class RouterSandboxClient:
+        async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+            assert payload.get("action") == "ensure_workspace"
+            return {"ok": True}
+
+    source_ref = "1" * 40
+    candidate_payload: dict[str, Any] = {
+        "candidateId": "catalog:project:router-pdf",
+        "sourceType": "catalog",
+        "targetType": "project",
+        "sourceId": "router-pdf",
+        "name": "Router PDF",
+        "category": "内容与办公",
+        "kind": "skill",
+        "description": "提取 PDF 合同字段",
+        "sourceDescription": "Extract PDF contract fields.",
+        "searchDescription": "Extract PDF contract fields.",
+        "tags": ["pdf", "合同", "提取"],
+        "includedSkills": [],
+        "pathTerms": ["skills", "pdf"],
+        "parentNames": [],
+        "publisher": "Fixture",
+        "sourceGroup": "测试目录",
+        "parentSkillSets": [],
+        "installSource": {
+            "repoUrl": "https://github.com/example/router-skills",
+            "subPath": "skills/pdf",
+            "verifiedCommit": source_ref,
+        },
+        "directoryTreeSha": None,
+    }
+    candidate = {
+        **candidate_payload,
+        "candidateFingerprint": _fingerprint(candidate_payload),
+        "stableNameOrder": 0,
+    }
+    index_payload = {
+        "version": 1,
+        "rankerVersion": "skill-need-local-v3",
+        "memberIndexFingerprint": "fixture",
+        "supersededCandidateIds": [],
+        "candidates": [candidate],
+    }
+    index = {**index_payload, "fingerprint": _fingerprint(index_payload)}
+    index_path = tmp_path / "skill-runtime-index.json"
+    index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    manager = RouterSkillManager()
+    provider = SandboxToolsetProvider(
+        SandboxWorkspaceStore(
+            tmp_path / "router-runtime", workspace_root=tmp_path / "router-workspaces"
+        ),
+        RouterSandboxClient(),
+        skill_manager=manager,
+        skill_finder=SkillFinder(index_path=index_path, skill_manager=manager),
+    )
+    monkeypatch.setattr(main_module, "workflow_sandbox_provider", provider)
+    monkeypatch.setattr(
+        main_module.runtime_capabilities.require("sandbox_tools"),
+        "implementation",
+        provider,
+    )
+    approvals = RuntimeApprovalStore(tmp_path / "approvals")
+    executions = WorkflowExecutionStore(tmp_path / "executions")
+    monkeypatch.setattr(main_module, "runtime_approval_store", approvals)
+    monkeypatch.setattr(main_module, "workflow_execution_store", executions)
+
+    responses = iter(
+        [
+            '{"tool":"skill_find","arguments":{"need":"提取 PDF 合同"}}',
+            json.dumps(
+                {
+                    "tool": "skill_install",
+                    "arguments": {
+                        "candidate_id": candidate["candidateId"],
+                        "candidate_fingerprint": candidate["candidateFingerprint"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            '{"tool":"skill_read","arguments":{"skill_id":"router-pdf"}}',
+            '{"answer":"used the activated skill"}',
+        ]
+    )
+
+    async def fake_collect_chat_completion_text(*args, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "collect_chat_completion_text",
+        fake_collect_chat_completion_text,
+    )
+    workflow = _workflow_agent_strategy_workflow({"maxIterations": 6})
+    workflow["nodes"].extend(
+        [
+            {
+                "id": "skills-runtime",
+                "type": "runtime_middleware",
+                "data": {
+                    "kind": "runtime_middleware",
+                    "runtimeMiddlewareId": "skills_runtime",
+                    "runtimeMiddlewareKind": "runtime_middleware.skills_runtime",
+                    "middlewarePriority": "30",
+                    "runtimeMiddlewareConfig": {
+                        "catalog_search": True,
+                        "catalog_install": True,
+                        "max_catalog_installs": 3,
+                    },
+                },
+            },
+            {
+                "id": "skill-hitl",
+                "type": "runtime_middleware",
+                "data": {
+                    "kind": "runtime_middleware",
+                    "runtimeMiddlewareId": "human_in_the_loop",
+                    "runtimeMiddlewareKind": "runtime_middleware.human_in_the_loop",
+                    "middlewarePriority": "40",
+                    "runtimeMiddlewareConfig": {
+                        "interrupt_on_tools": "skill_install",
+                        "final_confirmation": False,
+                    },
+                },
+            },
+        ]
+    )
+    workflow["edges"].extend(
+        [
+            {
+                "id": "bind-skills-runtime",
+                "source": "skills-runtime",
+                "target": "workflow_agent",
+                "sourceHandle": "middleware-binding",
+                "targetHandle": "middleware",
+            },
+            {
+                "id": "bind-skill-hitl",
+                "source": "skill-hitl",
+                "target": "workflow_agent",
+                "sourceHandle": "middleware-binding",
+                "targetHandle": "middleware",
+            },
+        ]
+    )
+
+    response = await client.post(
+        "/api/workflow/run",
+        json={"workflow": workflow, "inputs": {"user_input": "extract contract"}},
+    )
+    assert response.status_code == 200, response.text
+    pending = next(
+        event
+        for event in _parse_sse_events(response.text)
+        if event.get("event") == "runtime_approval_pending"
+    )
+    approval = approvals.require(pending["approval_id"])
+    assert approval.allowed_decisions == ["approve", "reject"]
+    assert approval.metadata["skill_approval"]["target_sha"] == source_ref
+    assert manager.items == []
+
+    decided = approvals.decide(
+        approval.approval_id,
+        revision=approval.revision,
+        decision="approve",
+        operator="tester",
+    )
+    executions.mark_ready(pending["task_id"], approval_id=approval.approval_id)
+    claimed = executions.claim(pending["task_id"], worker_id="test-worker")
+    await main_module.resume_runtime_approval_execution(claimed, decided)
+
+    completed = executions.require(pending["task_id"])
+    assert completed.status == "completed"
+    assert completed.result == "used the activated skill"
+    assert manager.read_count == 1
+    assert manager.items[0].source_ref == source_ref
+    assert any(
+        event.get("event") == "skill_runtime_status"
+        and event.get("status") == "install"
+        and event.get("activated_skill_id") == "router-pdf"
+        for event in completed.events
+    ), json.dumps(
+        [event for event in completed.events if event.get("event") == "skill_runtime_status"],
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 @pytest.mark.asyncio

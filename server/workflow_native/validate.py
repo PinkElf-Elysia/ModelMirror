@@ -274,6 +274,12 @@ def validate_workflow_graph(workflow: NativeWorkflowDefinition) -> ValidateWorkf
         issues,
         kinds_by_id=kinds_by_id,
     )
+    validate_skill_runtime_middleware_bindings(
+        workflow.nodes,
+        valid_edges,
+        issues,
+        kinds_by_id=kinds_by_id,
+    )
     validate_browser_middleware_bindings(
         workflow.nodes,
         valid_edges,
@@ -1934,11 +1940,17 @@ def validate_node_configuration(
                 "1",
                 "yes",
             }
-            if len(skill_ids) > 10 or (not auto_discover and not skill_ids):
+            catalog_search = config_truthy(config.get("catalog_search", False))
+            if len(skill_ids) > 10 or (
+                not auto_discover and not catalog_search and not skill_ids
+            ):
                 issues.append(
                     ValidationIssue(
                         code="invalid_runtime_middleware_skills",
-                        message="skills_runtime needs 1-10 Skill IDs unless auto_discover is enabled.",
+                        message=(
+                            "skills_runtime needs 1-10 Skill IDs unless auto_discover "
+                            "or catalog_search is enabled."
+                        ),
                         node_id=node.id,
                     )
                 )
@@ -2800,6 +2812,85 @@ def validate_sandbox_middleware_bindings(
                             "binding that interrupts sandbox_shell or '*'."
                         ),
                         node_id=shell_node.id,
+                    )
+                )
+
+
+def validate_skill_runtime_middleware_bindings(
+    nodes: list[NativeWorkflowNode],
+    edges: list[NativeWorkflowEdge],
+    issues: list[ValidationIssue],
+    *,
+    kinds_by_id: dict[str, str],
+) -> None:
+    """Require deterministic search and durable approval for catalog installs."""
+
+    nodes_by_id = {node.id: node for node in nodes}
+    bound_by_agent: dict[str, list[NativeWorkflowNode]] = defaultdict(list)
+    for edge in edges:
+        if not is_middleware_binding_edge(edge):
+            continue
+        source = nodes_by_id.get(edge.source)
+        if source is not None and kinds_by_id.get(source.id) == "runtime_middleware":
+            bound_by_agent[edge.target].append(source)
+
+    for middleware_nodes in bound_by_agent.values():
+        skill_nodes = [
+            node
+            for node in middleware_nodes
+            if str(node.data.get("runtimeMiddlewareId") or "") == "skills_runtime"
+        ]
+        if not skill_nodes:
+            continue
+        hitl_tools: set[str] = set()
+        for node in middleware_nodes:
+            if str(node.data.get("runtimeMiddlewareId") or "") != "human_in_the_loop":
+                continue
+            config = node.data.get("runtimeMiddlewareConfig") or {}
+            hitl_tools.update(
+                value.strip()
+                for value in re.split(
+                    r"[,\n]+", str(config.get("interrupt_on_tools") or "")
+                )
+                if value.strip()
+            )
+        for skill_node in skill_nodes:
+            config = skill_node.data.get("runtimeMiddlewareConfig") or {}
+            catalog_search = config_truthy(config.get("catalog_search", False))
+            catalog_install = config_truthy(config.get("catalog_install", False))
+            try:
+                max_installs = int(config.get("max_catalog_installs", 3))
+            except (TypeError, ValueError):
+                max_installs = 0
+            if not 1 <= max_installs <= 3:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_skill_catalog_install_limit",
+                        message="skills_runtime max_catalog_installs must be between 1 and 3.",
+                        node_id=skill_node.id,
+                    )
+                )
+            if catalog_install and not catalog_search:
+                issues.append(
+                    ValidationIssue(
+                        code="skill_catalog_install_requires_search",
+                        message="skills_runtime catalog_install requires catalog_search.",
+                        node_id=skill_node.id,
+                    )
+                )
+            if (
+                catalog_install
+                and "*" not in hitl_tools
+                and "skill_install" not in hitl_tools
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="skill_catalog_install_requires_hitl",
+                        message=(
+                            "skills_runtime catalog_install needs a human_in_the_loop "
+                            "binding that interrupts skill_install or '*'."
+                        ),
+                        node_id=skill_node.id,
                     )
                 )
 

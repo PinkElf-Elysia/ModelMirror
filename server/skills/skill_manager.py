@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from urllib.parse import urlparse
@@ -104,6 +105,9 @@ class SkillManager:
                 tempfile.mkdtemp(prefix=f"{skill_id}-", dir=str(self.tmp_dir))
             )
             checkout_dir = tmp_root / "repo"
+            staging_dir = self.installed_dir / f".{skill_id}.staging-{uuid.uuid4().hex}"
+            backup_dir = self.installed_dir / f".{skill_id}.backup-{uuid.uuid4().hex}"
+            committed = False
             try:
                 self._git_sparse_clone(
                     normalized_repo_url,
@@ -118,23 +122,36 @@ class SkillManager:
                         f"SKILL.md not found in '{normalized_sub_path or '.'}'"
                     )
 
-                if target_dir.exists():
-                    shutil.rmtree(target_dir)
-                shutil.copytree(source_dir, target_dir)
-
+                shutil.copytree(source_dir, staging_dir)
                 metadata = self._parse_skill_metadata(
                     skill_id,
                     normalized_repo_url,
                     normalized_sub_path,
-                    target_dir / "SKILL.md",
+                    staging_dir / "SKILL.md",
                     normalized_source_ref,
                 )
                 installed = self._read_metadata()
                 installed[skill_id] = asdict(metadata)
-                self._write_metadata(installed)
+                try:
+                    if target_dir.exists():
+                        target_dir.rename(backup_dir)
+                    staging_dir.rename(target_dir)
+                    self._write_metadata(installed)
+                except Exception:
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir, ignore_errors=True)
+                    if backup_dir.exists():
+                        backup_dir.rename(target_dir)
+                    raise
+                committed = True
+                if backup_dir.exists():
+                    shutil.rmtree(backup_dir, ignore_errors=True)
                 return metadata
             finally:
                 shutil.rmtree(tmp_root, ignore_errors=True)
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                if committed:
+                    shutil.rmtree(backup_dir, ignore_errors=True)
 
     def install_workspace_draft(
         self,
@@ -369,10 +386,15 @@ class SkillManager:
     def _write_metadata(self, skills: dict[str, dict[str, object]]) -> None:
         self.installed_dir.mkdir(parents=True, exist_ok=True)
         payload = {"skills": skills}
-        self.metadata_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        temporary_path = self.installed_dir / f".installed-{uuid.uuid4().hex}.json.tmp"
+        try:
+            temporary_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temporary_path, self.metadata_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def _ensure_dirs_for_read(self) -> None:
         self.installed_dir.mkdir(parents=True, exist_ok=True)
