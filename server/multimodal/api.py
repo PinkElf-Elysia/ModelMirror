@@ -40,6 +40,15 @@ from .chat_attachments import (
     ChatAttachmentResponse,
     ChatAttachmentStore,
 )
+from .image_catalog import (
+    ImageCatalogService,
+    ImageModelCatalogResponse,
+)
+from .image_generation import (
+    MAX_IMAGE_REFERENCE_BYTES,
+    ImageGenerationResult,
+    ImageGenerationService,
+)
 from .realtime import (
     RealtimeCallEndResponse,
     RealtimeCallRequest,
@@ -169,6 +178,8 @@ _audio_catalog_service: AudioCatalogService | None = None
 _audio_job_service: AudioJobService | None = None
 _realtime_voice_service: RealtimeVoiceService | None = None
 _chat_attachment_store: ChatAttachmentStore | None = None
+_image_catalog_service: ImageCatalogService | None = None
+_image_generation_service: ImageGenerationService | None = None
 _video_catalog_service: VideoCatalogService | None = None
 _video_analysis_service: VideoAnalysisService | None = None
 _video_job_service: VideoJobService | None = None
@@ -269,6 +280,38 @@ def get_chat_attachment_store() -> ChatAttachmentStore:
     return _chat_attachment_store
 
 
+def configure_image_catalog_service(
+    service: ImageCatalogService | None,
+) -> None:
+    global _image_catalog_service
+    _image_catalog_service = service
+
+
+def get_image_catalog_service() -> ImageCatalogService:
+    global _image_catalog_service
+    if _image_catalog_service is None:
+        _image_catalog_service = ImageCatalogService(
+            get_model_router_service()
+        )
+    return _image_catalog_service
+
+
+def configure_image_generation_service(
+    service: ImageGenerationService | None,
+) -> None:
+    global _image_generation_service
+    _image_generation_service = service
+
+
+def get_image_generation_service() -> ImageGenerationService:
+    global _image_generation_service
+    if _image_generation_service is None:
+        _image_generation_service = ImageGenerationService(
+            get_image_catalog_service()
+        )
+    return _image_generation_service
+
+
 def configure_video_catalog_service(
     service: VideoCatalogService | None,
 ) -> None:
@@ -322,6 +365,63 @@ async def get_audio_models(
     refresh: bool = False,
 ) -> AudioModelCatalogResponse:
     return await get_audio_catalog_service().get_catalog(force=refresh)
+
+
+@router.get("/image/models", response_model=ImageModelCatalogResponse)
+async def get_image_models(
+    refresh: bool = False,
+) -> ImageModelCatalogResponse:
+    return await get_image_catalog_service().get_catalog(force=refresh)
+
+
+@router.post("/image/generations", response_model=ImageGenerationResult)
+async def generate_image(
+    model_id: str = Form(...),
+    prompt: str = Form(...),
+    n: int = Form(default=1),
+    resolution: str | None = Form(default=None),
+    aspect_ratio: str | None = Form(default=None),
+    quality: str | None = Form(default=None),
+    output_format: str | None = Form(default=None),
+    background: str | None = Form(default=None),
+    seed: int | None = Form(default=None),
+    reference_images: list[UploadFile] | None = File(default=None),
+) -> ImageGenerationResult:
+    references = reference_images or []
+    try:
+        if len(references) > 10:
+            raise MultimodalServiceError(
+                "too_many_image_references",
+                "参考图最多上传 10 张，实际数量以模型能力为准。",
+                status_code=422,
+            )
+        contents = [
+            await image.read(MAX_IMAGE_REFERENCE_BYTES + 1)
+            for image in references
+        ]
+        return await get_image_generation_service().generate(
+            model_id=model_id,
+            prompt=prompt,
+            n=n,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            quality=quality,
+            output_format=output_format,
+            background=background,
+            seed=seed,
+            reference_filenames=[
+                image.filename or "reference" for image in references
+            ],
+            reference_content_types=[
+                image.content_type for image in references
+            ],
+            reference_contents=contents,
+        )
+    except MultimodalServiceError as exc:
+        raise _http_error(exc) from exc
+    finally:
+        for image in references:
+            await image.close()
 
 
 @router.post(

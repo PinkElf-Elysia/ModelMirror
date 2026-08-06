@@ -2,9 +2,9 @@ import { useState, type ReactNode } from "react";
 import {
   CONTEXT_RANGE_LIMIT,
   PROMPT_PRICE_CNY_LIMIT,
-  categoryOptions,
   contextQuickOptions,
   inputModalityOptions,
+  jobCapabilityOptions,
   type Option,
   priceQuickOptions,
   providerOptions,
@@ -149,13 +149,16 @@ export default function FilterPanel({
           />
         </AccordionSection>
 
-        <AccordionSection title={recruitmentFilterTitles.categories}>
+        <AccordionSection title={recruitmentFilterTitles.jobCapabilities}>
           <TagFilter
             onToggle={(value) =>
-              update("categories", toggleValue(filters.categories, value))
+              update(
+                "jobCapabilities",
+                toggleValue(filters.jobCapabilities, value),
+              )
             }
-            options={categoryOptions}
-            selected={filters.categories}
+            options={jobCapabilityOptions}
+            selected={filters.jobCapabilities}
           />
         </AccordionSection>
 

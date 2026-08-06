@@ -4,8 +4,8 @@ import {
   type RangeValue,
 } from "./filterOptions";
 import {
-  type Category,
   type InputModality,
+  type JobCapability,
   type Provider,
   type SupportedParameter,
 } from "./models";
@@ -15,7 +15,7 @@ export interface ModelFilterState {
   contextRange: RangeValue;
   promptPriceCnyRange: RangeValue;
   series: string[];
-  categories: Category[];
+  jobCapabilities: JobCapability[];
   supportedParameters: SupportedParameter[];
   distillable: boolean;
   zeroDataRetention: boolean;
@@ -30,7 +30,7 @@ export const defaultFilterState: ModelFilterState = {
   contextRange: CONTEXT_RANGE_LIMIT,
   promptPriceCnyRange: PROMPT_PRICE_CNY_LIMIT,
   series: [],
-  categories: [],
+  jobCapabilities: [],
   supportedParameters: [],
   distillable: false,
   zeroDataRetention: false,

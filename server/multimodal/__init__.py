@@ -1,4 +1,6 @@
 from .api import (
+    configure_image_catalog_service,
+    configure_image_generation_service,
     configure_transcription_service,
     configure_video_analysis_service,
     configure_video_catalog_service,
@@ -20,6 +22,8 @@ __all__ = [
     "TranscriptionResult",
     "TranscriptionService",
     "configure_transcription_service",
+    "configure_image_catalog_service",
+    "configure_image_generation_service",
     "configure_video_analysis_service",
     "configure_video_catalog_service",
     "configure_video_job_service",

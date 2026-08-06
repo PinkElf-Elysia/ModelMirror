@@ -29,27 +29,9 @@ function matchesWorkSkills(
   model: Model,
   selectedSkills: InputModality[],
 ) {
-  return selectedSkills.every((skill) => {
-    if (skill === "file") {
-      return model.input_modalities.includes("file");
-    }
-    if (skill === "text") {
-      return (
-        model.input_modalities.includes("text") ||
-        model.output_modalities.includes("text")
-      );
-    }
-    if (skill === "image") {
-      return model.capabilities.includes("image");
-    }
-    if (skill === "audio") {
-      return model.capabilities.includes("audio");
-    }
-    if (skill === "video") {
-      return model.capabilities.includes("video");
-    }
-    return false;
-  });
+  return selectedSkills.every((skill) =>
+    model.input_modalities.includes(skill),
+  );
 }
 
 function matchesAny<T>(value: T, selected: T[]) {
@@ -67,7 +49,7 @@ function createDefaultFilters(): ModelFilterState {
     contextRange: { ...defaultFilterState.contextRange },
     promptPriceCnyRange: { ...defaultFilterState.promptPriceCnyRange },
     series: [],
-    categories: [],
+    jobCapabilities: [],
     supportedParameters: [],
     modelAuthors: [],
   };
@@ -79,7 +61,7 @@ function countActiveFilters(filters: ModelFilterState) {
   if (filters.provider !== "all") count += 1;
   count += filters.inputModalities.length;
   count += filters.series.length;
-  count += filters.categories.length;
+  count += filters.jobCapabilities.length;
   count += filters.supportedParameters.length;
   count += filters.modelAuthors.length;
   if (filters.distillable) count += 1;
@@ -97,6 +79,7 @@ function countActiveFilters(filters: ModelFilterState) {
 interface VideoModelProfile {
   model_id: string;
   operation: "analyze_video" | "generate_video";
+  interaction_status: "ready" | "planned" | "unsupported";
 }
 
 interface VideoCatalogPayload {
@@ -127,6 +110,19 @@ interface AudioCatalogPayload {
   profiles: AudioModelProfile[];
 }
 
+interface ImageModelProfile {
+  model_id: string;
+  operation: "analyze_image" | "generate_image";
+  invocable: boolean;
+  interaction_status: "ready" | "planned" | "disabled";
+}
+
+interface ImageCatalogPayload {
+  status: "online" | "stale" | "offline" | "disabled";
+  stale: boolean;
+  profiles: ImageModelProfile[];
+}
+
 export default function ModelListPage() {
   const [filters, setFilters] =
     useState<ModelFilterState>(createDefaultFilters);
@@ -135,6 +131,8 @@ export default function ModelListPage() {
     useState<VideoCatalogPayload | null>(null);
   const [audioCatalog, setAudioCatalog] =
     useState<AudioCatalogPayload | null>(null);
+  const [imageCatalog, setImageCatalog] =
+    useState<ImageCatalogPayload | null>(null);
 
   useEffect(() => {
     document.title = "模镜 - AI 牛马招聘会";
@@ -183,21 +181,33 @@ export default function ModelListPage() {
         }
       });
 
+    void fetch("/api/multimodal/image/models", {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("image catalog unavailable");
+        }
+        return (await response.json()) as ImageCatalogPayload;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) {
+          setImageCatalog(payload);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setImageCatalog(null);
+        }
+      });
+
     return () => controller.abort();
   }, []);
 
   const confirmedVideoOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
-    for (const model of models) {
-      const operations = model.operations.filter(
-        (operation) =>
-          operation === "analyze_video" || operation === "generate_video",
-      );
-      if (operations.length > 0) {
-        result.set(model.id, operations);
-      }
-    }
     for (const profile of videoCatalog?.profiles ?? []) {
+      if (profile.interaction_status !== "ready") continue;
       const current = result.get(profile.model_id) ?? [];
       if (!current.includes(profile.operation)) {
         current.push(profile.operation);
@@ -209,18 +219,6 @@ export default function ModelListPage() {
 
   const confirmedAudioOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
-    for (const model of models) {
-      const operations = model.operations.filter(
-        (operation) =>
-          operation === "analyze_audio" ||
-          operation === "transcribe" ||
-          operation === "synthesize_speech" ||
-          operation === "generate_audio",
-      );
-      if (operations.length > 0) {
-        result.set(model.id, operations);
-      }
-    }
     for (const profile of audioCatalog?.profiles ?? []) {
       if (
         !profile.invocable ||
@@ -254,6 +252,21 @@ export default function ModelListPage() {
     }
     return result;
   }, [audioCatalog]);
+
+  const confirmedImageOperations = useMemo(() => {
+    const result = new Map<string, ModelOperation[]>();
+    for (const profile of imageCatalog?.profiles ?? []) {
+      if (!profile.invocable || profile.interaction_status !== "ready") {
+        continue;
+      }
+      const current = result.get(profile.model_id) ?? [];
+      if (!current.includes(profile.operation)) {
+        current.push(profile.operation);
+      }
+      result.set(profile.model_id, current);
+    }
+    return result;
+  }, [imageCatalog]);
 
   const audioCapabilityStatuses = useMemo(() => {
     const result = new Map<string, AudioCapabilityStatus>();
@@ -330,7 +343,12 @@ export default function ModelListPage() {
         return false;
       }
       if (!matchesAny(model.series, filters.series)) return false;
-      if (!includesEvery(model.categories, filters.categories)) return false;
+      if (
+        !includesEvery(
+          model.job_capabilities,
+          filters.jobCapabilities,
+        )
+      ) return false;
       if (
         !includesEvery(
           model.supported_parameters,
@@ -402,6 +420,7 @@ export default function ModelListPage() {
       return (
         model.interaction_status === "ready" ||
         Boolean(confirmedAudioOperations.get(model.id)?.length) ||
+        Boolean(confirmedImageOperations.get(model.id)?.length) ||
         Boolean(
           confirmedVideoOperations
             .get(model.id)
@@ -557,10 +576,14 @@ export default function ModelListPage() {
                       confirmedAudioOperations={
                         confirmedAudioOperations.get(model.id)
                       }
+                      confirmedImageOperations={
+                        confirmedImageOperations.get(model.id)
+                      }
                       confirmedVideoOperations={
                         confirmedVideoOperations.get(model.id)
                       }
                       model={model}
+                      imageCatalogStale={imageCatalog?.stale ?? false}
                       videoCatalogStale={videoCatalog?.stale ?? false}
                     />
                   </div>
@@ -579,11 +602,15 @@ export default function ModelListPage() {
                   confirmedAudioOperations={
                     confirmedAudioOperations.get(model.id)
                   }
+                  confirmedImageOperations={
+                    confirmedImageOperations.get(model.id)
+                  }
                   confirmedVideoOperations={
                     confirmedVideoOperations.get(model.id)
                   }
                   key={model.id}
                   model={model}
+                  imageCatalogStale={imageCatalog?.stale ?? false}
                   videoCatalogStale={videoCatalog?.stale ?? false}
                 />
               ))}

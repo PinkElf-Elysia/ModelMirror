@@ -9,6 +9,8 @@ RouterStatus = Literal["online", "stale", "offline", "disabled"]
 Availability = Literal["live", "degraded", "offline", "disabled"]
 ModelOperation = Literal[
     "chat",
+    "analyze_image",
+    "generate_image",
     "transcribe",
     "synthesize_speech",
     "generate_audio",

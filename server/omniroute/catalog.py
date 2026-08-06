@@ -51,10 +51,18 @@ def _capabilities(value: Any, input_modalities: list[str], model_type: str) -> l
 def _operations(
     input_modalities: list[str],
     output_modalities: list[str],
+    model_id: str = "",
 ) -> list[str]:
     inputs = set(input_modalities)
     outputs = set(output_modalities)
     operations: list[str] = []
+    if "image" in inputs and "text" in outputs:
+        operations.append("analyze_image")
+    if (
+        "image" in outputs
+        and model_id not in {"openrouter/auto", "openrouter/auto-beta"}
+    ):
+        operations.append("generate_image")
     if "transcription" in outputs:
         operations.append("transcribe")
     if "speech" in outputs:
@@ -71,13 +79,14 @@ def _operations(
         operations.append("analyze_audio")
     if "video" in inputs and "text" in outputs:
         operations.append("analyze_video")
-    if "text" in inputs and ({"text", "image"} & outputs):
+    if "text" in inputs and "text" in outputs:
         operations.append("chat")
     return list(dict.fromkeys(operations)) or ["chat"]
 
 
 def _primary_operation(operations: list[str]) -> str:
     priority = (
+        "generate_image",
         "transcribe",
         "synthesize_speech",
         "generate_audio",
@@ -85,6 +94,7 @@ def _primary_operation(operations: list[str]) -> str:
         "embed",
         "rerank",
         "chat",
+        "analyze_image",
         "analyze_audio",
         "analyze_video",
     )
@@ -98,7 +108,7 @@ def _interaction(
     primary_operation: str,
     invocation_id: str,
 ) -> tuple[str, str]:
-    if primary_operation in {"chat", "transcribe"}:
+    if primary_operation in {"chat", "analyze_image", "transcribe"}:
         return "ready", "chat"
     if (
         primary_operation == "synthesize_speech"
@@ -120,7 +130,11 @@ def normalize_model(raw: dict[str, Any]) -> ModelCandidate | None:
     model_type = str(raw.get("type") or "chat")
     input_modalities = _string_list(raw.get("input_modalities"), ["text"])
     output_modalities = _string_list(raw.get("output_modalities"), ["text"])
-    operations = _operations(input_modalities, output_modalities)
+    operations = _operations(
+        input_modalities,
+        output_modalities,
+        invocation_id,
+    )
     primary_operation = _primary_operation(operations)
     interaction_status, ui_entrypoint = _interaction(
         primary_operation,

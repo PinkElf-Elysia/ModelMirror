@@ -84,6 +84,28 @@ const capabilityPlainText: Record<string, string> = {
   reasoning: "复杂推理",
 };
 
+const jobCapabilityPlainText: Record<string, string> = {
+  text_chat: "文字对话",
+  coding: "编程开发",
+  reasoning: "推理分析",
+  tool_use: "工具调用",
+  document_understanding: "文档理解",
+  image_understanding: "图片识别",
+  image_generation: "图片生成与编辑",
+  audio_understanding: "音频理解",
+  transcription: "语音转写",
+  speech_synthesis: "语音合成",
+  music_generation: "音乐生成",
+  realtime_voice: "实时语音",
+  video_understanding: "视频理解",
+  video_generation: "视频生成",
+  embedding: "资料向量化",
+  rerank: "检索重排",
+  translation: "翻译",
+  safety: "安全审核",
+  world_generation: "3D 世界生成",
+};
+
 const categoryPlainText: Record<string, string> = {
   analysis: "资料分析",
   audio: "音频处理",
@@ -196,6 +218,10 @@ export function getFriendlyCapabilityLabel(value: string) {
   return capabilityPlainText[value] ?? value;
 }
 
+export function getFriendlyJobCapabilityLabel(value: string) {
+  return jobCapabilityPlainText[value] ?? value;
+}
+
 export function getFriendlyCategoryLabel(value: string) {
   return categoryPlainText[value] ?? value;
 }
@@ -217,9 +243,9 @@ export function getFriendlyRunStatusLabel(value: string) {
 
 export function buildFriendlyTalentIntro(model: Model) {
   const provider = deriveProviderFromModel(model);
-  const skills = model.capabilities
+  const skills = model.job_capabilities
     .slice(0, 3)
-    .map(getFriendlyCapabilityLabel)
+    .map(getFriendlyJobCapabilityLabel)
     .join("、");
   const scenes = model.categories
     .slice(0, 3)
