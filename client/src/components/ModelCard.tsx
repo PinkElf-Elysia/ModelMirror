@@ -14,9 +14,12 @@ import {
 
 interface ModelCardProps {
   model: Model;
+  catalogInvocable?: boolean;
   confirmedAudioOperations?: ModelOperation[];
+  adaptedAudioOperations?: ModelOperation[];
   confirmedImageOperations?: ModelOperation[];
   confirmedVideoOperations?: ModelOperation[];
+  verificationVideoOperations?: ModelOperation[];
   audioCapabilityStatus?: AudioCapabilityStatus;
   audioCatalogStale?: boolean;
   imageCatalogStale?: boolean;
@@ -26,12 +29,21 @@ interface ModelCardProps {
 export interface AudioCapabilityStatus {
   status: "ready" | "planned" | "disabled";
   operations: ModelOperation[];
+  adaptedOperations: ModelOperation[];
+  availabilityStatus:
+    | "available"
+    | "needs_configuration"
+    | "verification_required"
+    | "upstream_unavailable"
+    | "disabled"
+    | null;
   reason: string | null;
   pricePerGenerationUsd: number | null;
   fixedDurationSeconds: number | null;
 }
 
 const tagStyles: Record<string, string> = {
+  历史: "border-amber-300/30 bg-amber-300/10 text-amber-100",
   精选: "border-brand-300/30 bg-brand-300/10 text-brand-100",
   新: "border-accent-300/30 bg-accent-300/10 text-accent-100",
   热门: "border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
@@ -107,9 +119,12 @@ const operationLabels: Record<ModelOperation, string> = {
 
 const ModelCard = memo(function ModelCard({
   model,
+  catalogInvocable = false,
   confirmedAudioOperations = [],
+  adaptedAudioOperations = [],
   confirmedImageOperations = [],
   confirmedVideoOperations = [],
+  verificationVideoOperations = [],
   audioCapabilityStatus,
   audioCatalogStale = false,
   imageCatalogStale = false,
@@ -134,21 +149,21 @@ const ModelCard = memo(function ModelCard({
   const regionSensitive =
     !domesticFriendly &&
     includesProviderKeyword(identity, restrictedProviderKeywords);
+  const isHistorical = model.catalog_status === "historical";
+  const generalInvocationAllowed = model.active || catalogInvocable;
   const canChat =
-    model.active &&
+    generalInvocationAllowed &&
     model.interaction_status === "ready" &&
     model.ui_entrypoint === "chat";
   const canUseInRag =
-    model.active &&
+    generalInvocationAllowed &&
     model.interaction_status === "ready" &&
     model.ui_entrypoint === "rag";
   const canAnalyzeAudio =
-    model.active && confirmedAudioOperations.includes("analyze_audio");
+    confirmedAudioOperations.includes("analyze_audio");
   const canSynthesizeSpeech =
-    model.active &&
     confirmedAudioOperations.includes("synthesize_speech");
   const canGenerateAudio =
-    model.active &&
     confirmedAudioOperations.includes("generate_audio");
   const isRealtimeVoiceModel =
     model.operations.includes("realtime_voice");
@@ -157,16 +172,18 @@ const ModelCard = memo(function ModelCard({
   const realtimeVoiceReady =
     confirmedAudioOperations.includes("realtime_voice");
   const canTranscribe =
-    model.active && confirmedAudioOperations.includes("transcribe");
+    confirmedAudioOperations.includes("transcribe");
   const canAnalyzeImage =
-    model.active && confirmedImageOperations.includes("analyze_image");
+    confirmedImageOperations.includes("analyze_image");
   const canGenerateImage =
-    model.active && confirmedImageOperations.includes("generate_image");
+    confirmedImageOperations.includes("generate_image");
   const operationLabel = operationLabels[model.primary_operation];
   const canAnalyzeVideo =
-    model.active && confirmedVideoOperations.includes("analyze_video");
+    confirmedVideoOperations.includes("analyze_video");
   const canGenerateVideo =
-    model.active && confirmedVideoOperations.includes("generate_video");
+    confirmedVideoOperations.includes("generate_video");
+  const canManuallyVerifyVideo =
+    verificationVideoOperations.includes("generate_video");
   const canGenerateWorld =
     model.active &&
     model.interaction_status === "ready" &&
@@ -180,6 +197,16 @@ const ModelCard = memo(function ModelCard({
     )
     .map((operation) => operationLabels[operation]);
   const confirmedAudioLabels = confirmedAudioOperations
+    .filter(
+      (operation) =>
+        operation === "analyze_audio" ||
+        operation === "transcribe" ||
+        operation === "synthesize_speech" ||
+        operation === "generate_audio" ||
+        operation === "realtime_voice",
+    )
+    .map((operation) => operationLabels[operation]);
+  const adaptedAudioLabels = adaptedAudioOperations
     .filter(
       (operation) =>
         operation === "analyze_audio" ||
@@ -204,7 +231,7 @@ const ModelCard = memo(function ModelCard({
     audioCapabilityStatus?.operations ?? staticAudioOperations
   ).filter(
     (operation) =>
-      !confirmedAudioOperations.includes(operation),
+      !adaptedAudioOperations.includes(operation),
   );
   const pendingAudioOperations =
     audioCapabilityStatus?.status === "ready"
@@ -214,8 +241,10 @@ const ModelCard = memo(function ModelCard({
     (operation) => operationLabels[operation],
   );
   const pendingAudioStateLabel =
-    isRealtimeVoiceModel && !realtimeVoiceReady
+    audioCapabilityStatus?.availabilityStatus === "needs_configuration"
       ? "需要配置"
+      : audioCapabilityStatus?.availabilityStatus === "upstream_unavailable"
+        ? "上游暂不可用"
       : audioCapabilityStatus?.status === "disabled"
       ? "当前未启用"
       : "待适配";
@@ -228,25 +257,37 @@ const ModelCard = memo(function ModelCard({
           : "静态目录已收录，实时能力尚未确认。"
         : null
     );
-  const primaryAudioOperationBlocked =
+  const isPrimaryAudioModel =
     (
       isTranscriptionModel ||
       model.primary_operation === "synthesize_speech" ||
       model.primary_operation === "generate_audio" ||
       model.primary_operation === "realtime_voice"
-    ) &&
+    );
+  const primaryAudioOperationBlocked =
+    isPrimaryAudioModel &&
     Boolean(audioCapabilityStatus) &&
-    audioCapabilityStatus?.status !== "ready";
+    !adaptedAudioOperations.includes(model.primary_operation);
   const isInteractionReady =
     (
       model.interaction_status === "ready" &&
       !primaryAudioOperationBlocked
     ) ||
-    confirmedAudioLabels.length > 0 ||
+    adaptedAudioLabels.length > 0 ||
     canAnalyzeImage ||
     canGenerateImage ||
     canAnalyzeVideo ||
     canGenerateVideo;
+  const adaptedAudioUnavailable =
+    isPrimaryAudioModel &&
+    adaptedAudioLabels.length > 0 &&
+    !confirmedAudioOperations.includes(model.primary_operation);
+  const audioUnavailableLabel =
+    audioCapabilityStatus?.availabilityStatus === "needs_configuration"
+      ? "已适配 · 需配置"
+      : audioCapabilityStatus?.availabilityStatus === "upstream_unavailable"
+        ? "上游暂不可用"
+        : "已适配 · 当前未启用";
   const showGeneralChatAction =
     canChat &&
     model.primary_operation !== "synthesize_speech" &&
@@ -265,7 +306,13 @@ const ModelCard = memo(function ModelCard({
       <div className="relative border-b border-hire-300/20 bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))] px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <span className="rounded-full border border-hire-200/30 bg-hire-400/15 px-3 py-1 text-xs font-semibold text-hire-100">
-            {!isInteractionReady
+            {isHistorical && !catalogInvocable
+              ? "可能不可用"
+              : canManuallyVerifyVideo
+                ? "等待人工验收"
+              : adaptedAudioUnavailable
+              ? audioUnavailableLabel
+              : !isInteractionReady
               ? isRealtimeVoiceModel
                 ? "需要配置"
                 : "交互待适配"
@@ -307,6 +354,7 @@ const ModelCard = memo(function ModelCard({
         canOpenRealtimeVoice ||
         canAnalyzeVideo ||
         canGenerateVideo ||
+        canManuallyVerifyVideo ||
         canGenerateWorld ||
         showGeneralChatAction ? (
           <div className="flex shrink-0 flex-col items-stretch gap-2">
@@ -382,6 +430,14 @@ const ModelCard = memo(function ModelCard({
                 生成视频
               </Link>
             ) : null}
+            {canManuallyVerifyVideo ? (
+              <Link
+                className="rounded-full border border-amber-300/40 bg-amber-300/10 px-3.5 py-2 text-center text-sm font-semibold text-amber-100 transition duration-200 hover:bg-amber-300/20 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=generate_video&verification=manual`}
+              >
+                人工核验
+              </Link>
+            ) : null}
             {showGeneralChatAction ? (
               <Link
                 className={`rounded-full px-3.5 py-2 text-center text-sm font-semibold transition duration-200 active:scale-[0.98] ${
@@ -430,7 +486,11 @@ const ModelCard = memo(function ModelCard({
             className="shrink-0 cursor-not-allowed rounded-full border border-white/10 bg-white/[0.045] px-3.5 py-2 text-sm font-semibold text-slate-400"
             disabled
             title={
-              pendingAudioLabels.length > 0
+              isHistorical && !catalogInvocable
+                ? "当前未出现在 OpenRouter 实时目录，其他兼容渠道仍可能支持调用。"
+                : adaptedAudioUnavailable
+                ? audioCapabilityStatus?.reason ?? audioUnavailableLabel
+                : pendingAudioLabels.length > 0
                 ? pendingAudioReason ?? `${pendingAudioLabels.join("、")}尚未适配`
                 : confirmedVideoLabels.length > 0
                 ? `${confirmedVideoLabels.join("、")}能力已确认`
@@ -438,7 +498,11 @@ const ModelCard = memo(function ModelCard({
             }
             type="button"
           >
-            {pendingAudioLabels.length > 0
+            {isHistorical && !catalogInvocable
+              ? "可能不可用"
+              : adaptedAudioUnavailable
+              ? audioUnavailableLabel
+              : pendingAudioLabels.length > 0
               ? `${pendingAudioLabels.join("、")}${pendingAudioStateLabel}`
               : confirmedVideoLabels.length > 0
               ? `${confirmedVideoLabels.join("、")}已确认`
@@ -456,8 +520,14 @@ const ModelCard = memo(function ModelCard({
           }`}
         >
           {operationLabel}
-          {!isInteractionReady
-            ? isRealtimeVoiceModel
+          {adaptedAudioUnavailable
+            ? audioCapabilityStatus?.availabilityStatus === "needs_configuration"
+              ? " · 需配置"
+              : " · 当前未启用"
+            : !isInteractionReady
+            ? canManuallyVerifyVideo
+              ? " · 人工核验"
+              : isRealtimeVoiceModel
               ? " · 需要连接"
               : " · 待适配"
             : ""}
@@ -489,6 +559,25 @@ const ModelCard = memo(function ModelCard({
             {audioCatalogStale ? " · 缓存目录" : ""}
           </span>
         ))}
+        {canManuallyVerifyVideo ? (
+          <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100">
+            视频生成 · 待人工验收
+          </span>
+        ) : null}
+        {adaptedAudioLabels
+          .filter((label) => !confirmedAudioLabels.includes(label))
+          .map((label) => (
+            <span
+              className="rounded-full border border-cyan-300/20 bg-cyan-300/[0.06] px-2.5 py-1 text-xs font-medium text-cyan-100"
+              key={`audio-adapted-${label}`}
+            >
+              {label}已适配
+              {audioCapabilityStatus?.availabilityStatus ===
+              "needs_configuration"
+                ? " · 需配置"
+                : " · 当前未启用"}
+            </span>
+          ))}
         {model.tags
           .filter(
             (tag) => !(hasAudioGenerationPrice && tag === "免费"),
@@ -513,6 +602,11 @@ const ModelCard = memo(function ModelCard({
           </span>
         ) : null}
       </div>
+      {isHistorical ? (
+        <p className="relative mt-2 px-5 text-xs leading-5 text-amber-100">
+          当前未出现在 OpenRouter 实时目录，其他兼容渠道仍可能支持调用。
+        </p>
+      ) : null}
       {pendingAudioLabels.length > 0 ? (
         <p className="relative mt-2 line-clamp-2 px-5 text-xs leading-5 text-amber-100">
           <span className="font-semibold">

@@ -20,6 +20,7 @@ from server.multimodal.tts import (
     GEMINI_PCM_TTS_MODEL_ID,
     MAX_SPEECH_INPUT_CHARS,
     MINIMAX_SYSTEM_SPEECH_VOICES,
+    OPENAI_SPEECH_PROFILES,
     OpenRouterTtsAdapter,
     SpeechService,
     speech_output_format,
@@ -55,6 +56,7 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
     assert all(ALLOWED_SPEECH_PROFILES.values())
     assert speech_output_format(MODEL_ID) == "mp3"
     assert speech_output_format(GEMINI_PCM_TTS_MODEL_ID) == "wav"
+    assert "marin" in OPENAI_SPEECH_PROFILES["gpt-4o-mini-tts"]
 
 
 def test_fish_audio_profiles_use_documented_public_voice_ids() -> None:
@@ -196,6 +198,30 @@ def openrouter_service(tmp_path: Path) -> ModelRouterService:
     return service
 
 
+def openai_audio_service(tmp_path: Path) -> ModelRouterService:
+    repository = SQLiteRouterRepository(tmp_path)
+    service = ModelRouterService(repository)
+    connection = repository.create_connection(
+        "local",
+        RouterConnectionCreate(
+            name="OpenAI Audio",
+            kind="openai",
+            base_url="https://api.openai.com/v1",
+            api_key="direct-openai-secret",
+        ),
+    )
+    repository.save_test_result(
+        "local",
+        connection.id,
+        health="online",
+        model_count=1,
+        checked_at="2026-08-06T00:00:00+00:00",
+        error_code=None,
+        error_hint=None,
+    )
+    return service
+
+
 @pytest.mark.asyncio
 async def test_speech_service_records_bytes_without_text_or_secret(
     tmp_path: Path,
@@ -314,6 +340,91 @@ async def test_tts_adapter_posts_json_and_caches_speech_catalog() -> None:
     assert sum(
         request.url.path.endswith("/audio/speech") for request in requests
     ) == 2
+
+
+@pytest.mark.asyncio
+async def test_direct_openai_tts_uses_standard_contract_and_safe_headers() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.headers["authorization"] == "Bearer direct-key"
+        assert "x-title" not in request.headers
+        if request.url.path.endswith("/models"):
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "gpt-4o-mini-tts"}]},
+            )
+        payload = json.loads((await request.aread()).decode("utf-8"))
+        assert payload == {
+            "model": "gpt-4o-mini-tts",
+            "input": "你好",
+            "voice": "marin",
+            "response_format": "mp3",
+            "speed": 1.0,
+        }
+        return httpx.Response(
+            200,
+            content=MP3_BYTES,
+            headers={"content-type": "audio/mpeg"},
+        )
+
+    adapter = OpenRouterTtsAdapter(
+        client_factory=lambda: httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ),
+    )
+    result = await adapter.synthesize(
+        OpenRouterTarget(
+            base_url="https://api.openai.com/v1",
+            api_key="direct-key",
+            connection_id="connection-openai",
+            cache_key="direct-openai",
+        ),
+        model_id="gpt-4o-mini-tts",
+        text="你好",
+        voice="marin",
+        speed=1.0,
+        provider="openai",
+    )
+
+    assert result == (MP3_BYTES, None, "mp3")
+    assert len(requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_speech_service_routes_gpt_tts_only_to_openai_audio_connection(
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeAdapter:
+        async def synthesize(self, target, **kwargs):
+            captured["target"] = target
+            captured["kwargs"] = kwargs
+            return MP3_BYTES, None, "mp3"
+
+    router_service = openai_audio_service(tmp_path)
+    service = SpeechService(
+        router_service,
+        adapter=FakeAdapter(),  # type: ignore[arg-type]
+    )
+    result = await service.synthesize(
+        model_id="gpt-4o-mini-tts",
+        text="直接 OpenAI 朗读",
+        voice="marin",
+        response_format="mp3",
+        speed=1.0,
+    )
+
+    assert result.provider == "openai"
+    assert captured["target"].api_key == "direct-openai-secret"
+    assert captured["kwargs"]["provider"] == "openai"
+    decision = router_service.diagnostics()["recent_decisions"][0]
+    assert decision["engine"] == "openai"
+    assert "直接 OpenAI 朗读" not in json.dumps(
+        router_service.diagnostics(), ensure_ascii=False
+    )
 
 
 @pytest.mark.asyncio

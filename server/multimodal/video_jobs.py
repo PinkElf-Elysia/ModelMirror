@@ -448,6 +448,15 @@ class VideoJobService:
             clean_model,
             force=bool(provider_options),
         )
+        if (
+            profile.interaction_status != "ready"
+            and not profile.verification_entry_enabled
+        ):
+            raise MultimodalServiceError(
+                "video_verification_required",
+                "该模型尚未完成视频生成行为验收。仅可在本地人工核验名单中按最低规格测试。",
+                status_code=422,
+            )
         provider_payload, provider_option_keys = self._provider_payload(
             clean_model,
             profile,
@@ -464,6 +473,26 @@ class VideoJobService:
             has_last_frame=last_frame_data_url is not None,
             reference_image_count=len(reference_data_urls),
         )
+        if (
+            profile.verification_requires_cost_estimate
+            and self._estimated_cost_usd(
+                profile,
+                duration=duration,
+                resolution=resolution,
+                generate_audio=generate_audio,
+                image_input_count=(
+                    int(frame_data_url is not None)
+                    + int(last_frame_data_url is not None)
+                    + len(reference_data_urls)
+                ),
+            )
+            is None
+        ):
+            raise MultimodalServiceError(
+                "video_verification_cost_unavailable",
+                "实时目录暂时无法可靠估算该高费用模型，请勿提交任务；请刷新能力目录后重试。",
+                status_code=422,
+            )
         target = self.catalog_service.resolve_target()
         job_id = f"local_{uuid.uuid4().hex}"
         row, created = (
@@ -754,6 +783,80 @@ class VideoJobService:
                 "所选模型不支持随机种子，请清空该参数。",
                 status_code=422,
             )
+
+    @staticmethod
+    def _estimated_cost_usd(
+        profile: VideoModelProfile,
+        *,
+        duration: int | None,
+        resolution: str | None,
+        generate_audio: bool,
+        image_input_count: int,
+    ) -> float | None:
+        if duration is None or duration <= 0 or not resolution:
+            return None
+
+        pricing = profile.pricing_skus
+
+        def number(key: str) -> float | None:
+            raw = pricing.get(key)
+            if raw is None:
+                return None
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                return None
+            return value if value >= 0 else None
+
+        resolution_key = resolution.strip().lower()
+        mode = "image_to_video" if image_input_count else "text_to_video"
+        dollar_keys = (
+            (
+                f"duration_seconds_with_audio_{resolution_key}"
+                if generate_audio
+                else f"duration_seconds_without_audio_{resolution_key}"
+            ),
+            f"{mode}_duration_seconds_{resolution_key}",
+            f"duration_seconds_{resolution_key}",
+            (
+                "duration_seconds_with_audio"
+                if generate_audio
+                else "duration_seconds_without_audio"
+            ),
+            f"{mode}_duration_seconds",
+            "duration_seconds",
+        )
+        per_second = next(
+            (value for key in dollar_keys if (value := number(key)) is not None),
+            None,
+        )
+        if per_second is None:
+            cent_keys = (
+                f"cents_per_video_output_second_{resolution_key}",
+                f"cents_per_second_output_{resolution_key}",
+                "cents_per_video_output_second",
+                "cents_per_second_output",
+            )
+            cents = next(
+                (
+                    value
+                    for key in cent_keys
+                    if (value := number(key)) is not None
+                ),
+                None,
+            )
+            if cents is not None:
+                per_second = cents / 100
+        if per_second is None:
+            return None
+
+        image_input_cents = (
+            number("cents_per_image_input") or 0.0
+        )
+        return (
+            per_second * duration
+            + image_input_cents * image_input_count / 100
+        )
 
     @staticmethod
     def _first_frame(

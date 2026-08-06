@@ -75,6 +75,9 @@ class StubCatalog:
         supports_reference_images: bool = False,
         max_reference_images: int | None = None,
         provider_options: list[VideoProviderOption] | None = None,
+        verification_entry_enabled: bool = True,
+        verification_requires_cost_estimate: bool = False,
+        pricing_skus: dict[str, str] | None = None,
         catalog_status: Literal[
             "online", "stale", "offline", "disabled"
         ] = "online",
@@ -106,7 +109,12 @@ class StubCatalog:
             supports_generated_audio=supports_generated_audio,
             supports_seed=supports_seed,
             provider_options=provider_options or [],
+            pricing_skus=pricing_skus or {},
             interaction_status="planned",
+            verification_entry_enabled=verification_entry_enabled,
+            verification_requires_cost_estimate=(
+                verification_requires_cost_estimate
+            ),
         )
 
     @staticmethod
@@ -204,6 +212,89 @@ def job_service(
         ),
         fake,
     )
+
+
+@pytest.mark.asyncio
+async def test_unverified_model_requires_explicit_local_allowlist(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    service = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            verification_entry_enabled=False,
+        ),
+        adapter=adapter,
+    )
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(
+            model_id="google/veo-test",
+            prompt="This request must stop before the paid endpoint",
+            duration=5,
+            resolution="720p",
+            idempotency_key="blocked-verification-0001",
+        )
+
+    assert caught.value.code == "video_verification_required"
+    assert caught.value.status_code == 422
+    assert adapter.submit_calls == []
+    assert (
+        router_instance.repository.list_video_jobs("local", limit=10) == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_high_cost_verification_requires_reliable_estimate(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    blocked = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            verification_requires_cost_estimate=True,
+        ),
+        adapter=adapter,
+    )
+
+    with pytest.raises(MultimodalServiceError) as caught:
+        await blocked.create(
+            model_id="google/veo-test",
+            prompt="Do not create an unpriced paid task",
+            duration=5,
+            resolution="720p",
+            idempotency_key="unpriced-high-cost-0001",
+        )
+
+    assert caught.value.code == "video_verification_cost_unavailable"
+    assert adapter.submit_calls == []
+    assert (
+        router_instance.repository.list_video_jobs("local", limit=10) == []
+    )
+
+    priced = VideoJobService(
+        router_instance,
+        StubCatalog(
+            router_instance,
+            verification_requires_cost_estimate=True,
+            pricing_skus={"duration_seconds_720p": "0.30"},
+        ),
+        adapter=adapter,
+    )
+    job = await priced.create(
+        model_id="google/veo-test",
+        prompt="A priced minimum-spec verification task",
+        duration=5,
+        resolution="720p",
+        idempotency_key="priced-high-cost-0001",
+    )
+
+    assert job.status == "queued"
+    assert len(adapter.submit_calls) == 1
 
 
 @pytest.mark.asyncio

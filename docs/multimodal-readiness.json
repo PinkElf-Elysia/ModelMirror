@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-08-06",
+  "catalog": {
+    "snapshot_total": 517,
+    "live": 462,
+    "historical": 52,
+    "expired": 3,
+    "onsite_openrouter": 514,
+    "adaptation_denominator": 514,
+    "historical_included_in_onsite": true,
+    "expired_excluded_from_onsite": true
+  },
+  "video_generation": {
+    "dedicated_profiles": 21,
+    "verified": [
+      { "model_id": "bytedance/seedance-2.0", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
+      { "model_id": "runway/aleph-2", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
+      { "model_id": "runway/gen-4.5", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
+      { "model_id": "x-ai/grok-imagine-video", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "x-ai/grok-imagine-video-1.5", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "alibaba/happyhorse-1.0", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "alibaba/happyhorse-1.1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "alibaba/wan-2.6", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "alibaba/wan-2.7", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "minimax/hailuo-2.3", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "minimax/hailuo-3", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
+      { "model_id": "kwaivgi/kling-v3.0-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
+      { "model_id": "kwaivgi/kling-v3.0-std", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
+      { "model_id": "kwaivgi/kling-video-o1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
+      { "model_id": "bytedance/seedance-1-5-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
+      { "model_id": "bytedance/seedance-2.0-fast", "verified_at": "2026-08-06", "evidence": ["manual_submission", "reference_images", "playback", "download"] },
+      { "model_id": "google/veo-3.1-lite", "verified_at": "2026-08-06", "evidence": ["manual_submission", "audited_provider_options", "playback", "download"] },
+      { "model_id": "google/veo-3.1-fast", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
+      { "model_id": "google/veo-3.1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
+      { "model_id": "black-forest-labs/flux-3-video", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
+      { "model_id": "openai/sora-2-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] }
+    ],
+    "verification_required": []
+  },
+  "operation_readiness": [
+    {
+      "model_id": "openai/gpt-transcribe",
+      "operation": "transcribe",
+      "status": "ready",
+      "verification_status": "verified",
+      "support_level": "native",
+      "status_reason": "本地短音频人工验收通过，已固化到版本化转写档案。"
+    },
+    {
+      "model_id": "meta/muse-spark-1.2",
+      "operation": "analyze_audio",
+      "status": "ready",
+      "verification_status": "verified",
+      "support_level": "native",
+      "status_reason": "WAV 直接理解人工验收通过，已固化到版本化音频档案。"
+    },
+    {
+      "model_id": "thinkingmachines/inkling-small",
+      "operation": "analyze_audio",
+      "status": "ready",
+      "verification_status": "verified",
+      "support_level": "native",
+      "status_reason": "WAV 直接理解人工验收通过，已固化到版本化音频档案。"
+    },
+    {
+      "model_id": "gpt-4o-mini-tts",
+      "operation": "synthesize_speech",
+      "status": "ready",
+      "verification_status": "verified",
+      "support_level": "native",
+      "status_reason": "普通 OpenAI TTS 已接入现有朗读与语音生成入口；未配置直接 OpenAI audio 连接时显示需配置。"
+    },
+    {
+      "model_id": "gpt-4o-mini-tts",
+      "operation": "clone_voice",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "上游暂不支持验证删除临时音色，本轮不开放声音上传或创建。"
+    },
+    {
+      "model_id": "meta/muse-spark-1.1",
+      "operation": "analyze_audio",
+      "status": "disabled",
+      "verification_status": "failed",
+      "support_level": "native",
+      "status_reason": "最近一次实时行为核验返回供应商不可用，保留档案等待复核。"
+    },
+    {
+      "model_id": "~google/gemini-flash-latest",
+      "operation": "analyze_audio",
+      "status": "disabled",
+      "verification_status": "not_applicable",
+      "support_level": "native",
+      "status_reason": "浮动别名不作为独立候选，请选择固定版本。"
+    },
+    {
+      "model_id": "~google/gemini-pro-latest",
+      "operation": "analyze_audio",
+      "status": "disabled",
+      "verification_status": "not_applicable",
+      "support_level": "native",
+      "status_reason": "浮动别名不作为独立候选，请选择固定版本。"
+    }
+  ],
+  "deferred_capabilities": [
+    { "capability": "realtime_translation", "status": "planned", "status_reason": "需单独设计语言对、字幕、费用与错误恢复闭环。" },
+    { "capability": "voice_video_calls", "status": "planned", "status_reason": "需独立审计通话生命周期、权限、隐私与网络恢复。" },
+    { "capability": "sip_telephony", "status": "planned", "status_reason": "需独立审计号码、呼叫路由、录音合规和供应商契约。" },
+    { "capability": "realtime_tools", "status": "planned", "status_reason": "实时语音首期保持纯语音，不组合工具、RAG 或 Agent。" },
+    { "capability": "custom_voice_library", "status": "planned", "status_reason": "在可验证删除自定义音色或用户接受持久化前不开放。" }
+  ]
+}

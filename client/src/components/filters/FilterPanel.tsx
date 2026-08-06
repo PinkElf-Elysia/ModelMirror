@@ -247,8 +247,8 @@ export default function FilterPanel({
         <AccordionSection title={recruitmentFilterTitles.inactive}>
           <ToggleFilter
             checked={filters.showInactive}
-            description="包含已退场但仍可参考的历史候选人"
-            label="显示历史候选人"
+            description="历史候选人已默认显示；此项额外显示明确到期的模型"
+            label="显示到期候选人"
             onChange={(checked) => update("showInactive", checked)}
           />
         </AccordionSection>
