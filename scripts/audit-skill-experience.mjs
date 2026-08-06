@@ -22,6 +22,30 @@ function readJson(path) {
 
 const anbeime = readJson("client/src/data/anbeimeSkillCatalog.generated.json");
 const voltagent = readJson("client/src/data/voltagentSkillCatalog.generated.json");
+const voltagentById = new Map(
+  voltagent.projects.map((project) => [project.id, project]),
+);
+
+function isSafeSubPath(subPath) {
+  return (
+    subPath === "" ||
+    subPath
+      .split("/")
+      .every(
+        (part) =>
+          part && part !== "." && part !== ".." && /^[A-Za-z0-9_.-]+$/.test(part),
+      )
+  );
+}
+
+function githubRepoRoot(sourceUrl) {
+  const url = new URL(sourceUrl);
+  const [owner, repository] = url.pathname.split("/").filter(Boolean);
+  if (url.hostname.toLowerCase() !== "github.com" || !owner || !repository) {
+    return undefined;
+  }
+  return `${url.origin}/${owner}/${repository.replace(/\.git$/i, "")}`.toLowerCase();
+}
 
 function verificationFor(projectId) {
   const verification = SKILL_SOURCE_VERIFICATION[projectId];
@@ -142,6 +166,10 @@ if (verificationEntries.length !== records.length) {
 const recordIds = new Set(records.map((record) => record.id));
 const verifiedSourceKeys = new Set();
 let sourcePageVerifiedCount = 0;
+let githubRenameVerifiedCount = 0;
+let unsupportedSkillsetCount = 0;
+const githubHistoryReasonCounts = {};
+const githubPendingReasonCounts = {};
 for (const [projectId, verification] of verificationEntries) {
   if (!recordIds.has(projectId)) {
     throw new Error(`统一核验证据不属于当前目录：${projectId}`);
@@ -157,15 +185,7 @@ for (const [projectId, verification] of verificationEntries) {
     ) {
       throw new Error(`可安装证据不完整：${projectId}`);
     }
-    if (
-      verification.subPath &&
-      verification.subPath
-        .split("/")
-        .some(
-          (part) =>
-            !part || part === "." || part === ".." || !/^[A-Za-z0-9_.-]+$/.test(part),
-        )
-    ) {
+    if (!isSafeSubPath(verification.subPath)) {
       throw new Error(`核验安装子目录不安全：${projectId} -> ${verification.subPath}`);
     }
     if (verification.declaredUrl && !verification.method.startsWith("source-page-")) {
@@ -180,14 +200,106 @@ for (const [projectId, verification] of verificationEntries) {
       }
       sourcePageVerifiedCount += 1;
     }
+    if (verification.method === "git-exact-rename-chain") {
+      if (
+        !verification.sourceUrl.startsWith("https://github.com/") ||
+        githubRepoRoot(verification.sourceUrl) !==
+          verification.repoUrl.toLowerCase() ||
+        verification.declaredSubPath === undefined ||
+        !isSafeSubPath(verification.declaredSubPath) ||
+        !Array.isArray(verification.renameChain) ||
+        verification.renameChain.length === 0
+      ) {
+        throw new Error(`Git 重命名证据不完整：${projectId}`);
+      }
+      let expectedFrom = verification.declaredSubPath;
+      for (const step of verification.renameChain) {
+        if (
+          !/^[a-f0-9]{40}$/.test(step.commit) ||
+          step.fromSubPath !== expectedFrom ||
+          step.fromSubPath === step.toSubPath ||
+          !isSafeSubPath(step.fromSubPath) ||
+          !isSafeSubPath(step.toSubPath)
+        ) {
+          throw new Error(`Git 重命名链不连续或不安全：${projectId}`);
+        }
+        expectedFrom = step.toSubPath;
+      }
+      if (expectedFrom !== verification.subPath) {
+        throw new Error(`Git 重命名链终点与安装目录不一致：${projectId}`);
+      }
+      githubRenameVerifiedCount += 1;
+    }
     const sourceKey = `${verification.repoUrl.toLowerCase()}#${verification.subPath}`;
     if (verifiedSourceKeys.has(sourceKey)) {
       throw new Error(`可安装证据重复：${sourceKey}`);
     }
     verifiedSourceKeys.add(sourceKey);
-  } else if (!verification.reasonCode || !verification.reason) {
-    throw new Error(`不可安装证据缺少原因：${projectId}`);
+  } else {
+    if (!verification.reasonCode || !verification.reason) {
+      throw new Error(`不可安装证据缺少原因：${projectId}`);
+    }
+    if (verification.reasonCode === "multi-skillset-install-unsupported") {
+      const project = voltagentById.get(projectId);
+      if (
+        verification.status !== "pending" ||
+        project?.kind !== "skillset" ||
+        !verification.sourceUrl.startsWith("https://github.com/")
+      ) {
+        throw new Error(`多目录 SkillSet 原因与目录记录冲突：${projectId}`);
+      }
+      unsupportedSkillsetCount += 1;
+    }
+    if (
+      [
+        "declared-path-never-seen",
+        "declared-path-removed",
+        "rename-chain-ambiguous",
+      ].includes(verification.reasonCode)
+    ) {
+      if (
+        verification.status !== "pending" ||
+        !verification.sourceUrl.startsWith("https://github.com/") ||
+        !verification.repoUrl?.startsWith("https://github.com/") ||
+        githubRepoRoot(verification.sourceUrl) !==
+          verification.repoUrl?.toLowerCase() ||
+        !/^[a-f0-9]{40}$/.test(verification.verifiedCommit) ||
+        verification.declaredSubPath === undefined ||
+        !isSafeSubPath(verification.declaredSubPath)
+      ) {
+        throw new Error(`Git 路径历史失败证据不完整：${projectId}`);
+      }
+      githubHistoryReasonCounts[verification.reasonCode] =
+        (githubHistoryReasonCounts[verification.reasonCode] ?? 0) + 1;
+    }
+    if (
+      verification.status === "pending" &&
+      verification.sourceUrl.startsWith("https://github.com/")
+    ) {
+      githubPendingReasonCounts[verification.reasonCode] =
+        (githubPendingReasonCounts[verification.reasonCode] ?? 0) + 1;
+    }
   }
+}
+
+const expectedGithubPendingReasons = {
+  "declared-path-removed": 171,
+  "declared-path-never-seen": 11,
+  "multi-skillset-install-unsupported": 32,
+  "ambiguous-skill-path": 21,
+  "repository-not-found": 11,
+  "no-skill-file": 1,
+};
+if (
+  Object.keys(githubPendingReasonCounts).length !==
+    Object.keys(expectedGithubPendingReasons).length ||
+  !Object.entries(expectedGithubPendingReasons).every(
+    ([reasonCode, count]) => githubPendingReasonCounts[reasonCode] === count,
+  )
+) {
+  throw new Error(
+    `GitHub 待核验批次分布变化：${JSON.stringify(githubPendingReasonCounts)}`,
+  );
 }
 
 const categoryCounts = Object.fromEntries(SKILL_CATEGORIES.map((category) => [category, 0]));
@@ -322,3 +434,8 @@ console.log(
   `本轮通过来源覆盖 ${new Set(generatedVerifiedEntries.map(([, source]) => source.repoUrl)).size} 个 GitHub 仓库`,
 );
 console.log(`OfficialSkills 来源页新增固定提交证据：${sourcePageVerifiedCount} 项`);
+console.log(`GitHub R100 重命名升级：${githubRenameVerifiedCount} 项`);
+console.log(`多目录 SkillSet 继续禁用：${unsupportedSkillsetCount} 项`);
+console.table(githubHistoryReasonCounts);
+console.log("GitHub 待核验批次分布：");
+console.table(githubPendingReasonCounts);
