@@ -59,9 +59,19 @@ class CredentialStore:
         name: str,
         value: str,
         kind: Literal["header", "environment", "provider_key", "generic"] = "generic",
+        catalog_project_id: str = "",
+        catalog_slot: str = "",
     ) -> tuple[CredentialRecord, str]:
         clean_name = self._required_text(name, "name", 160)
         clean_value = self._required_text(value, "value", 20_000)
+        clean_catalog_project_id = str(catalog_project_id or "").strip()
+        clean_catalog_slot = str(catalog_slot or "").strip()
+        if bool(clean_catalog_project_id) != bool(clean_catalog_slot):
+            raise CredentialStoreError(
+                "catalog_project_id and catalog_slot must be supplied together."
+            )
+        if len(clean_catalog_project_id) > 120 or len(clean_catalog_slot) > 80:
+            raise CredentialStoreError("Catalog credential scope is too long.")
         now = time.time()
         record = CredentialRecord(
             credential_id=f"cred_{uuid.uuid4().hex}",
@@ -70,6 +80,8 @@ class CredentialStore:
             prefix=self._prefix(clean_value),
             masked_value=self._mask(clean_value),
             ciphertext=self._fernet.encrypt(clean_value.encode("utf-8")).decode("ascii"),
+            catalog_project_id=clean_catalog_project_id,
+            catalog_slot=clean_catalog_slot,
             created_at=now,
             updated_at=now,
         )

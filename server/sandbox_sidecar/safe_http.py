@@ -180,6 +180,7 @@ class SafeHttpClient:
         max_redirects: int = MAX_REDIRECTS,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         minimum_intervals: dict[str, float] | None = None,
+        additional_allowed_headers: frozenset[str] | None = None,
     ) -> None:
         self.allowed_hosts = allowed_hosts
         self.timeout = min(max(float(timeout), 1.0), 30.0)
@@ -189,6 +190,11 @@ class SafeHttpClient:
             DEFAULT_MAX_RESPONSE_BYTES,
         )
         self.minimum_intervals = dict(minimum_intervals or {})
+        self.allowed_request_headers = ALLOWED_REQUEST_HEADERS | {
+            str(name).strip().lower()
+            for name in (additional_allowed_headers or frozenset())
+            if str(name).strip()
+        }
         self._next_request_at: dict[str, float] = {}
         self._rate_lock = threading.Lock()
         self._robots_cache: dict[tuple[str, str], RobotFileParser] = {}
@@ -204,13 +210,12 @@ class SafeHttpClient:
         if wait:
             time.sleep(wait)
 
-    @staticmethod
-    def _headers(headers: dict[str, str] | None) -> dict[str, str]:
+    def _headers(self, headers: dict[str, str] | None) -> dict[str, str]:
         output: dict[str, str] = {}
         for raw_name, raw_value in (headers or {}).items():
             name = str(raw_name).strip()
             value = str(raw_value).strip()
-            if name.lower() not in ALLOWED_REQUEST_HEADERS:
+            if name.lower() not in self.allowed_request_headers:
                 raise NetworkPolicyError("适配器尝试发送未授权的 HTTP Header。")
             if not value or "\r" in value or "\n" in value or len(value) > 1_024:
                 raise NetworkPolicyError("HTTP Header 值无效。")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,11 +20,14 @@ from server.mcp.catalog import (
     WAVE_ONE_ADAPTERS,
     WAVE_TWO_ADAPTERS,
     WAVE_THREE_ADAPTERS,
+    WAVE_FOUR_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
+    CatalogCredentialCreateRequest,
     MCPCatalogService,
 )
+from server.toolsets.credentials import CredentialStore
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -35,6 +40,8 @@ class FakeManager:
         self.disconnected: list[str] = []
         self.sessions: set[str] = set()
         self.profiles: list[dict[str, Any]] = []
+        self.scrubbed: list[str] = []
+        self.call_is_error = False
 
     async def connect(self, command: list[str]) -> str:
         self.commands.append(list(command))
@@ -51,6 +58,10 @@ class FakeManager:
             raise catalog.MCPSessionNotFoundError(session_id)
         return [Tool(name="echo", description="Echo", inputSchema={})]
 
+    async def scrub_session_environment(self, session_id: str) -> None:
+        assert session_id in self.sessions
+        self.scrubbed.append(session_id)
+
     async def call_tool(
         self,
         session_id: str,
@@ -59,7 +70,8 @@ class FakeManager:
     ) -> CallToolResult:
         self.calls.append((session_id, tool_name, dict(arguments)))
         return CallToolResult(
-            content=[TextContent(type="text", text=str(arguments.get("value", "ok")))]
+            content=[TextContent(type="text", text=str(arguments.get("value", "ok")))],
+            isError=self.call_is_error,
         )
 
     async def disconnect(self, session_id: str) -> None:
@@ -121,15 +133,33 @@ def make_service(
     manager = FakeManager()
     installer = FakeInstaller()
     registry = FakeRegistry()
+    credential_scopes = {
+        "cred_agentql": ("agentql-mcp", "api_key"),
+        "cred_grafana": ("grafana-mcp", "service_token"),
+        "cred_pinecone": ("pinecone-assistant-mcp", "api_key"),
+    }
+
+    def credential_validator(credential_id: str) -> SimpleNamespace:
+        catalog_project_id, catalog_slot = credential_scopes.get(
+            credential_id,
+            ("", ""),
+        )
+        return SimpleNamespace(
+            credential_id=credential_id,
+            status="active",
+            kind="provider_key",
+            updated_at=1.0,
+            catalog_project_id=catalog_project_id,
+            catalog_slot=catalog_slot,
+        )
+
     service = MCPCatalogService(  # type: ignore[arg-type]
         manager,
         installer,
         registry,
         manifests=manifests,
-        credential_validator=lambda credential_id: SimpleNamespace(
-            credential_id=credential_id,
-            status="active",
-        ),
+        credential_validator=credential_validator,
+        credential_resolver=lambda credential_id: f"secret-for-{credential_id}",
     )
     return service, manager, installer, registry
 
@@ -149,18 +179,19 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
         "airbnb-mcp",
     }
     assert set(WAVE_THREE_ADAPTERS) == set(WAVE_PROJECTS[3]) - {"manim-mcp"}
+    assert set(WAVE_FOUR_ADAPTERS) == set(WAVE_PROJECTS[4]) - {"snyk-mcp"}
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 17
+    ) == 32
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 80
+    ) == 64
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 3
+    ) == 4
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -182,6 +213,9 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
     card_source = (
         PROJECT_ROOT / "client" / "src" / "components" / "McpServerCard.tsx"
     ).read_text(encoding="utf-8")
+    credential_panel_source = (
+        PROJECT_ROOT / "client" / "src" / "components" / "McpCredentialPanel.tsx"
+    ).read_text(encoding="utf-8")
 
     assert frontend_ids == set(CATALOG_ADAPTERS)
     assert not re.search(r"^\s+command:", seed_source, flags=re.MULTILINE)
@@ -192,12 +226,16 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
         card_source,
         flags=re.DOTALL,
     )
+    assert "/toolsets#credentials" not in credential_panel_source
+    assert "/api/runtime/credentials" not in credential_panel_source
+    assert "/api/mcp/catalog/${projectId}/credentials" in credential_panel_source
+    assert 'type="password"' in credential_panel_source
 
 
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["brave-search-mcp"]
+    manifest = CATALOG_ADAPTERS["dbhub"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
@@ -222,9 +260,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 17
-            assert payload["planned"] == 80
-            assert payload["blocked"] == 3
+            assert payload["ready"] == 32
+            assert payload["planned"] == 64
+            assert payload["blocked"] == 4
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
@@ -365,6 +403,191 @@ async def test_wave_two_adapter_uses_fixed_public_sidecar_profile() -> None:
     assert public["executable"] is True
     assert public["connection_kind"] == "sandboxed-stdio"
     assert set(public["tool_policies"]) == {"fetch"}
+
+
+@pytest.mark.asyncio
+async def test_wave_four_adapter_resolves_secret_only_for_private_proxy() -> None:
+    service, manager, installer, registry = make_service()
+    configured = service.configure(
+        "agentql-mcp",
+        CatalogConfigurationRequest(
+            credential_bindings={"api_key": "cred_agentql"},
+        ),
+    )
+    assert configured["configured_credential_slots"] == ["api_key"]
+
+    connected = await service.connect("agentql-mcp")
+    assert connected["tools_count"] == 1
+    assert installer.calls == []
+    assert registry.registered == []
+    profile = manager.profiles[0]
+    assert profile["server_command"] == list(CATALOG_ADAPTERS["agentql-mcp"].server_command)
+    assert profile["reconnect_attempts"] == 0
+    assert manager.scrubbed == [connected["session_id"]]
+    encoded = profile["environment"]["MCP_TOKEN_HANDSHAKE_B64"]
+    payload = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+    assert payload == {
+        "settings": {},
+        "credentials": {"api_key": "secret-for-cred_agentql"},
+    }
+    public = service.list_adapters()
+    serialized = json.dumps(public, ensure_ascii=False)
+    assert "secret-for-cred_agentql" not in serialized
+    adapter = next(item for item in public["adapters"] if item["project_id"] == "agentql-mcp")
+    assert adapter["configured"] is True
+    assert adapter["credential_bindings"] == {"api_key": "cred_agentql"}
+    assert adapter["credential_fields"][0]["label"] == "AgentQL API Key"
+
+
+@pytest.mark.asyncio
+async def test_wave_four_rotated_credential_forces_disconnect() -> None:
+    manager = FakeManager()
+    installer = FakeInstaller()
+    registry = FakeRegistry()
+    state = SimpleNamespace(
+        status="active",
+        kind="provider_key",
+        updated_at=1.0,
+        catalog_project_id="agentql-mcp",
+        catalog_slot="api_key",
+    )
+    service = MCPCatalogService(  # type: ignore[arg-type]
+        manager,
+        installer,
+        registry,
+        credential_validator=lambda _: state,
+        credential_resolver=lambda _: "private-token",
+    )
+    service.configure(
+        "agentql-mcp",
+        CatalogConfigurationRequest(credential_bindings={"api_key": "cred_agentql"}),
+    )
+    connected = await service.connect("agentql-mcp")
+    state.updated_at = 2.0
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="会话已断开"):
+        await service.call_tool("agentql-mcp", "extract-web-data", {})
+
+    assert manager.disconnected == [connected["session_id"]]
+    assert service.project_for_session(connected["session_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_wave_four_credentials_are_card_scoped_and_track_verification(
+    tmp_path: Path,
+) -> None:
+    manager = FakeManager()
+    installer = FakeInstaller()
+    registry = FakeRegistry()
+    store = CredentialStore(tmp_path / "credentials")
+    service = MCPCatalogService(  # type: ignore[arg-type]
+        manager,
+        installer,
+        registry,
+        credential_validator=store.get_public,
+        credential_resolver=store.resolve,
+        credential_lister=store.list,
+        credential_creator=store.create,
+        credential_revoker=store.revoke,
+    )
+
+    created = service.create_credential(
+        "agentql-mcp",
+        CatalogCredentialCreateRequest(
+            slot="api_key",
+            name="AgentQL 生产凭据",
+            value="private-agentql-token",
+        ),
+    )
+    credential_id = created["credential_id"]
+    assert created["catalog_project_id"] == "agentql-mcp"
+    assert created["catalog_slot"] == "api_key"
+    assert "private-agentql-token" not in json.dumps(created)
+    assert service.list_credentials("agentql-mcp")["credentials"] == [created]
+    assert service.list_credentials("exa-mcp")["credentials"] == []
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="固定槽位"):
+        service.configure(
+            "exa-mcp",
+            CatalogConfigurationRequest(
+                credential_bindings={"api_key": credential_id},
+            ),
+        )
+
+    service.configure(
+        "agentql-mcp",
+        CatalogConfigurationRequest(
+            credential_bindings={"api_key": credential_id},
+        ),
+    )
+    connected = await service.connect("agentql-mcp")
+    adapter = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "agentql-mcp"
+    )
+    assert adapter["credential_verification"] == "unverified"
+
+    await service.call_tool("agentql-mcp", "extract-web-data", {})
+    adapter = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "agentql-mcp"
+    )
+    assert adapter["credential_verification"] == "verified"
+
+    manager.call_is_error = True
+    await service.call_tool("agentql-mcp", "extract-web-data", {})
+    adapter = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "agentql-mcp"
+    )
+    assert adapter["credential_verification"] == "verification-failed"
+
+    revoked = await service.revoke_credential("agentql-mcp", credential_id)
+    assert revoked["status"] == "revoked"
+    assert manager.disconnected == [connected["session_id"]]
+    adapter = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "agentql-mcp"
+    )
+    assert adapter["configured"] is False
+    assert adapter["credential_verification"] == "missing"
+
+
+def test_wave_four_settings_and_snyk_fail_closed() -> None:
+    service, _, _, _ = make_service()
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="缺少必填配置"):
+        service.configure(
+            "grafana-mcp",
+            CatalogConfigurationRequest(
+                credential_bindings={"service_token": "cred_grafana"},
+            ),
+        )
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="格式不正确"):
+        service.configure(
+            "grafana-mcp",
+            CatalogConfigurationRequest(
+                settings={"stack_slug": "Bad_slug!"},
+                credential_bindings={"service_token": "cred_grafana"},
+            ),
+        )
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="固定域名范围"):
+        service.configure(
+            "pinecone-assistant-mcp",
+            CatalogConfigurationRequest(
+                settings={"assistant_host": "assistant.example.com", "assistant_name": "docs"},
+                credential_bindings={"api_key": "cred_pinecone"},
+            ),
+        )
+
+    snyk = CATALOG_ADAPTERS["snyk-mcp"]
+    assert snyk.availability == "blocked"
+    assert snyk.wave == 4
+    assert snyk.server_command == ()
+    assert snyk.executable is False
 
 
 def test_bibigpt_is_fail_closed_until_oauth_wave() -> None:

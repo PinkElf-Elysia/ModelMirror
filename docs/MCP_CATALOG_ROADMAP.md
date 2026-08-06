@@ -15,14 +15,14 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-06，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0 的 7 个 Node stdio Server、批次 1 的 3 个断网计算适配器、批次 2 的 Fetch、QuickChart、GeoWire，以及批次 3 的 Basic Memory、Excel、Git、MarkItDown 已标记为 `ready`；Airbnb、BibiGPT 与 Manim 标记为 `blocked`，其余 80 个条目保持 `planned`。当前状态精确为 17 ready / 80 planned / 3 blocked。
+截至 2026-08-06，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0—3 已验收的 17 项保持不变；批次 4 的 AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、VirusTotal 已标记为 `ready`。Airbnb、BibiGPT、Manim 与 Snyk 标记为 `blocked`，其余 64 项保持 `planned`。当前状态精确为 32 ready / 64 planned / 4 blocked。
 
 ## 2. 当前边界与明确不实现
 
-批次 1–3 只增加固定的内置兼容适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar。三批都不扩大账号授权、任意连接或任意执行能力：
+批次 1–4 只增加固定适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar，批次 4 使用固定 Token 槽和只读出口 sidecar。四批都不扩大账号授权、任意连接或任意执行能力：
 
 - 不接受用户指定的 Python 包、解释器、命令、工作目录或其他额外运行时。
-- 不实现 OAuth 回调、Token / API Key 输入、保存、刷新或注入。
+- 不实现 OAuth 回调、刷新或外站登录；批次 4 只能选择既有加密 `credential_id`，目录页不接受或显示明文 Token / API Key。
 - 不打开外站认证登录页，也不提供认证按钮或深链。
 - 不把 Streamable HTTP、SSE 或任意 MCP URL 暴露为目录配置；批次 2 仅由固定 stdio 适配器访问受控公共 HTTPS 服务。
 - Fetch 的用户 URL 只是工具参数，只允许公网 HTTPS，并逐次执行 DNS、SSRF、重定向和响应大小校验；它不是自定义 MCP 连接入口。
@@ -46,7 +46,7 @@
 数据层必须满足以下约束：
 
 1. 前端条目不得包含可执行 `command`、MCP URL、Header 或环境变量配置。
-2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1—3 的 10 项使用完整的逐工具策略。
+2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1—4 的 25 项使用完整的逐工具策略。
 3. `planned` 后端适配器不得包含可执行命令或端点，环境开关不能绕过状态门禁。
 4. 前端不得保存真实 Secret，也不得在仓库内出现真实凭证。
 5. 上游清单只用于发现项目；能否连接必须按模镜运行边界重新核验。
@@ -78,7 +78,7 @@
 | 1 | `calculator-mcp`、`time-mcp`、`vegalite-mcp` | 3 | **已实现**：非 root Python 沙箱、默认断网、只读文件、CPU/内存/时间/输出上限 |
 | 2 | `bibigpt-mcp`、`fetch-mcp`、`quickchart-mcp`、`airbnb-mcp`、`geowire-mcp` | 5 | **已完成门槛判定**：Fetch、QuickChart、GeoWire 可用；BibiGPT 因 OAuth、Airbnb 因上游 schema 漂移受阻 |
 | 3 | `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`manim-mcp`、`markitdown-mcp` | 5 | **已完成门槛判定**：Basic Memory、Excel、Git、MarkItDown 可用；Manim 因任意 Python 场景执行依赖第 8 批隔离而阻断 |
-| 4 | AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、Snyk、VirusTotal | 16 | 加密凭据槽、固定出口域、只读工具清单、Secret 泄漏测试 |
+| 4 | AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、Snyk、VirusTotal | 16 | **已完成门槛判定**：15 项通过加密凭据槽、固定出口域、只读工具和 Secret 泄漏测试；Snyk 因本地构建执行依赖第 8 批隔离而阻断 |
 | 5 | DBHub、PostgreSQL、MongoDB、ClickHouse、Cognee、Graphiti、Hindsight、Redis、SQLite、DuckDB、Supabase | 11 | 只读账号、TLS、查询超时、行数限制、写入审批 |
 | 6 | Airtable、Asana、GitLab、中国电商经营、Notion、Mem0 | 6 | 修改预览与审批、幂等、限流、账号解绑 |
 | 7 | Chrome DevTools、Playwright、Puppeteer、Selenium | 4 | 临时浏览器、目标域、上传下载与会话清理边界 |
@@ -107,6 +107,16 @@
 - `manim-mcp` 保留第 3 批编号但为 `blocked`，目录只显示“依赖第 8 批一次性代码执行容器”，不提供安装、连接或 Python 场景执行入口。
 - `state-write` 工具首次调用返回 409 和 5 分钟一次性审批；审批绑定项目、会话、工具、工作区、输入版本和参数摘要，重连、重配、状态漂移、过期或重放均失效。
 
+批次 4 的执行结论：
+
+- 独立 `modelmirror-mcp-token:wave4-v1` 镜像预装精确 lockfile 中的上游包，运行时不下载代码；容器使用 UID/GID 65532、只读根文件系统、无 Docker socket、移除 capabilities、`no-new-privileges`、Landlock 临时工作区和固定资源上限。
+- `/mcps` 在每张 Token MCP 卡片内提供独立“加密凭据”入口，不跳转或混入 Toolset 凭据区。新凭据由服务端固定绑定当前项目与槽位，前端保存配置时只提交不透明 `credential_id`；服务端连接时解密，经私有 Unix socket 单次交给 sidecar，响应、会话摘要和日志均不包含 Secret。
+- sidecar 对工具发现和工具调用分别过滤，只允许清单中的只读工具；客户端提交的 URL 参数先经过公网 HTTPS、DNS 与 SSRF 预检。Node 上游进程还加载固定 DNS 出口守卫，4 个兼容适配器通过 `SafeHttpClient` 固定连接地址并逐跳校验。
+- 每个适配器锁定“已开放工具名 + inputSchema”的规范化 SHA-256；离线 Docker smoke 发现缺失工具或参数 schema 漂移时整项阻断。
+- “传输已连接”不等于凭据有效：首次只读工具调用成功后才显示“凭据已验证”，工具返回认证错误或调用异常时显示“验证失败”。凭据状态与 `updated_at` 绑定当前会话；卡片内撤销、不可解密或重新配置都会断开会话并要求重新保存。通用 `/api/mcp/{session_id}/call` 对目录会话返回 403，防止绕过项目级策略。
+- Axiom 采用已归档 v0.05 的 Token 只读契约；Brave 与 Google Maps 锁定 archived reference server 契约。Figma 图片下载、Firecrawl/Tavily 长任务、Graphlit 写入、Perplexity 深度研究、Pinecone 文件管理及所有修改/删除工具均关闭。
+- Snyk 1.15.2 会读取本地项目并可能启动 Gradle、Maven 等构建链，保留第 4 批编号但为 `blocked`；不提供安装、连接或外站登录入口，等待第 8 批一次性代码执行隔离。
+
 ## 6. 验收、发布和回退
 
 - 每个项目必须通过初始化、工具发现、代表性调用、超时、重连、断开与清理测试；Schema 漂移视为阻断。
@@ -125,12 +135,13 @@
 
 主要风险是上游项目快速变化、条目说明过期，以及把“已收录”误解为“当前可安全运行”。前端必须持续使用明确的状态标签和禁用按钮表达边界。
 
-批次 0–3 不引入数据库迁移。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭 `MCP_CATALOG_ENABLE_BASIC_MEMORY_MCP`、`MCP_CATALOG_ENABLE_EXCEL_MCP_SERVER`、`MCP_CATALOG_ENABLE_GIT_MCP`、`MCP_CATALOG_ENABLE_MARKITDOWN_MCP`，撤销待确认审批、断开目录会话并停止 `mcp-files`。临时工作区可清理，持久 Basic Memory 数据不自动删除；Airbnb、BibiGPT 与 Manim 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容：
+批次 0–4 不引入数据库迁移。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭四个文件项目开关、撤销审批并停止 `mcp-files`；批次 4 回退时关闭 15 个 Token 项目的独立功能开关、断开目录会话并停止 `mcp-token`，不自动删除卡片专属加密凭据。临时工作区可清理，持久 Basic Memory 数据不自动删除；Airbnb、BibiGPT、Manim 与 Snyk 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容，但目录会话不能使用无项目策略的直接调用端点：
 
 - `server/mcp/catalog.py`
 - `server/mcp/sandbox_proxy.py`
 - `server/mcp/public_proxy.py`
 - `server/mcp/file_proxy.py`
+- `server/mcp/token_proxy.py`
 - `server/mcp/workspace.py`
 - `server/sandbox_sidecar/`
 - `client/src/data/mcpProjects.ts`

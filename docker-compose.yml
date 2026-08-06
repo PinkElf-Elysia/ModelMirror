@@ -160,6 +160,47 @@ services:
       retries: 8
       start_period: 30s
 
+  mcp-token:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.token
+    image: modelmirror-mcp-token:wave4-v1
+    container_name: modelmirror-mcp-token
+    networks:
+      - mcp_public_egress
+    environment:
+      MCP_TOKEN_MAX_SESSIONS: "6"
+      MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
+      MCP_TOKEN_WORKSPACE_ROOT: /workspaces
+      MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspaces:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_token_socket:/run/modelmirror-token-mcp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-token-mcp/token-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
   omniroute:
     image: diegosouzapw/omniroute:3.8.48@sha256:badb560971fdc23c2fb84b3e8695116239ff215b4cca4b07076201a8efae7f0d
     container_name: modelmirror-omniroute
@@ -232,6 +273,8 @@ services:
         condition: service_healthy
       mcp-files:
         condition: service_healthy
+      mcp-token:
+        condition: service_healthy
       new-api:
         condition: service_healthy
     env_file:
@@ -271,6 +314,7 @@ services:
       SANDBOX_WORKSPACE_ROOT: /app/sandbox-workspaces
       MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
+      MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
       MCP_CATALOG_STORAGE_DIR: /app/mcp/storage
       MCP_FILE_INPUT_ROOT: /app/mcp-file-inputs
       MCP_FILE_OUTPUT_ROOT: /app/mcp-file-outputs
@@ -300,6 +344,7 @@ services:
       - sandbox_workspaces:/app/sandbox-workspaces:ro
       - mcp_public_socket:/run/modelmirror-public-mcp
       - mcp_files_socket:/run/modelmirror-files-mcp
+      - mcp_token_socket:/run/modelmirror-token-mcp
       - mcp_file_inputs:/app/mcp-file-inputs
       - mcp_file_outputs:/app/mcp-file-outputs
       - mcp_memory:/app/mcp-memory
@@ -457,6 +502,7 @@ volumes:
   sandbox_workspaces:
   mcp_public_socket:
   mcp_files_socket:
+  mcp_token_socket:
   mcp_file_inputs:
   mcp_file_outputs:
   mcp_memory:
