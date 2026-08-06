@@ -1,0 +1,29 @@
+# Compatibility overlay for running configured local clones and the Windows
+# project host together. Load after both source overlays so Compose does not
+# concatenate duplicate isolation lists and so the broker receives both inputs.
+services:
+  coding-project-source:
+    profiles: !override
+      - coding-projects
+      - coding-project-host
+    cap_drop: !override
+      - ALL
+    security_opt: !override
+      - no-new-privileges:true
+    tmpfs: !override
+      - /tmp:rw,nosuid,noexec,size=16m,uid=65532,gid=65532,mode=0700
+      - /home/projectsource:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+    volumes: !override
+      - coding_project_source_socket:/run/modelmirror-coding-projects
+      - type: volume
+        source: coding_project_snapshot
+        target: /snapshot-slot
+        volume:
+          nocopy: true
+      - coding_project_host_uploads:/project-uploads
+      - type: bind
+        source: ${CODING_PROJECTS_ROOT:?Set CODING_PROJECTS_ROOT to an absolute controlled projects directory}
+        target: /projects-root
+        read_only: true
+        bind:
+          create_host_path: false

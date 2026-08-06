@@ -123,7 +123,7 @@ Server 和浏览器仍看不到物理路径。省略 overlay 或设置
   `C:\tmp\modelmirror-coding-v12` 仅保留原始 #98 批次历史，不得再用于共享栈重建。
 - 第十二轮 9 个提交按原顺序 cherry-pick 到 #102，`git range-diff` 九项均为 `=`，
   没有冲突、漏提交或内容改写。共享栈只能从本节指定的新工作树执行 Compose。
-- 集成后 Coding 专项 414 项、Project Host 专项 36 项、前端生产构建和 8 组 Coding
+- 集成后 Coding 专项 414 项、Project Host 专项 36 项、前端生产构建和 9 组 Coding
   Compose 配置全部通过；Coding 懒加载块仍为 33.78 KiB gzip。
 - 全量后端得到 1197 项通过。剩余 7 项 Agent Workspace 失败可在纯 #102 归档中
   独立复现，原因为基线内置 Skillset 摘要不一致；另一个 Node matcher 用例在同时具备
@@ -132,3 +132,10 @@ Server 和浏览器仍看不到物理路径。省略 overlay 或设置
 完成共享栈独占窗口确认前仍不得重建。重建前必须再次确认当前工作树 HEAD、
 `origin/main` 和 Compose 配置；若 `origin/main` 已继续推进，应重新执行同样的定向
 集成审计，不能从旧镜像或旧工作树覆盖共享栈。
+
+共享栈若要同时保留第十一轮清单项目和第十二轮 Windows 助手项目，必须在
+`docker-compose.coding-projects.yml` 与 `docker-compose.coding-project-host.yml`
+之后继续加载 `docker-compose.coding-project-host-full.yml`。该兼容 overlay 显式
+重建 Project Source 的隔离列表与挂载集合，同时保留只读 `CODING_PROJECTS_ROOT`、
+助手短时上传 tmpfs 和单槽快照；缺少它时两个来源 overlay 会产生重复
+`security_opt`，Compose 将拒绝解析。仅使用其中一种项目来源时不要加载兼容 overlay。

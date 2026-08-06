@@ -31,7 +31,7 @@ services:
           nocopy: true
 
   coding-project-source:
-    profiles:
+    profiles: !override
       - coding-project-host
     image: modelmirror-coding-project-source:local
     build:
@@ -41,14 +41,14 @@ services:
     network_mode: none
     user: "65532:65532"
     read_only: true
-    cap_drop:
+    cap_drop: !override
       - ALL
-    security_opt:
+    security_opt: !override
       - no-new-privileges:true
     pids_limit: 96
     cpus: 0.75
     mem_limit: 384m
-    tmpfs:
+    tmpfs: !override
       - /tmp:rw,nosuid,noexec,size=16m,uid=65532,gid=65532,mode=0700
       - /home/projectsource:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
       - /projects-root:rw,nosuid,noexec,size=1m,uid=65532,gid=65532,mode=0700
@@ -57,7 +57,7 @@ services:
       CODING_PROJECTS_ROOT: /projects-root
       CODING_PROJECT_SNAPSHOT_ROOT: /snapshot-slot
       CODING_PROJECT_UPLOAD_ROOT: /project-uploads
-    volumes:
+    volumes: !override
       - coding_project_source_socket:/run/modelmirror-coding-projects
       - type: volume
         source: coding_project_snapshot
