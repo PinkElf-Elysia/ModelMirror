@@ -67,6 +67,24 @@ def test_apply_receipt_rejects_paths_and_hashes_outside_contract() -> None:
         )
 
 
+def test_apply_receipt_represents_deletion_without_an_after_hash() -> None:
+    deleted = ApplyFileReceipt(
+        path="docs/remove-q7m4.txt",
+        existed_before=True,
+        before_sha256=BEFORE_HASH,
+        after_sha256=None,
+    )
+
+    assert deleted.after_sha256 is None
+    with pytest.raises(ValueError):
+        ApplyFileReceipt(
+            path="docs/never-existed.txt",
+            existed_before=False,
+            before_sha256=None,
+            after_sha256=None,
+        )
+
+
 def test_apply_receipt_requires_unique_sorted_files() -> None:
     first = ApplyFileReceipt(
         path="server/a.py",

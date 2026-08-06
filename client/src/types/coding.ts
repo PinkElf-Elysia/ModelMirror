@@ -35,6 +35,7 @@ export interface CodingProjectSummary {
   name: string;
   reason: string | null;
   state: "available" | "unavailable";
+  writeback_reason?: string | null;
 }
 
 export interface CodingProjectsStatus {
@@ -64,6 +65,18 @@ export interface CodingCapabilities {
   };
   mode: "readonly" | "draft";
   projects: CodingProjectsStatus;
+  project_writeback?: {
+    available: boolean;
+    configured: boolean;
+    enabled: boolean;
+    reason?: string;
+    remote_operations: false;
+    supports_commit: true;
+    supports_delete: true;
+    supports_move: true;
+    supports_revert: true;
+    target: "selected_local_repository";
+  };
   host_apply?: boolean;
   apply?: {
     allows_not_applicable: true;
@@ -73,7 +86,7 @@ export interface CodingCapabilities {
     reason?: string;
     requires_verification: false;
     supports_revert: true;
-    target: "dedicated_worktree";
+    target: "dedicated_worktree" | "selected_local_repository";
   };
   commit?: {
     available: boolean;
@@ -83,7 +96,7 @@ export interface CodingCapabilities {
     remote_operations: false;
     requires_apply: true;
     supports_undo: true;
-    target: "isolated_local_repository";
+    target: "isolated_local_repository" | "selected_local_repository";
   };
   commands: {
     available: boolean;
@@ -216,7 +229,7 @@ export interface CodingCancelResponse {
   accepted: boolean;
 }
 
-export type CodingDraftFileStatus = "added" | "modified";
+export type CodingDraftFileStatus = "added" | "modified" | "deleted";
 export type CodingDraftCheckStatus = "passed" | "failed";
 
 export interface CodingDraftFile {

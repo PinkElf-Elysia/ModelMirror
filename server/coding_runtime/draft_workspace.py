@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Literal
 
 
-DraftFileStatus = Literal["added", "modified"]
+DraftFileStatus = Literal["added", "modified", "deleted"]
 DraftCheckStatus = Literal["passed", "failed"]
 
 
@@ -203,8 +203,9 @@ class DraftWorkspace:
         self._validate_roots()
         self._revision = 0
         self._committed_fingerprint = ""
-        self._cycle_overrides: dict[str, bytes] = {}
+        self._cycle_overrides: dict[str, bytes | None] = {}
         self._cycle_patch = ""
+        self._checkpoint_deleted_paths: tuple[str, ...] = ()
         self._turn_active = False
         self._initialized = False
 
@@ -221,6 +222,7 @@ class DraftWorkspace:
         self._revision = 0
         self._cycle_overrides = {}
         self._cycle_patch = ""
+        self._checkpoint_deleted_paths = ()
         self._committed_fingerprint = self._fingerprint(())
         self._turn_active = False
         self._initialized = True
@@ -235,7 +237,12 @@ class DraftWorkspace:
             raise DraftTransactionError("uncommitted_workspace_change")
         self._clear_tree(self.checkpoint_root)
         self.checkpoint_root.mkdir(parents=True)
+        self._checkpoint_deleted_paths = tuple(
+            candidate.path for candidate in candidates if candidate.status == "deleted"
+        )
         for candidate in candidates:
+            if candidate.status == "deleted":
+                continue
             source = self.workspace_root / candidate.path
             target = self.checkpoint_root / candidate.path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -258,6 +265,7 @@ class DraftWorkspace:
             self._revision += 1
             self._committed_fingerprint = fingerprint
         self._clear_tree(self.checkpoint_root)
+        self._checkpoint_deleted_paths = ()
         self._turn_active = False
         return self._report(candidates)
 
@@ -325,7 +333,11 @@ class DraftWorkspace:
             raise DraftValidationError("validation_failed")
         self._cycle_patch = "".join(item.diff for item in cumulative.files)
         self._cycle_overrides = {
-            candidate.path: candidate.new_text.encode("utf-8")
+            candidate.path: (
+                None
+                if candidate.status == "deleted"
+                else candidate.new_text.encode("utf-8")
+            )
             for candidate in self._scan_cumulative_candidates()
         }
         self._committed_fingerprint = self._fingerprint(())
@@ -379,7 +391,11 @@ class DraftWorkspace:
                 if "".join(item.diff for item in base_candidates) != base_patch:
                     raise DraftPolicyError("recovery_patch_mismatch")
                 self._cycle_overrides = {
-                    item.path: item.new_text.encode("utf-8")
+                    item.path: (
+                        None
+                        if item.status == "deleted"
+                        else item.new_text.encode("utf-8")
+                    )
                     for item in base_candidates
                 }
                 self._cycle_patch = base_patch
@@ -481,6 +497,7 @@ class DraftWorkspace:
         self._initialized = False
         self._cycle_overrides = {}
         self._cycle_patch = ""
+        self._checkpoint_deleted_paths = ()
 
     @staticmethod
     def normalize_relative_path(path: str) -> str:
@@ -522,23 +539,50 @@ class DraftWorkspace:
 
     def _scan_candidates_against(
         self,
-        overrides: dict[str, bytes],
+        overrides: dict[str, bytes | None],
     ) -> tuple[_Candidate, ...]:
         source_files = self._collect_files(self.source_root, enforce_paths=False)
         workspace_files = self._collect_files(self.workspace_root, enforce_paths=False)
 
-        baseline_paths = source_files.keys() | overrides.keys()
-        deleted_paths = sorted(baseline_paths - workspace_files.keys())
-        if deleted_paths:
-            raise DraftPolicyError("deletion_not_allowed", path=deleted_paths[0])
-
+        baseline_paths = set(source_files)
+        for path, content in overrides.items():
+            if content is None:
+                baseline_paths.discard(path)
+            else:
+                baseline_paths.add(path)
         candidates: list[_Candidate] = []
+        for path in sorted(baseline_paths - workspace_files.keys()):
+            path = self.normalize_relative_path(path)
+            old_bytes = (
+                overrides[path]
+                if path in overrides
+                else source_files[path].read_bytes()
+            )
+            if old_bytes is None:
+                raise DraftPolicyError("invalid_cycle_baseline", path=path)
+            old_text = self._decode_text(old_bytes, path)
+            self._reject_secrets(old_text, path)
+            diff = self._unified_diff(path, old_text, "", status="deleted")
+            additions, deletions = self._count_changes(diff)
+            candidates.append(
+                _Candidate(
+                    path=path,
+                    status="deleted",
+                    old_text=old_text,
+                    new_text="",
+                    diff=diff,
+                    additions=additions,
+                    deletions=deletions,
+                    digest=hashlib.sha256(b"").hexdigest(),
+                )
+            )
+
         for path in sorted(workspace_files):
             source_path = source_files.get(path)
             workspace_path = workspace_files[path]
             new_bytes = workspace_path.read_bytes()
-            old_bytes = overrides.get(path)
-            if old_bytes is None and source_path is not None:
+            old_bytes = overrides[path] if path in overrides else None
+            if path not in overrides and source_path is not None:
                 old_bytes = source_path.read_bytes()
             if old_bytes is not None:
                 if old_bytes == new_bytes:
@@ -569,6 +613,7 @@ class DraftWorkspace:
                 )
             )
 
+        candidates.sort(key=lambda candidate: candidate.path)
         if len(candidates) > self.limits.max_changed_files:
             raise DraftPolicyError("too_many_files")
         patch_bytes = len(
@@ -609,6 +654,8 @@ class DraftWorkspace:
         whitespace_paths: list[str] = []
 
         for candidate in candidates:
+            if candidate.status == "deleted":
+                continue
             if candidate.path.endswith(".py"):
                 try:
                     ast.parse(candidate.new_text, filename=candidate.path)
@@ -705,21 +752,32 @@ class DraftWorkspace:
             raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
         old_header = section[old_headers[0]].rstrip("\r\n").split("\t", 1)[0]
         new_header = section[new_headers[0]].rstrip("\r\n").split("\t", 1)[0]
-        if new_header != f"+++ b/{expected_path}":
-            raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
 
         source_path = self.source_root / expected_path
+        has_override = expected_path in self._cycle_overrides
         override = self._cycle_overrides.get(expected_path)
-        baseline_exists = override is not None or source_path.is_file()
+        baseline_exists = (has_override and override is not None) or (
+            not has_override and source_path.is_file()
+        )
         is_added = old_header == "--- /dev/null"
+        is_deleted = new_header == "+++ /dev/null"
+        if is_added and is_deleted:
+            raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
         if is_added:
-            if baseline_exists or not any(
+            if new_header != f"+++ b/{expected_path}" or baseline_exists or not any(
                 line.rstrip("\r\n") == "new file mode 100644" for line in section
             ):
                 raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
             old_text = ""
         else:
             if old_header != f"--- a/{expected_path}" or not baseline_exists:
+                raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+            if is_deleted != any(
+                line.rstrip("\r\n") == "deleted file mode 100644"
+                for line in section
+            ):
+                raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+            if not is_deleted and new_header != f"+++ b/{expected_path}":
                 raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
             old_text = self._decode_text(
                 override if override is not None else source_path.read_bytes(),
@@ -730,7 +788,7 @@ class DraftWorkspace:
             index for index, line in enumerate(section) if line.startswith("@@ ")
         ]
         if not hunk_indexes:
-            if not is_added:
+            if not (is_added or is_deleted):
                 raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
             new_text = ""
         else:
@@ -792,9 +850,14 @@ class DraftWorkspace:
             new_text = "".join(output)
 
         target = self.workspace_root / expected_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("w", encoding="utf-8", newline="") as handle:
-            handle.write(new_text)
+        if is_deleted:
+            if new_text or not target.is_file() or target.is_symlink():
+                raise DraftPolicyError("recovery_patch_invalid", path=expected_path)
+            target.unlink()
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("w", encoding="utf-8", newline="") as handle:
+                handle.write(new_text)
 
     @staticmethod
     def _recovery_hunk_lines(
@@ -879,12 +942,14 @@ class DraftWorkspace:
             old_lines,
             new_lines,
             fromfile="/dev/null" if status == "added" else f"a/{path}",
-            tofile=f"b/{path}",
+            tofile="/dev/null" if status == "deleted" else f"b/{path}",
             lineterm="\n",
         )
         rendered = [f"diff --git a/{path} b/{path}\n"]
         if status == "added":
             rendered.append("new file mode 100644\n")
+        elif status == "deleted":
+            rendered.append("deleted file mode 100644\n")
         for line in raw_lines:
             if line.endswith(("\n", "\r")):
                 rendered.append(line)
@@ -892,6 +957,8 @@ class DraftWorkspace:
                 rendered.extend((f"{line}\n", "\\ No newline at end of file\n"))
         if status == "added" and not old_lines and not new_lines:
             rendered.extend(("--- /dev/null\n", f"+++ b/{path}\n"))
+        elif status == "deleted" and not old_lines and not new_lines:
+            rendered.extend((f"--- a/{path}\n", "+++ /dev/null\n"))
         return "".join(rendered)
 
     @staticmethod
@@ -961,6 +1028,10 @@ class DraftWorkspace:
 
     def _restore_checkpoint(self) -> None:
         self._reset_workspace_to_cycle_baseline()
+        for path in self._checkpoint_deleted_paths:
+            target = self.workspace_root / path
+            if target.is_file() and not target.is_symlink():
+                target.unlink()
         shutil.copytree(
             self.checkpoint_root,
             self.workspace_root,
@@ -968,6 +1039,7 @@ class DraftWorkspace:
             symlinks=False,
         )
         self._clear_tree(self.checkpoint_root)
+        self._checkpoint_deleted_paths = ()
         self._turn_active = False
 
     def _reset_workspace_to_cycle_baseline(self) -> None:
@@ -975,6 +1047,10 @@ class DraftWorkspace:
         self._make_tree_writable(self.workspace_root)
         for path, content in self._cycle_overrides.items():
             target = self.workspace_root / path
+            if content is None:
+                if target.is_file() and not target.is_symlink():
+                    target.unlink()
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
 

@@ -761,7 +761,7 @@ def _validate_recovery_payload(payload: RecoveryPayload) -> None:
                 code="invalid_recovery_payload",
             ) from exc
         if (
-            item["status"] not in {"added", "modified"}
+            item["status"] not in {"added", "modified", "deleted"}
             or isinstance(item["additions"], bool)
             or not isinstance(item["additions"], int)
             or item["additions"] < 0

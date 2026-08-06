@@ -305,6 +305,7 @@ services:
       CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
       CODING_AGENT_MODEL: ${CODING_AGENT_MODEL:-}
       CODING_AGENT_GATEWAY_KEY: ${CODING_AGENT_GATEWAY_KEY:-}
+      CODING_FILE_OPERATIONS_ENABLED: ${CODING_FILE_OPERATIONS_ENABLED:-true}
     volumes:
       - coding_socket:/run/modelmirror-coding
     restart: unless-stopped

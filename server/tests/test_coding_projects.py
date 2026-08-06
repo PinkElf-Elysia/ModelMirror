@@ -51,9 +51,14 @@ def _create_repository(root: Path, relative_path: str = "team/example-project") 
     return project
 
 
-def _write_manifest(root: Path, projects: list[dict[str, str]]) -> None:
+def _write_manifest(
+    root: Path,
+    projects: list[dict[str, object]],
+    *,
+    version: int = 1,
+) -> None:
     (root / ".modelmirror-coding-projects.json").write_text(
-        json.dumps({"version": 1, "projects": projects}, ensure_ascii=False),
+        json.dumps({"version": version, "projects": projects}, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -75,6 +80,8 @@ def test_clean_independent_repository_is_available_without_path_or_remote_leak(t
     assert public["id"].startswith("local-")
     assert public["features"]["draft"] is True
     assert public["features"]["verification"] is False
+    assert public["features"]["apply"] is False
+    assert public["writeback_reason"] == "writeback_not_enabled"
     assert "path" not in public
     assert "remote" not in public
     assert "example-project" not in json.dumps(public, ensure_ascii=False)
@@ -90,6 +97,72 @@ def test_project_id_is_stable_for_path_and_independent_of_display_name(tmp_path:
 
     assert first.project_id == second.project_id == build_project_id("team/example-project")
     assert "team" not in first.project_id
+
+
+def test_manifest_v3_requires_explicit_boolean_writeback_contract(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    _write_manifest(
+        root,
+        [
+            {
+                "name": "Writable",
+                "path": "team/writable",
+                "writeback": {"enabled": True},
+            }
+        ],
+        version=3,
+    )
+
+    assert load_project_manifest(root)[0].writeback_enabled is True
+
+    _write_manifest(
+        root,
+        [
+            {
+                "name": "Invalid",
+                "path": "team/invalid",
+                "writeback": {"enabled": "yes"},
+            }
+        ],
+        version=3,
+    )
+    with pytest.raises(ProjectCatalogError) as error:
+        load_project_manifest(root)
+    assert error.value.code == "project_writeback_invalid"
+
+
+def test_writeback_requires_fixed_branch_and_no_remote(tmp_path: Path) -> None:
+    root = tmp_path / "projects"
+    root.mkdir()
+    project = _create_repository(root)
+    entry_payload = {
+        "name": "Writable random q7m4",
+        "path": "team/example-project",
+        "writeback": {"enabled": True},
+    }
+    _write_manifest(root, [entry_payload], version=3)
+
+    wrong_branch = inspect_project(root, load_project_manifest(root)[0])
+    assert wrong_branch.state is ProjectState.AVAILABLE
+    assert wrong_branch.features.apply is False
+    assert wrong_branch.writeback_reason == "writeback_branch_required"
+
+    _git(project, "switch", "-c", "coding/local-draft")
+    _git(project, "remote", "add", "origin", "https://example.invalid/private.git")
+    with_remote = inspect_project(root, load_project_manifest(root)[0])
+    assert with_remote.state is ProjectState.AVAILABLE
+    assert with_remote.features.apply is False
+    assert with_remote.writeback_reason == "git_remote_not_allowed"
+
+    _git(project, "remote", "remove", "origin")
+    eligible = inspect_project(root, load_project_manifest(root)[0])
+    assert eligible.state is ProjectState.AVAILABLE
+    assert eligible.features.apply is eligible.features.commit is True
+    assert eligible.features.publish is False
+    assert eligible.writeback_reason is None
 
 
 @pytest.mark.parametrize(

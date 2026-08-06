@@ -417,15 +417,17 @@ class CodingApplierEngine:
         for relative in paths:
             before = self.staging_root / relative
             after = self.target_root / relative
-            if after.is_symlink() or not after.is_file():
-                raise CodingApplyError("Applied file is unavailable.", code="invalid_patch")
             existed_before = before.is_file() and not before.is_symlink()
+            if after.is_symlink() or (after.exists() and not after.is_file()):
+                raise CodingApplyError("Applied file is unavailable.", code="invalid_patch")
+            if not existed_before and not after.is_file():
+                raise CodingApplyError("Applied file is unavailable.", code="invalid_patch")
             files.append(
                 ApplyFileReceipt(
                     path=relative,
                     existed_before=existed_before,
                     before_sha256=_file_sha256(before) if existed_before else None,
-                    after_sha256=_file_sha256(after),
+                    after_sha256=_file_sha256(after) if after.is_file() else None,
                 )
             )
         return ApplyReceipt(
@@ -639,31 +641,40 @@ class CodingApplierEngine:
         for relative in paths:
             source = self.target_root / relative
             staged = self.staging_root / relative
-            if (
-                staged.is_symlink()
-                or not staged.is_file()
-                or staged.stat().st_size > self.limits.max_file_bytes
-            ):
+            existed_before = source.is_file() and not source.is_symlink()
+            if staged.is_symlink() or (staged.exists() and not staged.is_file()):
                 raise CodingApplyError(
                     "Applied file is outside the allowed scope.",
                     code="invalid_patch",
                 )
-            try:
-                after = staged.read_bytes()
-                after.decode("utf-8", errors="strict")
-            except (OSError, UnicodeDecodeError) as exc:
+            after_hash: str | None = None
+            if staged.is_file():
+                if staged.stat().st_size > self.limits.max_file_bytes:
+                    raise CodingApplyError(
+                        "Applied file is outside the allowed scope.",
+                        code="invalid_patch",
+                    )
+                try:
+                    after = staged.read_bytes()
+                    after.decode("utf-8", errors="strict")
+                except (OSError, UnicodeDecodeError) as exc:
+                    raise CodingApplyError(
+                        "Applied file is not valid UTF-8 text.",
+                        code="invalid_patch",
+                    ) from exc
+                after_hash = _sha256(after)
+            elif not existed_before:
                 raise CodingApplyError(
-                    "Applied file is not valid UTF-8 text.",
+                    "Applied file is outside the allowed scope.",
                     code="invalid_patch",
-                ) from exc
-            existed_before = source.is_file() and not source.is_symlink()
+                )
             before_hash = _file_sha256(source) if existed_before else None
             files.append(
                 ApplyFileReceipt(
                     path=relative,
                     existed_before=existed_before,
                     before_sha256=before_hash,
-                    after_sha256=_sha256(after),
+                    after_sha256=after_hash,
                 )
             )
         return ApplyReceipt(
@@ -678,36 +689,37 @@ class CodingApplierEngine:
         receipt: ApplyReceipt,
         before_contents: dict[str, bytes | None],
     ) -> None:
-        prepared: list[tuple[ApplyFileReceipt, Path]] = []
+        prepared: dict[str, Path] = {}
         replaced: list[ApplyFileReceipt] = []
         created_dirs: list[Path] = []
         try:
             for item in receipt.files:
                 target = self.target_root / item.path
+                if item.after_sha256 is None:
+                    continue
                 created_dirs.extend(_create_missing_parents(target.parent, self.target_root))
-                prepared.append(
-                    (
-                        item,
-                        _prepare_temp_file(
-                            target.parent,
-                            (self.staging_root / item.path).read_bytes(),
-                            mode=(
-                                target.stat().st_mode & 0o777
-                                if item.existed_before
-                                else 0o644
-                            ),
-                        ),
-                    )
+                prepared[item.path] = _prepare_temp_file(
+                    target.parent,
+                    (self.staging_root / item.path).read_bytes(),
+                    mode=(
+                        target.stat().st_mode & 0o777
+                        if item.existed_before
+                        else 0o644
+                    ),
                 )
-            for index, (item, temporary) in enumerate(prepared):
+            for index, item in enumerate(receipt.files):
                 self._verify_target_preimage(item)
                 self._notify_mutation("apply", index, item.path)
-                os.replace(temporary, self.target_root / item.path)
+                target = self.target_root / item.path
+                if item.after_sha256 is None:
+                    target.unlink()
+                else:
+                    os.replace(prepared[item.path], target)
                 replaced.append(item)
             self._assert_target_matches_receipt(receipt)
         except BaseException as exc:
             rollback_error = self._rollback_apply(replaced, before_contents)
-            for _, temporary in prepared:
+            for temporary in prepared.values():
                 temporary.unlink(missing_ok=True)
             _remove_empty_directories(created_dirs)
             if rollback_error is not None:
@@ -719,7 +731,7 @@ class CodingApplierEngine:
                 raise
             raise CodingApplyError("Apply write failed.", code="apply_failed") from exc
         finally:
-            for _, temporary in prepared:
+            for temporary in prepared.values():
                 temporary.unlink(missing_ok=True)
 
     def _rollback_apply(
@@ -750,8 +762,12 @@ class CodingApplierEngine:
         receipt: ApplyReceipt,
         before_contents: dict[str, bytes | None],
     ) -> None:
-        applied_content = {
-            item.path: (self.target_root / item.path).read_bytes()
+        applied_content: dict[str, bytes | None] = {
+            item.path: (
+                (self.target_root / item.path).read_bytes()
+                if item.after_sha256 is not None
+                else None
+            )
             for item in receipt.files
         }
         restored: list[ApplyFileReceipt] = []
@@ -773,10 +789,12 @@ class CodingApplierEngine:
         except BaseException as exc:
             try:
                 for item in reversed(restored):
-                    _atomic_write(
-                        self.target_root / item.path,
-                        applied_content[item.path],
-                    )
+                    target = self.target_root / item.path
+                    content = applied_content[item.path]
+                    if content is None:
+                        target.unlink(missing_ok=True)
+                    else:
+                        _atomic_write(target, content)
                 self._assert_target_matches_receipt(receipt)
             except BaseException as rollback_exc:
                 raise CodingApplyError(
@@ -845,8 +863,12 @@ class CodingApplierEngine:
         expected_entries = set(self._expected_manifest.entries)
         expected_files = dict(self._expected_manifest.file_hashes)
         for item in receipt.files:
-            expected_files[item.path] = item.after_sha256
-            if not item.existed_before:
+            if item.after_sha256 is None:
+                expected_files.pop(item.path, None)
+                expected_entries.discard(("file", item.path))
+            else:
+                expected_files[item.path] = item.after_sha256
+            if not item.existed_before and item.after_sha256 is not None:
                 expected_entries.add(("file", item.path))
                 parent = Path(item.path).parent
                 while parent != Path("."):

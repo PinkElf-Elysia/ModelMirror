@@ -134,9 +134,9 @@ CODING_AGENT_GATEWAY_KEY=your-dedicated-gateway-key
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`。只有显式设置为 `draft`，代码助手才会在
-容器内一次性副本中新增或修改文本；它仍不能删除、重命名、执行 Shell/Git/测试
-命令，也不能把修改写回宿主仓库。可选的项目验证只能由用户手动启动，验证范围和
-命令由服务端固定。
+容器内一次性副本中新增、修改、删除或移动 UTF-8 文本；结构化文件操作默认开启，
+但它仍不能操作目录、执行 Shell/Git 或把命令产物导入草稿。可选的项目验证只能由
+用户手动启动，验证范围和命令由服务端固定。宿主写入必须另行逐项目授权并由用户确认。
 
 该 Key 只注入 `coding-runtime`，不注入 FastAPI。启动并重建：
 
@@ -160,17 +160,23 @@ tmpfs，容器根文件系统仍只读，且不映射宿主端口或宿主仓库
 
 ```json
 {
-  "version": 1,
+  "version": 3,
   "projects": [
-    { "name": "团队示例", "path": "team/example-project" }
+    {
+      "name": "团队示例",
+      "path": "team/example-project",
+      "writeback": { "enabled": true }
+    }
   ]
 }
 ```
 
 清单最多 50 项；`path` 只能是根目录内规范化相对路径。每项必须是有有效分支和 HEAD
 的干净独立 Git 克隆，工作区、索引和未跟踪文件均为空。worktree 指针、alternates、
-子模块、符号链接、重复/大小写冲突路径和越界路径都会被拒绝。允许仓库存在 remote，
-但系统不读取、不返回也不连接它。不要把用户主目录或包含密钥的宽泛目录设为根目录。
+子模块、符号链接、重复/大小写冲突路径和越界路径都会被拒绝。v1/v2 清单及未声明
+`writeback.enabled` 的项目保持只读草稿能力并允许存在 remote；要开放本地写入，项目
+必须是无 remote、固定分支 `coding/local-draft` 的独立克隆。不要把用户主目录、真实
+开发工作树或包含密钥的宽泛目录设为根目录。
 
 在 Compose 读取的根 `.env` 或当前 PowerShell 环境中配置：
 
@@ -187,10 +193,36 @@ Runtime 只经私有 socket 和单槽快照卷取得所选项目的 HEAD 内容�
 个文件、192 MiB，单文件 32 MiB；只读取根目录 UTF-8 `AGENTS.md`（最多 64 KiB），
 仓库内 OpenCode、插件、MCP、provider 和可执行配置均不会生效。
 
-自定义项目只支持问答、修改草稿、Diff、轻量检查、下载和重启恢复，不支持项目验证、
-应用、本地提交或 GitHub 发布。内置 ModelMirror 仍是默认项目并保留完整闭环；停止
+自定义项目支持问答、结构化文本文件操作、Diff、轻量检查、确认后的离线验证、下载和
+重启恢复。只有清单 v3 显式授权且满足无 remote/固定分支条件的项目支持写入与本地提交；
+仍不支持 GitHub 发布或多轮提交。内置 ModelMirror 仍是默认项目并保留完整闭环；停止
 Project Source 后也必须继续可用。共享栈重建前应先确认根路径为绝对路径、清单可解析、
-所有登记仓库干净，并取得独占窗口；任一预检不通过时不要重建。
+所有登记仓库符合其能力要求，并取得独占窗口；任一预检不通过时不要重建。
+
+#### 自定义项目受控写入与本地版本
+
+写入功能必须显式加载 `docker-compose.coding-writeback.yml`。该 overlay 只给
+`coding-project-writer` 可写挂载 `CODING_PROJECTS_ROOT`；Server、Runtime、Verifier 和
+Project Source 的挂载权限不扩大。Writer 无网络、宿主端口、Docker socket、模型密钥、
+远程凭据，工作区预演位于 512 MiB `nosuid,noexec` tmpfs。
+
+先确认清单 v3 中目标项目设置 `writeback.enabled=true`，仓库无 remote、分支为
+`coding/local-draft` 且 `git status --short` 为空，再设置功能开关并加载 overlay：
+
+```powershell
+$env:CODING_FILE_OPERATIONS_ENABLED = 'true'
+$env:CODING_PROJECT_WRITEBACK_ENABLED = 'true'
+docker compose -f docker-compose.yml -f docker-compose.coding-projects.yml -f docker-compose.coding-commands.yml -f docker-compose.coding-writeback.yml -p modelmirror --profile coding --profile coding-verify --profile coding-writeback up -d --build --force-recreate
+docker compose -f docker-compose.yml -f docker-compose.coding-projects.yml -f docker-compose.coding-commands.yml -f docker-compose.coding-writeback.yml -p modelmirror --profile coding-writeback ps
+curl http://localhost:8000/api/coding/capabilities
+curl http://localhost:8000/api/coding/projects
+```
+
+`CODING_FILE_OPERATIONS_ENABLED=false` 只关闭代码助手的删除/移动工具；既有新增、修改和
+只读能力不受影响。`CODING_PROJECT_WRITEBACK_ENABLED=false` 或省略 Writer overlay 会让
+自定义项目回到只读草稿、验证和下载，不会撤销已有本地文件或提交。应用/提交前 Writer
+再次复核项目 ID、基准 HEAD、固定分支、remote、索引、工作区、Patch 和文件哈希；异常
+只影响所选项目写回能力，不得导致 ModelMirror 或其他自定义项目不可用。
 
 `coding-verifier` 通过同一私有 socket volume 接收 Worker 生成的 Patch，不加入
 任何网络。容器使用非 root、只读根文件系统、1 GiB `nosuid,noexec` tmpfs，并固定
@@ -387,7 +419,7 @@ curl http://localhost:5173/studio
   不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
-- 启用后检查 Coding capabilities、项目清单、Project Source/Worker/Verifier/Applier/Committer/Publisher health、
+- 启用后检查 Coding capabilities、项目清单、Project Source/Worker/Verifier/Project Writer/Applier/Committer/Publisher health、
   出口域名拒绝、验证取消清理、快照指纹、恢复 pending/retention 和源码 Git 状态。Capabilities 与
   日志不得返回目标绝对路径、恢复密钥或密文负载。
 
@@ -414,9 +446,12 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：先设置 `CODING_PROJECTS_ENABLED=false` 并在后续启动中省略
-  `docker-compose.coding-projects.yml`，即可恢复第八轮固定 ModelMirror 行为；项目
-  上下文表会被旧逻辑忽略，受控源仓库不会被修改。再设置
+- 代码助手：若只回退第十一轮，先设置 `CODING_PROJECT_WRITEBACK_ENABLED=false`、
+  `CODING_FILE_OPERATIONS_ENABLED=false`
+  并省略 `docker-compose.coding-writeback.yml`；这不会自动撤销已写入文件或已有本地
+  提交。如需进一步关闭自定义项目，再设置 `CODING_PROJECTS_ENABLED=false` 并在后续
+  启动中省略 `docker-compose.coding-projects.yml`，即可恢复第八轮固定 ModelMirror
+  行为；项目上下文表会被旧逻辑忽略，受控源仓库不会被修改。再设置
   `CODING_GITHUB_PUBLISH_ENABLED=false` 并在后续启动中省略
   `docker-compose.coding-publish.yml`，即可恢复第七轮本地多轮能力；这不会删除已创建
   的 GitHub 分支或 PR，远端内容只能由用户在 GitHub 明确处理。再设置

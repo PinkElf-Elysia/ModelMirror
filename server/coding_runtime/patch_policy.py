@@ -14,7 +14,6 @@ SAFE_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
 FORBIDDEN_PATCH_MARKERS = (
     "GIT binary patch",
     "Binary files ",
-    "deleted file mode ",
     "rename from ",
     "rename to ",
     "copy from ",
@@ -171,14 +170,32 @@ def validate_patch(
             raise PatchPolicyError("Patch file headers are incomplete.")
         old_path = old_headers[0][4:].split("\t", maxsplit=1)[0]
         new_path = new_headers[0][4:].split("\t", maxsplit=1)[0]
-        if old_path not in {"/dev/null", f"a/{path}"} or new_path != f"b/{path}":
+        new_file_markers = [
+            line for line in section if line.startswith("new file mode ")
+        ]
+        deleted_file_markers = [
+            line for line in section if line.startswith("deleted file mode ")
+        ]
+        is_added = new_file_markers == ["new file mode 100644"]
+        is_deleted = deleted_file_markers == ["deleted file mode 100644"]
+        if (
+            len(new_file_markers) > 1
+            or len(deleted_file_markers) > 1
+            or (new_file_markers and not is_added)
+            or (deleted_file_markers and not is_deleted)
+            or (is_added and is_deleted)
+        ):
+            raise PatchPolicyError("Patch file mode is invalid.")
+        if is_added:
+            paths_match = old_path == "/dev/null" and new_path == f"b/{path}"
+        elif is_deleted:
+            paths_match = old_path == f"a/{path}" and new_path == "/dev/null"
+        else:
+            paths_match = old_path == f"a/{path}" and new_path == f"b/{path}"
+        if not paths_match:
             raise PatchPolicyError("Patch file paths do not match.")
         has_hunk = any(line.startswith("@@ ") for line in section)
-        is_empty_new_file = (
-            "new file mode 100644" in section
-            and old_path == "/dev/null"
-            and not has_hunk
-        )
-        if not has_hunk and not is_empty_new_file:
+        is_empty_file_change = (is_added or is_deleted) and not has_hunk
+        if not has_hunk and not is_empty_file_change:
             raise PatchPolicyError("Patch does not contain a change.")
     return tuple(sorted(paths))

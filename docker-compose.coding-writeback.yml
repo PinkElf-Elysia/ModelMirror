@@ -1,0 +1,58 @@
+services:
+  server:
+    environment:
+      CODING_PROJECT_WRITEBACK_ENABLED: ${CODING_PROJECT_WRITEBACK_ENABLED:-true}
+      CODING_PROJECT_WRITER_SOCKET_PATH: /run/modelmirror-coding-writeback/writer.sock
+    volumes:
+      - coding_project_writer_socket:/run/modelmirror-coding-writeback
+
+  coding-project-writer:
+    profiles:
+      - coding-writeback
+    build:
+      context: .
+      dockerfile: server/coding_project_writer.Dockerfile
+    container_name: modelmirror-coding-project-writer
+    restart: unless-stopped
+    network_mode: none
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 96
+    cpus: "0.75"
+    mem_limit: 384m
+    environment:
+      CODING_PROJECTS_ROOT: /projects-root
+      CODING_PROJECT_WRITER_SOCKET_PATH: /run/modelmirror-coding-writeback/writer.sock
+      CODING_PROJECT_WRITER_TEMP: /temporary
+      CODING_COMMIT_AUTHOR_NAME: ${CODING_COMMIT_AUTHOR_NAME:-ModelMirror Coding Assistant}
+      CODING_COMMIT_AUTHOR_EMAIL: ${CODING_COMMIT_AUTHOR_EMAIL:-coding@modelmirror.local}
+    tmpfs:
+      - /temporary:size=536870912,mode=0700,uid=65532,gid=65532,nosuid,noexec
+      - /home/writer:size=8388608,mode=0700,uid=65532,gid=65532,nosuid,noexec
+    volumes:
+      - type: bind
+        source: ${CODING_PROJECTS_ROOT:?Set CODING_PROJECTS_ROOT to an absolute controlled projects directory}
+        target: /projects-root
+        read_only: false
+        bind:
+          create_host_path: false
+      - coding_project_writer_socket:/run/modelmirror-coding-writeback
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json,socket;
+          s=socket.socket(socket.AF_UNIX);s.settimeout(3);s.connect('/run/modelmirror-coding-writeback/writer.sock');s.sendall(b'{"action":"health"}\n');d=json.loads(s.makefile('rb').readline().decode());s.close();assert d.get('ok') and d.get('available')
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  coding_project_writer_socket:

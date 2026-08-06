@@ -24,6 +24,7 @@ interface CodingApplyPanelProps {
   onClose: () => Promise<void>;
   onRevert: () => Promise<void>;
   result: CodingApplyResult | null;
+  selectedProject?: boolean;
   verification: CodingVerification | null;
 }
 
@@ -38,17 +39,27 @@ const reasonText: Record<string, string> = {
   apply_in_progress: "正在写入修改，请等待当前操作完成。",
   dependency_change_unsupported:
     "这次修改涉及项目运行所需的组件清单，当前不能安全应用。",
+  git_remote_not_allowed:
+    "所选项目仍连接远程平台。移除远程连接并确认项目状态后再试。",
+  project_changed:
+    "所选项目的版本已经变化。为避免覆盖现有内容，本次写入已停止。",
+  project_writer_not_configured:
+    "本地项目写入服务尚未配置，仍可查看和下载当前修改。",
+  project_writer_timeout:
+    "写入等待时间过长，结果暂时无法确认。请保留当前页面并稍后查看状态。",
+  project_writer_unavailable:
+    "本地项目写入服务未启动，仍可查看和下载当前修改。",
   revert_conflict:
-    "专用项目副本在应用后又发生了变化，为避免覆盖人工内容，本次撤销已停止。",
+    "目标项目在写入后又发生了变化，为避免覆盖人工内容，本次撤销已停止。",
   rollback_failed:
     "自动恢复没有完成，请停止操作并由开发者检查专用项目副本。",
   session_frozen: "修改已经写入，本次草稿已锁定。",
   snapshot_mismatch:
-    "专用项目副本与当前草稿版本不一致，请由开发者重新创建副本。",
+    "目标项目与当前草稿版本不一致，请刷新状态或重新开始修改。",
   target_changed:
-    "专用项目副本已有其他修改，为避免覆盖内容，本次操作已停止。",
+    "目标项目已有其他修改，为避免覆盖内容，本次操作已停止。",
   target_not_ready:
-    "专用项目副本不是干净的初始状态，请由开发者检查或重新创建。",
+    "目标项目不是干净的初始状态，请先处理已有修改后再试。",
   unsafe_workspace_root:
     "专用项目副本未通过安全检查，请由开发者重新创建。",
   validation_failed: "常见问题检查尚未通过，暂时不能应用。",
@@ -57,6 +68,10 @@ const reasonText: Record<string, string> = {
   verification_in_progress: "项目验证仍在运行，请等待完成。",
   verification_required: "请先运行项目验证并等待通过。",
   verification_stale: "草稿已更新，请重新运行项目验证。",
+  writeback_branch_required:
+    "所选项目不在允许写入的本地分支，请由开发者切换后再试。",
+  writeback_not_enabled:
+    "所选项目没有开放本地写入，仍可查看和下载当前修改。",
 };
 
 const hardRetryFailures = new Set(["rollback_failed", "recovery_conflict"]);
@@ -72,6 +87,7 @@ function gateMessage(
   capability: CodingCapabilities["apply"],
   changes: CodingDraftChanges,
   verification: CodingVerification | null,
+  selectedProject: boolean,
 ) {
   if (!capability?.available) {
     return (
@@ -106,9 +122,9 @@ function gateMessage(
     );
   }
   if (qualityWarnings.length) {
-    return `${qualityWarnings.join("，")}。你可以先修正，也可以确认风险后继续写入专用副本。`;
+    return `${qualityWarnings.join("，")}。你可以先修正，也可以确认风险后继续写入${selectedProject ? "所选本地项目" : "专用副本"}。`;
   }
-  return "检查结果正常，可以写入专用项目副本。";
+  return `检查结果正常，可以写入${selectedProject ? "所选本地项目" : "专用项目副本"}。`;
 }
 
 export default function CodingApplyPanel({
@@ -120,6 +136,7 @@ export default function CodingApplyPanel({
   onClose,
   onRevert,
   result,
+  selectedProject = false,
   verification,
 }: CodingApplyPanelProps) {
   const [action, setAction] = useState<ActionState>("idle");
@@ -172,10 +189,10 @@ export default function CodingApplyPanel({
     !verificationRunning;
   const gateCopy = hardRetryFailure
     ? reasonText[result?.reason ?? ""] ??
-      "上次操作的结果无法确认，请由开发者检查专用项目副本。"
+      `上次操作的结果无法确认，请由开发者检查${selectedProject ? "所选本地项目" : "专用项目副本"}。`
     : failedAttempt
       ? `${reasonText[result?.reason ?? ""] ?? "上次写入没有完成。"} 你可以在问题处理后重试当前草稿。`
-      : gateMessage(capability, changes, verification);
+      : gateMessage(capability, changes, verification, selectedProject);
   const isApplied = result?.state === "applied";
   const isReverted = result?.state === "reverted";
   const failedAfterApply = result?.state === "failed" && hasAppliedCopy;
@@ -213,18 +230,26 @@ export default function CodingApplyPanel({
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-white" id="coding-apply-title">
               {isReverted
-                ? "本次应用已撤销"
+                ? selectedProject
+                  ? "本次写入已撤销"
+                  : "本次应用已撤销"
                 : failedAfterApply
                   ? "无法安全撤销"
-                  : "修改已应用"}
+                  : selectedProject
+                    ? "修改已写入"
+                    : "修改已应用"}
             </h3>
             <p aria-live="polite" className="mt-1 text-xs leading-5 text-slate-300">
               {isReverted
-                ? "专用项目副本已恢复到应用前的状态。当前项目目录始终没有改变。"
+                ? selectedProject
+                  ? "所选本地项目已恢复到写入前的状态。"
+                  : "专用项目副本已恢复到应用前的状态。当前项目目录始终没有改变。"
                 : failedAfterApply
                   ? reasonText[result?.reason ?? ""] ??
-                    "专用项目副本发生了其他变化，本次操作已停止。"
-                  : `已将 ${result?.file_count ?? changes.file_count} 个文件写入专用项目副本。没有提交，也没有上传；当前项目目录没有改变。`}
+                    `${selectedProject ? "所选本地项目" : "专用项目副本"}发生了其他变化，本次操作已停止。`
+                  : selectedProject
+                    ? `已将 ${result?.file_count ?? changes.file_count} 个文件写入所选本地项目。尚未创建本地版本，也没有上传。`
+                    : `已将 ${result?.file_count ?? changes.file_count} 个文件写入专用项目副本。没有提交，也没有上传；当前项目目录没有改变。`}
             </p>
           </div>
         </div>
@@ -246,7 +271,7 @@ export default function CodingApplyPanel({
               ) : (
                 <Undo2 aria-hidden="true" size={16} />
               )}
-              撤销本次应用
+              {selectedProject ? "撤销本次写入" : "撤销本次应用"}
             </button>
           ) : null}
           <button
@@ -269,7 +294,9 @@ export default function CodingApplyPanel({
             <p className="mt-1 text-xs leading-5 text-slate-400">
               {isReverted
                 ? "结束后会释放代码助手，你可以开始新的修改。"
-                : "结束后页面将不能再撤销；专用项目副本中的内容会继续保留。"}
+                : selectedProject
+                  ? "结束后页面将不能再撤销；所选本地项目中的修改会继续保留。"
+                  : "结束后页面将不能再撤销；专用项目副本中的内容会继续保留。"}
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <button
@@ -346,7 +373,7 @@ export default function CodingApplyPanel({
         )}
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-white" id="coding-apply-title">
-            应用到本地项目副本
+            {selectedProject ? "写入所选本地项目" : "应用到本地项目副本"}
           </h3>
           <p
             aria-live="polite"
@@ -370,7 +397,7 @@ export default function CodingApplyPanel({
         type="button"
       >
         <FolderCheck aria-hidden="true" size={16} />
-        应用到本地项目副本
+        {selectedProject ? "写入所选本地项目" : "应用到本地项目副本"}
       </button>
 
       {confirmApply ? (
@@ -397,9 +424,17 @@ export default function CodingApplyPanel({
               hasQualityRisks ? "text-amber-100/80" : "text-emerald-100/80"
             }`}
           >
-            <li>修改会写入预先准备的专用项目副本。</li>
-            <li>不会提交，也不会上传到远程平台。</li>
-            <li>你当前使用的项目目录不会改变。</li>
+            <li>
+              {selectedProject
+                ? "修改会直接写入你在页面顶部选择的本地项目。"
+                : "修改会写入预先准备的专用项目副本。"}
+            </li>
+            <li>不会自动创建本地版本，也不会上传到远程平台。</li>
+            <li>
+              {selectedProject
+                ? "写入前会再次确认项目版本和现有文件，发现外部改动会立即停止。"
+                : "你当前使用的项目目录不会改变。"}
+            </li>
           </ul>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button
@@ -427,7 +462,13 @@ export default function CodingApplyPanel({
                   size={14}
                 />
               ) : null}
-              {hasQualityRisks ? "了解风险并应用" : "确认应用"}
+              {hasQualityRisks
+                ? selectedProject
+                  ? "了解风险并写入"
+                  : "了解风险并应用"
+                : selectedProject
+                  ? "确认写入"
+                  : "确认应用"}
             </button>
           </div>
         </div>

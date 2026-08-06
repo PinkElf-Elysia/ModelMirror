@@ -496,8 +496,10 @@ class _DraftTurnAdapter:
     async def prompt(self, session, prompt):
         turn_id = session.begin_turn()
         yield session.append_event(CodingEventKind.TURN_STARTED, turn_id=turn_id)
-        if self.outcome == "delete":
-            (self.workspace.workspace_root / "baseline.txt").unlink()
+        if self.outcome == "binary":
+            (self.workspace.workspace_root / "unsafe.bin").write_bytes(
+                b"unsafe\x00content"
+            )
         else:
             (self.workspace.workspace_root / f"{self.outcome}.txt").write_text(
                 f"{prompt}\n",
@@ -510,7 +512,7 @@ class _DraftTurnAdapter:
         terminal_kind = {
             "complete": CodingEventKind.TURN_COMPLETED,
             "cancel": CodingEventKind.CANCELLED,
-            "delete": CodingEventKind.TURN_COMPLETED,
+            "binary": CodingEventKind.TURN_COMPLETED,
         }[self.outcome]
         yield session.append_event(terminal_kind, turn_id=turn_id)
         session.finish_turn()
@@ -735,11 +737,11 @@ async def test_worker_commits_success_and_rolls_back_cancel_or_failure(
 async def test_worker_hard_policy_failure_rolls_back_and_emits_safe_failure(
     tmp_path: Path,
 ) -> None:
-    server, record = _draft_record(tmp_path, outcome="delete")
+    server, record = _draft_record(tmp_path, outcome="binary")
     writer = _MemoryWriter()
 
     await server._prompt(
-        {"session_id": record.session.session_id, "prompt": "delete"},
+        {"session_id": record.session.session_id, "prompt": "binary"},
         writer,
     )
 
@@ -751,6 +753,7 @@ async def test_worker_hard_policy_failure_rolls_back_and_emits_safe_failure(
     ]
     assert terminal[0]["data"] == {"code": "draft_policy_violation"}
     assert (record.workspace.workspace_root / "baseline.txt").exists()
+    assert not (record.workspace.workspace_root / "unsafe.bin").exists()
     assert record.workspace.revision == 0
 
 

@@ -187,12 +187,6 @@ def test_patch_validation_matches_expected_paths() -> None:
             "--- a/server/app.py\n+++ b/../outside.py\n"
             "@@ -1 +1 @@\n-old\n+new\n"
         ),
-        (
-            "diff --git a/server/app.py b/server/app.py\n"
-            "deleted file mode 100644\n"
-            "--- a/server/app.py\n+++ /dev/null\n"
-            "@@ -1 +0,0 @@\n-old\n"
-        ),
         "GIT binary patch\n",
     ],
 )
@@ -207,6 +201,50 @@ def test_patch_validation_rejects_unsafe_forms(patch: str) -> None:
             patch,
             expected_paths=["server/app.py"],
         )
+
+
+@pytest.mark.asyncio
+async def test_engine_allows_text_deletion_only_in_temporary_workspace(
+    source_root: Path,
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    engine = CodingVerifierEngine(
+        source_root,
+        tmp_path / "workspace-delete",
+        runner=runner,
+    )
+    patch = (
+        "diff --git a/server/app.py b/server/app.py\n"
+        "deleted file mode 100644\n"
+        "--- a/server/app.py\n+++ /dev/null\n"
+        "@@ -1 +0,0 @@\n-VALUE = 1\n"
+    )
+
+    assert validate_verification_patch(
+        patch,
+        expected_paths=["server/app.py"],
+    ) == ("server/app.py",)
+    assert validate_patch(
+        patch,
+        expected_paths=["server/app.py"],
+    ) == ("server/app.py",)
+
+    report = await engine.verify(
+        revision=1,
+        patch=patch,
+        paths=["server/app.py"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+
+    assert report.state is VerificationState.COMPLETED
+    assert report.result is VerificationResult.PASSED
+    assert [call[0] for call in runner.calls] == [
+        VerificationStepId.BACKEND_TESTS
+    ]
+    assert (source_root / "server/app.py").read_text(encoding="utf-8") == (
+        "VALUE = 1\n"
+    )
 
 
 @pytest.mark.asyncio
