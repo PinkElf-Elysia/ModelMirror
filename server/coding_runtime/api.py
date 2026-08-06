@@ -1041,6 +1041,7 @@ class CodingService:
                         "concurrency_limit",
                     )
             source: dict[str, Any] | None = None
+            project = ProjectSummary.builtin().to_public_dict()
             if project_id != "modelmirror":
                 if not self.projects_enabled or self.project_source is None:
                     raise _http_error(
@@ -1049,8 +1050,16 @@ class CodingService:
                     )
                 try:
                     source = await self.project_source.acquire(project_id)
+                    project = await self.project_source.check(
+                        project_id,
+                        str(source["head"]),
+                    )
                 except ProjectSourceClientError as exc:
+                    await self._release_project_source(source)
                     raise _project_source_http_error(exc) from exc
+                except Exception:
+                    await self._release_project_source(source)
+                    raise
             try:
                 result = (
                     await self.worker.create_session(source)
@@ -1066,7 +1075,6 @@ class CodingService:
             session_id = result.get("session_id")
             worker_mode = result.get("mode")
             event_data = result.get("event")
-            project = _project_from_source(source)
             if (
                 not isinstance(session_id, str)
                 or not SAFE_IDENTIFIER.fullmatch(session_id)

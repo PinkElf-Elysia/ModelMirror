@@ -213,7 +213,17 @@ class CodingProjectSourceClient:
 
 
 def _validate_public_project(value: Any) -> dict[str, Any]:
-    expected = {"id", "name", "kind", "state", "reason", "branch", "head", "features"}
+    expected = {
+        "id",
+        "name",
+        "kind",
+        "state",
+        "reason",
+        "branch",
+        "head",
+        "features",
+        "writeback_reason",
+    }
     if not isinstance(value, dict) or set(value) != expected:
         raise ProjectSourceClientError(
             "Project source returned an invalid project.",
@@ -241,24 +251,41 @@ def _validate_public_project(value: Any) -> dict[str, Any]:
                 or value.get("head") is not None
             )
         )
-        or value.get("features")
-        != {
-            "chat": True,
-            "draft": True,
-            "diff": True,
-            "download": True,
-            "recovery": True,
-            "verification": False,
-            "apply": False,
-            "commit": False,
-            "publish": False,
-        }
+        or not _valid_project_features(value.get("features"))
+        or (
+            value["features"]["apply"] is True
+            and value.get("writeback_reason") is not None
+        )
+        or (
+            value["features"]["apply"] is False
+            and not _valid_internal_id(value.get("writeback_reason"))
+        )
     ):
         raise ProjectSourceClientError(
             "Project source returned an invalid project.",
             code="invalid_project_source_response",
         )
     return dict(value)
+
+
+def _valid_project_features(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    fixed = {
+        "chat": True,
+        "draft": True,
+        "diff": True,
+        "download": True,
+        "recovery": True,
+        "verification": False,
+        "publish": False,
+    }
+    return (
+        set(value) == {*fixed, "apply", "commit"}
+        and all(value.get(key) is expected for key, expected in fixed.items())
+        and isinstance(value.get("apply"), bool)
+        and value.get("commit") is value.get("apply")
+    )
 
 
 def _valid_local_id(value: Any) -> bool:

@@ -18,8 +18,9 @@ from .commands import (
 
 
 PROJECT_MANIFEST_NAME = ".modelmirror-coding-projects.json"
-PROJECT_MANIFEST_VERSION = 2
-SUPPORTED_PROJECT_MANIFEST_VERSIONS = frozenset({1, 2})
+PROJECT_MANIFEST_VERSION = 3
+SUPPORTED_PROJECT_MANIFEST_VERSIONS = frozenset({1, 2, 3})
+WRITEBACK_BRANCH = "coding/local-draft"
 MAX_PROJECTS = 50
 MAX_PROJECT_NAME_CHARS = 80
 MAX_PROJECT_PATH_CHARS = 512
@@ -103,7 +104,7 @@ class ProjectFeatures:
         return cls(**{field: True for field in cls.__dataclass_fields__})
 
     @classmethod
-    def local_draft(cls) -> ProjectFeatures:
+    def local_draft(cls, *, writeback: bool = False) -> ProjectFeatures:
         return cls(
             chat=True,
             draft=True,
@@ -111,8 +112,8 @@ class ProjectFeatures:
             download=True,
             recovery=True,
             verification=False,
-            apply=False,
-            commit=False,
+            apply=writeback,
+            commit=writeback,
             publish=False,
         )
 
@@ -138,6 +139,7 @@ class ProjectManifestEntry:
     verification: ProjectVerificationConfig = field(
         default_factory=ProjectVerificationConfig
     )
+    writeback_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +153,7 @@ class ProjectSummary:
     head: str | None
     features: ProjectFeatures
     relative_path: str | None = None
+    writeback_reason: str | None = None
 
     @classmethod
     def builtin(cls) -> ProjectSummary:
@@ -175,6 +178,7 @@ class ProjectSummary:
             "branch": self.branch,
             "head": self.head[:12] if self.head else None,
             "features": self.features.to_dict(),
+            "writeback_reason": self.writeback_reason,
         }
 
 
@@ -241,11 +245,12 @@ def load_project_manifest(root: Path) -> tuple[ProjectManifestEntry, ...]:
     seen_paths: set[str] = set()
     seen_folded_paths: set[str] = set()
     for item in projects:
-        allowed_keys = (
-            {"name", "path"}
-            if manifest_version == 1
-            else {"name", "path", "verification"}
-        )
+        if manifest_version == 1:
+            allowed_keys = {"name", "path"}
+        elif manifest_version == 2:
+            allowed_keys = {"name", "path", "verification"}
+        else:
+            allowed_keys = {"name", "path", "verification", "writeback"}
         if (
             not isinstance(item, dict)
             or not {"name", "path"}.issubset(item)
@@ -258,6 +263,20 @@ def load_project_manifest(root: Path) -> tuple[ProjectManifestEntry, ...]:
             verification = parse_project_verification(item.get("verification"))
         except CommandContractError as exc:
             raise ProjectCatalogError(exc.code, str(exc)) from exc
+        writeback = item.get("writeback")
+        if writeback is None:
+            writeback_enabled = False
+        elif (
+            not isinstance(writeback, dict)
+            or set(writeback) != {"enabled"}
+            or not isinstance(writeback["enabled"], bool)
+        ):
+            raise ProjectCatalogError(
+                "project_writeback_invalid",
+                "Project writeback configuration is invalid",
+            )
+        else:
+            writeback_enabled = writeback["enabled"]
         folded_path = relative_path.casefold()
         if relative_path in seen_paths:
             raise ProjectCatalogError("manifest_path_duplicate", "Project path is duplicated")
@@ -271,6 +290,7 @@ def load_project_manifest(root: Path) -> tuple[ProjectManifestEntry, ...]:
                 name=name,
                 relative_path=relative_path,
                 verification=verification,
+                writeback_enabled=writeback_enabled,
             )
         )
     return tuple(entries)
@@ -331,6 +351,24 @@ def inspect_project(
     except (OSError, UnicodeError):
         return _unavailable(entry, "git_inspection_failed")
 
+    writeback_available = False
+    writeback_reason = "writeback_not_enabled"
+    if entry.writeback_enabled:
+        if branch != WRITEBACK_BRANCH:
+            writeback_reason = "writeback_branch_required"
+        else:
+            try:
+                remotes = runner(project_path, ("remote",))
+                _require_git_success(remotes)
+                remote_names = remotes.stdout.decode("utf-8", errors="strict").strip()
+                if remote_names:
+                    writeback_reason = "git_remote_not_allowed"
+                else:
+                    writeback_available = True
+                    writeback_reason = None
+            except (ProjectCatalogError, OSError, UnicodeError):
+                writeback_reason = "writeback_inspection_failed"
+
     return ProjectSummary(
         project_id=entry.project_id,
         name=entry.name,
@@ -339,8 +377,9 @@ def inspect_project(
         reason=None,
         branch=branch,
         head=head,
-        features=ProjectFeatures.local_draft(),
+        features=ProjectFeatures.local_draft(writeback=writeback_available),
         relative_path=entry.relative_path,
+        writeback_reason=writeback_reason,
     )
 
 
@@ -520,4 +559,5 @@ def _unavailable(entry: ProjectManifestEntry, reason: str) -> ProjectSummary:
         head=None,
         features=ProjectFeatures.local_draft(),
         relative_path=entry.relative_path,
+        writeback_reason=reason,
     )

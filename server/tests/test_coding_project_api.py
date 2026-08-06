@@ -33,6 +33,7 @@ def _public_project() -> dict[str, Any]:
         "branch": "main",
         "head": PROJECT_HEAD[:12],
         "features": ProjectFeatures.local_draft().to_dict(),
+        "writeback_reason": "writeback_not_enabled",
     }
 
 
