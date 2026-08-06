@@ -1,11 +1,17 @@
 param(
     [string]$Python = "python",
-    [string]$OutputRoot = "output/coding-project-host"
+    [string]$OutputRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$outputPath = Join-Path $repoRoot $OutputRoot
+if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
+    $outputPath = Join-Path ([IO.Path]::GetTempPath()) "modelmirror-coding-project-host"
+} elseif ([IO.Path]::IsPathRooted($OutputRoot)) {
+    $outputPath = [IO.Path]::GetFullPath($OutputRoot)
+} else {
+    $outputPath = Join-Path $repoRoot $OutputRoot
+}
 $workPath = Join-Path $outputPath "build"
 $distPath = Join-Path $outputPath "dist"
 $specPath = Join-Path $outputPath "spec"
