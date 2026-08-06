@@ -145,6 +145,15 @@ def coding_project_commands_enabled() -> bool:
     }
 
 
+def coding_file_operations_enabled() -> bool:
+    return os.getenv("CODING_FILE_OPERATIONS_ENABLED", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def validate_runtime_dependencies(
     paths: tuple[Path, ...] = REQUIRED_RUNTIME_EXECUTABLES,
 ) -> None:
@@ -164,6 +173,7 @@ def _permission_for_mode(
     mode: str,
     *,
     commands_enabled: bool = False,
+    file_operations_enabled: bool = False,
 ) -> dict[str, Any]:
     if mode not in CODING_AGENT_MODES:
         raise CodingWorkerError(
@@ -199,7 +209,7 @@ def _permission_for_mode(
         "todowrite": "deny",
         "doom_loop": "deny",
     }
-    if commands_enabled:
+    if commands_enabled or file_operations_enabled:
         permission[f"{RUNNER_MCP_NAME}_*"] = "allow"
     return permission
 
@@ -210,6 +220,7 @@ def build_opencode_config(
     *,
     project_instructions: bool = False,
     commands_enabled: bool = False,
+    file_operations_enabled: bool = False,
     runner_token: str = "",
 ) -> dict[str, Any]:
     if not SAFE_MODEL_ID.fullmatch(model_id):
@@ -217,14 +228,23 @@ def build_opencode_config(
             "Coding Agent model is not configured safely.",
             code="not_configured",
         )
+    if (commands_enabled or file_operations_enabled) and mode != "draft":
+        raise CodingWorkerError(
+            "Coding project tools are not configured safely.",
+            code="not_configured",
+        )
     if commands_enabled and (
-        mode != "draft" or SAFE_RUNNER_TOKEN.fullmatch(runner_token) is None
+        SAFE_RUNNER_TOKEN.fullmatch(runner_token) is None
     ):
         raise CodingWorkerError(
             "Coding project commands are not configured safely.",
             code="not_configured",
         )
-    permission = _permission_for_mode(mode, commands_enabled=commands_enabled)
+    permission = _permission_for_mode(
+        mode,
+        commands_enabled=commands_enabled,
+        file_operations_enabled=file_operations_enabled,
+    )
     agent_name = "draft" if mode == "draft" else "readonly"
     config: dict[str, Any] = {
         "$schema": "https://opencode.ai/config.json",
@@ -268,15 +288,27 @@ def build_opencode_config(
         "share": "disabled",
         "autoupdate": False,
     }
-    if commands_enabled:
+    if commands_enabled or file_operations_enabled:
+        environment: dict[str, str] = {}
+        if commands_enabled:
+            environment.update(
+                {
+                    "MODELMIRROR_RUNNER_SOCKET": RUNNER_MCP_SOCKET_PATH,
+                    "MODELMIRROR_RUNNER_TOKEN": runner_token,
+                }
+            )
+        if file_operations_enabled:
+            environment.update(
+                {
+                    "MODELMIRROR_WORKSPACE": WORKSPACE_PATH,
+                    "MODELMIRROR_FILE_OPERATIONS": "1",
+                }
+            )
         config["mcp"] = {
             RUNNER_MCP_NAME: {
                 "type": "local",
                 "command": ["python", "-m", "coding_runtime.runner_mcp"],
-                "environment": {
-                    "MODELMIRROR_RUNNER_SOCKET": RUNNER_MCP_SOCKET_PATH,
-                    "MODELMIRROR_RUNNER_TOKEN": runner_token,
-                },
+                "environment": environment,
                 "enabled": True,
                 "timeout": 310_000,
             }
@@ -289,9 +321,16 @@ def create_acp_client(
     *,
     project_instructions: bool = False,
     commands_enabled: bool = False,
+    file_operations_enabled: bool | None = None,
     runner_token: str = "",
 ) -> AcpClient:
     active_mode = mode or coding_agent_mode()
+    requested_file_operations = (
+        coding_file_operations_enabled()
+        if file_operations_enabled is None
+        else file_operations_enabled
+    )
+    active_file_operations = active_mode == "draft" and requested_file_operations
     model_id = os.getenv("CODING_AGENT_MODEL", "").strip()
     gateway_key = os.getenv("CODING_AGENT_GATEWAY_KEY", "").strip()
     if not gateway_key:
@@ -305,6 +344,7 @@ def create_acp_client(
             active_mode,
             project_instructions=project_instructions,
             commands_enabled=commands_enabled,
+            file_operations_enabled=active_file_operations,
             runner_token=runner_token,
         ),
         ensure_ascii=False,
