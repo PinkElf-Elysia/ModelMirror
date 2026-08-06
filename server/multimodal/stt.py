@@ -36,7 +36,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-08-01-b3"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-08-06-b4"
 
 
 @dataclass(frozen=True)
@@ -59,6 +59,7 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
         "nvidia/parakeet-tdt-0.6b-v3",
         "openai/gpt-4o-mini-transcribe",
         "openai/gpt-4o-transcribe",
+        "openai/gpt-transcribe",
         "openai/whisper-1",
         "openai/whisper-large-v3",
         "openai/whisper-large-v3-turbo",
@@ -66,6 +67,21 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
         "x-ai/grok-stt-1.0",
     )
 }
+MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {}
+
+
+def verification_model_ids() -> set[str]:
+    return {
+        value.strip()
+        for value in os.getenv(
+            "MULTIMODAL_VERIFICATION_MODEL_IDS", ""
+        ).split(",")
+        if value.strip()
+    }
+
+
+def manual_verification_enabled(model_id: str) -> bool:
+    return model_id in verification_model_ids()
 
 
 class MultimodalServiceError(Exception):
@@ -400,7 +416,10 @@ class TranscriptionService:
     ) -> TranscriptionResult:
         clean_model = self._model_id(model_id)
         clean_language = self._language(language)
-        profile = VERIFIED_TRANSCRIPTION_PROFILES[clean_model]
+        profile = (
+            VERIFIED_TRANSCRIPTION_PROFILES.get(clean_model)
+            or MANUAL_TRANSCRIPTION_PROFILES[clean_model]
+        )
         clean_filename, audio_format = self._validate_audio(
             filename,
             content_type,
@@ -592,6 +611,14 @@ class TranscriptionService:
                 "请选择一个具体的音频转文字模型。",
                 status_code=422,
             )
+        if model_id in MANUAL_TRANSCRIPTION_PROFILES:
+            if not manual_verification_enabled(model_id):
+                raise MultimodalServiceError(
+                    "transcription_verification_required",
+                    "该转写模型仅在本地人工验收名单中开放，请先确认预计费用并配置验收模型。",
+                    status_code=422,
+                )
+            return model_id
         if model_id not in VERIFIED_TRANSCRIPTION_PROFILES:
             raise MultimodalServiceError(
                 "unsupported_transcription_model",

@@ -15,7 +15,12 @@ try:
 except ModuleNotFoundError:
     from model_router.service import ModelRouterService
 
-from .stt import MultimodalServiceError, OpenRouterTarget
+from .stt import (
+    MultimodalServiceError,
+    OpenRouterTarget,
+    manual_verification_enabled,
+)
+from .readiness import OperationReadiness
 
 
 VIDEO_CATALOG_TTL_SECONDS = 300.0
@@ -27,6 +32,38 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         "bytedance/seedance-2.0",
         "runway/aleph-2",
         "runway/gen-4.5",
+        # 2026-08-06 人工验收：最低规格文生视频可完整播放与下载。
+        "x-ai/grok-imagine-video",
+        "x-ai/grok-imagine-video-1.5",
+        "alibaba/happyhorse-1.0",
+        "alibaba/happyhorse-1.1",
+        "alibaba/wan-2.6",
+        "alibaba/wan-2.7",
+        "minimax/hailuo-2.3",
+        "minimax/hailuo-3",
+        # 2026-08-06 人工验收：首尾帧、参考图及受控音频/种子参数通过。
+        "kwaivgi/kling-v3.0-pro",
+        "kwaivgi/kling-v3.0-std",
+        "kwaivgi/kling-video-o1",
+        "bytedance/seedance-1-5-pro",
+        "bytedance/seedance-2.0-fast",
+        # 2026-08-06 人工验收：最低规格生成、轮询、播放与下载闭环通过。
+        # Veo Lite 的受控高级参数也已完成验收。
+        "google/veo-3.1-lite",
+        "google/veo-3.1-fast",
+        "google/veo-3.1",
+        "black-forest-labs/flux-3-video",
+        "openai/sora-2-pro",
+    }
+)
+
+HIGH_COST_VIDEO_VERIFICATION_MODELS = frozenset(
+    {
+        "google/veo-3.1-lite",
+        "google/veo-3.1-fast",
+        "google/veo-3.1",
+        "black-forest-labs/flux-3-video",
+        "openai/sora-2-pro",
     }
 )
 
@@ -63,6 +100,12 @@ class VideoModelProfile(BaseModel):
     )
     pricing_skus: dict[str, str] = Field(default_factory=dict)
     interaction_status: Literal["ready", "planned", "unsupported"] = "planned"
+    status_reason: str | None = None
+    verification_entry_enabled: bool = False
+    verification_requires_cost_estimate: bool = False
+    operation_readiness: list[OperationReadiness] = Field(
+        default_factory=list
+    )
 
 
 REFERENCE_IMAGE_AUDIT: dict[str, int] = {
@@ -240,6 +283,14 @@ class VideoCatalogService:
                             operation="analyze_video",
                             supported_input_sources=["file", "url"],
                             interaction_status="ready",
+                            operation_readiness=[
+                                OperationReadiness(
+                                    operation="analyze_video",
+                                    interaction_status="ready",
+                                    availability_status="available",
+                                    verification_status="verified",
+                                )
+                            ],
                         )
                     )
         if generation_enabled:
@@ -251,6 +302,12 @@ class VideoCatalogService:
                     continue
                 frame_types = self._frame_types(item)
                 reference_limit = REFERENCE_IMAGE_AUDIT.get(model_id)
+                verified = model_id in VERIFIED_VIDEO_GENERATION_MODELS
+                status_reason = (
+                    None
+                    if verified
+                    else "实时参数契约已确认，等待最低规格人工生成验收。"
+                )
                 profiles.append(
                     VideoModelProfile(
                         model_id=model_id,
@@ -279,10 +336,37 @@ class VideoCatalogService:
                         ),
                         pricing_skus=self._pricing(item.get("pricing_skus")),
                         interaction_status=(
-                            "ready"
-                            if model_id in VERIFIED_VIDEO_GENERATION_MODELS
-                            else "planned"
+                            "ready" if verified else "planned"
                         ),
+                        status_reason=status_reason,
+                        verification_entry_enabled=(
+                            not verified
+                            and manual_verification_enabled(model_id)
+                        ),
+                        verification_requires_cost_estimate=(
+                            not verified
+                            and model_id
+                            in HIGH_COST_VIDEO_VERIFICATION_MODELS
+                        ),
+                        operation_readiness=[
+                            OperationReadiness(
+                                operation="generate_video",
+                                interaction_status=(
+                                    "ready" if verified else "planned"
+                                ),
+                                availability_status=(
+                                    "available"
+                                    if verified
+                                    else "verification_required"
+                                ),
+                                verification_status=(
+                                    "verified"
+                                    if verified
+                                    else "contract_verified"
+                                ),
+                                status_reason=status_reason,
+                            )
+                        ],
                     )
                 )
         return [

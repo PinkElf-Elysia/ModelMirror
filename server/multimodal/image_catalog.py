@@ -16,6 +16,7 @@ except ModuleNotFoundError:
     from model_router.service import ModelRouterService
 
 from .stt import MultimodalServiceError, OpenRouterTarget
+from .readiness import OperationReadiness
 
 
 IMAGE_CATALOG_TTL_SECONDS = 300.0
@@ -42,6 +43,9 @@ class ImageModelProfile(BaseModel):
     supports_streaming: bool = False
     interaction_status: Literal["ready", "planned", "disabled"] = "ready"
     status_reason: str | None = None
+    operation_readiness: list[OperationReadiness] = Field(
+        default_factory=list
+    )
 
 
 class ImageModelCatalogResponse(BaseModel):
@@ -203,6 +207,14 @@ class ImageCatalogService:
                             operation="analyze_image",
                             input_modalities=inputs,
                             output_modalities=outputs,
+                            operation_readiness=[
+                                OperationReadiness(
+                                    operation="analyze_image",
+                                    interaction_status="ready",
+                                    availability_status="available",
+                                    verification_status="verified",
+                                )
+                            ],
                         )
                     )
         if generation_enabled:
@@ -229,6 +241,14 @@ class ImageCatalogService:
                         supports_streaming=bool(
                             item.get("supports_streaming")
                         ),
+                        operation_readiness=[
+                            OperationReadiness(
+                                operation="generate_image",
+                                interaction_status="ready",
+                                availability_status="available",
+                                verification_status="verified",
+                            )
+                        ],
                     )
                 )
         return profiles

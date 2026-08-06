@@ -23,7 +23,7 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-08-01-b6"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-08-06-c1"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
 FISH_AUDIO_PUBLIC_VOICES = (
     "8ef4a238714b45718ce04243307c57a7",
@@ -125,6 +125,23 @@ ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
         "Puck",
     ),
 }
+OPENAI_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    "gpt-4o-mini-tts": (
+        "alloy",
+        "ash",
+        "ballad",
+        "cedar",
+        "coral",
+        "echo",
+        "fable",
+        "marin",
+        "nova",
+        "onyx",
+        "sage",
+        "shimmer",
+        "verse",
+    ),
+}
 
 
 def speech_output_format(model_id: str) -> str:
@@ -164,15 +181,16 @@ class OpenRouterTtsAdapter:
         text: str,
         voice: str,
         speed: float,
+        provider: str = "openrouter",
     ) -> tuple[bytes, str | None, str]:
-        await self._verify_speech_model(target, model_id)
+        await self._verify_speech_model(target, model_id, provider=provider)
         output_format = speech_output_format(model_id)
         upstream_format = "pcm" if output_format == "wav" else "mp3"
         async with self._client_factory() as client:
             try:
                 response = await client.post(
                     self._api_url(target.base_url, "audio/speech"),
-                    headers=self._headers(target.api_key),
+                    headers=self._headers(target.api_key, provider=provider),
                     json={
                         "model": model_id,
                         "input": text,
@@ -197,7 +215,11 @@ class OpenRouterTtsAdapter:
                     "暂时无法连接语音生成服务，请检查网络后重试。",
                     status_code=502,
                 ) from exc
-        self._raise_for_status(response, model_id=model_id)
+        self._raise_for_status(
+            response,
+            model_id=model_id,
+            provider=provider,
+        )
         if output_format == "wav":
             content = self._pcm_response_to_wav(response)
         else:
@@ -212,6 +234,8 @@ class OpenRouterTtsAdapter:
         self,
         target: OpenRouterTarget,
         model_id: str,
+        *,
+        provider: str = "openrouter",
     ) -> None:
         now = time.monotonic()
         cached = self._catalog_cache.get(target.cache_key)
@@ -222,7 +246,10 @@ class OpenRouterTtsAdapter:
                 try:
                     response = await client.get(
                         self._api_url(target.base_url, "models"),
-                        headers=self._headers(target.api_key),
+                        headers=self._headers(
+                            target.api_key,
+                            provider=provider,
+                        ),
                         params={"output_modalities": "speech"},
                     )
                 except (
@@ -241,7 +268,11 @@ class OpenRouterTtsAdapter:
                         "无法读取语音生成模型目录，请检查连接后重试。",
                         status_code=502,
                     ) from exc
-            self._raise_for_status(response, model_id=model_id)
+            self._raise_for_status(
+                response,
+                model_id=model_id,
+                provider=provider,
+            )
             try:
                 payload = response.json()
             except ValueError as exc:
@@ -320,7 +351,13 @@ class OpenRouterTtsAdapter:
         return f"{root}/{path.lstrip('/')}"
 
     @staticmethod
-    def _headers(api_key: str) -> dict[str, str]:
+    def _headers(
+        api_key: str,
+        *,
+        provider: str = "openrouter",
+    ) -> dict[str, str]:
+        if provider == "openai":
+            return {"Authorization": f"Bearer {api_key}"}
         title = os.getenv("OPENROUTER_APP_TITLE", "ModelMirror").strip()
         referer = os.getenv(
             "OPENROUTER_HTTP_REFERER", "http://localhost:5173"
@@ -337,14 +374,16 @@ class OpenRouterTtsAdapter:
         response: httpx.Response,
         *,
         model_id: str,
+        provider: str = "openrouter",
     ) -> None:
         status = response.status_code
         if status < 400:
             return
         if status in {401, 403}:
+            provider_label = "OpenAI" if provider == "openai" else "OpenRouter"
             raise MultimodalServiceError(
                 "provider_credentials_invalid",
-                "OpenRouter 密钥无效或没有语音生成权限，请在模型服务连接中更新密钥。",
+                f"{provider_label} 密钥无效或没有语音生成权限，请在模型服务连接中更新密钥。",
                 status_code=502,
             )
         if status == 402:
@@ -500,11 +539,17 @@ class SpeechService:
         clean_voice = self._voice(clean_model, voice)
         clean_format = self._response_format(clean_model, response_format)
         clean_speed = self._speed(speed)
-        target = self._target()
+        provider = (
+            "openai"
+            if clean_model in OPENAI_SPEECH_PROFILES
+            else "openrouter"
+        )
+        target = self._target(clean_model)
         decision_id = self._record_start(
             target,
             model_id=clean_model,
             input_bytes=len(clean_text.encode("utf-8")),
+            provider=provider,
         )
         try:
             content, generation_id, actual_format = await self.adapter.synthesize(
@@ -513,6 +558,7 @@ class SpeechService:
                 text=clean_text,
                 voice=clean_voice,
                 speed=clean_speed,
+                provider=provider,
             )
         except MultimodalServiceError as exc:
             self._record_failure(decision_id, exc.code)
@@ -529,18 +575,19 @@ class SpeechService:
             content=content,
             requested_model=clean_model,
             actual_model=clean_model,
-            provider="openrouter",
+            provider=provider,
             request_id=decision_id,
             generation_id=generation_id,
             output_bytes=len(content),
             response_format=actual_format,
         )
 
-    def _target(self) -> OpenRouterTarget:
+    def _target(self, model_id: str) -> OpenRouterTarget:
+        direct_openai = model_id in OPENAI_SPEECH_PROFILES
         connections = [
             item
             for item in self.router_service.list_connections()
-            if item.kind == "openrouter"
+            if item.kind == ("openai" if direct_openai else "openrouter")
             and item.enabled
             and item.health != "offline"
             and "audio" in item.scopes
@@ -559,9 +606,10 @@ class SpeechService:
                     connection.id,
                 )
             except Exception as exc:
+                provider_label = "OpenAI" if direct_openai else "OpenRouter"
                 raise MultimodalServiceError(
                     "provider_credentials_unavailable",
-                    "无法读取 OpenRouter 连接密钥，请重新保存模型服务连接。",
+                    f"无法读取 {provider_label} 连接密钥，请重新保存模型服务连接。",
                     status_code=503,
                 ) from exc
             return OpenRouterTarget(
@@ -569,6 +617,12 @@ class SpeechService:
                 api_key=api_key,
                 connection_id=connection.id,
                 cache_key=f"connection:{connection.id}",
+            )
+        if direct_openai:
+            raise MultimodalServiceError(
+                "openai_audio_not_configured",
+                "尚未配置 OpenAI 音频连接。请在“模型服务连接”中添加并测试 OpenAI。",
+                status_code=503,
             )
         api_key = (
             os.getenv("MULTIMODAL_OPENROUTER_API_KEY", "").strip()
@@ -597,6 +651,7 @@ class SpeechService:
         *,
         model_id: str,
         input_bytes: int,
+        provider: str,
     ) -> str:
         record = getattr(
             self.router_service.repository,
@@ -614,7 +669,7 @@ class SpeechService:
                 record(
                     self.router_service.tenant_id,
                     session_id_hash=None,
-                    engine="openrouter",
+                    engine=provider,
                     strategy="explicit",
                     operation="synthesize_speech",
                     connection_id=target.connection_id,
@@ -676,7 +731,10 @@ class SpeechService:
     @staticmethod
     def _model_id(value: str) -> str:
         model_id = str(value or "").strip()
-        if model_id not in ALLOWED_SPEECH_PROFILES:
+        if (
+            model_id not in ALLOWED_SPEECH_PROFILES
+            and model_id not in OPENAI_SPEECH_PROFILES
+        ):
             raise MultimodalServiceError(
                 "unsupported_speech_model",
                 "该语音模型尚未完成行为验证，请从页面的可用模型中选择。",
@@ -704,7 +762,11 @@ class SpeechService:
     @staticmethod
     def _voice(model_id: str, value: str) -> str:
         voice = str(value or "").strip()
-        if voice not in ALLOWED_SPEECH_PROFILES[model_id]:
+        voices = (
+            OPENAI_SPEECH_PROFILES.get(model_id)
+            or ALLOWED_SPEECH_PROFILES[model_id]
+        )
+        if voice not in voices:
             raise MultimodalServiceError(
                 "unsupported_voice",
                 "该声线尚未完成行为验证，请使用当前页面提供的声线。",

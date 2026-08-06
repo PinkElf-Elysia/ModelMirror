@@ -135,6 +135,12 @@ async def test_image_catalog_separates_understanding_and_generation(
     generation = next(
         item for item in result.profiles if item.operation == "generate_image"
     )
+    assert all(
+        item.operation_readiness[0].interaction_status == "ready"
+        and item.operation_readiness[0].availability_status == "available"
+        and item.operation_readiness[0].verification_status == "verified"
+        for item in result.profiles
+    )
     assert generation.supported_parameters["resolution"].values == [
         "1K",
         "2K",

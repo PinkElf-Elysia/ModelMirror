@@ -13,6 +13,7 @@ from server.model_router.schemas import RouterConnectionCreate
 from server.model_router.service import ModelRouterService
 from server.multimodal.api import configure_transcription_service
 from server.multimodal.stt import (
+    MANUAL_TRANSCRIPTION_PROFILES,
     MultimodalServiceError,
     OpenRouterSttAdapter,
     OpenRouterTarget,
@@ -43,6 +44,13 @@ def test_verified_transcription_profiles_cover_common_formats_and_providers() ->
             profile.input_formats
         )
         assert profile.smoke_languages == ("zh", "en")
+
+
+def test_gpt_transcribe_is_in_verified_registry() -> None:
+    model_id = "openai/gpt-transcribe"
+    assert model_id in VERIFIED_TRANSCRIPTION_PROFILES
+    assert model_id not in MANUAL_TRANSCRIPTION_PROFILES
+    assert TranscriptionService._model_id(model_id) == model_id
 
 
 @pytest.mark.parametrize(

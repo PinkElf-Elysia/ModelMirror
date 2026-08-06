@@ -54,6 +54,9 @@ interface VideoModelProfile {
   provider_options: VideoProviderOption[];
   pricing_skus: Record<string, string>;
   interaction_status: "ready" | "planned" | "unsupported";
+  status_reason?: string | null;
+  verification_entry_enabled?: boolean;
+  verification_requires_cost_estimate?: boolean;
 }
 
 interface VideoCatalogResponse {
@@ -259,7 +262,10 @@ function estimatedCost(
       pricingNumber(
         profile,
         `cents_per_video_output_second_${resolutionKey}`,
-      ) ?? pricingNumber(profile, "cents_per_video_output_second");
+      ) ??
+      pricingNumber(profile, `cents_per_second_output_${resolutionKey}`) ??
+      pricingNumber(profile, "cents_per_video_output_second") ??
+      pricingNumber(profile, "cents_per_second_output");
     if (cents !== null) perSecond = cents / 100;
   }
   if (perSecond === null) return null;
@@ -365,6 +371,8 @@ export default function VideoGenerationWorkspace({
     () => new Set(),
   );
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [manualVerificationConfirmed, setManualVerificationConfirmed] =
+    useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -464,6 +472,7 @@ export default function VideoGenerationWorkspace({
       setCatalogStatus(payload.status);
       setCatalogStale(payload.stale);
       setProfile(nextProfile);
+      setManualVerificationConfirmed(false);
       if (!nextProfile) return payload;
 
       const sortedDurations = [...nextProfile.supported_durations].sort(
@@ -857,6 +866,8 @@ export default function VideoGenerationWorkspace({
     prompt.trim().length <= MAX_PROMPT_CHARS &&
     duration !== null &&
     Boolean(resolution) &&
+    (!profile?.verification_entry_enabled || manualVerificationConfirmed) &&
+    (!profile?.verification_requires_cost_estimate || estimate !== null) &&
     !capabilityRefreshRequired &&
     !submitting;
 
@@ -1046,6 +1057,25 @@ export default function VideoGenerationWorkspace({
               </div>
             ) : profile ? (
               <div className="space-y-6 p-5 sm:p-6">
+                {profile.verification_entry_enabled ? (
+                  <div
+                    className="rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-50"
+                    role="status"
+                  >
+                    <p className="font-semibold">人工行为核验</p>
+                    <p className="mt-1 text-amber-100/90">
+                      该模型的实时参数契约已确认，但生成结果尚未验收。页面已默认选择目录中的最短时长和最低费用分辨率；提交会产生实际费用，完成后请检查视频能否完整播放和下载。
+                    </p>
+                  </div>
+                ) : null}
+                {profile.verification_requires_cost_estimate && estimate === null ? (
+                  <div
+                    className="rounded-lg border border-rose-300/30 bg-rose-300/10 px-4 py-3 text-sm leading-6 text-rose-100"
+                    role="alert"
+                  >
+                    当前实时目录无法可靠估算该高费用模型，本轮禁止提交。请刷新模型能力；价格恢复前仅保留核验步骤。
+                  </div>
+                ) : null}
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-4">
                     <label
@@ -1640,6 +1670,21 @@ export default function VideoGenerationWorkspace({
                     <p className="mt-1 text-xs text-slate-400">
                       提交会产生费用，最终金额以网关回执为准。
                     </p>
+                    {profile.verification_entry_enabled ? (
+                      <label className="mt-3 flex max-w-xl items-start gap-2 text-xs leading-5 text-amber-100">
+                        <input
+                          checked={manualVerificationConfirmed}
+                          className="mt-0.5 h-4 w-4 rounded border-white/20 bg-ink-950 text-hire-300 focus:ring-hire-200"
+                          onChange={(event) =>
+                            setManualVerificationConfirmed(event.target.checked)
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          我已确认这是未完成行为验证的最低规格测试，并了解会产生实际费用。
+                        </span>
+                      </label>
+                    ) : null}
                   </div>
                   <button
                     className="rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-45"

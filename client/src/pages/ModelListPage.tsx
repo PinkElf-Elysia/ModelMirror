@@ -80,6 +80,8 @@ interface VideoModelProfile {
   model_id: string;
   operation: "analyze_video" | "generate_video";
   interaction_status: "ready" | "planned" | "unsupported";
+  verification_entry_enabled?: boolean;
+  operation_readiness?: OperationReadiness[];
 }
 
 interface VideoCatalogPayload {
@@ -102,6 +104,26 @@ interface AudioModelProfile {
     | "transcribe"
     | "synthesize_speech"
   )[];
+  operation_readiness?: OperationReadiness[];
+}
+
+interface OperationReadiness {
+  operation: ModelOperation;
+  interaction_status: "ready" | "planned" | "disabled";
+  availability_status:
+    | "available"
+    | "needs_configuration"
+    | "verification_required"
+    | "upstream_unavailable"
+    | "disabled";
+  verification_status:
+    | "verified"
+    | "contract_verified"
+    | "manual_required"
+    | "failed"
+    | "not_applicable";
+  support_level: "native" | "converted" | "combined" | "fallback";
+  status_reason: string | null;
 }
 
 interface AudioCatalogPayload {
@@ -115,12 +137,30 @@ interface ImageModelProfile {
   operation: "analyze_image" | "generate_image";
   invocable: boolean;
   interaction_status: "ready" | "planned" | "disabled";
+  operation_readiness?: OperationReadiness[];
 }
 
 interface ImageCatalogPayload {
   status: "online" | "stale" | "offline" | "disabled";
   stale: boolean;
   profiles: ImageModelProfile[];
+}
+
+interface GeneralCatalogPayload {
+  models: Array<{
+    profile_id: string;
+    invocation_id: string;
+    root: string | null;
+    invocable: boolean;
+  }>;
+  routes: Array<{
+    id: string;
+    invocable: boolean;
+  }>;
+}
+
+interface RuntimeEnvironmentSummary {
+  model_gateway_ready: boolean;
 }
 
 export default function ModelListPage() {
@@ -133,6 +173,10 @@ export default function ModelListPage() {
     useState<AudioCatalogPayload | null>(null);
   const [imageCatalog, setImageCatalog] =
     useState<ImageCatalogPayload | null>(null);
+  const [generalCatalog, setGeneralCatalog] =
+    useState<GeneralCatalogPayload | null>(null);
+  const [runtimeEnvironment, setRuntimeEnvironment] =
+    useState<RuntimeEnvironmentSummary | null>(null);
 
   useEffect(() => {
     document.title = "模镜 - AI 牛马招聘会";
@@ -201,13 +245,63 @@ export default function ModelListPage() {
         }
       });
 
+    void fetch("/api/models/catalog", {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("model catalog unavailable");
+        }
+        return (await response.json()) as GeneralCatalogPayload;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) {
+          setGeneralCatalog(payload);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setGeneralCatalog(null);
+        }
+      });
+
+    void fetch("/api/runtime/environment-summary", {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("runtime environment unavailable");
+        }
+        return (await response.json()) as RuntimeEnvironmentSummary;
+      })
+      .then((payload) => {
+        if (!controller.signal.aborted) {
+          setRuntimeEnvironment(payload);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setRuntimeEnvironment(null);
+        }
+      });
+
     return () => controller.abort();
   }, []);
 
   const confirmedVideoOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
     for (const profile of videoCatalog?.profiles ?? []) {
-      if (profile.interaction_status !== "ready") continue;
+      const readiness = profile.operation_readiness?.find(
+        (item) => item.operation === profile.operation,
+      );
+      if (
+        readiness
+          ? readiness.interaction_status !== "ready" ||
+            readiness.availability_status !== "available"
+          : profile.interaction_status !== "ready"
+      ) {
+        continue;
+      }
       const current = result.get(profile.model_id) ?? [];
       if (!current.includes(profile.operation)) {
         current.push(profile.operation);
@@ -217,30 +311,53 @@ export default function ModelListPage() {
     return result;
   }, [videoCatalog]);
 
-  const confirmedAudioOperations = useMemo(() => {
+  const verificationVideoOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
-    for (const profile of audioCatalog?.profiles ?? []) {
+    for (const profile of videoCatalog?.profiles ?? []) {
       if (
-        !profile.invocable ||
-        profile.interaction_status !== "ready"
+        !profile.verification_entry_enabled ||
+        profile.operation !== "generate_video"
       ) {
         continue;
       }
-      const operations: ModelOperation[] = [];
-      if (profile.chat_modes.includes("direct_audio_input")) {
-        operations.push("analyze_audio");
-      }
-      if (profile.chat_modes.includes("transcribe")) {
-        operations.push("transcribe");
-      }
-      if (profile.chat_modes.includes("synthesize_speech")) {
-        operations.push("synthesize_speech");
-      }
-      if (profile.operations.includes("generate_audio")) {
-        operations.push("generate_audio");
-      }
-      if (profile.operations.includes("realtime_voice")) {
-        operations.push("realtime_voice");
+      result.set(profile.model_id, [profile.operation]);
+    }
+    return result;
+  }, [videoCatalog]);
+
+  const confirmedAudioOperations = useMemo(() => {
+    const result = new Map<string, ModelOperation[]>();
+    for (const profile of audioCatalog?.profiles ?? []) {
+      const readiness = profile.operation_readiness ?? [];
+      const operations = readiness
+        .filter(
+          (item) =>
+            item.interaction_status === "ready" &&
+            item.availability_status === "available" &&
+            profile.invocable,
+        )
+        .map((item) => item.operation);
+      if (
+        readiness.length === 0 &&
+        profile.invocable &&
+        profile.interaction_status === "ready"
+      ) {
+        if (profile.chat_modes.includes("direct_audio_input")) {
+          operations.push("analyze_audio");
+        }
+        if (profile.chat_modes.includes("transcribe")) {
+          operations.push("transcribe");
+        }
+        if (profile.chat_modes.includes("synthesize_speech")) {
+          operations.push("synthesize_speech");
+        }
+        operations.push(
+          ...profile.operations.filter(
+            (operation) =>
+              operation === "generate_audio" ||
+              operation === "realtime_voice",
+          ),
+        );
       }
       if (operations.length > 0) {
         const current = result.get(profile.model_id) ?? [];
@@ -253,10 +370,41 @@ export default function ModelListPage() {
     return result;
   }, [audioCatalog]);
 
+  const adaptedAudioOperations = useMemo(() => {
+    const result = new Map<string, ModelOperation[]>();
+    for (const profile of audioCatalog?.profiles ?? []) {
+      const readiness = profile.operation_readiness ?? [];
+      const operations = readiness
+        .filter((item) => item.interaction_status === "ready")
+        .map((item) => item.operation);
+      if (readiness.length === 0 && profile.interaction_status === "ready") {
+        operations.push(...profile.operations);
+      }
+      if (operations.length > 0) {
+        result.set(
+          profile.model_id,
+          Array.from(
+            new Set([...(result.get(profile.model_id) ?? []), ...operations]),
+          ),
+        );
+      }
+    }
+    return result;
+  }, [audioCatalog]);
+
   const confirmedImageOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
     for (const profile of imageCatalog?.profiles ?? []) {
-      if (!profile.invocable || profile.interaction_status !== "ready") {
+      const readiness = profile.operation_readiness?.find(
+        (item) => item.operation === profile.operation,
+      );
+      if (
+        !profile.invocable ||
+        (readiness
+          ? readiness.interaction_status !== "ready" ||
+            readiness.availability_status !== "available"
+          : profile.interaction_status !== "ready")
+      ) {
         continue;
       }
       const current = result.get(profile.model_id) ?? [];
@@ -285,6 +433,18 @@ export default function ModelListPage() {
       result.set(profile.model_id, {
         status: profile.interaction_status,
         operations,
+        adaptedOperations:
+          (profile.operation_readiness ?? []).length > 0
+            ? (profile.operation_readiness ?? [])
+                .filter((item) => item.interaction_status === "ready")
+                .map((item) => item.operation)
+            : profile.interaction_status === "ready"
+              ? profile.operations
+              : [],
+        availabilityStatus:
+          (profile.operation_readiness ?? []).find(
+            (item) => item.operation === operations[0],
+          )?.availability_status ?? null,
         reason: profile.status_reason,
         pricePerGenerationUsd: profile.price_per_generation_usd,
         fixedDurationSeconds: profile.fixed_duration_seconds,
@@ -292,6 +452,20 @@ export default function ModelListPage() {
     }
     return result;
   }, [audioCatalog]);
+
+  const invocableModelIds = useMemo(() => {
+    const result = new Set<string>();
+    for (const candidate of generalCatalog?.models ?? []) {
+      if (!candidate.invocable) continue;
+      result.add(candidate.profile_id);
+      result.add(candidate.invocation_id);
+      if (candidate.root) result.add(candidate.root);
+    }
+    for (const route of generalCatalog?.routes ?? []) {
+      if (route.invocable) result.add(route.id);
+    }
+    return result;
+  }, [generalCatalog]);
 
   const seriesOptions = useMemo(
     () =>
@@ -335,7 +509,12 @@ export default function ModelListPage() {
         return false;
       }
 
-      if (!filters.showInactive && !model.active) return false;
+      if (
+        !filters.showInactive &&
+        model.catalog_status === "expired"
+      ) {
+        return false;
+      }
       if (!providerFilterMatches(model, filters.provider)) {
         return false;
       }
@@ -406,7 +585,16 @@ export default function ModelListPage() {
   const hasActiveCriteria = hasSearchTerm || !isDefaultFilters(filters);
   const activeFilterCount =
     countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
-  const adaptedFilteredCount = filteredModels.filter(
+  const onsiteModels = models.filter(
+    (model) => model.catalog_status !== "expired",
+  );
+  const browseableModels = models.filter(
+    (model) => model.catalog_status !== "expired",
+  );
+  const onsiteFilteredModels = filteredModels.filter(
+    (model) => model.catalog_status !== "expired",
+  );
+  const adaptedFilteredCount = onsiteFilteredModels.filter(
     (model) => {
       const audioStatus = audioCapabilityStatuses.get(model.id);
       const primaryAudioOperation =
@@ -415,7 +603,7 @@ export default function ModelListPage() {
         model.primary_operation === "generate_audio" ||
         model.primary_operation === "realtime_voice";
       if (primaryAudioOperation && audioStatus) {
-        return audioStatus.status !== "planned";
+        return Boolean(adaptedAudioOperations.get(model.id)?.length);
       }
       return (
         model.interaction_status === "ready" ||
@@ -433,6 +621,19 @@ export default function ModelListPage() {
       );
     },
   ).length;
+  const usableFilteredCount = onsiteFilteredModels.filter(
+    (model) =>
+      invocableModelIds.has(model.id) ||
+      (
+        model.catalog_status !== "historical" &&
+        runtimeEnvironment?.model_gateway_ready === true &&
+        model.interaction_status === "ready" &&
+        (model.ui_entrypoint === "chat" || model.ui_entrypoint === "rag")
+      ) ||
+      Boolean(confirmedAudioOperations.get(model.id)?.length) ||
+      Boolean(confirmedImageOperations.get(model.id)?.length) ||
+      Boolean(confirmedVideoOperations.get(model.id)?.length),
+  ).length;
   const featuredModels = filteredModels.slice(0, 2);
   const galleryModels = filteredModels.slice(featuredModels.length);
 
@@ -448,7 +649,7 @@ export default function ModelListPage() {
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
             <p className="text-xs text-slate-400">已完成适配</p>
             <p className="mt-1 text-sm font-semibold text-hire-100">
-              {adaptedFilteredCount} / {filteredModels.length}
+              {adaptedFilteredCount} / {onsiteFilteredModels.length}
             </p>
             <p className="mt-1 text-xs leading-5 text-slate-500">
               是否已启用，请以模型卡片状态为准。
@@ -480,7 +681,7 @@ export default function ModelListPage() {
               <div className="flex items-center justify-between border-b border-white/10 pb-4">
                 <span className="text-sm text-slate-400">现场候选人</span>
                 <span className="text-2xl font-semibold text-white">
-                  {models.length}
+                  {onsiteModels.length}
                 </span>
               </div>
               <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 text-center text-xs">
@@ -498,9 +699,9 @@ export default function ModelListPage() {
                 </div>
                 <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                   <p className="text-lg font-semibold text-emerald-100">
-                    {featuredModels.length + 1}
+                    {usableFilteredCount}
                   </p>
-                  <p className="mt-1 truncate text-slate-400">热招展位</p>
+                  <p className="mt-1 truncate text-slate-400">可立即使用</p>
                 </div>
               </div>
             </div>
@@ -545,7 +746,7 @@ export default function ModelListPage() {
               <span className="font-semibold text-white">
                 {filteredModels.length}
               </span>{" "}
-              位候选人，其中 {adaptedFilteredCount} 位已完成适配
+              位候选人，其中 {adaptedFilteredCount} 位在架候选人已完成适配
             </p>
           </div>
 
@@ -555,7 +756,9 @@ export default function ModelListPage() {
             modelAuthorOptions={modelAuthorOptions}
             onChange={setFilters}
             seriesOptions={seriesOptions}
-            totalCount={models.length}
+            totalCount={
+              filters.showInactive ? models.length : browseableModels.length
+            }
           />
         </section>
 
@@ -576,11 +779,18 @@ export default function ModelListPage() {
                       confirmedAudioOperations={
                         confirmedAudioOperations.get(model.id)
                       }
+                      adaptedAudioOperations={
+                        adaptedAudioOperations.get(model.id)
+                      }
+                      catalogInvocable={invocableModelIds.has(model.id)}
                       confirmedImageOperations={
                         confirmedImageOperations.get(model.id)
                       }
                       confirmedVideoOperations={
                         confirmedVideoOperations.get(model.id)
+                      }
+                      verificationVideoOperations={
+                        verificationVideoOperations.get(model.id)
                       }
                       model={model}
                       imageCatalogStale={imageCatalog?.stale ?? false}
@@ -602,11 +812,18 @@ export default function ModelListPage() {
                   confirmedAudioOperations={
                     confirmedAudioOperations.get(model.id)
                   }
+                  adaptedAudioOperations={
+                    adaptedAudioOperations.get(model.id)
+                  }
+                  catalogInvocable={invocableModelIds.has(model.id)}
                   confirmedImageOperations={
                     confirmedImageOperations.get(model.id)
                   }
                   confirmedVideoOperations={
                     confirmedVideoOperations.get(model.id)
+                  }
+                  verificationVideoOperations={
+                    verificationVideoOperations.get(model.id)
                   }
                   key={model.id}
                   model={model}

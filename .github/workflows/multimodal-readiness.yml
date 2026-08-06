@@ -1,0 +1,28 @@
+name: Multimodal readiness
+
+on:
+  pull_request:
+    paths:
+      - "client/src/data/models.ts"
+      - "docs/multimodal-readiness.json"
+      - "scripts/check-multimodal-readiness.mjs"
+      - "server/multimodal/video_catalog.py"
+  push:
+    branches: [main]
+    paths:
+      - "client/src/data/models.ts"
+      - "docs/multimodal-readiness.json"
+      - "scripts/check-multimodal-readiness.mjs"
+      - "server/multimodal/video_catalog.py"
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check multimodal readiness evidence
+        run: node scripts/check-multimodal-readiness.mjs

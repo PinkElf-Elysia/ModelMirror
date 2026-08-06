@@ -14,7 +14,43 @@ from server.multimodal.api import (
     configure_video_catalog_service,
     router,
 )
-from server.multimodal.video_catalog import VideoCatalogService
+from server.multimodal.video_catalog import (
+    VERIFIED_VIDEO_GENERATION_MODELS,
+    VideoCatalogService,
+)
+
+
+def test_verified_video_registry_contains_batch_e_acceptance() -> None:
+    assert {
+        "x-ai/grok-imagine-video",
+        "x-ai/grok-imagine-video-1.5",
+        "alibaba/happyhorse-1.0",
+        "alibaba/happyhorse-1.1",
+        "alibaba/wan-2.6",
+        "alibaba/wan-2.7",
+        "minimax/hailuo-2.3",
+        "minimax/hailuo-3",
+    } <= VERIFIED_VIDEO_GENERATION_MODELS
+
+
+def test_verified_video_registry_contains_batch_f_acceptance() -> None:
+    assert {
+        "kwaivgi/kling-v3.0-pro",
+        "kwaivgi/kling-v3.0-std",
+        "kwaivgi/kling-video-o1",
+        "bytedance/seedance-1-5-pro",
+        "bytedance/seedance-2.0-fast",
+    } <= VERIFIED_VIDEO_GENERATION_MODELS
+
+
+def test_verified_video_registry_contains_batch_g_acceptance() -> None:
+    assert {
+        "google/veo-3.1-lite",
+        "google/veo-3.1-fast",
+        "google/veo-3.1",
+        "black-forest-labs/flux-3-video",
+        "openai/sora-2-pro",
+    } <= VERIFIED_VIDEO_GENERATION_MODELS
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
@@ -62,6 +98,10 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 ) -> None:
     monkeypatch.setenv("MULTIMODAL_VIDEO_ANALYSIS_ENABLED", "true")
     monkeypatch.setenv("MULTIMODAL_VIDEO_GENERATION_ENABLED", "true")
+    monkeypatch.setenv(
+        "MULTIMODAL_VERIFICATION_MODEL_IDS",
+        "google/veo-3.1-lite",
+    )
     requests: list[Request] = []
 
     def handler(request: Request) -> Response:
@@ -189,6 +229,8 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert analysis.model_id == "google/gemini-video-test"
     assert analysis.supported_input_sources == ["file", "url"]
     assert analysis.interaction_status == "ready"
+    assert analysis.operation_readiness[0].verification_status == "verified"
+    assert analysis.operation_readiness[0].availability_status == "available"
     assert generation.model_id == "google/veo-3.1-lite"
     assert generation.supported_resolutions == ["720p", "1080p"]
     assert generation.supported_durations == [5, 8]
@@ -204,10 +246,20 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert generation.supports_generated_audio is True
     assert generation.supports_seed is True
     assert generation.pricing_skus["per-video-second"] == "0.5"
-    assert generation.interaction_status == "planned"
+    assert generation.interaction_status == "ready"
+    assert generation.status_reason is None
+    assert generation.verification_entry_enabled is False
+    assert generation.verification_requires_cost_estimate is False
+    assert generation.operation_readiness[0].verification_status == "verified"
+    assert generation.operation_readiness[0].availability_status == "available"
     assert reference_model.supports_reference_images is True
     assert reference_model.max_reference_images == 3
+    assert reference_model.verification_entry_enabled is False
     assert runway_aleph.interaction_status == "ready"
+    assert runway_aleph.verification_entry_enabled is False
+    assert runway_aleph.operation_readiness[0].verification_status == (
+        "verified"
+    )
     assert runway_aleph.supported_resolutions == []
     assert runway_aleph.supported_durations == []
     assert runway_aleph.supported_aspect_ratios == [

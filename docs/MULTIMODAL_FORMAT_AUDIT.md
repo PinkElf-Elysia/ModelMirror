@@ -1,9 +1,9 @@
 # 模镜全模态与常用格式缺口审计
 
-> 审计基线：多模态与音频闭环批次 A–I，实时模型目录复核日期 2026-08-05；OpenRouter 快照为 517 个模型（462 个实时条目 + 55 个保留历史条目），另有 2 个直接 OpenAI Realtime 档案和 1 个 World Labs 世界模型档案。
+> 审计基线：多模态与音频闭环批次 A–I，以及未验证模型收尾批次 A–H；实时模型目录复核日期 2026-08-06。OpenRouter 快照为 517 个模型（462 个实时条目 + 52 个可能不可用的保留条目 + 3 个到期条目），另有直接 OpenAI 精选档案。
 > 本文描述的是当前真实能力和分阶段交付边界，不代表一次性承诺支持所有格式。
 
-## 0. 2026-08-05 图片、音频与视频能力复核
+## 0. 2026-08-06 图片、音频与视频能力复核
 
 ### 0.1 分类口径
 
@@ -43,6 +43,20 @@
 5. 原生模型目录曾只保存模型 ID 并默认文本能力；现保留连接目录返回的 `architecture.input_modalities` 与 `output_modalities`，避免原生路由和招聘会再次丢失模态。
 6. 音频、视频卡片曾先把静态 operation 当作“实时确认”；现只有实时目录且本地交互状态为 `ready` 才显示已适配入口。静态快照仍可浏览，但不伪装为已验证调用。
 7. 图片上传曾把 PNG、WebP 和 GIF 一律缩成最长边 1024px 的 JPEG，透明背景和细节会损失；现将识别输入上限提升到 2048px，优先保留 PNG/WebP，透明 PNG 只有在 5 MiB 限制下无法交付时才以白色背景降级为 JPEG。GIF 仍只按静态帧处理。
+
+### 0.4 未验证模型收尾结论
+
+- 21 个专用视频生成 profile 已逐批完成人工提交、轮询、完整播放和下载验收；高费用批次使用最低可用规格，Veo Lite 的受控高级参数也已验收。实时目录若新增模型，仍默认进入“需要人工核验”，不会自动继承 verified。
+- `openai/gpt-transcribe`、`meta/muse-spark-1.2` 和 `thinkingmachines/inkling-small` 已完成短音频人工验收并固化到版本化档案，不再依赖 `MULTIMODAL_VERIFICATION_MODEL_IDS`。
+- `gpt-4o-mini-tts` 的普通内置声线和 MP3 输出已接入现有朗读与语音生成入口；缺少直接 OpenAI `audio` 连接时准确显示“需配置”，不显示“待适配”。同一模型的声音克隆 operation 仍单独延期。
+- `meta/muse-spark-1.1` 保留“上游暂不可用”结论；两个 Gemini `latest` 浮动别名不作为独立候选；这三项均保留原因和复核日期。
+- 未出现在实时目录的 52 个模型不能仅凭目录缺失判定下线：继续计入现场候选人与适配口径，默认排在目录和分类底部并标记“可能不可用”。3 个明确到期模型默认隐藏且不计入现场口径。
+
+可机读结论保存在 `docs/multimodal-readiness.json`。离线门禁会核对生命周期数量、状态原因、视频 verified registry 与人工证据，避免目录或文档再次漂移：
+
+```text
+node scripts/check-multimodal-readiness.mjs
+```
 
 复核脚本：
 
@@ -414,6 +428,7 @@ MULTIMODAL_VOICE_CLONING_ENABLED=false
 
 直接 OpenAI Realtime 还要求在设置页创建 `openai` 类型连接，地址必须为
 `https://api.openai.com/v1`，用途范围为 `audio + realtime`。环境开关不能替代连接和密钥。
+普通 OpenAI TTS 同样复用该连接的 `audio` scope；模型卡和朗读入口在缺少连接时显示“需配置”，连接就绪后无需另开实验白名单。
 声音克隆开关保持关闭；本轮没有上传授权录音、创建音色或绕过删除安全门禁的接口。
 
 ### 只审计

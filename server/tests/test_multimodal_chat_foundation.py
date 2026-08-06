@@ -188,6 +188,31 @@ def audio_catalog_payload() -> dict[str, object]:
                 "input_modalities": ["text", "audio"],
                 "output_modalities": ["video"],
             },
+            {
+                "id": "openrouter/auto",
+                "input_modalities": ["text", "audio"],
+                "output_modalities": ["text"],
+            },
+            {
+                "id": "openrouter/auto-beta",
+                "input_modalities": ["text", "audio"],
+                "output_modalities": ["text"],
+            },
+            {
+                "id": "meta/muse-spark-1.1",
+                "input_modalities": ["text", "audio"],
+                "output_modalities": ["text"],
+            },
+            {
+                "id": "~google/gemini-flash-latest",
+                "input_modalities": ["text", "audio"],
+                "output_modalities": ["text"],
+            },
+            {
+                "id": "~google/gemini-pro-latest",
+                "input_modalities": ["text", "audio"],
+                "output_modalities": ["text"],
+            },
         ]
     }
 
@@ -249,7 +274,17 @@ async def test_audio_catalog_disabled_without_chat_flags(
     result = await service.get_catalog()
 
     assert result.status == "disabled"
-    assert result.profiles == []
+    assert result.profiles
+    by_id = {
+        (profile.provider, profile.model_id): profile
+        for profile in result.profiles
+    }
+    lyria = by_id[("openrouter", "google/lyria-3-clip-preview")]
+    assert lyria.interaction_status == "disabled"
+    assert lyria.operation_readiness[0].interaction_status == "ready"
+    assert lyria.operation_readiness[0].availability_status == "disabled"
+    realtime = by_id[("openai", "gpt-realtime-2.1-mini")]
+    assert realtime.operation_readiness[0].verification_status == "verified"
 
 
 @pytest.mark.asyncio
@@ -260,6 +295,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
     monkeypatch.setenv("MULTIMODAL_CHAT_AUDIO_ENABLED", "true")
     monkeypatch.setenv("MULTIMODAL_STREAMING_AUDIO_ENABLED", "true")
     monkeypatch.setenv("MULTIMODAL_AUDIO_GENERATION_ENABLED", "true")
+    monkeypatch.setenv("MULTIMODAL_REALTIME_VOICE_ENABLED", "true")
     requests: list[Request] = []
 
     def handler(request: Request) -> Response:
@@ -278,7 +314,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 
     assert result.status == "online"
     assert result.catalog_version == (
-        "modelmirror-audio-contracts-2026-08-01-b11"
+            "modelmirror-audio-contracts-2026-08-06-c1"
     )
     assert by_id["openai/gpt-audio"].provider == "openrouter"
     assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
@@ -385,6 +421,39 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
     )
     assert "provider/text-only" not in by_id
     assert "provider/audio-conditioned-video" not in by_id
+    for model_id in ("openrouter/auto", "openrouter/auto-beta"):
+        readiness = by_id[model_id].operation_readiness[0]
+        assert by_id[model_id].interaction_status == "ready"
+        assert readiness.interaction_status == "ready"
+        assert readiness.support_level == "combined"
+        assert "先将音频转成文字" in (readiness.status_reason or "")
+    muse = by_id["meta/muse-spark-1.1"]
+    assert muse.interaction_status == "disabled"
+    assert muse.operation_readiness[0].availability_status == (
+        "upstream_unavailable"
+    )
+    for model_id in (
+        "~google/gemini-flash-latest",
+        "~google/gemini-pro-latest",
+    ):
+        alias = by_id[model_id]
+        assert alias.interaction_status == "disabled"
+        assert alias.operation_readiness[0].verification_status == (
+            "not_applicable"
+        )
+        assert "固定版本" in (alias.status_reason or "")
+    direct_placeholder = next(
+        profile
+        for profile in result.profiles
+        if profile.provider == "openai"
+        and profile.model_id == "gpt-realtime-2.1-mini"
+    )
+    assert direct_placeholder.invocable is False
+    assert direct_placeholder.interaction_status == "ready"
+    assert (
+        direct_placeholder.operation_readiness[0].availability_status
+        == "needs_configuration"
+    )
     assert requests[0].headers["authorization"] == (
         "Bearer audio-catalog-secret"
     )
@@ -467,7 +536,15 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
     assert realtime.supports_streaming_output is True
     voice = by_id[("openai", "gpt-4o-mini-tts")]
     assert voice.operations == ["synthesize_speech", "clone_voice"]
-    assert "无法验证删除" in (voice.status_reason or "")
+    voice_readiness = {
+        item.operation: item for item in voice.operation_readiness
+    }
+    assert voice_readiness["synthesize_speech"].interaction_status == "ready"
+    assert voice_readiness["synthesize_speech"].availability_status == "available"
+    assert voice_readiness["clone_voice"].interaction_status == "planned"
+    assert "验证删除" in (
+        voice_readiness["clone_voice"].status_reason or ""
+    )
     assert ("openai", "gpt-5.6") not in by_id
     assert {
         request.headers["authorization"] for request in requests
@@ -483,6 +560,36 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
         profile.provider == "openai" for profile in stale.profiles
     )
     assert "private direct provider error" not in stale.model_dump_json()
+
+
+def test_manually_accepted_audio_contracts_are_verified_without_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MULTIMODAL_CHAT_AUDIO_ENABLED", "true")
+    service = object.__new__(AudioCatalogService)
+    item = {
+        "id": "meta/muse-spark-1.2",
+        "name": "Muse Spark 1.2",
+        "architecture": {
+            "input_modalities": ["audio", "text"],
+            "output_modalities": ["text"],
+        },
+    }
+
+    monkeypatch.delenv("MULTIMODAL_VERIFICATION_MODEL_IDS", raising=False)
+    profile = service._profile_from_item(
+        "openrouter",
+        "connection-test",
+        item,
+        chat_enabled=True,
+        streaming_enabled=False,
+        generation_enabled=False,
+        realtime_enabled=False,
+    )
+    assert profile is not None
+    assert profile.interaction_status == "ready"
+    assert profile.operation_readiness[0].verification_status == "verified"
+    assert "direct_audio_input" in profile.chat_modes
 
 
 @pytest.mark.asyncio
@@ -552,7 +659,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     assert response.status_code == 200
     assert response.json()["profiles"]
     assert response.json()["catalog_version"] == (
-        "modelmirror-audio-contracts-2026-08-01-b11"
+            "modelmirror-audio-contracts-2026-08-06-c1"
     )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text

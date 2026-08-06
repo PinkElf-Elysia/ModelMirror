@@ -43,10 +43,11 @@ export const recruitmentFilterTitles = {
   zdr: "保密意识",
   routing: "本地驻场",
   authors: "候选人作者",
-  inactive: "历史候选人",
+  inactive: "到期候选人",
 };
 
 export const recruitmentTagLabels: Record<string, string> = {
+  历史: "可能不可用",
   精选: "优秀员工",
   新: "新入场",
   热门: "本月之星",
