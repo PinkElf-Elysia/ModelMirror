@@ -8,6 +8,7 @@ export type SkillVerificationMethod =
   | "catalog-snapshot"
   | "curated-path"
   | "exact-frontmatter-name"
+  | "git-exact-rename-chain"
   | "previously-verified"
   | "repository-root"
   | "source-page-command-exact-match"
@@ -19,13 +20,23 @@ export type SkillVerificationMethod =
 export type SkillVerificationFailureCode =
   | "ambiguous-skill-path"
   | "declared-path-missing"
+  | "declared-path-never-seen"
+  | "declared-path-removed"
+  | "multi-skillset-install-unsupported"
   | "no-install-source"
   | "no-skill-file"
   | "ref-not-found"
+  | "rename-chain-ambiguous"
   | "repository-not-found"
   | "source-page-declaration-ambiguous"
   | "source-page-declaration-missing"
   | "source-page-not-found";
+
+export interface SkillPathRenameEvidence {
+  commit: string;
+  fromSubPath: string;
+  toSubPath: string;
+}
 
 export interface SkillSourceVerificationEvidence {
   status: SkillVerificationStatus;
@@ -34,6 +45,9 @@ export interface SkillSourceVerificationEvidence {
   subPath?: string;
   verifiedCommit?: string;
   declaredUrl?: string;
+  declaredSubPath?: string;
+  renameChain?: readonly SkillPathRenameEvidence[];
+  lastHistoryCommit?: string;
   method?: SkillVerificationMethod;
   reasonCode?: SkillVerificationFailureCode;
   reason?: string;
@@ -585,8 +599,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-aaron-he-zhu-aaron-marketing-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/aaron-he-zhu/aaron-marketing-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/aaron-he-zhu/aaron-marketing-skills",
     "verifiedCommit": "f9f67c8a4485162e3d641c81530cc60390ce862d"
   },
@@ -1194,8 +1208,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-bitwize-music-studio-claude-ai-music-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/bitwize-music-studio/claude-ai-music-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/bitwize-music-studio/claude-ai-music-skills",
     "verifiedCommit": "b1b11a67e8ce5dd07691b68cf736cff8e4c55c87"
   },
@@ -1298,8 +1312,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-brianrwagner-ai-marketing-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/BrianRWagner/ai-marketing-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/BrianRWagner/ai-marketing-skills",
     "verifiedCommit": "f36b34fc539a7a3b801839bfff2c26277fd7ec69"
   },
@@ -1445,8 +1459,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-cloudai-x-threejs-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/CloudAI-X/threejs-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/CloudAI-X/threejs-skills",
     "verifiedCommit": "b1c623076c661fc9b03dac19292e825a5d106823"
   },
@@ -1533,8 +1547,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coderabbitai-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/coderabbitai/skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/coderabbitai/skills",
     "verifiedCommit": "bbb4ab25a7f1d426062d83fe8fdf406beeecd0cb"
   },
@@ -1638,10 +1652,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-ab-test-setup": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/ab-test-setup",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/ab-test-setup",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-ad-creative": {
     "status": "verified",
@@ -1662,10 +1678,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-analytics-tracking": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/analytics-tracking",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/analytics-tracking",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-churn-prevention": {
     "status": "verified",
@@ -1686,10 +1704,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-competitor-alternatives": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/competitor-alternatives",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/competitor-alternatives",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-content-strategy": {
     "status": "verified",
@@ -1718,34 +1738,42 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-email-sequence": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/email-sequence",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/email-sequence",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-form-cro": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/form-cro",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/form-cro",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-free-tool-strategy": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/free-tool-strategy",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/free-tool-strategy",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-launch-strategy": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/launch-strategy",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/launch-strategy",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-marketing-ideas": {
     "status": "verified",
@@ -1766,58 +1794,72 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-onboarding-cro": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/onboarding-cro",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/onboarding-cro",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-page-cro": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/page-cro",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/page-cro",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-paid-ads": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/paid-ads",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/paid-ads",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-paywall-upgrade-cro": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/paywall-upgrade-cro",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/paywall-upgrade-cro",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-popup-cro": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/popup-cro",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/popup-cro",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-pricing-strategy": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/pricing-strategy",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/pricing-strategy",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-product-marketing-context": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/product-marketing-context",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/product-marketing-context",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-programmatic-seo": {
     "status": "verified",
@@ -1830,10 +1872,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-referral-program": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/referral-program",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/referral-program",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-revops": {
     "status": "verified",
@@ -1854,10 +1898,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-schema-markup": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/schema-markup",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/schema-markup",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-seo-audit": {
     "status": "verified",
@@ -1870,10 +1916,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-signup-flow-cro": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/signup-flow-cro",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/signup-flow-cro",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-coreyhaines31-site-architecture": {
     "status": "verified",
@@ -1886,10 +1934,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-coreyhaines31-social-content": {
     "status": "pending",
     "sourceUrl": "https://github.com/coreyhaines31/marketingskills/tree/main/skills/social-content",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/coreyhaines31/marketingskills",
-    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335"
+    "verifiedCommit": "7868cb9251fad80a73d26e488a5ad5f6c4a9f335",
+    "declaredSubPath": "skills/social-content",
+    "lastHistoryCommit": "30f9b9a729bbbe3da562fc1108c31f3a35afcca1"
   },
   "voltagent-cosmoblk-email-marketing-bible": {
     "status": "verified",
@@ -2433,8 +2483,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-dembrandt-dembrandt-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/dembrandt/dembrandt-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/dembrandt/dembrandt-skills",
     "verifiedCommit": "5371c718bd188390a5c00d64fa1ce2760f95be2a"
   },
@@ -2513,8 +2563,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-ehmo-platform-design-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/ehmo/platform-design-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/ehmo/platform-design-skills",
     "verifiedCommit": "dc2be825d8b439caea78e9eaa8fb3ac23b0ff3e9"
   },
@@ -2529,8 +2579,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-eronred-aso-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/Eronred/aso-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/Eronred/aso-skills",
     "verifiedCommit": "f97c943d44481dd3e29e2deaf672fc3c7ee83fa9"
   },
@@ -2787,7 +2837,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/figma/mcp-server-guide",
-    "verifiedCommit": "c80480bbd84bf1ff24d7f27b3fda33a26ba88830",
+    "verifiedCommit": "22b2c566d98880ebdb5a8e48eb2c66c596a6d990",
     "declaredUrl": "https://github.com/figma/mcp-server-guide/tree/main/skills/figma-code-connect-components"
   },
   "voltagent-figma-figma-create-design-system-rules": {
@@ -2796,7 +2846,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/figma/mcp-server-guide",
-    "verifiedCommit": "c80480bbd84bf1ff24d7f27b3fda33a26ba88830",
+    "verifiedCommit": "22b2c566d98880ebdb5a8e48eb2c66c596a6d990",
     "declaredUrl": "https://github.com/figma/mcp-server-guide/tree/main/skills/figma-create-design-system-rules"
   },
   "voltagent-figma-figma-create-new-file": {
@@ -2829,7 +2879,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/figma/mcp-server-guide",
-    "verifiedCommit": "c80480bbd84bf1ff24d7f27b3fda33a26ba88830",
+    "verifiedCommit": "22b2c566d98880ebdb5a8e48eb2c66c596a6d990",
     "declaredUrl": "https://github.com/figma/mcp-server-guide/tree/main/skills/figma-implement-design"
   },
   "voltagent-figma-figma-use": {
@@ -3198,8 +3248,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-fvadicamo-dev-agent-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/fvadicamo/dev-agent-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/fvadicamo/dev-agent-skills",
     "verifiedCommit": "7f7ef28d69e0cf5b49f0a327f9a587126bff6a32"
   },
@@ -4284,10 +4334,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-helius-labs-helius-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/helius-labs/core-ai/tree/main/helius-skills",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/helius-labs/core-ai",
-    "verifiedCommit": "7e171591d7cadaea65d2e4ef0246f8fe13134134"
+    "verifiedCommit": "7e171591d7cadaea65d2e4ef0246f8fe13134134",
+    "declaredSubPath": "helius-skills"
   },
   "voltagent-honeydew-ai-honeydew-ai-coding-agents-plugins": {
     "status": "pending",
@@ -4431,8 +4482,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-ibelick-ui-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/ibelick/ui-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/ibelick/ui-skills",
     "verifiedCommit": "2b3a114a3fcff079d73639a21710c595d4700a74"
   },
@@ -4454,8 +4505,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-joannis-claude-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/Joannis/claude-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/Joannis/claude-skills",
     "verifiedCommit": "a88556df3b1183cdd927680021b800149900c15f"
   },
@@ -4470,8 +4521,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-k-dense-ai-claude-scientific-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/K-Dense-AI/claude-scientific-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/K-Dense-AI/claude-scientific-skills",
     "verifiedCommit": "d767725c6e93b1d02a220e6be75b261a9833ede5"
   },
@@ -4502,10 +4553,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-kreuzberg-dev-kreuzberg": {
     "status": "pending",
     "sourceUrl": "https://github.com/kreuzberg-dev/kreuzberg/tree/main/skills/kreuzberg",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/kreuzberg-dev/kreuzberg",
-    "verifiedCommit": "b9ff26a067040571e69725bc814f75d2d1bf40c3"
+    "verifiedCommit": "b9ff26a067040571e69725bc814f75d2d1bf40c3",
+    "declaredSubPath": "skills/kreuzberg",
+    "lastHistoryCommit": "2cb8516b5cc89706367e6ae98b5dc2a9ea35f9e2"
   },
   "voltagent-lackeyjb-playwright-skill": {
     "status": "verified",
@@ -4518,16 +4571,16 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-lambdatest-agent-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/LambdaTest/agent-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/LambdaTest/agent-skills",
     "verifiedCommit": "0491a3a29aa18558d2c3c64ff09367adb976c56f"
   },
   "voltagent-lawvable-awesome-legal-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/lawvable/awesome-legal-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/lawvable/awesome-legal-skills",
     "verifiedCommit": "4b0a895640d44add67ab4db1a0250e5a48888ee1"
   },
@@ -4598,26 +4651,27 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-materials-simulation-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/HeshamFS/materials-simulation-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/HeshamFS/materials-simulation-skills",
     "verifiedCommit": "fa1ce8de76b2ab7a856f81891525cfa227fadfe9"
   },
   "voltagent-mattpocock-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/mattpocock/skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/mattpocock/skills",
     "verifiedCommit": "8b36d4fb2635b3c21998dcd8144439c9e5ba7302"
   },
   "voltagent-mcollina-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/mcollina/skills/tree/main/skills",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/mcollina/skills",
-    "verifiedCommit": "a88a866db5dc07f74d6dcef530a3b639158bdc97"
+    "verifiedCommit": "a88a866db5dc07f74d6dcef530a3b639158bdc97",
+    "declaredSubPath": "skills"
   },
   "voltagent-meodai-skill-color-expert": {
     "status": "verified",
@@ -4630,8 +4684,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-metalbear-co-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/metalbear-co/skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/metalbear-co/skills",
     "verifiedCommit": "425d4490343c7612f8c68274750e86932f27ea34"
   },
@@ -5862,8 +5916,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-mukul975-anthropic-cybersecurity-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
     "verifiedCommit": "e612f4944c55d306bb75565022442d7da8cf2b9a"
   },
@@ -5950,18 +6004,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-neolabhq-code-review": {
     "status": "pending",
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/code-review",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
+    "declaredSubPath": "plugins/code-review"
   },
   "voltagent-neolabhq-ddd": {
     "status": "pending",
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/ddd",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
+    "declaredSubPath": "plugins/ddd"
   },
   "voltagent-neolabhq-kaizen": {
     "status": "verified",
@@ -5982,26 +6038,29 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-neolabhq-reflexion": {
     "status": "pending",
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/reflexion",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
+    "declaredSubPath": "plugins/reflexion"
   },
   "voltagent-neolabhq-sadd": {
     "status": "pending",
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/sadd",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
+    "declaredSubPath": "plugins/sadd"
   },
   "voltagent-neolabhq-sdd": {
     "status": "pending",
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/sdd",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
+    "declaredSubPath": "plugins/sdd"
   },
   "voltagent-neolabhq-write-concisely": {
     "status": "verified",
@@ -6144,8 +6203,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-noizai-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/NoizAI/skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/NoizAI/skills",
     "verifiedCommit": "2a0e09d8cb9056e044c473dd53a136b81ba428e9"
   },
@@ -6198,26 +6257,32 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-nvidia-cuopt-cuopt-numerical-optimization-api-c": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-numerical-optimization-api-c",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/cuopt-numerical-optimization-api-c",
+    "lastHistoryCommit": "f83aa9aa5964ac74b236d0819241fa05b8a59d58"
   },
   "voltagent-nvidia-cuopt-cuopt-numerical-optimization-api-cli": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-numerical-optimization-api-cli",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/cuopt-numerical-optimization-api-cli",
+    "lastHistoryCommit": "2b3f481a1d984d2cca3f145047e48bfe69d6ac25"
   },
   "voltagent-nvidia-cuopt-cuopt-numerical-optimization-api-python": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-numerical-optimization-api-python",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/cuopt-numerical-optimization-api-python",
+    "lastHistoryCommit": "2b3f481a1d984d2cca3f145047e48bfe69d6ac25"
   },
   "voltagent-nvidia-cuopt-cuopt-routing-api-python": {
     "status": "verified",
@@ -6238,42 +6303,52 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-nvidia-cuopt-cuopt-server-common": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-server-common",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/cuopt-server-common",
+    "lastHistoryCommit": "f83aa9aa5964ac74b236d0819241fa05b8a59d58"
   },
   "voltagent-nvidia-cuopt-cuopt-user-rules": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-user-rules",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/cuopt-user-rules",
+    "lastHistoryCommit": "2b3f481a1d984d2cca3f145047e48bfe69d6ac25"
   },
   "voltagent-nvidia-cuopt-numerical-optimization-formulation": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/numerical-optimization-formulation",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/numerical-optimization-formulation",
+    "lastHistoryCommit": "2b3f481a1d984d2cca3f145047e48bfe69d6ac25"
   },
   "voltagent-nvidia-cuopt-routing-formulation": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/routing-formulation",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/routing-formulation",
+    "lastHistoryCommit": "2b3f481a1d984d2cca3f145047e48bfe69d6ac25"
   },
   "voltagent-nvidia-cuopt-skill-evolution": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/skill-evolution",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/cuopt/skill-evolution",
+    "lastHistoryCommit": "2b3f481a1d984d2cca3f145047e48bfe69d6ac25"
   },
   "voltagent-nvidia-dali-dali-dynamic-mode": {
     "status": "verified",
@@ -6302,538 +6377,672 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-nvidia-megatron-bridge-adding-model-support": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/adding-model-support",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/adding-model-support",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-build-and-dependency": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/build-and-dependency",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/build-and-dependency",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-bump-dependency": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/bump-dependency",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/bump-dependency",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-cicd": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/cicd",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/cicd",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-linting-and-formatting": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/linting-and-formatting",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/linting-and-formatting",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-mlm-bridge-training": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/mlm-bridge-training",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/mlm-bridge-training",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-multi-node-slurm": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/multi-node-slurm",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/multi-node-slurm",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-nemo-rl-e2e-testing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/nemo-rl-e2e-testing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/nemo-rl-e2e-testing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-parity-testing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/parity-testing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/parity-testing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-activation-recompute": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-activation-recompute",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-activation-recompute",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-cpu-offloading": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-cpu-offloading",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-cpu-offloading",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-cuda-graphs": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-cuda-graphs",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-cuda-graphs",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-expert-parallel-overlap": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-expert-parallel-overlap",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-expert-parallel-overlap",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-hierarchical-context-parallel": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-hierarchical-context-parallel",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-hierarchical-context-parallel",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-megatron-fsdp": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-megatron-fsdp",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-megatron-fsdp",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-memory-tuning": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-memory-tuning",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-memory-tuning",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-comm-overlap": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-moe-comm-overlap",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-moe-comm-overlap",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-dispatcher-selection": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-moe-dispatcher-selection",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-moe-dispatcher-selection",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-hardware-configs": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-moe-hardware-configs",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-moe-hardware-configs",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-long-context": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-moe-long-context",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-moe-long-context",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-optimization-workflow": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-moe-optimization-workflow",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-moe-optimization-workflow",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-vlm-training": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-moe-vlm-training",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-moe-vlm-training",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-parallelism-strategies": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-parallelism-strategies",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-parallelism-strategies",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-sequence-packing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-sequence-packing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-sequence-packing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-perf-tp-dp-comm-overlap": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/perf-tp-dp-comm-overlap",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/perf-tp-dp-comm-overlap",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-recipe-recommender": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/recipe-recommender",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/recipe-recommender",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-resiliency": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/resiliency",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/resiliency",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-testing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/testing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/testing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-bridge-verl-e2e-testing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Bridge/verl-e2e-testing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Bridge/verl-e2e-testing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-build-and-dependency": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/build-and-dependency",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/build-and-dependency",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-bump-base-image": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/bump-base-image",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/bump-base-image",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-cicd": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/cicd",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/cicd",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-create-issue": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/create-issue",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/create-issue",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-linting-and-formatting": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/linting-and-formatting",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/linting-and-formatting",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-nightly-sync": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/nightly-sync",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/nightly-sync",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-onboard-gb200-1node-tests": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/onboard-gb200-1node-tests",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/onboard-gb200-1node-tests",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-respond-to-issue": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/respond-to-issue",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/respond-to-issue",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-run-on-slurm": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/run-on-slurm",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/run-on-slurm",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-split-pr": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/split-pr",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/split-pr",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-testing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/testing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/testing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-megatron-core-update-golden-values": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Megatron-Core/update-golden-values",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Megatron-Core/update-golden-values",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-accessing-mlflow": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/accessing-mlflow",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/accessing-mlflow",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-debug": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/debug",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/debug",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-deployment": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/deployment",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/deployment",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-evaluation": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/evaluation",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/evaluation",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-launching-evals": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/launching-evals",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/launching-evals",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-monitor": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/monitor",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/monitor",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-ptq": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/ptq",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/ptq",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-model-optimizer-release-cherry-pick": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/Model-Optimizer/release-cherry-pick",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/Model-Optimizer/release-cherry-pick",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-evaluator-byob": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Evaluator/byob",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Evaluator/byob",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-evaluator-launcher-accessing-mlflow": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Evaluator-Launcher/accessing-mlflow",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Evaluator-Launcher/accessing-mlflow",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-evaluator-launcher-launching-evals": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Evaluator-Launcher/launching-evals",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Evaluator-Launcher/launching-evals",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-evaluator-launcher-nel-assistant": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Evaluator-Launcher/nel-assistant",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Evaluator-Launcher/nel-assistant",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-gym-add-benchmark": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Gym/add-benchmark",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Gym/add-benchmark",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-debugging": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Gym/nemo-gym-debugging",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Gym/nemo-gym-debugging",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-docs": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Gym/nemo-gym-docs",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Gym/nemo-gym-docs",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-pivot-datasets": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Gym/nemo-gym-pivot-datasets",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Gym/nemo-gym-pivot-datasets",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-reward-profiling": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-Gym/nemo-gym-reward-profiling",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-Gym/nemo-gym-reward-profiling",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-auto-research": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/auto-research",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/auto-research",
+    "lastHistoryCommit": "49c6b4b0b517c785585fbfb666af8d7d4961193a"
   },
   "voltagent-nvidia-nemo-rl-brev-etiquette": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/brev-etiquette",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/brev-etiquette",
+    "lastHistoryCommit": "49c6b4b0b517c785585fbfb666af8d7d4961193a"
   },
   "voltagent-nvidia-nemo-rl-build-and-dependency": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/build-and-dependency",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/build-and-dependency",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-cicd": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/cicd",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/cicd",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-config-conventions": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/config-conventions",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/config-conventions",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-contributing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/contributing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/contributing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-copyright": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/copyright",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/copyright",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-docs": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/docs",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/docs",
+    "lastHistoryCommit": "49c6b4b0b517c785585fbfb666af8d7d4961193a"
   },
   "voltagent-nvidia-nemo-rl-error-handling": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/error-handling",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/error-handling",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-launch-nemo-rl": {
     "status": "verified",
@@ -6846,226 +7055,282 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-nvidia-nemo-rl-linting-and-formatting": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/linting-and-formatting",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/linting-and-formatting",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-review-pr": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/review-pr",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/review-pr",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemo-rl-session-memory": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/session-memory",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/session-memory",
+    "lastHistoryCommit": "49c6b4b0b517c785585fbfb666af8d7d4961193a"
   },
   "voltagent-nvidia-nemo-rl-testing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/testing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NeMo-RL/testing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-contributor-create-pr": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-contributor-create-pr",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-contributor-create-pr",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-contributor-update-docs": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-contributor-update-docs",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-contributor-update-docs",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-cross-issue-sweep": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-cross-issue-sweep",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-cross-issue-sweep",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-cut-release-tag": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-cut-release-tag",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-cut-release-tag",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-day": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-day",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-day",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-evening": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-evening",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-evening",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-find-review-pr": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-find-review-pr",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-find-review-pr",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-morning": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-morning",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-morning",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-normalize-title-tags": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-normalize-title-tags",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-normalize-title-tags",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-pr-comparator": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-pr-comparator",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-pr-comparator",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-security-code-review": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-security-code-review",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-security-code-review",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-triage": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-maintainer-triage",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-maintainer-triage",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-skills-guide": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-skills-guide",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-skills-guide",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-agent-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-agent-skills",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-agent-skills",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-configure-inference": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-configure-inference",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-configure-inference",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-configure-security": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-configure-security",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-configure-security",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-deploy-remote": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-deploy-remote",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-deploy-remote",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-get-started": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-get-started",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-get-started",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-manage-policy": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-manage-policy",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-manage-policy",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-manage-sandboxes": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-manage-sandboxes",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-manage-sandboxes",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-monitor-sandbox": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-monitor-sandbox",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-monitor-sandbox",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-overview": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-overview",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-overview",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-reference": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NemoClaw/nemoclaw-user-reference",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/NemoClaw/nemoclaw-user-reference",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-nemotron-voice-agent-nemotron-voice-agent-deploy": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/nemotron-voice-agent/nemotron-voice-agent-deploy",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/nemotron-voice-agent/nemotron-voice-agent-deploy",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-rag-rag-blueprint": {
     "status": "verified",
@@ -7078,338 +7343,422 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-nvidia-tensorrt-llm-ad-accuracy-debug": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/ad-accuracy-debug",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/ad-accuracy-debug",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-ad-add-fusion-transformation": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/ad-add-fusion-transformation",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/ad-add-fusion-transformation",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-ad-conf-check": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/ad-conf-check",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/ad-conf-check",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-ad-graph-dump": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/ad-graph-dump",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/ad-graph-dump",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-ad-layer-visualizer": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/ad-layer-visualizer",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/ad-layer-visualizer",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-ad-model-onboard": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/ad-model-onboard",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/ad-model-onboard",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-exec-local-compile": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/exec-local-compile",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/exec-local-compile",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-exec-slurm-compile": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/exec-slurm-compile",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/exec-slurm-compile",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-kernel-cute-writing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/kernel-cute-writing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/kernel-cute-writing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-kernel-tileir-optimization": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/kernel-tileir-optimization",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/kernel-tileir-optimization",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-kernel-triton-writing": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/kernel-triton-writing",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/kernel-triton-writing",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-analysis": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-analysis",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-analysis",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-host-analysis": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-host-analysis",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-host-analysis",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-host-optimization": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-host-optimization",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-host-optimization",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-nsight-compute-analysis": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-nsight-compute-analysis",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-nsight-compute-analysis",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-nsight-systems": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-nsight-systems",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-nsight-systems",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-optimization": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-optimization",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-optimization",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-torch-cuda-graphs": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-torch-cuda-graphs",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-torch-cuda-graphs",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-torch-sync-free": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-torch-sync-free",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-torch-sync-free",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-perf-workload-profiling": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/perf-workload-profiling",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/perf-workload-profiling",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-code-contribution": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/trtllm-code-contribution",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/trtllm-code-contribution",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-codebase-exploration": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/trtllm-codebase-exploration",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/trtllm-codebase-exploration",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-flashinfer-upgrade": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/trtllm-flashinfer-upgrade",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/trtllm-flashinfer-upgrade",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-moe-develop": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/trtllm-moe-develop",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/trtllm-moe-develop",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-serve-config-guide": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TensorRT-LLM/trtllm-serve-config-guide",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TensorRT-LLM/trtllm-serve-config-guide",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tilegym-adding-cutile-kernel": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TileGym/adding-cutile-kernel",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TileGym/adding-cutile-kernel",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tilegym-converting-cutile-to-julia": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TileGym/converting-cutile-to-julia",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TileGym/converting-cutile-to-julia",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tilegym-converting-cutile-to-triton": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TileGym/converting-cutile-to-triton",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TileGym/converting-cutile-to-triton",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tilegym-cutile-autotuning": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TileGym/cutile-autotuning",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TileGym/cutile-autotuning",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tilegym-cutile-python": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TileGym/cutile-python",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TileGym/cutile-python",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tilegym-improve-cutile-kernel-perf": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TileGym/improve-cutile-kernel-perf",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TileGym/improve-cutile-kernel-perf",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-tilegym-monkey-patch-kernels-to-transformers": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/TileGym/monkey-patch-kernels-to-transformers",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/TileGym/monkey-patch-kernels-to-transformers",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-alerts": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/alerts",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/alerts",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-deploy": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/deploy",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/deploy",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-report": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/report",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/report",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-rt-vlm": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/rt-vlm",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/rt-vlm",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-video-analytics": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/video-analytics",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/video-analytics",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-video-search": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/video-search",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/video-search",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-video-summarization": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/video-summarization",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/video-summarization",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-video-understanding": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/video-understanding",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/video-understanding",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-vios": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/vios",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/vios",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-nvidia-video-search-and-summarization-vss-frag": {
     "status": "pending",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/video-search-and-summarization/vss-frag",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
+    "declaredSubPath": "skills/video-search-and-summarization/vss-frag",
+    "lastHistoryCommit": "7946eaa6f01dcafd2a37836ffdba9cc9be71b305"
   },
   "voltagent-obra-brainstorming": {
     "status": "verified",
@@ -7422,26 +7771,31 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-obra-commands": {
     "status": "pending",
     "sourceUrl": "https://github.com/obra/superpowers/tree/main/skills/commands",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/obra/superpowers",
-    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1"
+    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1",
+    "declaredSubPath": "skills/commands"
   },
   "voltagent-obra-condition-based-waiting": {
     "status": "pending",
     "sourceUrl": "https://github.com/obra/superpowers/blob/main/skills/condition-based-waiting/SKILL.md",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/obra/superpowers",
-    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1"
+    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1",
+    "declaredSubPath": "skills/condition-based-waiting",
+    "lastHistoryCommit": "5845b52747a0d2ca5843a150a9870822a8884006"
   },
   "voltagent-obra-defense-in-depth": {
     "status": "pending",
     "sourceUrl": "https://github.com/obra/superpowers/blob/main/skills/defense-in-depth/SKILL.md",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/obra/superpowers",
-    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1"
+    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1",
+    "declaredSubPath": "skills/defense-in-depth",
+    "lastHistoryCommit": "5845b52747a0d2ca5843a150a9870822a8884006"
   },
   "voltagent-obra-dispatching-parallel-agents": {
     "status": "verified",
@@ -7486,18 +7840,22 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-obra-root-cause-tracing": {
     "status": "pending",
     "sourceUrl": "https://github.com/obra/superpowers/blob/main/skills/root-cause-tracing/SKILL.md",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/obra/superpowers",
-    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1"
+    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1",
+    "declaredSubPath": "skills/root-cause-tracing",
+    "lastHistoryCommit": "5845b52747a0d2ca5843a150a9870822a8884006"
   },
   "voltagent-obra-sharing-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/obra/superpowers/blob/main/skills/sharing-skills/SKILL.md",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/obra/superpowers",
-    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1"
+    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1",
+    "declaredSubPath": "skills/sharing-skills",
+    "lastHistoryCommit": "c7caee56478a98cb7ab848076c93fc21f7e972e8"
   },
   "voltagent-obra-subagent-driven-development": {
     "status": "verified",
@@ -7534,18 +7892,22 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-obra-testing-anti-patterns": {
     "status": "pending",
     "sourceUrl": "https://github.com/obra/superpowers/blob/main/skills/testing-anti-patterns/SKILL.md",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/obra/superpowers",
-    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1"
+    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1",
+    "declaredSubPath": "skills/testing-anti-patterns",
+    "lastHistoryCommit": "718ec45d33584e7d6f660c8bd75d62989dc40eb2"
   },
   "voltagent-obra-testing-skills-with-subagents": {
     "status": "pending",
     "sourceUrl": "https://github.com/obra/superpowers/blob/main/skills/testing-skills-with-subagents/SKILL.md",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/obra/superpowers",
-    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1"
+    "verifiedCommit": "44c9b2d6e889982ac18c27d05a19fefe335194e1",
+    "declaredSubPath": "skills/testing-skills-with-subagents",
+    "lastHistoryCommit": "b57c27d8155eab5ea7fad7d3e8f30d83f66149ad"
   },
   "voltagent-obra-using-git-worktrees": {
     "status": "verified",
@@ -7590,8 +7952,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-ognjengt-founder-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/ognjengt/founder-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/ognjengt/founder-skills",
     "verifiedCommit": "a45931cad934dc6243a68f905485467935a4ad9a"
   },
@@ -7970,8 +8332,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-orchestra-research-ai-research-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/Orchestra-Research/AI-research-SKILLs",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/Orchestra-Research/AI-research-SKILLs",
     "verifiedCommit": "773a52944ba4747a18bd4ae9ade53fff041adcbc"
   },
@@ -7986,8 +8348,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-paramchoudhary-resumeskills": {
     "status": "pending",
     "sourceUrl": "https://github.com/Paramchoudhary/ResumeSkills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/Paramchoudhary/ResumeSkills",
     "verifiedCommit": "74ae19e7c62b0516d1c298328e5544976c12da5d"
   },
@@ -8552,24 +8914,24 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-qdrant-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/qdrant/skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/qdrant/skills",
     "verifiedCommit": "67d7db5290178bd450a459102c381dcb79da776f"
   },
   "voltagent-raintree-technology-apple-hig-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/raintree-technology/apple-hig-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/raintree-technology/apple-hig-skills",
     "verifiedCommit": "8bfa28f76c62d0ad4bf02640f5a195f3267bcf39"
   },
   "voltagent-rameerez-claude-code-startup-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/rameerez/claude-code-startup-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/rameerez/claude-code-startup-skills",
     "verifiedCommit": "410f81f83e4ac309032eab3d3265353f97ea665f"
   },
@@ -8704,10 +9066,12 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-redis-redis-development": {
     "status": "pending",
     "sourceUrl": "https://github.com/redis/agent-skills/tree/main/skills/redis-development",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-removed",
+    "reason": "来源声明的 Skill 路径已被删除，未发现可证明的完整内容重命名",
     "repoUrl": "https://github.com/redis/agent-skills",
-    "verifiedCommit": "23e10ae0295d7669f1e0edcc749812fb9e7aaf85"
+    "verifiedCommit": "23e10ae0295d7669f1e0edcc749812fb9e7aaf85",
+    "declaredSubPath": "skills/redis-development",
+    "lastHistoryCommit": "18da4e42371f7eee0dcfafd8461effd41de351e9"
   },
   "voltagent-remotion-dev-remotion": {
     "status": "pending",
@@ -8730,8 +9094,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-resciencelab-opc-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/ReScienceLab/opc-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/ReScienceLab/opc-skills",
     "verifiedCommit": "bf240c75e201a902a70c682b30e37524e4a94ffb"
   },
@@ -8792,16 +9156,16 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-roundtable02-tutor-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/RoundTable02/tutor-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/RoundTable02/tutor-skills",
     "verifiedCommit": "397110c9fefbc6bd5444277686600aec28063c05"
   },
   "voltagent-rudrankriyam-app-store-connect-cli-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/rudrankriyam/app-store-connect-cli-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/rudrankriyam/app-store-connect-cli-skills",
     "verifiedCommit": "3b567352099e28c19afddd447bc7e51a348334ce"
   },
@@ -8896,8 +9260,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-sendmux-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/Sendmux/skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/Sendmux/skills",
     "verifiedCommit": "f574c14c5c02d3ed49e3af26d7fadded523704c5"
   },
@@ -9022,10 +9386,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-testmu-ai-api-skill": {
     "status": "pending",
     "sourceUrl": "https://github.com/LambdaTest/agent-skills/tree/main/api-skill",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/LambdaTest/agent-skills",
-    "verifiedCommit": "0491a3a29aa18558d2c3c64ff09367adb976c56f"
+    "verifiedCommit": "0491a3a29aa18558d2c3c64ff09367adb976c56f",
+    "declaredSubPath": "api-skill"
   },
   "voltagent-testmu-ai-appium-skill": {
     "status": "verified",
@@ -9611,10 +9976,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-transloadit-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/transloadit/skills/tree/main/skills",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/transloadit/skills",
-    "verifiedCommit": "8dd2fd94adafb35d3c3804e42dfab7d8d793472c"
+    "verifiedCommit": "8dd2fd94adafb35d3c3804e42dfab7d8d793472c",
+    "declaredSubPath": "skills"
   },
   "voltagent-truongduy2611-app-store-preflight-skills": {
     "status": "verified",
@@ -10038,8 +10404,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-zechenzhangagi-ai-research-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/zechenzhangAGI/AI-research-SKILLs",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/zechenzhangAGI/AI-research-SKILLs",
     "verifiedCommit": "773a52944ba4747a18bd4ae9ade53fff041adcbc"
   },
@@ -10054,16 +10420,17 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-zero-zero-gemini": {
     "status": "pending",
     "sourceUrl": "https://github.com/officialzeroxyz/zero-plugins/tree/main/plugins/zero-gemini",
-    "reasonCode": "declared-path-missing",
-    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "reasonCode": "declared-path-never-seen",
+    "reason": "当前默认分支历史中从未出现来源声明的 SKILL.md",
     "repoUrl": "https://github.com/officialzeroxyz/zero-plugins",
-    "verifiedCommit": "52b5120a6b7c7de043154e2ad0e7566853ed774d"
+    "verifiedCommit": "52b5120a6b7c7de043154e2ad0e7566853ed774d",
+    "declaredSubPath": "plugins/zero-gemini"
   },
   "voltagent-zhanghandong-makepad-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/ZhangHanDong/makepad-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/ZhangHanDong/makepad-skills",
     "verifiedCommit": "6e16c8d5beefcb410d57e83a799014beb2957977"
   },
@@ -10086,8 +10453,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-zxkane-aws-skills": {
     "status": "pending",
     "sourceUrl": "https://github.com/zxkane/aws-skills",
-    "reasonCode": "ambiguous-skill-path",
-    "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
+    "reasonCode": "multi-skillset-install-unsupported",
+    "reason": "仓库包含多个 Skill，当前安装器暂不支持把仓库根目录作为一个 SkillSet 安装",
     "repoUrl": "https://github.com/zxkane/aws-skills",
     "verifiedCommit": "68530c6f296ccd2f5e99c79782f3e0fbf962c51a"
   }
