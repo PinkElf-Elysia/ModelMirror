@@ -94,6 +94,11 @@ except ModuleNotFoundError:
     from skills.api import get_skill_draft_store, get_skill_manager, router as skills_router
 
 try:
+    from server.agent_workspace.api import router as agent_workspace_router
+except ModuleNotFoundError:
+    from agent_workspace.api import router as agent_workspace_router
+
+try:
     from server.plugins.api import router as plugins_router
     from server.plugins.registry import get_plugin_store
     from server.prompts import (
@@ -240,6 +245,11 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.mcp.catalog import (
+        MCPCatalogService,
+        configure_mcp_catalog,
+        router as mcp_catalog_router,
+    )
     from server.mcp.manager import (
         MCPClientError,
         MCPClientManager,
@@ -250,6 +260,11 @@ try:
     )
     from server.registry.tool_registry import ToolRegistry
 except ModuleNotFoundError:
+    from mcp.catalog import (
+        MCPCatalogService,
+        configure_mcp_catalog,
+        router as mcp_catalog_router,
+    )
     from mcp.manager import (
         MCPClientError,
         MCPClientManager,
@@ -573,6 +588,7 @@ try:
     from server.multimodal.api import (
         get_audio_catalog_service,
         get_chat_attachment_store,
+        get_image_catalog_service,
         get_video_analysis_service,
     )
     from server.multimodal.chat_attachments import ClaimedChatAttachment
@@ -582,6 +598,7 @@ except ModuleNotFoundError:
     from multimodal.api import (
         get_audio_catalog_service,
         get_chat_attachment_store,
+        get_image_catalog_service,
         get_video_analysis_service,
     )
     from multimodal.chat_attachments import ClaimedChatAttachment
@@ -678,28 +695,6 @@ HANDOFF_MAX_DELEGATION_DEPTH = 5
 MAX_IMAGE_DATA_URL_BYTES = 5 * 1024 * 1024
 AGENTS_DATA_PATH = Path(__file__).parent / "data" / "agents.json"
 MAX_AGENT_PROMPT_CHARS = 6000
-IMAGE_CAPABLE_MODEL_HINTS = (
-    "gpt-4o",
-    "gpt-4.1",
-    "gpt-5",
-    "o3",
-    "o4",
-    "claude-3",
-    "claude-sonnet-4",
-    "claude-opus-4",
-    "gemini",
-    "gemma-3",
-    "llama-4",
-    "pixtral",
-    "qwen-vl",
-    "qwen2.5-vl",
-    "qwen3-vl",
-    "phi-4-multimodal",
-    "grok-vision",
-    "mistral-medium-3",
-    "minimax",
-)
-
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("modelmirror.chat")
 BLOCKED_KEYWORDS = (
@@ -742,6 +737,7 @@ app.include_router(dify_router)
 app.include_router(rag_router)
 app.include_router(datax_router)
 app.include_router(skills_router)
+app.include_router(agent_workspace_router)
 app.include_router(xperts_router)
 app.include_router(xpert_apps_router)
 app.include_router(workflow_native_router)
@@ -763,6 +759,7 @@ app.include_router(model_catalog_router)
 app.include_router(omniroute_router)
 app.include_router(multimodal_router)
 app.include_router(coding_router)
+app.include_router(mcp_catalog_router)
 
 request_windows: dict[str, deque[float]] = defaultdict(deque)
 mcp_connect_windows: dict[str, deque[float]] = defaultdict(deque)
@@ -772,6 +769,13 @@ tool_registry = ToolRegistry()
 workflow_mcp_provider = MCPToolsetProvider(tool_registry, mcp_manager)
 toolset_store = ToolsetStore()
 toolset_credential_store = CredentialStore(toolset_store.storage_dir)
+mcp_catalog_service = MCPCatalogService(
+    mcp_manager,
+    mcp_installer,
+    tool_registry,
+    credential_validator=toolset_credential_store.get_public,
+)
+configure_mcp_catalog(mcp_catalog_service)
 toolset_service = ToolsetService(
     toolset_store,
     toolset_credential_store,
@@ -1363,8 +1367,14 @@ def mcp_server_id_from_command(server_command: list[str]) -> str:
 async def cleanup_mcp_idle_sessions_and_registry() -> list[str]:
     cleaned_ids = await mcp_manager.cleanup_idle_sessions()
     if cleaned_ids:
+        await mcp_catalog_service.forget_sessions(cleaned_ids)
         await tool_registry.unregister_sessions(cleaned_ids)
     return cleaned_ids
+
+
+async def cleanup_mcp_session_state(session_ids: list[str]) -> None:
+    await mcp_catalog_service.forget_sessions(session_ids)
+    await tool_registry.unregister_sessions(session_ids)
 
 
 def validate_content(messages: list[ChatMessage]) -> None:
@@ -1421,11 +1431,6 @@ def video_attachment_ids(messages: list[ChatMessage]) -> list[str]:
     ]
 
 
-def model_supports_image_input(model_id: str) -> bool:
-    normalized = model_id.lower()
-    return any(hint in normalized for hint in IMAGE_CAPABLE_MODEL_HINTS)
-
-
 def validate_image_url(url: str) -> None:
     lowered = url.lower()
     if not (
@@ -1446,7 +1451,18 @@ def validate_image_url(url: str) -> None:
         )
 
 
-def validate_multimodal_content(
+async def model_supports_image_input(model_id: str) -> bool:
+    catalog = await get_image_catalog_service().get_catalog()
+    return any(
+        profile.model_id == model_id
+        and profile.operation == "analyze_image"
+        and profile.invocable
+        and profile.interaction_status == "ready"
+        for profile in catalog.profiles
+    )
+
+
+async def validate_multimodal_content(
     model_id: str,
     messages: list[ChatMessage],
     *,
@@ -1486,15 +1502,24 @@ def validate_multimodal_content(
             if isinstance(part, InputVideoContentPart):
                 video_message_indexes.append(message_index)
 
-    if (
-        has_image
-        and not trust_gateway_catalog
-        and not model_supports_image_input(model_id)
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="当前模型不支持图片输入，请切换支持多模态的模型。",
-        )
+    if has_image and not trust_gateway_catalog:
+        catalog = await get_image_catalog_service().get_catalog()
+        if catalog.status in {"offline", "disabled"}:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "暂时无法核实图片识别能力，请检查 OpenRouter 连接后重试。"
+                ),
+            )
+        supports_image = await model_supports_image_input(model_id)
+        if not supports_image:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "当前模型的图片识别能力未获实时目录确认。"
+                    "请切换“岗位能力”为图片识别的模型。"
+                ),
+            )
     if audio_message_indexes:
         if has_image or video_message_indexes:
             raise HTTPException(
@@ -12686,7 +12711,7 @@ configure_xpert_evolutions(
 @app.on_event("startup")
 async def start_mcp_ttl_cleanup() -> None:
     await asyncio.to_thread(datax_service.recover_import_jobs)
-    mcp_manager.start_ttl_cleanup(on_cleanup=tool_registry.unregister_sessions)
+    mcp_manager.start_ttl_cleanup(on_cleanup=cleanup_mcp_session_state)
     builtin_warnings = await toolset_service.ensure_builtin_toolsets()
     for warning in builtin_warnings:
         logger.warning("Builtin Provider Toolset initialization failed: %s", warning)
@@ -12720,6 +12745,7 @@ async def shutdown_mcp_sessions() -> None:
         await client_tool_coordinator.stop()
     if automation_coordinator is not None:
         await automation_coordinator.stop()
+    await mcp_catalog_service.clear_sessions()
     await toolset_service.close()
     await mcp_manager.stop_ttl_cleanup()
     await mcp_manager.close_all()
@@ -13823,7 +13849,7 @@ async def chat(payload: ChatRequest, request: Request):
                     "请关闭工具模式后重试。"
                 ),
             )
-        validate_multimodal_content(
+        await validate_multimodal_content(
             payload.model_id,
             payload.messages,
             trust_gateway_catalog=use_omniroute or use_native_router,
@@ -14941,7 +14967,13 @@ async def chat(payload: ChatRequest, request: Request):
             )
         ):
             fallback_model_id = fallback_model_for(payload.messages)
-            if any(message_has_image(message.content) for message in payload.messages) and not model_supports_image_input(fallback_model_id):
+            if (
+                any(
+                    message_has_image(message.content)
+                    for message in payload.messages
+                )
+                and not await model_supports_image_input(fallback_model_id)
+            ):
                 await finalize_runtime(
                     "error",
                     actual_model_id,

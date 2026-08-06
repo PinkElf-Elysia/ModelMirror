@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -6,6 +6,14 @@ import {
   mcpRequirementLabels,
   type McpProject,
 } from "../data/mcpProjects";
+import {
+  formatMcpCapability,
+  formatMcpIsolation,
+  mcpAvailabilityLabels,
+  mcpConnectionKindLabels,
+  mcpRiskLabels,
+  type McpCatalogAdapterStatus,
+} from "../data/mcpAdaptationPlan";
 
 type ConnectionState = "idle" | "connecting" | "connected" | "error";
 type InstallState = "idle" | "checking" | "installing" | "installed" | "error";
@@ -45,6 +53,7 @@ interface InstalledMcpRecord {
 
 interface McpServerCardProps {
   project: McpProject;
+  adapterStatus?: McpCatalogAdapterStatus;
   restoredSession?: McpSessionSummary;
   onConnectionChange?: () => void;
 }
@@ -112,6 +121,7 @@ function contentToMarkdown(result: ToolCallResult | null) {
 
 export default function McpServerCard({
   project,
+  adapterStatus,
   restoredSession,
   onConnectionChange,
 }: McpServerCardProps) {
@@ -127,17 +137,23 @@ export default function McpServerCard({
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
+  const ignoredRestoredSessionRef = useRef<string | null>(null);
 
-  const canConnect =
-    project.compatibility === "local-stdio" && Boolean(project.command?.length);
+  const availability = adapterStatus?.availability ?? project.availability;
+  const connectionKind = adapterStatus?.connection_kind ?? project.connectionKind;
+  const risk = adapterStatus?.risk ?? project.risk;
+  const wave = adapterStatus?.wave ?? project.adaptationWave;
+  const requiredCapabilities =
+    adapterStatus?.required_capabilities ?? project.requiredCapabilities;
+  const limitations = adapterStatus?.limitations ?? project.adaptationLimitations;
+  const canConnect = adapterStatus?.executable === true && availability === "ready";
   const canInstall = canConnect && project.installMode === "one-click";
   const commandPreview = useMemo(
     () =>
-      project.command?.join(" ") ??
-      `等待适配：${project.requirements
-        .map((requirement) => mcpRequirementLabels[requirement])
-        .join("、")}`,
-    [project.command, project.requirements],
+      canConnect
+        ? `${mcpConnectionKindLabels[connectionKind]} · 执行配置由服务端受控适配器管理`
+        : `第 ${wave} 批 · ${mcpConnectionKindLabels[connectionKind]} · ${limitations[0] ?? "等待生产级验收"}`,
+    [canConnect, connectionKind, limitations, wave],
   );
   const sourceNames = useMemo(
     () =>
@@ -188,12 +204,24 @@ export default function McpServerCard({
   }, [canInstall, project.id]);
 
   useEffect(() => {
-    if (!restoredSession || restoredSession.session_id === sessionId) return;
+    if (!adapterStatus?.connected) {
+      ignoredRestoredSessionRef.current = null;
+      return;
+    }
+    if (
+      !restoredSession ||
+      restoredSession.session_id === sessionId ||
+      restoredSession.session_id === ignoredRestoredSessionRef.current
+    ) return;
     setSessionId(restoredSession.session_id);
     setState("connected");
     setError("");
-    void fetchTools(restoredSession.session_id);
-  }, [restoredSession, sessionId]);
+    void fetchTools(restoredSession.session_id).catch((exc) => {
+      if (ignoredRestoredSessionRef.current === restoredSession.session_id) return;
+      setState("error");
+      setError(exc instanceof Error ? exc.message : "无法恢复 MCP 会话");
+    });
+  }, [adapterStatus?.connected, restoredSession, sessionId]);
 
   async function readError(response: Response) {
     try {
@@ -205,16 +233,15 @@ export default function McpServerCard({
   }
 
   async function connect() {
-    if (!project.command) return;
+    if (!canConnect) return;
+    ignoredRestoredSessionRef.current = null;
     setState("connecting");
     setError("");
     setTools([]);
     setToolResults({});
     try {
-      const response = await fetch("/api/mcp/connect", {
+      const response = await fetch(`/api/mcp/catalog/${project.id}/connect`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ server_command: project.command }),
       });
       if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as { session_id: string };
@@ -237,9 +264,11 @@ export default function McpServerCard({
   }
 
   async function disconnect() {
-    if (sessionId) {
-      await fetch(`/api/mcp/${sessionId}`, { method: "DELETE" }).catch(() => undefined);
-    }
+    ignoredRestoredSessionRef.current =
+      sessionId ?? restoredSession?.session_id ?? null;
+    await fetch(`/api/mcp/catalog/${project.id}/session`, {
+      method: "DELETE",
+    }).catch(() => undefined);
     setSessionId(null);
     setTools([]);
     setToolResults({});
@@ -256,14 +285,8 @@ export default function McpServerCard({
     setInstallState("installing");
     setInstallError("");
     try {
-      const response = await fetch("/api/mcp/install", {
+      const response = await fetch(`/api/mcp/catalog/${project.id}/prepare`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: project.id,
-          install_command: project.installCommand,
-          server_command: project.command ?? null,
-        }),
       });
       if (!response.ok) throw new Error(await readError(response));
       setInstallState("installed");
@@ -300,14 +323,16 @@ export default function McpServerCard({
     setRunningTool(tool.name);
     setError("");
     try {
-      const response = await fetch(`/api/mcp/${sessionId}/call`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tool_name: tool.name,
-          arguments: buildArguments(tool),
-        }),
-      });
+      const response = await fetch(
+        `/api/mcp/catalog/${project.id}/tools/${encodeURIComponent(tool.name)}/call`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            arguments: buildArguments(tool),
+          }),
+        },
+      );
       if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as ToolCallResult;
       setToolResults((current) => ({ ...current, [tool.name]: data }));
@@ -391,12 +416,16 @@ export default function McpServerCard({
               </span>
               <span
                 className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                  canConnect
+                  availability === "ready"
                     ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                    : availability === "adapting"
+                      ? "border-cyan-300/25 bg-cyan-300/10 text-cyan-100"
+                      : availability === "blocked"
+                        ? "border-rose-300/25 bg-rose-300/10 text-rose-100"
                     : "border-amber-300/25 bg-amber-300/10 text-amber-100"
                 }`}
               >
-                {canConnect ? "本地 stdio 可连" : "已收录 · 待适配"}
+                {mcpAvailabilityLabels[availability]}
               </span>
             </div>
             <h2 className="mt-3 line-clamp-2 text-xl font-semibold leading-7 text-white">
@@ -448,6 +477,23 @@ export default function McpServerCard({
         </div>
       </div>
 
+      <div className="relative mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
+          <p className="text-slate-500">适配批次</p>
+          <p className="mt-1 font-semibold text-white">{wave === 0 ? "基线" : `第 ${wave} 批`}</p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
+          <p className="text-slate-500">连接方式</p>
+          <p className="mt-1 font-semibold text-brand-100">
+            {mcpConnectionKindLabels[connectionKind]}
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
+          <p className="text-slate-500">风险等级</p>
+          <p className="mt-1 font-semibold text-hire-100">{mcpRiskLabels[risk]}</p>
+        </div>
+      </div>
+
       <div className="relative mt-4 flex flex-wrap gap-2">
         {project.tags.map((tag) => (
           <span
@@ -475,9 +521,48 @@ export default function McpServerCard({
         </div>
       ) : (
         <div className="relative mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-3 text-xs leading-5 text-emerald-50">
-          不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。
+          {wave === 2
+            ? "不需要 OAuth、Token 或用户安装运行时；由独立公网 sidecar 通过固定出口策略提供隔离 stdio 会话。"
+            : "不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。"}
         </div>
       )}
+
+      <div className="relative mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] p-3">
+        <p className="text-xs font-semibold text-cyan-100">本批生产验收门槛</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {requiredCapabilities.map((capability) => (
+            <span
+              className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-50"
+              key={capability}
+            >
+              {formatMcpCapability(capability)}
+            </span>
+          ))}
+        </div>
+        {limitations.map((limitation) => (
+          <p className="mt-2 text-xs leading-5 text-slate-400" key={limitation}>
+            {limitation}
+          </p>
+        ))}
+      </div>
+
+      {adapterStatus?.executable && adapterStatus.runtime_image ? (
+        <div className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-emerald-100">已验证运行隔离</p>
+            <span className="rounded-full border border-emerald-300/25 px-2 py-1 text-emerald-100">
+              {adapterStatus.adapter_version}
+            </span>
+          </div>
+          <div className="mt-2 grid gap-2 text-slate-300 sm:grid-cols-2">
+            <p>网络：{formatMcpIsolation(adapterStatus.network_policy)}</p>
+            <p>文件：{formatMcpIsolation(adapterStatus.filesystem_policy)}</p>
+          </div>
+          <p className="mt-2 break-all text-slate-400">
+            固定运行镜像：{adapterStatus.runtime_image}
+          </p>
+        </div>
+      ) : null}
 
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
         {canConnect ? (
@@ -499,7 +584,13 @@ export default function McpServerCard({
             disabled
             type="button"
           >
-            等待安全适配
+            {!adapterStatus && availability === "ready"
+              ? "同步服务端状态..."
+              : availability === "adapting"
+                ? "正在适配"
+                : availability === "blocked"
+                  ? "适配受阻"
+                  : "等待安全适配"}
           </button>
         )}
         {state === "connected" ? (
@@ -548,7 +639,7 @@ export default function McpServerCard({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold text-slate-300">
-              {canConnect ? "stdio 命令" : "接入要求"}
+              {canConnect ? "受控连接" : "适配计划"}
             </p>
             <code
               className={`mt-2 block break-all text-xs ${
@@ -681,7 +772,9 @@ export default function McpServerCard({
                   canConnect ? "text-emerald-100" : "text-amber-100"
                 }`}
               >
-                {canConnect ? "当前可本地 stdio 连接" : "当前仅收录，等待后续适配"}
+                {canConnect
+                  ? `已通过生产验收 · ${mcpConnectionKindLabels[connectionKind]}`
+                  : `${mcpAvailabilityLabels[availability]} · 第 ${wave} 批`}
               </p>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 {project.installNote}
@@ -741,13 +834,13 @@ export default function McpServerCard({
             </section>
 
             {canConnect ? (
-              <section className="mt-5">
-                <h3 className="text-sm font-semibold text-white">
-                  已核验的本地 stdio 命令
+              <section className="mt-5 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-4">
+                <h3 className="text-sm font-semibold text-emerald-100">
+                  服务端受控适配器
                 </h3>
-                <pre className="mt-3 max-h-72 overflow-auto rounded-lg border border-white/10 bg-slate-950/78 p-4 text-xs leading-5 text-brand-100">
-                  <code>{project.installCommand}</code>
-                </pre>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  安装命令、启动参数和工作目录由后端按项目 ID 固定管理；浏览器不会提交命令、URL、Header 或环境变量。
+                </p>
               </section>
             ) : null}
           </div>

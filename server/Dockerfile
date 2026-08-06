@@ -28,6 +28,7 @@ COPY registry ./registry
 COPY rag ./rag
 COPY datax ./datax
 COPY skills ./skills
+COPY agent_workspace ./agent_workspace
 COPY prompts ./prompts
 COPY plugins ./plugins
 COPY xperts ./xperts

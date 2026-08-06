@@ -439,7 +439,20 @@ async def test_native_catalog_uses_30_second_cache_and_stale_if_error(
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            return Response(200, json={"data": [{"id": "provider/model-a"}]})
+            return Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "provider/model-a",
+                            "architecture": {
+                                "input_modalities": ["text", "image"],
+                                "output_modalities": ["text"],
+                            },
+                        }
+                    ]
+                },
+            )
         return Response(503, text="internal upstream details")
 
     repository = SQLiteRouterRepository(tmp_path)
@@ -476,6 +489,8 @@ async def test_native_catalog_uses_30_second_cache_and_stale_if_error(
     assert fresh.source == "native"
     assert fresh.models[0].connection_id == connection.id
     assert fresh.models[0].invocation_id == "provider/model-a"
+    assert fresh.models[0].input_modalities == ["text", "image"]
+    assert fresh.models[0].operations == ["analyze_image", "chat"]
     assert all(
         item.connection_id != direct_openai.id for item in fresh.models
     )

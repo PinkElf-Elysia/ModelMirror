@@ -87,6 +87,16 @@ const platformCapabilities: PlatformCapability[] = [
   },
 ];
 
+const agentWorkspaceCapability: PlatformCapability = {
+  id: "agent-workspace",
+  icon: "GA",
+  title: "General Agent 工作区",
+  summary: "用文件可读的 Agent State 配置第二套原生 Agent，并管理提示词、运行参数、九个工具 Schema 与 Skill 快照。",
+  detail: "当前开放配置工作台；执行 Session、审批与一句话生成 Agent 将在后续轮次接入，不影响既有聊天和画布工作流。",
+  tag: "原生 Agent State · Round 1",
+  eta: "配置面已开放",
+};
+
 export default function AgentsPage() {
   const navigate = useNavigate();
   const { hasPreferredModel, preferredModelId } = useModelPreference();
@@ -95,10 +105,25 @@ export default function AgentsPage() {
   const [expandedAgentIds, setExpandedAgentIds] = useState<string[]>([]);
   const [selectedCapability, setSelectedCapability] =
     useState<PlatformCapability | null>(null);
+  const [agentWorkspaceEnabled, setAgentWorkspaceEnabled] = useState(false);
 
   useEffect(() => {
     document.title = "模镜 - AI 人才市场";
+    void fetch("/api/agent-workspace/status")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((status: { enabled?: boolean } | null) =>
+        setAgentWorkspaceEnabled(status?.enabled === true),
+      )
+      .catch(() => setAgentWorkspaceEnabled(false));
   }, []);
+
+  const visiblePlatformCapabilities = useMemo(
+    () =>
+      agentWorkspaceEnabled
+        ? [agentWorkspaceCapability, ...platformCapabilities]
+        : platformCapabilities,
+    [agentWorkspaceEnabled],
+  );
 
   const filteredAgents = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -149,6 +174,10 @@ export default function AgentsPage() {
   }
 
   function openPlatformCapability(capability: PlatformCapability) {
+    if (capability.id === "agent-workspace") {
+      navigate("/agents/workbench");
+      return;
+    }
     if (capability.id === "xpert-automations") {
       navigate("/agents/automations");
       return;
@@ -276,11 +305,11 @@ export default function AgentsPage() {
               </p>
             </div>
             <span className="w-fit rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1.5 text-xs font-semibold text-hire-100">
-              3 个平台能力排队入场
+              {visiblePlatformCapabilities.length} 个平台能力
             </span>
           </div>
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-            {platformCapabilities.map((capability) => (
+            {visiblePlatformCapabilities.map((capability) => (
               <PlatformCapabilityCard
                 capability={capability}
                 key={capability.id}

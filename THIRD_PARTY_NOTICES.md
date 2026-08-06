@@ -1,5 +1,42 @@
 # Third-party notices
 
+## PenguinHarness built-in Skills
+
+- Project: `Prism-Shadow/penguin-harness`
+- Project URL: <https://github.com/Prism-Shadow/penguin-harness>
+- License: Apache License 2.0
+- Imported scope: the 16 directories under upstream
+  `packages/skills/skills/`, each containing `SKILL.md` and `icon.svg`
+- Local location: `server/skills/builtin/`
+- License copy: `server/skills/builtin/PENGUINHARNESS_LICENSE`
+- Import date: 2026-08-05
+
+ModelMirror does not run PenguinHarness, its CLI, SDK, server, web app, logo,
+or release binaries. The imported Skill content is packaged as immutable
+Agent State snapshots. The local manifest records the upstream path,
+Apache-2.0 attribution, capability status, modification flag, and SHA-256
+content digest for every Skill.
+
+The following Skill files are modified derivatives and carry an inline
+modification notice:
+
+- `agent-creation`: rewritten for ModelMirror staging, strict validation, and
+  backend-owned atomic promotion; unsupported Vault, Benchmark, Trace, SDK,
+  and Penguin runtime claims were removed.
+- `skill-porting`: adapted to Agent-local snapshots without changing the
+  fixed 16-item built-in library.
+- `software-engineering`: replaced the upstream product identity with
+  ModelMirror General Agent.
+- `web-design`: replaced the product identity and default visual framing with
+  ModelMirror while preserving detailed implementation guidance.
+
+The remaining 12 Skill instruction files and all 16 icons are copied without
+content changes. `agent-evaluation`, `agenthub-models`, `agent-optimization`,
+`benchmark-design`, `penguin-cli`, and `penguin-sdk` are reference-only and
+are not injected into the Agent runtime in this phase. The Apache-2.0 license
+does not grant permission to use PenguinHarness trademarks or visual brand
+assets; ModelMirror uses neither.
+
 ## agency-agents-zh
 
 - Project: `jnMetaCode/agency-agents-zh`

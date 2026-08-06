@@ -69,7 +69,7 @@ def test_catalog_normalization_uses_root_and_deduplicates_ids() -> None:
     assert models[0].provider == "openai"
     assert models[0].input_modalities == ["text", "image"]
     assert models[0].output_modalities == ["text"]
-    assert models[0].operations == ["chat"]
+    assert models[0].operations == ["analyze_image", "chat"]
     assert models[0].primary_operation == "chat"
     assert models[0].interaction_status == "ready"
     assert models[0].ui_entrypoint == "chat"
@@ -104,6 +104,16 @@ def test_catalog_operations_route_specialized_models_to_adapted_ui() -> None:
                     "output_modalities": ["video"],
                 },
                 {
+                    "id": "example/image-generator",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["image"],
+                },
+                {
+                    "id": "openrouter/auto",
+                    "input_modalities": ["text", "image"],
+                    "output_modalities": ["text", "image"],
+                },
+                {
                     "id": "openai/text-embedding-3-small",
                     "input_modalities": ["text"],
                     "output_modalities": ["embeddings"],
@@ -134,6 +144,15 @@ def test_catalog_operations_route_specialized_models_to_adapted_ui() -> None:
     assert unverified_speech.operations == ["synthesize_speech"]
     assert unverified_speech.interaction_status == "planned"
     assert unverified_speech.ui_entrypoint == "planned"
+
+    image_generator = by_id["example/image-generator"]
+    assert image_generator.operations == ["generate_image"]
+    assert image_generator.primary_operation == "generate_image"
+    assert image_generator.interaction_status == "planned"
+
+    auto = by_id["openrouter/auto"]
+    assert auto.operations == ["analyze_image", "chat"]
+    assert auto.primary_operation == "chat"
 
     video = by_id["example/video-generator"]
     assert video.operations == ["generate_video"]

@@ -15,6 +15,7 @@ import AdvancedParamsPanel, {
   type ChatAdvancedParams,
 } from "../components/AdvancedParamsPanel";
 import AudioCreationWorkspace from "../components/AudioCreationWorkspace";
+import ImageGenerationWorkspace from "../components/ImageGenerationWorkspace";
 import BrandLogo from "../components/BrandLogo";
 import ChatAudioComposer, {
   QuickTranscriptionControl,
@@ -971,6 +972,19 @@ export default function ChatPage() {
     return <RealtimeVoiceWorkspace initialModelId={decodedModelId} />;
   }
 
+  const imageGenerationModel = models.find(
+    (item) =>
+      item.id === decodedModelId &&
+      item.operations.includes("generate_image"),
+  );
+
+  if (
+    requestedOperation === "generate_image" &&
+    imageGenerationModel
+  ) {
+    return <ImageGenerationWorkspace model={imageGenerationModel} />;
+  }
+
   const videoAnalysisModel = models.find(
     (item) =>
       item.id === decodedModelId &&
@@ -1118,6 +1132,8 @@ function ChatConversationPage() {
   const [isPreparingVideo, setIsPreparingVideo] = useState(false);
   const [chatAudioFeatures, setChatAudioFeatures] =
     useState<ChatAudioFeatures | null>(null);
+  const [imageAnalysisModelIds, setImageAnalysisModelIds] =
+    useState<Set<string> | null>(null);
   const [chatVideoEnabled, setChatVideoEnabled] = useState(false);
   const [nativeAudioEnabled, setNativeAudioEnabled] = useState(false);
   const [nativeAudioVoice, setNativeAudioVoice] = useState("");
@@ -1352,6 +1368,39 @@ function ChatConversationPage() {
         if (features) setChatAudioFeatures(features);
       })
       .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/multimodal/image/models", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as {
+          profiles: Array<{
+            model_id: string;
+            operation: string;
+            invocable: boolean;
+            interaction_status: string;
+          }>;
+        };
+      })
+      .then((catalog) => {
+        if (!catalog || controller.signal.aborted) return;
+        setImageAnalysisModelIds(
+          new Set(
+            catalog.profiles
+              .filter(
+                (profile) =>
+                  profile.operation === "analyze_image" &&
+                  profile.invocable &&
+                  profile.interaction_status === "ready",
+              )
+              .map((profile) => profile.model_id),
+          ),
+        );
+      })
+      .catch(() => setImageAnalysisModelIds(new Set()));
     return () => controller.abort();
   }, []);
 
@@ -1877,7 +1926,7 @@ function ChatConversationPage() {
     if (
       images.length > 0 &&
       !omniRouteSupportsImage &&
-      !model.input_modalities.includes("image")
+      !supportsImageInput
     ) {
       setError("当前候选人不接视觉岗面试，请切换支持图片输入的候选人");
       return false;
@@ -2681,7 +2730,7 @@ function ChatConversationPage() {
     !isPreparingVideo &&
     !isUploadingImage;
   const supportsImageInput =
-    omniRouteSupportsImage || model.input_modalities.includes("image");
+    omniRouteSupportsImage || imageAnalysisModelIds?.has(model.id) === true;
   const directAudioBlockedReason = selectedKnowledgeBaseId
     ? "当前已选择知识库，请先转成文字后再发送。"
     : selectedSkillId
@@ -2868,7 +2917,11 @@ function ChatConversationPage() {
                   : "border-white/10 bg-white/[0.06] text-slate-300"
               }`}
             >
-              {supportsImageInput ? "支持图片输入" : "仅文本输入"}
+              {supportsImageInput
+                ? "支持图片输入"
+                : imageAnalysisModelIds === null && !omniRouteSupportsImage
+                  ? "正在核实图片能力"
+                  : "仅文本输入"}
             </span>
           </div>
         </header>

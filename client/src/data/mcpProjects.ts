@@ -1,3 +1,10 @@
+import {
+  getMcpAdaptation,
+  type McpAvailability,
+  type McpConnectionKind,
+  type McpRiskLevel,
+} from "./mcpAdaptationPlan";
+
 export const mcpCategories = [
   "浏览器与网页",
   "开发与代码",
@@ -21,7 +28,6 @@ export const mcpCategories = [
 
 export type McpCategory = (typeof mcpCategories)[number];
 export type McpInstallMode = "one-click" | "manual";
-export type McpCompatibility = "local-stdio" | "planned";
 export type McpCatalogSourceId = "awesome-mcp-zh" | "awesome-mcp-servers";
 export type McpRequirement =
   | "oauth"
@@ -58,9 +64,13 @@ export interface McpProject {
   installMode: McpInstallMode;
   installCommand: string;
   installNote: string;
-  command?: string[];
   tags: string[];
-  compatibility: McpCompatibility;
+  availability: McpAvailability;
+  connectionKind: McpConnectionKind;
+  adaptationWave: number;
+  risk: McpRiskLevel;
+  requiredCapabilities: string[];
+  adaptationLimitations: string[];
   requirements: McpRequirement[];
   configGuide: string[];
   usageExamples: string[];
@@ -69,13 +79,17 @@ export interface McpProject {
 
 interface McpProjectSeed extends Omit<
   McpProject,
-  | "compatibility"
+  | "availability"
+  | "connectionKind"
+  | "adaptationWave"
+  | "risk"
+  | "requiredCapabilities"
+  | "adaptationLimitations"
   | "requirements"
   | "configGuide"
   | "usageExamples"
   | "sources"
 > {
-  compatibility?: McpCompatibility;
   requirements?: McpRequirement[];
   configGuide?: string[];
   usageExamples?: string[];
@@ -123,7 +137,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand:
       '{\n  "mcpServers": {\n    "playwright": {\n      "command": "npx",\n      "args": ["@playwright/mcp@latest"]\n    }\n  }\n}',
     installNote: "官方 README 提供的标准 MCP 客户端配置，适合支持 stdio MCP 的宿主。",
-    command: ["npx", "-y", "@playwright/mcp@latest"],
     tags: ["微软官方", "浏览器自动化", "网页测试"],
   },
   {
@@ -144,7 +157,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
       '{\n  "mcpServers": {\n    "chrome-devtools": {\n      "command": "npx",\n      "args": ["-y", "chrome-devtools-mcp@latest", "--headless"]\n    }\n  }\n}',
     installNote:
       "模镜使用 headless 模式启动。后端运行环境仍需提供兼容版本的 Chrome 或 Chrome for Testing。",
-    command: ["npx", "-y", "chrome-devtools-mcp@latest", "--headless"],
     tags: ["Google 官方", "Chrome 调试", "性能分析"],
   },
   {
@@ -183,7 +195,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand: "npx ctx7 setup",
     installNote:
       "官方推荐用 ctx7 CLI 配置；模镜原生连接使用其 npm stdio Server。",
-    command: ["npx", "-y", "@upstash/context7-mcp"],
     tags: ["Upstash 官方", "最新文档", "代码生成"],
   },
   {
@@ -302,7 +313,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
       "npx -y @modelcontextprotocol/server-filesystem <allowed-directory>",
     installNote:
       "本地 stdio 模式需要允许访问的目录；模镜统一从 MCP 沙盒目录启动。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "."],
     tags: ["官方参考", "文件系统", "沙盒工具"],
   },
   {
@@ -417,7 +427,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand:
       "npx -y @kimtaeyoon83/mcp-server-youtube-transcript",
     installNote: "官方 README 提供的标准 npm stdio 配置，不需要额外 API Key。",
-    command: ["npx", "-y", "@kimtaeyoon83/mcp-server-youtube-transcript"],
     tags: ["YouTube", "字幕提取", "无需密钥"],
   },
   {
@@ -427,7 +436,7 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/JimmyLv/bibigpt-skill",
     category: "多媒体",
     description:
-      "通过远程 MCP 总结 YouTube、Bilibili、TikTok 等平台的视频、音频和播客。",
+      "通过远程 MCP 总结 YouTube、Bilibili、TikTok 等平台的视频、音频和播客；当前上游调用需要账号授权。",
     readmeSummary:
       "面向中文内容消费的远程 MCP 与 Skill 组合，适合长视频、播客和音频摘要。",
     stars: 0,
@@ -435,7 +444,7 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     verifiedAt: "2026-08-02",
     installMode: "manual",
     installCommand: "远程端点：https://bibigpt.co/api/mcp",
-    installNote: "当前模镜只连接本地 stdio Server，远程端点需在支持 Streamable HTTP 的宿主中添加。",
+    installNote: "上游当前要求 OAuth 2.1 或 API Key；已转入第 10 批授权适配，本批不提供登录入口。",
     tags: ["视频总结", "Bilibili", "远程 MCP"],
   },
   {
@@ -474,7 +483,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand: "npx -y @modelcontextprotocol/server-memory",
     installNote:
       "模镜会在 MCP 沙盒工作目录启动该 Server，使默认 memory.jsonl 保留在受控目录内。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-memory"],
     tags: ["官方参考", "知识图谱", "本地记忆"],
   },
   {
@@ -493,7 +501,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y chatcrystal mcp",
     installNote: "npm 包要求 Node.js 20 或更高版本，模镜后端运行时满足该要求。",
-    command: ["npx", "-y", "chatcrystal", "mcp"],
     tags: ["编码对话", "本地知识库", "Windows"],
   },
   {
@@ -550,7 +557,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y 12306-mcp",
     installNote: "项目 README 提供的标准 npm stdio 启动方式，不需要额外 API Key。",
-    command: ["npx", "-y", "12306-mcp"],
     tags: ["中国铁路", "余票查询", "无需密钥"],
   },
   {
@@ -570,7 +576,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y @modelcontextprotocol/server-sequential-thinking",
     installNote: "官方 npm stdio Server，无需 API Key 或额外服务。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"],
     tags: ["官方参考", "问题拆解", "无需密钥"],
   },
   {
@@ -589,7 +594,6 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "one-click",
     installCommand: "npx -y @modelcontextprotocol/server-everything",
     installNote: "用于协议演示和测试，不建议作为生产业务 Server 使用。",
-    command: ["npx", "-y", "@modelcontextprotocol/server-everything"],
     tags: ["官方参考", "协议测试", "无需密钥"],
   },
   {
@@ -638,7 +642,6 @@ function plannedMcp(input: ExpandedProjectInput): McpProjectSeed {
     installMode: "manual",
     installCommand: "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
     installNote: `${requirementText}。本轮不配置这些依赖，条目等待后续安全适配。`,
-    compatibility: "planned",
     configGuide: [
       `先确认接入条件：${requirementText}。`,
       "当前模镜不会收集凭证、打开外站认证，也不会启动额外运行时或桌面宿主。",
@@ -1201,7 +1204,7 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/GongRzhe/Quickchart-MCP-Server",
     category: "数据分析",
     description: "根据数据与图表配置生成可分享的图表图像。",
-    readmeSummary: "社区 MCP Server，使用 QuickChart 服务快速生成多种 Chart.js 图表。",
+    readmeSummary: "社区 MCP Server，使用 QuickChart 服务生成 Chart.js 图表；上游仓库已归档，模镜固定兼容 1.0.6 的受控子集。",
     language: "Python",
     tags: ["QuickChart", "Chart.js", "图表生成"],
     requirements: ["external-runtime", "remote-transport"],
@@ -1659,8 +1662,8 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
   plannedMcp({
     id: "fetch-mcp",
     name: "Fetch MCP",
-    repoName: "modelcontextprotocol/servers-archived",
-    repoUrl: "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/fetch",
+    repoName: "modelcontextprotocol/servers",
+    repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
     category: "通用工具",
     description: "获取公开 URL 内容并转换为适合语言模型阅读的文本。",
     readmeSummary: "MCP 官方归档 Python 参考实现，提供受 robots.txt 约束的网页获取工具。",
@@ -1677,24 +1680,14 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/wrtnlabs/calculator-mcp",
     category: "通用工具",
     description: "执行确定性的数学计算，减少语言模型直接心算产生的误差。",
-    readmeSummary: "社区计算器 MCP Server，提供基础与扩展数学运算工具。",
-    language: "Python",
+    readmeSummary: "社区 Node.js 计算器 MCP Server，提供基础数学运算工具；模镜使用固定 Python 兼容适配器复现其首批工具契约。",
+    language: "TypeScript",
     tags: ["计算器", "确定性计算", "数学工具"],
     requirements: ["external-runtime"],
     usageExamples: ["计算复合公式结果", "在工作流中校验数值"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
   }),
 ];
-
-const localStdioIds = new Set([
-  "context7",
-  "filesystem-mcp",
-  "youtube-transcript-mcp",
-  "memory-mcp",
-  "12306-mcp",
-  "sequential-thinking-mcp",
-  "everything-mcp",
-]);
 
 const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
   "playwright-mcp": ["external-runtime", "system-permission"],
@@ -1710,7 +1703,7 @@ const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
   "grafana-mcp": ["token", "account-binding", "remote-transport"],
   "notion-mcp-server": ["token", "account-binding", "remote-transport"],
   "blender-mcp": ["desktop-host", "external-runtime", "system-permission"],
-  "bibigpt-mcp": ["remote-transport"],
+  "bibigpt-mcp": ["oauth", "token", "account-binding", "remote-transport"],
   "mcp-cn-commerce": ["token", "account-binding", "remote-transport"],
   chatcrystal: ["desktop-host", "system-permission"],
   "zotero-mcp": ["desktop-host", "token", "account-binding"],
@@ -1719,8 +1712,14 @@ const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
 };
 
 function normalizeMcpProject(seed: McpProjectSeed): McpProject {
-  const isLocalStdio = localStdioIds.has(seed.id);
-  const requirements = isLocalStdio
+  const adaptation = getMcpAdaptation(seed.id);
+  const isReady = adaptation.availability === "ready";
+  const isLocalStdio =
+    isReady && adaptation.connectionKind === "local-stdio";
+  const isBundledSandbox =
+    isReady && adaptation.connectionKind === "sandboxed-stdio";
+  const isPublicSandbox = isBundledSandbox && adaptation.wave === 2;
+  const requirements = isReady
     ? []
     : (seed.requirements ?? originalRequirements[seed.id] ?? ["external-runtime"]);
   const requirementText = requirements
@@ -1732,9 +1731,22 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
     installMode: isLocalStdio ? "one-click" : "manual",
     installCommand: isLocalStdio
       ? seed.installCommand
-      : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
-    command: isLocalStdio ? seed.command : undefined,
-    compatibility: isLocalStdio ? "local-stdio" : "planned",
+      : isPublicSandbox
+        ? "内置公网适配器由服务端固定部署，不接受自定义命令、端点或 Header。"
+        : isBundledSandbox
+          ? "内置隔离适配器由服务端固定部署，无需安装命令。"
+        : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
+    installNote: isPublicSandbox
+      ? "适配器在独立非 root、只读公网 sidecar 中运行；出口域名、DNS、重定向、超时和响应大小均由服务端控制。"
+      : isBundledSandbox
+        ? "适配器随断网 Python 沙箱镜像固定部署；浏览器不会提交命令、目录或环境变量。"
+      : seed.installNote,
+    availability: adaptation.availability,
+    connectionKind: adaptation.connectionKind,
+    adaptationWave: adaptation.wave,
+    risk: adaptation.risk,
+    requiredCapabilities: adaptation.requiredCapabilities,
+    adaptationLimitations: adaptation.limitations,
     requirements,
     configGuide:
       seed.configGuide ??
@@ -1744,6 +1756,18 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
             "安装完成后点击“连接 Server”，后端会在 MCP 沙盒目录启动进程。",
             "连接成功后展开工具表单，确认参数范围再执行；随时可以断开连接。",
           ]
+        : isPublicSandbox
+          ? [
+              "无需安装 npm、Python 包或外部运行时；点击“连接 Server”启动服务端固定适配器。",
+              "Fetch 仅访问用户明确提供的公网 HTTPS；其他项目只访问卡片列出的固定公共域名，每次重定向都会重新校验。",
+              "调用受超时、robots.txt、速率、响应大小和只读工具策略限制；被策略拒绝时不会回退到不受控连接。",
+            ]
+          : isBundledSandbox
+          ? [
+              "无需安装 Python、uv、npm 或上游包；点击“连接 Server”即可启动受控适配器。",
+              "每次连接都在断网、非 root、只读文件系统的临时沙箱内运行，结束后自动清理。",
+              "工具参数、运行时间和返回大小均有限制；超出安全范围时会返回中文错误并拒绝执行。",
+            ]
         : [
             `先确认接入条件：${requirementText}。`,
             "当前模镜不会收集凭证、打开外站认证，也不会启动额外运行时或桌面宿主。",

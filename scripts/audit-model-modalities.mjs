@@ -1,0 +1,139 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+
+const ARRAY_MARKER = "const rawCatalogModels: RawCatalogModel[] = ";
+const ARRAY_END_MARKER = "const CURRENT_TIME_SECONDS";
+
+function argument(name) {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : "";
+}
+
+async function jsonFile(name) {
+  const value = argument(name);
+  if (!value) throw new Error(`${name} is required`);
+  return JSON.parse(await fs.readFile(path.resolve(value), "utf8"));
+}
+
+function parseSnapshot(source) {
+  const start = source.indexOf(ARRAY_MARKER);
+  const end = source.indexOf(ARRAY_END_MARKER, start);
+  if (start < 0 || end < 0) throw new Error("models.ts snapshot not found");
+  return JSON.parse(
+    source.slice(start + ARRAY_MARKER.length, end).replace(/;\s*$/, ""),
+  );
+}
+
+function modalities(model, key) {
+  const value = model?.architecture?.[key] ?? model?.[key];
+  return Array.isArray(value) ? value.map(String).sort() : [];
+}
+
+function sameValues(left, right) {
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+function count(models, key, value) {
+  return models.filter((model) => modalities(model, key).includes(value)).length;
+}
+
+async function main() {
+  const [catalog, imageCatalog, videoCatalog, source] = await Promise.all([
+    jsonFile("--catalog"),
+    jsonFile("--image-models"),
+    jsonFile("--video-models"),
+    fs.readFile(path.resolve("client/src/data/models.ts"), "utf8"),
+  ]);
+  const live = Array.isArray(catalog.data) ? catalog.data : [];
+  const images = Array.isArray(imageCatalog.data) ? imageCatalog.data : [];
+  const videos = Array.isArray(videoCatalog.data) ? videoCatalog.data : [];
+  const snapshot = parseSnapshot(source);
+  const snapshotById = new Map(snapshot.map((model) => [model.id, model]));
+  const missingLiveModels = live
+    .filter((model) => !snapshotById.has(model.id))
+    .map((model) => model.id);
+  const modalityMismatches = live
+    .filter((model) => {
+      const stored = snapshotById.get(model.id);
+      return stored && (
+        !sameValues(
+          modalities(model, "input_modalities"),
+          modalities(stored, "input_modalities"),
+        ) ||
+        !sameValues(
+          modalities(model, "output_modalities"),
+          modalities(stored, "output_modalities"),
+        )
+      );
+    })
+    .map((model) => model.id);
+  const imageIds = new Set(images.map((model) => model.id));
+  const videoIds = new Set(videos.map((model) => model.id));
+  const imageApiMissingFromSnapshot = images
+    .filter((model) => !snapshotById.has(model.id))
+    .map((model) => model.id);
+  const videoApiMissingFromSnapshot = videos
+    .filter((model) => !snapshotById.has(model.id))
+    .map((model) => model.id);
+  const generalImageOutputWithoutDedicatedApi = live
+    .filter(
+      (model) =>
+        modalities(model, "output_modalities").includes("image") &&
+        !imageIds.has(model.id),
+    )
+    .map((model) => model.id);
+  const generalVideoOutputWithoutDedicatedApi = live
+    .filter(
+      (model) =>
+        modalities(model, "output_modalities").includes("video") &&
+        !videoIds.has(model.id),
+    )
+    .map((model) => model.id);
+
+  const report = {
+    generated_at: new Date().toISOString(),
+    snapshot_total: snapshot.length,
+    live_total: live.length,
+    retained_history_total: snapshot.length - live.length,
+    live_modalities: {
+      input: {
+        text: count(live, "input_modalities", "text"),
+        image: count(live, "input_modalities", "image"),
+        audio: count(live, "input_modalities", "audio"),
+        video: count(live, "input_modalities", "video"),
+        file: count(live, "input_modalities", "file"),
+      },
+      output: {
+        text: count(live, "output_modalities", "text"),
+        image: count(live, "output_modalities", "image"),
+        audio: count(live, "output_modalities", "audio"),
+        speech: count(live, "output_modalities", "speech"),
+        transcription: count(live, "output_modalities", "transcription"),
+        video: count(live, "output_modalities", "video"),
+      },
+    },
+    dedicated_catalogs: {
+      image_generation: images.length,
+      video_generation: videos.length,
+    },
+    missing_live_models: missingLiveModels,
+    modality_mismatches: modalityMismatches,
+    image_api_missing_from_snapshot: imageApiMissingFromSnapshot,
+    video_api_missing_from_snapshot: videoApiMissingFromSnapshot,
+    general_image_output_without_dedicated_api: generalImageOutputWithoutDedicatedApi,
+    general_video_output_without_dedicated_api: generalVideoOutputWithoutDedicatedApi,
+  };
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  if (
+    missingLiveModels.length ||
+    modalityMismatches.length ||
+    imageApiMissingFromSnapshot.length ||
+    videoApiMissingFromSnapshot.length ||
+    generalVideoOutputWithoutDedicatedApi.length
+  ) {
+    process.exitCode = 1;
+  }
+}
+
+await main();

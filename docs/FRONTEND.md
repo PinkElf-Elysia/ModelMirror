@@ -74,6 +74,8 @@ client/
 `ChatPage` 先根据查询参数和模型 `operations` 选择工作区：
 
 - `chat`：现有文本和图片聊天。
+- `analyze_image`：图片作为 Chat 附件，由实时目录确认支持图片输入的模型识别。
+- `generate_image`：独立图片生成/编辑工作区，完整接收结果后再展示，不复用 Chat SSE。
 - `transcribe`：音频文件转录。
 - `synthesize_speech`：按已验证模型与声线生成语音。
 - `generate_audio`：独立音乐生成任务、播放器与临时下载。
@@ -84,7 +86,7 @@ client/
 模型被目录收录或 `invocable=true` 不代表当前 UI 已适配。CTA 必须同时检查
 operation 和 `interaction_status`。
 
-`/models` 保留原 493 个 OpenRouter 快照模型，并额外展示
+`/models` 当前合并 517 个 OpenRouter 快照模型（462 个实时目录模型与 55 个保留历史模型），并额外展示
 `gpt-realtime-2.1-mini` 和 `gpt-realtime-2.1` 两个直接 OpenAI 档案。即使当前
 没有可用连接，卡片仍提供“配置实时语音”入口；连接、功能开关和能力档案同时
 满足后才显示“开始实时语音”。
@@ -93,7 +95,13 @@ Chat 的音频上传与麦克风共用转写设置，默认先转文字并允许
 按钮与“实时语音”入口必须保持可辨识：前者录完再提交，后者创建最长 10 分钟的
 持续 WebRTC 会话。实时语音不会自动组合 RAG、Skill、MCP 或 `/chat/auto`。
 
-## 聊天图片输出链路
+## 图片识别与生成链路
+
+图片识别和图片生成是两个不同岗位能力：前者要求 `image` 输入和文本输出，继续走
+Chat Completions；后者必须经实时 `/images/models` 确认，并走独立图片生成接口与工作区。
+`openrouter/auto` 即使在通用目录声明图片输出，也不会被当作专用图片生成模型。
+
+早期 Chat SSE 图片输出仍作为兼容链路保留：
 
 图片生成模型的输出路径由以下文件协作完成：
 

@@ -1,27 +1,25 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import { useModelPreference } from "../context/ModelPreferenceContext";
+import { type Model, type ModelOperation } from "../data/models";
 import {
-  type Capability,
-  type Model,
-  type ModelOperation,
-} from "../data/models";
-import {
-  getRecruitmentCapability,
   getRecruitmentTag,
   getTalentStats,
 } from "../theme/recruitmentTheme";
 import {
   buildFriendlyTalentIntro,
   deriveProviderFromModel,
+  getFriendlyJobCapabilityLabel,
 } from "../utils/userFriendlyText";
 
 interface ModelCardProps {
   model: Model;
   confirmedAudioOperations?: ModelOperation[];
+  confirmedImageOperations?: ModelOperation[];
   confirmedVideoOperations?: ModelOperation[];
   audioCapabilityStatus?: AudioCapabilityStatus;
   audioCatalogStale?: boolean;
+  imageCatalogStale?: boolean;
   videoCatalogStale?: boolean;
 }
 
@@ -32,16 +30,6 @@ export interface AudioCapabilityStatus {
   pricePerGenerationUsd: number | null;
   fixedDurationSeconds: number | null;
 }
-
-const capabilityIcons: Record<Capability, { icon: string; label: string }> = {
-  text: { icon: "文", label: "文本" },
-  image: { icon: "图", label: "图片" },
-  code: { icon: "</>", label: "代码" },
-  tool: { icon: "Fn", label: "工具调用" },
-  audio: { icon: "音", label: "音频" },
-  video: { icon: "视", label: "视频" },
-  reasoning: { icon: "思", label: "推理" },
-};
 
 const tagStyles: Record<string, string> = {
   精选: "border-brand-300/30 bg-brand-300/10 text-brand-100",
@@ -103,6 +91,8 @@ function formatContextLength(contextLength: number) {
 
 const operationLabels: Record<ModelOperation, string> = {
   chat: "对话面试",
+  analyze_image: "图片识别",
+  generate_image: "图片生成/编辑",
   transcribe: "音频转文字",
   synthesize_speech: "文字转语音",
   generate_audio: "音频生成",
@@ -118,9 +108,11 @@ const operationLabels: Record<ModelOperation, string> = {
 const ModelCard = memo(function ModelCard({
   model,
   confirmedAudioOperations = [],
+  confirmedImageOperations = [],
   confirmedVideoOperations = [],
   audioCapabilityStatus,
   audioCatalogStale = false,
+  imageCatalogStale = false,
   videoCatalogStale = false,
 }: ModelCardProps) {
   const { preferredModelId, setPreferredModelId } = useModelPreference();
@@ -166,6 +158,10 @@ const ModelCard = memo(function ModelCard({
     confirmedAudioOperations.includes("realtime_voice");
   const canTranscribe =
     model.active && confirmedAudioOperations.includes("transcribe");
+  const canAnalyzeImage =
+    model.active && confirmedImageOperations.includes("analyze_image");
+  const canGenerateImage =
+    model.active && confirmedImageOperations.includes("generate_image");
   const operationLabel = operationLabels[model.primary_operation];
   const canAnalyzeVideo =
     model.active && confirmedVideoOperations.includes("analyze_video");
@@ -247,6 +243,8 @@ const ModelCard = memo(function ModelCard({
       !primaryAudioOperationBlocked
     ) ||
     confirmedAudioLabels.length > 0 ||
+    canAnalyzeImage ||
+    canGenerateImage ||
     canAnalyzeVideo ||
     canGenerateVideo;
   const showGeneralChatAction =
@@ -301,7 +299,9 @@ const ModelCard = memo(function ModelCard({
           </p>
         </div>
 
-        {canAnalyzeAudio ||
+        {canAnalyzeImage ||
+        canGenerateImage ||
+        canAnalyzeAudio ||
         canSynthesizeSpeech ||
         canGenerateAudio ||
         canOpenRealtimeVoice ||
@@ -316,6 +316,22 @@ const ModelCard = memo(function ModelCard({
                 to={`/chat/${encodeURIComponent(model.id)}`}
               >
                 生成 3D 世界
+              </Link>
+            ) : null}
+            {canGenerateImage ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 shadow-[0_0_0_1px_rgba(253,186,116,0.28),0_0_26px_rgba(251,146,60,0.18)] transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}?operation=generate_image`}
+              >
+                生成图片
+              </Link>
+            ) : null}
+            {canAnalyzeImage && !showGeneralChatAction ? (
+              <Link
+                className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 transition duration-200 hover:bg-hire-200 active:scale-[0.98]"
+                to={`/chat/${encodeURIComponent(model.id)}`}
+              >
+                识别图片
               </Link>
             ) : null}
             {canAnalyzeAudio ? (
@@ -369,6 +385,7 @@ const ModelCard = memo(function ModelCard({
             {showGeneralChatAction ? (
               <Link
                 className={`rounded-full px-3.5 py-2 text-center text-sm font-semibold transition duration-200 active:scale-[0.98] ${
+                  canGenerateImage ||
                   canAnalyzeAudio ||
                   canSynthesizeSpeech ||
                   canGenerateAudio ||
@@ -452,6 +469,15 @@ const ModelCard = memo(function ModelCard({
           >
             {label}已确认
             {videoCatalogStale ? " · 缓存目录" : ""}
+          </span>
+        ))}
+        {confirmedImageOperations.map((operation) => (
+          <span
+            className="rounded-full border border-fuchsia-300/30 bg-fuchsia-300/10 px-2.5 py-1 text-xs font-medium text-fuchsia-100"
+            key={`image-${operation}`}
+          >
+            {operationLabels[operation]}已确认
+            {imageCatalogStale ? " · 缓存目录" : ""}
           </span>
         ))}
         {confirmedAudioLabels.map((label) => (
@@ -579,20 +605,15 @@ const ModelCard = memo(function ModelCard({
 
       <div className="relative mx-5 mt-auto flex items-center justify-between gap-3 border-t border-white/10 pb-5 pt-4">
         <div className="flex flex-wrap items-center gap-2">
-          {model.capabilities.map((capability) => {
-            const capabilityMeta = capabilityIcons[capability];
-
-            return (
-              <span
-                aria-label={capabilityMeta.label}
-                className="inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] px-2 text-xs font-semibold text-slate-300 transition group-hover:border-brand-300/30 group-hover:bg-brand-300/10 group-hover:text-brand-100"
-                key={capability}
-                title={capabilityMeta.label}
-              >
-                {getRecruitmentCapability(capability)}
-              </span>
-            );
-          })}
+          {model.job_capabilities.slice(0, 4).map((capability) => (
+            <span
+              className="inline-flex h-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] px-2 text-xs font-semibold text-slate-300 transition group-hover:border-brand-300/30 group-hover:bg-brand-300/10 group-hover:text-brand-100"
+              key={capability}
+              title={`岗位能力：${getFriendlyJobCapabilityLabel(capability)}`}
+            >
+              {getFriendlyJobCapabilityLabel(capability)}
+            </span>
+          ))}
         </div>
         <p className="shrink-0 text-xs text-slate-500">
           已录用 {talentStats.hiredCount} 次

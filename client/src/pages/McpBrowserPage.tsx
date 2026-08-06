@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import McpServerCard, {
   type McpSessionSummary,
 } from "../components/McpServerCard";
@@ -9,8 +8,12 @@ import {
   mcpCategories,
   mcpProjects,
   type McpCategory,
-  type McpCompatibility,
 } from "../data/mcpProjects";
+import {
+  mcpAvailabilityLabels,
+  type McpAvailability,
+  type McpCatalogAdapterStatus,
+} from "../data/mcpAdaptationPlan";
 
 interface RegistryTool {
   name: string;
@@ -22,13 +25,9 @@ interface RegistryTool {
 }
 
 type CatalogCategory = "全部" | McpCategory;
-type CompatibilityFilter = "all" | McpCompatibility;
+type AvailabilityFilter = "all" | McpAvailability;
 
 const INITIAL_VISIBLE_COUNT = 18;
-
-function commandKey(command?: string[]) {
-  return command?.join("\u0000") ?? "";
-}
 
 export default function McpBrowserPage() {
   const [sessions, setSessions] = useState<McpSessionSummary[]>([]);
@@ -37,8 +36,11 @@ export default function McpBrowserPage() {
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] =
     useState<CatalogCategory>("全部");
-  const [compatibilityFilter, setCompatibilityFilter] =
-    useState<CompatibilityFilter>("all");
+  const [availabilityFilter, setAvailabilityFilter] =
+    useState<AvailabilityFilter>("all");
+  const [adapterStatuses, setAdapterStatuses] = useState<
+    McpCatalogAdapterStatus[]
+  >([]);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [isLoadingRuntime, setIsLoadingRuntime] = useState(false);
   const [runtimeError, setRuntimeError] = useState("");
@@ -51,20 +53,26 @@ export default function McpBrowserPage() {
     setIsLoadingRuntime(true);
     setRuntimeError("");
     try {
-      const [sessionsResponse, registryResponse] = await Promise.all([
+      const [sessionsResponse, registryResponse, adaptersResponse] = await Promise.all([
         fetch("/api/mcp/sessions"),
         fetch("/api/registry/tools"),
+        fetch("/api/mcp/catalog/adapters"),
       ]);
       if (!sessionsResponse.ok) throw new Error("无法获取 MCP 会话列表");
       if (!registryResponse.ok) throw new Error("无法获取全局工具注册表");
+      if (!adaptersResponse.ok) throw new Error("无法获取 MCP 适配状态");
       const sessionsData = (await sessionsResponse.json()) as {
         sessions: McpSessionSummary[];
       };
       const registryData = (await registryResponse.json()) as {
         tools: RegistryTool[];
       };
+      const adaptersData = (await adaptersResponse.json()) as {
+        adapters: McpCatalogAdapterStatus[];
+      };
       setSessions(sessionsData.sessions);
       setRegistryTools(registryData.tools);
+      setAdapterStatuses(adaptersData.adapters);
     } catch (exc) {
       setRuntimeError(
         exc instanceof Error ? exc.message : "MCP 运行态信息加载失败",
@@ -78,10 +86,29 @@ export default function McpBrowserPage() {
     void refreshRuntime();
   }, [refreshRuntime]);
 
-  const connectableCount = mcpProjects.filter(
-    (project) => project.compatibility === "local-stdio",
+  const adapterByProject = useMemo(
+    () => new Map(adapterStatuses.map((adapter) => [adapter.project_id, adapter])),
+    [adapterStatuses],
+  );
+  const effectiveAvailability = useCallback(
+    (projectId: string) =>
+      adapterByProject.get(projectId)?.availability ??
+      mcpProjects.find((project) => project.id === projectId)?.availability ??
+      "blocked",
+    [adapterByProject],
+  );
+  const readyCount = mcpProjects.filter(
+    (project) => effectiveAvailability(project.id) === "ready",
   ).length;
-  const plannedCount = mcpProjects.length - connectableCount;
+  const plannedCount = mcpProjects.filter(
+    (project) => effectiveAvailability(project.id) === "planned",
+  ).length;
+  const adaptingCount = mcpProjects.filter(
+    (project) => effectiveAvailability(project.id) === "adapting",
+  ).length;
+  const blockedCount = mcpProjects.filter(
+    (project) => effectiveAvailability(project.id) === "blocked",
+  ).length;
   const categoryCounts = useMemo(() => {
     const counts = new Map<McpCategory, number>();
     for (const category of mcpCategories) counts.set(category, 0);
@@ -97,8 +124,8 @@ export default function McpBrowserPage() {
         return false;
       }
       if (
-        compatibilityFilter !== "all" &&
-        project.compatibility !== compatibilityFilter
+        availabilityFilter !== "all" &&
+        effectiveAvailability(project.id) !== availabilityFilter
       ) {
         return false;
       }
@@ -111,12 +138,14 @@ export default function McpBrowserPage() {
         project.readmeSummary,
         ...project.tags,
         ...project.requirements,
+        ...project.requiredCapabilities,
+        ...project.adaptationLimitations,
       ]
         .join(" ")
         .toLocaleLowerCase("zh-CN");
       return searchableText.includes(normalizedQuery);
     });
-  }, [compatibilityFilter, query, selectedCategory]);
+  }, [availabilityFilter, effectiveAvailability, query, selectedCategory]);
   const visibleProjects = useMemo(
     () => filteredProjects.slice(0, visibleCount),
     [filteredProjects, visibleCount],
@@ -124,16 +153,7 @@ export default function McpBrowserPage() {
 
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
-  }, [compatibilityFilter, query, selectedCategory]);
-  const sessionsByCommand = useMemo(() => {
-    const map = new Map<string, McpSessionSummary>();
-    for (const session of sessions) {
-      const key = commandKey(session.server_command);
-      if (!map.has(key)) map.set(key, session);
-    }
-    return map;
-  }, [sessions]);
-
+  }, [availabilityFilter, query, selectedCategory]);
   return (
     <PageContainer
       activeResource="mcps"
@@ -141,7 +161,7 @@ export default function McpBrowserPage() {
         <div>
           <p className="text-sm font-semibold text-white">工具采购清单</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            汇集两个社区清单，并按当前安全边界区分“本地可连”和“已收录、待适配”。
+            汇集两个社区清单，并按生产验收状态、适配批次和风险等级展示。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
             <p className="text-xs text-slate-400">已上架工具</p>
@@ -156,9 +176,9 @@ export default function McpBrowserPage() {
             </p>
           </div>
           <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-            <p className="text-xs text-slate-400">本地 stdio 可连</p>
+            <p className="text-xs text-slate-400">生产级可用</p>
             <p className="mt-1 text-sm font-semibold text-emerald-100">
-              {connectableCount} 个
+              {readyCount} 个
             </p>
           </div>
           <button
@@ -168,12 +188,6 @@ export default function McpBrowserPage() {
           >
             刷新连接状态
           </button>
-          <Link
-            className="mt-2 block w-full rounded-full border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-center text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
-            to="/toolsets?tab=mcp"
-          >
-            管理 Toolset
-          </Link>
         </div>
       }
     >
@@ -189,7 +203,7 @@ export default function McpBrowserPage() {
               MCP 工具采购
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-              从 {mcpProjects.length} 个中文化条目中按场景与适配状态筛选。当前只开放无需 OAuth、Token、额外运行时或桌面宿主的本地 stdio Server。
+              从 {mcpProjects.length} 个中文化条目中按场景、批次与生产验收状态筛选。当前已有 {readyCount} 个项目通过验收，其余 {plannedCount + adaptingCount + blockedCount} 个仍需逐批通过安全门槛。
             </p>
           </div>
 
@@ -215,7 +229,7 @@ export default function McpBrowserPage() {
               </div>
               <div className="rounded-lg bg-white/[0.055] px-2 py-3">
                 <p className="text-lg font-semibold text-emerald-100">
-                  {connectableCount}
+                  {readyCount}
                 </p>
                 <p className="mt-1 truncate text-slate-400">可连接</p>
               </div>
@@ -298,15 +312,15 @@ export default function McpBrowserPage() {
                     </a>
                   </span>
                 ))}
-                ，并按模镜当前 stdio 边界重新分类、翻译和核验。
+                ，并按模镜的受控适配器边界重新分类、翻译和核验。
               </p>
               <p className="mt-2 text-xs leading-5 text-slate-400">
-                核验日期 2026-08-02 · MIT 清单来源 · 不提供 OAuth、Token、外部运行时、桌面宿主或外站认证入口
+                第 1 批核验日期 2026-08-05 · 目录数量冻结 · 当前不提供自定义连接、MCP Builder 或外站认证入口
               </p>
             </div>
 
             <div className="rounded-lg border border-amber-300/25 bg-amber-300/[0.08] p-4 text-sm leading-6 text-amber-50">
-              “待适配”不代表项目不可用，而是当前模镜不会代管其凭证、账号授权、远程连接或桌面运行环境。此类条目仅展示中文用途与接入条件，按钮保持不可连接状态。
+              “待适配”不代表上游项目不可用，而是尚未通过模镜的安装、权限、Smoke 与回退验收。每个条目已归入固定批次；服务端未放行前，按钮始终不可连接。
             </div>
 
             <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
@@ -322,13 +336,13 @@ export default function McpBrowserPage() {
                   type="search"
                   value={query}
                 />
-                {query || selectedCategory !== "全部" || compatibilityFilter !== "all" ? (
+                {query || selectedCategory !== "全部" || availabilityFilter !== "all" ? (
                   <button
                     className="rounded-lg border border-white/10 bg-white/[0.055] px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:text-brand-100"
                     onClick={() => {
                       setQuery("");
                       setSelectedCategory("全部");
-                      setCompatibilityFilter("all");
+                      setAvailabilityFilter("all");
                     }}
                     type="button"
                   >
@@ -345,22 +359,24 @@ export default function McpBrowserPage() {
                 >
                   {([
                     ["all", "全部状态", mcpProjects.length],
-                    ["local-stdio", "本地 stdio 可连", connectableCount],
-                    ["planned", "已收录、待适配", plannedCount],
+                    ["ready", mcpAvailabilityLabels.ready, readyCount],
+                    ["planned", mcpAvailabilityLabels.planned, plannedCount],
+                    ["adapting", mcpAvailabilityLabels.adapting, adaptingCount],
+                    ["blocked", mcpAvailabilityLabels.blocked, blockedCount],
                   ] as const).map(([value, label, count]) => {
-                    const isSelected = compatibilityFilter === value;
+                    const isSelected = availabilityFilter === value;
                     return (
                       <button
                         aria-pressed={isSelected}
                         className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                           isSelected
-                            ? value === "planned"
+                            ? value === "planned" || value === "blocked"
                               ? "border-amber-300/60 bg-amber-300 text-ink-950"
                               : "border-emerald-300/60 bg-emerald-300 text-ink-950"
                             : "border-white/10 bg-white/[0.045] text-slate-300 hover:border-brand-300/35 hover:text-brand-100"
                         }`}
                         key={value}
-                        onClick={() => setCompatibilityFilter(value)}
+                        onClick={() => setAvailabilityFilter(value)}
                         type="button"
                       >
                         {label} · {count}
@@ -408,7 +424,7 @@ export default function McpBrowserPage() {
             </h2>
             <p className="mt-1 text-sm text-slate-400">
               {activeView === "servers"
-                ? "本地可连项由后端以 stdio 启动；待适配项只展示中文配置边界和使用场景。"
+                ? "可用项由后端固定适配器启动；第 1 批运行在断网 Python 沙箱，待适配项只展示中文配置边界。"
                 : "这里聚合所有已连接 MCP Server 的工具；重名工具按首次出现保留。"}
             </p>
           </div>
@@ -423,14 +439,20 @@ export default function McpBrowserPage() {
           filteredProjects.length > 0 ? (
             <>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-                {visibleProjects.map((project) => (
-                  <McpServerCard
-                    key={project.id}
-                    onConnectionChange={() => void refreshRuntime()}
-                    project={project}
-                    restoredSession={sessionsByCommand.get(commandKey(project.command))}
-                  />
-                ))}
+                {visibleProjects.map((project) => {
+                  const adapterStatus = adapterByProject.get(project.id);
+                  return (
+                    <McpServerCard
+                      adapterStatus={adapterStatus}
+                      key={project.id}
+                      onConnectionChange={() => void refreshRuntime()}
+                      project={project}
+                      restoredSession={sessions.find(
+                        (session) => session.session_id === adapterStatus?.session_id,
+                      )}
+                    />
+                  );
+                })}
               </div>
               {visibleProjects.length < filteredProjects.length ? (
                 <div className="mt-6 flex justify-center">
@@ -457,7 +479,7 @@ export default function McpBrowserPage() {
                 onClick={() => {
                   setQuery("");
                   setSelectedCategory("全部");
-                  setCompatibilityFilter("all");
+                  setAvailabilityFilter("all");
                 }}
                 type="button"
               >

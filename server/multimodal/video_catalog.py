@@ -23,6 +23,8 @@ VIDEO_CATALOG_STALE_SECONDS = 1_800.0
 
 VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
     {
+        # 2026-07 人工验收：文生视频、轮询、播放与下载闭环通过。
+        "bytedance/seedance-2.0",
         "runway/aleph-2",
         "runway/gen-4.5",
     }

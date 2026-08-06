@@ -2,6 +2,24 @@
 
 ModelMirror uses third-party libraries under their respective licenses.
 
+## PenguinHarness built-in Skills
+
+ModelMirror vendors the 16 upstream Skill directories from
+`Prism-Shadow/penguin-harness` under the Apache License 2.0. They are stored
+at `/app/skills/builtin` in the server image and are used only as versioned
+Agent State instruction snapshots. The complete upstream license is included
+at `/app/skills/builtin/PENGUINHARNESS_LICENSE`.
+
+Project: https://github.com/Prism-Shadow/penguin-harness
+
+ModelMirror does not run or bundle the PenguinHarness application, CLI, SDK,
+logo, or release binaries. Four Skill instruction files (`agent-creation`,
+`skill-porting`, `software-engineering`, and `web-design`) carry prominent
+inline notices describing ModelMirror modifications. The built-in manifest
+records source paths, Apache-2.0 attribution, modification flags, capability
+status, and SHA-256 content digests. Reference-only Skills are retained for
+review but are not injected into the runtime in this phase.
+
 ## pypdfium2 and PDFium
 
 - `pypdfium2` is distributed under Apache-2.0 OR BSD-3-Clause.

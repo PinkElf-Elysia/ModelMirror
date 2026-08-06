@@ -46,6 +46,8 @@ services:
     build:
       context: ./server/sandbox_sidecar
     container_name: modelmirror-sandbox
+    environment:
+      MCP_COMPUTE_MAX_SESSIONS: "6"
     network_mode: none
     read_only: true
     cap_drop:
@@ -68,6 +70,47 @@ services:
           "python",
           "-c",
           "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-sandbox/sandbox.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  mcp-public:
+    build:
+      context: ./server/sandbox_sidecar
+    container_name: modelmirror-mcp-public
+    command: ["python", "-m", "sandbox_sidecar.public_server"]
+    networks:
+      - mcp_public_egress
+    environment:
+      MCP_PUBLIC_MAX_SESSIONS: "6"
+      MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
+      MCP_PUBLIC_WORKSPACE_ROOT: /workspaces
+      # Docker Desktop/VPN DNS may map public hosts into RFC 2544 Fake-IP space.
+      # Literal IP URLs and every other non-global range remain denied.
+      MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspaces:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_public_socket:/run/modelmirror-public-mcp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-public-mcp/public-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
         ]
       interval: 10s
       timeout: 5s
@@ -142,6 +185,8 @@ services:
         condition: service_healthy
       sandbox:
         condition: service_healthy
+      mcp-public:
+        condition: service_healthy
       new-api:
         condition: service_healthy
     env_file:
@@ -168,6 +213,8 @@ services:
       CHROMA_DB_PATH: /app/rag/storage/chroma_db
       SKILL_INSTALLED_DIR: /app/skills/installed
       SKILL_TMP_DIR: /app/skills/tmp
+      AGENT_WORKSPACE_ENABLED: ${AGENT_WORKSPACE_ENABLED:-true}
+      AGENT_WORKSPACE_ROOT: /data/agent-workspace
       XPERT_STORAGE_DIR: /app/xperts/storage
       AGENT_TASK_STORAGE_DIR: /app/xpert_runtime/storage
       DATAX_STORAGE_DIR: /app/datax/storage
@@ -177,6 +224,7 @@ services:
       GOAL_COORDINATOR_ENABLED: "true"
       SANDBOX_SOCKET_PATH: /run/modelmirror-sandbox/sandbox.sock
       SANDBOX_WORKSPACE_ROOT: /app/sandbox-workspaces
+      MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       BROWSER_SOCKET_PATH: /run/modelmirror-browser/browser.sock
       BROWSER_DATA_ROOT: /app/browser-data
       CODING_AGENT_ENABLED: ${CODING_AGENT_ENABLED:-false}
@@ -188,6 +236,7 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/server/rag/storage:/app/rag/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/rag/uploads:/app/rag/uploads
       - ${MODELMIRROR_DATA_ROOT:-.}/server/skills/installed:/app/skills/installed
+      - agent_workspace_data:/data/agent-workspace
       - ${MODELMIRROR_DATA_ROOT:-.}/server/xperts/storage:/app/xperts/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/xpert_runtime/storage:/app/xpert_runtime/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/datax/storage:/app/datax/storage
@@ -196,6 +245,7 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/server/world/storage:/app/world/storage
       - sandbox_socket:/run/modelmirror-sandbox
       - sandbox_workspaces:/app/sandbox-workspaces:ro
+      - mcp_public_socket:/run/modelmirror-public-mcp
       - browser_socket:/run/modelmirror-browser
       - browser_data:/app/browser-data:ro
       - coding_socket:/run/modelmirror-coding
@@ -345,8 +395,10 @@ services:
 
 volumes:
   omniroute-data:
+  agent_workspace_data:
   sandbox_socket:
   sandbox_workspaces:
+  mcp_public_socket:
   browser_socket:
   browser_data:
   coding_socket:
@@ -357,3 +409,5 @@ networks:
   coding_internal:
     driver: bridge
     internal: true
+  mcp_public_egress:
+    driver: bridge
