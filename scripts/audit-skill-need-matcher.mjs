@@ -89,7 +89,10 @@ function expectTop(query, expectedId) {
   assert.ok(matches[0].reasons.length > 0, "匹配结果必须解释原因");
   assert.ok(
     matches[0].reasons.every(
-      (reason) => reason.label && reason.matchedTerms.length > 0,
+      (reason) =>
+        reason.label &&
+        ["direct", "expanded"].includes(reason.origin) &&
+        reason.matchedTerms.length > 0,
     ),
     "匹配原因必须包含字段和命中词",
   );

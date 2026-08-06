@@ -13,8 +13,12 @@ import {
   type SkillSetMemberSource,
 } from "../data/skillSetMembers";
 import {
+  loadSkillNeedCandidates,
+} from "../data/skillNeedCandidates";
+import {
   findSkillsForNeed,
   type SkillNeedMatch,
+  type SkillNeedTarget,
 } from "../data/skillNeedMatcher";
 import type { SkillInstallStatus } from "../data/skillCatalogPolicy";
 import type { BuiltinSkill } from "../types/agentWorkspace";
@@ -43,6 +47,7 @@ interface SkillSetBatchProgress {
 type SkillTab = "builtin" | "market" | "installed" | "drafts" | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
+type NeedSearchStatus = "idle" | "loading" | "ready" | "error";
 const MARKET_PAGE_SIZE = 48;
 const SKILLSET_MEMBER_PAGE_SIZE = 50;
 const NEED_EXAMPLES = [
@@ -139,6 +144,19 @@ function isProjectInstalled(project: SkillProject, installedSkills: InstalledSki
   return project.installSource
     ? isSourceInstalled(project.installSource, installedSkills)
     : false;
+}
+
+function fixedSourceUrl(source: SkillInstallSource | SkillSetMemberSource) {
+  const path = source.subPath
+    .split("/")
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join("/");
+  return `${source.repoUrl.replace(/\.git$/i, "")}/tree/${source.verifiedCommit}${path ? `/${path}` : ""}`;
+}
+
+function repositoryName(repoUrl: string) {
+  return repoUrl.replace(/\.git$/i, "").split("/").filter(Boolean).slice(-2).join("/");
 }
 
 function MarketSkillCard({
@@ -318,39 +336,58 @@ function NeedMatchCard({
   installed,
   installingId,
   match,
-  onInstall,
+  onInstallMember,
+  onInstallProject,
   onLocate,
   onOpenSkillSet,
 }: {
   installed: boolean;
   installingId: string;
-  match: SkillNeedMatch<SkillProject>;
-  onInstall: (project: SkillProject) => void;
+  match: SkillNeedMatch<SkillNeedTarget>;
+  onInstallMember: (member: SkillSetMemberSource) => void;
+  onInstallProject: (project: SkillProject) => void;
   onLocate: (project: SkillProject) => void;
-  onOpenSkillSet: (project: SkillProject) => void;
+  onOpenSkillSet: (project: SkillProject, memberId?: string) => void;
 }) {
-  const { project, reasons } = match;
-  const installStatus = installStatusDetailsFor(project);
-  const canInstall =
-    project.installStatus === "ready" &&
-    project.installMode === "direct" &&
-    Boolean(project.installSource);
+  const { project: target, reasons } = match;
+  const isMember = target.targetType === "member";
+  const catalogProject = isMember ? target.primarySkillSet : target.project;
+  const installStatus = isMember
+    ? INSTALL_STATUS_DETAILS.ready
+    : installStatusDetailsFor(catalogProject);
+  const canInstall = isMember
+    ? true
+    : catalogProject.installStatus === "ready" &&
+      catalogProject.installMode === "direct" &&
+      Boolean(catalogProject.installSource);
   const canBrowseMembers =
-    project.installStatus === "ready" &&
-    project.installMode === "members" &&
-    project.skillSet?.mode === "members";
-  const isInstalling = installingId === project.id;
+    !isMember &&
+    catalogProject.installStatus === "ready" &&
+    catalogProject.installMode === "members" &&
+    catalogProject.skillSet?.mode === "members";
+  const isInstalling = installingId === target.id;
+  const sourceUrl = isMember
+    ? fixedSourceUrl(target.installSource)
+    : catalogProject.repoUrl;
+  const sourceName = isMember
+    ? repositoryName(target.member.repoUrl)
+    : catalogProject.repoName;
 
   return (
     <article className="rounded-lg border border-brand-300/20 bg-ink-950/65 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-brand-100">{project.category}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <span className="text-brand-100">{target.category}</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.055] px-2 py-0.5 text-slate-300">
+              {isMember ? "SkillSet 成员" : formatProjectKind(catalogProject)}
+            </span>
+          </div>
           <h3 className="mt-1 truncate text-base font-semibold text-white">
-            {project.name}
+            {target.name}
           </h3>
           <p className="mt-1 truncate text-xs text-slate-500">
-            {project.repoName}
+            {sourceName}
           </p>
         </div>
         <span
@@ -361,8 +398,24 @@ function NeedMatchCard({
       </div>
 
       <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-300">
-        {project.description}
+        {target.description}
       </p>
+      {isMember ? (
+        <div className="mt-3 space-y-1 text-xs leading-5 text-slate-400">
+          <p>
+            所属集合：
+            <span className="font-semibold text-slate-200">
+              {target.primarySkillSet.name}
+            </span>
+            {target.parentSkillSets.length > 1
+              ? `，另见 ${target.parentSkillSets.length - 1} 个重叠集合`
+              : ""}
+          </p>
+          <p className="line-clamp-2" lang="en">
+            来源说明：{target.sourceDescription}
+          </p>
+        </div>
+      ) : null}
       <div className="mt-3 space-y-2">
         {reasons.slice(0, 3).map((reason) => (
           <div
@@ -381,7 +434,7 @@ function NeedMatchCard({
 
       {!canInstall && !canBrowseMembers ? (
         <p className="mt-3 text-xs leading-5 text-amber-100/80">
-          {project.installNote}
+          {catalogProject.installNote}
         </p>
       ) : canBrowseMembers ? (
         <p className="mt-3 text-xs leading-5 text-accent-100/85">
@@ -392,14 +445,18 @@ function NeedMatchCard({
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-white"
-          onClick={() => onLocate(project)}
+          onClick={() =>
+            isMember
+              ? onOpenSkillSet(target.primarySkillSet, target.member.id)
+              : onLocate(catalogProject)
+          }
           type="button"
         >
-          在货架中查看
+          {isMember ? "查看所属集合" : "在货架中查看"}
         </button>
         <a
           className="px-2 py-1.5 text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
-          href={project.repoUrl}
+          href={sourceUrl}
           rel="noreferrer"
           target="_blank"
         >
@@ -409,7 +466,11 @@ function NeedMatchCard({
           <button
             className="ml-auto rounded-full bg-hire-300 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
             disabled={installed || Boolean(installingId)}
-            onClick={() => onInstall(project)}
+            onClick={() =>
+              isMember
+                ? onInstallMember(target.member)
+                : onInstallProject(catalogProject)
+            }
             type="button"
           >
             {isInstalling ? "安装中..." : installed ? "已安装" : "一键安装"}
@@ -417,7 +478,7 @@ function NeedMatchCard({
         ) : canBrowseMembers ? (
           <button
             className="ml-auto rounded-full bg-accent-200 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-100"
-            onClick={() => onOpenSkillSet(project)}
+            onClick={() => onOpenSkillSet(catalogProject)}
             type="button"
           >
             查看成员
@@ -430,6 +491,7 @@ function NeedMatchCard({
 
 function SkillSetMemberPanel({
   batchProgress,
+  focusedMemberId,
   installedSkills,
   installingId,
   onClose,
@@ -438,6 +500,7 @@ function SkillSetMemberPanel({
   project,
 }: {
   batchProgress: SkillSetBatchProgress | null;
+  focusedMemberId?: string;
   installedSkills: InstalledSkill[];
   installingId: string;
   onClose: () => void;
@@ -472,6 +535,12 @@ function SkillSetMemberPanel({
           throw new Error("成员索引不完整，本次不会提供安装操作。");
         }
         setMembers(resolvedMembers);
+        if (focusedMemberId) {
+          const focusedMember = resolvedMembers.find(
+            (member) => member.id === focusedMemberId,
+          );
+          if (focusedMember) setMemberQuery(focusedMember.name);
+        }
       })
       .catch((memberError) => {
         if (!isCurrent) return;
@@ -493,7 +562,7 @@ function SkillSetMemberPanel({
     return () => {
       isCurrent = false;
     };
-  }, [project.id]);
+  }, [focusedMemberId, project.id]);
 
   const filteredMembers = useMemo(() => {
     const query = memberQuery.trim().toLocaleLowerCase("zh-CN");
@@ -676,7 +745,11 @@ function SkillSetMemberPanel({
               const isInstalling = installingId === member.id;
               return (
                 <li
-                  className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className={`flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between ${
+                    member.id === focusedMemberId
+                      ? "rounded-lg bg-brand-300/10 px-3 ring-1 ring-brand-300/25"
+                      : ""
+                  }`}
                   key={member.id}
                 >
                   <div className="min-w-0">
@@ -784,6 +857,12 @@ export default function SkillBrowserPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [needQuery, setNeedQuery] = useState("");
   const [submittedNeed, setSubmittedNeed] = useState("");
+  const [needMatches, setNeedMatches] = useState<
+    SkillNeedMatch<SkillNeedTarget>[]
+  >([]);
+  const [needSearchStatus, setNeedSearchStatus] =
+    useState<NeedSearchStatus>("idle");
+  const [needSearchError, setNeedSearchError] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedKind, setSelectedKind] = useState<SkillKindFilter>("all");
   const [selectedAvailability, setSelectedAvailability] =
@@ -796,10 +875,12 @@ export default function SkillBrowserPage() {
   const [installingId, setInstallingId] = useState("");
   const [uninstallingId, setUninstallingId] = useState("");
   const [selectedSkillSetId, setSelectedSkillSetId] = useState("");
+  const [focusedSkillSetMemberId, setFocusedSkillSetMemberId] = useState("");
   const [skillSetBatchProgress, setSkillSetBatchProgress] =
     useState<SkillSetBatchProgress | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const needSearchRequestId = useRef(0);
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
     skillProjects.forEach((project) => {
@@ -843,10 +924,6 @@ export default function SkillBrowserPage() {
     });
     return counts;
   }, []);
-  const needMatches = useMemo(
-    () => findSkillsForNeed(submittedNeed, skillProjects),
-    [submittedNeed],
-  );
   const filteredProjects = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase("zh-CN");
     return skillProjects.filter((project) => {
@@ -1062,10 +1139,35 @@ export default function SkillBrowserPage() {
     );
   }
 
-  function submitNeedSearch(value: string) {
+  async function submitNeedSearch(value: string) {
     const normalized = value.trim().slice(0, 500);
     setNeedQuery(normalized);
     setSubmittedNeed(normalized);
+    const requestId = needSearchRequestId.current + 1;
+    needSearchRequestId.current = requestId;
+    if (!normalized) {
+      setNeedMatches([]);
+      setNeedSearchStatus("idle");
+      setNeedSearchError("");
+      return;
+    }
+    setNeedMatches([]);
+    setNeedSearchStatus("loading");
+    setNeedSearchError("");
+    try {
+      const candidates = await loadSkillNeedCandidates();
+      if (needSearchRequestId.current !== requestId) return;
+      setNeedMatches(findSkillsForNeed(normalized, candidates));
+      setNeedSearchStatus("ready");
+    } catch (searchError) {
+      if (needSearchRequestId.current !== requestId) return;
+      setNeedSearchStatus("error");
+      setNeedSearchError(
+        searchError instanceof Error
+          ? searchError.message
+          : "完整 Skill 索引加载失败",
+      );
+    }
   }
 
   function locateRecommendedSkill(project: SkillProject) {
@@ -1083,12 +1185,13 @@ export default function SkillBrowserPage() {
     );
   }
 
-  function openSkillSet(project: SkillProject) {
+  function openSkillSet(project: SkillProject, memberId = "") {
     if (project.installMode !== "members" || project.skillSet?.mode !== "members") {
       return;
     }
     setActiveTab("market");
     setSelectedSkillSetId(project.id);
+    setFocusedSkillSetMemberId(memberId);
   }
 
   function resetMarketFilters() {
@@ -1244,7 +1347,7 @@ export default function SkillBrowserPage() {
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
-                  submitNeedSearch(needQuery);
+                  void submitNeedSearch(needQuery);
                 }}
               >
                 <label className="block" htmlFor="skill-need-query">
@@ -1263,7 +1366,7 @@ export default function SkillBrowserPage() {
                   onKeyDown={(event) => {
                     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                       event.preventDefault();
-                      submitNeedSearch(needQuery);
+                      void submitNeedSearch(needQuery);
                     }
                   }}
                   placeholder="例如：为 React 网页编写 Playwright 自动化测试，并能检查交互和错误"
@@ -1272,10 +1375,12 @@ export default function SkillBrowserPage() {
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
                     className="rounded-full bg-brand-200 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-white disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-                    disabled={!needQuery.trim()}
+                    disabled={!needQuery.trim() || needSearchStatus === "loading"}
                     type="submit"
                   >
-                    寻找合适的 Skill
+                    {needSearchStatus === "loading"
+                      ? "正在检索完整目录..."
+                      : "寻找合适的 Skill"}
                   </button>
                   {submittedNeed ? (
                     <button
@@ -1283,6 +1388,10 @@ export default function SkillBrowserPage() {
                       onClick={() => {
                         setNeedQuery("");
                         setSubmittedNeed("");
+                        needSearchRequestId.current += 1;
+                        setNeedMatches([]);
+                        setNeedSearchStatus("idle");
+                        setNeedSearchError("");
                       }}
                       type="button"
                     >
@@ -1302,7 +1411,7 @@ export default function SkillBrowserPage() {
                     <button
                       className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-left text-xs leading-5 text-slate-300 transition hover:border-brand-300/30 hover:bg-brand-300/10 hover:text-white"
                       key={example}
-                      onClick={() => submitNeedSearch(example)}
+                      onClick={() => void submitNeedSearch(example)}
                       type="button"
                     >
                       {example}
@@ -1319,26 +1428,69 @@ export default function SkillBrowserPage() {
                   className="mb-4 flex flex-wrap items-center justify-between gap-2"
                 >
                   <p className="text-sm font-semibold text-white">
-                    {needMatches.length > 0
-                      ? `找到 ${needMatches.length} 个较相关的 Skill`
-                      : "当前目录没有可靠匹配"}
+                    {needSearchStatus === "loading"
+                      ? "正在加载顶层 Skill 与已核验成员"
+                      : needSearchStatus === "error"
+                        ? "完整目录加载失败"
+                        : needMatches.length > 0
+                          ? `找到 ${needMatches.length} 个较相关的 Skill`
+                          : "当前目录没有可靠匹配"}
                   </p>
                   <p className="text-xs text-slate-500">
-                    依据名称、标签、分类与能力说明进行本地可解释排序
+                    覆盖顶层目录与 SkillSet 成员，结果完全在本地排序
                   </p>
                 </div>
-                {needMatches.length > 0 ? (
+                {needSearchStatus === "loading" ? (
+                  <div
+                    aria-label="正在加载 Skill 推荐"
+                    className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3"
+                    role="status"
+                  >
+                    {[0, 1, 2].map((item) => (
+                      <div
+                        className="h-64 animate-pulse rounded-lg border border-white/10 bg-white/[0.045] motion-reduce:animate-none"
+                        key={item}
+                      />
+                    ))}
+                  </div>
+                ) : needSearchStatus === "error" ? (
+                  <div className="rounded-lg border border-rose-300/25 bg-rose-300/10 px-5 py-5">
+                    <p className="text-sm font-semibold text-rose-50">
+                      未返回不完整的推荐结果
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-rose-100/80">
+                      {needSearchError}
+                    </p>
+                    <button
+                      className="mt-4 rounded-full border border-rose-200/30 px-4 py-2 text-xs font-semibold text-rose-50 transition hover:bg-rose-100/10"
+                      onClick={() => void submitNeedSearch(submittedNeed)}
+                      type="button"
+                    >
+                      重新加载完整目录
+                    </button>
+                  </div>
+                ) : needMatches.length > 0 ? (
                   <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
                     {needMatches.map((match) => (
                       <NeedMatchCard
-                        installed={isProjectInstalled(
-                          match.project,
-                          installedSkills,
-                        )}
+                        installed={
+                          match.project.targetType === "member"
+                            ? isSourceInstalled(
+                                match.project.installSource,
+                                installedSkills,
+                              )
+                            : isProjectInstalled(
+                                match.project.project,
+                                installedSkills,
+                              )
+                        }
                         installingId={installingId}
                         key={match.project.id}
                         match={match}
-                        onInstall={(project) => void installSkill(project)}
+                        onInstallMember={(member) =>
+                          void installSkillSetMember(member)
+                        }
+                        onInstallProject={(project) => void installSkill(project)}
                         onLocate={locateRecommendedSkill}
                         onOpenSkillSet={openSkillSet}
                       />
@@ -1347,7 +1499,7 @@ export default function SkillBrowserPage() {
                 ) : (
                   <div className="rounded-lg border border-dashed border-white/15 bg-ink-950/45 px-5 py-7 text-center">
                     <p className="text-sm font-semibold text-white">
-                      现有 1,242 项目录暂未覆盖这项需求。
+                      现有顶层目录与已核验成员暂未覆盖这项需求。
                     </p>
                     <p className="mt-2 text-xs leading-5 text-slate-400">
                       请补充具体工具、输入或输出；本轮不会伪造 Skill，也不会转向未批准的外部市场。
@@ -1467,9 +1619,13 @@ export default function SkillBrowserPage() {
         {activeTab === "market" && selectedSkillSetProject ? (
           <SkillSetMemberPanel
             batchProgress={skillSetBatchProgress}
+            focusedMemberId={focusedSkillSetMemberId}
             installedSkills={installedSkills}
             installingId={installingId}
-            onClose={() => setSelectedSkillSetId("")}
+            onClose={() => {
+              setSelectedSkillSetId("");
+              setFocusedSkillSetMemberId("");
+            }}
             onInstallAll={(members) =>
               void installAllSkillSetMembers(selectedSkillSetProject, members)
             }

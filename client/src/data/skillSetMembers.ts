@@ -20,7 +20,8 @@ export interface SkillSetMemberGroup {
 }
 
 export interface SkillSetMemberIndex {
-  version: 1;
+  version: 2;
+  fingerprint: string;
   skillSets: Record<string, SkillSetMemberGroup>;
   members: Record<string, SkillSetMemberSource>;
 }
