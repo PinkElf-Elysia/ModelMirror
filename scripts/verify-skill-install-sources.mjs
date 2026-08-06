@@ -11,8 +11,9 @@ import {
   inferInstallStatus,
 } from "../client/src/data/skillCatalogPolicy.ts";
 import {
-  REJECTED_OFFICIAL_SKILL_INSTALL_SOURCES,
-} from "../client/src/data/officialSkillInstallSources.generated.ts";
+  OFFICIAL_SOURCE_FAILURE_MESSAGES,
+  resolveOfficialSkillPage,
+} from "./official-skill-source-resolver.mjs";
 
 const OUTPUT_PATH = resolve(
   "client/src/data/skillSourceVerification.generated.ts",
@@ -26,6 +27,7 @@ const FAILURE_MESSAGES = {
   "no-skill-file": "固定提交中未发现 SKILL.md",
   "ref-not-found": "来源声明的 Git 提交不存在或无法读取",
   "repository-not-found": "GitHub 仓库不存在、不可公开访问或已被移除",
+  ...OFFICIAL_SOURCE_FAILURE_MESSAGES,
 };
 
 const CURATED_PROJECTS = [
@@ -116,6 +118,7 @@ function failureEvidence(entry, reasonCode, extra = {}) {
     reason: extra.reason ?? FAILURE_MESSAGES[reasonCode],
     ...(extra.repoUrl ? { repoUrl: extra.repoUrl } : {}),
     ...(extra.verifiedCommit ? { verifiedCommit: extra.verifiedCommit } : {}),
+    ...(extra.declaredUrl ? { declaredUrl: extra.declaredUrl } : {}),
   };
 }
 
@@ -172,6 +175,50 @@ async function mapLimit(values, limit, operation) {
   return results;
 }
 
+function isOfficialSkillsUrl(sourceUrl) {
+  try {
+    return new URL(sourceUrl).hostname.toLocaleLowerCase("en-US") === "officialskills.sh";
+  } catch {
+    return false;
+  }
+}
+
+async function resolveOfficialSourceEntries(entries) {
+  const targets = entries.filter(
+    (entry) => entry.resolver === "officialskills-page" && !entry.candidate,
+  );
+  const results = await mapLimit(targets, CONCURRENCY, async (entry, index) => {
+    const result = await resolveOfficialSkillPage(entry);
+    if ((index + 1) % 25 === 0 || index + 1 === targets.length) {
+      console.log(`已读取 ${index + 1}/${targets.length} 个 OfficialSkills 来源页`);
+    }
+    return [entry.id, result];
+  });
+  const byId = new Map(results);
+  const reasonCounts = {};
+  let declared = 0;
+  const resolvedEntries = entries.map((entry) => {
+    const result = byId.get(entry.id);
+    if (!result) return entry;
+    if (result.ok) {
+      declared += 1;
+      return { ...entry, candidate: result.candidate };
+    }
+    reasonCounts[result.reasonCode] = (reasonCounts[result.reasonCode] ?? 0) + 1;
+    return {
+      ...entry,
+      reasonCode: result.reasonCode,
+      reason: result.reason,
+    };
+  });
+  return {
+    entries: resolvedEntries,
+    targetCount: targets.length,
+    declaredCount: declared,
+    reasonCounts,
+  };
+}
+
 function githubRepoParts(repoUrl) {
   const url = new URL(repoUrl);
   const [owner, repository] = url.pathname.split("/").filter(Boolean);
@@ -223,25 +270,116 @@ async function loadTree(repoUrl, commit) {
   };
 }
 
-async function loadRepository(repo) {
+function parseRemoteRefs(output) {
+  const refs = new Map();
+  const tagObjects = new Map();
+  const peeledTags = new Map();
   let headCommit;
-  if (repo.needsHead) {
-    const remote = await run("git", ["ls-remote", repo.repoUrl, "HEAD"]);
+  const addRef = (name, commit) => {
+    const commits = refs.get(name) ?? new Set();
+    commits.add(commit);
+    refs.set(name, commits);
+  };
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.trim().match(/^([a-f0-9]{40})\s+(.+)$/i);
+    if (!match) continue;
+    const commit = match[1].toLocaleLowerCase("en-US");
+    const refName = match[2];
+    if (refName === "HEAD") {
+      headCommit = commit;
+      continue;
+    }
+    if (refName.startsWith("refs/heads/")) {
+      addRef(refName.slice("refs/heads/".length), commit);
+      continue;
+    }
+    if (refName.startsWith("refs/tags/")) {
+      const shortName = refName.slice("refs/tags/".length).replace(/\^\{\}$/, "");
+      if (refName.endsWith("^{}")) peeledTags.set(shortName, commit);
+      else tagObjects.set(shortName, commit);
+    }
+  }
+  for (const [name, commit] of tagObjects) {
+    addRef(name, peeledTags.get(name) ?? commit);
+  }
+  return { refs, headCommit };
+}
+
+function resolveDeclaredRefAndPath(request, remoteRefs) {
+  const directCommit = request.refAndPath.match(/^([a-f0-9]{40})(?:\/(.+))?$/i);
+  let commit;
+  let ref;
+  let subPath;
+  if (directCommit) {
+    commit = directCommit[1].toLocaleLowerCase("en-US");
+    ref = commit;
+    subPath = directCommit[2] ?? "";
+  } else {
+    const candidates = [...remoteRefs.refs.entries()]
+      .filter(
+        ([name]) =>
+          request.refAndPath === name || request.refAndPath.startsWith(`${name}/`),
+      )
+      .sort(([left], [right]) => right.length - left.length);
+    if (candidates.length === 0) return undefined;
+    [ref] = candidates[0];
+    const commits = candidates[0][1];
+    if (commits.size !== 1) return undefined;
+    [commit] = commits;
+    subPath = request.refAndPath.slice(ref.length).replace(/^\/+/, "");
+  }
+  if (
+    request.action === "blob" &&
+    subPath.split("/").at(-1)?.toLocaleLowerCase("en-US") === "skill.md"
+  ) {
+    subPath = subPath.slice(0, -"/SKILL.md".length);
+  }
+  if (!subPath) return undefined;
+  return { commit, ref, subPath: cleanSubPath(subPath) };
+}
+
+async function loadRepository(repo) {
+  let remoteRefs = { refs: new Map(), headCommit: undefined };
+  if (repo.needsHead || repo.declaredRequests.length > 0) {
+    const remote = await run(
+      "git",
+      repo.declaredRequests.length > 0
+        ? ["ls-remote", repo.repoUrl]
+        : ["ls-remote", repo.repoUrl, "HEAD"],
+    );
     if (remote.code !== 0 || !remote.stdout.trim()) {
       const detail = `${remote.stderr}\n${remote.stdout}`.trim();
-    if (isRepositoryNotFound(detail)) {
-      return { ...repo, error: "repository-not-found" };
-    }
+      if (isRepositoryNotFound(detail)) {
+        return { ...repo, error: "repository-not-found" };
+      }
       throw new Error(`Git 仓库核验未完成：${repo.repoUrl}\n${detail}`);
     }
-    headCommit = remote.stdout.trim().split(/\s+/)[0].toLowerCase();
+    remoteRefs = parseRemoteRefs(remote.stdout);
   }
-  const commits = new Set([headCommit, ...repo.commits].filter(Boolean));
+  const declaredResolutions = new Map();
+  for (const request of repo.declaredRequests) {
+    declaredResolutions.set(
+      request.key,
+      resolveDeclaredRefAndPath(request, remoteRefs),
+    );
+  }
+  const commits = new Set(
+    [
+      remoteRefs.headCommit,
+      ...repo.commits,
+      ...[...declaredResolutions.values()].map((value) => value?.commit),
+    ].filter(Boolean),
+  );
   const trees = new Map();
   for (const commit of commits) {
     trees.set(commit, await loadTree(repo.repoUrl, commit));
   }
-  return { ...repo, headCommit, trees };
+  return {
+    ...repo,
+    headCommit: remoteRefs.headCommit,
+    declaredResolutions,
+    trees,
+  };
 }
 
 function parseFrontmatterName(markdown) {
@@ -316,7 +454,7 @@ async function resolveSkillPath(entry, repository, commit, skillFiles) {
         method: entry.candidate.method,
       };
     }
-  } else {
+  } else if (!entry.candidate?.requiresExactName) {
     if (skillFiles.includes("SKILL.md")) {
       return { subPath: "", method: "repository-root" };
     }
@@ -336,7 +474,11 @@ async function resolveSkillPath(entry, repository, commit, skillFiles) {
   if (slugMatches.length === 1) {
     return {
       subPath: skillDirectory(slugMatches[0]),
-      method: "unique-slug-path",
+      method: entry.candidate?.requiresExactName
+        ? entry.candidate.method
+        : entry.candidate?.method === "source-page-declared-path"
+          ? "source-page-exact-path-repair"
+        : "unique-slug-path",
     };
   }
 
@@ -349,7 +491,11 @@ async function resolveSkillPath(entry, repository, commit, skillFiles) {
   if (frontmatterMatches.length === 1) {
     return {
       subPath: skillDirectory(frontmatterMatches[0]),
-      method: "exact-frontmatter-name",
+      method: entry.candidate?.requiresExactName
+        ? entry.candidate.method
+        : entry.candidate?.method === "source-page-declared-path"
+          ? "source-page-exact-path-repair"
+        : "exact-frontmatter-name",
     };
   }
   return undefined;
@@ -424,11 +570,17 @@ async function buildEntries() {
         });
         continue;
       }
+      if (isOfficialSkillsUrl(project.sourceUrl)) {
+        entries.push({
+          id: project.id,
+          name: project.name,
+          kind: project.kind,
+          sourceUrl: project.sourceUrl,
+          resolver: "officialskills-page",
+        });
+        continue;
+      }
       const status = sourceStatusForUnmappedProject(project);
-      const rejection =
-        REJECTED_OFFICIAL_SKILL_INSTALL_SOURCES[
-          project.sourceUrl
-        ];
       entries.push({
         id: project.id,
         name: project.name,
@@ -436,18 +588,20 @@ async function buildEntries() {
         sourceUrl: project.sourceUrl,
         forcedStatus: status,
         reasonCode: "no-install-source",
-        reason: rejection?.reason ?? FAILURE_MESSAGES["no-install-source"],
+        reason: FAILURE_MESSAGES["no-install-source"],
       });
   }
   return entries;
 }
 
 function generateModule(evidence) {
-  return `// Generated by scripts/verify-skill-install-sources.mjs. Do not edit manually.\n\nexport type SkillVerificationStatus = "verified" | "pending" | "reference";\n\nexport type SkillVerificationMethod =\n  | "audited-source-path"\n  | "catalog-declared-path"\n  | "catalog-snapshot"\n  | "curated-path"\n  | "exact-frontmatter-name"\n  | "previously-verified"\n  | "repository-root"\n  | "unique-skill-file"\n  | "unique-slug-path";\n\nexport type SkillVerificationFailureCode =\n  | "ambiguous-skill-path"\n  | "declared-path-missing"\n  | "no-install-source"\n  | "no-skill-file"\n  | "ref-not-found"\n  | "repository-not-found";\n\nexport interface SkillSourceVerificationEvidence {\n  status: SkillVerificationStatus;\n  sourceUrl: string;\n  repoUrl?: string;\n  subPath?: string;\n  verifiedCommit?: string;\n  method?: SkillVerificationMethod;\n  reasonCode?: SkillVerificationFailureCode;\n  reason?: string;\n}\n\nexport const SKILL_SOURCE_VERIFICATION = ${JSON.stringify(evidence, null, 2)} as const satisfies Record<string, SkillSourceVerificationEvidence>;\n`;
+  return `// Generated by scripts/verify-skill-install-sources.mjs. Do not edit manually.\n\nexport type SkillVerificationStatus = "verified" | "pending" | "reference";\n\nexport type SkillVerificationMethod =\n  | "audited-source-path"\n  | "catalog-declared-path"\n  | "catalog-snapshot"\n  | "curated-path"\n  | "exact-frontmatter-name"\n  | "previously-verified"\n  | "repository-root"\n  | "source-page-command-exact-match"\n  | "source-page-declared-path"\n  | "source-page-exact-path-repair"\n  | "unique-skill-file"\n  | "unique-slug-path";\n\nexport type SkillVerificationFailureCode =\n  | "ambiguous-skill-path"\n  | "declared-path-missing"\n  | "no-install-source"\n  | "no-skill-file"\n  | "ref-not-found"\n  | "repository-not-found"\n  | "source-page-declaration-ambiguous"\n  | "source-page-declaration-missing"\n  | "source-page-not-found";\n\nexport interface SkillSourceVerificationEvidence {\n  status: SkillVerificationStatus;\n  sourceUrl: string;\n  repoUrl?: string;\n  subPath?: string;\n  verifiedCommit?: string;\n  declaredUrl?: string;\n  method?: SkillVerificationMethod;\n  reasonCode?: SkillVerificationFailureCode;\n  reason?: string;\n}\n\nexport const SKILL_SOURCE_VERIFICATION = ${JSON.stringify(evidence, null, 2)} as const satisfies Record<string, SkillSourceVerificationEvidence>;\n`;
 }
 
 async function main() {
-  const entries = await buildEntries();
+  const catalogEntries = await buildEntries();
+  const officialResolution = await resolveOfficialSourceEntries(catalogEntries);
+  const entries = officialResolution.entries;
   const repositories = new Map();
   for (const entry of entries) {
     if (!entry.candidate?.repoUrl) continue;
@@ -457,9 +611,17 @@ async function main() {
       repoUrl,
       commits: new Set(),
       needsHead: false,
+      declaredRequests: new Map(),
     };
     if (entry.candidate.verifiedCommit) {
       repository.commits.add(entry.candidate.verifiedCommit.toLowerCase());
+    } else if (entry.candidate.declaredRefAndPath) {
+      const request = {
+        key: `${entry.candidate.declaredAction}:${entry.candidate.declaredRefAndPath}`,
+        action: entry.candidate.declaredAction,
+        refAndPath: entry.candidate.declaredRefAndPath,
+      };
+      repository.declaredRequests.set(request.key, request);
     } else {
       repository.needsHead = true;
     }
@@ -469,6 +631,7 @@ async function main() {
   const repositoryList = [...repositories.values()].map((repository) => ({
       ...repository,
       commits: [...repository.commits],
+      declaredRequests: [...repository.declaredRequests.values()],
     }));
   console.log(
     `开始核验 ${entries.length} 条目录记录，涉及 ${repositoryList.length} 个 GitHub 仓库……`,
@@ -504,19 +667,51 @@ async function main() {
         evidence[entry.id] = failureEvidence(
           entry,
           repository?.error ?? "repository-not-found",
-          { repoUrl },
+          { repoUrl, declaredUrl: entry.candidate.declaredUrl },
         );
         continue;
       }
-      const commit = (
-        entry.candidate.verifiedCommit ?? repository.headCommit
-      ).toLowerCase();
+
+      let effectiveEntry = entry;
+      let commit = entry.candidate.verifiedCommit?.toLocaleLowerCase("en-US");
+      if (!commit && entry.candidate.declaredRefAndPath) {
+        const requestKey = `${entry.candidate.declaredAction}:${entry.candidate.declaredRefAndPath}`;
+        const resolution = repository.declaredResolutions.get(requestKey);
+        if (!resolution) {
+          evidence[entry.id] = failureEvidence(entry, "ref-not-found", {
+            repoUrl,
+            declaredUrl: entry.candidate.declaredUrl,
+          });
+          continue;
+        }
+        commit = resolution.commit;
+        effectiveEntry = {
+          ...entry,
+          candidate: {
+            ...entry.candidate,
+            subPath: resolution.subPath,
+          },
+        };
+      }
+      commit ??= repository.headCommit;
+      if (!commit) {
+        evidence[entry.id] = failureEvidence(entry, "ref-not-found", {
+          repoUrl,
+          declaredUrl: entry.candidate.declaredUrl,
+        });
+        continue;
+      }
+
       const tree = repository.trees.get(commit);
       if (!tree || tree.error) {
         evidence[entry.id] = failureEvidence(
           entry,
           tree?.error ?? "ref-not-found",
-          { repoUrl, verifiedCommit: commit },
+          {
+            repoUrl,
+            verifiedCommit: commit,
+            declaredUrl: entry.candidate.declaredUrl,
+          },
         );
         continue;
       }
@@ -524,22 +719,24 @@ async function main() {
         evidence[entry.id] = failureEvidence(entry, "no-skill-file", {
           repoUrl,
           verifiedCommit: commit,
+          declaredUrl: entry.candidate.declaredUrl,
         });
         continue;
       }
       const resolvedPath = await resolveSkillPath(
-        entry,
+        effectiveEntry,
         repository,
         commit,
         tree.skillFiles,
       );
       if (!resolvedPath) {
-        const reasonCode = entry.candidate.subPath
+        const reasonCode = effectiveEntry.candidate.subPath
           ? "declared-path-missing"
           : "ambiguous-skill-path";
         evidence[entry.id] = failureEvidence(entry, reasonCode, {
           repoUrl,
           verifiedCommit: commit,
+          declaredUrl: entry.candidate.declaredUrl,
         });
         continue;
       }
@@ -549,6 +746,9 @@ async function main() {
         repoUrl,
         subPath: resolvedPath.subPath,
         verifiedCommit: commit,
+        ...(entry.candidate.declaredUrl
+          ? { declaredUrl: entry.candidate.declaredUrl }
+          : {}),
         method: resolvedPath.method,
       };
       completed += 1;
@@ -577,6 +777,10 @@ async function main() {
       return counts;
     }, {});
     console.log(`核验完成：${completed} 项具备固定提交安装证据`);
+    console.log(
+      `OfficialSkills 待核验来源页：${officialResolution.targetCount} 项，解析出 ${officialResolution.declaredCount} 项 GitHub 声明`,
+    );
+    console.table(officialResolution.reasonCounts);
     console.table(statusCounts);
     console.table(reasonCounts);
   console.log(`证据已写入 ${OUTPUT_PATH}`);

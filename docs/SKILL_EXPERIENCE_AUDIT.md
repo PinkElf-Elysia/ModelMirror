@@ -1,6 +1,6 @@
 # Skill 体验治理与候选能力审计
 
-最后更新日期：2026-08-02
+最后更新日期：2026-08-05
 状态：现有目录治理进行中；候选能力仅完成审计；外部市场接入延后
 
 ## 1. 当前边界
@@ -46,12 +46,14 @@
 5. 已声明目录失效时，只允许在同一仓库固定提交中用唯一同名目录或 frontmatter 精确名称修正；不唯一或语义改变时保持禁用。
 6. 所有 1,242 条用户可见记录都写入按 Skill ID 索引的结构化证据；网络或 GitHub 临时故障会终止整批生成，不覆盖上一版证据。
 7. 安装请求必须携带证据中的固定提交 SHA，避免默认分支变化后安装未经审计的新内容。
+8. 对已收录的 OfficialSkills 来源页，只读取“Setup & Installation”中的 GitHub 声明，不执行页面命令；目录失效时只允许同仓库内唯一同名 Skill 或 frontmatter 精确名称修正。
 
 维护命令：
 
 ```bash
 node scripts/verify-skill-install-sources.mjs
 node scripts/verify-official-skill-install-sources.mjs
+node scripts/audit-official-skill-source-resolver.mjs
 node scripts/audit-skill-experience.mjs
 ```
 
@@ -59,19 +61,19 @@ node scripts/audit-skill-experience.mjs
 
 ### 3.2 批次结果
 
-- 统一核验覆盖 1,242 条用户可见记录、183 个 GitHub 仓库。
+- 统一核验覆盖 1,242 条用户可见记录；第二轮加入 OfficialSkills 来源解析后，共复核 197 个 GitHub 仓库。
 - 原 963 项“可一键安装”中，772 项通过固定提交复核，191 项因目录或仓库证据不足降为待核验。
 - 117 项 GitHub 仓库根链接中，61 项通过确定性规则升级为可安装，56 项继续待核验。
-- 最终 833 项具备固定提交安装证据；其中 29 项使用仓库根 `SKILL.md`，26 项使用仓库内唯一 Skill，16 项通过唯一同名目录解析，1 项通过 frontmatter 名称精确匹配。
-- 400 项待核验记录的主要原因是：182 项声明路径失效、53 项存在多个候选目录、11 项仓库不可公开访问、1 项仓库没有 `SKILL.md`；其余来源没有当前安装器可证明的 GitHub 目录。
+- 第二轮读取 153 个既有 OfficialSkills 待核验来源页：152 页声明了唯一 GitHub 来源，1 页缺少可核验声明；其中 24 项通过同仓库唯一同名目录修正为固定提交安装，129 项继续待核验，没有既有可安装项被降级。
+- 最终 857 项具备固定提交安装证据，376 项待核验。剩余原因包括 301 项声明路径失效、53 项存在多个候选目录、17 项仓库不可公开访问、4 项仓库没有 `SKILL.md` 和 1 项来源页未声明安装源；9 项参考资源仍保留 `no-install-source`。
 
 聚合去重后的 1,242 项资源状态为：
 
 | 状态 | 数量 |
 | --- | ---: |
-| 可一键安装 | 833 |
+| 可一键安装 | 857 |
 | 有安装说明 | 0 |
-| 待核验来源 | 400 |
+| 待核验来源 | 376 |
 | 仅资料参考 | 9 |
 
 “待核验”不代表来源恶意，只表示当前证据不足以让模镜替用户执行安装。
@@ -138,6 +140,7 @@ SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验�
 ```bash
 node scripts/audit-skill-experience.mjs
 node scripts/audit-skill-need-matcher.mjs
+node scripts/audit-official-skill-source-resolver.mjs
 cd client && npm.cmd run build
 python -m pytest server/tests/test_skill_integration.py -q
 ```

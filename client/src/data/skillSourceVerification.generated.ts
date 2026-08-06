@@ -10,6 +10,9 @@ export type SkillVerificationMethod =
   | "exact-frontmatter-name"
   | "previously-verified"
   | "repository-root"
+  | "source-page-command-exact-match"
+  | "source-page-declared-path"
+  | "source-page-exact-path-repair"
   | "unique-skill-file"
   | "unique-slug-path";
 
@@ -19,7 +22,10 @@ export type SkillVerificationFailureCode =
   | "no-install-source"
   | "no-skill-file"
   | "ref-not-found"
-  | "repository-not-found";
+  | "repository-not-found"
+  | "source-page-declaration-ambiguous"
+  | "source-page-declaration-missing"
+  | "source-page-not-found";
 
 export interface SkillSourceVerificationEvidence {
   status: SkillVerificationStatus;
@@ -27,6 +33,7 @@ export interface SkillSourceVerificationEvidence {
   repoUrl?: string;
   subPath?: string;
   verifiedCommit?: string;
+  declaredUrl?: string;
   method?: SkillVerificationMethod;
   reasonCode?: SkillVerificationFailureCode;
   reason?: string;
@@ -572,7 +579,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/mattpocock/skills/tree/main/skills/engineering/tdd",
     "repoUrl": "https://github.com/mattpocock/skills",
     "subPath": "skills/engineering/tdd",
-    "verifiedCommit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c",
+    "verifiedCommit": "8b36d4fb2635b3c21998dcd8144439c9e5ba7302",
     "method": "curated-path"
   },
   "voltagent-aaron-he-zhu-aaron-marketing-skills": {
@@ -581,7 +588,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/aaron-he-zhu/aaron-marketing-skills",
-    "verifiedCommit": "d69018aca093866cb1a0c93decb5b150eae7ef2d"
+    "verifiedCommit": "f9f67c8a4485162e3d641c81530cc60390ce862d"
   },
   "voltagent-addyosmani-accessibility": {
     "status": "verified",
@@ -668,7 +675,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/angular/skills",
     "repoUrl": "https://github.com/angular/skills",
     "subPath": "angular-developer",
-    "verifiedCommit": "1f63c753338b15eb1e7fe0dacac417c955f43496",
+    "verifiedCommit": "0c2c4c79dcca7f4156ba37cc7ff85616361f8310",
     "method": "unique-slug-path"
   },
   "voltagent-angular-angular-new-app": {
@@ -676,7 +683,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/angular/skills",
     "repoUrl": "https://github.com/angular/skills",
     "subPath": "angular-new-app",
-    "verifiedCommit": "1f63c753338b15eb1e7fe0dacac417c955f43496",
+    "verifiedCommit": "0c2c4c79dcca7f4156ba37cc7ff85616361f8310",
     "method": "unique-slug-path"
   },
   "voltagent-anthropics-algorithmic-art": {
@@ -914,86 +921,128 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-auth0-auth0-android": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-android",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-android/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-android"
   },
   "voltagent-auth0-auth0-angular": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-angular",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-angular/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-angular"
   },
   "voltagent-auth0-auth0-aspnetcore-api": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-aspnetcore-api",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-aspnetcore-api/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-aspnetcore-api"
   },
   "voltagent-auth0-auth0-express": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-express",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-express/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-express"
   },
   "voltagent-auth0-auth0-fastify": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-fastify",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-fastify/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-fastify"
   },
   "voltagent-auth0-auth0-fastify-api": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-fastify-api",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-fastify-api/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-fastify-api"
   },
   "voltagent-auth0-auth0-mfa": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-mfa",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0/skills/auth0-mfa/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0/skills/auth0-mfa"
   },
   "voltagent-auth0-auth0-migration": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-migration",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0/skills/auth0-migration/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0/skills/auth0-migration"
   },
   "voltagent-auth0-auth0-nextjs": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-nextjs",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-nextjs/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-nextjs"
   },
   "voltagent-auth0-auth0-nuxt": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-nuxt",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-nuxt/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-nuxt"
   },
   "voltagent-auth0-auth0-quickstart": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-quickstart",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0/skills/auth0-quickstart/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0/skills/auth0-quickstart"
   },
   "voltagent-auth0-auth0-react": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-react",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-react/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-react"
   },
   "voltagent-auth0-auth0-react-native": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-react-native",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-react-native/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-react-native"
   },
   "voltagent-auth0-auth0-vue": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/auth0/skills/auth0-vue",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/auth0-sdks/skills/auth0-vue/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/auth0/agent-skills",
+    "verifiedCommit": "04f746a0fb78e1b774a00fe28339ad56e0d7b78b",
+    "declaredUrl": "https://github.com/auth0/agent-skills/tree/main/plugins/auth0-sdks/skills/auth0-vue"
   },
   "voltagent-avdlee-swiftui-expert-skill": {
     "status": "verified",
@@ -1054,8 +1103,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-better-auth-explain-error": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/better-auth/skills/explain-error",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 better-auth/explain-error/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/better-auth/skills",
+    "verifiedCommit": "17dfe3a1da1c3982de723098ba1015d67f35694c",
+    "declaredUrl": "https://github.com/better-auth/skills/tree/main/better-auth/explain-error"
   },
   "voltagent-better-auth-organization": {
     "status": "verified",
@@ -1068,8 +1120,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-better-auth-providers": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/better-auth/skills/providers",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 better-auth/providers/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/better-auth/skills",
+    "verifiedCommit": "17dfe3a1da1c3982de723098ba1015d67f35694c",
+    "declaredUrl": "https://github.com/better-auth/skills/tree/main/better-auth/providers"
   },
   "voltagent-better-auth-twofactor": {
     "status": "verified",
@@ -1122,8 +1177,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-binance-spot": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/binance/skills/spot",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/binance/spot/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/binance/binance-skills-hub",
+    "verifiedCommit": "3bf89edb7eea313c36688d21cd4512f9f501b57d",
+    "declaredUrl": "https://github.com/binance/binance-skills-hub/tree/main/skills/binance/spot"
   },
   "voltagent-binance-trading-signal": {
     "status": "verified",
@@ -1256,8 +1314,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-browserbase-browserbase-cli": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/browserbase/skills/browserbase-cli",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/browserbase-cli/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/browserbase/skills",
+    "verifiedCommit": "6afe8663693372e59e167dfa5be37932af09ae3d",
+    "declaredUrl": "https://github.com/browserbase/skills/tree/main/skills/browserbase-cli"
   },
   "voltagent-browserbase-cookie-sync": {
     "status": "verified",
@@ -1366,14 +1427,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-clickhouse-clickhousectl-cloud-deploy": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/clickhouse/skills/clickhousectl-cloud-deploy",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/clickhousectl-cloud-deploy/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/clickhouse/agent-skills",
+    "verifiedCommit": "6e5458d59b82f6f027bccb258a7be3c6cefe5e08",
+    "declaredUrl": "https://github.com/clickhouse/agent-skills/tree/main/skills/clickhousectl-cloud-deploy"
   },
   "voltagent-clickhouse-clickhousectl-local-dev": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/clickhouse/skills/clickhousectl-local-dev",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/clickhousectl-local-dev/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/clickhouse/agent-skills",
+    "verifiedCommit": "6e5458d59b82f6f027bccb258a7be3c6cefe5e08",
+    "declaredUrl": "https://github.com/clickhouse/agent-skills/tree/main/skills/clickhousectl-local-dev"
   },
   "voltagent-cloudai-x-threejs-skills": {
     "status": "pending",
@@ -1469,61 +1536,88 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/coderabbitai/skills",
-    "verifiedCommit": "c61c4908d36dda6fb08a343cc8b19c59fbb47de3"
+    "verifiedCommit": "bbb4ab25a7f1d426062d83fe8fdf406beeecd0cb"
   },
   "voltagent-coinbase-authenticate-wallet": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/authenticate-wallet",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/authenticate-wallet/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/authenticate-wallet"
   },
   "voltagent-coinbase-fund": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/fund",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/fund/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/fund"
   },
   "voltagent-coinbase-monetize-service": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/monetize-service",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/monetize-service/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/monetize-service"
   },
   "voltagent-coinbase-pay-for-service": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/pay-for-service",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/pay-for-service/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/pay-for-service"
   },
   "voltagent-coinbase-query-onchain-data": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/query-onchain-data",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/query-onchain-data/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/query-onchain-data"
   },
   "voltagent-coinbase-search-for-service": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/search-for-service",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/search-for-service/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/search-for-service"
   },
   "voltagent-coinbase-send-usdc": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/send-usdc",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/send-usdc/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/send-usdc"
   },
   "voltagent-coinbase-trade": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/trade",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/trade/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/trade"
   },
   "voltagent-coinbase-x402": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/coinbase/skills/x402",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/x402/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/coinbase/agentic-wallet-skills",
+    "verifiedCommit": "70cb79c85f397fab3636ef07c8c99dc52a7c555f",
+    "declaredUrl": "https://github.com/coinbase/agentic-wallet-skills/tree/main/skills/x402"
   },
   "voltagent-composiohq-composio": {
     "status": "verified",
@@ -1842,7 +1936,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-code-javascript",
     "repoUrl": "https://github.com/czlonkowski/n8n-skills",
     "subPath": "skills/n8n-code-javascript",
-    "verifiedCommit": "408670d181587b5227bd98153bf56e5a0038d6d2",
+    "verifiedCommit": "6a98240502fe1476f22ef8d14b91461fb703733f",
     "method": "catalog-declared-path"
   },
   "voltagent-czlonkowski-n8n-code-python": {
@@ -1850,7 +1944,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-code-python",
     "repoUrl": "https://github.com/czlonkowski/n8n-skills",
     "subPath": "skills/n8n-code-python",
-    "verifiedCommit": "408670d181587b5227bd98153bf56e5a0038d6d2",
+    "verifiedCommit": "6a98240502fe1476f22ef8d14b91461fb703733f",
     "method": "catalog-declared-path"
   },
   "voltagent-czlonkowski-n8n-expression-syntax": {
@@ -1858,7 +1952,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-expression-syntax",
     "repoUrl": "https://github.com/czlonkowski/n8n-skills",
     "subPath": "skills/n8n-expression-syntax",
-    "verifiedCommit": "408670d181587b5227bd98153bf56e5a0038d6d2",
+    "verifiedCommit": "6a98240502fe1476f22ef8d14b91461fb703733f",
     "method": "catalog-declared-path"
   },
   "voltagent-czlonkowski-n8n-mcp-tools-expert": {
@@ -1866,7 +1960,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-mcp-tools-expert",
     "repoUrl": "https://github.com/czlonkowski/n8n-skills",
     "subPath": "skills/n8n-mcp-tools-expert",
-    "verifiedCommit": "408670d181587b5227bd98153bf56e5a0038d6d2",
+    "verifiedCommit": "6a98240502fe1476f22ef8d14b91461fb703733f",
     "method": "catalog-declared-path"
   },
   "voltagent-czlonkowski-n8n-node-configuration": {
@@ -1874,7 +1968,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-node-configuration",
     "repoUrl": "https://github.com/czlonkowski/n8n-skills",
     "subPath": "skills/n8n-node-configuration",
-    "verifiedCommit": "408670d181587b5227bd98153bf56e5a0038d6d2",
+    "verifiedCommit": "6a98240502fe1476f22ef8d14b91461fb703733f",
     "method": "catalog-declared-path"
   },
   "voltagent-czlonkowski-n8n-validation-expert": {
@@ -1882,7 +1976,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-validation-expert",
     "repoUrl": "https://github.com/czlonkowski/n8n-skills",
     "subPath": "skills/n8n-validation-expert",
-    "verifiedCommit": "408670d181587b5227bd98153bf56e5a0038d6d2",
+    "verifiedCommit": "6a98240502fe1476f22ef8d14b91461fb703733f",
     "method": "catalog-declared-path"
   },
   "voltagent-czlonkowski-n8n-workflow-patterns": {
@@ -1890,7 +1984,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/czlonkowski/n8n-skills/tree/main/skills/n8n-workflow-patterns",
     "repoUrl": "https://github.com/czlonkowski/n8n-skills",
     "subPath": "skills/n8n-workflow-patterns",
-    "verifiedCommit": "408670d181587b5227bd98153bf56e5a0038d6d2",
+    "verifiedCommit": "6a98240502fe1476f22ef8d14b91461fb703733f",
     "method": "catalog-declared-path"
   },
   "voltagent-datadog-labs-dd-apm": {
@@ -1912,20 +2006,29 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-datadog-labs-dd-llmo-eval-bootstrap": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/datadog-labs/skills/dd-llmo-eval-bootstrap",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 dd-llmo/eval-bootstrap/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/datadog-labs/agent-skills",
+    "verifiedCommit": "8511716686f3add54657b83207912a7c497a4327",
+    "declaredUrl": "https://github.com/datadog-labs/agent-skills/tree/main/dd-llmo/eval-bootstrap"
   },
   "voltagent-datadog-labs-dd-llmo-eval-trace-rca": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/datadog-labs/skills/dd-llmo-eval-trace-rca",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 dd-llmo/eval-trace-rca/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/datadog-labs/agent-skills",
+    "verifiedCommit": "8511716686f3add54657b83207912a7c497a4327",
+    "declaredUrl": "https://github.com/datadog-labs/agent-skills/tree/main/dd-llmo/eval-trace-rca"
   },
   "voltagent-datadog-labs-dd-llmo-experiment-analyzer": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/datadog-labs/skills/dd-llmo-experiment-analyzer",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 dd-llmo/experiment-analyzer/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/datadog-labs/agent-skills",
+    "verifiedCommit": "8511716686f3add54657b83207912a7c497a4327",
+    "declaredUrl": "https://github.com/datadog-labs/agent-skills/tree/main/dd-llmo/experiment-analyzer"
   },
   "voltagent-datadog-labs-dd-logs": {
     "status": "verified",
@@ -2324,7 +2427,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/degausai/wonda",
     "repoUrl": "https://github.com/degausai/wonda",
     "subPath": "skills/wonda-cli",
-    "verifiedCommit": "7c730f05f62e7f527e01f9031b761ac0befd22c3",
+    "verifiedCommit": "bd6828b28ca489456388bbd63327153de5ff6572",
     "method": "unique-skill-file"
   },
   "voltagent-dembrandt-dembrandt-skills": {
@@ -2333,14 +2436,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/dembrandt/dembrandt-skills",
-    "verifiedCommit": "2cdf0087a444a4379ebc4471e2cb9c0a51375bd8"
+    "verifiedCommit": "5371c718bd188390a5c00d64fa1ce2760f95be2a"
   },
   "voltagent-deusyu-translate-book": {
     "status": "verified",
     "sourceUrl": "https://github.com/deusyu/translate-book",
     "repoUrl": "https://github.com/deusyu/translate-book",
     "subPath": "",
-    "verifiedCommit": "9a856d5e8bd5258774fcda89cb75058f390a5b27",
+    "verifiedCommit": "aa38fdbfbc5cd4bf26e9291b0304a9b0817eec5c",
     "method": "repository-root"
   },
   "voltagent-digidai-product-manager-skills": {
@@ -2450,26 +2553,38 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-expo-building-native-ui": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/building-native-ui",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/building-native-ui/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/building-native-ui"
   },
   "voltagent-expo-expo-api-routes": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/expo-api-routes",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/expo-api-routes/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-api-routes"
   },
   "voltagent-expo-expo-cicd-workflows": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/expo-cicd-workflows",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/expo-cicd-workflows/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-cicd-workflows"
   },
   "voltagent-expo-expo-deployment": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/expo-deployment",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/expo-deployment/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-deployment"
   },
   "voltagent-expo-expo-dev-client": {
     "status": "verified",
@@ -2490,116 +2605,173 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-expo-expo-ui-jetpack-compose": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/expo-ui-jetpack-compose",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/expo-ui-jetpack-compose/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-ui-jetpack-compose"
   },
   "voltagent-expo-expo-ui-swift-ui": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/expo-ui-swift-ui",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/expo-ui-swift-ui/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/expo-ui-swift-ui"
   },
   "voltagent-expo-native-data-fetching": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/native-data-fetching",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/native-data-fetching/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/native-data-fetching"
   },
   "voltagent-expo-upgrading-expo": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/upgrading-expo",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/upgrading-expo/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/upgrading-expo"
   },
   "voltagent-expo-use-dom": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/expo/skills/use-dom",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/expo/skills/use-dom/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/expo/skills",
+    "verifiedCommit": "69ea062f5c412a045e2e21bcd2cd7676926234cc",
+    "declaredUrl": "https://github.com/expo/skills/tree/main/plugins/expo/skills/use-dom"
   },
   "voltagent-fal-ai-community-fal-3d": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-3d",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-3d/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-3d"
   },
   "voltagent-fal-ai-community-fal-audio": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-audio",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-audio/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-audio"
   },
   "voltagent-fal-ai-community-fal-generate": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-generate",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-generate/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-generate"
   },
   "voltagent-fal-ai-community-fal-image-edit": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-image-edit",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-image-edit/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-image-edit"
   },
   "voltagent-fal-ai-community-fal-kling-o3": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-kling-o3",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-kling-o3/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-kling-o3"
   },
   "voltagent-fal-ai-community-fal-lip-sync": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-lip-sync",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-lip-sync/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-lip-sync"
   },
   "voltagent-fal-ai-community-fal-platform": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-platform",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-platform/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-platform"
   },
   "voltagent-fal-ai-community-fal-realtime": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-realtime",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-realtime/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-realtime"
   },
   "voltagent-fal-ai-community-fal-restore": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-restore",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-restore/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-restore"
   },
   "voltagent-fal-ai-community-fal-train": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-train",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-train/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-train"
   },
   "voltagent-fal-ai-community-fal-tryon": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-tryon",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-tryon/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-tryon"
   },
   "voltagent-fal-ai-community-fal-upscale": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-upscale",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-upscale/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-upscale"
   },
   "voltagent-fal-ai-community-fal-video-edit": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-video-edit",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-video-edit/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-video-edit"
   },
   "voltagent-fal-ai-community-fal-vision": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/fal-ai-community/skills/fal-vision",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/claude.ai/fal-vision/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/fal-ai-community/skills",
+    "verifiedCommit": "9ca850412943251fc9a466c4c29fdaf7a303a3d8",
+    "declaredUrl": "https://github.com/fal-ai-community/skills/tree/main/skills/claude.ai/fal-vision"
   },
   "voltagent-fal-ai-community-fal-workflow": {
     "status": "verified",
@@ -2612,14 +2784,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-figma-figma-code-connect-components": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/figma/skills/figma-code-connect-components",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/figma-code-connect-components/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/figma/mcp-server-guide",
+    "verifiedCommit": "c80480bbd84bf1ff24d7f27b3fda33a26ba88830",
+    "declaredUrl": "https://github.com/figma/mcp-server-guide/tree/main/skills/figma-code-connect-components"
   },
   "voltagent-figma-figma-create-design-system-rules": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/figma/skills/figma-create-design-system-rules",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/figma-create-design-system-rules/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/figma/mcp-server-guide",
+    "verifiedCommit": "c80480bbd84bf1ff24d7f27b3fda33a26ba88830",
+    "declaredUrl": "https://github.com/figma/mcp-server-guide/tree/main/skills/figma-create-design-system-rules"
   },
   "voltagent-figma-figma-create-new-file": {
     "status": "verified",
@@ -2648,8 +2826,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-figma-figma-implement-design": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/figma/skills/figma-implement-design",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/figma-implement-design/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/figma/mcp-server-guide",
+    "verifiedCommit": "c80480bbd84bf1ff24d7f27b3fda33a26ba88830",
+    "declaredUrl": "https://github.com/figma/mcp-server-guide/tree/main/skills/figma-implement-design"
   },
   "voltagent-figma-figma-use": {
     "status": "verified",
@@ -2662,20 +2843,29 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-firebase-developing-genkit-dart": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/firebase/skills/developing-genkit-dart",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/developing-genkit-dart/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/firebase/agent-skills",
+    "verifiedCommit": "7f37fa0807a89f49d5a75ce09d21ec752eab73ee",
+    "declaredUrl": "https://github.com/firebase/agent-skills/tree/main/skills/developing-genkit-dart"
   },
   "voltagent-firebase-developing-genkit-go": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/firebase/skills/developing-genkit-go",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/developing-genkit-go/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/firebase/agent-skills",
+    "verifiedCommit": "7f37fa0807a89f49d5a75ce09d21ec752eab73ee",
+    "declaredUrl": "https://github.com/firebase/agent-skills/tree/main/skills/developing-genkit-go"
   },
   "voltagent-firebase-developing-genkit-js": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/firebase/skills/developing-genkit-js",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/developing-genkit-js/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/firebase/agent-skills",
+    "verifiedCommit": "7f37fa0807a89f49d5a75ce09d21ec752eab73ee",
+    "declaredUrl": "https://github.com/firebase/agent-skills/tree/main/skills/developing-genkit-js"
   },
   "voltagent-firebase-firebase-ai-logic-basics": {
     "status": "verified",
@@ -2720,14 +2910,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-firebase-firebase-firestore-enterprise-native-mode": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/firebase/skills/firebase-firestore-enterprise-native-mode",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/firebase-firestore-enterprise-native-mode/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/firebase/agent-skills",
+    "verifiedCommit": "7f37fa0807a89f49d5a75ce09d21ec752eab73ee",
+    "declaredUrl": "https://github.com/firebase/agent-skills/tree/main/skills/firebase-firestore-enterprise-native-mode"
   },
   "voltagent-firebase-firebase-firestore-standard": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/firebase/skills/firebase-firestore-standard",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/firebase-firestore-standard/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/firebase/agent-skills",
+    "verifiedCommit": "7f37fa0807a89f49d5a75ce09d21ec752eab73ee",
+    "declaredUrl": "https://github.com/firebase/agent-skills/tree/main/skills/firebase-firestore-standard"
   },
   "voltagent-firebase-firebase-hosting-basics": {
     "status": "verified",
@@ -2788,134 +2984,200 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-flutter-flutter-adding-home-screen-widgets": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-adding-home-screen-widgets",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-adding-home-screen-widgets/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-adding-home-screen-widgets"
   },
   "voltagent-flutter-flutter-animating-apps": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-animating-apps",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-animating-apps/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-animating-apps"
   },
   "voltagent-flutter-flutter-architecting-apps": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-architecting-apps",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-architecting-apps/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-architecting-apps"
   },
   "voltagent-flutter-flutter-building-forms": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-building-forms",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-building-forms/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-building-forms"
   },
   "voltagent-flutter-flutter-building-layouts": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-building-layouts",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-building-layouts/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-building-layouts"
   },
   "voltagent-flutter-flutter-building-plugins": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-building-plugins",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-building-plugins/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-building-plugins"
   },
   "voltagent-flutter-flutter-caching-data": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-caching-data",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-caching-data/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-caching-data"
   },
   "voltagent-flutter-flutter-embedding-native-views": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-embedding-native-views",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-embedding-native-views/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-embedding-native-views"
   },
   "voltagent-flutter-flutter-handling-concurrency": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-handling-concurrency",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-handling-concurrency/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-handling-concurrency"
   },
   "voltagent-flutter-flutter-handling-http-and-json": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-handling-http-and-json",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-handling-http-and-json/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-handling-http-and-json"
   },
   "voltagent-flutter-flutter-implementing-navigation-and-routing": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-implementing-navigation-and-routing",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-implementing-navigation-and-routing/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-implementing-navigation-and-routing"
   },
   "voltagent-flutter-flutter-improving-accessibility": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-improving-accessibility",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-improving-accessibility/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-improving-accessibility"
   },
   "voltagent-flutter-flutter-interoperating-with-native-apis": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-interoperating-with-native-apis",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-interoperating-with-native-apis/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-interoperating-with-native-apis"
   },
   "voltagent-flutter-flutter-localizing-apps": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-localizing-apps",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-localizing-apps/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-localizing-apps"
   },
   "voltagent-flutter-flutter-managing-state": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-managing-state",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-managing-state/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-managing-state"
   },
   "voltagent-flutter-flutter-reducing-app-size": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-reducing-app-size",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-reducing-app-size/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-reducing-app-size"
   },
   "voltagent-flutter-flutter-setting-up-on-linux": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-setting-up-on-linux",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-setting-up-on-linux/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-setting-up-on-linux"
   },
   "voltagent-flutter-flutter-setting-up-on-macos": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-setting-up-on-macos",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-setting-up-on-macos/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-setting-up-on-macos"
   },
   "voltagent-flutter-flutter-setting-up-on-windows": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-setting-up-on-windows",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-setting-up-on-windows/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-setting-up-on-windows"
   },
   "voltagent-flutter-flutter-testing-apps": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-testing-apps",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-testing-apps/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-testing-apps"
   },
   "voltagent-flutter-flutter-theming-apps": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-theming-apps",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-theming-apps/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-theming-apps"
   },
   "voltagent-flutter-flutter-working-with-databases": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/flutter/skills/flutter-working-with-databases",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/flutter-working-with-databases/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/flutter/skills",
+    "verifiedCommit": "141bccd9a3a9d43d698752272ecf56a32026d174",
+    "declaredUrl": "https://github.com/flutter/skills/tree/main/skills/flutter-working-with-databases"
   },
   "voltagent-foryourhealth111-pixel-vibe-skills": {
     "status": "verified",
@@ -2939,7 +3201,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/fvadicamo/dev-agent-skills",
-    "verifiedCommit": "b9bff669f1ae45742028eb31f2c329a88a830605"
+    "verifiedCommit": "7f7ef28d69e0cf5b49f0a327f9a587126bff6a32"
   },
   "voltagent-ganyuanran-aegis": {
     "status": "pending",
@@ -2947,7 +3209,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/GanyuanRan/Aegis",
-    "verifiedCommit": "f917cbf6a6654db635d69192e8e89eb1edec3021"
+    "verifiedCommit": "640f943653fdccd1ffd32cd6e3dda889209bb901"
   },
   "voltagent-garrytan-autoplan": {
     "status": "verified",
@@ -3158,172 +3420,256 @@ export const SKILL_SOURCE_VERIFICATION = {
     "method": "previously-verified"
   },
   "voltagent-getsentry-sentry-android-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-android-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-android-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-android-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-browser-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-browser-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-browser-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-browser-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-cloudflare-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-cloudflare-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-cloudflare-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-cloudflare-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-cocoa-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-cocoa-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-cocoa-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-cocoa-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-code-review": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-code-review",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-code-review"
   },
   "voltagent-getsentry-sentry-create-alert": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-create-alert",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "src/skills/sentry-create-alert",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-create-alert",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-dotnet-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-dotnet-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-dotnet-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-dotnet-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-elixir-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-elixir-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-elixir-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-elixir-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-feature-setup": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-feature-setup",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-feature-setup"
   },
   "voltagent-getsentry-sentry-fix-issues": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-fix-issues",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-fix-issues",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-fix-issues",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-flutter-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-flutter-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-flutter-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-flutter-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-go-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-go-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-go-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-go-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-nestjs-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-nestjs-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-nestjs-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-nestjs-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-nextjs-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-nextjs-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-nextjs-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-nextjs-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-node-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-node-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-node-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-node-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-otel-exporter-setup": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-otel-exporter-setup",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "src/skills/sentry-otel-exporter-setup",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-otel-exporter-setup",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-php-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-php-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-php-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-php-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-pr-code-review": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-pr-code-review",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-pr-code-review"
   },
   "voltagent-getsentry-sentry-python-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-python-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-python-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-python-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-react-native-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-react-native-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-react-native-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-react-native-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-react-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-react-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-react-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-react-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-ruby-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-ruby-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-ruby-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-ruby-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-sdk-setup": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-sdk-setup",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-sdk-setup",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-sdk-setup",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-sdk-skill-creator": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-sdk-skill-creator",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-sdk-skill-creator",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-sdk-skill-creator",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-sdk-upgrade": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-sdk-upgrade",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-sdk-upgrade",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-sdk-upgrade",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-setup-ai-monitoring": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-setup-ai-monitoring",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-setup-ai-monitoring",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-setup-ai-monitoring",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-svelte-sdk": {
-    "status": "pending",
+    "status": "verified",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-svelte-sdk",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "subPath": "skills-legacy/sentry-svelte-sdk",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-svelte-sdk",
+    "method": "source-page-exact-path-repair"
   },
   "voltagent-getsentry-sentry-workflow": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/getsentry/skills/sentry-workflow",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/getsentry/sentry-for-ai",
+    "verifiedCommit": "3ac2e8dc33a8b0fe0b0b30d4a5fe32836003235d",
+    "declaredUrl": "https://github.com/getsentry/sentry-for-ai/tree/main/skills/sentry-workflow"
   },
   "voltagent-gitroomhq-postiz-agent": {
     "status": "verified",
@@ -3362,7 +3708,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/agent-platform-skill-registry",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/agent-platform-skill-registry",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-alloydb-basics": {
@@ -3370,7 +3716,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/alloydb-basics",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/alloydb-basics",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-bigquery-basics": {
@@ -3378,7 +3724,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/bigquery-basics",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/bigquery-basics",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-cloud-run-basics": {
@@ -3386,7 +3732,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/cloud-run-basics",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/cloud-run-basics",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-cloud-sql-basics": {
@@ -3394,7 +3740,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/cloud-sql-basics",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/cloud-sql-basics",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-firebase-basics": {
@@ -3402,7 +3748,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/firebase-basics",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/firebase-basics",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-gemini-agents-api": {
@@ -3410,7 +3756,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/gemini-agents-api",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/gemini-agents-api",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-gemini-api": {
@@ -3418,7 +3764,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/gemini-api",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/gemini-api",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-gke-basics": {
@@ -3426,7 +3772,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/gke-basics",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/gke-basics",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-networking-observability": {
@@ -3434,7 +3780,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-networking-observability",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-networking-observability",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-recipe-auth": {
@@ -3442,7 +3788,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-recipe-auth",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-recipe-auth",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-recipe-onboarding": {
@@ -3450,7 +3796,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-recipe-onboarding",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-recipe-onboarding",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-waf-cost-optimization": {
@@ -3458,7 +3804,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-waf-cost-optimization",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-waf-cost-optimization",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-waf-operational-excellence": {
@@ -3466,7 +3812,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-waf-operational-excellence",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-waf-operational-excellence",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-waf-performance-optimization": {
@@ -3474,7 +3820,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-waf-performance-optimization",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-waf-performance-optimization",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-waf-reliability": {
@@ -3482,7 +3828,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-waf-reliability",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-waf-reliability",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-waf-security": {
@@ -3490,7 +3836,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-waf-security",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-waf-security",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-cloud-google-cloud-waf-sustainability": {
@@ -3498,7 +3844,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/google/skills/tree/main/skills/cloud/google-cloud-waf-sustainability",
     "repoUrl": "https://github.com/google/skills",
     "subPath": "skills/cloud/google-cloud-waf-sustainability",
-    "verifiedCommit": "41f503f7d7f878bf77f0700487d60cf0490d72fd",
+    "verifiedCommit": "777fb8e194b9941c74c85f17b10202614ef4e435",
     "method": "catalog-declared-path"
   },
   "voltagent-google-gemini-gemini-api-dev": {
@@ -3528,44 +3874,59 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-google-gemini-vertex-ai-api-dev": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/google-gemini/skills/vertex-ai-api-dev",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/vertex-ai-api-dev/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/google-gemini/gemini-skills",
+    "verifiedCommit": "5fed02bb10192d90d5ac600cbe99e0d1790794f9",
+    "declaredUrl": "https://github.com/google-gemini/gemini-skills/tree/main/skills/vertex-ai-api-dev"
   },
   "voltagent-google-labs-code-design-md": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/google-labs-code/skills/design-md",
-    "reasonCode": "no-install-source",
-    "reason": "GitHub 仓库或版本不存在"
+    "reasonCode": "repository-not-found",
+    "reason": "GitHub 仓库不存在、不可公开访问或已被移除",
+    "repoUrl": "https://github.com/google-labs-code/design-md",
+    "declaredUrl": "https://github.com/google-labs-code/design-md"
   },
   "voltagent-google-labs-code-enhance-prompt": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/google-labs-code/skills/enhance-prompt",
-    "reasonCode": "no-install-source",
-    "reason": "GitHub 仓库或版本不存在"
+    "reasonCode": "repository-not-found",
+    "reason": "GitHub 仓库不存在、不可公开访问或已被移除",
+    "repoUrl": "https://github.com/google-labs-code/enhance-prompt",
+    "declaredUrl": "https://github.com/google-labs-code/enhance-prompt"
   },
   "voltagent-google-labs-code-react-components": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/google-labs-code/skills/react-components",
-    "reasonCode": "no-install-source",
-    "reason": "GitHub 仓库或版本不存在"
+    "reasonCode": "repository-not-found",
+    "reason": "GitHub 仓库不存在、不可公开访问或已被移除",
+    "repoUrl": "https://github.com/google-labs-code/react-components",
+    "declaredUrl": "https://github.com/google-labs-code/react-components"
   },
   "voltagent-google-labs-code-remotion": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/google-labs-code/skills/remotion",
-    "reasonCode": "no-install-source",
-    "reason": "GitHub 仓库或版本不存在"
+    "reasonCode": "repository-not-found",
+    "reason": "GitHub 仓库不存在、不可公开访问或已被移除",
+    "repoUrl": "https://github.com/google-labs-code/remotion",
+    "declaredUrl": "https://github.com/google-labs-code/remotion"
   },
   "voltagent-google-labs-code-shadcn-ui": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/google-labs-code/skills/shadcn-ui",
-    "reasonCode": "no-install-source",
-    "reason": "GitHub 仓库或版本不存在"
+    "reasonCode": "repository-not-found",
+    "reason": "GitHub 仓库不存在、不可公开访问或已被移除",
+    "repoUrl": "https://github.com/google-labs-code/shadcn-ui",
+    "declaredUrl": "https://github.com/google-labs-code/shadcn-ui"
   },
   "voltagent-google-labs-code-stitch-loop": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/google-labs-code/skills/stitch-loop",
-    "reasonCode": "no-install-source",
-    "reason": "GitHub 仓库或版本不存在"
+    "reasonCode": "repository-not-found",
+    "reason": "GitHub 仓库不存在、不可公开访问或已被移除",
+    "repoUrl": "https://github.com/google-labs-code/stitch-loop",
+    "declaredUrl": "https://github.com/google-labs-code/stitch-loop"
   },
   "voltagent-googleworkspace-gws-admin-reports": {
     "status": "verified",
@@ -3926,7 +4287,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/helius-labs/core-ai",
-    "verifiedCommit": "3c28a5715366b9cc7c79cac65f493458d5af2aba"
+    "verifiedCommit": "7e171591d7cadaea65d2e4ef0246f8fe13134134"
   },
   "voltagent-honeydew-ai-honeydew-ai-coding-agents-plugins": {
     "status": "pending",
@@ -3934,7 +4295,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/honeydew-ai/honeydew-ai-coding-agents-plugins",
-    "verifiedCommit": "365819dadefc44a9e603058e66182a15cbb6e83e"
+    "verifiedCommit": "3037bbe288f4e8cfd8fdc3923c2ecdd2092bba2a"
   },
   "voltagent-hqhq1025-skill-optimizer": {
     "status": "pending",
@@ -3955,62 +4316,92 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-huggingface-hugging-face-dataset-viewer": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-dataset-viewer",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-dataset-viewer/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-dataset-viewer"
   },
   "voltagent-huggingface-hugging-face-datasets": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-datasets",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-datasets/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-datasets"
   },
   "voltagent-huggingface-hugging-face-evaluation": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-evaluation",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-evaluation/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-evaluation"
   },
   "voltagent-huggingface-hugging-face-jobs": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-jobs",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-jobs/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-jobs"
   },
   "voltagent-huggingface-hugging-face-model-trainer": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-model-trainer",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-model-trainer/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-model-trainer"
   },
   "voltagent-huggingface-hugging-face-paper-pages": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-paper-pages",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-paper-pages/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-paper-pages"
   },
   "voltagent-huggingface-hugging-face-paper-publisher": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-paper-publisher",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-paper-publisher/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-paper-publisher"
   },
   "voltagent-huggingface-hugging-face-tool-builder": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-tool-builder",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-tool-builder/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-tool-builder"
   },
   "voltagent-huggingface-hugging-face-trackio": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-trackio",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-trackio/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-trackio"
   },
   "voltagent-huggingface-hugging-face-vision-trainer": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/hugging-face-vision-trainer",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/hugging-face-vision-trainer/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/hugging-face-vision-trainer"
   },
   "voltagent-huggingface-huggingface-gradio": {
     "status": "verified",
@@ -4023,8 +4414,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-huggingface-transformers-js": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/huggingface/skills/transformers.js",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/transformers.js/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/huggingface/skills",
+    "verifiedCommit": "32f8bb0928e95fc9d47ca9fbf69cbfbaf2bc2bda",
+    "declaredUrl": "https://github.com/huggingface/skills/tree/main/skills/transformers.js"
   },
   "voltagent-huifer-claude-ally-health": {
     "status": "pending",
@@ -4040,7 +4434,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/ibelick/ui-skills",
-    "verifiedCommit": "47b30491f203a02dfac1a5fa594b91ec51704259"
+    "verifiedCommit": "2b3a114a3fcff079d73639a21710c595d4700a74"
   },
   "voltagent-indranilbanerjee-digital-marketing-pro": {
     "status": "pending",
@@ -4079,7 +4473,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/K-Dense-AI/claude-scientific-skills",
-    "verifiedCommit": "ad21a3868923628330734375dddbf7b86ea84222"
+    "verifiedCommit": "d767725c6e93b1d02a220e6be75b261a9833ede5"
   },
   "voltagent-k-kolomeitsev-data-structure-protocol": {
     "status": "verified",
@@ -4094,7 +4488,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/Kevin7Qi/codex-collab",
     "repoUrl": "https://github.com/Kevin7Qi/codex-collab",
     "subPath": "",
-    "verifiedCommit": "50575a78f65feef49f2553d98bd9bb4bb880c806",
+    "verifiedCommit": "982f2ea32ae0f3958c0bb8367a6c5e3095957718",
     "method": "repository-root"
   },
   "voltagent-komal-skynet-claude-skill-homeassistant": {
@@ -4111,7 +4505,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/kreuzberg-dev/kreuzberg",
-    "verifiedCommit": "b187abc2afbfe2ab56e8a81bcff43b1593b564cf"
+    "verifiedCommit": "b9ff26a067040571e69725bc814f75d2d1bf40c3"
   },
   "voltagent-lackeyjb-playwright-skill": {
     "status": "verified",
@@ -4135,7 +4529,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/lawvable/awesome-legal-skills",
-    "verifiedCommit": "8e512645a4d64619fdd258186b3fbae1fc2743d6"
+    "verifiedCommit": "4b0a895640d44add67ab4db1a0250e5a48888ee1"
   },
   "voltagent-leonxlnx-taste-skill": {
     "status": "verified",
@@ -4215,7 +4609,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/mattpocock/skills",
-    "verifiedCommit": "2ab958093e83e0ec752e6c1c5932da465bf23e0c"
+    "verifiedCommit": "8b36d4fb2635b3c21998dcd8144439c9e5ba7302"
   },
   "voltagent-mcollina-skills": {
     "status": "pending",
@@ -4223,14 +4617,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/mcollina/skills",
-    "verifiedCommit": "7cfdaf97386f51be412d5351aa2f0acbf958e067"
+    "verifiedCommit": "a88a866db5dc07f74d6dcef530a3b639158bdc97"
   },
   "voltagent-meodai-skill-color-expert": {
     "status": "verified",
     "sourceUrl": "https://github.com/meodai/skill.color-expert",
     "repoUrl": "https://github.com/meodai/skill.color-expert",
     "subPath": "",
-    "verifiedCommit": "00ba5c6850b7277dfe6b061c636c68ef7977afc4",
+    "verifiedCommit": "6aa1d1315dddd93be74a9481d62712291059253e",
     "method": "repository-root"
   },
   "voltagent-metalbear-co-skills": {
@@ -4239,28 +4633,31 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/metalbear-co/skills",
-    "verifiedCommit": "2022f7f5a002d0fcaddd512a9f9e70006cb9096e"
+    "verifiedCommit": "425d4490343c7612f8c68274750e86932f27ea34"
   },
   "voltagent-microsoft-agent-framework-azure-ai-py": {
     "status": "verified",
     "sourceUrl": "https://officialskills.sh/microsoft/skills/agent-framework-azure-ai-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/agent-framework-azure-ai-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-agents-v2-py": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/microsoft/skills/agents-v2-py",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/microsoft/skills",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
+    "declaredUrl": "https://github.com/microsoft/skills/tree/main/.github/plugins/azure-sdk-python/skills/agents-v2-py"
   },
   "voltagent-microsoft-azure-ai-anomalydetector-java": {
     "status": "verified",
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-anomalydetector-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-ai-anomalydetector-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-contentsafety-java": {
@@ -4268,7 +4665,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-contentsafety-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-ai-contentsafety-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-contentsafety-py": {
@@ -4276,7 +4673,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-contentsafety-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-contentsafety-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-contentsafety-ts": {
@@ -4284,7 +4681,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-contentsafety-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-ai-contentsafety-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-contentunderstanding-py": {
@@ -4292,7 +4689,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-contentunderstanding-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-contentunderstanding-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-document-intelligence-dotnet": {
@@ -4300,7 +4697,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-document-intelligence-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-ai-document-intelligence-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-document-intelligence-ts": {
@@ -4308,7 +4705,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-document-intelligence-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-ai-document-intelligence-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-formrecognizer-java": {
@@ -4316,7 +4713,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-formrecognizer-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-ai-formrecognizer-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-ml-py": {
@@ -4324,7 +4721,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-ml-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-ml-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-openai-dotnet": {
@@ -4332,7 +4729,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-openai-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-ai-openai-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-projects-dotnet": {
@@ -4340,7 +4737,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-projects-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-ai-projects-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-projects-java": {
@@ -4348,7 +4745,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-projects-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-ai-projects-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-projects-py": {
@@ -4356,7 +4753,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-projects-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-projects-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-projects-ts": {
@@ -4364,7 +4761,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-projects-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-ai-projects-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-textanalytics-py": {
@@ -4372,7 +4769,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-textanalytics-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-textanalytics-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-transcription-py": {
@@ -4380,7 +4777,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-transcription-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-transcription-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-translation-document-py": {
@@ -4388,7 +4785,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-translation-document-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-translation-document-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-translation-text-py": {
@@ -4396,7 +4793,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-translation-text-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-translation-text-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-translation-ts": {
@@ -4404,7 +4801,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-translation-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-ai-translation-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-vision-imageanalysis-java": {
@@ -4412,7 +4809,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-vision-imageanalysis-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-ai-vision-imageanalysis-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-vision-imageanalysis-py": {
@@ -4420,7 +4817,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-vision-imageanalysis-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-vision-imageanalysis-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-voicelive-dotnet": {
@@ -4428,7 +4825,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-voicelive-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-ai-voicelive-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-voicelive-java": {
@@ -4436,7 +4833,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-voicelive-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-ai-voicelive-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-voicelive-py": {
@@ -4444,7 +4841,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-voicelive-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-ai-voicelive-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-ai-voicelive-ts": {
@@ -4452,7 +4849,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-ai-voicelive-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-ai-voicelive-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-appconfiguration-java": {
@@ -4460,7 +4857,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-appconfiguration-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-appconfiguration-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-appconfiguration-py": {
@@ -4468,7 +4865,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-appconfiguration-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-appconfiguration-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-appconfiguration-ts": {
@@ -4476,7 +4873,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-appconfiguration-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-appconfiguration-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-communication-callautomation-java": {
@@ -4484,7 +4881,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-communication-callautomation-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-communication-callautomation-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-communication-callingserver-java": {
@@ -4492,7 +4889,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-communication-callingserver-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-communication-callingserver-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-communication-chat-java": {
@@ -4500,7 +4897,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-communication-chat-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-communication-chat-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-communication-common-java": {
@@ -4508,7 +4905,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-communication-common-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-communication-common-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-communication-sms-java": {
@@ -4516,7 +4913,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-communication-sms-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-communication-sms-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-compute-batch-java": {
@@ -4524,7 +4921,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-compute-batch-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-compute-batch-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-containerregistry-py": {
@@ -4532,7 +4929,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-containerregistry-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-containerregistry-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-cosmos-db-py": {
@@ -4540,7 +4937,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-cosmos-db-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-cosmos-db-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-cosmos-java": {
@@ -4548,7 +4945,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-cosmos-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-cosmos-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-cosmos-py": {
@@ -4556,7 +4953,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-cosmos-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-cosmos-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-cosmos-rust": {
@@ -4564,7 +4961,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-cosmos-rust",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-rust/skills/azure-cosmos-rust",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-cosmos-ts": {
@@ -4572,7 +4969,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-cosmos-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-cosmos-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-data-tables-java": {
@@ -4580,7 +4977,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-data-tables-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-data-tables-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-data-tables-py": {
@@ -4588,7 +4985,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-data-tables-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-data-tables-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventgrid-dotnet": {
@@ -4596,7 +4993,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventgrid-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-eventgrid-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventgrid-java": {
@@ -4604,7 +5001,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventgrid-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-eventgrid-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventgrid-py": {
@@ -4612,7 +5009,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventgrid-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-eventgrid-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventhub-dotnet": {
@@ -4620,7 +5017,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventhub-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-eventhub-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventhub-java": {
@@ -4628,7 +5025,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventhub-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-eventhub-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventhub-py": {
@@ -4636,7 +5033,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventhub-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-eventhub-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventhub-rust": {
@@ -4644,7 +5041,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventhub-rust",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-rust/skills/azure-eventhub-rust",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-eventhub-ts": {
@@ -4652,7 +5049,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-eventhub-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-eventhub-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-identity-dotnet": {
@@ -4660,7 +5057,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-identity-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-identity-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-identity-java": {
@@ -4668,7 +5065,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-identity-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-identity-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-identity-py": {
@@ -4676,7 +5073,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-identity-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-identity-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-identity-rust": {
@@ -4684,7 +5081,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-identity-rust",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-rust/skills/azure-identity-rust",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-identity-ts": {
@@ -4692,7 +5089,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-identity-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-identity-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-keyvault-certificates-rust": {
@@ -4700,7 +5097,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-keyvault-certificates-rust",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-rust/skills/azure-keyvault-certificates-rust",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-keyvault-keys-rust": {
@@ -4708,7 +5105,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-keyvault-keys-rust",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-rust/skills/azure-keyvault-keys-rust",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-keyvault-keys-ts": {
@@ -4716,7 +5113,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-keyvault-keys-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-keyvault-keys-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-keyvault-py": {
@@ -4724,7 +5121,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-keyvault-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-keyvault-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-keyvault-secrets-rust": {
@@ -4732,7 +5129,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-keyvault-secrets-rust",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-rust/skills/azure-keyvault-secrets-rust",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-keyvault-secrets-ts": {
@@ -4740,7 +5137,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-keyvault-secrets-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-keyvault-secrets-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-maps-search-dotnet": {
@@ -4748,7 +5145,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-maps-search-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-maps-search-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-messaging-webpubsub-java": {
@@ -4756,7 +5153,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-messaging-webpubsub-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-messaging-webpubsub-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-messaging-webpubsubservice-py": {
@@ -4764,7 +5161,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-messaging-webpubsubservice-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-messaging-webpubsubservice-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-apicenter-dotnet": {
@@ -4772,7 +5169,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-apicenter-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-apicenter-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-apicenter-py": {
@@ -4780,7 +5177,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-apicenter-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-mgmt-apicenter-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-apimanagement-dotnet": {
@@ -4788,7 +5185,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-apimanagement-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-apimanagement-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-apimanagement-py": {
@@ -4796,7 +5193,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-apimanagement-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-mgmt-apimanagement-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-applicationinsights-dotnet": {
@@ -4804,7 +5201,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-applicationinsights-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-applicationinsights-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-arizeaiobservabilityeval-dotnet": {
@@ -4812,7 +5209,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-arizeaiobservabilityeval-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-arizeaiobservabilityeval-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-botservice-dotnet": {
@@ -4820,7 +5217,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-botservice-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-botservice-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-botservice-py": {
@@ -4828,7 +5225,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-botservice-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-mgmt-botservice-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-fabric-dotnet": {
@@ -4836,7 +5233,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-fabric-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-fabric-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-fabric-py": {
@@ -4844,7 +5241,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-fabric-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-mgmt-fabric-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-mongodbatlas-dotnet": {
@@ -4852,7 +5249,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-mongodbatlas-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-mongodbatlas-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-mgmt-weightsandbiases-dotnet": {
@@ -4860,7 +5257,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-mgmt-weightsandbiases-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-mgmt-weightsandbiases-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-microsoft-playwright-testing-ts": {
@@ -4868,7 +5265,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-microsoft-playwright-testing-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-microsoft-playwright-testing-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-ingestion-java": {
@@ -4876,7 +5273,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-ingestion-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-monitor-ingestion-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-ingestion-py": {
@@ -4884,7 +5281,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-ingestion-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-monitor-ingestion-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-opentelemetry-exporter-java": {
@@ -4892,7 +5289,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-opentelemetry-exporter-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-monitor-opentelemetry-exporter-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-opentelemetry-exporter-py": {
@@ -4900,7 +5297,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-opentelemetry-exporter-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-monitor-opentelemetry-exporter-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-opentelemetry-py": {
@@ -4908,7 +5305,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-opentelemetry-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-monitor-opentelemetry-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-opentelemetry-ts": {
@@ -4916,7 +5313,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-opentelemetry-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-monitor-opentelemetry-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-query-java": {
@@ -4924,7 +5321,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-query-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-monitor-query-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-monitor-query-py": {
@@ -4932,7 +5329,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-monitor-query-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-monitor-query-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-postgres-ts": {
@@ -4940,7 +5337,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-postgres-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-postgres-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-resource-manager-cosmosdb-dotnet": {
@@ -4948,7 +5345,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-resource-manager-cosmosdb-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-resource-manager-cosmosdb-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-resource-manager-durabletask-dotnet": {
@@ -4956,7 +5353,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-resource-manager-durabletask-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-resource-manager-durabletask-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-resource-manager-mysql-dotnet": {
@@ -4964,7 +5361,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-resource-manager-mysql-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-resource-manager-mysql-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-resource-manager-playwright-dotnet": {
@@ -4972,7 +5369,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-resource-manager-playwright-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-resource-manager-playwright-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-resource-manager-postgresql-dotnet": {
@@ -4980,7 +5377,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-resource-manager-postgresql-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-resource-manager-postgresql-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-resource-manager-redis-dotnet": {
@@ -4988,7 +5385,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-resource-manager-redis-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-resource-manager-redis-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-resource-manager-sql-dotnet": {
@@ -4996,7 +5393,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-resource-manager-sql-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-resource-manager-sql-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-search-documents-dotnet": {
@@ -5004,7 +5401,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-search-documents-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-search-documents-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-search-documents-py": {
@@ -5012,7 +5409,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-search-documents-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-search-documents-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-search-documents-ts": {
@@ -5020,7 +5417,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-search-documents-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-search-documents-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-security-keyvault-keys-dotnet": {
@@ -5028,7 +5425,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-security-keyvault-keys-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-security-keyvault-keys-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-security-keyvault-keys-java": {
@@ -5036,7 +5433,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-security-keyvault-keys-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-security-keyvault-keys-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-security-keyvault-secrets-java": {
@@ -5044,7 +5441,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-security-keyvault-secrets-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-security-keyvault-secrets-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-servicebus-dotnet": {
@@ -5052,7 +5449,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-servicebus-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/azure-servicebus-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-servicebus-py": {
@@ -5060,7 +5457,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-servicebus-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-servicebus-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-servicebus-ts": {
@@ -5068,7 +5465,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-servicebus-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-servicebus-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-speech-to-text-rest-py": {
@@ -5076,7 +5473,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-speech-to-text-rest-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-speech-to-text-rest-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-blob-java": {
@@ -5084,7 +5481,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-blob-java",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-java/skills/azure-storage-blob-java",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-blob-py": {
@@ -5092,7 +5489,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-blob-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-storage-blob-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-blob-rust": {
@@ -5100,7 +5497,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-blob-rust",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-rust/skills/azure-storage-blob-rust",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-blob-ts": {
@@ -5108,7 +5505,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-blob-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-storage-blob-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-file-datalake-py": {
@@ -5116,7 +5513,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-file-datalake-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-storage-file-datalake-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-file-share-py": {
@@ -5124,7 +5521,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-file-share-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-storage-file-share-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-file-share-ts": {
@@ -5132,7 +5529,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-file-share-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-storage-file-share-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-queue-py": {
@@ -5140,7 +5537,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-queue-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/azure-storage-queue-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-storage-queue-ts": {
@@ -5148,7 +5545,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-storage-queue-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-storage-queue-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-azure-web-pubsub-ts": {
@@ -5156,7 +5553,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/azure-web-pubsub-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/azure-web-pubsub-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-cloud-solution-architect": {
@@ -5164,7 +5561,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/cloud-solution-architect",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/cloud-solution-architect",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-continual-learning": {
@@ -5172,7 +5569,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/continual-learning",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/continual-learning",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-copilot-sdk": {
@@ -5180,7 +5577,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/copilot-sdk",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/copilot-sdk",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-entra-agent-id": {
@@ -5188,7 +5585,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/entra-agent-id",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/entra-agent-id",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-fastapi-router-py": {
@@ -5196,7 +5593,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/fastapi-router-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/fastapi-router-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-frontend-design-review": {
@@ -5204,7 +5601,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/frontend-design-review",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/frontend-design-review",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-frontend-ui-dark-ts": {
@@ -5212,7 +5609,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/frontend-ui-dark-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/frontend-ui-dark-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-github-issue-creator": {
@@ -5220,7 +5617,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/github-issue-creator",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/github-issue-creator",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-m365-agents-dotnet": {
@@ -5228,7 +5625,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/m365-agents-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/m365-agents-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-m365-agents-py": {
@@ -5236,7 +5633,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/m365-agents-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/m365-agents-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-m365-agents-ts": {
@@ -5244,7 +5641,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/m365-agents-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/m365-agents-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-mcp-builder": {
@@ -5252,7 +5649,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/mcp-builder",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/mcp-builder",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-microsoft-azure-webjobs-extensions-authentication-events-dotnet": {
@@ -5260,7 +5657,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/microsoft-azure-webjobs-extensions-authentication-events-dotnet",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-dotnet/skills/microsoft-azure-webjobs-extensions-authentication-events-dotnet",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-podcast-generation": {
@@ -5268,7 +5665,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/podcast-generation",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/podcast-generation",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-pydantic-models-py": {
@@ -5276,7 +5673,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/pydantic-models-py",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-python/skills/pydantic-models-py",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-react-flow-node-ts": {
@@ -5284,7 +5681,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/react-flow-node-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/react-flow-node-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-skill-creator": {
@@ -5292,7 +5689,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/skill-creator",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/skills/skill-creator",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-microsoft-zustand-store-ts": {
@@ -5300,7 +5697,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://officialskills.sh/microsoft/skills/zustand-store-ts",
     "repoUrl": "https://github.com/microsoft/skills",
     "subPath": ".github/plugins/azure-sdk-typescript/skills/zustand-store-ts",
-    "verifiedCommit": "4a2873faffc1b101a33a0b59c24713d4ed78142f",
+    "verifiedCommit": "a41101b21c80815588eba2c6da3dc1a44e5f7f45",
     "method": "audited-source-path"
   },
   "voltagent-minimax-ai-android-native-dev": {
@@ -5314,8 +5711,8 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-minimax-ai-cli": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/MiniMax-AI/skills/cli",
-    "reasonCode": "no-install-source",
-    "reason": "来源页未声明 GitHub Skill 子目录"
+    "reasonCode": "source-page-declaration-missing",
+    "reason": "来源页没有声明可核验的 GitHub Skill 安装地址"
   },
   "voltagent-minimax-ai-frontend-dev": {
     "status": "verified",
@@ -5400,8 +5797,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-mongodb-atlas-stream-processing": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/mongodb/skills/atlas-stream-processing",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/atlas-stream-processing/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/mongodb/agent-skills",
+    "verifiedCommit": "b4ea8150a020b9babaddc6c271c6dc177c06a83f",
+    "declaredUrl": "https://github.com/mongodb/agent-skills/tree/main/skills/atlas-stream-processing"
   },
   "voltagent-mongodb-mongodb-connection": {
     "status": "verified",
@@ -5553,7 +5953,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
   },
   "voltagent-neolabhq-ddd": {
     "status": "pending",
@@ -5561,14 +5961,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
   },
   "voltagent-neolabhq-kaizen": {
     "status": "verified",
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/kaizen",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
     "subPath": "plugins/kaizen/skills/kaizen",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2",
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
     "method": "unique-slug-path"
   },
   "voltagent-neolabhq-prompt-engineering": {
@@ -5576,7 +5976,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/customaize-agent/skills/prompt-engineering",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
     "subPath": "plugins/customaize-agent/skills/prompt-engineering",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2",
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
     "method": "catalog-declared-path"
   },
   "voltagent-neolabhq-reflexion": {
@@ -5585,7 +5985,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
   },
   "voltagent-neolabhq-sadd": {
     "status": "pending",
@@ -5593,7 +5993,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
   },
   "voltagent-neolabhq-sdd": {
     "status": "pending",
@@ -5601,14 +6001,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2"
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750"
   },
   "voltagent-neolabhq-write-concisely": {
     "status": "verified",
     "sourceUrl": "https://github.com/NeoLabHQ/context-engineering-kit/tree/master/plugins/docs/skills/write-concisely",
     "repoUrl": "https://github.com/NeoLabHQ/context-engineering-kit",
     "subPath": "plugins/docs/skills/write-concisely",
-    "verifiedCommit": "555b95263ecf13d2ad9be14df676a1263d5a62b2",
+    "verifiedCommit": "77325bfe21e0705f7425be431d0353ab9dd22750",
     "method": "catalog-declared-path"
   },
   "voltagent-neondatabase-claimable-postgres": {
@@ -5662,8 +6062,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-netlify-netlify-cli-and-deploy": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/netlify/skills/netlify-cli-and-deploy",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/netlify-cli-and-deploy/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/netlify/context-and-tools",
+    "verifiedCommit": "4f19ca23b9ef2ff5c167890036d38140bb42e1d8",
+    "declaredUrl": "https://github.com/netlify/context-and-tools/tree/main/skills/netlify-cli-and-deploy"
   },
   "voltagent-netlify-netlify-config": {
     "status": "verified",
@@ -5676,8 +6079,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-netlify-netlify-db": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/netlify/skills/netlify-db",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/netlify-db/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/netlify/context-and-tools",
+    "verifiedCommit": "4f19ca23b9ef2ff5c167890036d38140bb42e1d8",
+    "declaredUrl": "https://github.com/netlify/context-and-tools/tree/main/skills/netlify-db"
   },
   "voltagent-netlify-netlify-deploy": {
     "status": "verified",
@@ -5733,7 +6139,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
-    "verifiedCommit": "14ddef5c05e52d7c253b8f0129de7bcd1045ae5b"
+    "verifiedCommit": "abb7f2fd5a083fa1ff55c326a963ff0d95c33f99"
   },
   "voltagent-noizai-skills": {
     "status": "pending",
@@ -5770,7 +6176,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/CUDA-Q/cudaq-guide",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/cudaq-guide",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-cuopt-cuopt-developer": {
@@ -5778,7 +6184,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-developer",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/cuopt-developer",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-cuopt-cuopt-install": {
@@ -5786,7 +6192,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-install",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/cuopt-install",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-cuopt-cuopt-numerical-optimization-api-c": {
@@ -5795,7 +6201,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-cuopt-cuopt-numerical-optimization-api-cli": {
     "status": "pending",
@@ -5803,7 +6209,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-cuopt-cuopt-numerical-optimization-api-python": {
     "status": "pending",
@@ -5811,14 +6217,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-cuopt-cuopt-routing-api-python": {
     "status": "verified",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-routing-api-python",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/cuopt-routing-api-python",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-cuopt-cuopt-server-api-python": {
@@ -5826,7 +6232,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/cuopt/cuopt-server-api-python",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/cuopt-server-api-python",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-cuopt-cuopt-server-common": {
@@ -5835,7 +6241,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-cuopt-cuopt-user-rules": {
     "status": "pending",
@@ -5843,7 +6249,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-cuopt-numerical-optimization-formulation": {
     "status": "pending",
@@ -5851,7 +6257,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-cuopt-routing-formulation": {
     "status": "pending",
@@ -5859,7 +6265,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-cuopt-skill-evolution": {
     "status": "pending",
@@ -5867,14 +6273,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-dali-dali-dynamic-mode": {
     "status": "verified",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/DALI/dali-dynamic-mode",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/dali-dynamic-mode",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-deepstream-deepstream-dev": {
@@ -5882,7 +6288,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/deepstream/deepstream-dev",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/deepstream-dev",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-deepstream-deepstream-import-vision-model": {
@@ -5890,7 +6296,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/deepstream/deepstream-import-vision-model",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/deepstream-import-vision-model",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-megatron-bridge-adding-model-support": {
@@ -5899,7 +6305,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-build-and-dependency": {
     "status": "pending",
@@ -5907,7 +6313,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-bump-dependency": {
     "status": "pending",
@@ -5915,7 +6321,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-cicd": {
     "status": "pending",
@@ -5923,7 +6329,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-linting-and-formatting": {
     "status": "pending",
@@ -5931,7 +6337,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-mlm-bridge-training": {
     "status": "pending",
@@ -5939,7 +6345,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-multi-node-slurm": {
     "status": "pending",
@@ -5947,7 +6353,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-nemo-rl-e2e-testing": {
     "status": "pending",
@@ -5955,7 +6361,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-parity-testing": {
     "status": "pending",
@@ -5963,7 +6369,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-activation-recompute": {
     "status": "pending",
@@ -5971,7 +6377,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-cpu-offloading": {
     "status": "pending",
@@ -5979,7 +6385,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-cuda-graphs": {
     "status": "pending",
@@ -5987,7 +6393,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-expert-parallel-overlap": {
     "status": "pending",
@@ -5995,7 +6401,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-hierarchical-context-parallel": {
     "status": "pending",
@@ -6003,7 +6409,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-megatron-fsdp": {
     "status": "pending",
@@ -6011,7 +6417,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-memory-tuning": {
     "status": "pending",
@@ -6019,7 +6425,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-comm-overlap": {
     "status": "pending",
@@ -6027,7 +6433,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-dispatcher-selection": {
     "status": "pending",
@@ -6035,7 +6441,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-hardware-configs": {
     "status": "pending",
@@ -6043,7 +6449,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-long-context": {
     "status": "pending",
@@ -6051,7 +6457,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-optimization-workflow": {
     "status": "pending",
@@ -6059,7 +6465,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-moe-vlm-training": {
     "status": "pending",
@@ -6067,7 +6473,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-parallelism-strategies": {
     "status": "pending",
@@ -6075,7 +6481,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-sequence-packing": {
     "status": "pending",
@@ -6083,7 +6489,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-perf-tp-dp-comm-overlap": {
     "status": "pending",
@@ -6091,7 +6497,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-recipe-recommender": {
     "status": "pending",
@@ -6099,7 +6505,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-resiliency": {
     "status": "pending",
@@ -6107,7 +6513,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-testing": {
     "status": "pending",
@@ -6115,7 +6521,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-bridge-verl-e2e-testing": {
     "status": "pending",
@@ -6123,7 +6529,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-build-and-dependency": {
     "status": "pending",
@@ -6131,7 +6537,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-bump-base-image": {
     "status": "pending",
@@ -6139,7 +6545,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-cicd": {
     "status": "pending",
@@ -6147,7 +6553,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-create-issue": {
     "status": "pending",
@@ -6155,7 +6561,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-linting-and-formatting": {
     "status": "pending",
@@ -6163,7 +6569,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-nightly-sync": {
     "status": "pending",
@@ -6171,7 +6577,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-onboard-gb200-1node-tests": {
     "status": "pending",
@@ -6179,7 +6585,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-respond-to-issue": {
     "status": "pending",
@@ -6187,7 +6593,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-run-on-slurm": {
     "status": "pending",
@@ -6195,7 +6601,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-split-pr": {
     "status": "pending",
@@ -6203,7 +6609,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-testing": {
     "status": "pending",
@@ -6211,7 +6617,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-megatron-core-update-golden-values": {
     "status": "pending",
@@ -6219,7 +6625,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-accessing-mlflow": {
     "status": "pending",
@@ -6227,7 +6633,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-debug": {
     "status": "pending",
@@ -6235,7 +6641,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-deployment": {
     "status": "pending",
@@ -6243,7 +6649,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-evaluation": {
     "status": "pending",
@@ -6251,7 +6657,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-launching-evals": {
     "status": "pending",
@@ -6259,7 +6665,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-monitor": {
     "status": "pending",
@@ -6267,7 +6673,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-ptq": {
     "status": "pending",
@@ -6275,7 +6681,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-model-optimizer-release-cherry-pick": {
     "status": "pending",
@@ -6283,7 +6689,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-evaluator-byob": {
     "status": "pending",
@@ -6291,7 +6697,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-evaluator-launcher-accessing-mlflow": {
     "status": "pending",
@@ -6299,7 +6705,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-evaluator-launcher-launching-evals": {
     "status": "pending",
@@ -6307,7 +6713,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-evaluator-launcher-nel-assistant": {
     "status": "pending",
@@ -6315,7 +6721,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-gym-add-benchmark": {
     "status": "pending",
@@ -6323,7 +6729,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-debugging": {
     "status": "pending",
@@ -6331,7 +6737,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-docs": {
     "status": "pending",
@@ -6339,7 +6745,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-pivot-datasets": {
     "status": "pending",
@@ -6347,7 +6753,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-gym-nemo-gym-reward-profiling": {
     "status": "pending",
@@ -6355,7 +6761,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-auto-research": {
     "status": "pending",
@@ -6363,7 +6769,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-brev-etiquette": {
     "status": "pending",
@@ -6371,7 +6777,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-build-and-dependency": {
     "status": "pending",
@@ -6379,7 +6785,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-cicd": {
     "status": "pending",
@@ -6387,7 +6793,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-config-conventions": {
     "status": "pending",
@@ -6395,7 +6801,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-contributing": {
     "status": "pending",
@@ -6403,7 +6809,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-copyright": {
     "status": "pending",
@@ -6411,7 +6817,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-docs": {
     "status": "pending",
@@ -6419,7 +6825,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-error-handling": {
     "status": "pending",
@@ -6427,14 +6833,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-launch-nemo-rl": {
     "status": "verified",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/NeMo-RL/launch-nemo-rl",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/launch-nemo-rl",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-nemo-rl-linting-and-formatting": {
@@ -6443,7 +6849,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-review-pr": {
     "status": "pending",
@@ -6451,7 +6857,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-session-memory": {
     "status": "pending",
@@ -6459,7 +6865,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemo-rl-testing": {
     "status": "pending",
@@ -6467,7 +6873,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-contributor-create-pr": {
     "status": "pending",
@@ -6475,7 +6881,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-contributor-update-docs": {
     "status": "pending",
@@ -6483,7 +6889,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-cross-issue-sweep": {
     "status": "pending",
@@ -6491,7 +6897,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-cut-release-tag": {
     "status": "pending",
@@ -6499,7 +6905,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-day": {
     "status": "pending",
@@ -6507,7 +6913,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-evening": {
     "status": "pending",
@@ -6515,7 +6921,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-find-review-pr": {
     "status": "pending",
@@ -6523,7 +6929,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-morning": {
     "status": "pending",
@@ -6531,7 +6937,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-normalize-title-tags": {
     "status": "pending",
@@ -6539,7 +6945,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-pr-comparator": {
     "status": "pending",
@@ -6547,7 +6953,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-security-code-review": {
     "status": "pending",
@@ -6555,7 +6961,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-maintainer-triage": {
     "status": "pending",
@@ -6563,7 +6969,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-skills-guide": {
     "status": "pending",
@@ -6571,7 +6977,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-agent-skills": {
     "status": "pending",
@@ -6579,7 +6985,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-configure-inference": {
     "status": "pending",
@@ -6587,7 +6993,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-configure-security": {
     "status": "pending",
@@ -6595,7 +7001,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-deploy-remote": {
     "status": "pending",
@@ -6603,7 +7009,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-get-started": {
     "status": "pending",
@@ -6611,7 +7017,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-manage-policy": {
     "status": "pending",
@@ -6619,7 +7025,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-manage-sandboxes": {
     "status": "pending",
@@ -6627,7 +7033,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-monitor-sandbox": {
     "status": "pending",
@@ -6635,7 +7041,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-overview": {
     "status": "pending",
@@ -6643,7 +7049,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemoclaw-nemoclaw-user-reference": {
     "status": "pending",
@@ -6651,7 +7057,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-nemotron-voice-agent-nemotron-voice-agent-deploy": {
     "status": "pending",
@@ -6659,14 +7065,14 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-rag-rag-blueprint": {
     "status": "verified",
     "sourceUrl": "https://github.com/NVIDIA/skills/tree/main/skills/rag/rag-blueprint",
     "repoUrl": "https://github.com/NVIDIA/skills",
     "subPath": "skills/rag-blueprint",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd",
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc",
     "method": "unique-slug-path"
   },
   "voltagent-nvidia-tensorrt-llm-ad-accuracy-debug": {
@@ -6675,7 +7081,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-ad-add-fusion-transformation": {
     "status": "pending",
@@ -6683,7 +7089,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-ad-conf-check": {
     "status": "pending",
@@ -6691,7 +7097,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-ad-graph-dump": {
     "status": "pending",
@@ -6699,7 +7105,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-ad-layer-visualizer": {
     "status": "pending",
@@ -6707,7 +7113,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-ad-model-onboard": {
     "status": "pending",
@@ -6715,7 +7121,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-exec-local-compile": {
     "status": "pending",
@@ -6723,7 +7129,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-exec-slurm-compile": {
     "status": "pending",
@@ -6731,7 +7137,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-kernel-cute-writing": {
     "status": "pending",
@@ -6739,7 +7145,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-kernel-tileir-optimization": {
     "status": "pending",
@@ -6747,7 +7153,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-kernel-triton-writing": {
     "status": "pending",
@@ -6755,7 +7161,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-analysis": {
     "status": "pending",
@@ -6763,7 +7169,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-host-analysis": {
     "status": "pending",
@@ -6771,7 +7177,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-host-optimization": {
     "status": "pending",
@@ -6779,7 +7185,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-nsight-compute-analysis": {
     "status": "pending",
@@ -6787,7 +7193,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-nsight-systems": {
     "status": "pending",
@@ -6795,7 +7201,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-optimization": {
     "status": "pending",
@@ -6803,7 +7209,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-torch-cuda-graphs": {
     "status": "pending",
@@ -6811,7 +7217,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-torch-sync-free": {
     "status": "pending",
@@ -6819,7 +7225,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-perf-workload-profiling": {
     "status": "pending",
@@ -6827,7 +7233,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-code-contribution": {
     "status": "pending",
@@ -6835,7 +7241,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-codebase-exploration": {
     "status": "pending",
@@ -6843,7 +7249,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-flashinfer-upgrade": {
     "status": "pending",
@@ -6851,7 +7257,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-moe-develop": {
     "status": "pending",
@@ -6859,7 +7265,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tensorrt-llm-trtllm-serve-config-guide": {
     "status": "pending",
@@ -6867,7 +7273,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tilegym-adding-cutile-kernel": {
     "status": "pending",
@@ -6875,7 +7281,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tilegym-converting-cutile-to-julia": {
     "status": "pending",
@@ -6883,7 +7289,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tilegym-converting-cutile-to-triton": {
     "status": "pending",
@@ -6891,7 +7297,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tilegym-cutile-autotuning": {
     "status": "pending",
@@ -6899,7 +7305,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tilegym-cutile-python": {
     "status": "pending",
@@ -6907,7 +7313,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tilegym-improve-cutile-kernel-perf": {
     "status": "pending",
@@ -6915,7 +7321,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-tilegym-monkey-patch-kernels-to-transformers": {
     "status": "pending",
@@ -6923,7 +7329,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-alerts": {
     "status": "pending",
@@ -6931,7 +7337,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-deploy": {
     "status": "pending",
@@ -6939,7 +7345,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-report": {
     "status": "pending",
@@ -6947,7 +7353,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-rt-vlm": {
     "status": "pending",
@@ -6955,7 +7361,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-video-analytics": {
     "status": "pending",
@@ -6963,7 +7369,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-video-search": {
     "status": "pending",
@@ -6971,7 +7377,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-video-summarization": {
     "status": "pending",
@@ -6979,7 +7385,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-video-understanding": {
     "status": "pending",
@@ -6987,7 +7393,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-vios": {
     "status": "pending",
@@ -6995,7 +7401,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-nvidia-video-search-and-summarization-vss-frag": {
     "status": "pending",
@@ -7003,7 +7409,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "declared-path-missing",
     "reason": "固定提交中不存在来源声明的 SKILL.md",
     "repoUrl": "https://github.com/NVIDIA/skills",
-    "verifiedCommit": "0122ea0afacdcf35334e42f56338716cc86d2fdd"
+    "verifiedCommit": "16edd115be22e28ecf70cf28b9ebfb8a6b1b53dc"
   },
   "voltagent-obra-brainstorming": {
     "status": "verified",
@@ -7217,7 +7623,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/openaccountants/openaccountants",
-    "verifiedCommit": "b24c451ddce191da921c0d7c0f44adde640a4296"
+    "verifiedCommit": "ad8c549fa113d9ef35bf090e70485128a6266829"
   },
   "voltagent-openai-aspnet-core": {
     "status": "verified",
@@ -7246,14 +7652,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-openai-develop-web-game": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/openai/skills/develop-web-game",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/openai/skills",
+    "verifiedCommit": "49f948faa9258a0c61caceaf225e179651397431",
+    "declaredUrl": "https://github.com/openai/skills/tree/main/skills/.curated/develop-web-game"
   },
   "voltagent-openai-doc": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/openai/skills/doc",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/openai/skills",
+    "verifiedCommit": "49f948faa9258a0c61caceaf225e179651397431",
+    "declaredUrl": "https://github.com/openai/skills/tree/main/skills/.curated/doc"
   },
   "voltagent-openai-figma": {
     "status": "verified",
@@ -7322,8 +7734,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-openai-frontend-skill": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/openai/skills/frontend-skill",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/openai/skills",
+    "verifiedCommit": "49f948faa9258a0c61caceaf225e179651397431",
+    "declaredUrl": "https://github.com/openai/skills/tree/main/skills/.curated/frontend-skill"
   },
   "voltagent-openai-gh-address-comments": {
     "status": "verified",
@@ -7488,14 +7903,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-openai-slides": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/openai/skills/slides",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/openai/skills",
+    "verifiedCommit": "49f948faa9258a0c61caceaf225e179651397431",
+    "declaredUrl": "https://github.com/openai/skills/tree/main/skills/.curated/slides"
   },
   "voltagent-openai-sora": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/openai/skills/sora",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/openai/skills",
+    "verifiedCommit": "49f948faa9258a0c61caceaf225e179651397431",
+    "declaredUrl": "https://github.com/openai/skills/tree/main/skills/.curated/sora"
   },
   "voltagent-openai-speech": {
     "status": "verified",
@@ -7508,8 +7929,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-openai-spreadsheet": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/openai/skills/spreadsheet",
-    "reasonCode": "no-install-source",
-    "reason": "来源没有可由当前安装器验证的 GitHub Skill 目录"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/openai/skills",
+    "verifiedCommit": "49f948faa9258a0c61caceaf225e179651397431",
+    "declaredUrl": "https://github.com/openai/skills/tree/main/skills/.curated/spreadsheet"
   },
   "voltagent-openai-transcribe": {
     "status": "verified",
@@ -7556,7 +7980,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/Panniantong/Agent-Reach",
     "repoUrl": "https://github.com/Panniantong/Agent-Reach",
     "subPath": "agent_reach/skill",
-    "verifiedCommit": "b4d52c46c9113cb0f653d6df4cf71ebadf4930ac",
+    "verifiedCommit": "ad43b1ff64fd762b808a05f2c390acf9d2d1f168",
     "method": "unique-skill-file"
   },
   "voltagent-paramchoudhary-resumeskills": {
@@ -8115,7 +8539,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/prompt-security/clawsec",
-    "verifiedCommit": "3512ed0246b6faadf300ce710b9df6d4e3ad9fd0"
+    "verifiedCommit": "c3086b22252b7ec319789a69c34cba76afc1dec6"
   },
   "voltagent-pspdfkit-labs-nutrient-agent-skill": {
     "status": "verified",
@@ -8131,7 +8555,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/qdrant/skills",
-    "verifiedCommit": "aa2355fcf06b805110fb8cecbd1aa4d64c15eb73"
+    "verifiedCommit": "67d7db5290178bd450a459102c381dcb79da776f"
   },
   "voltagent-raintree-technology-apple-hig-skills": {
     "status": "pending",
@@ -8139,7 +8563,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/raintree-technology/apple-hig-skills",
-    "verifiedCommit": "0fe0684f3d080c8572a8f9bc590b3e32ea378afb"
+    "verifiedCommit": "8bfa28f76c62d0ad4bf02640f5a195f3267bcf39"
   },
   "voltagent-rameerez-claude-code-startup-skills": {
     "status": "pending",
@@ -8288,14 +8712,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-remotion-dev-remotion": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/remotion-dev/skills/remotion",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/remotion/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/remotion-dev/skills",
+    "verifiedCommit": "7809e7935bc2e18f4b86526fa6022e6aadd8fe8b",
+    "declaredUrl": "https://github.com/remotion-dev/skills/tree/main/skills/remotion"
   },
   "voltagent-replicate-replicate": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/replicate/skills/replicate",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/replicate/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/replicate/skills",
+    "verifiedCommit": "2f36e415965ae63baa1c9f6635888092bcd771d3",
+    "declaredUrl": "https://github.com/replicate/skills/tree/main/skills/replicate"
   },
   "voltagent-resciencelab-opc-skills": {
     "status": "pending",
@@ -8303,7 +8733,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/ReScienceLab/opc-skills",
-    "verifiedCommit": "1934a9ec33164f2d426f7fc162dc40ab6b83b8f1"
+    "verifiedCommit": "bf240c75e201a902a70c682b30e37524e4a94ffb"
   },
   "voltagent-resend-agent-email-inbox": {
     "status": "verified",
@@ -8373,7 +8803,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/rudrankriyam/app-store-connect-cli-skills",
-    "verifiedCommit": "53c60a4945e53d39d2ab31357d61f4687123d77b"
+    "verifiedCommit": "3b567352099e28c19afddd447bc7e51a348334ce"
   },
   "voltagent-sametbrr-llm-wiki-manager": {
     "status": "verified",
@@ -8444,7 +8874,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/santifer/career-ops",
     "repoUrl": "https://github.com/santifer/career-ops",
     "subPath": ".agents/skills/career-ops",
-    "verifiedCommit": "fe4561b0686b8e2829d5cf6c8d7bbdedb9bfb7cd",
+    "verifiedCommit": "cf0d011067b27217ca05c546652fa362f5e028df",
     "method": "exact-frontmatter-name"
   },
   "voltagent-scarletkc-vexor": {
@@ -8452,7 +8882,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/scarletkc/vexor",
     "repoUrl": "https://github.com/scarletkc/vexor",
     "subPath": "plugins/vexor/skills/vexor-cli",
-    "verifiedCommit": "d9468c207e1768833fb599483c57fc1985629edd",
+    "verifiedCommit": "991ae71923fd26967b2c1dced355c14784903992",
     "method": "unique-skill-file"
   },
   "voltagent-seanzor-claude-speed-reader": {
@@ -8551,8 +8981,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-supabase-postgres-best-practices": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/supabase/skills/postgres-best-practices",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/postgres-best-practices/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/supabase/agent-skills",
+    "verifiedCommit": "1207767388a0ffb55f21fb4e6988fee96942431d",
+    "declaredUrl": "https://github.com/supabase/agent-skills/tree/main/skills/postgres-best-practices"
   },
   "voltagent-taisly-agent": {
     "status": "verified",
@@ -9021,8 +9454,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-trailofbits-building-secure-contracts": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/trailofbits/skills/building-secure-contracts",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/building-secure-contracts/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/trailofbits/skills",
+    "verifiedCommit": "ea7c60e6283d97f4cae485b1671b3936dc604fcb",
+    "declaredUrl": "https://github.com/trailofbits/skills/tree/main/plugins/building-secure-contracts"
   },
   "voltagent-trailofbits-burpsuite-project-parser": {
     "status": "verified",
@@ -9035,8 +9471,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-trailofbits-claude-in-chrome-troubleshooting": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/trailofbits/skills/claude-in-chrome-troubleshooting",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/claude-in-chrome-troubleshooting/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/trailofbits/skills",
+    "verifiedCommit": "ea7c60e6283d97f4cae485b1671b3936dc604fcb",
+    "declaredUrl": "https://github.com/trailofbits/skills/tree/main/plugins/claude-in-chrome-troubleshooting"
   },
   "voltagent-trailofbits-constant-time-analysis": {
     "status": "verified",
@@ -9049,8 +9488,11 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-trailofbits-culture-index": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/trailofbits/skills/culture-index",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/culture-index/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/trailofbits/skills",
+    "verifiedCommit": "ea7c60e6283d97f4cae485b1671b3936dc604fcb",
+    "declaredUrl": "https://github.com/trailofbits/skills/tree/main/plugins/culture-index"
   },
   "voltagent-trailofbits-differential-review": {
     "status": "verified",
@@ -9143,14 +9585,20 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-trailofbits-static-analysis": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/trailofbits/skills/static-analysis",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/static-analysis/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/trailofbits/skills",
+    "verifiedCommit": "ea7c60e6283d97f4cae485b1671b3936dc604fcb",
+    "declaredUrl": "https://github.com/trailofbits/skills/tree/main/plugins/static-analysis"
   },
   "voltagent-trailofbits-testing-handbook-skills": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/trailofbits/skills/testing-handbook-skills",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 plugins/testing-handbook-skills/SKILL.md"
+    "reasonCode": "declared-path-missing",
+    "reason": "固定提交中不存在来源声明的 SKILL.md",
+    "repoUrl": "https://github.com/trailofbits/skills",
+    "verifiedCommit": "ea7c60e6283d97f4cae485b1671b3936dc604fcb",
+    "declaredUrl": "https://github.com/trailofbits/skills/tree/main/plugins/testing-handbook-skills"
   },
   "voltagent-trailofbits-variant-analysis": {
     "status": "verified",
@@ -9363,20 +9811,29 @@ export const SKILL_SOURCE_VERIFICATION = {
   "voltagent-vercel-labs-next-best-practices": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/vercel-labs/skills/next-best-practices",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/next-best-practices/SKILL.md"
+    "reasonCode": "no-skill-file",
+    "reason": "固定提交中未发现 SKILL.md",
+    "repoUrl": "https://github.com/vercel-labs/next-skills",
+    "verifiedCommit": "b76d687cf3e026eac3b1032f610f06b47a56377c",
+    "declaredUrl": "https://github.com/vercel-labs/next-skills/tree/main/skills/next-best-practices"
   },
   "voltagent-vercel-labs-next-cache-components": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/vercel-labs/skills/next-cache-components",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/next-cache-components/SKILL.md"
+    "reasonCode": "no-skill-file",
+    "reason": "固定提交中未发现 SKILL.md",
+    "repoUrl": "https://github.com/vercel-labs/next-skills",
+    "verifiedCommit": "b76d687cf3e026eac3b1032f610f06b47a56377c",
+    "declaredUrl": "https://github.com/vercel-labs/next-skills/tree/main/skills/next-cache-components"
   },
   "voltagent-vercel-labs-next-upgrade": {
     "status": "pending",
     "sourceUrl": "https://officialskills.sh/vercel-labs/skills/next-upgrade",
-    "reasonCode": "no-install-source",
-    "reason": "固定提交中不存在 skills/next-upgrade/SKILL.md"
+    "reasonCode": "no-skill-file",
+    "reason": "固定提交中未发现 SKILL.md",
+    "repoUrl": "https://github.com/vercel-labs/next-skills",
+    "verifiedCommit": "b76d687cf3e026eac3b1032f610f06b47a56377c",
+    "declaredUrl": "https://github.com/vercel-labs/next-skills/tree/main/skills/next-upgrade"
   },
   "voltagent-video-db-skills": {
     "status": "verified",
@@ -9424,7 +9881,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "reasonCode": "ambiguous-skill-path",
     "reason": "仓库中存在多个可能的 Skill 目录，无法唯一确认安装路径",
     "repoUrl": "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep",
-    "verifiedCommit": "c31382d261013603e9c6dd318f81d945d1f7598e"
+    "verifiedCommit": "31471f8a12b5257767951a57baa4597cbae3dba4"
   },
   "voltagent-wordpress-wordpress-router": {
     "status": "verified",
@@ -9567,7 +10024,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/Xquik-dev/x-twitter-scraper",
     "repoUrl": "https://github.com/Xquik-dev/x-twitter-scraper",
     "subPath": "skills/x-twitter-scraper",
-    "verifiedCommit": "692932e5829d2d845cd1cba9b3856ef1d0ec6eea",
+    "verifiedCommit": "922f6caff8a3e16e0cea129877dfcca865ee4de2",
     "method": "unique-slug-path"
   },
   "voltagent-zarazhangrui-frontend-slides": {
@@ -9623,7 +10080,7 @@ export const SKILL_SOURCE_VERIFICATION = {
     "sourceUrl": "https://github.com/zw008/VMware-AIops",
     "repoUrl": "https://github.com/zw008/VMware-AIops",
     "subPath": "skills/vmware-aiops",
-    "verifiedCommit": "107629db265c90aad8e83f56f3b4c73e84e55498",
+    "verifiedCommit": "efdc2cdfd625b37bf911f5e8d70cc41bfb583765",
     "method": "unique-skill-file"
   },
   "voltagent-zxkane-aws-skills": {
