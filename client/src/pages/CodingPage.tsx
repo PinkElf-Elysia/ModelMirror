@@ -179,6 +179,8 @@ const capabilityReason: Record<string, string> = {
   projects_disabled: "本地项目选择尚未启用，仍可使用 ModelMirror。",
   project_source_not_configured: "本地项目目录尚未配置，仍可使用 ModelMirror。",
   project_source_unavailable: "暂时无法读取本地项目列表，仍可使用 ModelMirror。",
+  project_writer_not_configured: "本地项目写入尚未配置，仍可查看和下载修改。",
+  project_writer_unavailable: "本地项目写入服务未启动，仍可查看和下载修改。",
 };
 
 const errorMessage: Record<string, string> = {
@@ -212,6 +214,12 @@ const errorMessage: Record<string, string> = {
   project_not_found: "这个项目已不在可选列表中，请重新选择。",
   project_operation_unavailable:
     "此项目当前只支持准备和下载修改草稿，不提供项目验证或写入。",
+  project_writer_not_configured:
+    "本地项目写入尚未配置，当前修改仍可查看和下载。",
+  project_writer_timeout:
+    "本地写入等待时间过长，结果暂时无法确认，请稍后查看状态。",
+  project_writer_unavailable:
+    "本地项目写入服务未启动，当前修改仍可查看和下载。",
   project_source_unavailable: "暂时无法读取本地项目，请稍后重试。",
 };
 
@@ -222,9 +230,20 @@ const projectReason: Record<string, string> = {
   git_symlink_not_allowed: "此项目包含链接文件，本轮暂不支持。",
   git_worktree_not_allowed: "此项目不是独立副本，请改用独立克隆。",
   project_dirty: "项目中有尚未保存的改动，请先整理为干净状态。",
+  git_repository_dirty: "项目中有尚未保存的改动，请先整理为干净状态。",
+  git_remote_not_allowed:
+    "项目仍连接远程平台。移除远程连接后才能开放本地写入。",
   project_not_found: "项目已从清单中移除。",
   project_source_unavailable: "本地项目服务暂时不可用。",
   snapshot_limit_exceeded: "项目文件数量或大小超出本轮限制。",
+  project_writer_not_configured:
+    "本地项目写入尚未配置，仍可查看和下载修改。",
+  project_writer_unavailable:
+    "本地项目写入服务未启动，仍可查看和下载修改。",
+  writeback_branch_required:
+    "项目不在约定的本地分支，仍可准备草稿，但不能写入。",
+  writeback_not_enabled:
+    "此项目没有开放本地写入，仍可查看、检查和下载修改。",
 };
 
 function describeError(error: unknown) {
@@ -266,9 +285,11 @@ function formatArgv(argv: string[]) {
 function CodingSidebar({
   isDraft,
   localDraftOnly,
+  localWriteback,
 }: {
   isDraft: boolean;
   localDraftOnly: boolean;
+  localWriteback: boolean;
 }) {
   return (
     <div>
@@ -287,6 +308,8 @@ function CodingSidebar({
           <li>
             {localDraftOnly
               ? "所有修改只保存在临时副本；你可以查看并下载 Diff，本地项目不会被写入。"
+              : localWriteback
+                ? "所有修改先保存在临时副本，只有你确认后才会写入所选本地项目。"
               : isDraft
               ? "所有修改先保存在临时副本，只有你确认后才会写入专用项目副本。"
               : "只查看固定的 ModelMirror 项目代码。"}
@@ -294,6 +317,8 @@ function CodingSidebar({
           <li>
             {localDraftOnly
               ? "项目检查和代码助手提出的命令都需要你确认，只会在临时副本中运行。"
+              : localWriteback
+                ? "项目检查和代码助手提出的命令都需要你确认，只会在临时副本中运行。"
               : isDraft
               ? "代码助手不会自行运行检查；项目验证只在你手动启动时执行固定步骤。"
               : "不会执行命令、运行测试或访问外部网站。"}
@@ -301,6 +326,8 @@ function CodingSidebar({
           <li>
             {localDraftOnly
               ? "检查不能联网，运行产生的文件会被丢弃；不会创建本地提交或 GitHub PR。"
+              : localWriteback
+                ? "写入后可保存本地版本并安全撤销；不会自动上传，也不会创建 GitHub PR。"
               : isDraft
               ? "只有你再次确认，才会保存为本地提交；不会自动上传或合并，发布到 GitHub 还需单独确认。当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
@@ -474,6 +501,34 @@ export default function CodingPage() {
   const supportsApply = selectedProject?.features.apply !== false;
   const supportsCommit = selectedProject?.features.commit !== false;
   const supportsPublish = selectedProject?.features.publish !== false;
+  const localWriteback = Boolean(
+    isLocalProject && supportsApply && supportsCommit,
+  );
+  const localDraftOnly = Boolean(isLocalProject && !localWriteback);
+  const effectiveApplyCapability: CodingCapabilities["apply"] = localWriteback
+    ? {
+        allows_not_applicable: true,
+        allows_quality_risk_confirmation: true,
+        available: capabilities?.project_writeback?.available === true,
+        configured: capabilities?.project_writeback?.configured === true,
+        reason: capabilities?.project_writeback?.reason,
+        requires_verification: false,
+        supports_revert: true,
+        target: "selected_local_repository",
+      }
+    : capabilities?.apply;
+  const effectiveCommitCapability: CodingCapabilities["commit"] = localWriteback
+    ? {
+        available: capabilities?.project_writeback?.available === true,
+        configured: capabilities?.project_writeback?.configured === true,
+        max_message_chars: 2_000,
+        reason: capabilities?.project_writeback?.reason,
+        remote_operations: false,
+        requires_apply: true,
+        supports_undo: true,
+        target: "selected_local_repository",
+      }
+    : capabilities?.commit;
   const verificationAvailable =
     supportsVerification &&
     (isLocalProject
@@ -1481,7 +1536,9 @@ export default function CodingPage() {
       setPublishResult(null);
       setPublishError("");
       setDraftNotice(
-        "修改已写入专用项目副本；没有提交或上传，当前项目目录没有改变。",
+        localWriteback
+          ? "修改已写入所选本地项目；尚未保存本地版本，也没有上传。"
+          : "修改已写入专用项目副本；没有提交或上传，当前项目目录没有改变。",
       );
     } catch (requestError) {
       try {
@@ -1510,7 +1567,11 @@ export default function CodingPage() {
       setCommitError("");
       setPublishResult(null);
       setPublishError("");
-      setDraftNotice("本次应用已撤销，专用项目副本已恢复。");
+      setDraftNotice(
+        localWriteback
+          ? "本次写入已撤销，所选本地项目已恢复。"
+          : "本次应用已撤销，专用项目副本已恢复。",
+      );
     } catch (requestError) {
       try {
         setApplyResult(
@@ -1537,7 +1598,11 @@ export default function CodingPage() {
       setPublishResult(null);
       setPublishError("");
       await refreshCycleHistory(sessionId);
-      setDraftNotice("已创建本地提交，目前只保存在专用项目副本中，不会自动上传。");
+      setDraftNotice(
+        localWriteback
+          ? "已保存一个本地版本，目前只保存在所选项目中，不会自动上传。"
+          : "已创建本地提交，目前只保存在专用项目副本中，不会自动上传。",
+      );
     } catch (requestError) {
       try {
         setCommitResult(
@@ -1654,7 +1719,11 @@ export default function CodingPage() {
       setApplyResult(
         await getCodingApplyStatus(sessionId, draftChanges.revision),
       );
-      setDraftNotice("本地提交已撤销，文件修改仍保留在专用项目副本中。");
+      setDraftNotice(
+        localWriteback
+          ? "本地版本记录已撤销，文件修改仍保留在所选项目中。"
+          : "本地提交已撤销，文件修改仍保留在专用项目副本中。",
+      );
     } catch (requestError) {
       try {
         setCommitResult(
@@ -1806,7 +1875,8 @@ export default function CodingPage() {
       sidebar={
         <CodingSidebar
           isDraft={isDraftMode}
-          localDraftOnly={Boolean(isLocalProject)}
+          localDraftOnly={localDraftOnly}
+          localWriteback={localWriteback}
         />
       }
     >
@@ -1828,7 +1898,9 @@ export default function CodingPage() {
                   <ShieldCheck aria-hidden="true" size={14} />
                 )}
                 {isLocalProject
-                  ? "修改草稿，不会写入项目"
+                  ? localWriteback
+                    ? "修改草稿，确认后写入所选项目"
+                    : "修改草稿，不会写入项目"
                   : isDraftMode
                     ? "修改草稿，确认后可应用"
                     : "只读实验"}
@@ -1843,7 +1915,9 @@ export default function CodingPage() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
               {isDraftMode
                 ? isLocalProject
-                  ? "描述希望调整的内容。代码助手会在隔离的临时副本中准备修改；你可以逐个文件查看并下载 Diff，本地项目不会被改变。"
+                  ? localWriteback
+                    ? "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行检查，再决定是否写入所选本地项目并保存本地版本。"
+                    : "描述希望调整的内容。代码助手会在隔离的临时副本中准备修改；你可以逐个文件查看并下载 Diff，本地项目不会被改变。"
                   : "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行项目验证，再决定下载 Diff、应用到专用项目副本或保存本地版本。"
                 : "你可以询问功能如何实现、页面与服务如何配合，或某段代码的作用。代码助手只能查看项目并回答，不会修改文件或执行命令。"}
             </p>
@@ -1902,7 +1976,11 @@ export default function CodingPage() {
                   value={project.id}
                 >
                   {project.name}
-                  {project.kind === "builtin" ? "（完整功能）" : "（修改草稿）"}
+                  {project.kind === "builtin"
+                    ? "（完整功能）"
+                    : project.features.apply && project.features.commit
+                      ? "（可写入本地）"
+                      : "（修改草稿）"}
                   {project.state !== "available" ? " — 暂不可用" : ""}
                 </option>
               ))}
@@ -1912,12 +1990,19 @@ export default function CodingPage() {
                 ? projectReason[selectedProject.reason ?? ""] ??
                   "这个项目目前不能安全读取，请由开发者检查项目状态。"
                 : isLocalProject
-                  ? "可查看、准备修改、确认离线检查并下载 Diff；不会写入本地项目、创建提交或发布 PR。"
+                  ? localWriteback
+                    ? "可查看修改、确认离线检查、写入所选本地项目并保存本地版本；不会自动上传或创建 GitHub PR。"
+                    : "可查看、准备修改、确认离线检查并下载 Diff；不会写入本地项目、创建提交或发布 PR。"
                   : "ModelMirror 提供修改审阅、项目验证、受控应用、本地提交和 GitHub 草稿 PR 的完整流程。"}
             </p>
             {projectSelectionLocked ? (
               <p className="mt-1 text-xs leading-5 text-amber-100/80">
                 当前任务已绑定此项目。若本轮没有修改，可在下方结束当前任务；否则请先放弃或处理完现有修改。
+              </p>
+            ) : isLocalProject && localDraftOnly && selectedProject?.writeback_reason ? (
+              <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                {projectReason[selectedProject.writeback_reason] ??
+                  "此项目当前只开放修改草稿，仍可查看、检查和下载修改。"}
               </p>
             ) : projectsError ? (
               <p className="mt-1 text-xs leading-5 text-amber-100/80">
@@ -2209,23 +2294,26 @@ export default function CodingPage() {
           {isDraftMode ? (
             <div className="order-4">
               <CodingChangesPanel
-                applyCapability={capabilities?.apply}
+                applyCapability={effectiveApplyCapability}
                 applyError={applyError}
                 applyResult={applyResult}
                 changes={draftChanges}
-                commitCapability={capabilities?.commit}
+                commitCapability={effectiveCommitCapability}
                 commitError={commitError}
                 commitResult={commitResult}
                 disabled={isBusy}
                 frozen={sessionFrozen}
-                localDraftOnly={Boolean(isLocalProject)}
+                localDraftOnly={localDraftOnly}
+                localWriteback={localWriteback}
                 loading={draftLoading}
                 readOnly={Boolean(recoveryConflict)}
                 onApply={applyDraft}
                 onClose={closeAppliedSession}
                 onCommit={commitAppliedDraft}
                 onContinue={
-                  capabilities?.incremental?.available && cycleHistory?.can_continue
+                  !isLocalProject &&
+                  capabilities?.incremental?.available &&
+                  cycleHistory?.can_continue
                     ? continueAfterCommit
                     : undefined
                 }

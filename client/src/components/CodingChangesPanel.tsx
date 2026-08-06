@@ -6,6 +6,7 @@ import {
   Download,
   FileDiff,
   FilePlus2,
+  FileX2,
   LoaderCircle,
   LogOut,
   RotateCcw,
@@ -41,6 +42,7 @@ interface CodingChangesPanelProps {
   frozen: boolean;
   loading: boolean;
   localDraftOnly?: boolean;
+  localWriteback?: boolean;
   readOnly?: boolean;
   onApply: (confirmQualityRisks: boolean) => Promise<void>;
   onClose: () => Promise<void>;
@@ -94,7 +96,9 @@ function describeReviewError(error: unknown) {
 }
 
 function fileStatus(file: CodingDraftFile) {
-  return file.status === "added" ? "新增文件" : "已修改";
+  if (file.status === "added") return "新增文件";
+  if (file.status === "deleted") return "删除文件";
+  return "已修改";
 }
 
 function lineStyle(line: string) {
@@ -111,7 +115,8 @@ function lineStyle(line: string) {
     line.startsWith("diff --git") ||
     line.startsWith("---") ||
     line.startsWith("+++") ||
-    line.startsWith("new file mode")
+    line.startsWith("new file mode") ||
+    line.startsWith("deleted file mode")
   ) {
     return "text-slate-500";
   }
@@ -129,6 +134,8 @@ const commitReasonText: Record<string, string> = {
     "保存等待时间过长，结果暂时无法确认。请保留原说明并再次尝试。",
   committer_unavailable:
     "本地保存服务未启动。修改仍可查看、下载和撤销应用。",
+  git_remote_not_allowed:
+    "所选项目仍连接远程平台。移除远程连接后才能保存本地版本。",
   dirty_index:
     "专用项目副本已有待保存内容，请由开发者先处理后再试。",
   repository_has_remote:
@@ -143,6 +150,14 @@ const commitReasonText: Record<string, string> = {
     "当前副本与其他项目共享版本记录，为保护其他目录，不能在这里保存。",
   snapshot_mismatch:
     "项目版本正在更新，当前修改暂时不能保存为本地版本。",
+  project_changed:
+    "所选项目的版本已经变化。为避免覆盖现有内容，本次保存已停止。",
+  project_writer_not_configured:
+    "本地项目写入尚未配置，修改仍可查看、下载和撤销写入。",
+  project_writer_timeout:
+    "保存等待时间过长，结果暂时无法确认。请保留当前页面并稍后查看状态。",
+  project_writer_unavailable:
+    "本地项目写入服务未启动，修改仍可查看、下载和撤销写入。",
   target_changed:
     "文件在保存后又发生了变化。为避免覆盖人工内容，本次操作已停止。",
   undo_conflict:
@@ -151,6 +166,10 @@ const commitReasonText: Record<string, string> = {
     "专用项目副本未通过安全检查，请由开发者重新创建。",
   wrong_branch:
     "专用项目副本不在约定的本地分支，请由开发者切回后再试。",
+  writeback_branch_required:
+    "所选项目不在允许写入的本地分支，请由开发者切换后再试。",
+  writeback_not_enabled:
+    "所选项目没有开放本地写入，当前修改仍可查看和下载。",
 };
 
 function describeCommitError(error: unknown) {
@@ -175,6 +194,7 @@ interface CodingCommitPanelProps {
   onUndo: () => Promise<void>;
   publishLocked: boolean;
   result: CodingCommitResult | null;
+  selectedProject: boolean;
 }
 
 function CodingCommitPanel({
@@ -189,6 +209,7 @@ function CodingCommitPanel({
   onUndo,
   publishLocked,
   result,
+  selectedProject,
 }: CodingCommitPanelProps) {
   const [action, setAction] = useState<CommitAction>("idle");
   const [confirmCommit, setConfirmCommit] = useState(false);
@@ -228,7 +249,7 @@ function CodingCommitPanel({
     result?.state === "undoing";
   const unavailableCopy =
     commitReasonText[capability?.reason ?? ""] ??
-    "当前不能创建本地版本，修改仍安全保留在专用项目副本中。";
+    `当前不能创建本地版本，修改仍安全保留在${selectedProject ? "所选项目" : "专用项目副本"}中。`;
   const resultError =
     result?.state === "failed"
       ? commitReasonText[result.reason ?? ""] ??
@@ -273,7 +294,9 @@ function CodingCommitPanel({
             <p aria-live="polite" className="mt-1 text-xs leading-5 text-slate-300">
               {publishLocked
                 ? "这份本地版本已进入 GitHub 发布流程，不能再撤销或继续追加修改。"
-                : "这份版本目前只保存在专用项目副本中，不会自动上传到远程平台。"}
+                : selectedProject
+                  ? "这份版本只保存在你选择的本地项目中，不会自动上传到远程平台。"
+                  : "这份版本目前只保存在专用项目副本中，不会自动上传到远程平台。"}
             </p>
             <dl className="mt-3 grid min-w-0 gap-2 text-xs sm:grid-cols-[88px_minmax(0,1fr)]">
               <dt className="text-slate-500">版本说明</dt>
@@ -436,7 +459,9 @@ function CodingCommitPanel({
           </h3>
           <p className="mt-1 text-xs leading-5 text-slate-400">
             {capability?.available
-              ? "填写版本说明后创建本地提交。它只保存在专用副本，不会自动上传，也不会改变你当前使用的项目目录。"
+              ? selectedProject
+                ? "填写版本说明后，在所选本地项目中保存一个可找回的版本。不会自动上传。"
+                : "填写版本说明后创建本地提交。它只保存在专用副本，不会自动上传，也不会改变你当前使用的项目目录。"
               : unavailableCopy}
           </p>
         </div>
@@ -499,8 +524,16 @@ function CodingCommitPanel({
         >
           <p className="font-semibold">确认保存 {changes.file_count} 个文件吗？</p>
           <ul className="mt-2 space-y-1 text-xs leading-5 text-cyan-100/80">
-            <li>会在专用项目副本中创建一条本地版本记录。</li>
-            <li>不会提交到你当前使用的项目目录，也不会自动上传；发布到 GitHub 需要另行确认。</li>
+            <li>
+              {selectedProject
+                ? "会在所选本地项目中创建一条本地版本记录。"
+                : "会在专用项目副本中创建一条本地版本记录。"}
+            </li>
+            <li>
+              {selectedProject
+                ? "不会自动上传，也不会创建 GitHub PR。"
+                : "不会提交到你当前使用的项目目录，也不会自动上传；发布到 GitHub 需要另行确认。"}
+            </li>
             <li>保存后仍可安全撤销记录，文件修改会继续保留。</li>
           </ul>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -565,6 +598,7 @@ export default function CodingChangesPanel({
   frozen,
   loading,
   localDraftOnly = false,
+  localWriteback = false,
   readOnly = false,
   onApply,
   onClose,
@@ -693,11 +727,17 @@ export default function CodingChangesPanel({
           </div>
           <p className="mt-1.5 max-w-2xl text-xs leading-5 text-slate-400">
             {applyResult?.state === "reverted"
-              ? "以下记录继续保留供你查看；专用项目副本已恢复，当前项目目录没有改变。"
+              ? localWriteback
+                ? "以下记录继续保留供你查看；所选本地项目已恢复到写入前的状态。"
+                : "以下记录继续保留供你查看；专用项目副本已恢复，当前项目目录没有改变。"
               : applyResult?.apply_id
-                ? "以下修改已写入专用项目副本，当前项目目录没有改变。你仍可展开文件逐行查看。"
+                ? localWriteback
+                  ? "以下修改已写入所选本地项目。你仍可展开文件逐行查看，并决定是否保存本地版本。"
+                  : "以下修改已写入专用项目副本，当前项目目录没有改变。你仍可展开文件逐行查看。"
                 : hasChanges
-                  ? "这些文件只存在于临时副本，当前项目目录没有改变。展开文件可以逐行查看增加和移除的内容。"
+                  ? localWriteback
+                    ? "这些修改仍只存在于临时副本。展开文件逐行查看后，再决定是否写入所选本地项目。"
+                    : "这些文件只存在于临时副本，当前项目目录没有改变。展开文件可以逐行查看增加和移除的内容。"
                   : completedWithoutChanges
                     ? "本轮没有待保存的新文件变化，此前保存的修改仍保留在下方记录中。"
                     : "代码助手产生的文件变化会显示在这里，当前项目目录不会被直接改变。"}
@@ -744,6 +784,12 @@ export default function CodingChangesPanel({
                       <FilePlus2
                         aria-hidden="true"
                         className="shrink-0 text-emerald-200"
+                        size={17}
+                      />
+                    ) : file.status === "deleted" ? (
+                      <FileX2
+                        aria-hidden="true"
+                        className="shrink-0 text-rose-200"
                         size={17}
                       />
                     ) : (
@@ -882,6 +928,14 @@ export default function CodingChangesPanel({
               </>
             ) : (
               <>
+                {localWriteback ? (
+                  <div className="mt-4 rounded-lg bg-cyan-300/[0.07] p-3 text-sm text-cyan-100">
+                    <p className="font-semibold">修改仍在临时副本中</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-300">
+                      查看并确认下方内容后，你可以把修改写入所选本地项目。写入前，本地项目不会发生变化。
+                    </p>
+                  </div>
+                ) : null}
                 <CodingVerificationPanel
                   available={verificationAvailable}
                   disabled={disabled || readOnly || frozen || isActing}
@@ -905,6 +959,7 @@ export default function CodingChangesPanel({
                     onClose={onClose}
                     onRevert={onRevert}
                     result={applyResult}
+                    selectedProject={localWriteback}
                     verification={verification}
                   />
                 ) : null}
@@ -921,18 +976,21 @@ export default function CodingChangesPanel({
                   onUndo={onUndoCommit}
                   publishLocked={Boolean(publishResult?.publish_id)}
                   result={commitResult}
+                  selectedProject={localWriteback}
                 />
 
-                <CodingPublishPanel
-                  capability={publishCapability}
-                  changes={changes}
-                  commit={commitResult}
-                  disabled={disabled || readOnly || isActing}
-                  error={publishError}
-                  onMarkReady={onMarkPublishReady}
-                  onPublish={onPublish}
-                  result={publishResult}
-                />
+                {!localWriteback ? (
+                  <CodingPublishPanel
+                    capability={publishCapability}
+                    changes={changes}
+                    commit={commitResult}
+                    disabled={disabled || readOnly || isActing}
+                    error={publishError}
+                    onMarkReady={onMarkPublishReady}
+                    onPublish={onPublish}
+                    result={publishResult}
+                  />
+                ) : null}
               </>
             )}
 
