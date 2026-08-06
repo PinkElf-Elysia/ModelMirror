@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -137,6 +137,7 @@ export default function McpServerCard({
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
+  const ignoredRestoredSessionRef = useRef<string | null>(null);
 
   const availability = adapterStatus?.availability ?? project.availability;
   const connectionKind = adapterStatus?.connection_kind ?? project.connectionKind;
@@ -203,15 +204,23 @@ export default function McpServerCard({
   }, [canInstall, project.id]);
 
   useEffect(() => {
+    if (!adapterStatus?.connected) {
+      ignoredRestoredSessionRef.current = null;
+      return;
+    }
     if (
-      !adapterStatus?.connected ||
       !restoredSession ||
-      restoredSession.session_id === sessionId
+      restoredSession.session_id === sessionId ||
+      restoredSession.session_id === ignoredRestoredSessionRef.current
     ) return;
     setSessionId(restoredSession.session_id);
     setState("connected");
     setError("");
-    void fetchTools(restoredSession.session_id);
+    void fetchTools(restoredSession.session_id).catch((exc) => {
+      if (ignoredRestoredSessionRef.current === restoredSession.session_id) return;
+      setState("error");
+      setError(exc instanceof Error ? exc.message : "无法恢复 MCP 会话");
+    });
   }, [adapterStatus?.connected, restoredSession, sessionId]);
 
   async function readError(response: Response) {
@@ -225,6 +234,7 @@ export default function McpServerCard({
 
   async function connect() {
     if (!canConnect) return;
+    ignoredRestoredSessionRef.current = null;
     setState("connecting");
     setError("");
     setTools([]);
@@ -254,6 +264,8 @@ export default function McpServerCard({
   }
 
   async function disconnect() {
+    ignoredRestoredSessionRef.current =
+      sessionId ?? restoredSession?.session_id ?? null;
     await fetch(`/api/mcp/catalog/${project.id}/session`, {
       method: "DELETE",
     }).catch(() => undefined);
@@ -509,7 +521,9 @@ export default function McpServerCard({
         </div>
       ) : (
         <div className="relative mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-3 text-xs leading-5 text-emerald-50">
-          不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。
+          {wave === 2
+            ? "不需要 OAuth、Token 或用户安装运行时；由独立公网 sidecar 通过固定出口策略提供隔离 stdio 会话。"
+            : "不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。"}
         </div>
       )}
 

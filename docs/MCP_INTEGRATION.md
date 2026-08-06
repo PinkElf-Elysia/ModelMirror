@@ -82,7 +82,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 90 个待适配项目没有后端命令或端点；设置环境功能开关也不能使其可执行。
+- 当前目录状态为 13 ready / 85 planned / 2 blocked；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
 
@@ -92,6 +92,16 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - sidecar 固定为 `network_mode: none`、只读容器、UID/GID 65532、丢弃全部 capabilities 且启用 `no-new-privileges`。
 - 每个 MCP 子进程再使用 Landlock 只读规则与 RLIMIT CPU、内存、文件及句柄限制；sidecar 由 cgroup 限制为 128 PIDs 和最多 6 个并发会话，调用超时 10 秒，返回上限 128 KiB。
 - Vega-Lite 数据只保存在当前进程内存，拒绝远程 URL，连接结束后随临时进程和空白工作区一起清理。
+
+批次 2 的三个可用公网适配器通过固定 `public_proxy.py` 接入独立 `mcp-public` sidecar：
+
+- `fetch-mcp`、`quickchart-mcp`、`geowire-mcp` 只运行仓库内置 Python 兼容实现，不动态下载或执行上游代码。
+- sidecar 非 root、只读根文件系统、丢弃全部 capabilities、启用 `no-new-privileges`，并使用独立 bridge 网络和 Unix socket；不挂载宿主文件或 Docker socket。
+- 公网 HTTPS 请求先解析 DNS，拒绝 IP 字面量和私网、回环、链路本地及保留地址，再把连接固定到已验证地址并保留原域名 TLS 校验；每次重定向重复全部校验。
+- Docker Desktop/VPN 的 RFC 2544 Fake-IP 兼容默认关闭，仅由 Compose 为公网 sidecar 显式开启 `198.18.0.0/15`；其他非公网地址仍拒绝。
+- 单跳请求超时 12 秒、最多重定向 3 次、原始响应最多 2 MiB、工具输出最多 128 KiB；Nominatim 固定为每秒最多 1 次。
+- Fetch 只接受公网 HTTPS 工具参数并遵守 robots.txt；QuickChart 只生成受控 URL，不写文件；GeoWire 只开放无 Key 的 OSM/OSRM 子集。
+- BibiGPT 因 OAuth / API Key 要求保持 `blocked`；Airbnb 因上游公开页面 schema 漂移保持 `blocked`，两者都没有命令、端点或登录入口。
 
 兼容层仍保留以下默认值：
 
@@ -373,7 +383,11 @@ python server/mcp/test_manager.py
 | `server/mcp/manager.py` | MCPClientManager，负责 Stdio、Streamable HTTP 与旧 SSE session 生命周期。 |
 | `server/mcp/catalog.py` | 冻结目录、固定适配器、功能开关、配置门禁和目录 API。 |
 | `server/mcp/sandbox_proxy.py` | 把固定项目 ID 的 stdio 流代理到断网 sandbox sidecar。 |
+| `server/mcp/public_proxy.py` | 把批次 2 固定项目 ID 的 stdio 流代理到公网策略 sidecar。 |
 | `server/sandbox_sidecar/compute_mcp.py` | 批次 1 的三个内置 Python MCP 工具契约。 |
+| `server/sandbox_sidecar/public_mcp.py` | 批次 2 的内置公网 MCP 兼容契约。 |
+| `server/sandbox_sidecar/safe_http.py` | 公网 HTTPS、DNS 固定、SSRF、重定向与响应上限策略。 |
+| `server/sandbox_sidecar/public_server.py` | 公网 MCP 子进程的非 root、只读 Unix-socket sidecar。 |
 | `server/toolsets/` | Toolset/凭据 Store、版本发布、Schema 漂移与固定版本 Provider。 |
 | `client/src/pages/ToolsetsPage.tsx` | MCP Toolset 创建、连接、工具配置、测试和发布管理页。 |
 | `server/tests/test_toolset_*.py` | Toolset Store、API、连接、固定版本与安全回归。 |
@@ -384,6 +398,7 @@ python server/mcp/test_manager.py
 | `server/tests/test_mcp_multisession.py` | 多 session、TTL 与 ToolRegistry 集成测试。 |
 | `server/tests/test_mcp_catalog.py` | 100 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
 | `server/tests/test_mcp_compute_adapters.py` | 批次 1 工具契约、输入上限、URL 拒绝与沙箱配置测试。 |
+| `server/tests/test_mcp_public_adapters.py` | 批次 2 SSRF、DNS、robots、响应上限、工具契约与容器隔离测试。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
 | `client/src/data/mcpProjects.ts` | MCP 中文展示资料；不能作为执行配置来源。 |
 | `client/src/data/mcpAdaptationPlan.ts` | 前端批次、状态、连接形态和风险展示。 |

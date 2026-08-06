@@ -72,6 +72,9 @@ export const mcpCapabilityLabels: Record<string, string> = {
   "resource-limits": "CPU、内存、时限与输出限制",
   "public-remote-policy": "公共远程访问策略",
   "ssrf-protection": "SSRF 与 DNS 重绑定防护",
+  "dns-pinning": "DNS 解析校验与连接地址固定",
+  "redirect-response-limits": "重定向与响应大小限制",
+  "schema-drift-recovery": "上游工具契约漂移恢复",
   "scoped-filesystem": "受控目录授权",
   "artifact-cleanup": "产物清理",
   "encrypted-credential-binding": "加密凭据绑定",
@@ -96,6 +99,14 @@ export const mcpCapabilityLabels: Record<string, string> = {
 export const mcpIsolationLabels: Record<string, string> = {
   disabled: "完全断网",
   "read-only-empty-workspace": "空白只读工作区",
+  "validated-public-https:user-supplied-host": "用户指定公网 HTTPS；逐跳校验 DNS 与重定向",
+  "allowlist:quickchart.io": "仅允许 quickchart.io",
+  "allowlist:www.airbnb.com,photon.komoot.io,nominatim.openstreetmap.org":
+    "仅允许 Airbnb、Photon 与 Nominatim",
+  "allowlist:nominatim.openstreetmap.org,router.project-osrm.org":
+    "仅允许 Nominatim 与公共 OSRM",
+  "blocked:authentication-required": "已阻断：上游要求账号授权",
+  "blocked:upstream-schema-drift": "已阻断：上游公开数据契约漂移",
 };
 
 export function formatMcpCapability(capability: string) {
@@ -165,10 +176,18 @@ const waveMetadata: Record<
     ],
   },
   2: {
-    connectionKind: "remote-mcp",
+    connectionKind: "sandboxed-stdio",
     risk: "medium",
-    requiredCapabilities: ["公共远程策略", "SSRF 防护"],
-    limitations: ["等待公网目标、DNS、重定向和响应大小策略验证。"],
+    requiredCapabilities: [
+      "公共远程访问策略",
+      "SSRF 与 DNS 重绑定防护",
+      "DNS 连接地址固定",
+      "重定向与响应大小限制",
+    ],
+    limitations: [
+      "公网适配器在独立非 root、只读 sidecar 中运行；不接受浏览器提交命令、端点、Header 或环境变量。",
+      "每次请求与重定向都会重新校验公网 HTTPS 目标，固定超时、响应和工具输出上限。",
+    ],
   },
   3: {
     connectionKind: "sandboxed-stdio",
@@ -245,11 +264,35 @@ function buildAdaptationPlan() {
       if (records[projectId]) throw new Error(`重复的 MCP 适配计划：${projectId}`);
       records[projectId] = {
         wave,
-        availability: wave === 1 ? "ready" : "planned",
-        connectionKind: metadata.connectionKind,
+        availability:
+          projectId === "bibigpt-mcp" || projectId === "airbnb-mcp"
+            ? "blocked"
+            : wave <= 2
+              ? "ready"
+              : "planned",
+        connectionKind:
+          projectId === "bibigpt-mcp"
+            ? "remote-mcp"
+            : metadata.connectionKind,
         risk: metadata.risk,
-        requiredCapabilities: [...metadata.requiredCapabilities],
-        limitations: [...metadata.limitations],
+        requiredCapabilities:
+          projectId === "bibigpt-mcp"
+            ? ["OAuth PKCE", "授权撤销与解绑", "最小 Scope 审核"]
+            : projectId === "airbnb-mcp"
+              ? ["公共远程访问策略", "SSRF 防护", "上游工具契约漂移恢复"]
+            : [...metadata.requiredCapabilities],
+        limitations:
+          projectId === "bibigpt-mcp"
+            ? [
+                "上游远程 MCP 现在要求 OAuth 2.1 或 API Key 才能执行工具，不满足本批无凭据门槛。",
+                "已转入第 10 批 OAuth 适配；在服务端授权、撤销与解绑通过前不展示外站登录入口。",
+              ]
+            : projectId === "airbnb-mcp"
+              ? [
+                  "Airbnb 0.3.0 当前公开搜索页缺少上游适配器固定依赖的数据节点，代表调用触发 schema 漂移阻断。",
+                  "在上游恢复稳定公开契约并重新通过 robots.txt 与 smoke 前，不提供连接或绕过入口。",
+                ]
+            : [...metadata.limitations],
       };
     }
   }
