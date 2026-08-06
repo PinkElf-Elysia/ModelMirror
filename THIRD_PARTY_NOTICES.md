@@ -1,5 +1,21 @@
 # Third-party notices
 
+## Dify Agent Strategy 0.0.42
+
+- Project: `langgenius/dify-official-plugins`
+- Package: `langgenius-agent_0.0.42.difypkg`
+- Package SHA-256: `7C5FEEE39FC5B534B8822472E3DFD771C9E3C2960A96A164A02B0873D922343B`
+- License: Apache License 2.0
+- Upstream: <https://github.com/langgenius/dify-official-plugins>
+- Integration boundary: behavioral reference for Function Calling and ReAct
+  strategy semantics. ModelMirror does not vendor `dify_plugin`, execute the
+  package, or copy the upstream SDK implementation line by line.
+
+The ModelMirror implementation under `server/xpert_runtime/agent_strategy/`
+is an independent adapter over the existing Runtime Toolset, policy,
+middleware, and audit chain. Copyright and license ownership of Dify remains
+with LangGenius, Inc. and the upstream contributors under Apache-2.0.
+
 ## PenguinHarness built-in Skills
 
 - Project: `Prism-Shadow/penguin-harness`

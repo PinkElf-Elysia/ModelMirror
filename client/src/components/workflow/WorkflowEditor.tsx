@@ -291,6 +291,7 @@ function createNodeData(
       title: "Agent",
       description: "模型驱动的任务执行节点。",
       agentMode: "tool_first",
+      agentStrategy: "auto",
       instruction: "{{user_input}}",
       modelId: "",
       toolNames: "",
@@ -327,6 +328,7 @@ function createNodeData(
       rolePrompt: "你是负责执行当前工作流步骤的智能体，请直接输出结果。",
       taskInput: "{{user_input}}",
       toolMode: "none",
+      agentStrategy: "auto",
       toolNames: "",
       maxIterations: "5",
       promptSuffix: "",
@@ -729,15 +731,19 @@ function ConfigSwitch({
   label,
   description,
   checked,
+  disabled = false,
   onChange,
 }: {
   label: string;
   description?: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2">
+    <label
+      className={`flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 ${disabled ? "opacity-55" : ""}`}
+    >
       <span>
         <span className="block text-sm font-medium text-slate-100">{label}</span>
         {description ? (
@@ -749,6 +755,7 @@ function ConfigSwitch({
       <input
         checked={checked}
         className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-slate-950 text-brand-300"
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
         type="checkbox"
       />
@@ -900,6 +907,10 @@ function AgentStudioPanel({
   onSelectNode: (nodeId: string) => void;
 }) {
   const isWorkflowAgent = data.kind === "workflow_agent";
+  const toolsEnabled = isWorkflowAgent
+    ? data.toolMode === "mcp_tools"
+    : data.agentMode !== "direct";
+  const selectedStrategy = data.agentStrategy ?? "auto";
   const [knowledgeBases, setKnowledgeBases] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -968,7 +979,7 @@ function AgentStudioPanel({
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-brand-300/25 bg-brand-300/10 px-3 py-2 text-xs leading-5 text-brand-50">
-        智能体配置侧栏：当前保存配置草稿，实际执行继续沿用当前节点语义。
+        Agent Strategy V2：工具模式支持原生 Function Calling 与 ReAct，所有调用继续经过权限、中间件和审计链路。
       </div>
 
       <ConfigSection
@@ -1003,7 +1014,7 @@ function AgentStudioPanel({
         <div className="grid gap-2">
           <ConfigSwitch
             checked={workflowBooleanValue(data.disableOutput)}
-            description="仅保存配置，当前 runner 不改变输出行为。"
+            description="节点仍会执行；开启后不把最终结果写入输出变量。"
             label="禁用输出"
             onChange={(checked) => setStringBoolean("disableOutput", checked)}
           />
@@ -1017,7 +1028,14 @@ function AgentStudioPanel({
           />
           <ConfigSwitch
             checked={workflowBooleanValue(data.parallelToolCalls)}
-            description="仅并行执行只读、可并行且无需审批的工具。"
+            description={
+              !toolsEnabled
+                ? "当前为直接回答模式，不会调度工具。"
+                : selectedStrategy === "react"
+                  ? "ReAct 每轮只允许一个 Action；切换到 auto 或 function_calling 后可启用。"
+                  : "允许原生 Function Calling 在同一轮并发执行多个工具；默认关闭以保护有副作用的工具。"
+            }
+            disabled={!toolsEnabled || selectedStrategy === "react"}
             label="并行工具调用"
             onChange={(checked) =>
               setStringBoolean("parallelToolCalls", checked)
@@ -1229,8 +1247,36 @@ function AgentStudioPanel({
           </Field>
         ) : null}
 
-        {!isWorkflowAgent || data.toolMode === "mcp_tools" ? (
+        {toolsEnabled ? (
           <>
+            <Field label="Agent 策略">
+              <select
+                className={textInputClass()}
+                onChange={(event) => {
+                  const nextStrategy = event.target.value as
+                    | "auto"
+                    | "function_calling"
+                    | "react";
+                  update({
+                    agentStrategy: nextStrategy,
+                    ...(nextStrategy === "react"
+                      ? { parallelToolCalls: "false" }
+                      : {}),
+                  });
+                }}
+                value={selectedStrategy}
+              >
+                <option className="bg-slate-950" value="auto">
+                  auto：优先 Function Calling，安全回退 ReAct
+                </option>
+                <option className="bg-slate-950" value="function_calling">
+                  function_calling：原生工具调用
+                </option>
+                <option className="bg-slate-950" value="react">
+                  react：文本 Action / Observation 循环
+                </option>
+              </select>
+            </Field>
             <Field label="允许工具名（逗号分隔，留空代表全部已注册工具）">
               <input
                 className={textInputClass()}
