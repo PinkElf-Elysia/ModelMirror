@@ -25,6 +25,21 @@ const voltagent = readJson("client/src/data/voltagentSkillCatalog.generated.json
 const skillSetIndex = readJson(
   "client/src/data/skillSetMembers.generated.json",
 );
+const skillBrowserPage = readFileSync(
+  resolve("client/src/pages/SkillBrowserPage.tsx"),
+  "utf8",
+);
+for (const contract of [
+  "一键安装全部成员",
+  "for (const member of pendingMembers)",
+  "announceSuccess: false",
+  "失败后已停止",
+  "ref: source.verifiedCommit",
+]) {
+  if (!skillBrowserPage.includes(contract)) {
+    throw new Error(`SkillSet 顺序安装契约缺失：${contract}`);
+  }
+}
 function isSafeSubPath(subPath) {
   return (
     subPath === "" ||

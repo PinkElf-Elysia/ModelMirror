@@ -33,6 +33,13 @@ interface InstalledSkillsResponse {
   skills: InstalledSkill[];
 }
 
+interface SkillSetBatchProgress {
+  projectId: string;
+  completed: number;
+  total: number;
+  currentMemberName: string;
+}
+
 type SkillTab = "builtin" | "market" | "installed" | "drafts" | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
@@ -422,15 +429,19 @@ function NeedMatchCard({
 }
 
 function SkillSetMemberPanel({
+  batchProgress,
   installedSkills,
   installingId,
   onClose,
+  onInstallAll,
   onInstallMember,
   project,
 }: {
+  batchProgress: SkillSetBatchProgress | null;
   installedSkills: InstalledSkill[];
   installingId: string;
   onClose: () => void;
+  onInstallAll: (members: SkillSetMemberSource[]) => void;
   onInstallMember: (member: SkillSetMemberSource) => void;
   project: SkillProject;
 }) {
@@ -502,6 +513,15 @@ function SkillSetMemberPanel({
     memberPage * SKILLSET_MEMBER_PAGE_SIZE,
   );
   const summary = project.skillSet;
+  const remainingMemberCount = useMemo(
+    () =>
+      members?.filter((member) => !isSourceInstalled(member, installedSkills))
+        .length ?? 0,
+    [installedSkills, members],
+  );
+  const activeBatchProgress =
+    batchProgress?.projectId === project.id ? batchProgress : null;
+  const isBatchInstalling = Boolean(activeBatchProgress);
 
   useEffect(() => {
     setMemberPage(1);
@@ -522,11 +542,12 @@ function SkillSetMemberPanel({
             {project.name}
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            该集合没有可整体安装的父级 SKILL.md。请选择具体成员安装；不会下载集合中的其他目录。
+            该集合没有可整体安装的父级 SKILL.md。可逐项安装，也可让系统按顺序安装全部成员；不会下载集合中的其他目录。
           </p>
         </div>
         <button
           className="shrink-0 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+          disabled={isBatchInstalling}
           onClick={onClose}
           type="button"
         >
@@ -563,6 +584,37 @@ function SkillSetMemberPanel({
           </p>
         </div>
       </div>
+
+      {members ? (
+        <div className="mt-5 flex flex-col gap-3 rounded-lg border border-hire-300/20 bg-hire-300/[0.07] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-white">安装整个成员集合</p>
+            <p aria-live="polite" className="mt-1 text-xs leading-5 text-slate-300">
+              {activeBatchProgress
+                ? `正在安装 ${activeBatchProgress.completed} / ${activeBatchProgress.total}：${activeBatchProgress.currentMemberName}`
+                : remainingMemberCount > 0
+                  ? `将依次调用现有安装接口，已安装成员自动跳过；当前还需安装 ${remainingMemberCount} 个。`
+                  : "该集合的全部成员均已安装。"}
+            </p>
+          </div>
+          <button
+            className="shrink-0 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+            disabled={
+              remainingMemberCount === 0 ||
+              Boolean(installingId) ||
+              isBatchInstalling
+            }
+            onClick={() => onInstallAll(members)}
+            type="button"
+          >
+            {activeBatchProgress
+              ? `安装中 ${activeBatchProgress.completed}/${activeBatchProgress.total}`
+              : remainingMemberCount === 0
+                ? "全部成员已安装"
+                : `一键安装全部成员（${remainingMemberCount}）`}
+          </button>
+        </div>
+      ) : null}
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <label className="block w-full max-w-xl" htmlFor="skillset-member-search">
@@ -642,7 +694,9 @@ function SkillSetMemberPanel({
                   </div>
                   <button
                     className="shrink-0 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-                    disabled={installed || Boolean(installingId)}
+                    disabled={
+                      installed || Boolean(installingId) || isBatchInstalling
+                    }
                     onClick={() => onInstallMember(member)}
                     type="button"
                   >
@@ -742,6 +796,8 @@ export default function SkillBrowserPage() {
   const [installingId, setInstallingId] = useState("");
   const [uninstallingId, setUninstallingId] = useState("");
   const [selectedSkillSetId, setSelectedSkillSetId] = useState("");
+  const [skillSetBatchProgress, setSkillSetBatchProgress] =
+    useState<SkillSetBatchProgress | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const categories = useMemo(() => {
@@ -881,17 +937,19 @@ export default function SkillBrowserPage() {
   }
 
   async function installFromSource({
+    announceSuccess = true,
     installId,
     label,
     source,
     typeLabel,
   }: {
+    announceSuccess?: boolean;
     installId: string;
     label: string;
     source: SkillInstallSource | SkillSetMemberSource;
     typeLabel: string;
   }) {
-    if (installingId) return;
+    if (installingId) return false;
 
     setInstallingId(installId);
     setError("");
@@ -913,11 +971,15 @@ export default function SkillBrowserPage() {
         installed,
         ...current.filter((skill) => skill.skill_id !== installed.skill_id),
       ]);
-      setNotice(`「${label}」${typeLabel}已安装，可在面试间选择使用。`);
+      if (announceSuccess) {
+        setNotice(`「${label}」${typeLabel}已安装，可在面试间选择使用。`);
+      }
+      return true;
     } catch (installError) {
-      setError(
-        installError instanceof Error ? installError.message : "技能安装失败",
-      );
+      const message =
+        installError instanceof Error ? installError.message : "技能安装失败";
+      setError(`「${label}」安装失败：${message}`);
+      return false;
     } finally {
       setInstallingId("");
     }
@@ -940,6 +1002,64 @@ export default function SkillBrowserPage() {
       source: member,
       typeLabel: "成员",
     });
+  }
+
+  async function installAllSkillSetMembers(
+    project: SkillProject,
+    members: SkillSetMemberSource[],
+  ) {
+    if (installingId || skillSetBatchProgress) return;
+
+    const pendingMembers = members.filter(
+      (member) => !isSourceInstalled(member, installedSkills),
+    );
+    const skippedCount = members.length - pendingMembers.length;
+    if (pendingMembers.length === 0) {
+      setError("");
+      setNotice(`「${project.name}」的全部成员均已安装。`);
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    let completed = 0;
+
+    for (const member of pendingMembers) {
+      setSkillSetBatchProgress({
+        projectId: project.id,
+        completed,
+        total: pendingMembers.length,
+        currentMemberName: member.name,
+      });
+      const installed = await installFromSource({
+        announceSuccess: false,
+        installId: member.id,
+        label: member.name,
+        source: member,
+        typeLabel: "成员",
+      });
+      if (!installed) {
+        setNotice(
+          `「${project.name}」已安装 ${completed} / ${pendingMembers.length} 个待安装成员；失败后已停止，可再次一键安装继续。`,
+        );
+        setSkillSetBatchProgress(null);
+        return;
+      }
+      completed += 1;
+      setSkillSetBatchProgress({
+        projectId: project.id,
+        completed,
+        total: pendingMembers.length,
+        currentMemberName: member.name,
+      });
+    }
+
+    setSkillSetBatchProgress(null);
+    setNotice(
+      `「${project.name}」已按顺序安装 ${completed} 个成员${
+        skippedCount > 0 ? `，并跳过 ${skippedCount} 个已安装成员` : ""
+      }。`,
+    );
   }
 
   function submitNeedSearch(value: string) {
@@ -1346,9 +1466,13 @@ export default function SkillBrowserPage() {
 
         {activeTab === "market" && selectedSkillSetProject ? (
           <SkillSetMemberPanel
+            batchProgress={skillSetBatchProgress}
             installedSkills={installedSkills}
             installingId={installingId}
             onClose={() => setSelectedSkillSetId("")}
+            onInstallAll={(members) =>
+              void installAllSkillSetMembers(selectedSkillSetProject, members)
+            }
             onInstallMember={(member) => void installSkillSetMember(member)}
             project={selectedSkillSetProject}
           />
