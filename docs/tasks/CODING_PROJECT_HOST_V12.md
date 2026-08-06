@@ -112,3 +112,23 @@ Server 和浏览器仍看不到物理路径。省略 overlay 或设置
 12.90 MiB，SHA-256 为
 `5482BC66874D939ECA6CEAADE37DE74A105F3F013C5D94D41C80CF4C39B63D1D`。该修复使用
 独立提交追加，没有压缩或重写已完成的 7 个批次。
+
+## 11. PR #102 定向集成与共享栈重建入口
+
+- 最新基底固定为 PR #102 合并提交
+  `151e79b57b34d2c81e65caa66182a44113c047e5`；该提交已线性包含 PR #99、#100 和
+  #101 的 Skill、MCP 与多模态增量。
+- 集成工作树固定为 `C:\tmp\modelmirror-coding-v12-102`，分支为
+  `codex/coding-project-host-v12-102`。旧工作树
+  `C:\tmp\modelmirror-coding-v12` 仅保留原始 #98 批次历史，不得再用于共享栈重建。
+- 第十二轮 9 个提交按原顺序 cherry-pick 到 #102，`git range-diff` 九项均为 `=`，
+  没有冲突、漏提交或内容改写。共享栈只能从本节指定的新工作树执行 Compose。
+- 集成后 Coding 专项 414 项、Project Host 专项 36 项、前端生产构建和 8 组 Coding
+  Compose 配置全部通过；Coding 懒加载块仍为 33.78 KiB gzip。
+- 全量后端得到 1197 项通过。剩余 7 项 Agent Workspace 失败可在纯 #102 归档中
+  独立复现，原因为基线内置 Skillset 摘要不一致；另一个 Node matcher 用例在同时具备
+  Python/Node 的 Verifier 镜像中通过。本轮不得跨范围修改这些并行模块。
+
+完成共享栈独占窗口确认前仍不得重建。重建前必须再次确认当前工作树 HEAD、
+`origin/main` 和 Compose 配置；若 `origin/main` 已继续推进，应重新执行同样的定向
+集成审计，不能从旧镜像或旧工作树覆盖共享栈。
