@@ -424,7 +424,7 @@ export default function McpBrowserPage() {
             </h2>
             <p className="mt-1 text-sm text-slate-400">
               {activeView === "servers"
-                ? "可用项由后端固定适配器启动；第 1 批运行在断网 Python 沙箱，待适配项只展示中文配置边界。"
+                ? "可用项由后端固定适配器启动；第 3 批文件工具使用断网受控工作区、只读输入、一次性写入确认和可清理产物。"
                 : "这里聚合所有已连接 MCP Server 的工具；重名工具按首次出现保留。"}
             </p>
           </div>

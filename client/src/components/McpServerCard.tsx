@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import McpWorkspacePanel, {
+  type McpApprovalRequest,
+  type McpWorkspace,
+} from "./McpWorkspacePanel";
 import {
   mcpCatalogSources,
   mcpRequirementLabels,
@@ -26,6 +30,7 @@ interface JsonSchemaProperty {
   default?: unknown;
   items?: JsonSchemaProperty;
   properties?: Record<string, JsonSchemaProperty>;
+  "x-modelmirror-input"?: "workspace-file" | "workspace-directory" | "artifact-name";
 }
 
 interface ToolSchema {
@@ -45,6 +50,7 @@ interface ToolCallResult {
   content: Array<Record<string, unknown>>;
   is_error: boolean;
   raw: Record<string, unknown>;
+  artifacts?: Array<Record<string, unknown>>;
 }
 
 interface InstalledMcpRecord {
@@ -134,6 +140,11 @@ export default function McpServerCard({
   );
   const [toolResults, setToolResults] = useState<Record<string, ToolCallResult>>({});
   const [runningTool, setRunningTool] = useState<string | null>(null);
+  const [boundWorkspace, setBoundWorkspace] = useState<McpWorkspace | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<McpApprovalRequest | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const approvalCallbackRef = useRef<(() => void) | null>(null);
+  const approvalToolRef = useRef<string | null>(null);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
@@ -147,6 +158,9 @@ export default function McpServerCard({
     adapterStatus?.required_capabilities ?? project.requiredCapabilities;
   const limitations = adapterStatus?.limitations ?? project.adaptationLimitations;
   const canConnect = adapterStatus?.executable === true && availability === "ready";
+  const workspacePolicy = adapterStatus?.workspace_policy ?? null;
+  const canStartConnection =
+    canConnect && (!workspacePolicy?.required || Boolean(boundWorkspace));
   const canInstall = canConnect && project.installMode === "one-click";
   const commandPreview = useMemo(
     () =>
@@ -223,17 +237,25 @@ export default function McpServerCard({
     });
   }, [adapterStatus?.connected, restoredSession, sessionId]);
 
-  async function readError(response: Response) {
+  async function readErrorDetail(response: Response) {
     try {
-      const data = (await response.json()) as { detail?: string; error?: string };
+      const data = (await response.json()) as {
+        detail?: string | McpApprovalRequest;
+        error?: string;
+      };
       return data.detail ?? data.error ?? response.statusText;
     } catch {
       return response.statusText;
     }
   }
 
+  async function readError(response: Response) {
+    const detail = await readErrorDetail(response);
+    return typeof detail === "string" ? detail : detail.message;
+  }
+
   async function connect() {
-    if (!canConnect) return;
+    if (!canStartConnection) return;
     ignoredRestoredSessionRef.current = null;
     setState("connecting");
     setError("");
@@ -311,7 +333,11 @@ export default function McpServerCard({
     const values = formValues[tool.name] ?? {};
     const args: Record<string, unknown> = {};
     for (const [key, property] of Object.entries(properties)) {
-      const rawValue = values[key] ?? defaultFieldValue(property);
+      const rawValue =
+        values[key] ??
+        (property["x-modelmirror-input"] === "workspace-file"
+          ? boundWorkspace?.files[0]?.file_id ?? ""
+          : defaultFieldValue(property));
       const coerced = coerceFieldValue(property, rawValue);
       if (coerced !== undefined) args[key] = coerced;
     }
@@ -333,14 +359,75 @@ export default function McpServerCard({
           }),
         },
       );
+      if (response.status === 409) {
+        const detail = await readErrorDetail(response);
+        if (typeof detail !== "string" && detail.code === "approval_required") {
+          approvalToolRef.current = tool.name;
+          showApproval(detail, () => {
+            setToolResults((current) => ({ ...current }));
+            if (boundWorkspace) void refreshBoundWorkspace(boundWorkspace.workspace_id);
+          });
+          return;
+        }
+      }
       if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as ToolCallResult;
       setToolResults((current) => ({ ...current, [tool.name]: data }));
+      if (boundWorkspace) await refreshBoundWorkspace(boundWorkspace.workspace_id);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "工具执行失败");
     } finally {
       setRunningTool(null);
     }
+  }
+
+  function showApproval(approval: McpApprovalRequest, onConfirmed: () => void) {
+    approvalCallbackRef.current = onConfirmed;
+    setPendingApproval(approval);
+  }
+
+  async function confirmApproval() {
+    if (!pendingApproval) return;
+    setApprovalBusy(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/mcp/catalog/${project.id}/approvals/${pendingApproval.approval_id}/confirm`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      const data = (await response.json()) as ToolCallResult;
+      if (approvalToolRef.current) {
+        const toolName = approvalToolRef.current;
+        setToolResults((current) => ({ ...current, [toolName]: data }));
+      }
+      setPendingApproval(null);
+      approvalCallbackRef.current?.();
+      approvalCallbackRef.current = null;
+      approvalToolRef.current = null;
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "确认操作失败");
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
+
+  async function cancelApproval() {
+    if (!pendingApproval) return;
+    await fetch(
+      `/api/mcp/catalog/${project.id}/approvals/${pendingApproval.approval_id}`,
+      { method: "DELETE" },
+    ).catch(() => undefined);
+    setPendingApproval(null);
+    approvalCallbackRef.current = null;
+    approvalToolRef.current = null;
+  }
+
+  async function refreshBoundWorkspace(workspaceId: string) {
+    const response = await fetch(
+      `/api/mcp/catalog/${project.id}/workspaces/${workspaceId}`,
+    );
+    if (response.ok) setBoundWorkspace((await response.json()) as McpWorkspace);
   }
 
   function renderField(tool: McpTool, key: string, property: JsonSchemaProperty) {
@@ -349,6 +436,87 @@ export default function McpServerCard({
       formValues[tool.name]?.[key] ?? defaultFieldValue(property);
     const label = property.title ?? key;
     const type = schemaType(property);
+
+    if (property["x-modelmirror-input"] === "workspace-file") {
+      return (
+        <label className="block rounded-lg border border-white/10 bg-white/[0.04] p-3" key={key}>
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-200">
+            {label}
+            {required ? <span className="text-hire-100">必填</span> : null}
+          </span>
+          <span className="mt-1 block text-xs leading-5 text-slate-500">
+            只能选择已封存工作区中的文件，不能输入宿主路径或 URI。
+          </span>
+          <select
+            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            onChange={(event) => updateField(tool.name, key, event.target.value)}
+            value={value || boundWorkspace?.files[0]?.file_id || ""}
+          >
+            {boundWorkspace?.files.map((file) => (
+              <option key={file.file_id} value={file.file_id}>{file.relative_path}</option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+
+    if (property["x-modelmirror-input"] === "workspace-directory") {
+      const directories = Array.from(
+        new Set(
+          (boundWorkspace?.files ?? []).flatMap((file) => {
+            const parts = file.relative_path.split("/").slice(0, -1);
+            return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+          }),
+        ),
+      ).sort();
+      return (
+        <label className="block rounded-lg border border-white/10 bg-white/[0.04] p-3" key={key}>
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-200">
+            {label}
+            {required ? <span className="text-hire-100">必填</span> : null}
+          </span>
+          <span className="mt-1 block text-xs leading-5 text-slate-500">
+            只能选择已封存工作区内的目录，不接受手工路径。
+          </span>
+          <select
+            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            onChange={(event) => updateField(tool.name, key, event.target.value)}
+            value={value}
+          >
+            <option value="">工作区根目录</option>
+            {directories.map((directory) => (
+              <option key={directory} value={directory}>{directory}</option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+
+    if (property["x-modelmirror-input"] === "artifact-name") {
+      return (
+        <label className="block rounded-lg border border-white/10 bg-white/[0.04] p-3" key={key}>
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-200">
+            {label}
+            {required ? <span className="text-hire-100">必填</span> : null}
+          </span>
+          <span className="mt-1 block text-xs leading-5 text-slate-500">
+            仅填写产物文件名；斜杠、反斜杠和 URI 分隔符会被拒绝。
+          </span>
+          <input
+            autoComplete="off"
+            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            maxLength={120}
+            onChange={(event) =>
+              updateField(tool.name, key, event.target.value.replace(/[\\/:]/g, ""))
+            }
+            pattern="[A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff._ -]{0,119}"
+            spellCheck={false}
+            type="text"
+            value={value}
+          />
+        </label>
+      );
+    }
 
     return (
       <label className="block rounded-lg border border-white/10 bg-white/[0.04] p-3" key={key}>
@@ -523,6 +691,8 @@ export default function McpServerCard({
         <div className="relative mt-4 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.07] p-3 text-xs leading-5 text-emerald-50">
           {wave === 2
             ? "不需要 OAuth、Token 或用户安装运行时；由独立公网 sidecar 通过固定出口策略提供隔离 stdio 会话。"
+            : wave === 3
+              ? "不需要 OAuth、Token、桌面宿主或外部运行时；文件只进入断网受控工作区。"
             : "不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。"}
         </div>
       )}
@@ -564,11 +734,25 @@ export default function McpServerCard({
         </div>
       ) : null}
 
+      {workspacePolicy && canConnect ? (
+        <McpWorkspacePanel
+          onApprovalRequired={showApproval}
+          onBound={setBoundWorkspace}
+          policy={workspacePolicy}
+          projectId={project.id}
+          refreshKey={boundWorkspace?.artifacts.map((item) => item.artifact_id).join(",") ?? ""}
+        />
+      ) : null}
+
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
         {canConnect ? (
           <button
             className="rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition duration-200 hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={state === "connecting" || state === "connected"}
+            disabled={
+              state === "connecting" ||
+              state === "connected" ||
+              !canStartConnection
+            }
             onClick={() => void connect()}
             type="button"
           >
@@ -576,7 +760,9 @@ export default function McpServerCard({
               ? "连接中..."
               : state === "connected"
                 ? "已连接"
-                : "连接 Server"}
+                : workspacePolicy?.required && !boundWorkspace
+                  ? "先绑定工作区"
+                  : "连接 Server"}
           </button>
         ) : (
           <button
@@ -728,6 +914,47 @@ export default function McpServerCard({
               );
             })
           )}
+        </div>
+      ) : null}
+
+      {pendingApproval ? (
+        <div
+          aria-labelledby={`mcp-approval-${project.id}`}
+          aria-modal="true"
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/82 p-4 backdrop-blur-sm"
+          role="dialog"
+        >
+          <div className="surface-card w-full max-w-lg rounded-lg border border-amber-300/25 p-6">
+            <p className="text-sm font-semibold text-amber-100">一次性写入确认</p>
+            <h2 className="mt-2 text-xl font-semibold text-white" id={`mcp-approval-${project.id}`}>
+              确认本次受控操作
+            </h2>
+            <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-4 text-sm leading-6 text-slate-300">
+              {pendingApproval.summary}
+            </p>
+            <div className="mt-3 text-[11px] leading-5 text-slate-500">
+              <p>确认仅对当前会话、工作区版本和参数摘要有效，5 分钟后自动失效。</p>
+              <p className="mt-1 break-all font-mono">摘要：{pendingApproval.argument_digest}</p>
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+                disabled={approvalBusy}
+                onClick={() => void cancelApproval()}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+                disabled={approvalBusy}
+                onClick={() => void confirmApproval()}
+                type="button"
+              >
+                {approvalBusy ? "执行中…" : "确认并执行一次"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

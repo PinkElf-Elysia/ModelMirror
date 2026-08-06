@@ -322,7 +322,7 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/microsoft/markitdown/tree/main/packages/markitdown-mcp",
     category: "文件与存储",
     description:
-      "把 PDF、Office、图片、音频和网页等内容转换成适合 LLM 处理的 Markdown。",
+      "把已上传的文本、PDF、Office、表格与 HTML/XML 文件转换成适合 LLM 处理的 Markdown。",
     readmeSummary:
       "Microsoft AutoGen 团队提供的轻量 Server，暴露 convert_to_markdown 工具并支持 stdio、HTTP 和 SSE。",
     stars: 0,
@@ -331,7 +331,7 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "manual",
     installCommand: "pip install markitdown-mcp\nmarkitdown-mcp",
     installNote:
-      "Server 可读取本地文件和网络 URI，应仅在受信任的本地代理与严格沙盒内运行。当前一键安装器不处理 Python 包。",
+      "第 3 批只处理受控上传文件；图片、音频、网络 URI、宿主文件读取和网页抓取不开放。",
     tags: ["Microsoft 官方", "文档转换", "本地文件"],
   },
   {
@@ -1719,6 +1719,7 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
   const isBundledSandbox =
     isReady && adaptation.connectionKind === "sandboxed-stdio";
   const isPublicSandbox = isBundledSandbox && adaptation.wave === 2;
+  const isFileSandbox = isBundledSandbox && adaptation.wave === 3;
   const requirements = isReady
     ? []
     : (seed.requirements ?? originalRequirements[seed.id] ?? ["external-runtime"]);
@@ -1738,6 +1739,8 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
         : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
     installNote: isPublicSandbox
       ? "适配器在独立非 root、只读公网 sidecar 中运行；出口域名、DNS、重定向、超时和响应大小均由服务端控制。"
+      : isFileSandbox
+        ? "先在卡片中创建受控工作区并上传文件；封存后输入只读，写入和持久记忆操作由一次性确认保护。"
       : isBundledSandbox
         ? "适配器随断网 Python 沙箱镜像固定部署；浏览器不会提交命令、目录或环境变量。"
       : seed.installNote,
@@ -1762,7 +1765,13 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
               "Fetch 仅访问用户明确提供的公网 HTTPS；其他项目只访问卡片列出的固定公共域名，每次重定向都会重新校验。",
               "调用受超时、robots.txt、速率、响应大小和只读工具策略限制；被策略拒绝时不会回退到不受控连接。",
             ]
-          : isBundledSandbox
+        : isFileSandbox
+          ? [
+              "新建受控工作区，上传单个文件、文件夹或安全 ZIP；页面不会提交宿主目录路径。",
+              "封存并绑定工作区后再连接 Server；工具中的文件参数只能从已上传文件列表选择。",
+              "输入文件始终只读；表格写入和记忆修改会显示中文影响摘要并要求一次性确认，产物可下载和清理。",
+            ]
+        : isBundledSandbox
           ? [
               "无需安装 Python、uv、npm 或上游包；点击“连接 Server”即可启动受控适配器。",
               "每次连接都在断网、非 root、只读文件系统的临时沙箱内运行，结束后自动清理。",

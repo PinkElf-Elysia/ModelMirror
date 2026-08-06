@@ -55,6 +55,7 @@ server/datax/storage/
 server/toolsets/storage/
 server/model_router/storage/
 server/mcp/installed/
+server/mcp/storage/
 server/workflow_sandboxes/
 server/office_host/certs/
 

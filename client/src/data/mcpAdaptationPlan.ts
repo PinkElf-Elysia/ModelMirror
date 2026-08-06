@@ -5,6 +5,18 @@ export type McpConnectionKind =
   | "remote-mcp"
   | "desktop-bridge";
 export type McpRiskLevel = "low" | "medium" | "high" | "critical";
+export type McpToolEffect = "read" | "artifact-create" | "state-write" | "terminal";
+
+export interface McpWorkspacePolicy {
+  required: boolean;
+  persistent: boolean;
+  max_file_bytes: number;
+  max_workspace_bytes: number;
+  max_files: number;
+  idle_ttl_seconds: number | null;
+  artifact_ttl_seconds: number;
+  accepted_extensions: string[];
+}
 
 export interface McpAdaptationRecord {
   wave: number;
@@ -34,6 +46,7 @@ export interface McpCatalogAdapterStatus {
   network_policy: string;
   filesystem_policy: string;
   resource_limits: Record<string, string>;
+  workspace_policy: McpWorkspacePolicy | null;
   tool_policies: Record<
     string,
     {
@@ -41,6 +54,7 @@ export interface McpCatalogAdapterStatus {
       requires_approval: boolean;
       sensitive: boolean;
       terminal: boolean;
+      effect: McpToolEffect;
     }
   >;
 }
@@ -77,6 +91,7 @@ export const mcpCapabilityLabels: Record<string, string> = {
   "schema-drift-recovery": "上游工具契约漂移恢复",
   "scoped-filesystem": "受控目录授权",
   "artifact-cleanup": "产物清理",
+  "path-symlink-protection": "路径穿越与符号链接防护",
   "encrypted-credential-binding": "加密凭据绑定",
   "read-only-tool-policy": "只读工具策略",
   "database-read-only-policy": "数据库只读策略",
@@ -107,6 +122,11 @@ export const mcpIsolationLabels: Record<string, string> = {
     "仅允许 Nominatim 与公共 OSRM",
   "blocked:authentication-required": "已阻断：上游要求账号授权",
   "blocked:upstream-schema-drift": "已阻断：上游公开数据契约漂移",
+  "sealed-input-read-only,persistent-memory-write,artifact-write":
+    "封存输入只读；仅持久记忆和产物目录可写",
+  "sealed-input-read-only,artifact-write": "封存输入只读；仅产物目录可写",
+  "blocked:arbitrary-code-execution": "已阻断：需要任意代码执行隔离",
+  "blocked:no-runtime": "已阻断：不启动运行时",
 };
 
 export function formatMcpCapability(capability: string) {
@@ -193,7 +213,10 @@ const waveMetadata: Record<
     connectionKind: "sandboxed-stdio",
     risk: "medium",
     requiredCapabilities: ["目录范围授权", "产物清理"],
-    limitations: ["等待目录授权、路径越界防护和产物清理验证。"],
+    limitations: [
+      "使用受控上传工作区；封存后输入只读，禁止提交宿主路径、URL、环境变量或工作目录。",
+      "产物进入独立可清理目录；持久写入需要一次性确认。",
+    ],
   },
   4: {
     connectionKind: "remote-mcp",
@@ -265,21 +288,23 @@ function buildAdaptationPlan() {
       records[projectId] = {
         wave,
         availability:
-          projectId === "bibigpt-mcp" || projectId === "airbnb-mcp"
+          projectId === "bibigpt-mcp" || projectId === "airbnb-mcp" || projectId === "manim-mcp"
             ? "blocked"
-            : wave <= 2
+            : wave <= 3
               ? "ready"
               : "planned",
         connectionKind:
           projectId === "bibigpt-mcp"
             ? "remote-mcp"
             : metadata.connectionKind,
-        risk: metadata.risk,
+        risk: projectId === "manim-mcp" ? "critical" : metadata.risk,
         requiredCapabilities:
           projectId === "bibigpt-mcp"
             ? ["OAuth PKCE", "授权撤销与解绑", "最小 Scope 审核"]
             : projectId === "airbnb-mcp"
               ? ["公共远程访问策略", "SSRF 防护", "上游工具契约漂移恢复"]
+            : projectId === "manim-mcp"
+              ? ["一次性代码沙箱", "进程资源上限"]
             : [...metadata.requiredCapabilities],
         limitations:
           projectId === "bibigpt-mcp"
@@ -291,6 +316,11 @@ function buildAdaptationPlan() {
               ? [
                   "Airbnb 0.3.0 当前公开搜索页缺少上游适配器固定依赖的数据节点，代表调用触发 schema 漂移阻断。",
                   "在上游恢复稳定公开契约并重新通过 robots.txt 与 smoke 前，不提供连接或绕过入口。",
+                ]
+            : projectId === "manim-mcp"
+              ? [
+                  "上游 Manim MCP 会执行用户提供的任意 Python 场景代码，不属于普通文件处理能力。",
+                  "保留第 3 批编号，但连接入口已阻断；等待第 8 批一次性代码执行容器完成后再适配。",
                 ]
             : [...metadata.limitations],
       };

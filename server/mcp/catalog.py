@@ -10,18 +10,21 @@ non-executable roadmap entry.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
 import sys
 import time
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.types import CallToolResult, Tool
 
@@ -32,9 +35,31 @@ try:
         MCPSessionNotFoundError,
     )
     from server.registry.tool_registry import ToolRegistry
+    from server.mcp.workspace import (
+        FILE_PROJECTS,
+        MAX_FILE_BYTES,
+        MAX_WORKSPACE_BYTES,
+        MAX_WORKSPACE_FILES,
+        PROJECT_EXTENSIONS,
+        CatalogWorkspaceError,
+        CatalogWorkspaceNotFoundError,
+        CatalogWorkspacePolicyError,
+        MCPCatalogWorkspaceStore,
+    )
 except ModuleNotFoundError:
     from mcp.manager import MCPClientManager, MCPInstaller, MCPSessionNotFoundError
     from registry.tool_registry import ToolRegistry
+    from mcp.workspace import (
+        FILE_PROJECTS,
+        MAX_FILE_BYTES,
+        MAX_WORKSPACE_BYTES,
+        MAX_WORKSPACE_FILES,
+        PROJECT_EXTENSIONS,
+        CatalogWorkspaceError,
+        CatalogWorkspaceNotFoundError,
+        CatalogWorkspacePolicyError,
+        MCPCatalogWorkspaceStore,
+    )
 
 
 AdapterAvailability = Literal["planned", "adapting", "ready", "blocked"]
@@ -46,6 +71,7 @@ AdapterConnectionKind = Literal[
 ]
 AdapterRisk = Literal["low", "medium", "high", "critical"]
 AdapterPreparationKind = Literal["installer", "bundled"]
+CatalogToolEffect = Literal["read", "artifact-create", "state-write", "terminal"]
 
 logger = logging.getLogger("modelmirror.mcp.catalog")
 
@@ -66,12 +92,33 @@ class CatalogAdapterPolicyError(CatalogAdapterError):
     """Raised when configuration or execution violates an adapter policy."""
 
 
+class CatalogApprovalRequiredError(CatalogAdapterPolicyError):
+    """Raised before a state-changing operation so the UI can ask once."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        super().__init__("该操作需要一次性确认。")
+        self.payload = payload
+
+
 @dataclass(frozen=True, slots=True)
 class CatalogToolPolicy:
     read_only: bool = True
     requires_approval: bool = False
     sensitive: bool = False
     terminal: bool = False
+    effect: CatalogToolEffect = "read"
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogWorkspacePolicy:
+    required: bool = True
+    persistent: bool = False
+    max_file_bytes: int = MAX_FILE_BYTES
+    max_workspace_bytes: int = MAX_WORKSPACE_BYTES
+    max_files: int = MAX_WORKSPACE_FILES
+    idle_ttl_seconds: int | None = 24 * 60 * 60
+    artifact_ttl_seconds: int = 7 * 24 * 60 * 60
+    accepted_extensions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +143,7 @@ class CatalogAdapterManifest:
     allowed_settings: tuple[str, ...] = ()
     credential_slots: tuple[str, ...] = ()
     tool_policies: dict[str, CatalogToolPolicy] = field(default_factory=dict)
+    workspace_policy: CatalogWorkspacePolicy | None = None
     legacy_unrestricted_calls: bool = False
     enabled_by_default: bool = False
     operation_timeout: float = 30.0
@@ -152,9 +200,24 @@ class CatalogAdapterManifest:
                     "requires_approval": policy.requires_approval,
                     "sensitive": policy.sensitive,
                     "terminal": policy.terminal,
+                    "effect": policy.effect,
                 }
                 for name, policy in sorted(self.tool_policies.items())
             },
+            "workspace_policy": (
+                {
+                    "required": self.workspace_policy.required,
+                    "persistent": self.workspace_policy.persistent,
+                    "max_file_bytes": self.workspace_policy.max_file_bytes,
+                    "max_workspace_bytes": self.workspace_policy.max_workspace_bytes,
+                    "max_files": self.workspace_policy.max_files,
+                    "idle_ttl_seconds": self.workspace_policy.idle_ttl_seconds,
+                    "artifact_ttl_seconds": self.workspace_policy.artifact_ttl_seconds,
+                    "accepted_extensions": list(self.workspace_policy.accepted_extensions),
+                }
+                if self.workspace_policy is not None
+                else None
+            ),
         }
 
 
@@ -191,6 +254,10 @@ SANDBOX_PROXY = (
 PUBLIC_SANDBOX_PROXY = (
     sys.executable,
     str(Path(__file__).resolve().with_name("public_proxy.py")),
+)
+FILE_SANDBOX_PROXY = (
+    sys.executable,
+    str(Path(__file__).resolve().with_name("file_proxy.py")),
 )
 WAVE_ONE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "calculator-mcp": (
@@ -229,6 +296,75 @@ WAVE_TWO_ADAPTERS: dict[str, tuple[str, tuple[str, ...], str]] = {
             "list_geo_providers",
         ),
         "allowlist:nominatim.openstreetmap.org,router.project-osrm.org",
+    ),
+}
+
+WAVE_THREE_ADAPTERS: dict[str, tuple[str, dict[str, CatalogToolPolicy]]] = {
+    "basic-memory-mcp": (
+        "0.22.1-local-contract-v1",
+        {
+            **{
+                name: CatalogToolPolicy(read_only=True, effect="read")
+                for name in (
+                    "read_note", "read_content", "view_note", "search_notes",
+                    "search", "fetch", "recent_activity", "list_directory",
+                    "build_context", "basic_memory_diagnostics",
+                )
+            },
+            **{
+                name: CatalogToolPolicy(
+                    read_only=False,
+                    requires_approval=True,
+                    effect="state-write",
+                )
+                for name in ("write_note", "edit_note", "move_note")
+            },
+        },
+    ),
+    "excel-mcp-server": (
+        "1.0.4-secure-contract-v1",
+        {
+            **{
+                name: CatalogToolPolicy(read_only=True, effect="read")
+                for name in (
+                    "read_excel", "get_excel_info", "get_sheet_names",
+                    "analyze_excel", "filter_excel", "pivot_table", "data_summary",
+                )
+            },
+            "export_chart": CatalogToolPolicy(
+                read_only=False,
+                effect="artifact-create",
+            ),
+            "write_excel": CatalogToolPolicy(
+                read_only=False,
+                requires_approval=True,
+                effect="state-write",
+            ),
+            "update_excel": CatalogToolPolicy(
+                read_only=False,
+                requires_approval=True,
+                effect="state-write",
+            ),
+        },
+    ),
+    "git-mcp": (
+        "0.6.2-read-only-contract-v1",
+        {
+            name: CatalogToolPolicy(read_only=True, effect="read")
+            for name in (
+                "git_status", "git_diff_unstaged", "git_diff_staged", "git_diff",
+                "git_log", "git_show", "git_branch",
+            )
+        },
+    ),
+    "markitdown-mcp": (
+        "0.1.7-local-contract-v1",
+        {
+            "convert_to_markdown": CatalogToolPolicy(
+                read_only=False,
+                effect="artifact-create",
+            ),
+        },
     ),
 }
 
@@ -529,6 +665,93 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             max_output_bytes=128 * 1024,
         )
 
+    for project_id, (adapter_version, tool_policies) in WAVE_THREE_ADAPTERS.items():
+        persistent = project_id == "basic-memory-mcp"
+        project_limitations = {
+            "basic-memory-mcp": (
+                "仅使用本地持久 Markdown 工作区；云路由、促销、遥测、自动更新和语义模型下载全部关闭。",
+                "写入、编辑和移动笔记需要一次性确认；删除笔记、项目和 Schema 写入工具不开放。",
+            ),
+            "excel-mcp-server": (
+                "仅处理受控上传的 XLSX、XLS、CSV、TSV 与 JSON；预览最多 1000 行，写入最多 10000 行、200 列。",
+                "输入文件始终只读；write_excel 与 update_excel 经确认后只生成新产物，绝不覆盖源文件。",
+            ),
+            "git-mcp": (
+                "仅开放 status、diff、log、show 与 branch 查询；输入仓库只读且完全断网。",
+                "固定禁用 add、commit、reset、checkout、分支创建、Hook、external diff、textconv、子模块和 LFS 网络访问。",
+            ),
+            "markitdown-mcp": (
+                "只接受当前受控工作区的文件标识；不接受 http、https、file、data URI 或宿主路径。",
+                "转换结果写入可清理 Markdown 产物目录，输入文件始终只读。",
+                "本批支持文本、PDF、DOCX、PPTX、XLSX/XLS、CSV/TSV、JSON 与 HTML/XML；图片、音频和网页抓取不开放。",
+            ),
+        }[project_id]
+        accepted = PROJECT_EXTENSIONS.get(project_id)
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=3,
+            availability="ready",
+            connection_kind="sandboxed-stdio",
+            risk="medium",
+            required_capabilities=(
+                "scoped-filesystem",
+                "artifact-cleanup",
+                "path-symlink-protection",
+                "mutating-tool-approval",
+            ),
+            limitations=project_limitations,
+            adapter_version=adapter_version,
+            runtime_image="modelmirror-mcp-files:wave3-v1",
+            network_policy="disabled",
+            filesystem_policy=(
+                "sealed-input-read-only,persistent-memory-write,artifact-write"
+                if persistent
+                else "sealed-input-read-only,artifact-write"
+            ),
+            resource_limits=(
+                ("cpu", "1.5 cores / 60 CPU seconds per call"),
+                (
+                    "memory",
+                    "768 MiB address space for lightweight adapters; "
+                    "MarkItDown uses the 1 GiB sidecar cgroup because ONNX reserves virtual mappings",
+                ),
+                ("processes", "maximum 4 sessions / 128 sidecar PIDs"),
+                ("operation_timeout", "60 seconds"),
+                ("inline_output", "256 KiB"),
+                ("workspace", "5000 files / 512 MiB"),
+            ),
+            server_command=(*FILE_SANDBOX_PROXY, project_id),
+            preparation_kind="bundled",
+            tool_policies=tool_policies,
+            workspace_policy=CatalogWorkspacePolicy(
+                persistent=persistent,
+                idle_ttl_seconds=None if persistent else 24 * 60 * 60,
+                accepted_extensions=tuple(sorted(accepted or ())),
+            ),
+            enabled_by_default=True,
+            operation_timeout=60.0,
+            max_output_bytes=256 * 1024,
+        )
+
+    manifests["manim-mcp"] = CatalogAdapterManifest(
+        project_id="manim-mcp",
+        wave=3,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="critical",
+        required_capabilities=(
+            "ephemeral-code-sandbox",
+            "process-resource-limits",
+        ),
+        limitations=(
+            "上游 Manim MCP 会直接执行用户提供的任意 Python 场景代码，不属于普通文件处理能力。",
+            "保留第 3 批目录编号，但连接和运行入口已阻断；等待第 8 批一次性代码执行容器完成后再适配。",
+        ),
+        adapter_version="blocked:requires-wave8-code-isolation",
+        network_policy="blocked:arbitrary-code-execution",
+        filesystem_policy="blocked:no-runtime",
+    )
+
     manifests["bibigpt-mcp"] = CatalogAdapterManifest(
         project_id="bibigpt-mcp",
         wave=2,
@@ -604,12 +827,38 @@ class InstallerProtocol(Protocol):
 
 
 class CatalogConfigurationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     settings: dict[str, str | int | float | bool] = Field(default_factory=dict)
     credential_bindings: dict[str, str] = Field(default_factory=dict)
+    workspace_id: str | None = None
 
 
 class CatalogToolCallRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class CatalogWorkspaceCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(default="", max_length=120)
+
+
+@dataclass(slots=True)
+class CatalogApproval:
+    approval_id: str
+    project_id: str
+    session_id: str
+    workspace_id: str
+    workspace_manifest_sha256: str
+    tool_name: str
+    arguments: dict[str, Any]
+    argument_digest: str
+    summary: str
+    expires_at: float
+    used: bool = False
 
 
 class MCPCatalogService:
@@ -634,14 +883,19 @@ class MCPCatalogService:
         *,
         manifests: dict[str, CatalogAdapterManifest] | None = None,
         credential_validator: Callable[[str], Any] | None = None,
+        workspace_store: MCPCatalogWorkspaceStore | None = None,
+        tenant_id: str = "local",
     ) -> None:
         self.manager = manager
         self.installer = installer
         self.registry = registry
         self.manifests = dict(manifests or CATALOG_ADAPTERS)
         self.credential_validator = credential_validator
+        self.workspace_store = workspace_store
+        self.tenant_id = str(tenant_id or "local")
         self._sessions: dict[str, str] = {}
         self._configurations: dict[str, CatalogConfigurationRequest] = {}
+        self._approvals: dict[str, CatalogApproval] = {}
         self._lock = asyncio.Lock()
 
     def get_manifest(self, project_id: str) -> CatalogAdapterManifest:
@@ -757,12 +1011,31 @@ class MCPCatalogService:
                     f"凭据绑定不是可用状态：{credential_id}"
                 )
 
+        workspace_id = str(request.workspace_id or "").strip()
+        if manifest.workspace_policy is not None:
+            if not workspace_id:
+                raise CatalogAdapterPolicyError("该适配器必须绑定已封存的受控工作区。")
+            if self.workspace_store is None:
+                raise CatalogAdapterPolicyError("MCP 文件工作区当前不可用。")
+            try:
+                self.workspace_store.require_sealed(
+                    manifest.project_id,
+                    workspace_id,
+                    tenant_id=self.tenant_id,
+                )
+            except CatalogWorkspaceError as exc:
+                raise CatalogAdapterPolicyError(str(exc)) from exc
+        elif workspace_id:
+            raise CatalogAdapterPolicyError("该适配器不接受文件工作区配置。")
+
         self._configurations[manifest.project_id] = request.model_copy(deep=True)
+        self._revoke_approvals(manifest.project_id)
         return {
             "project_id": manifest.project_id,
             "configured": True,
             "configured_settings": sorted(request.settings),
             "configured_credential_slots": sorted(request.credential_bindings),
+            "workspace_id": workspace_id or None,
         }
 
     async def connect(self, project_id: str) -> dict[str, Any]:
@@ -782,13 +1055,35 @@ class MCPCatalogService:
                     "该适配器尚未配置受控的可执行传输。"
                 )
             if manifest.connection_kind == "sandboxed-stdio":
-                session_id = await self.manager.connect_profile(
-                    transport="stdio",
-                    server_command=list(manifest.server_command),
-                    network_policy=manifest.network_policy,
-                    reconnect_attempts=1,
-                    operation_timeout=manifest.operation_timeout,
-                )
+                environment: dict[str, str] = {}
+                if manifest.workspace_policy is not None:
+                    configuration = self._configurations.get(manifest.project_id)
+                    workspace_id = str(
+                        configuration.workspace_id if configuration else ""
+                    ).strip()
+                    if not workspace_id or self.workspace_store is None:
+                        raise CatalogAdapterPolicyError(
+                            "请先创建、封存并绑定受控工作区。"
+                        )
+                    try:
+                        self.workspace_store.require_sealed(
+                            manifest.project_id,
+                            workspace_id,
+                            tenant_id=self.tenant_id,
+                        )
+                    except CatalogWorkspaceError as exc:
+                        raise CatalogAdapterPolicyError(str(exc)) from exc
+                    environment["MCP_FILE_WORKSPACE_ID"] = workspace_id
+                profile: dict[str, Any] = {
+                    "transport": "stdio",
+                    "server_command": list(manifest.server_command),
+                    "network_policy": manifest.network_policy,
+                    "reconnect_attempts": 1,
+                    "operation_timeout": manifest.operation_timeout,
+                }
+                if environment:
+                    profile["environment"] = environment
+                session_id = await self.manager.connect_profile(**profile)
             else:
                 session_id = await self.manager.connect(list(manifest.server_command))
             try:
@@ -823,6 +1118,7 @@ class MCPCatalogService:
             await self.manager.disconnect(session_id)
         finally:
             await self.registry.unregister_session(session_id)
+        self._revoke_approvals(manifest.project_id)
         logger.info("MCP catalog disconnect project=%s", manifest.project_id)
         return {"ok": True, "project_id": manifest.project_id}
 
@@ -843,15 +1139,85 @@ class MCPCatalogService:
                 raise CatalogAdapterPolicyError(
                     "该工具尚未完成显式读写与审批策略分类。"
                 )
-            if (
-                policy.requires_approval
-                or not policy.read_only
-                or policy.sensitive
-                or policy.terminal
-            ):
+            if policy.sensitive or policy.terminal or policy.effect == "terminal":
                 raise CatalogAdapterPolicyError(
-                    "该工具需要通过运行时审批流程后执行。"
+                    "该工具属于敏感或终止性操作，当前批次不允许执行。"
                 )
+            if policy.requires_approval:
+                raise CatalogApprovalRequiredError(
+                    self._create_approval(
+                        manifest,
+                        session_id=session_id,
+                        tool_name=tool_name,
+                        arguments=arguments,
+                    )
+                )
+
+        return await self._execute_tool(
+            manifest,
+            session_id=session_id,
+            tool_name=tool_name,
+            arguments=arguments,
+        )
+
+    async def confirm_approval(
+        self,
+        project_id: str,
+        approval_id: str,
+    ) -> dict[str, Any]:
+        manifest = self._require_executable(project_id)
+        approval = self._approvals.get(str(approval_id or ""))
+        if approval is None or approval.project_id != manifest.project_id:
+            raise CatalogAdapterPolicyError("一次性确认不存在或已经失效。")
+        if approval.used or approval.expires_at <= time.time():
+            self._approvals.pop(approval.approval_id, None)
+            raise CatalogAdapterPolicyError("一次性确认已经使用或过期。")
+        if self.workspace_store is None:
+            raise CatalogAdapterPolicyError("MCP 文件工作区当前不可用。")
+        workspace = self.workspace_store.require_sealed(
+            manifest.project_id,
+            approval.workspace_id,
+            tenant_id=self.tenant_id,
+        )
+        if workspace.manifest_sha256 != approval.workspace_manifest_sha256:
+            raise CatalogAdapterPolicyError("工作区内容已经变化，请重新发起操作。")
+        approval.used = True
+        self._approvals.pop(approval.approval_id, None)
+        if approval.tool_name == "__delete_workspace__":
+            if manifest.project_id in self._sessions:
+                await self.disconnect(manifest.project_id)
+            self.workspace_store.delete(
+                manifest.project_id,
+                approval.workspace_id,
+                tenant_id=self.tenant_id,
+            )
+            self._configurations.pop(manifest.project_id, None)
+            return {"ok": True, "project_id": manifest.project_id, "workspace_id": approval.workspace_id}
+        session_id = self._sessions.get(manifest.project_id)
+        if not session_id or session_id != approval.session_id:
+            raise CatalogAdapterPolicyError("MCP 会话已经变化，请重新发起操作。")
+        return await self._execute_tool(
+            manifest,
+            session_id=session_id,
+            tool_name=approval.tool_name,
+            arguments=approval.arguments,
+        )
+
+    def cancel_approval(self, project_id: str, approval_id: str) -> dict[str, Any]:
+        approval = self._approvals.get(str(approval_id or ""))
+        if approval is None or approval.project_id != project_id:
+            raise CatalogAdapterPolicyError("一次性确认不存在或已经失效。")
+        self._approvals.pop(approval.approval_id, None)
+        return {"ok": True, "approval_id": approval.approval_id}
+
+    async def _execute_tool(
+        self,
+        manifest: CatalogAdapterManifest,
+        *,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
 
         started_at = time.monotonic()
         result = await self.manager.call_tool(session_id, tool_name, arguments)
@@ -861,10 +1227,233 @@ class MCPCatalogService:
             tool_name,
             int((time.monotonic() - started_at) * 1000),
         )
-        return self._serialize_call_result(
+        payload = self._serialize_call_result(
             result,
             max_output_bytes=manifest.max_output_bytes,
         )
+        configuration = self._configurations.get(manifest.project_id)
+        if (
+            self.workspace_store is not None
+            and configuration is not None
+            and configuration.workspace_id
+        ):
+            artifacts = self.workspace_store.discover_artifacts(
+                manifest.project_id,
+                configuration.workspace_id,
+                tenant_id=self.tenant_id,
+            )
+            payload["artifacts"] = [
+                {
+                    **asdict(artifact),
+                    "download_url": (
+                        f"/api/mcp/catalog/{manifest.project_id}/workspaces/"
+                        f"{configuration.workspace_id}/artifacts/{artifact.artifact_id}/download"
+                    ),
+                }
+                for artifact in artifacts
+            ]
+        return payload
+
+    def _create_approval(
+        self,
+        manifest: CatalogAdapterManifest,
+        *,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        workspace_id: str | None = None,
+    ) -> dict[str, Any]:
+        configuration = self._configurations.get(manifest.project_id)
+        bound_workspace_id = str(
+            workspace_id or (configuration.workspace_id if configuration else "") or ""
+        )
+        if not bound_workspace_id or self.workspace_store is None:
+            raise CatalogAdapterPolicyError("该操作缺少有效的受控工作区。")
+        workspace = self.workspace_store.require_sealed(
+            manifest.project_id,
+            bound_workspace_id,
+            tenant_id=self.tenant_id,
+        )
+        canonical = json.dumps(
+            arguments,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        approval = CatalogApproval(
+            approval_id=f"mcpauth_{uuid.uuid4().hex}",
+            project_id=manifest.project_id,
+            session_id=session_id,
+            workspace_id=bound_workspace_id,
+            workspace_manifest_sha256=workspace.manifest_sha256,
+            tool_name=tool_name,
+            arguments=json.loads(canonical),
+            argument_digest=digest,
+            summary=self._approval_summary(tool_name, arguments, workspace.display_name),
+            expires_at=time.time() + 300,
+        )
+        self._approvals[approval.approval_id] = approval
+        return {
+            "code": "approval_required",
+            "message": "该操作会写入持久记忆或生成新的表格产物，请确认后执行。",
+            "approval_id": approval.approval_id,
+            "summary": approval.summary,
+            "argument_digest": approval.argument_digest,
+            "expires_at": approval.expires_at,
+        }
+
+    @staticmethod
+    def _approval_summary(
+        tool_name: str,
+        arguments: dict[str, Any],
+        workspace_name: str,
+    ) -> str:
+        if tool_name == "__delete_workspace__":
+            return f"永久删除持久工作区“{workspace_name}”及其中全部本地笔记和产物。"
+        visible: list[str] = []
+        for key in ("title", "note", "destination_folder", "artifact_name", "sheet_name"):
+            value = arguments.get(key)
+            if isinstance(value, (str, int, float, bool)) and str(value):
+                visible.append(f"{key}={str(value)[:120]}")
+        for key in ("content", "data", "updates"):
+            if key in arguments:
+                value = arguments[key]
+                size = len(value) if isinstance(value, (str, list, dict)) else 1
+                visible.append(f"{key}={size} 项/字符")
+        detail = "，".join(visible) if visible else "参数已由服务端冻结"
+        return f"在工作区“{workspace_name}”执行 {tool_name}：{detail}。"
+
+    def _revoke_approvals(self, project_id: str) -> None:
+        for approval_id, approval in list(self._approvals.items()):
+            if approval.project_id == project_id:
+                self._approvals.pop(approval_id, None)
+
+    def list_workspaces(self, project_id: str) -> dict[str, Any]:
+        manifest = self._require_file_workspace(project_id)
+        assert self.workspace_store is not None
+        items = self.workspace_store.list(
+            manifest.project_id,
+            tenant_id=self.tenant_id,
+        )
+        return {
+            "project_id": manifest.project_id,
+            "items": [self.workspace_store.payload(item) for item in items],
+            "total": len(items),
+        }
+
+    def create_workspace(
+        self,
+        project_id: str,
+        request: CatalogWorkspaceCreateRequest,
+    ) -> dict[str, Any]:
+        manifest = self._require_file_workspace(project_id)
+        assert self.workspace_store is not None
+        item = self.workspace_store.create(
+            manifest.project_id,
+            display_name=request.display_name,
+            tenant_id=self.tenant_id,
+        )
+        return self.workspace_store.payload(item)
+
+    def add_workspace_upload(
+        self,
+        project_id: str,
+        workspace_id: str,
+        *,
+        filename: str,
+        relative_path: str,
+        content: bytes,
+    ) -> list[dict[str, Any]]:
+        manifest = self._require_file_workspace(project_id)
+        assert self.workspace_store is not None
+        items = self.workspace_store.add_upload(
+            manifest.project_id,
+            workspace_id,
+            filename=filename,
+            relative_path=relative_path,
+            content=content,
+            tenant_id=self.tenant_id,
+        )
+        return [asdict(item) for item in items]
+
+    def seal_workspace(self, project_id: str, workspace_id: str) -> dict[str, Any]:
+        manifest = self._require_file_workspace(project_id)
+        assert self.workspace_store is not None
+        item = self.workspace_store.seal(
+            manifest.project_id,
+            workspace_id,
+            tenant_id=self.tenant_id,
+        )
+        return self.workspace_store.payload(item)
+
+    def get_workspace(self, project_id: str, workspace_id: str) -> dict[str, Any]:
+        manifest = self._require_file_workspace(project_id)
+        assert self.workspace_store is not None
+        item = self.workspace_store.get(
+            manifest.project_id,
+            workspace_id,
+            tenant_id=self.tenant_id,
+        )
+        return self.workspace_store.payload(item)
+
+    async def delete_workspace(
+        self,
+        project_id: str,
+        workspace_id: str,
+    ) -> dict[str, Any]:
+        manifest = self._require_file_workspace(project_id)
+        assert self.workspace_store is not None
+        item = self.workspace_store.get(
+            manifest.project_id,
+            workspace_id,
+            tenant_id=self.tenant_id,
+        )
+        if item.persistent:
+            raise CatalogApprovalRequiredError(
+                self._create_approval(
+                    manifest,
+                    session_id=self._sessions.get(manifest.project_id, "workspace-management"),
+                    tool_name="__delete_workspace__",
+                    arguments={"workspace_id": workspace_id},
+                    workspace_id=workspace_id,
+                )
+            )
+        if self._configurations.get(manifest.project_id, CatalogConfigurationRequest()).workspace_id == workspace_id:
+            if manifest.project_id in self._sessions:
+                await self.disconnect(manifest.project_id)
+            self._configurations.pop(manifest.project_id, None)
+        self.workspace_store.delete(
+            manifest.project_id,
+            workspace_id,
+            tenant_id=self.tenant_id,
+        )
+        return {"ok": True, "project_id": manifest.project_id, "workspace_id": workspace_id}
+
+    def artifact_download(
+        self,
+        project_id: str,
+        workspace_id: str,
+        artifact_id: str,
+    ) -> tuple[Any, Path]:
+        manifest = self._require_file_workspace(project_id)
+        assert self.workspace_store is not None
+        return self.workspace_store.artifact_path(
+            manifest.project_id,
+            workspace_id,
+            artifact_id,
+            tenant_id=self.tenant_id,
+        )
+
+    def _require_file_workspace(self, project_id: str) -> CatalogAdapterManifest:
+        manifest = self.get_manifest(project_id)
+        if manifest.workspace_policy is None or manifest.project_id not in FILE_PROJECTS:
+            raise CatalogAdapterPolicyError("该目录条目不支持受控文件工作区。")
+        if manifest.availability != "ready" or not manifest.feature_enabled:
+            raise CatalogAdapterUnavailableError("该文件适配器当前不可用。")
+        if self.workspace_store is None:
+            raise CatalogAdapterUnavailableError("MCP 文件工作区服务当前不可用。")
+        return manifest
 
     async def clear_sessions(self) -> None:
         async with self._lock:
@@ -876,6 +1465,7 @@ class MCPCatalogService:
             except Exception:
                 pass
             await self.registry.unregister_session(session_id)
+        self._approvals.clear()
 
     async def forget_sessions(self, session_ids: list[str]) -> None:
         """Forget sessions already removed by the manager TTL cleanup."""
@@ -955,11 +1545,17 @@ def get_mcp_catalog_service() -> MCPCatalogService:
 
 
 def _raise_http_error(exc: Exception) -> None:
+    if isinstance(exc, CatalogApprovalRequiredError):
+        raise HTTPException(status_code=409, detail=exc.payload) from exc
     if isinstance(exc, CatalogAdapterNotFoundError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, CatalogAdapterUnavailableError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, CatalogAdapterPolicyError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, CatalogWorkspaceNotFoundError):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, (CatalogWorkspacePolicyError, CatalogWorkspaceError)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, MCPSessionNotFoundError):
         raise HTTPException(status_code=404, detail="MCP 目录会话不存在或已断开。") from exc
@@ -1029,6 +1625,123 @@ async def call_catalog_tool(
             tool_name,
             request.arguments,
         )
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.post("/api/mcp/catalog/{project_id}/approvals/{approval_id}/confirm")
+async def confirm_catalog_approval(project_id: str, approval_id: str) -> dict[str, Any]:
+    try:
+        return await get_mcp_catalog_service().confirm_approval(project_id, approval_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.delete("/api/mcp/catalog/{project_id}/approvals/{approval_id}")
+async def cancel_catalog_approval(project_id: str, approval_id: str) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().cancel_approval(project_id, approval_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.get("/api/mcp/catalog/{project_id}/workspaces")
+async def list_catalog_workspaces(project_id: str) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().list_workspaces(project_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.post("/api/mcp/catalog/{project_id}/workspaces")
+async def create_catalog_workspace(
+    project_id: str,
+    request: CatalogWorkspaceCreateRequest,
+) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().create_workspace(project_id, request)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.post("/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/files")
+async def upload_catalog_workspace_files(
+    project_id: str,
+    workspace_id: str,
+    files: list[UploadFile] = File(...),
+    relative_paths: list[str] | None = Form(default=None),
+) -> dict[str, Any]:
+    try:
+        paths = relative_paths or []
+        uploaded: list[dict[str, Any]] = []
+        for index, upload in enumerate(files):
+            content = await upload.read(MAX_FILE_BYTES + 1)
+            if len(content) > MAX_FILE_BYTES:
+                raise CatalogWorkspacePolicyError("单个上传文件不能超过 64 MiB。")
+            uploaded.extend(
+                get_mcp_catalog_service().add_workspace_upload(
+                    project_id,
+                    workspace_id,
+                    filename=upload.filename or "upload",
+                    relative_path=(
+                        paths[index]
+                        if index < len(paths) and paths[index]
+                        else upload.filename or "upload"
+                    ),
+                    content=content,
+                )
+            )
+        return {"workspace_id": workspace_id, "files": uploaded, "uploaded": len(uploaded)}
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.post("/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/seal")
+async def seal_catalog_workspace(project_id: str, workspace_id: str) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().seal_workspace(project_id, workspace_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.get("/api/mcp/catalog/{project_id}/workspaces/{workspace_id}")
+async def get_catalog_workspace(project_id: str, workspace_id: str) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().get_workspace(project_id, workspace_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.delete("/api/mcp/catalog/{project_id}/workspaces/{workspace_id}")
+async def delete_catalog_workspace(project_id: str, workspace_id: str) -> dict[str, Any]:
+    try:
+        return await get_mcp_catalog_service().delete_workspace(project_id, workspace_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.get("/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/artifacts/{artifact_id}/download")
+async def download_catalog_artifact(
+    project_id: str,
+    workspace_id: str,
+    artifact_id: str,
+):
+    try:
+        artifact, path = get_mcp_catalog_service().artifact_download(
+            project_id,
+            workspace_id,
+            artifact_id,
+        )
+        return FileResponse(path, media_type=artifact.content_type, filename=artifact.filename)
     except Exception as exc:
         _raise_http_error(exc)
         raise

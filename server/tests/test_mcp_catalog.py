@@ -9,6 +9,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from mcp.types import CallToolResult, TextContent, Tool
+from pydantic import ValidationError
 
 from server.mcp import catalog
 from server.mcp.catalog import (
@@ -16,6 +17,7 @@ from server.mcp.catalog import (
     LOCAL_STDIO_ADAPTERS,
     WAVE_ONE_ADAPTERS,
     WAVE_TWO_ADAPTERS,
+    WAVE_THREE_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
@@ -146,18 +148,19 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
         "bibigpt-mcp",
         "airbnb-mcp",
     }
+    assert set(WAVE_THREE_ADAPTERS) == set(WAVE_PROJECTS[3]) - {"manim-mcp"}
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 13
+    ) == 17
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 85
+    ) == 80
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 2
+    ) == 3
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -194,7 +197,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["basic-memory-mcp"]
+    manifest = CATALOG_ADAPTERS["brave-search-mcp"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
@@ -219,9 +222,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 13
-            assert payload["planned"] == 85
-            assert payload["blocked"] == 2
+            assert payload["ready"] == 17
+            assert payload["planned"] == 80
+            assert payload["blocked"] == 3
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
@@ -415,6 +418,16 @@ def test_configuration_rejects_execution_fields_and_unknown_credential_slots() -
         credential_slots=("api_token",),
     )
     service, _, _, _ = make_service({manifest.project_id: manifest})
+
+    for forbidden in (
+        "server_command",
+        "url",
+        "headers",
+        "environment",
+        "cwd",
+    ):
+        with pytest.raises(ValidationError):
+            CatalogConfigurationRequest.model_validate({forbidden: "denied"})
 
     with pytest.raises(catalog.CatalogAdapterPolicyError, match="不能包含命令"):
         service.configure(

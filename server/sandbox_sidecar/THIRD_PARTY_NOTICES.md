@@ -33,3 +33,28 @@ or dynamically downloaded by the sidecar:
 Public geocoding and routing results may be subject to provider-specific terms
 and attribution requirements. The adapter preserves OpenStreetMap attribution
 and rate-limits public Nominatim access.
+
+Wave-3 file adapters are independently implemented compatibility contracts.
+The sidecar does not install or copy the upstream Basic Memory, Excel MCP,
+Git MCP, MarkItDown MCP, or Manim MCP server packages:
+
+- Basic Memory v0.22.1 (`basicmachines-co/basic-memory`) was reviewed under
+  AGPL-3.0. No Basic Memory source or binary is included; ModelMirror only
+  provides an independent local Markdown contract and records this separation
+  explicitly for AGPL compliance review.
+- Excel MCP 1.0.4 (`yzfly/mcp-excel-server`) was reviewed under MIT as an
+  upstream tool contract. Its server package is not bundled.
+- Git MCP 0.6.2 (`modelcontextprotocol/servers`, server-git) was reviewed under
+  MIT. Its server package is not bundled; the sidecar invokes the separately
+  installed Git CLI through a fixed read-only wrapper.
+- MarkItDown MCP v0.1.7 (`microsoft/markitdown`) was reviewed under MIT. The MCP
+  server package is not bundled; the image installs the official MarkItDown
+  Python library 0.1.7 and calls only its local-file conversion API.
+- Manim MCP remains blocked and no Manim package or scene runtime is included.
+
+The `modelmirror-mcp-files:wave3-v1` runtime also includes these pinned direct
+dependencies under their upstream licenses: MCP Python SDK 1.27.2 (MIT),
+pandas 2.3.3 (BSD-3-Clause), openpyxl 3.1.5 (MIT), xlrd 2.0.2 (BSD),
+matplotlib 3.10.7 (PSF-based), and MarkItDown 0.1.7 (MIT). Transitive package
+metadata and Debian license texts remain available in the image's installed
+package and `/usr/share/doc` directories.
