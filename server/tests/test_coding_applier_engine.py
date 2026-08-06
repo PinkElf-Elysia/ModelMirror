@@ -44,6 +44,23 @@ def added_patch(path: str, content: str) -> str:
     )
 
 
+def deleted_patch(path: str, content: str) -> str:
+    body = "".join(
+        difflib.unified_diff(
+            content.splitlines(keepends=True),
+            [],
+            fromfile=f"a/{path}",
+            tofile="/dev/null",
+            lineterm="\n",
+        )
+    )
+    return (
+        f"diff --git a/{path} b/{path}\n"
+        "deleted file mode 100644\n"
+        f"{body}"
+    )
+
+
 @pytest.fixture
 def roots(tmp_path: Path) -> tuple[Path, Path, Path]:
     source = tmp_path / "source"
@@ -98,6 +115,127 @@ def test_apply_is_atomic_and_idempotent(
     assert (source / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
     assert (target / "server/app.py").stat().st_mode & 0o777 == original_mode
     assert staging.exists() is False
+
+
+def test_apply_and_revert_support_delete_and_move(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    engine = CodingApplierEngine(source, target, staging)
+    old_content = "export const value = 1;\n"
+    patch = deleted_patch("client/src/App.tsx", old_content)
+    patch += added_patch("client/src/Moved-q7m4.tsx", old_content)
+
+    receipt = engine.apply(
+        operation_id=OPERATION_ID,
+        revision=4,
+        patch=patch,
+        paths=["client/src/Moved-q7m4.tsx", "client/src/App.tsx"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+
+    assert receipt.files[0].path == "client/src/App.tsx"
+    assert receipt.files[0].after_sha256 is None
+    assert receipt.files[1].path == "client/src/Moved-q7m4.tsx"
+    assert receipt.files[1].after_sha256 is not None
+    assert not (target / "client/src/App.tsx").exists()
+    assert (target / "client/src/Moved-q7m4.tsx").read_text(
+        encoding="utf-8"
+    ) == old_content
+
+    assert engine.revert(receipt) == receipt
+    assert (target / "client/src/App.tsx").read_text(encoding="utf-8") == old_content
+    assert not (target / "client/src/Moved-q7m4.tsx").exists()
+
+
+def test_delete_failure_rolls_back_all_prior_file_operations(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+
+    def fail_delete(phase: str, index: int, path: str) -> None:
+        if phase == "apply" and path == "server/app.py":
+            raise OSError("synthetic random r8v3 failure")
+
+    engine = CodingApplierEngine(
+        source,
+        target,
+        staging,
+        mutation_hook=fail_delete,
+    )
+    patch = deleted_patch("client/src/App.tsx", "export const value = 1;\n")
+    patch += deleted_patch("server/app.py", "VALUE = 1\n")
+
+    with pytest.raises(CodingApplyError) as error:
+        engine.apply(
+            operation_id=OPERATION_ID,
+            revision=5,
+            patch=patch,
+            paths=["client/src/App.tsx", "server/app.py"],
+            expected_fingerprint=engine.source_fingerprint,
+        )
+
+    assert error.value.code == "apply_failed"
+    assert (target / "client/src/App.tsx").read_text(encoding="utf-8") == (
+        "export const value = 1;\n"
+    )
+    assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+def test_deleted_file_recreated_externally_blocks_revert(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    engine = CodingApplierEngine(source, target, staging)
+    patch = deleted_patch("server/app.py", "VALUE = 1\n")
+    receipt = engine.apply(
+        operation_id=OPERATION_ID,
+        revision=6,
+        patch=patch,
+        paths=["server/app.py"],
+        expected_fingerprint=engine.source_fingerprint,
+    )
+    (target / "server/app.py").write_text(
+        "EXTERNAL = 'keep-r9n4'\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodingApplyError) as error:
+        engine.revert(receipt)
+
+    assert error.value.code == "revert_conflict"
+    assert (target / "server/app.py").read_text(encoding="utf-8") == (
+        "EXTERNAL = 'keep-r9n4'\n"
+    )
+
+
+def test_deleted_file_reconciles_after_process_restart(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    first = CodingApplierEngine(source, target, staging)
+    patch = deleted_patch("server/app.py", "VALUE = 1\n")
+    first.apply(
+        operation_id=OPERATION_ID,
+        revision=7,
+        patch=patch,
+        paths=["server/app.py"],
+        expected_fingerprint=first.source_fingerprint,
+    )
+
+    recovered = CodingApplierEngine(source, target, staging)
+    state, receipt = recovered.reconcile(
+        operation_id=OPERATION_ID,
+        revision=7,
+        patch=patch,
+        paths=["server/app.py"],
+        expected_fingerprint=recovered.source_fingerprint,
+    )
+
+    assert state == "applied"
+    assert receipt is not None and receipt.files[0].after_sha256 is None
+    recovered.revert(receipt)
+    assert (target / "server/app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
 def test_apply_rejects_target_with_extra_or_changed_content(

@@ -35,7 +35,7 @@ class ApplyFileReceipt:
     path: str
     existed_before: bool
     before_sha256: str | None
-    after_sha256: str
+    after_sha256: str | None
 
     def __post_init__(self) -> None:
         try:
@@ -44,7 +44,9 @@ class ApplyFileReceipt:
             raise ValueError("Apply receipt path is invalid") from exc
         if normalized != self.path:
             raise ValueError("Apply receipt path is not canonical")
-        if not SHA256_PATTERN.fullmatch(self.after_sha256):
+        if self.after_sha256 is not None and not SHA256_PATTERN.fullmatch(
+            self.after_sha256
+        ):
             raise ValueError("Apply receipt after hash is invalid")
         if self.existed_before:
             if (
@@ -54,6 +56,8 @@ class ApplyFileReceipt:
                 raise ValueError("Apply receipt before hash is invalid")
         elif self.before_sha256 is not None:
             raise ValueError("New files cannot have a before hash")
+        if self.after_sha256 is None and not self.existed_before:
+            raise ValueError("A deleted file must have existed before application")
 
 
 @dataclass(frozen=True, slots=True)
