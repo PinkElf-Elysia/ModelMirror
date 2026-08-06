@@ -94,6 +94,11 @@ except ModuleNotFoundError:
     from skills.api import get_skill_draft_store, get_skill_manager, router as skills_router
 
 try:
+    from server.agent_workspace.api import router as agent_workspace_router
+except ModuleNotFoundError:
+    from agent_workspace.api import router as agent_workspace_router
+
+try:
     from server.plugins.api import router as plugins_router
     from server.plugins.registry import get_plugin_store
     from server.prompts import (
@@ -732,6 +737,7 @@ app.include_router(dify_router)
 app.include_router(rag_router)
 app.include_router(datax_router)
 app.include_router(skills_router)
+app.include_router(agent_workspace_router)
 app.include_router(xperts_router)
 app.include_router(xpert_apps_router)
 app.include_router(workflow_native_router)

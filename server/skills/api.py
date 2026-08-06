@@ -20,11 +20,35 @@ from .draft_store import (
     SkillDraftValidationError,
     WorkspaceSkillDraftStore,
 )
+from .builtin_library import (
+    BuiltinSkill,
+    BuiltinSkillLibrary,
+    BuiltinSkillLibraryError,
+    Skillset,
+    SkillsetUpdate,
+    SkillsetWrite,
+)
+
+try:
+    from server.agent_workspace.store import (
+        AgentConflictError,
+        AgentNotFoundError,
+        AgentStateValidationError,
+        AgentWorkspaceError,
+    )
+except ModuleNotFoundError:
+    from agent_workspace.store import (
+        AgentConflictError,
+        AgentNotFoundError,
+        AgentStateValidationError,
+        AgentWorkspaceError,
+    )
 
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 _skill_manager: SkillManager | None = None
 _skill_draft_store: WorkspaceSkillDraftStore | None = None
+_builtin_library: BuiltinSkillLibrary | None = None
 
 
 class SkillInstallRequest(BaseModel):
@@ -70,6 +94,20 @@ class SkillDraftPatchRequest(BaseModel):
     files: dict[str, str] | None = None
 
 
+class SkillLibraryResponse(BaseModel):
+    skills: list[BuiltinSkill]
+    total: int
+
+
+class SkillsetsResponse(BaseModel):
+    skillsets: list[Skillset]
+
+
+class SkillsetMaterializeRequest(BaseModel):
+    agent_id: str = Field(pattern=r"^[A-Za-z0-9_-]+$")
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 def get_skill_manager() -> SkillManager:
     """Return the process-wide Skill manager."""
 
@@ -98,6 +136,126 @@ def set_skill_draft_store_for_tests(
 ) -> None:
     global _skill_draft_store
     _skill_draft_store = store
+
+
+def get_builtin_skill_library() -> BuiltinSkillLibrary:
+    global _builtin_library
+    if _builtin_library is None:
+        _builtin_library = BuiltinSkillLibrary()
+    return _builtin_library
+
+
+def set_builtin_skill_library_for_tests(
+    library: BuiltinSkillLibrary | None,
+) -> None:
+    global _builtin_library
+    _builtin_library = library
+
+
+def _raise_builtin_error(exc: BuiltinSkillLibraryError) -> None:
+    message = str(exc)
+    if "not found" in message.lower():
+        raise HTTPException(status_code=404, detail=message) from exc
+    if "changed" in message.lower() or "already exists" in message.lower():
+        raise HTTPException(status_code=409, detail=message) from exc
+    raise HTTPException(status_code=400, detail=message) from exc
+
+
+def _raise_agent_state_error(exc: AgentWorkspaceError) -> None:
+    if isinstance(exc, AgentNotFoundError):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, AgentConflictError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, AgentStateValidationError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/library", response_model=SkillLibraryResponse)
+async def list_builtin_skill_library() -> SkillLibraryResponse:
+    try:
+        skills = await asyncio.to_thread(get_builtin_skill_library().list_skills)
+        return SkillLibraryResponse(skills=skills, total=len(skills))
+    except BuiltinSkillLibraryError as exc:
+        _raise_builtin_error(exc)
+
+
+@router.get("/library/{skill_id}/content", response_model=SkillContentResponse)
+async def get_builtin_skill_content(skill_id: str) -> SkillContentResponse:
+    try:
+        content = await asyncio.to_thread(
+            get_builtin_skill_library().get_content, skill_id
+        )
+        return SkillContentResponse(skill_id=skill_id, content=content)
+    except BuiltinSkillLibraryError as exc:
+        _raise_builtin_error(exc)
+
+
+@router.get("/skillsets", response_model=SkillsetsResponse)
+async def list_skillsets() -> SkillsetsResponse:
+    try:
+        skillsets = await asyncio.to_thread(
+            get_builtin_skill_library().list_skillsets
+        )
+        return SkillsetsResponse(skillsets=skillsets)
+    except BuiltinSkillLibraryError as exc:
+        _raise_builtin_error(exc)
+
+
+@router.post("/skillsets", response_model=Skillset, status_code=201)
+async def create_skillset(payload: SkillsetWrite) -> Skillset:
+    try:
+        return await asyncio.to_thread(
+            get_builtin_skill_library().create_skillset, payload
+        )
+    except BuiltinSkillLibraryError as exc:
+        _raise_builtin_error(exc)
+
+
+@router.put("/skillsets/{skillset_id}", response_model=Skillset)
+async def update_skillset(skillset_id: str, payload: SkillsetUpdate) -> Skillset:
+    try:
+        return await asyncio.to_thread(
+            get_builtin_skill_library().update_skillset, skillset_id, payload
+        )
+    except BuiltinSkillLibraryError as exc:
+        _raise_builtin_error(exc)
+
+
+@router.delete("/skillsets/{skillset_id}")
+async def delete_skillset(skillset_id: str) -> dict[str, bool]:
+    try:
+        await asyncio.to_thread(
+            get_builtin_skill_library().delete_skillset, skillset_id
+        )
+        return {"ok": True}
+    except BuiltinSkillLibraryError as exc:
+        _raise_builtin_error(exc)
+
+
+@router.post("/skillsets/{skillset_id}/materialize")
+async def materialize_skillset(
+    skillset_id: str, payload: SkillsetMaterializeRequest
+):
+    try:
+        skillset = await asyncio.to_thread(
+            get_builtin_skill_library().get_skillset, skillset_id
+        )
+        try:
+            from server.agent_workspace.api import get_agent_state_store
+        except ModuleNotFoundError:
+            from agent_workspace.api import get_agent_state_store
+        return await asyncio.to_thread(
+            get_agent_state_store().materialize_builtin_skillset,
+            payload.agent_id,
+            skillset_id=skillset.skillset_id,
+            members=[member.model_dump(mode="json") for member in skillset.members],
+            expected_revision=payload.expected_revision,
+        )
+    except BuiltinSkillLibraryError as exc:
+        _raise_builtin_error(exc)
+    except AgentWorkspaceError as exc:
+        _raise_agent_state_error(exc)
 
 
 def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:

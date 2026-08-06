@@ -32,6 +32,8 @@ import PromptProfilesPage from "./pages/PromptProfilesPage";
 import PluginsPage from "./pages/PluginsPage";
 import XpertEvaluationsPage from "./pages/XpertEvaluationsPage";
 import XpertEvolutionPage from "./pages/XpertEvolutionPage";
+import AgentWorkbenchPage from "./pages/AgentWorkbenchPage";
+import AgentConfigPage from "./pages/AgentConfigPage";
 
 const CodingPage = lazy(() => import("./pages/CodingPage"));
 
@@ -62,6 +64,11 @@ export default function App() {
         path="/coding"
       />
       <Route element={<AgentsPage />} path="/agents" />
+      <Route element={<AgentWorkbenchPage />} path="/agents/workbench" />
+      <Route
+        element={<AgentConfigPage />}
+        path="/agents/workbench/agents/:agentId"
+      />
       <Route element={<MetaAgentPage />} path="/agents/meta-agent" />
       <Route element={<XpertStudioIndexPage />} path="/agents/studio" />
       <Route element={<XpertCreatePage />} path="/agents/studio/new" />
