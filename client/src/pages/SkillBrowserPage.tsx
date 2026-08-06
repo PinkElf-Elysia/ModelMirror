@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PageContainer from "../components/PageContainer";
 import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
 import SkillDraftPanel from "../components/authoring/SkillDraftPanel";
 import {
   type SkillProject,
   type SkillProjectKind,
+  type SkillInstallSource,
   skillProjects,
 } from "../data/skillProjects";
+import {
+  loadSkillSetMemberIndex,
+  type SkillSetMemberSource,
+} from "../data/skillSetMembers";
 import {
   findSkillsForNeed,
   type SkillNeedMatch,
@@ -32,6 +37,7 @@ type SkillTab = "builtin" | "market" | "installed" | "drafts" | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 const MARKET_PAGE_SIZE = 48;
+const SKILLSET_MEMBER_PAGE_SIZE = 50;
 const NEED_EXAMPLES = [
   "分析 Excel 销售数据",
   "为 React 网页编写自动化测试",
@@ -70,10 +76,26 @@ function formatStars(stars: number) {
 
 function formatProjectKind(project: SkillProject) {
   if (project.kind === "skillset") {
-    const includedCount = project.includedSkills?.length ?? 0;
-    return includedCount > 0 ? `SkillSet · ${includedCount} 项` : "SkillSet";
+    if (project.skillSet?.mode === "members") {
+      return `SkillSet · ${project.skillSet.memberCount} 个成员`;
+    }
+    if (project.skillSet?.mode === "package") {
+      return `SkillSet · ${project.skillSet.skillDocumentCount} 个技能`;
+    }
+    return "SkillSet";
   }
   return "Skill";
+}
+
+function installStatusDetailsFor(project: SkillProject) {
+  if (project.installStatus === "ready" && project.installMode === "members") {
+    return {
+      label: "成员可安装",
+      action: "查看成员",
+      className: "border-accent-300/30 bg-accent-300/10 text-accent-100",
+    };
+  }
+  return INSTALL_STATUS_DETAILS[project.installStatus];
 }
 
 function formatInstallTime(value: number) {
@@ -94,34 +116,45 @@ async function readApiError(response: Response) {
   }
 }
 
-function isProjectInstalled(project: SkillProject, installedSkills: InstalledSkill[]) {
-  if (!project.installSource) return false;
+function isSourceInstalled(
+  source: SkillInstallSource | SkillSetMemberSource,
+  installedSkills: InstalledSkill[],
+) {
   return installedSkills.some(
     (skill) =>
-      skill.repo_url === project.installSource?.repoUrl &&
-      skill.sub_path === project.installSource?.subPath &&
-      (!project.installSource.verifiedCommit ||
-        skill.source_ref === project.installSource.verifiedCommit),
+      skill.repo_url === source.repoUrl &&
+      skill.sub_path === source.subPath &&
+      skill.source_ref === source.verifiedCommit,
   );
+}
+
+function isProjectInstalled(project: SkillProject, installedSkills: InstalledSkill[]) {
+  return project.installSource
+    ? isSourceInstalled(project.installSource, installedSkills)
+    : false;
 }
 
 function MarketSkillCard({
   installingId,
   installed,
   onInstall,
+  onOpenSkillSet,
   project,
 }: {
   installingId: string;
   installed: boolean;
   onInstall: (project: SkillProject) => void;
+  onOpenSkillSet: (project: SkillProject) => void;
   project: SkillProject;
 }) {
-  const canInstall = Boolean(project.installSource);
+  const canInstall = project.installMode === "direct" && Boolean(project.installSource);
+  const canBrowseMembers =
+    project.installMode === "members" && project.skillSet?.mode === "members";
   const isInstalling = installingId === project.id;
   const installLabel = project.kind === "skillset" ? "安装技能包" : "安装技能";
-  const installStatus = INSTALL_STATUS_DETAILS[project.installStatus];
+  const installStatus = installStatusDetailsFor(project);
   const hasIncludedSkills =
-    project.kind === "skillset" && (project.includedSkills?.length ?? 0) > 0;
+    project.skillSet?.mode === "package" && (project.includedSkills?.length ?? 0) > 0;
 
   return (
     <article className="group relative overflow-hidden rounded-lg border border-white/10 bg-ink-950/70 p-5 transition duration-200 hover:border-hire-300/35 hover:bg-white/[0.065]">
@@ -173,11 +206,13 @@ function MarketSkillCard({
 
       <div className="mt-5 rounded-lg border border-white/10 bg-white/[0.045] p-3">
         <p className="text-xs font-semibold text-slate-300">
-          {hasIncludedSkills
-            ? "技能包内容"
-            : project.kind === "skillset"
-              ? "技能包来源"
-              : "安装来源"}
+          {project.skillSet?.mode === "members"
+            ? "成员集合来源"
+            : hasIncludedSkills
+              ? "技能包内容"
+              : project.kind === "skillset"
+                ? "技能包来源"
+                : "安装来源"}
         </p>
         {hasIncludedSkills ? (
           <p className="mt-2 text-xs leading-5 text-slate-400">
@@ -185,7 +220,22 @@ function MarketSkillCard({
           </p>
         ) : null}
         <div className="mt-2 rounded-md bg-ink-950/80 p-2 text-xs leading-5 text-slate-300">
-          {project.installSource ? (
+          {project.skillSet?.mode === "members" ? (
+            <div>
+              <code className="break-all text-hire-100">
+                {project.skillSet.repoUrl} / {project.skillSet.scopeSubPath || "."}
+              </code>
+              <p className="mt-1 text-[11px] text-emerald-200/80">
+                已核验固定提交 {project.skillSet.verifiedCommit.slice(0, 12)}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400">
+                {project.skillSet.memberCount} 个顶层成员
+                {project.skillSet.nestedSkillCount > 0
+                  ? ` · ${project.skillSet.nestedSkillCount} 个嵌套技能`
+                  : ""}
+              </p>
+            </div>
+          ) : project.installSource ? (
             <div>
               <code className="break-all text-hire-100">
                 {project.installSource.repoUrl} / {project.installSource.subPath}
@@ -228,11 +278,19 @@ function MarketSkillCard({
         {canInstall ? (
           <button
             className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_22px_rgba(251,146,60,0.22)] transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
-            disabled={installed || isInstalling}
+            disabled={installed || Boolean(installingId)}
             onClick={() => onInstall(project)}
             type="button"
           >
             {isInstalling ? "安装中..." : installed ? "已安装" : installLabel}
+          </button>
+        ) : canBrowseMembers ? (
+          <button
+            className="rounded-full border border-accent-300/30 bg-accent-300/10 px-4 py-2 text-sm font-semibold text-accent-100 transition hover:bg-accent-300/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-200"
+            onClick={() => onOpenSkillSet(project)}
+            type="button"
+          >
+            查看成员
           </button>
         ) : (
           <a
@@ -255,17 +313,25 @@ function NeedMatchCard({
   match,
   onInstall,
   onLocate,
+  onOpenSkillSet,
 }: {
   installed: boolean;
   installingId: string;
   match: SkillNeedMatch<SkillProject>;
   onInstall: (project: SkillProject) => void;
   onLocate: (project: SkillProject) => void;
+  onOpenSkillSet: (project: SkillProject) => void;
 }) {
   const { project, reasons } = match;
-  const installStatus = INSTALL_STATUS_DETAILS[project.installStatus];
+  const installStatus = installStatusDetailsFor(project);
   const canInstall =
-    project.installStatus === "ready" && Boolean(project.installSource);
+    project.installStatus === "ready" &&
+    project.installMode === "direct" &&
+    Boolean(project.installSource);
+  const canBrowseMembers =
+    project.installStatus === "ready" &&
+    project.installMode === "members" &&
+    project.skillSet?.mode === "members";
   const isInstalling = installingId === project.id;
 
   return (
@@ -306,9 +372,13 @@ function NeedMatchCard({
         ))}
       </div>
 
-      {!canInstall ? (
+      {!canInstall && !canBrowseMembers ? (
         <p className="mt-3 text-xs leading-5 text-amber-100/80">
           {project.installNote}
+        </p>
+      ) : canBrowseMembers ? (
+        <p className="mt-3 text-xs leading-5 text-accent-100/85">
+          该集合不整包安装，请打开成员列表选择需要的 Skill。
         </p>
       ) : null}
 
@@ -331,15 +401,282 @@ function NeedMatchCard({
         {canInstall ? (
           <button
             className="ml-auto rounded-full bg-hire-300 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-            disabled={installed || isInstalling}
+            disabled={installed || Boolean(installingId)}
             onClick={() => onInstall(project)}
             type="button"
           >
             {isInstalling ? "安装中..." : installed ? "已安装" : "一键安装"}
           </button>
+        ) : canBrowseMembers ? (
+          <button
+            className="ml-auto rounded-full bg-accent-200 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-100"
+            onClick={() => onOpenSkillSet(project)}
+            type="button"
+          >
+            查看成员
+          </button>
         ) : null}
       </div>
     </article>
+  );
+}
+
+function SkillSetMemberPanel({
+  installedSkills,
+  installingId,
+  onClose,
+  onInstallMember,
+  project,
+}: {
+  installedSkills: InstalledSkill[];
+  installingId: string;
+  onClose: () => void;
+  onInstallMember: (member: SkillSetMemberSource) => void;
+  project: SkillProject;
+}) {
+  const panelRef = useRef<HTMLElement>(null);
+  const [members, setMembers] = useState<SkillSetMemberSource[] | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [memberQuery, setMemberQuery] = useState("");
+  const [memberPage, setMemberPage] = useState(1);
+
+  useEffect(() => {
+    let isCurrent = true;
+    setMembers(null);
+    setLoadError("");
+    setMemberQuery("");
+    setMemberPage(1);
+
+    void loadSkillSetMemberIndex()
+      .then((index) => {
+        if (!isCurrent) return;
+        const group = index.skillSets[project.id];
+        if (!group) {
+          throw new Error("该 SkillSet 的成员索引不存在，请重新运行目录核验。");
+        }
+        const resolvedMembers = group.memberIds
+          .map((memberId) => index.members[memberId])
+          .filter((member): member is SkillSetMemberSource => Boolean(member));
+        if (resolvedMembers.length !== group.memberIds.length) {
+          throw new Error("成员索引不完整，本次不会提供安装操作。");
+        }
+        setMembers(resolvedMembers);
+      })
+      .catch((memberError) => {
+        if (!isCurrent) return;
+        setLoadError(
+          memberError instanceof Error ? memberError.message : "成员索引加载失败",
+        );
+      });
+
+    window.requestAnimationFrame(() => {
+      panelRef.current?.focus({ preventScroll: true });
+      panelRef.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start",
+      });
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [project.id]);
+
+  const filteredMembers = useMemo(() => {
+    const query = memberQuery.trim().toLocaleLowerCase("zh-CN");
+    if (!members || !query) return members ?? [];
+    return members.filter((member) =>
+      `${member.name} ${member.subPath}`
+        .toLocaleLowerCase("zh-CN")
+        .includes(query),
+    );
+  }, [memberQuery, members]);
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredMembers.length / SKILLSET_MEMBER_PAGE_SIZE),
+  );
+  const visibleMembers = filteredMembers.slice(
+    (memberPage - 1) * SKILLSET_MEMBER_PAGE_SIZE,
+    memberPage * SKILLSET_MEMBER_PAGE_SIZE,
+  );
+  const summary = project.skillSet;
+
+  useEffect(() => {
+    setMemberPage(1);
+  }, [memberQuery]);
+
+  return (
+    <section
+      aria-labelledby="skillset-member-title"
+      className="mb-6 scroll-mt-4 rounded-lg border border-accent-300/25 bg-surface-900/80 p-5 shadow-prism focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-200"
+      id="skillset-member-panel"
+      ref={panelRef}
+      tabIndex={-1}
+    >
+      <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-accent-100">SkillSet 成员</p>
+          <h2 className="mt-1 text-2xl font-semibold text-white" id="skillset-member-title">
+            {project.name}
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+            该集合没有可整体安装的父级 SKILL.md。请选择具体成员安装；不会下载集合中的其他目录。
+          </p>
+        </div>
+        <button
+          className="shrink-0 rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+          onClick={onClose}
+          type="button"
+        >
+          收起成员
+        </button>
+      </div>
+
+      <div className="grid gap-3 border-b border-white/10 py-4 text-xs sm:grid-cols-2 xl:grid-cols-4">
+        <div>
+          <p className="text-slate-500">固定提交</p>
+          <p className="mt-1 font-mono text-emerald-100">
+            {summary?.verifiedCommit.slice(0, 12) ?? "—"}
+          </p>
+        </div>
+        <div>
+          <p className="text-slate-500">核验范围</p>
+          <p className="mt-1 break-all font-mono text-slate-200">
+            {summary?.scopeSubPath || "."}
+          </p>
+        </div>
+        <div>
+          <p className="text-slate-500">可安装成员</p>
+          <p className="mt-1 font-semibold text-white">
+            {summary?.memberCount ?? 0} 个
+          </p>
+        </div>
+        <div>
+          <p className="text-slate-500">包含结构</p>
+          <p className="mt-1 font-semibold text-white">
+            {summary?.skillDocumentCount ?? 0} 个 Skill 文档
+            {summary?.nestedSkillCount
+              ? ` · ${summary.nestedSkillCount} 个嵌套`
+              : ""}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <label className="block w-full max-w-xl" htmlFor="skillset-member-search">
+          <span className="text-xs font-semibold text-slate-300">搜索成员</span>
+          <input
+            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2.5 text-sm text-white placeholder:text-slate-500 transition focus:border-accent-300/50 focus:outline-none focus:ring-2 focus:ring-accent-300/15"
+            id="skillset-member-search"
+            onChange={(event) => setMemberQuery(event.target.value)}
+            placeholder="输入成员名称或仓库路径"
+            type="search"
+            value={memberQuery}
+          />
+        </label>
+        <a
+          className="w-fit text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
+          href={project.repoUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          查看来源仓库
+        </a>
+      </div>
+
+      {loadError ? (
+        <div className="mt-5 rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-50">
+          {loadError}
+        </div>
+      ) : members === null ? (
+        <div aria-live="polite" className="mt-5 space-y-2">
+          {[0, 1, 2].map((item) => (
+            <div
+              className="h-16 animate-pulse rounded-md bg-white/[0.055] motion-reduce:animate-none"
+              key={item}
+            />
+          ))}
+          <span className="sr-only">正在加载成员索引</span>
+        </div>
+      ) : filteredMembers.length === 0 ? (
+        <div className="mt-5 rounded-lg border border-dashed border-white/15 px-5 py-8 text-center">
+          <p className="text-sm font-semibold text-white">没有匹配的集合成员</p>
+          <p className="mt-2 text-xs text-slate-400">请尝试名称片段或目录路径。</p>
+        </div>
+      ) : (
+        <>
+          <div
+            aria-live="polite"
+            className="mt-5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400"
+          >
+            <span>
+              找到 <strong className="text-white">{filteredMembers.length}</strong> 个成员
+            </span>
+            <span>
+              第 {memberPage} / {pageCount} 页 · 每页最多 {SKILLSET_MEMBER_PAGE_SIZE} 项
+            </span>
+          </div>
+          <ul className="mt-3 divide-y divide-white/10 border-y border-white/10">
+            {visibleMembers.map((member) => {
+              const installed = isSourceInstalled(member, installedSkills);
+              const isInstalling = installingId === member.id;
+              return (
+                <li
+                  className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  key={member.id}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-white">{member.name}</p>
+                      {member.nestedSkillCount > 0 ? (
+                        <span className="rounded-full border border-white/10 bg-white/[0.055] px-2 py-0.5 text-[11px] text-slate-300">
+                          含 {member.nestedSkillCount} 个嵌套技能
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 break-all font-mono text-xs leading-5 text-slate-500">
+                      {member.subPath}
+                    </p>
+                  </div>
+                  <button
+                    className="shrink-0 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+                    disabled={installed || Boolean(installingId)}
+                    onClick={() => onInstallMember(member)}
+                    type="button"
+                  >
+                    {isInstalling ? "安装中..." : installed ? "已安装" : "安装成员"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {pageCount > 1 ? (
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={memberPage === 1}
+                onClick={() => setMemberPage((current) => Math.max(1, current - 1))}
+                type="button"
+              >
+                上一页
+              </button>
+              <button
+                className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={memberPage === pageCount}
+                onClick={() =>
+                  setMemberPage((current) => Math.min(pageCount, current + 1))
+                }
+                type="button"
+              >
+                下一页
+              </button>
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -404,6 +741,7 @@ export default function SkillBrowserPage() {
   const [isLoadingBuiltin, setIsLoadingBuiltin] = useState(false);
   const [installingId, setInstallingId] = useState("");
   const [uninstallingId, setUninstallingId] = useState("");
+  const [selectedSkillSetId, setSelectedSkillSetId] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const categories = useMemo(() => {
@@ -484,6 +822,16 @@ export default function SkillBrowserPage() {
     });
   }, [searchQuery, selectedAvailability, selectedCategory, selectedKind]);
   const visibleProjects = filteredProjects.slice(0, visibleProjectCount);
+  const selectedSkillSetProject = useMemo(
+    () =>
+      skillProjects.find(
+        (project) =>
+          project.id === selectedSkillSetId &&
+          project.installMode === "members" &&
+          project.skillSet?.mode === "members",
+      ),
+    [selectedSkillSetId],
+  );
   const hasActiveFilters =
     searchQuery.trim().length > 0 ||
     selectedCategory !== "all" ||
@@ -532,10 +880,20 @@ export default function SkillBrowserPage() {
     }
   }
 
-  async function installSkill(project: SkillProject) {
-    if (!project.installSource || installingId) return;
+  async function installFromSource({
+    installId,
+    label,
+    source,
+    typeLabel,
+  }: {
+    installId: string;
+    label: string;
+    source: SkillInstallSource | SkillSetMemberSource;
+    typeLabel: string;
+  }) {
+    if (installingId) return;
 
-    setInstallingId(project.id);
+    setInstallingId(installId);
     setError("");
     setNotice("");
 
@@ -544,9 +902,9 @@ export default function SkillBrowserPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          repo_url: project.installSource.repoUrl,
-          sub_path: project.installSource.subPath,
-          ref: project.installSource.verifiedCommit,
+          repo_url: source.repoUrl,
+          sub_path: source.subPath,
+          ref: source.verifiedCommit,
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
@@ -555,9 +913,7 @@ export default function SkillBrowserPage() {
         installed,
         ...current.filter((skill) => skill.skill_id !== installed.skill_id),
       ]);
-      setNotice(
-        `${project.name} ${project.kind === "skillset" ? "技能包" : "技能"}已安装，可在面试间选择使用。`,
-      );
+      setNotice(`「${label}」${typeLabel}已安装，可在面试间选择使用。`);
     } catch (installError) {
       setError(
         installError instanceof Error ? installError.message : "技能安装失败",
@@ -565,6 +921,25 @@ export default function SkillBrowserPage() {
     } finally {
       setInstallingId("");
     }
+  }
+
+  async function installSkill(project: SkillProject) {
+    if (!project.installSource || project.installMode !== "direct") return;
+    await installFromSource({
+      installId: project.id,
+      label: project.name,
+      source: project.installSource,
+      typeLabel: project.kind === "skillset" ? "技能包" : "技能",
+    });
+  }
+
+  async function installSkillSetMember(member: SkillSetMemberSource) {
+    await installFromSource({
+      installId: member.id,
+      label: member.name,
+      source: member,
+      typeLabel: "成员",
+    });
   }
 
   function submitNeedSearch(value: string) {
@@ -586,6 +961,14 @@ export default function SkillBrowserPage() {
           ?.scrollIntoView({ behavior: "smooth", block: "start" }),
       ),
     );
+  }
+
+  function openSkillSet(project: SkillProject) {
+    if (project.installMode !== "members" || project.skillSet?.mode !== "members") {
+      return;
+    }
+    setActiveTab("market");
+    setSelectedSkillSetId(project.id);
   }
 
   function resetMarketFilters() {
@@ -628,7 +1011,7 @@ export default function SkillBrowserPage() {
         <div>
           <p className="text-sm font-semibold text-white">技能培训服务台</p>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            Skill 是单项岗位手册，SkillSet 是带多个子技能的组合包。安装后可在面试间激活。
+            Skill 是单项岗位手册；SkillSet 可能是可整体安装的父包，也可能是需要逐项选择的成员集合。
           </p>
           <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
             <p className="text-xs text-slate-400">可安装资源</p>
@@ -666,7 +1049,7 @@ export default function SkillBrowserPage() {
               Skill 技能货架
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-              按任务、分类和资源类型查找岗位手册。目录同时收录独立 Skill 与可一次安装的 SkillSet。
+              按任务、分类和资源类型查找岗位手册。独立 Skill 与父级技能包可直接安装，成员集合可展开后逐项选择。
             </p>
           </div>
 
@@ -837,6 +1220,7 @@ export default function SkillBrowserPage() {
                         match={match}
                         onInstall={(project) => void installSkill(project)}
                         onLocate={locateRecommendedSkill}
+                        onOpenSkillSet={openSkillSet}
                       />
                     ))}
                   </div>
@@ -895,7 +1279,7 @@ export default function SkillBrowserPage() {
                   value={selectedAvailability}
                 >
                   <option value="all">全部资源</option>
-                  <option value="ready">可一键安装（{installStatusCounts.ready}）</option>
+                  <option value="ready">固定来源可用（{installStatusCounts.ready}）</option>
                   {installStatusCounts.manual > 0 ? (
                     <option value="manual">
                       有安装说明（{installStatusCounts.manual}）
@@ -960,6 +1344,16 @@ export default function SkillBrowserPage() {
           </div>
         ) : null}
 
+        {activeTab === "market" && selectedSkillSetProject ? (
+          <SkillSetMemberPanel
+            installedSkills={installedSkills}
+            installingId={installingId}
+            onClose={() => setSelectedSkillSetId("")}
+            onInstallMember={(member) => void installSkillSetMember(member)}
+            project={selectedSkillSetProject}
+          />
+        ) : null}
+
         {activeTab === "builtin" ? (
           builtinSkills.length > 0 ? (
             <div>
@@ -1013,6 +1407,7 @@ export default function SkillBrowserPage() {
                   installingId={installingId}
                   key={project.id}
                   onInstall={(item) => void installSkill(item)}
+                  onOpenSkillSet={openSkillSet}
                   project={project}
                 />
               ))}
