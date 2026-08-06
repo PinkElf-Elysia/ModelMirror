@@ -1,6 +1,6 @@
 # Skill 体验治理与候选能力审计
 
-最后更新日期：2026-08-05
+最后更新日期：2026-08-06
 状态：现有目录治理进行中；候选能力仅完成审计；外部市场接入延后
 
 ## 1. 当前边界
@@ -26,7 +26,7 @@
 
 | 状态 | 判定 | 页面动作 |
 | --- | --- | --- |
-| 可一键安装 | 已证明 GitHub 仓库固定提交中存在目标 `SKILL.md` | 由模镜安装接口处理 |
+| 固定来源可用 | 已证明固定提交中的直接目录或至少两个确定成员 | 直接安装，或进入集合逐项/顺序安装成员 |
 | 有安装说明 | 来源页有说明，但尚未完成仓库与目录核验 | 仅查看来源说明 |
 | 待核验来源 | 仓库、版本或目录无法证明，或已发现失配 | 不开放安装 |
 | 仅资料参考 | 产品页、规范页或非 Skill 包资料 | 仅查看资料 |
@@ -47,6 +47,10 @@
 6. 所有 1,242 条用户可见记录都写入按 Skill ID 索引的结构化证据；网络或 GitHub 临时故障会终止整批生成，不覆盖上一版证据。
 7. 安装请求必须携带证据中的固定提交 SHA，避免默认分支变化后安装未经审计的新内容。
 8. 对已收录的 OfficialSkills 来源页，只读取“Setup & Installation”中的 GitHub 声明，不执行页面命令；目录失效时只允许同仓库内唯一同名 Skill 或 frontmatter 精确名称修正。
+9. 对 GitHub 已声明但失效的 `SKILL.md` 路径，按仓库读取 Git 历史；仅接受连续、唯一的 `R100` 完整内容重命名链，且链终点必须仍存在于当前默认分支提交。
+10. 历史提交只用于证明路径变化；安装仍固定到来源仓库当前 HEAD，不安装已删除的历史版本，也不根据名称或描述猜测替代目录。
+11. Skill/SkillSet 类型只依据同一仓库固定提交中的 `SKILL.md` 层级：父范围有 `SKILL.md` 的组合包整体安装；无父级文档且包含至少两个顶层 Skill 的集合不伪装成整包来源，只开放成员逐项安装或前端顺序安装全部成员。
+12. 顶层成员由最近的 `SKILL.md` 祖先确定；嵌套 Skill 作为父包内容，不重复注册。只有成员目录完整 Git tree SHA 相同时才去重。
 
 维护命令：
 
@@ -54,6 +58,8 @@
 node scripts/verify-skill-install-sources.mjs
 node scripts/verify-official-skill-install-sources.mjs
 node scripts/audit-official-skill-source-resolver.mjs
+node scripts/audit-github-skill-path-history.mjs
+node scripts/audit-github-skill-tree.mjs
 node scripts/audit-skill-experience.mjs
 ```
 
@@ -65,16 +71,22 @@ node scripts/audit-skill-experience.mjs
 - 原 963 项“可一键安装”中，772 项通过固定提交复核，191 项因目录或仓库证据不足降为待核验。
 - 117 项 GitHub 仓库根链接中，61 项通过确定性规则升级为可安装，56 项继续待核验。
 - 第二轮读取 153 个既有 OfficialSkills 待核验来源页：152 页声明了唯一 GitHub 来源，1 页缺少可核验声明；其中 24 项通过同仓库唯一同名目录修正为固定提交安装，129 项继续待核验，没有既有可安装项被降级。
-- 最终 857 项具备固定提交安装证据，376 项待核验。剩余原因包括 301 项声明路径失效、53 项存在多个候选目录、17 项仓库不可公开访问、4 项仓库没有 `SKILL.md` 和 1 项来源页未声明安装源；9 项参考资源仍保留 `no-install-source`。
+- 第三轮复查剩余 247 个 GitHub 待核验项，其中 182 个失效路径进入 Git 历史核验；没有发现满足连续、唯一 `R100` 证据且终点仍存在的升级项，171 项确认路径已删除，11 项确认声明路径在默认分支历史中从未出现。
+- 最后一轮对全部记录重新执行结构分类。44 项原普通 Skill 被证明确实包含多个安装单元，升级为 SkillSet；6 项仅因名称含 `skills`、`bundle`、`suite` 或 `pack` 而被误标的条目恢复为普通 Skill。
+- 经结构证明的 SkillSet 共 80 项：10 项是父范围自身存在 `SKILL.md` 的组合包，可固定提交整体安装；70 项是没有父级文档的成员集合，只能展开后逐项安装。成员按完整目录树去重后共有 3,541 个固定提交安装源。
+- 原来因“多目录 SkillSet 暂不支持安装”而禁用的确定性集合已转为成员安装模式；仍无法形成唯一成员树的记录继续待核验，不进行名称或描述推断。
+- 最终 922 项具备固定提交安装能力，其中成员集合以成员逐项安装满足 `ready` 约束；311 项待核验，9 项参考资源仍保留 `no-install-source`。
 
 聚合去重后的 1,242 项资源状态为：
 
 | 状态 | 数量 |
 | --- | ---: |
-| 可一键安装 | 857 |
+| 可用固定来源 | 922 |
 | 有安装说明 | 0 |
-| 待核验来源 | 376 |
+| 待核验来源 | 311 |
 | 仅资料参考 | 9 |
+
+页面按核验后的结构展示 1,159 个普通 Skill 和 83 个 SkillSet；后者包含上述 80 个可核验集合及 3 个参考型集合。集合成员索引独立于首屏目录按需加载，不参与本轮全局需求匹配。
 
 “待核验”不代表来源恶意，只表示当前证据不足以让模镜替用户执行安装。
 
@@ -141,6 +153,7 @@ SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验�
 node scripts/audit-skill-experience.mjs
 node scripts/audit-skill-need-matcher.mjs
 node scripts/audit-official-skill-source-resolver.mjs
+node scripts/audit-github-skill-path-history.mjs
 cd client && npm.cmd run build
 python -m pytest server/tests/test_skill_integration.py -q
 ```
