@@ -149,5 +149,7 @@ class CredentialRecord(BaseModel):
     masked_value: str = ""
     ciphertext: str
     status: Literal["active", "unavailable", "revoked"] = "active"
+    catalog_project_id: str = Field(default="", max_length=120)
+    catalog_slot: str = Field(default="", max_length=80)
     created_at: float
     updated_at: float

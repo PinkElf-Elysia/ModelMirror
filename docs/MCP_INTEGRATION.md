@@ -52,6 +52,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 ┌─────────────────────────────┐
 │ React /mcps                 │
 │ - McpServerCard             │
+│ - McpCredentialPanel        │
 │ - 动态 JSON Schema 参数表单 │
 └──────────────┬──────────────┘
                │ HTTP REST
@@ -82,7 +83,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 17 ready / 80 planned / 3 blocked；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 32 ready / 64 planned / 4 blocked；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
 
@@ -111,6 +112,17 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - 工具参数中的 `x-modelmirror-input` 只允许 `workspace-file`、`workspace-directory`、`artifact-name`，前端渲染受控选择器，不提供原始路径输入。
 - `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`markitdown-mcp` 分别锁定兼容 0.22.1、1.0.4、0.6.2、0.1.7；Manim 因依赖第 8 批任意代码执行隔离而保持 `blocked`，没有连接按钮。
 - 工具 effect 为 `read`、`artifact-create`、`state-write` 或 `terminal`。写状态工具先返回 409 `approval_required`，确认端点只执行服务端冻结的参数；5 分钟过期、重连、重配、参数变化、跨会话、输入版本或状态漂移都会使审批失效。
+
+批次 4 的十五个可用 Token 适配器通过固定 `token_proxy.py` 接入独立 `mcp-token` sidecar：
+
+- 前端根据服务端 `setting_fields` 和 `credential_fields` 在每张 MCP 卡片内渲染独立“加密凭据”区域。用户可在原地创建、选择和撤销凭据；不跳转 Toolset 页，也不提供 OAuth 或外站登录入口。明文 Token/API Key 只在创建时通过 HTTPS 提交给服务端加密保存，之后接口仅返回脱敏元数据。
+- 目录凭据固定绑定 `project_id + slot`，不会出现在通用 `/api/runtime/credentials` 列表，也不能由其他 MCP 或 Toolset 选择。配置仍只存 `credential_id`；连接时才解密并通过私有 Unix socket 单次传递。撤销凭据会立即断开关联会话并清除该项目配置。
+- 连接成功只表示 MCP 传输和工具发现可用。首次只读工具调用成功后状态才从 `unverified` 变为 `verified`；认证错误或调用异常标记为 `verification-failed`，避免把无效 Token 的 transport 初始化误报为凭据正常。
+- 镜像 `modelmirror-mcp-token:wave4-v1` 使用精确 npm lockfile，运行时不下载包；非 root、只读根文件系统、无宿主目录和 Docker socket、移除 capabilities、`no-new-privileges`、768 MiB/1.5 CPU/128 PIDs，最多 6 个会话。
+- JSON-RPC 网关在 `tools/list` 过滤未审核工具，并在 `tools/call` 再次拒绝清单外名称；URL/URI 参数先做公网 HTTPS 与 DNS 预检。固定上游 Node 进程加载 DNS 出口守卫，内置兼容实现使用固定地址的 `SafeHttpClient`。
+- `smoke_token_adapters.py` 在断网、只读容器中初始化 15 项，并核对开放工具的规范化 inputSchema SHA-256；工具缺失或 schema 漂移直接失败。
+- 只读工具通过项目级 `/api/mcp/catalog/{project_id}/tools/{tool_name}/call` 调用；目录会话使用通用直接调用接口会返回 403，避免跳过凭据状态和工具策略。
+- Snyk 保持 `blocked`：其本地项目扫描可能执行 Gradle/Maven，必须等待第 8 批一次性代码执行与文件授权隔离。
 
 兼容层仍保留以下默认值：
 
@@ -155,6 +167,8 @@ npm view @example/mcp-server version
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/mcp/catalog/adapters` | 返回 100 项安全状态，不返回命令、端点或 Secret |
+| GET/POST | `/api/mcp/catalog/{project_id}/credentials` | 列出当前卡片的脱敏凭据，或创建绑定当前项目与固定槽位的加密凭据 |
+| DELETE | `/api/mcp/catalog/{project_id}/credentials/{credential_id}` | 撤销当前卡片凭据，并立即断开关联会话、清除失效配置 |
 | POST | `/api/mcp/catalog/{project_id}/prepare` | 使用后端固定安装配置准备已验收适配器 |
 | PUT | `/api/mcp/catalog/{project_id}/configuration` | 只接受清单允许的设置和 `credential_id` 绑定 |
 | POST | `/api/mcp/catalog/{project_id}/connect` | 按项目 ID 建立受控会话 |
@@ -403,6 +417,7 @@ python server/mcp/test_manager.py
 | `server/mcp/sandbox_proxy.py` | 把固定项目 ID 的 stdio 流代理到断网 sandbox sidecar。 |
 | `server/mcp/public_proxy.py` | 把批次 2 固定项目 ID 的 stdio 流代理到公网策略 sidecar。 |
 | `server/mcp/file_proxy.py` | 把批次 3 固定项目 ID 和服务端工作区 ID 代理到断网文件 sidecar。 |
+| `server/mcp/token_proxy.py` | 移除短期凭据环境并把批次 4 固定项目 ID 与配置单次传给私有 sidecar。 |
 | `server/mcp/workspace.py` | 工作区、上传/ZIP 校验、封存 manifest、产物与保留期管理。 |
 | `server/sandbox_sidecar/compute_mcp.py` | 批次 1 的三个内置 Python MCP 工具契约。 |
 | `server/sandbox_sidecar/public_mcp.py` | 批次 2 的内置公网 MCP 兼容契约。 |
@@ -411,6 +426,10 @@ python server/mcp/test_manager.py
 | `server/sandbox_sidecar/file_mcp.py` | Basic Memory、Excel、Git 与 MarkItDown 的固定本地兼容契约。 |
 | `server/sandbox_sidecar/file_server.py` | 批次 3 断网 Unix-socket sidecar、四会话上限与进程清理。 |
 | `server/sandbox_sidecar/Dockerfile.files` | `modelmirror-mcp-files:wave3-v1` 独立锁定镜像。 |
+| `server/sandbox_sidecar/token_contracts.py` | 批次 4 私有命令、凭据注入、设置、出口域和只读工具契约。 |
+| `server/sandbox_sidecar/token_server.py` | 批次 4 Unix-socket 生命周期、工具过滤、URL 预检和进程清理网关。 |
+| `server/sandbox_sidecar/token_builtin.py` | Axiom、Grafana Cloud、Kagi 与 Pinecone Assistant 最小只读兼容契约。 |
+| `server/sandbox_sidecar/Dockerfile.token` | `modelmirror-mcp-token:wave4-v1` 精确 npm lockfile 镜像。 |
 | `server/toolsets/` | Toolset/凭据 Store、版本发布、Schema 漂移与固定版本 Provider。 |
 | `client/src/pages/ToolsetsPage.tsx` | MCP Toolset 创建、连接、工具配置、测试和发布管理页。 |
 | `server/tests/test_toolset_*.py` | Toolset Store、API、连接、固定版本与安全回归。 |
@@ -423,9 +442,11 @@ python server/mcp/test_manager.py
 | `server/tests/test_mcp_compute_adapters.py` | 批次 1 工具契约、输入上限、URL 拒绝与沙箱配置测试。 |
 | `server/tests/test_mcp_public_adapters.py` | 批次 2 SSRF、DNS、robots、响应上限、工具契约与容器隔离测试。 |
 | `server/tests/test_mcp_file_workspaces.py` | 批次 3 路径/ZIP、租户隔离、产物越权和一次性审批安全测试。 |
+| `server/tests/test_mcp_token_sidecar.py` | 批次 4 清单一致性、配置契约、Secret 传递、工具过滤和 URL 预检测试。 |
 | `server/mcp/smoke_file_adapters.py` | 四个文件适配器初始化、发现、代表调用、重连、源文件不变和清理 smoke。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
 | `client/src/components/McpWorkspacePanel.tsx` | 中文工作区上传、封存、绑定、容量/到期、产物下载和清理面板。 |
+| `client/src/components/McpCredentialPanel.tsx` | 中文类型化设置和加密凭据引用选择面板。 |
 | `client/src/data/mcpProjects.ts` | MCP 中文展示资料；不能作为执行配置来源。 |
 | `client/src/data/mcpAdaptationPlan.ts` | 前端批次、状态、连接形态和风险展示。 |
 

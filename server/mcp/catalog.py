@@ -10,7 +10,9 @@ non-executable roadmap entry.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -72,6 +74,7 @@ AdapterConnectionKind = Literal[
 AdapterRisk = Literal["low", "medium", "high", "critical"]
 AdapterPreparationKind = Literal["installer", "bundled"]
 CatalogToolEffect = Literal["read", "artifact-create", "state-write", "terminal"]
+CatalogSettingKind = Literal["text", "integer", "enum", "slug", "hostname"]
 
 logger = logging.getLogger("modelmirror.mcp.catalog")
 
@@ -122,6 +125,56 @@ class CatalogWorkspacePolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class CatalogSettingPolicy:
+    key: str
+    label: str
+    description: str
+    kind: CatalogSettingKind = "text"
+    required: bool = False
+    default: str | int | None = None
+    minimum: int | None = None
+    maximum: int | None = None
+    options: tuple[tuple[str, str], ...] = ()
+    pattern: str = ""
+    allowed_hostname_suffixes: tuple[str, ...] = ()
+
+    def to_public(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "label": self.label,
+            "description": self.description,
+            "kind": self.kind,
+            "required": self.required,
+            "default": self.default,
+            "minimum": self.minimum,
+            "maximum": self.maximum,
+            "options": [
+                {"value": value, "label": label}
+                for value, label in self.options
+            ],
+            "allowed_hostname_suffixes": list(self.allowed_hostname_suffixes),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogCredentialSlotPolicy:
+    key: str
+    label: str
+    description: str
+    required: bool = True
+    accepted_kinds: tuple[str, ...] = ("provider_key",)
+
+    def to_public(self) -> dict[str, Any]:
+        return {
+            "key": self.key,
+            "label": self.label,
+            "description": self.description,
+            "required": self.required,
+            "accepted_kinds": list(self.accepted_kinds),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class CatalogAdapterManifest:
     project_id: str
     wave: int
@@ -142,6 +195,8 @@ class CatalogAdapterManifest:
     endpoint: str = ""
     allowed_settings: tuple[str, ...] = ()
     credential_slots: tuple[str, ...] = ()
+    setting_policies: tuple[CatalogSettingPolicy, ...] = ()
+    credential_policies: tuple[CatalogCredentialSlotPolicy, ...] = ()
     tool_policies: dict[str, CatalogToolPolicy] = field(default_factory=dict)
     workspace_policy: CatalogWorkspacePolicy | None = None
     legacy_unrestricted_calls: bool = False
@@ -189,6 +244,8 @@ class CatalogAdapterManifest:
             "session_id": session_id if connected else None,
             "allowed_settings": list(self.allowed_settings),
             "credential_slots": list(self.credential_slots),
+            "setting_fields": [item.to_public() for item in self.setting_policies],
+            "credential_fields": [item.to_public() for item in self.credential_policies],
             "adapter_version": self.adapter_version,
             "runtime_image": self.runtime_image,
             "network_policy": self.network_policy,
@@ -258,6 +315,10 @@ PUBLIC_SANDBOX_PROXY = (
 FILE_SANDBOX_PROXY = (
     sys.executable,
     str(Path(__file__).resolve().with_name("file_proxy.py")),
+)
+TOKEN_SANDBOX_PROXY = (
+    sys.executable,
+    str(Path(__file__).resolve().with_name("token_proxy.py")),
 )
 WAVE_ONE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "calculator-mcp": (
@@ -365,6 +426,143 @@ WAVE_THREE_ADAPTERS: dict[str, tuple[str, dict[str, CatalogToolPolicy]]] = {
                 effect="artifact-create",
             ),
         },
+    ),
+}
+
+
+def _credential(
+    key: str,
+    label: str,
+    description: str,
+) -> CatalogCredentialSlotPolicy:
+    return CatalogCredentialSlotPolicy(
+        key=key,
+        label=label,
+        description=description,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class WaveFourAdapterSpec:
+    adapter_version: str
+    tools: tuple[str, ...]
+    credential_policies: tuple[CatalogCredentialSlotPolicy, ...]
+    setting_policies: tuple[CatalogSettingPolicy, ...] = ()
+    network_policy: str = ""
+    limitations: tuple[str, ...] = ()
+
+
+WAVE_FOUR_ADAPTERS: dict[str, WaveFourAdapterSpec] = {
+    "agentql-mcp": WaveFourAdapterSpec(
+        "1.0.1",
+        ("extract-web-data",),
+        (_credential("api_key", "AgentQL API Key", "用于只读网页数据提取。"),),
+        network_policy="allowlist:api.agentql.com",
+    ),
+    "brave-search-mcp": WaveFourAdapterSpec(
+        "0.6.2-archived-contract-v1",
+        ("brave_web_search", "brave_local_search"),
+        (_credential("api_key", "Brave Search API Key", "用于网页与地点搜索。"),),
+        network_policy="allowlist:api.search.brave.com",
+        limitations=("上游参考服务器已归档；本适配器锁定 0.6.2 工具契约并监测漂移。",),
+    ),
+    "exa-mcp": WaveFourAdapterSpec(
+        "3.4.0",
+        ("web_search_exa", "web_fetch_exa"),
+        (_credential("api_key", "Exa API Key", "用于只读搜索与正文提取。"),),
+        network_policy="allowlist:api.exa.ai",
+    ),
+    "firecrawl-mcp": WaveFourAdapterSpec(
+        "3.23.4",
+        ("firecrawl_search", "firecrawl_scrape", "firecrawl_map"),
+        (_credential("api_key", "Firecrawl API Key", "用于搜索、单页抓取与站点地图。"),),
+        network_policy="allowlist:api.firecrawl.dev",
+        limitations=("已关闭 crawl、agent、extract、interact、反馈写入与长任务工具。",),
+    ),
+    "perplexity-mcp": WaveFourAdapterSpec(
+        "1.2.0",
+        ("perplexity_search", "perplexity_ask"),
+        (_credential("api_key", "Perplexity API Key", "用于搜索与简短问答。"),),
+        network_policy="allowlist:api.perplexity.ai",
+        limitations=("首轮关闭深度研究与推理工具，避免不可控的长任务和费用。",),
+    ),
+    "tavily-mcp": WaveFourAdapterSpec(
+        "0.2.22",
+        ("tavily_search", "tavily_extract", "tavily_map"),
+        (_credential("api_key", "Tavily API Key", "用于搜索、正文提取与站点地图。"),),
+        network_policy="allowlist:api.tavily.com",
+        limitations=("已关闭 crawl 与 research 长任务工具。",),
+    ),
+    "axiom-mcp": WaveFourAdapterSpec(
+        "v0.05-pinned-compatible-v1",
+        ("queryApl", "listDatasets", "getDatasetSchema", "getSavedQueries", "getMonitors", "getMonitorsHistory"),
+        (_credential("api_token", "Axiom API Token", "仅用于数据集、查询与监控读取。"),),
+        (CatalogSettingPolicy("organization_id", "组织 ID", "Axiom 组织的固定标识。", required=True, pattern=r"^[A-Za-z0-9_-]{1,120}$"),),
+        "allowlist:api.axiom.co",
+        ("上游 stdio 仓库已归档并推荐 OAuth 远程端点；本批仅保留经锁定的 Token 只读契约，不提供外站登录。",),
+    ),
+    "figma-context-mcp": WaveFourAdapterSpec(
+        "0.13.2",
+        ("get_figma_data",),
+        (_credential("api_token", "Figma Personal Access Token", "仅用于读取明确指定的 Figma 文件。"),),
+        network_policy="allowlist:api.figma.com",
+        limitations=("下载图片会写入文件系统，本批不开放 download_figma_images。",),
+    ),
+    "google-maps-mcp": WaveFourAdapterSpec(
+        "0.6.2-archived-contract-v1",
+        ("maps_geocode", "maps_reverse_geocode", "maps_search_places", "maps_distance_matrix", "maps_elevation", "maps_directions"),
+        (_credential("api_key", "Google Maps API Key", "用于地图检索与路线计算。"),),
+        network_policy="allowlist:maps.googleapis.com",
+        limitations=("上游参考服务器已归档；仅开放工具发现中声明的六个只读工具。",),
+    ),
+    "grafana-mcp": WaveFourAdapterSpec(
+        "1.0.0-cloud-read-only-v1",
+        ("search_dashboards", "get_dashboard_by_uid", "list_datasources", "list_alert_rules"),
+        (_credential("service_token", "Grafana Cloud Service Account Token", "仅用于读取仪表盘、数据源与告警规则。"),),
+        (CatalogSettingPolicy("stack_slug", "Grafana Cloud Stack", "仅填写 Stack 子域标识，例如 my-stack。", kind="slug", required=True, pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"),),
+        "derived-allowlist:{stack_slug}.grafana.net",
+        ("首轮仅支持 Grafana Cloud Stack；不接受自托管 URL，也不开放任何写入工具。",),
+    ),
+    "graphlit-mcp": WaveFourAdapterSpec(
+        "1.0.20260112001",
+        ("queryProjectUsage", "askGraphlit", "retrieveSources", "queryContents", "queryCollections", "queryFeeds", "queryConversations", "webMap", "webSearch"),
+        (_credential("api_token", "Graphlit API Token", "仅用于读取、检索和问答。"),),
+        (
+            CatalogSettingPolicy("organization_id", "组织 ID", "Graphlit 组织标识。", required=True, pattern=r"^[A-Za-z0-9_-]{1,120}$"),
+            CatalogSettingPolicy("environment_id", "环境 ID", "Graphlit 环境标识。", required=True, pattern=r"^[A-Za-z0-9_-]{1,120}$"),
+        ),
+        "allowlist:graphlit-api.azurewebsites.net",
+        ("已关闭内容摄取、发布、删除、对话写入和任意 URL 图片读取。",),
+    ),
+    "kagi-mcp": WaveFourAdapterSpec(
+        "0d62ed3-compatible-v1",
+        ("kagi_search",),
+        (_credential("api_token", "Kagi API Token", "用于只读 Kagi 搜索。"),),
+        network_policy="allowlist:kagi.com",
+    ),
+    "pinecone-assistant-mcp": WaveFourAdapterSpec(
+        "0.1.0-read-only-v1",
+        ("assistant_chat",),
+        (_credential("api_key", "Pinecone API Key", "用于访问既有 Assistant。"),),
+        (
+            CatalogSettingPolicy("assistant_host", "Assistant 主机名", "仅填写控制台提供的 .pinecone.io 主机名，不含协议和路径。", kind="hostname", required=True, allowed_hostname_suffixes=(".pinecone.io",)),
+            CatalogSettingPolicy("assistant_name", "Assistant 名称", "要查询的既有 Assistant 名称。", required=True, pattern=r"^[A-Za-z0-9_-]{1,80}$"),
+        ),
+        "derived-allowlist:{assistant_host}",
+        ("仅开放既有 Assistant 的问答检索；文件上传、删除和 Assistant 管理均关闭。",),
+    ),
+    "shodan-mcp": WaveFourAdapterSpec(
+        "1.0.22",
+        ("ip_lookup", "shodan_search", "cve_lookup", "dns_lookup", "reverse_dns_lookup", "cpe_lookup", "cves_by_product"),
+        (_credential("api_key", "Shodan API Key", "用于资产、DNS 与 CVE 只读检索。"),),
+        network_policy="allowlist:api.shodan.io,cvedb.shodan.io",
+    ),
+    "virustotal-mcp": WaveFourAdapterSpec(
+        "1.0.25",
+        ("get_url_report", "get_url_relationship", "get_file_report", "get_file_relationship", "get_ip_report", "get_ip_relationship", "get_domain_report", "get_domain_relationship", "search_vt", "get_file_behaviour_summary", "get_collection"),
+        (_credential("api_key", "VirusTotal API Key", "仅用于读取既有分析报告和关系。"),),
+        network_policy="allowlist:www.virustotal.com",
+        limitations=("不上传样本、不触发重新扫描；URL 工具只读取 VirusTotal 已缓存报告。",),
     ),
 }
 
@@ -791,6 +989,71 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
         filesystem_policy="read-only-empty-workspace",
     )
 
+    for project_id, spec in WAVE_FOUR_ADAPTERS.items():
+        limitations = spec.limitations or (
+            "仅开放已审计的读取、检索和分析工具；修改、删除、上传、长任务与付费写入能力均不可发现、不可调用。",
+            "凭据由服务端加密库按固定槽位注入；客户端不能提交 Token、Header 名、环境变量、命令或 MCP URL。",
+        )
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=4,
+            availability="ready",
+            connection_kind="sandboxed-stdio",
+            risk="medium",
+            required_capabilities=(
+                "encrypted-credential-binding",
+                "credential-revocation-check",
+                "fixed-egress-policy",
+                "read-only-tool-policy",
+                "schema-drift-recovery",
+            ),
+            limitations=limitations,
+            adapter_version=spec.adapter_version,
+            runtime_image="modelmirror-mcp-token:wave4-v1",
+            network_policy=spec.network_policy,
+            filesystem_policy="read-only-empty-workspace",
+            resource_limits=(
+                ("cpu", "1.5 cores / 60 CPU seconds per call"),
+                ("memory", "768 MiB sidecar"),
+                ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                ("operation_timeout", "60 seconds"),
+                ("tool_output", "256 KiB"),
+            ),
+            server_command=(*TOKEN_SANDBOX_PROXY, project_id),
+            preparation_kind="bundled",
+            allowed_settings=tuple(item.key for item in spec.setting_policies),
+            credential_slots=tuple(item.key for item in spec.credential_policies),
+            setting_policies=spec.setting_policies,
+            credential_policies=spec.credential_policies,
+            tool_policies={
+                name: CatalogToolPolicy(read_only=True, effect="read")
+                for name in spec.tools
+            },
+            enabled_by_default=True,
+            operation_timeout=60.0,
+            max_output_bytes=256 * 1024,
+        )
+
+    manifests["snyk-mcp"] = CatalogAdapterManifest(
+        project_id="snyk-mcp",
+        wave=4,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="critical",
+        required_capabilities=(
+            "ephemeral-code-sandbox",
+            "scoped-filesystem",
+            "terminal-action-approval",
+        ),
+        limitations=(
+            "Snyk MCP 随 Snyk CLI 读取本地项目，并可能启动 Gradle、Maven 等构建链；这已跨越本批 Token 只读远程检索边界。",
+            "保留第 4 批目录编号，但连接、安装和外站登录入口全部关闭；等待第 8 批一次性代码执行隔离与文件授权能力完成后再适配。",
+        ),
+        adapter_version="1.15.2-blocked:requires-wave8-code-isolation",
+        network_policy="blocked:local-build-execution",
+        filesystem_policy="blocked:no-runtime",
+    )
+
     for wave, project_ids in WAVE_PROJECTS.items():
         connection_kind, risk, capabilities, limitations = WAVE_METADATA[wave]
         for project_id in project_ids:
@@ -832,6 +1095,14 @@ class CatalogConfigurationRequest(BaseModel):
     settings: dict[str, str | int | float | bool] = Field(default_factory=dict)
     credential_bindings: dict[str, str] = Field(default_factory=dict)
     workspace_id: str | None = None
+
+
+class CatalogCredentialCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    slot: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=160)
+    value: str = Field(min_length=1, max_length=20_000)
 
 
 class CatalogToolCallRequest(BaseModel):
@@ -883,6 +1154,10 @@ class MCPCatalogService:
         *,
         manifests: dict[str, CatalogAdapterManifest] | None = None,
         credential_validator: Callable[[str], Any] | None = None,
+        credential_resolver: Callable[[str], str] | None = None,
+        credential_lister: Callable[[], list[Any]] | None = None,
+        credential_creator: Callable[..., tuple[Any, str]] | None = None,
+        credential_revoker: Callable[[str], Any] | None = None,
         workspace_store: MCPCatalogWorkspaceStore | None = None,
         tenant_id: str = "local",
     ) -> None:
@@ -891,10 +1166,16 @@ class MCPCatalogService:
         self.registry = registry
         self.manifests = dict(manifests or CATALOG_ADAPTERS)
         self.credential_validator = credential_validator
+        self.credential_resolver = credential_resolver
+        self.credential_lister = credential_lister
+        self.credential_creator = credential_creator
+        self.credential_revoker = credential_revoker
         self.workspace_store = workspace_store
         self.tenant_id = str(tenant_id or "local")
         self._sessions: dict[str, str] = {}
         self._configurations: dict[str, CatalogConfigurationRequest] = {}
+        self._credential_snapshots: dict[str, dict[str, tuple[str, float]]] = {}
+        self._credential_verification: dict[str, str] = {}
         self._approvals: dict[str, CatalogApproval] = {}
         self._lock = asyncio.Lock()
 
@@ -907,13 +1188,36 @@ class MCPCatalogService:
         return manifest
 
     def list_adapters(self) -> dict[str, Any]:
-        adapters = [
-            manifest.to_public(
+        adapters: list[dict[str, Any]] = []
+        for project_id, manifest in sorted(self.manifests.items()):
+            item = manifest.to_public(
                 connected=project_id in self._sessions,
                 session_id=self._sessions.get(project_id),
             )
-            for project_id, manifest in sorted(self.manifests.items())
-        ]
+            configuration = self._configurations.get(project_id)
+            item["configured"] = configuration is not None
+            item["configured_settings"] = (
+                sorted(configuration.settings) if configuration else []
+            )
+            item["configured_credential_slots"] = (
+                sorted(configuration.credential_bindings) if configuration else []
+            )
+            item["configuration_values"] = (
+                dict(configuration.settings) if configuration else {}
+            )
+            item["credential_bindings"] = (
+                dict(configuration.credential_bindings) if configuration else {}
+            )
+            if not manifest.credential_policies:
+                item["credential_verification"] = "not-required"
+            elif configuration is None:
+                item["credential_verification"] = "missing"
+            else:
+                item["credential_verification"] = self._credential_verification.get(
+                    project_id,
+                    "unverified",
+                )
+            adapters.append(item)
         return {
             "total": len(adapters),
             "ready": sum(item["availability"] == "ready" for item in adapters),
@@ -982,9 +1286,12 @@ class MCPCatalogService:
                 "该 MCP 仍处于待适配状态，当前不能提交配置。"
             )
 
+        if manifest.credential_policies and manifest.project_id in self._sessions:
+            raise CatalogAdapterPolicyError("请先断开当前会话，再更新目录配置。")
+
         supplied_setting_keys = set(request.settings)
         supplied_credential_slots = set(request.credential_bindings)
-        if supplied_setting_keys & self._RESERVED_CONFIGURATION_KEYS:
+        if {key.lower() for key in supplied_setting_keys} & self._RESERVED_CONFIGURATION_KEYS:
             raise CatalogAdapterPolicyError(
                 "目录配置不能包含命令、URL、Header、环境变量或工作目录。"
             )
@@ -995,7 +1302,30 @@ class MCPCatalogService:
             raise CatalogAdapterPolicyError(
                 "配置包含适配器未声明的字段：" + "、".join(unknown)
             )
-        for credential_id in request.credential_bindings.values():
+        setting_policies = {item.key: item for item in manifest.setting_policies}
+        credential_policies = {item.key: item for item in manifest.credential_policies}
+        missing_settings = sorted(
+            key
+            for key, policy in setting_policies.items()
+            if policy.required and key not in request.settings
+        )
+        missing_credentials = sorted(
+            key
+            for key, policy in credential_policies.items()
+            if policy.required and key not in request.credential_bindings
+        )
+        if missing_settings or missing_credentials:
+            raise CatalogAdapterPolicyError(
+                "缺少必填配置：" + "、".join(missing_settings + missing_credentials)
+            )
+        normalized_settings: dict[str, str | int | float | bool] = {}
+        for key, value in request.settings.items():
+            normalized_settings[key] = self._validate_setting(
+                setting_policies.get(key),
+                value,
+            )
+
+        for slot, credential_id in request.credential_bindings.items():
             if not re.fullmatch(r"cred_[A-Za-z0-9]+", credential_id):
                 raise CatalogAdapterPolicyError("凭据绑定必须使用有效 credential_id。")
             if self.credential_validator is None:
@@ -1009,6 +1339,19 @@ class MCPCatalogService:
             if getattr(credential, "status", "") != "active":
                 raise CatalogAdapterPolicyError(
                     f"凭据绑定不是可用状态：{credential_id}"
+                )
+            policy = credential_policies.get(slot)
+            accepted_kinds = set(policy.accepted_kinds if policy else ())
+            if accepted_kinds and getattr(credential, "kind", "") not in accepted_kinds:
+                raise CatalogAdapterPolicyError(
+                    f"凭据类型不适用于配置槽：{slot}"
+                )
+            if manifest.credential_policies and (
+                getattr(credential, "catalog_project_id", "") != manifest.project_id
+                or getattr(credential, "catalog_slot", "") != slot
+            ):
+                raise CatalogAdapterPolicyError(
+                    "凭据只能绑定到创建它的目录项目和固定槽位。"
                 )
 
         workspace_id = str(request.workspace_id or "").strip()
@@ -1028,7 +1371,12 @@ class MCPCatalogService:
         elif workspace_id:
             raise CatalogAdapterPolicyError("该适配器不接受文件工作区配置。")
 
-        self._configurations[manifest.project_id] = request.model_copy(deep=True)
+        normalized = request.model_copy(deep=True)
+        normalized.settings = normalized_settings
+        self._configurations[manifest.project_id] = normalized
+        self._credential_snapshots.pop(manifest.project_id, None)
+        if manifest.credential_policies:
+            self._credential_verification[manifest.project_id] = "unverified"
         self._revoke_approvals(manifest.project_id)
         return {
             "project_id": manifest.project_id,
@@ -1045,6 +1393,7 @@ class MCPCatalogService:
             existing = self._sessions.get(manifest.project_id)
             if existing:
                 try:
+                    await self._ensure_credentials_fresh(manifest.project_id)
                     tools = await self.manager.list_tools(existing)
                     return self._connection_payload(manifest, existing, tools)
                 except MCPSessionNotFoundError:
@@ -1074,29 +1423,76 @@ class MCPCatalogService:
                     except CatalogWorkspaceError as exc:
                         raise CatalogAdapterPolicyError(str(exc)) from exc
                     environment["MCP_FILE_WORKSPACE_ID"] = workspace_id
+                if manifest.credential_policies:
+                    configuration = self._configurations.get(manifest.project_id)
+                    if configuration is None:
+                        raise CatalogAdapterPolicyError("请先绑定所需凭据并保存配置。")
+                    if self.credential_resolver is None or self.credential_validator is None:
+                        raise CatalogAdapterPolicyError("目录凭据存储当前不可用。")
+                    secrets: dict[str, str] = {}
+                    snapshots: dict[str, tuple[str, float]] = {}
+                    for policy in manifest.credential_policies:
+                        credential_id = configuration.credential_bindings.get(policy.key, "")
+                        if not credential_id:
+                            if policy.required:
+                                raise CatalogAdapterPolicyError(f"缺少凭据绑定：{policy.key}")
+                            continue
+                        public = self.credential_validator(credential_id)
+                        if getattr(public, "status", "") != "active":
+                            raise CatalogAdapterPolicyError("绑定凭据已撤销或不可用，请重新配置。")
+                        if (
+                            getattr(public, "catalog_project_id", "") != manifest.project_id
+                            or getattr(public, "catalog_slot", "") != policy.key
+                        ):
+                            raise CatalogAdapterPolicyError(
+                                "绑定凭据不属于当前目录项目或固定槽位。"
+                            )
+                        secrets[policy.key] = self.credential_resolver(credential_id)
+                        snapshots[policy.key] = (
+                            credential_id,
+                            float(getattr(public, "updated_at", 0.0)),
+                        )
+                    token_payload = json.dumps(
+                        {
+                            "settings": configuration.settings,
+                            "credentials": secrets,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                    if len(token_payload) > 64 * 1024:
+                        raise CatalogAdapterPolicyError("目录凭据配置超过内部传输上限。")
+                    environment["MCP_TOKEN_HANDSHAKE_B64"] = base64.urlsafe_b64encode(
+                        token_payload
+                    ).decode("ascii")
                 profile: dict[str, Any] = {
                     "transport": "stdio",
                     "server_command": list(manifest.server_command),
                     "network_policy": manifest.network_policy,
-                    "reconnect_attempts": 1,
+                    "reconnect_attempts": 0 if manifest.credential_policies else 1,
                     "operation_timeout": manifest.operation_timeout,
                 }
                 if environment:
                     profile["environment"] = environment
                 session_id = await self.manager.connect_profile(**profile)
+                if manifest.credential_policies:
+                    await self.manager.scrub_session_environment(session_id)
             else:
                 session_id = await self.manager.connect(list(manifest.server_command))
             try:
                 tools = await self.manager.list_tools(session_id)
-                await self.registry.register_session_tools(
-                    session_id=session_id,
-                    server_id=f"catalog:{manifest.project_id}",
-                    tools=tools,
-                )
+                if manifest.legacy_unrestricted_calls:
+                    await self.registry.register_session_tools(
+                        session_id=session_id,
+                        server_id=f"catalog:{manifest.project_id}",
+                        tools=tools,
+                    )
             except Exception:
                 await self.manager.disconnect(session_id)
                 raise
             self._sessions[manifest.project_id] = session_id
+            if manifest.credential_policies:
+                self._credential_snapshots[manifest.project_id] = snapshots
             payload = self._connection_payload(manifest, session_id, tools)
             logger.info(
                 "MCP catalog connect project=%s tools=%d duration_ms=%d",
@@ -1110,6 +1506,7 @@ class MCPCatalogService:
         manifest = self.get_manifest(project_id)
         async with self._lock:
             session_id = self._sessions.pop(manifest.project_id, None)
+            self._credential_snapshots.pop(manifest.project_id, None)
         if session_id is None:
             raise MCPSessionNotFoundError(
                 f"MCP catalog session not found: {manifest.project_id}"
@@ -1132,6 +1529,7 @@ class MCPCatalogService:
         session_id = self._sessions.get(manifest.project_id)
         if session_id is None:
             raise CatalogAdapterUnavailableError("请先连接该 MCP 适配器。")
+        await self._ensure_credentials_fresh(manifest.project_id)
 
         if not manifest.legacy_unrestricted_calls:
             policy = manifest.tool_policies.get(tool_name)
@@ -1220,7 +1618,12 @@ class MCPCatalogService:
     ) -> dict[str, Any]:
 
         started_at = time.monotonic()
-        result = await self.manager.call_tool(session_id, tool_name, arguments)
+        try:
+            result = await self.manager.call_tool(session_id, tool_name, arguments)
+        except Exception:
+            if manifest.credential_policies:
+                self._credential_verification[manifest.project_id] = "verification-failed"
+            raise
         logger.info(
             "MCP catalog call project=%s tool=%s duration_ms=%d",
             manifest.project_id,
@@ -1231,6 +1634,10 @@ class MCPCatalogService:
             result,
             max_output_bytes=manifest.max_output_bytes,
         )
+        if manifest.credential_policies:
+            self._credential_verification[manifest.project_id] = (
+                "verification-failed" if payload["is_error"] else "verified"
+            )
         configuration = self._configurations.get(manifest.project_id)
         if (
             self.workspace_store is not None
@@ -1459,6 +1866,7 @@ class MCPCatalogService:
         async with self._lock:
             sessions = list(self._sessions.values())
             self._sessions.clear()
+            self._credential_snapshots.clear()
         for session_id in sessions:
             try:
                 await self.manager.disconnect(session_id)
@@ -1466,6 +1874,78 @@ class MCPCatalogService:
                 pass
             await self.registry.unregister_session(session_id)
         self._approvals.clear()
+
+    def list_credentials(self, project_id: str) -> dict[str, Any]:
+        manifest = self._require_credential_adapter(project_id)
+        if self.credential_lister is None:
+            raise CatalogAdapterUnavailableError("目录凭据存储当前不可用。")
+        credentials = [
+            self._public_credential(item)
+            for item in self.credential_lister()
+            if getattr(item, "catalog_project_id", "") == manifest.project_id
+        ]
+        return {
+            "project_id": manifest.project_id,
+            "credentials": credentials,
+        }
+
+    def create_credential(
+        self,
+        project_id: str,
+        request: CatalogCredentialCreateRequest,
+    ) -> dict[str, Any]:
+        manifest = self._require_credential_adapter(project_id)
+        policies = {item.key: item for item in manifest.credential_policies}
+        policy = policies.get(request.slot)
+        if policy is None:
+            raise CatalogAdapterPolicyError("凭据槽不属于当前目录项目。")
+        if self.credential_creator is None:
+            raise CatalogAdapterUnavailableError("目录凭据存储当前不可用。")
+        record, _ = self.credential_creator(
+            name=request.name,
+            value=request.value,
+            kind="provider_key",
+            catalog_project_id=manifest.project_id,
+            catalog_slot=policy.key,
+        )
+        logger.info(
+            "MCP catalog credential created project=%s slot=%s",
+            manifest.project_id,
+            policy.key,
+        )
+        return self._public_credential(record)
+
+    async def revoke_credential(
+        self,
+        project_id: str,
+        credential_id: str,
+    ) -> dict[str, Any]:
+        manifest = self._require_credential_adapter(project_id)
+        if self.credential_validator is None or self.credential_revoker is None:
+            raise CatalogAdapterUnavailableError("目录凭据存储当前不可用。")
+        try:
+            public = self.credential_validator(credential_id)
+        except Exception as exc:
+            raise CatalogAdapterPolicyError("目录凭据不存在或不可用。") from exc
+        if getattr(public, "catalog_project_id", "") != manifest.project_id:
+            raise CatalogAdapterPolicyError("不能撤销其他目录项目的凭据。")
+        slot = str(getattr(public, "catalog_slot", ""))
+        if slot not in manifest.credential_slots:
+            raise CatalogAdapterPolicyError("凭据槽不属于当前目录项目。")
+        revoked = self.credential_revoker(credential_id)
+        configuration = self._configurations.get(manifest.project_id)
+        if configuration and credential_id in configuration.credential_bindings.values():
+            if manifest.project_id in self._sessions:
+                await self.disconnect(manifest.project_id)
+            self._configurations.pop(manifest.project_id, None)
+            self._credential_snapshots.pop(manifest.project_id, None)
+            self._credential_verification[manifest.project_id] = "missing"
+        logger.info(
+            "MCP catalog credential revoked project=%s slot=%s",
+            manifest.project_id,
+            slot,
+        )
+        return self._public_credential(revoked)
 
     async def forget_sessions(self, session_ids: list[str]) -> None:
         """Forget sessions already removed by the manager TTL cleanup."""
@@ -1477,6 +1957,100 @@ class MCPCatalogService:
             for project_id, session_id in list(self._sessions.items()):
                 if session_id in cleaned:
                     self._sessions.pop(project_id, None)
+                    self._credential_snapshots.pop(project_id, None)
+
+    @staticmethod
+    def _validate_setting(
+        policy: CatalogSettingPolicy | None,
+        value: str | int | float | bool,
+    ) -> str | int | float | bool:
+        if policy is None:
+            if isinstance(value, str):
+                clean = value.strip()
+                if not clean or len(clean) > 253 or "://" in clean:
+                    raise CatalogAdapterPolicyError("配置文本为空、过长或包含 URL。")
+                return clean
+            return value
+        if policy.kind == "integer":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise CatalogAdapterPolicyError(f"{policy.label} 必须是整数。")
+            if policy.minimum is not None and value < policy.minimum:
+                raise CatalogAdapterPolicyError(f"{policy.label} 小于允许下限。")
+            if policy.maximum is not None and value > policy.maximum:
+                raise CatalogAdapterPolicyError(f"{policy.label} 超过允许上限。")
+            return value
+        if not isinstance(value, str):
+            raise CatalogAdapterPolicyError(f"{policy.label} 必须是文本。")
+        clean = value.strip()
+        if not clean or len(clean) > 253:
+            raise CatalogAdapterPolicyError(f"{policy.label} 不能为空或超过长度上限。")
+        if "://" in clean or "/" in clean or "@" in clean:
+            raise CatalogAdapterPolicyError(f"{policy.label} 不能包含 URL、路径或用户信息。")
+        if policy.kind == "enum":
+            allowed = {item[0] for item in policy.options}
+            if clean not in allowed:
+                raise CatalogAdapterPolicyError(f"{policy.label} 不在允许选项中。")
+        if policy.pattern and re.fullmatch(policy.pattern, clean) is None:
+            raise CatalogAdapterPolicyError(f"{policy.label} 格式不正确。")
+        if policy.kind == "hostname":
+            host = clean.rstrip(".").lower()
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                pass
+            else:
+                raise CatalogAdapterPolicyError(f"{policy.label} 不能使用 IP 字面量。")
+            try:
+                host = host.encode("idna").decode("ascii")
+            except UnicodeError as exc:
+                raise CatalogAdapterPolicyError(f"{policy.label} 无法安全规范化。") from exc
+            if not re.fullmatch(
+                r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?",
+                host,
+            ):
+                raise CatalogAdapterPolicyError(f"{policy.label} 不是有效主机名。")
+            if policy.allowed_hostname_suffixes and not any(
+                host.endswith(suffix) and host != suffix.lstrip(".")
+                for suffix in policy.allowed_hostname_suffixes
+            ):
+                raise CatalogAdapterPolicyError(f"{policy.label} 不在固定域名范围内。")
+            return host
+        return clean
+
+    async def _ensure_credentials_fresh(self, project_id: str) -> None:
+        snapshots = self._credential_snapshots.get(project_id)
+        if not snapshots:
+            return
+        stale = False
+        if self.credential_validator is None:
+            stale = True
+        else:
+            for credential_id, expected_updated_at in snapshots.values():
+                try:
+                    public = self.credential_validator(credential_id)
+                    stale = (
+                        getattr(public, "status", "") != "active"
+                        or float(getattr(public, "updated_at", 0.0))
+                        != expected_updated_at
+                    )
+                except Exception:
+                    stale = True
+                if stale:
+                    break
+        if not stale:
+            return
+        session_id = self._sessions.pop(project_id, None)
+        self._credential_snapshots.pop(project_id, None)
+        self._credential_verification[project_id] = "unverified"
+        self._revoke_approvals(project_id)
+        if session_id is not None:
+            try:
+                await self.manager.disconnect(session_id)
+            finally:
+                await self.registry.unregister_session(session_id)
+        raise CatalogAdapterPolicyError(
+            "绑定凭据已撤销、轮换或不可用，会话已断开；请重新保存配置并连接。"
+        )
 
     def _require_executable(self, project_id: str) -> CatalogAdapterManifest:
         manifest = self.get_manifest(project_id)
@@ -1486,8 +2060,23 @@ class MCPCatalogService:
             )
         return manifest
 
-    @staticmethod
+    def _require_credential_adapter(self, project_id: str) -> CatalogAdapterManifest:
+        manifest = self._require_executable(project_id)
+        if not manifest.credential_policies:
+            raise CatalogAdapterPolicyError("该目录项目不使用加密凭据。")
+        return manifest
+
+    def project_for_session(self, session_id: str) -> str | None:
+        """Return the catalog owner so generic call routes can fail closed."""
+
+        clean = str(session_id or "")
+        for project_id, active_session_id in self._sessions.items():
+            if active_session_id == clean:
+                return project_id
+        return None
+
     def _connection_payload(
+        self,
         manifest: CatalogAdapterManifest,
         session_id: str,
         tools: list[Tool],
@@ -1496,7 +2085,37 @@ class MCPCatalogService:
             "project_id": manifest.project_id,
             "session_id": session_id,
             "tools_count": len(tools),
+            "credential_verification": (
+                self._credential_verification.get(manifest.project_id, "unverified")
+                if manifest.credential_policies
+                else "not-required"
+            ),
         }
+
+    @staticmethod
+    def _public_credential(value: Any) -> dict[str, Any]:
+        allowed = {
+            "credential_id",
+            "name",
+            "kind",
+            "masked_value",
+            "status",
+            "catalog_project_id",
+            "catalog_slot",
+            "created_at",
+            "updated_at",
+        }
+        if hasattr(value, "model_dump"):
+            payload = value.model_dump(mode="json", exclude={"ciphertext"})
+        elif isinstance(value, dict):
+            payload = dict(value)
+        else:
+            payload = {
+                key: getattr(value, key)
+                for key in allowed
+                if hasattr(value, key)
+            }
+        return {key: payload[key] for key in allowed if key in payload}
 
     @staticmethod
     def _public_install_metadata(value: Any) -> dict[str, Any]:
@@ -1572,6 +2191,42 @@ def _raise_http_error(exc: Exception) -> None:
 @router.get("/api/mcp/catalog/adapters")
 async def list_catalog_adapters() -> dict[str, Any]:
     return get_mcp_catalog_service().list_adapters()
+
+
+@router.get("/api/mcp/catalog/{project_id}/credentials")
+async def list_catalog_credentials(project_id: str) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().list_credentials(project_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.post("/api/mcp/catalog/{project_id}/credentials", status_code=201)
+async def create_catalog_credential(
+    project_id: str,
+    request: CatalogCredentialCreateRequest,
+) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().create_credential(project_id, request)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.delete("/api/mcp/catalog/{project_id}/credentials/{credential_id}")
+async def revoke_catalog_credential(
+    project_id: str,
+    credential_id: str,
+) -> dict[str, Any]:
+    try:
+        return await get_mcp_catalog_service().revoke_credential(
+            project_id,
+            credential_id,
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
 
 
 @router.post("/api/mcp/catalog/{project_id}/prepare")

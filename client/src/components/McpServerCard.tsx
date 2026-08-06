@@ -5,6 +5,7 @@ import McpWorkspacePanel, {
   type McpApprovalRequest,
   type McpWorkspace,
 } from "./McpWorkspacePanel";
+import McpCredentialPanel from "./McpCredentialPanel";
 import {
   mcpCatalogSources,
   mcpRequirementLabels,
@@ -141,6 +142,9 @@ export default function McpServerCard({
   const [toolResults, setToolResults] = useState<Record<string, ToolCallResult>>({});
   const [runningTool, setRunningTool] = useState<string | null>(null);
   const [boundWorkspace, setBoundWorkspace] = useState<McpWorkspace | null>(null);
+  const [catalogConfigured, setCatalogConfigured] = useState(
+    adapterStatus?.configured ?? false,
+  );
   const [pendingApproval, setPendingApproval] = useState<McpApprovalRequest | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const approvalCallbackRef = useRef<(() => void) | null>(null);
@@ -159,8 +163,13 @@ export default function McpServerCard({
   const limitations = adapterStatus?.limitations ?? project.adaptationLimitations;
   const canConnect = adapterStatus?.executable === true && availability === "ready";
   const workspacePolicy = adapterStatus?.workspace_policy ?? null;
+  const needsCatalogConfiguration = Boolean(
+    adapterStatus?.credential_fields.length || adapterStatus?.setting_fields.length,
+  );
   const canStartConnection =
-    canConnect && (!workspacePolicy?.required || Boolean(boundWorkspace));
+    canConnect &&
+    (!workspacePolicy?.required || Boolean(boundWorkspace)) &&
+    (!needsCatalogConfiguration || catalogConfigured);
   const canInstall = canConnect && project.installMode === "one-click";
   const commandPreview = useMemo(
     () =>
@@ -178,6 +187,10 @@ export default function McpServerCard({
         .filter((name) => name !== undefined),
     [project.sources],
   );
+
+  useEffect(() => {
+    setCatalogConfigured(adapterStatus?.configured ?? false);
+  }, [adapterStatus?.configured]);
 
   useEffect(() => {
     let cancelled = false;
@@ -378,7 +391,19 @@ export default function McpServerCard({
       setError(exc instanceof Error ? exc.message : "工具执行失败");
     } finally {
       setRunningTool(null);
+      onConnectionChange?.();
     }
+  }
+
+  function invalidateCredentialSession() {
+    ignoredRestoredSessionRef.current = sessionId ?? restoredSession?.session_id ?? null;
+    setSessionId(null);
+    setTools([]);
+    setToolResults({});
+    setFormValues({});
+    setError("");
+    setState("idle");
+    onConnectionChange?.();
   }
 
   function showApproval(approval: McpApprovalRequest, onConfirmed: () => void) {
@@ -693,6 +718,8 @@ export default function McpServerCard({
             ? "不需要 OAuth、Token 或用户安装运行时；由独立公网 sidecar 通过固定出口策略提供隔离 stdio 会话。"
             : wave === 3
               ? "不需要 OAuth、Token、桌面宿主或外部运行时；文件只进入断网受控工作区。"
+            : wave === 4
+              ? "需要在当前卡片的“加密凭据”区域保存 Token；凭据仅绑定当前 MCP，并通过固定出口的只读 sidecar 建立隔离 stdio 会话。"
             : "不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。"}
         </div>
       )}
@@ -744,6 +771,21 @@ export default function McpServerCard({
         />
       ) : null}
 
+      {canConnect && needsCatalogConfiguration && adapterStatus ? (
+        <McpCredentialPanel
+          credentialFields={adapterStatus.credential_fields}
+          disabled={state === "connected" || state === "connecting"}
+          initialBindings={adapterStatus.credential_bindings}
+          initialSettings={adapterStatus.configuration_values}
+          initiallyConfigured={adapterStatus.configured}
+          credentialVerification={adapterStatus.credential_verification}
+          onConfigured={setCatalogConfigured}
+          onSessionInvalidated={invalidateCredentialSession}
+          projectId={project.id}
+          settingFields={adapterStatus.setting_fields}
+        />
+      ) : null}
+
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
         {canConnect ? (
           <button
@@ -759,9 +801,11 @@ export default function McpServerCard({
             {state === "connecting"
               ? "连接中..."
               : state === "connected"
-                ? "已连接"
+                ? "传输已连接"
                 : workspacePolicy?.required && !boundWorkspace
                   ? "先绑定工作区"
+                  : needsCatalogConfiguration && !catalogConfigured
+                    ? "先保存连接配置"
                   : "连接 Server"}
           </button>
         ) : (

@@ -58,3 +58,23 @@ pandas 2.3.3 (BSD-3-Clause), openpyxl 3.1.5 (MIT), xlrd 2.0.2 (BSD),
 matplotlib 3.10.7 (PSF-based), and MarkItDown 0.1.7 (MIT). Transitive package
 metadata and Debian license texts remain available in the image's installed
 package and `/usr/share/doc` directories.
+
+The `modelmirror-mcp-token:wave4-v1` runtime bundles the following pinned MCP
+packages and their locked transitive npm dependencies. Runtime installation and
+update checks are disabled; package license metadata is retained under
+`/opt/modelmirror/node_modules`:
+
+- AgentQL MCP 1.0.1, Brave Search MCP 0.6.2, Exa MCP 3.4.0, Figma Developer
+  MCP 0.13.2, Firecrawl MCP 3.23.4, Google Maps MCP 0.6.2, Graphlit MCP
+  1.0.20260112001, Perplexity MCP 1.2.0, Shodan MCP 1.0.22, Tavily MCP
+  0.2.22, and VirusTotal MCP 1.0.25: MIT License.
+
+The Axiom v0.05, Grafana MCP v1.0.0, Kagi MCP commit `0d62ed3`, and Pinecone
+Assistant MCP v0.1.0 contracts are implemented independently as minimal
+read-only compatibility adapters. No upstream Axiom, Grafana, Kagi, or
+Pinecone server source is copied into the image. Grafana's reviewed upstream
+server is Apache-2.0; the other reviewed contracts are MIT.
+
+Snyk MCP 1.15.2 was reviewed under Apache-2.0 but is not included. It remains
+blocked because local project scanning can invoke host-language build tools and
+therefore requires the later one-shot code-execution isolation boundary.

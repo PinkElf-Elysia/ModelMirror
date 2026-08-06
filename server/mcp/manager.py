@@ -278,6 +278,15 @@ class MCPClientManager:
             await self._stop_session(managed)
         return cleaned_ids
 
+    async def scrub_session_environment(self, session_id: str) -> None:
+        """Drop short-lived child configuration after a proxy has initialized."""
+
+        async with self._lock:
+            managed = self._sessions.get(str(session_id or ""))
+            if managed is None:
+                raise MCPSessionNotFoundError(session_id)
+            managed.environment.clear()
+
     def start_ttl_cleanup(
         self,
         *,

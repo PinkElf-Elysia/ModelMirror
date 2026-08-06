@@ -1720,7 +1720,10 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
     isReady && adaptation.connectionKind === "sandboxed-stdio";
   const isPublicSandbox = isBundledSandbox && adaptation.wave === 2;
   const isFileSandbox = isBundledSandbox && adaptation.wave === 3;
-  const requirements = isReady
+  const isCredentialSandbox = isBundledSandbox && adaptation.wave === 4;
+  const requirements: McpRequirement[] = isCredentialSandbox
+    ? ["token"]
+    : isReady
     ? []
     : (seed.requirements ?? originalRequirements[seed.id] ?? ["external-runtime"]);
   const requirementText = requirements
@@ -1741,6 +1744,8 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
       ? "适配器在独立非 root、只读公网 sidecar 中运行；出口域名、DNS、重定向、超时和响应大小均由服务端控制。"
       : isFileSandbox
         ? "先在卡片中创建受控工作区并上传文件；封存后输入只读，写入和持久记忆操作由一次性确认保护。"
+      : isCredentialSandbox
+        ? "直接在当前卡片的“加密凭据”区域保存 Token；凭据按项目和固定槽位隔离，固定出口、只读工具与撤销失效均由服务端执行。"
       : isBundledSandbox
         ? "适配器随断网 Python 沙箱镜像固定部署；浏览器不会提交命令、目录或环境变量。"
       : seed.installNote,
@@ -1751,9 +1756,14 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
     requiredCapabilities: adaptation.requiredCapabilities,
     adaptationLimitations: adaptation.limitations,
     requirements,
-    configGuide:
-      seed.configGuide ??
-      (isLocalStdio
+    configGuide: isCredentialSandbox
+      ? [
+          "在条目卡片的“加密凭据”区域点击“添加加密凭据”，填写名称和 Token/API Key；明文仅用于服务端加密保存，不会回显。",
+          "凭据自动绑定当前 MCP 和固定槽位，不能跨项目复用；如有 Stack、区域等字段，仅填写卡片提供的受控配置。",
+          "保存配置后连接 Server；连接只代表传输可用，首次只读工具调用成功后才标记凭据已验证。撤销凭据会立即断开关联会话。",
+        ]
+      : seed.configGuide ??
+        (isLocalStdio
         ? [
             "点击“安装 Server”，由模镜记录并准备已核验的 npm stdio 包。",
             "安装完成后点击“连接 Server”，后端会在 MCP 沙盒目录启动进程。",

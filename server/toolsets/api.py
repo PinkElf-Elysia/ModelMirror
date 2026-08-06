@@ -473,6 +473,7 @@ async def list_credentials() -> dict[str, Any]:
         "credentials": [
             item.model_dump(mode="json", exclude={"ciphertext"})
             for item in get_toolset_service().credentials.list()
+            if not item.catalog_project_id
         ]
     }
 
@@ -500,6 +501,9 @@ async def rotate_credential(
     request: CredentialRotateRequest,
 ) -> dict[str, Any]:
     try:
+        current = get_toolset_service().credentials.get_public(credential_id)
+        if current.catalog_project_id:
+            raise ToolsetValidationError("目录凭据必须在对应 MCP 卡片中管理。")
         metadata, values = get_toolset_service().credentials.rotate(
             credential_id,
             value=request.value,
@@ -516,6 +520,9 @@ async def rotate_credential(
 @router.delete("/api/runtime/credentials/{credential_id}")
 async def revoke_credential(credential_id: str) -> dict[str, Any]:
     try:
+        current = get_toolset_service().credentials.get_public(credential_id)
+        if current.catalog_project_id:
+            raise ToolsetValidationError("目录凭据必须在对应 MCP 卡片中管理。")
         item = get_toolset_service().credentials.revoke(credential_id)
         return item.model_dump(mode="json", exclude={"ciphertext"})
     except Exception as exc:

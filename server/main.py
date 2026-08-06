@@ -802,6 +802,10 @@ mcp_catalog_service = MCPCatalogService(
     mcp_installer,
     tool_registry,
     credential_validator=toolset_credential_store.get_public,
+    credential_resolver=toolset_credential_store.resolve,
+    credential_lister=toolset_credential_store.list,
+    credential_creator=toolset_credential_store.create,
+    credential_revoker=toolset_credential_store.revoke,
     workspace_store=mcp_catalog_workspace_store,
     tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
 )
@@ -14515,7 +14519,7 @@ async def list_mcp_tools(session_id: str):
             item["session_id"]: item
             for item in await mcp_manager.get_sessions_summary()
         }.get(session_id)
-        if summary:
+        if summary and mcp_catalog_service.project_for_session(session_id) is None:
             await tool_registry.register_session_tools(
                 session_id=session_id,
                 server_id=mcp_server_id_from_command(summary["server_command"]),
@@ -14532,12 +14536,23 @@ async def list_mcp_tools(session_id: str):
 @app.post("/api/mcp/{session_id}/call", response_model=MCPCallResponse)
 async def call_mcp_tool(session_id: str, payload: MCPCallRequest):
     try:
+        catalog_project_id = mcp_catalog_service.project_for_session(session_id)
+        if catalog_project_id is not None:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "目录适配器只能通过项目级受控工具接口调用，以执行凭据、"
+                    "读写等级和审批策略。"
+                ),
+            )
         result = await mcp_manager.call_tool(
             session_id,
             payload.tool_name,
             payload.arguments,
         )
         return serialize_mcp_call_result(result)
+    except HTTPException:
+        raise
     except MCPSessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="MCP session 不存在或已断开。") from exc
     except ValueError as exc:
@@ -14550,9 +14565,16 @@ async def call_mcp_tool(session_id: str, payload: MCPCallRequest):
 @app.delete("/api/mcp/{session_id}")
 async def disconnect_mcp_server(session_id: str):
     try:
+        if mcp_catalog_service.project_for_session(session_id) is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="目录适配器必须通过项目级会话接口断开。",
+            )
         await mcp_manager.disconnect(session_id)
         await tool_registry.unregister_session(session_id)
         return {"ok": True}
+    except HTTPException:
+        raise
     except MCPSessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail="MCP session 不存在或已断开。") from exc
     except MCPClientError as exc:

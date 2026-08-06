@@ -6,6 +6,12 @@ export type McpConnectionKind =
   | "desktop-bridge";
 export type McpRiskLevel = "low" | "medium" | "high" | "critical";
 export type McpToolEffect = "read" | "artifact-create" | "state-write" | "terminal";
+export type McpCredentialVerification =
+  | "not-required"
+  | "missing"
+  | "unverified"
+  | "verified"
+  | "verification-failed";
 
 export interface McpWorkspacePolicy {
   required: boolean;
@@ -16,6 +22,27 @@ export interface McpWorkspacePolicy {
   idle_ttl_seconds: number | null;
   artifact_ttl_seconds: number;
   accepted_extensions: string[];
+}
+
+export interface McpSettingField {
+  key: string;
+  label: string;
+  description: string;
+  kind: "text" | "integer" | "enum" | "slug" | "hostname";
+  required: boolean;
+  default: string | number | null;
+  minimum: number | null;
+  maximum: number | null;
+  options: Array<{ value: string; label: string }>;
+  allowed_hostname_suffixes: string[];
+}
+
+export interface McpCredentialField {
+  key: string;
+  label: string;
+  description: string;
+  required: boolean;
+  accepted_kinds: string[];
 }
 
 export interface McpAdaptationRecord {
@@ -41,6 +68,14 @@ export interface McpCatalogAdapterStatus {
   session_id: string | null;
   allowed_settings: string[];
   credential_slots: string[];
+  setting_fields: McpSettingField[];
+  credential_fields: McpCredentialField[];
+  configured: boolean;
+  configured_settings: string[];
+  configured_credential_slots: string[];
+  configuration_values: Record<string, string | number | boolean>;
+  credential_bindings: Record<string, string>;
+  credential_verification: McpCredentialVerification;
   adapter_version: string;
   runtime_image: string;
   network_policy: string;
@@ -93,6 +128,8 @@ export const mcpCapabilityLabels: Record<string, string> = {
   "artifact-cleanup": "产物清理",
   "path-symlink-protection": "路径穿越与符号链接防护",
   "encrypted-credential-binding": "加密凭据绑定",
+  "credential-revocation-check": "凭据轮换与撤销即时失效",
+  "fixed-egress-policy": "固定服务出口域名",
   "read-only-tool-policy": "只读工具策略",
   "database-read-only-policy": "数据库只读策略",
   "query-limits": "查询超时与结果限制",
@@ -127,6 +164,7 @@ export const mcpIsolationLabels: Record<string, string> = {
   "sealed-input-read-only,artifact-write": "封存输入只读；仅产物目录可写",
   "blocked:arbitrary-code-execution": "已阻断：需要任意代码执行隔离",
   "blocked:no-runtime": "已阻断：不启动运行时",
+  "blocked:local-build-execution": "已阻断：可能执行本地构建链",
 };
 
 export function formatMcpCapability(capability: string) {
@@ -219,10 +257,13 @@ const waveMetadata: Record<
     ],
   },
   4: {
-    connectionKind: "remote-mcp",
+    connectionKind: "sandboxed-stdio",
     risk: "medium",
-    requiredCapabilities: ["加密凭据绑定", "只读工具策略"],
-    limitations: ["等待固定凭据槽、出口域名和只读工具清单验证。"],
+    requiredCapabilities: ["加密凭据绑定", "固定出口域名", "只读工具策略"],
+    limitations: [
+      "仅使用当前 MCP 卡片内按项目和槽位隔离的加密凭据；目录配置不接收明文 Token、Header、命令、环境变量或 MCP URL。",
+      "工具发现与调用均由 sidecar 只读白名单过滤；凭据轮换或撤销会强制断开已有会话。",
+    ],
   },
   5: {
     connectionKind: "sandboxed-stdio",
@@ -288,16 +329,16 @@ function buildAdaptationPlan() {
       records[projectId] = {
         wave,
         availability:
-          projectId === "bibigpt-mcp" || projectId === "airbnb-mcp" || projectId === "manim-mcp"
+          projectId === "bibigpt-mcp" || projectId === "airbnb-mcp" || projectId === "manim-mcp" || projectId === "snyk-mcp"
             ? "blocked"
-            : wave <= 3
+            : wave <= 4
               ? "ready"
               : "planned",
         connectionKind:
           projectId === "bibigpt-mcp"
             ? "remote-mcp"
             : metadata.connectionKind,
-        risk: projectId === "manim-mcp" ? "critical" : metadata.risk,
+        risk: projectId === "manim-mcp" || projectId === "snyk-mcp" ? "critical" : metadata.risk,
         requiredCapabilities:
           projectId === "bibigpt-mcp"
             ? ["OAuth PKCE", "授权撤销与解绑", "最小 Scope 审核"]
@@ -305,6 +346,8 @@ function buildAdaptationPlan() {
               ? ["公共远程访问策略", "SSRF 防护", "上游工具契约漂移恢复"]
             : projectId === "manim-mcp"
               ? ["一次性代码沙箱", "进程资源上限"]
+            : projectId === "snyk-mcp"
+              ? ["一次性代码沙箱", "受控文件授权", "终止性操作审批"]
             : [...metadata.requiredCapabilities],
         limitations:
           projectId === "bibigpt-mcp"
@@ -321,6 +364,11 @@ function buildAdaptationPlan() {
               ? [
                   "上游 Manim MCP 会执行用户提供的任意 Python 场景代码，不属于普通文件处理能力。",
                   "保留第 3 批编号，但连接入口已阻断；等待第 8 批一次性代码执行容器完成后再适配。",
+                ]
+            : projectId === "snyk-mcp"
+              ? [
+                  "Snyk MCP 会读取本地项目，并可能启动 Gradle、Maven 等构建链，超出本批 Token 只读远程检索边界。",
+                  "保留第 4 批编号但关闭连接、安装与外站登录；等待第 8 批一次性代码执行隔离后再适配。",
                 ]
             : [...metadata.limitations],
       };

@@ -189,11 +189,32 @@ async def test_toolset_api_create_discover_configure_test_and_publish(
             assert credential["secret_value"] == "one-time-secret"
             assert credential["secret_value_visible_once"] is True
 
+            scoped_record, _ = service.credentials.create(
+                name="AgentQL card credential",
+                kind="provider_key",
+                value="catalog-only-secret",
+                catalog_project_id="agentql-mcp",
+                catalog_slot="api_key",
+            )
+
             listed_credentials = await client.get("/api/runtime/credentials")
             assert listed_credentials.status_code == 200
             credential_text = listed_credentials.text
             assert "one-time-secret" not in credential_text
+            assert "catalog-only-secret" not in credential_text
+            assert scoped_record.credential_id not in credential_text
             assert "ciphertext" not in credential_text
+
+            scoped_rotate = await client.post(
+                f"/api/runtime/credentials/{scoped_record.credential_id}/rotate",
+                json={"value": "must-not-rotate"},
+            )
+            assert scoped_rotate.status_code == 400
+            scoped_revoke = await client.delete(
+                f"/api/runtime/credentials/{scoped_record.credential_id}"
+            )
+            assert scoped_revoke.status_code == 400
+            assert service.credentials.get_public(scoped_record.credential_id).status == "active"
 
             created_response = await client.post(
                 "/api/toolsets",
@@ -265,6 +286,7 @@ async def test_toolset_api_create_discover_configure_test_and_publish(
 
         persisted = (storage / "credentials.json").read_text(encoding="utf-8")
         assert "one-time-secret" not in persisted
+        assert "catalog-only-secret" not in persisted
         assert json.loads(persisted)["credentials"][0]["ciphertext"]
     finally:
         configure_toolsets(original)
