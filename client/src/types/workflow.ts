@@ -174,6 +174,7 @@ export interface WorkflowRunEvent {
     | "sandbox_operation_started"
     | "sandbox_operation_finished"
     | "sandbox_artifact_published"
+    | "skill_runtime_status"
     | "heartbeat"
     | "node_end"
     | "workflow_end"
@@ -207,4 +208,8 @@ export interface WorkflowRunEvent {
   status?: string;
   tool_call_id?: string;
   duration_ms?: number;
+  candidate_id?: string;
+  activated_skill_id?: string;
+  source_ref?: string;
+  result_count?: number;
 }

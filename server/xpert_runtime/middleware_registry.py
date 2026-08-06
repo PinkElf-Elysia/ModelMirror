@@ -688,7 +688,10 @@ def register_builtin_middleware_nodes(
                     label="允许经人工审批安装目录 Skill",
                     type="boolean",
                     default=False,
-                    description="安装固定核验提交；全局安装，但只授权当前 Agent 运行使用。",
+                    description=(
+                        "开启后自动启用目录检索，并为同一 Agent 添加或更新人机审批；"
+                        "安装固定核验提交，全局安装但只授权当前运行使用。"
+                    ),
                 ),
                 RuntimeMiddlewareField(
                     name="max_catalog_installs",

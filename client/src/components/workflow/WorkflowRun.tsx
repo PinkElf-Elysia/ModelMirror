@@ -300,6 +300,22 @@ function buildRunSteps(events: WorkflowRunEvent[]) {
       step.output = appendStepOutput(step.output, event.message || "审批已处理，继续执行。", step.type);
       return;
     }
+    if (event.event === "skill_runtime_status") {
+      const statusText =
+        event.status === "find"
+          ? `本地 Skill 检索完成：${event.result_count ?? 0} 项候选`
+          : event.status === "enable"
+            ? `已为本轮激活 Skill：${event.activated_skill_id ?? event.candidate_id ?? "-"}`
+            : event.status === "install"
+              ? `Skill 已安装并仅授权本轮使用：${event.activated_skill_id ?? "-"}`
+              : event.status === "upgrade"
+                ? `Skill 已升级并仅授权本轮使用：${event.activated_skill_id ?? "-"}`
+                : event.status === "reject"
+                  ? `用户已拒绝本轮 Skill 候选：${event.candidate_id ?? "-"}`
+                  : `Skill 状态已更新：${event.status ?? "completed"}`;
+      step.output = appendStepOutput(step.output, statusText, step.type);
+      return;
+    }
     if (event.event === "client_tool_waiting") {
       step.status = "waiting";
       step.output = appendStepOutput(

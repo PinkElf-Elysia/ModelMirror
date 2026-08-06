@@ -31,7 +31,11 @@ import {
   type WorkflowNodeData,
   type WorkflowNodeKind,
 } from "../../types/workflow";
-import { type RuntimeMiddlewareField } from "../../types/runtimeMiddleware";
+import {
+  fetchRuntimeMiddlewareNodes,
+  type RuntimeMiddlewareField,
+  type RuntimeMiddlewareNode,
+} from "../../types/runtimeMiddleware";
 import { type XpertListResponse, type XpertSummary } from "../../types/xpert";
 import {
   createXpert,
@@ -43,6 +47,11 @@ import {
   readStoredWorkflow,
   saveStoredWorkflow,
 } from "../../utils/workflowStorage";
+import { reconcileRuntimeMiddlewareNodes } from "../../utils/runtimeMiddlewareMigration";
+import {
+  getSkillCatalogApprovalState,
+  reconcileSkillCatalogApprovals,
+} from "../../utils/skillCatalogApproval";
 import NodePalette from "./NodePalette";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
@@ -1938,6 +1947,11 @@ function ResourceNodeConfig({
 interface NodeConfigProps {
   node: WorkflowNode | null;
   onChange: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
+  onRuntimeMiddlewareConfigChange: (
+    nodeId: string,
+    fieldName: string,
+    value: unknown,
+  ) => void;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   onSelectNode: (nodeId: string) => void;
@@ -1946,6 +1960,7 @@ interface NodeConfigProps {
 function NodeConfig({
   node,
   onChange,
+  onRuntimeMiddlewareConfigChange,
   nodes,
   edges,
   onSelectNode,
@@ -2085,12 +2100,12 @@ function NodeConfig({
           )
       : [];
   const updateRuntimeMiddlewareConfig = (fieldName: string, value: unknown) =>
-    update({
-      runtimeMiddlewareConfig: {
-        ...(runtimeMiddlewareConfig ?? {}),
-        [fieldName]: value,
-      },
-    });
+    onRuntimeMiddlewareConfigChange(node.id, fieldName, value);
+  const skillCatalogApprovalState =
+    data.kind === "runtime_middleware" &&
+    data.runtimeMiddlewareId === "skills_runtime"
+      ? getSkillCatalogApprovalState(nodes, edges, node.id)
+      : null;
 
   return (
     <div className="space-y-4">
@@ -3100,25 +3115,64 @@ function NodeConfig({
                   ) : null}
 
                   {field.type === "boolean" ? (
-                    <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-slate-200">
-                      <input
-                        checked={runtimeMiddlewareBooleanValue(
-                          runtimeMiddlewareConfig,
-                          field,
-                        )}
-                        className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-brand-300"
-                        onChange={(event) =>
-                          updateRuntimeMiddlewareConfig(
-                            field.name,
-                            event.target.checked,
-                          )
-                        }
-                        type="checkbox"
-                      />
-                      <span className="leading-6">
-                        {field.description ?? field.label}
-                      </span>
-                    </label>
+                    <>
+                      <label
+                        className={`flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-slate-200 ${
+                          field.name === "catalog_search" &&
+                          skillCatalogApprovalState?.enabled
+                            ? "opacity-65"
+                            : ""
+                        }`}
+                      >
+                        <input
+                          checked={runtimeMiddlewareBooleanValue(
+                            runtimeMiddlewareConfig,
+                            field,
+                          )}
+                          className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-slate-950 text-brand-300"
+                          disabled={
+                            field.name === "catalog_search" &&
+                            skillCatalogApprovalState?.enabled
+                          }
+                          onChange={(event) =>
+                            updateRuntimeMiddlewareConfig(
+                              field.name,
+                              event.target.checked,
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span className="leading-6">
+                          {field.description ?? field.label}
+                          {field.name === "catalog_search" &&
+                          skillCatalogApprovalState?.enabled ? (
+                            <span className="mt-1 block text-xs text-indigo-200">
+                              目录安装已开启，检索会保持启用。
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                      {field.name === "catalog_install" ? (
+                        <div
+                          aria-live="polite"
+                          className={`mt-2 rounded-lg border px-3 py-2 text-xs leading-5 ${
+                            !skillCatalogApprovalState?.enabled
+                              ? "border-white/10 bg-white/[0.035] text-slate-400"
+                              : skillCatalogApprovalState.covered
+                                ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                                : "border-amber-300/25 bg-amber-300/10 text-amber-100"
+                          }`}
+                        >
+                          {!skillCatalogApprovalState?.enabled
+                            ? "开启后会同时启用目录检索，并自动添加或更新人机审批中间件。每次安装仍需你明确批准。"
+                            : skillCatalogApprovalState.covered
+                              ? "审批保护已就绪：skill_install 执行前会暂停，等待你批准。Skill 会全局安装，但只授权当前运行使用。"
+                              : skillCatalogApprovalState.approvalNodeId
+                                ? "已添加并配置人机审批。请将本节点与“人机审批”都通过紫色端口绑定到同一个 workflow_agent。"
+                                : "暂未能自动添加人机审批，请等待中间件注册表加载后重试。目录安装在审批保护就绪前不会通过校验。"}
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
 
                   {field.type === "number" ? (
@@ -3249,8 +3303,49 @@ function WorkflowCanvas({
   const [isNodePaletteOpen, setIsNodePaletteOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab] =
     useState<WorkflowWorkspaceTab>("config");
+  const [runtimeMiddlewareRegistry, setRuntimeMiddlewareRegistry] = useState<
+    RuntimeMiddlewareNode[]
+  >([]);
   const { screenToFlowPosition } = useReactFlow();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchRuntimeMiddlewareNodes()
+      .then((registryNodes) => {
+        if (!isMounted) return;
+        setRuntimeMiddlewareRegistry(registryNodes);
+        setNodes((currentNodes) =>
+          reconcileRuntimeMiddlewareNodes(currentNodes, registryNodes),
+        );
+      })
+      .catch((error) => {
+        console.error("Failed to refresh existing middleware nodes:", error);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [setNodes]);
+
+  const humanApprovalDefinition = useMemo(
+    () =>
+      runtimeMiddlewareRegistry.find(
+        (definition) =>
+          definition.id === "human_in_the_loop" && definition.enabled,
+      ),
+    [runtimeMiddlewareRegistry],
+  );
+
+  useEffect(() => {
+    if (!humanApprovalDefinition) return;
+    const reconciled = reconcileSkillCatalogApprovals(
+      nodes,
+      edges,
+      humanApprovalDefinition,
+    );
+    if (reconciled.nodes !== nodes) setNodes(reconciled.nodes);
+    if (reconciled.edges !== edges) setEdges(reconciled.edges);
+  }, [edges, humanApprovalDefinition, nodes, setEdges, setNodes]);
 
   const definition = useMemo<WorkflowDefinition>(
     () => ({
@@ -3477,6 +3572,40 @@ function WorkflowCanvas({
           : node,
       ),
     );
+  }
+
+  function updateRuntimeMiddlewareConfig(
+    nodeId: string,
+    fieldName: string,
+    value: unknown,
+  ) {
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        if (node.id !== nodeId) return node;
+        const existingConfig = isRecord(node.data.runtimeMiddlewareConfig)
+          ? node.data.runtimeMiddlewareConfig
+          : {};
+        const enablesCatalogInstall =
+          node.data.runtimeMiddlewareId === "skills_runtime" &&
+          fieldName === "catalog_install" &&
+          value === true;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            runtimeMiddlewareConfig: {
+              ...existingConfig,
+              ...(enablesCatalogInstall ? { catalog_search: true } : {}),
+              [fieldName]: value,
+            },
+          },
+        };
+      }),
+    );
+    if (fieldName === "catalog_install" && value === true) {
+      setSaveNotice("已自动配置 skill_install 人工审批");
+      window.setTimeout(() => setSaveNotice(""), 2600);
+    }
   }
 
   async function saveWorkflow() {
@@ -3806,6 +3935,7 @@ function WorkflowCanvas({
               node={selectedNode}
               nodes={nodes}
               onChange={updateNodeData}
+              onRuntimeMiddlewareConfigChange={updateRuntimeMiddlewareConfig}
               onSelectNode={setSelectedNodeId}
             />
           </div>
