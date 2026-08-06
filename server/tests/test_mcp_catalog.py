@@ -14,6 +14,7 @@ from server.mcp import catalog
 from server.mcp.catalog import (
     CATALOG_ADAPTERS,
     LOCAL_STDIO_ADAPTERS,
+    WAVE_ONE_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
@@ -30,12 +31,17 @@ class FakeManager:
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
         self.disconnected: list[str] = []
         self.sessions: set[str] = set()
+        self.profiles: list[dict[str, Any]] = []
 
     async def connect(self, command: list[str]) -> str:
         self.commands.append(list(command))
         session_id = f"session-{len(self.commands)}"
         self.sessions.add(session_id)
         return session_id
+
+    async def connect_profile(self, **kwargs: Any) -> str:
+        self.profiles.append(dict(kwargs))
+        return await self.connect(list(kwargs.get("server_command") or []))
 
     async def list_tools(self, session_id: str) -> list[Tool]:
         if session_id not in self.sessions:
@@ -125,15 +131,24 @@ def make_service(
     return service, manager, installer, registry
 
 
-def test_catalog_freezes_100_projects_and_maps_93_planned_once() -> None:
-    planned = [project for projects in WAVE_PROJECTS.values() for project in projects]
+def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
+    phased = [project for projects in WAVE_PROJECTS.values() for project in projects]
 
     assert len(CATALOG_ADAPTERS) == 100
     assert len(LOCAL_STDIO_ADAPTERS) == 7
-    assert len(planned) == 93
-    assert len(set(planned)) == 93
-    assert set(planned).isdisjoint(LOCAL_STDIO_ADAPTERS)
-    assert set(CATALOG_ADAPTERS) == set(planned) | set(LOCAL_STDIO_ADAPTERS)
+    assert len(phased) == 93
+    assert len(set(phased)) == 93
+    assert set(phased).isdisjoint(LOCAL_STDIO_ADAPTERS)
+    assert set(CATALOG_ADAPTERS) == set(phased) | set(LOCAL_STDIO_ADAPTERS)
+    assert set(WAVE_ONE_ADAPTERS) == set(WAVE_PROJECTS[1])
+    assert sum(
+        manifest.availability == "ready"
+        for manifest in CATALOG_ADAPTERS.values()
+    ) == 10
+    assert sum(
+        manifest.availability == "planned"
+        for manifest in CATALOG_ADAPTERS.values()
+    ) == 90
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -169,7 +184,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["calculator-mcp"]
+    manifest = CATALOG_ADAPTERS["fetch-mcp"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
@@ -194,15 +209,15 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 7
-            assert payload["planned"] == 93
+            assert payload["ready"] == 10
+            assert payload["planned"] == 90
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
             assert '"endpoint"' not in serialized
 
             blocked = await client.post(
-                "/api/mcp/catalog/calculator-mcp/connect"
+                "/api/mcp/catalog/fetch-mcp/connect"
             )
             assert blocked.status_code == 409
             assert "尚未通过生产级适配验收" in blocked.text
@@ -267,6 +282,43 @@ async def test_ready_adapter_uses_server_owned_prepare_connect_call_and_disconne
     assert disconnected == {"ok": True, "project_id": "context7"}
     assert manager.disconnected == [connected["session_id"]]
     assert registry.unregistered == [connected["session_id"]]
+
+
+@pytest.mark.asyncio
+async def test_wave_one_adapter_uses_bundled_sandbox_profile() -> None:
+    service, manager, installer, _ = make_service()
+
+    prepared = await service.prepare("calculator-mcp")
+    assert prepared["prepared"] is True
+    assert prepared["metadata"]["adapter_version"] == "0.2.1-compatible-python-v1"
+    assert prepared["metadata"]["runtime_image"] == "modelmirror-sandbox:wave1-v1"
+    assert installer.calls == []
+
+    connected = await service.connect("calculator-mcp")
+    assert connected["tools_count"] == 1
+    assert manager.profiles == [
+        {
+            "transport": "stdio",
+            "server_command": list(
+                CATALOG_ADAPTERS["calculator-mcp"].server_command
+            ),
+            "network_policy": "disabled",
+            "reconnect_attempts": 1,
+            "operation_timeout": 10.0,
+        }
+    ]
+    public = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "calculator-mcp"
+    )
+    assert public["availability"] == "ready"
+    assert public["executable"] is True
+    assert public["network_policy"] == "disabled"
+    assert public["filesystem_policy"] == "read-only-empty-workspace"
+    assert set(public["tool_policies"]) == set(
+        WAVE_ONE_ADAPTERS["calculator-mcp"][1]
+    )
 
 
 @pytest.mark.asyncio

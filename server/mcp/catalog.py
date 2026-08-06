@@ -10,11 +10,14 @@ non-executable roadmap entry.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Literal, Protocol
 
 from fastapi import APIRouter, HTTPException
@@ -42,6 +45,7 @@ AdapterConnectionKind = Literal[
     "desktop-bridge",
 ]
 AdapterRisk = Literal["low", "medium", "high", "critical"]
+AdapterPreparationKind = Literal["installer", "bundled"]
 
 logger = logging.getLogger("modelmirror.mcp.catalog")
 
@@ -79,8 +83,14 @@ class CatalogAdapterManifest:
     risk: AdapterRisk
     required_capabilities: tuple[str, ...]
     limitations: tuple[str, ...]
+    adapter_version: str = ""
+    runtime_image: str = ""
+    network_policy: str = "unspecified"
+    filesystem_policy: str = "unspecified"
+    resource_limits: tuple[tuple[str, str], ...] = ()
     server_command: tuple[str, ...] = ()
     install_command: str = ""
+    preparation_kind: AdapterPreparationKind = "installer"
     transport: str = "stdio"
     endpoint: str = ""
     allowed_settings: tuple[str, ...] = ()
@@ -88,6 +98,8 @@ class CatalogAdapterManifest:
     tool_policies: dict[str, CatalogToolPolicy] = field(default_factory=dict)
     legacy_unrestricted_calls: bool = False
     enabled_by_default: bool = False
+    operation_timeout: float = 30.0
+    max_output_bytes: int = 256 * 1024
 
     @property
     def feature_flag(self) -> str:
@@ -129,6 +141,20 @@ class CatalogAdapterManifest:
             "session_id": session_id if connected else None,
             "allowed_settings": list(self.allowed_settings),
             "credential_slots": list(self.credential_slots),
+            "adapter_version": self.adapter_version,
+            "runtime_image": self.runtime_image,
+            "network_policy": self.network_policy,
+            "filesystem_policy": self.filesystem_policy,
+            "resource_limits": dict(self.resource_limits),
+            "tool_policies": {
+                name: {
+                    "read_only": policy.read_only,
+                    "requires_approval": policy.requires_approval,
+                    "sensitive": policy.sensitive,
+                    "terminal": policy.terminal,
+                }
+                for name, policy in sorted(self.tool_policies.items())
+            },
         }
 
 
@@ -154,6 +180,26 @@ LOCAL_STDIO_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "everything-mcp": (
         "npx -y @modelcontextprotocol/server-everything",
         ("npx", "-y", "@modelcontextprotocol/server-everything"),
+    ),
+}
+
+
+SANDBOX_PROXY = (
+    sys.executable,
+    str(Path(__file__).resolve().with_name("sandbox_proxy.py")),
+)
+WAVE_ONE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "calculator-mcp": (
+        "0.2.1-compatible-python-v1",
+        ("add", "sub", "mul", "div", "mod", "sqrt"),
+    ),
+    "time-mcp": (
+        "0.6.2-compatible-python-v1",
+        ("get_current_time", "convert_time"),
+    ),
+    "vegalite-mcp": (
+        "0.0.1-compatible-python-v1",
+        ("save_data", "visualize_data"),
     ),
 }
 
@@ -360,11 +406,48 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             enabled_by_default=True,
         )
 
+    for project_id, (adapter_version, tool_names) in WAVE_ONE_ADAPTERS.items():
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=1,
+            availability="ready",
+            connection_kind="sandboxed-stdio",
+            risk="low",
+            required_capabilities=(
+                "isolated-python-runtime",
+                "resource-limits",
+            ),
+            limitations=(
+                "仅运行模镜内置兼容实现，不下载或执行上游任意代码。",
+                "默认断网、文件系统只读；单次调用超时 10 秒，输出不超过 128 KiB。",
+            ),
+            adapter_version=adapter_version,
+            runtime_image="modelmirror-sandbox:wave1-v1",
+            network_policy="disabled",
+            filesystem_policy="read-only-empty-workspace",
+            resource_limits=(
+                ("cpu", "1 core / 60 CPU seconds per session"),
+                ("memory", "256 MiB per process / 512 MiB sidecar"),
+                ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                ("operation_timeout", "10 seconds"),
+                ("output", "128 KiB"),
+            ),
+            server_command=(*SANDBOX_PROXY, project_id),
+            preparation_kind="bundled",
+            tool_policies={
+                name: CatalogToolPolicy(read_only=True)
+                for name in tool_names
+            },
+            enabled_by_default=True,
+            operation_timeout=10.0,
+            max_output_bytes=128 * 1024,
+        )
+
     for wave, project_ids in WAVE_PROJECTS.items():
         connection_kind, risk, capabilities, limitations = WAVE_METADATA[wave]
         for project_id in project_ids:
             if project_id in manifests:
-                raise RuntimeError(f"Duplicate MCP catalog project: {project_id}")
+                continue
             manifests[project_id] = CatalogAdapterManifest(
                 project_id=project_id,
                 wave=wave,
@@ -464,6 +547,23 @@ class MCPCatalogService:
     async def prepare(self, project_id: str) -> dict[str, Any]:
         manifest = self._require_executable(project_id)
         started_at = time.monotonic()
+        if manifest.preparation_kind == "bundled":
+            payload = {
+                "project_id": manifest.project_id,
+                "prepared": True,
+                "message": "内置隔离适配器已随沙箱镜像准备完成。",
+                "metadata": {
+                    "project_id": manifest.project_id,
+                    "adapter_version": manifest.adapter_version,
+                    "runtime_image": manifest.runtime_image,
+                },
+            }
+            logger.info(
+                "MCP catalog prepare project=%s prepared=true duration_ms=%d",
+                manifest.project_id,
+                int((time.monotonic() - started_at) * 1000),
+            )
+            return payload
         existing = self.installer.get_installed(manifest.project_id)
         if existing is not None:
             return {
@@ -556,7 +656,16 @@ class MCPCatalogService:
                 raise CatalogAdapterUnavailableError(
                     "该适配器尚未配置受控的可执行传输。"
                 )
-            session_id = await self.manager.connect(list(manifest.server_command))
+            if manifest.connection_kind == "sandboxed-stdio":
+                session_id = await self.manager.connect_profile(
+                    transport="stdio",
+                    server_command=list(manifest.server_command),
+                    network_policy=manifest.network_policy,
+                    reconnect_attempts=1,
+                    operation_timeout=manifest.operation_timeout,
+                )
+            else:
+                session_id = await self.manager.connect(list(manifest.server_command))
             try:
                 tools = await self.manager.list_tools(session_id)
                 await self.registry.register_session_tools(
@@ -609,7 +718,12 @@ class MCPCatalogService:
                 raise CatalogAdapterPolicyError(
                     "该工具尚未完成显式读写与审批策略分类。"
                 )
-            if policy.requires_approval or not policy.read_only:
+            if (
+                policy.requires_approval
+                or not policy.read_only
+                or policy.sensitive
+                or policy.terminal
+            ):
                 raise CatalogAdapterPolicyError(
                     "该工具需要通过运行时审批流程后执行。"
                 )
@@ -622,7 +736,10 @@ class MCPCatalogService:
             tool_name,
             int((time.monotonic() - started_at) * 1000),
         )
-        return self._serialize_call_result(result)
+        return self._serialize_call_result(
+            result,
+            max_output_bytes=manifest.max_output_bytes,
+        )
 
     async def clear_sessions(self) -> None:
         async with self._lock:
@@ -674,8 +791,21 @@ class MCPCatalogService:
         return {key: value[key] for key in allowed if key in value}
 
     @staticmethod
-    def _serialize_call_result(result: CallToolResult) -> dict[str, Any]:
+    def _serialize_call_result(
+        result: CallToolResult,
+        *,
+        max_output_bytes: int,
+    ) -> dict[str, Any]:
         payload = result.model_dump(mode="json", exclude_none=True)
+        serialized = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(serialized) > max(1, max_output_bytes):
+            raise CatalogAdapterPolicyError(
+                "工具返回超过该适配器允许的输出大小，结果已拒绝传回。"
+            )
         content = payload.get("content")
         return {
             "content": content if isinstance(content, list) else [],

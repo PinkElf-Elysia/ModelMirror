@@ -1,6 +1,6 @@
 # MCP 目录扩充与适配路线
 
-最后更新日期：2026-08-02
+最后更新日期：2026-08-05
 维护人：模镜团队
 
 ## 1. 目标与当前范围
@@ -15,13 +15,13 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-02，前端收录 100 个 MCP 条目、18 个分类。其中只有无需 OAuth、Token、额外运行时、桌面宿主或外站认证流程的 7 个 Node stdio Server 标记为“本地 stdio 可连”；其余 93 个条目统一标记为“已收录、待适配”。
+截至 2026-08-05，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0 的 7 个 Node stdio Server 与批次 1 的 3 个隔离 Python 适配器已标记为 `ready`；其余 90 个条目继续保持 `planned`。
 
-## 2. 本轮明确不实现
+## 2. 当前边界与明确不实现
 
-本轮只扩充目录、中文信息架构和适配状态，不扩大后端执行或授权能力：
+批次 1 只增加三个固定、断网的内置计算适配器，不扩大授权、远程访问或任意执行能力：
 
-- 不安装或启动 Python、Go、Rust、Java、Docker、浏览器、移动 SDK 等额外运行时。
+- 不接受用户指定的 Python 包、解释器、命令、工作目录或其他额外运行时。
 - 不实现 OAuth 回调、Token / API Key 输入、保存、刷新或注入。
 - 不打开外站认证登录页，也不提供认证按钮或深链。
 - 不连接 Streamable HTTP、SSE 等远程 MCP 端点。
@@ -44,7 +44,7 @@
 数据层必须满足以下约束：
 
 1. 前端条目不得包含可执行 `command`、MCP URL、Header 或环境变量配置。
-2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变。
+2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1 的 3 项使用完整的逐工具策略。
 3. `planned` 后端适配器不得包含可执行命令或端点，环境开关不能绕过状态门禁。
 4. 前端不得保存真实 Secret，也不得在仓库内出现真实凭证。
 5. 上游清单只用于发现项目；能否连接必须按模镜运行边界重新核验。
@@ -73,7 +73,7 @@
 | 批次 | 能力与条目 | 数量 | 主要退出门槛 |
 | --- | --- | ---: | --- |
 | 0 | 现有 Node stdio 基线与适配 Harness | 7 | 100 项契约、服务端清单、功能开关、状态 API、现有行为回归 |
-| 1 | `calculator-mcp`、`time-mcp`、`vegalite-mcp` | 3 | 非 root Python 沙箱、默认断网、CPU/内存/时间/输出上限 |
+| 1 | `calculator-mcp`、`time-mcp`、`vegalite-mcp` | 3 | **已实现**：非 root Python 沙箱、默认断网、只读文件、CPU/内存/时间/输出上限 |
 | 2 | `bibigpt-mcp`、`fetch-mcp`、`quickchart-mcp`、`airbnb-mcp`、`geowire-mcp` | 5 | 公网目标、DNS 重绑定、SSRF、重定向与响应大小验证 |
 | 3 | `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`manim-mcp`、`markitdown-mcp` | 5 | 目录授权、路径越界与符号链接防护、产物清理 |
 | 4 | AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、Snyk、VirusTotal | 16 | 加密凭据槽、固定出口域、只读工具清单、Secret 泄漏测试 |
@@ -105,9 +105,11 @@
 
 主要风险是上游项目快速变化、条目说明过期，以及把“已收录”误解为“当前可安全运行”。前端必须持续使用明确的状态标签和禁用按钮表达边界。
 
-批次 0 不引入数据库迁移。回退时先断开目录会话，再恢复以下适配器、展示与文档文件；旧版 `/api/mcp/*` 接口保持兼容，可继续承载已有会话：
+批次 0—1 不引入数据库迁移。批次 1 回退时关闭三个 `MCP_CATALOG_ENABLE_*` 开关、断开目录会话并停止 sandbox sidecar，再恢复以下适配器、展示与文档文件；旧版 `/api/mcp/*` 接口保持兼容：
 
 - `server/mcp/catalog.py`
+- `server/mcp/sandbox_proxy.py`
+- `server/sandbox_sidecar/`
 - `client/src/data/mcpProjects.ts`
 - `client/src/data/mcpAdaptationPlan.ts`
 - `client/src/pages/McpBrowserPage.tsx`

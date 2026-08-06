@@ -7,6 +7,8 @@ import {
   type McpProject,
 } from "../data/mcpProjects";
 import {
+  formatMcpCapability,
+  formatMcpIsolation,
   mcpAvailabilityLabels,
   mcpConnectionKindLabels,
   mcpRiskLabels,
@@ -519,7 +521,7 @@ export default function McpServerCard({
               className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs text-cyan-50"
               key={capability}
             >
-              {capability}
+              {formatMcpCapability(capability)}
             </span>
           ))}
         </div>
@@ -529,6 +531,24 @@ export default function McpServerCard({
           </p>
         ))}
       </div>
+
+      {adapterStatus?.executable && adapterStatus.runtime_image ? (
+        <div className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-emerald-100">已验证运行隔离</p>
+            <span className="rounded-full border border-emerald-300/25 px-2 py-1 text-emerald-100">
+              {adapterStatus.adapter_version}
+            </span>
+          </div>
+          <div className="mt-2 grid gap-2 text-slate-300 sm:grid-cols-2">
+            <p>网络：{formatMcpIsolation(adapterStatus.network_policy)}</p>
+            <p>文件：{formatMcpIsolation(adapterStatus.filesystem_policy)}</p>
+          </div>
+          <p className="mt-2 break-all text-slate-400">
+            固定运行镜像：{adapterStatus.runtime_image}
+          </p>
+        </div>
+      ) : null}
 
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
         {canConnect ? (

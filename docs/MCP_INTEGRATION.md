@@ -1,6 +1,6 @@
 # MCP 原生集成说明
 
-最后更新日期：2026-08-02
+最后更新日期：2026-08-05
 维护人：模镜团队
 
 ## 0. 产品入口与预算层级
@@ -82,9 +82,16 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 93 个待适配项目没有后端命令或端点；设置环境功能开关也不能使其可执行。
+- 90 个待适配项目没有后端命令或端点；设置环境功能开关也不能使其可执行。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
+
+批次 1 的三个计算适配器通过固定 `sandbox_proxy.py` 接入隔离 sidecar：
+
+- `calculator-mcp`、`time-mcp`、`vegalite-mcp` 只运行仓库内置 Python 兼容实现，不动态下载上游代码。
+- sidecar 固定为 `network_mode: none`、只读容器、UID/GID 65532、丢弃全部 capabilities 且启用 `no-new-privileges`。
+- 每个 MCP 子进程再使用 Landlock 只读规则与 RLIMIT CPU、内存、文件及句柄限制；sidecar 由 cgroup 限制为 128 PIDs 和最多 6 个并发会话，调用超时 10 秒，返回上限 128 KiB。
+- Vega-Lite 数据只保存在当前进程内存，拒绝远程 URL，连接结束后随临时进程和空白工作区一起清理。
 
 兼容层仍保留以下默认值：
 
@@ -339,7 +346,7 @@ python -m pip install -r server/requirements.txt
 
 ```bash
 python -m pytest server/tests/test_mcp_integration.py -q
-python -m pytest server/tests/test_mcp_catalog.py server/tests/test_mcp_multisession.py -q
+python -m pytest server/tests/test_mcp_catalog.py server/tests/test_mcp_compute_adapters.py server/tests/test_mcp_multisession.py -q
 ```
 
 测试覆盖：
@@ -365,6 +372,8 @@ python server/mcp/test_manager.py
 | --- | --- |
 | `server/mcp/manager.py` | MCPClientManager，负责 Stdio、Streamable HTTP 与旧 SSE session 生命周期。 |
 | `server/mcp/catalog.py` | 冻结目录、固定适配器、功能开关、配置门禁和目录 API。 |
+| `server/mcp/sandbox_proxy.py` | 把固定项目 ID 的 stdio 流代理到断网 sandbox sidecar。 |
+| `server/sandbox_sidecar/compute_mcp.py` | 批次 1 的三个内置 Python MCP 工具契约。 |
 | `server/toolsets/` | Toolset/凭据 Store、版本发布、Schema 漂移与固定版本 Provider。 |
 | `client/src/pages/ToolsetsPage.tsx` | MCP Toolset 创建、连接、工具配置、测试和发布管理页。 |
 | `server/tests/test_toolset_*.py` | Toolset Store、API、连接、固定版本与安全回归。 |
@@ -374,6 +383,7 @@ python server/mcp/test_manager.py
 | `server/tests/test_mcp_integration.py` | FastAPI MCP 端点集成测试。 |
 | `server/tests/test_mcp_multisession.py` | 多 session、TTL 与 ToolRegistry 集成测试。 |
 | `server/tests/test_mcp_catalog.py` | 100 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
+| `server/tests/test_mcp_compute_adapters.py` | 批次 1 工具契约、输入上限、URL 拒绝与沙箱配置测试。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
 | `client/src/data/mcpProjects.ts` | MCP 中文展示资料；不能作为执行配置来源。 |
 | `client/src/data/mcpAdaptationPlan.ts` | 前端批次、状态、连接形态和风险展示。 |

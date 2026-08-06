@@ -46,6 +46,8 @@ services:
     build:
       context: ./server/sandbox_sidecar
     container_name: modelmirror-sandbox
+    environment:
+      MCP_COMPUTE_MAX_SESSIONS: "6"
     network_mode: none
     read_only: true
     cap_drop:

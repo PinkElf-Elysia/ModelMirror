@@ -29,6 +29,20 @@ export interface McpCatalogAdapterStatus {
   session_id: string | null;
   allowed_settings: string[];
   credential_slots: string[];
+  adapter_version: string;
+  runtime_image: string;
+  network_policy: string;
+  filesystem_policy: string;
+  resource_limits: Record<string, string>;
+  tool_policies: Record<
+    string,
+    {
+      read_only: boolean;
+      requires_approval: boolean;
+      sensitive: boolean;
+      terminal: boolean;
+    }
+  >;
 }
 
 export const mcpAvailabilityLabels: Record<McpAvailability, string> = {
@@ -51,6 +65,46 @@ export const mcpRiskLabels: Record<McpRiskLevel, string> = {
   high: "高风险",
   critical: "关键风险",
 };
+
+export const mcpCapabilityLabels: Record<string, string> = {
+  "existing-node-stdio-runtime": "现有 Node stdio 运行时",
+  "isolated-python-runtime": "独立 Python 沙箱",
+  "resource-limits": "CPU、内存、时限与输出限制",
+  "public-remote-policy": "公共远程访问策略",
+  "ssrf-protection": "SSRF 与 DNS 重绑定防护",
+  "scoped-filesystem": "受控目录授权",
+  "artifact-cleanup": "产物清理",
+  "encrypted-credential-binding": "加密凭据绑定",
+  "read-only-tool-policy": "只读工具策略",
+  "database-read-only-policy": "数据库只读策略",
+  "query-limits": "查询超时与结果限制",
+  "mutating-tool-approval": "修改操作审批",
+  "account-unbinding": "账号解绑",
+  "ephemeral-browser": "临时浏览器会话",
+  "browser-domain-policy": "浏览目标域策略",
+  "ephemeral-code-sandbox": "一次性代码沙箱",
+  "process-resource-limits": "进程资源限制",
+  "cost-guardrails": "费用与资源护栏",
+  "terminal-action-approval": "终止性操作审批",
+  "oauth-pkce": "OAuth PKCE",
+  "oauth-revocation": "授权撤销与解绑",
+  "scope-review": "最小 Scope 审核",
+  "versioned-desktop-bridge": "版本化桌面桥接",
+  "per-app-consent": "逐应用授权",
+};
+
+export const mcpIsolationLabels: Record<string, string> = {
+  disabled: "完全断网",
+  "read-only-empty-workspace": "空白只读工作区",
+};
+
+export function formatMcpCapability(capability: string) {
+  return mcpCapabilityLabels[capability] ?? capability;
+}
+
+export function formatMcpIsolation(value: string) {
+  return mcpIsolationLabels[value] ?? value;
+}
 
 const localStdioIds = [
   "context7",
@@ -105,7 +159,10 @@ const waveMetadata: Record<
     connectionKind: "sandboxed-stdio",
     risk: "low",
     requiredCapabilities: ["独立 Python 运行时", "资源上限"],
-    limitations: ["等待独立 Python 沙箱、断网策略和资源上限验证。"],
+    limitations: [
+      "已使用断网、非 root、只读文件系统的 Python 沙箱；只开放固定工具契约。",
+      "单次调用最多 10 秒，返回最多 128 KiB，超限会被终止或拒绝。",
+    ],
   },
   2: {
     connectionKind: "remote-mcp",
@@ -188,7 +245,7 @@ function buildAdaptationPlan() {
       if (records[projectId]) throw new Error(`重复的 MCP 适配计划：${projectId}`);
       records[projectId] = {
         wave,
-        availability: "planned",
+        availability: wave === 1 ? "ready" : "planned",
         connectionKind: metadata.connectionKind,
         risk: metadata.risk,
         requiredCapabilities: [...metadata.requiredCapabilities],
