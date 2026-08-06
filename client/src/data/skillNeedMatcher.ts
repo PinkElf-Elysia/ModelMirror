@@ -22,6 +22,7 @@ export interface SkillNeedCandidate {
   pathTerms?: string[];
   parentNames?: string[];
   deprecated?: boolean;
+  stableNameOrder?: number;
 }
 
 export interface SkillNeedProjectTarget extends SkillNeedCandidate {
@@ -280,11 +281,11 @@ function extractQueryTerms(query: string) {
   };
 }
 
-function statusRank(status: SkillInstallStatus) {
-  if (status === "ready") return 0;
-  if (status === "pending") return 1;
-  if (status === "manual") return 2;
-  return 3;
+function statusBoost(status: SkillInstallStatus) {
+  if (status === "ready") return 0.5;
+  if (status === "pending") return 0.25;
+  if (status === "manual") return 0.1;
+  return 0;
 }
 
 interface PreparedCandidate<T extends SkillNeedCandidate> {
@@ -403,12 +404,19 @@ export function findSkillsForNeed<T extends SkillNeedCandidate>(
     .map((candidate) => matchCandidate(candidate, query, idf))
     .filter((match): match is SkillNeedMatch<T> => Boolean(match))
     .sort((left, right) => {
-      const scoreDifference = right.score - left.score;
-      if (Math.abs(scoreDifference) >= 1) return scoreDifference;
-      const availabilityDifference =
-        statusRank(left.project.installStatus) -
-        statusRank(right.project.installStatus);
-      if (availabilityDifference !== 0) return availabilityDifference;
+      const adjustedScoreDifference =
+        right.score + statusBoost(right.project.installStatus) -
+        (left.score + statusBoost(left.project.installStatus));
+      if (adjustedScoreDifference !== 0) return adjustedScoreDifference;
+      const leftStableOrder = left.project.stableNameOrder;
+      const rightStableOrder = right.project.stableNameOrder;
+      if (
+        typeof leftStableOrder === "number" &&
+        typeof rightStableOrder === "number" &&
+        leftStableOrder !== rightStableOrder
+      ) {
+        return leftStableOrder - rightStableOrder;
+      }
       const nameDifference = left.project.name.localeCompare(
         right.project.name,
         "zh-CN",
