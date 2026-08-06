@@ -25,6 +25,7 @@ import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import CodingChangesPanel from "../components/CodingChangesPanel";
 import CodingHistoryPanel from "../components/CodingHistoryPanel";
+import CodingProjectHostPanel from "../components/CodingProjectHostPanel";
 import CodingRecoveryCard, {
   type CodingRecoveryAction,
 } from "../components/CodingRecoveryCard";
@@ -98,7 +99,7 @@ interface StoredCodingSession {
 
 const CODING_SESSION_STORAGE_KEY = "modelmirror.coding.session.v1";
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
-const SAFE_PROJECT_ID = /^(?:modelmirror|local-[a-f0-9]{24})$/;
+const SAFE_PROJECT_ID = /^(?:modelmirror|local-[a-f0-9]{24}|hostgit_[a-f0-9]{32})$/;
 const STREAM_RENDER_INTERVAL_MS = 80;
 const BUILTIN_PROJECT: CodingProjectSummary = {
   branch: null,
@@ -495,7 +496,8 @@ export default function CodingPage() {
     projects.find((project) => project.id === selectedProjectId) ??
     (recovery?.project?.id === selectedProjectId ? recovery.project : null) ??
     (selectedProjectId === "modelmirror" ? BUILTIN_PROJECT : null);
-  const isLocalProject = selectedProject?.kind === "local_clone";
+  const isLocalProject =
+    selectedProject?.kind === "local_clone" || selectedProject?.kind === "host_git";
   const supportsVerification = selectedProject?.features.verification !== false;
   const supportsCommands = selectedProject?.features.commands === true;
   const supportsApply = selectedProject?.features.apply !== false;
@@ -737,6 +739,19 @@ export default function CodingPage() {
       setCapabilityState("error");
     }
   }, [loadRecovery]);
+
+  const refreshProjectCatalog = useCallback(
+    async (preferredProjectId?: string) => {
+      await loadCapabilities();
+      if (preferredProjectId) {
+        setSelectedProjectId(preferredProjectId);
+        setError("");
+        setDraftError("");
+        setDraftNotice("");
+      }
+    },
+    [loadCapabilities],
+  );
 
   useEffect(() => {
     void loadCapabilities();
@@ -2010,6 +2025,12 @@ export default function CodingPage() {
                   "本地项目列表暂时不可用，仍可选择 ModelMirror。"}
               </p>
             ) : null}
+            <CodingProjectHostPanel
+              capability={capabilities?.project_host}
+              locked={projectSelectionLocked}
+              onProjectsChanged={refreshProjectCatalog}
+              selectedProject={selectedProject}
+            />
           </div>
         </div>
       </section>

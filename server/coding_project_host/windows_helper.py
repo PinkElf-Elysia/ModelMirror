@@ -6,6 +6,7 @@ import base64
 import ctypes
 import hashlib
 import hmac
+import http.client
 import json
 import os
 import secrets
@@ -508,8 +509,82 @@ class ProjectHostTransport:
                 await websocket.send(json.dumps({"type": "request_result", "request_id": request_id, "ok": True}))
             except ProjectHostHelperError as exc:
                 await self._error(websocket, request_id, exc.code)
+        elif message_type == "snapshot_project":
+            project_id = str(message.get("project_id") or "")
+            transfer_id = str(message.get("transfer_id") or "")
+            if PROJECT_ID_PATTERN.fullmatch(project_id) is None or not re.fullmatch(
+                r"[a-f0-9]{32}", transfer_id
+            ):
+                await self._error(websocket, request_id, "snapshot_transfer_invalid")
+                return
+            transfer_root = self.registry.path.parent / "transfers"
+            transfer_root.mkdir(parents=True, exist_ok=True)
+            archive = transfer_root / f"{transfer_id}.tar.gz"
+            try:
+                result = await asyncio.to_thread(
+                    self.registry.create_snapshot,
+                    project_id,
+                    archive,
+                )
+                await asyncio.to_thread(self._upload_snapshot, transfer_id, archive)
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "snapshot_result",
+                            "request_id": request_id,
+                            "transfer_id": transfer_id,
+                            "project": {
+                                "project_id": result.project_id,
+                                "name": result.name,
+                                "branch": result.branch,
+                                "head": result.head,
+                                "state": "available",
+                                "reason": None,
+                            },
+                        },
+                        separators=(",", ":"),
+                    )
+                )
+            except ProjectHostHelperError as exc:
+                await self._error(websocket, request_id, exc.code)
+            finally:
+                archive.unlink(missing_ok=True)
         else:
             raise ProjectHostHelperError("project_host_message_unsupported")
+
+    def _upload_snapshot(self, transfer_id: str, archive: Path) -> None:
+        credentials = self.registry.credentials
+        if credentials is None:
+            raise ProjectHostHelperError("project_host_credentials_invalid")
+        host_id, token = credentials
+        parsed = urlsplit(self.server_url)
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            parsed.port or 80,
+            timeout=150,
+        )
+        size = archive.stat().st_size
+        try:
+            connection.putrequest(
+                "PUT",
+                f"/api/coding/project-host/transfers/{transfer_id}",
+            )
+            connection.putheader("Authorization", f"Bearer {token}")
+            connection.putheader("X-ModelMirror-Project-Host-Id", host_id)
+            connection.putheader("Content-Type", "application/gzip")
+            connection.putheader("Content-Length", str(size))
+            connection.endheaders()
+            with archive.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    connection.send(chunk)
+            response = connection.getresponse()
+            response.read(64 * 1024)
+            if response.status != 200:
+                raise ProjectHostHelperError("snapshot_upload_failed")
+        except (OSError, http.client.HTTPException) as exc:
+            raise ProjectHostHelperError("snapshot_upload_failed") from exc
+        finally:
+            connection.close()
 
     @staticmethod
     async def _error(websocket: Any, request_id: str, code: str) -> None:
