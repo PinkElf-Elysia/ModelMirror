@@ -1,5 +1,10 @@
 import type { SkillInstallStatus } from "./skillCatalogPolicy";
-import type { SkillProjectKind } from "./skillProjects";
+import type {
+  SkillInstallSource,
+  SkillProject,
+  SkillProjectKind,
+} from "./skillProjects";
+import type { SkillSetMemberSource } from "./skillSetMembers";
 
 export interface SkillNeedCandidate {
   id: string;
@@ -8,12 +13,31 @@ export interface SkillNeedCandidate {
   kind: SkillProjectKind;
   description: string;
   sourceDescription?: string;
+  searchDescription?: string;
   tags: string[];
   includedSkills?: string[];
   installStatus: SkillInstallStatus;
   publisher?: string;
   sourceGroup?: string;
+  pathTerms?: string[];
+  parentNames?: string[];
+  deprecated?: boolean;
 }
+
+export interface SkillNeedProjectTarget extends SkillNeedCandidate {
+  targetType: "project";
+  project: SkillProject;
+}
+
+export interface SkillNeedMemberTarget extends SkillNeedCandidate {
+  targetType: "member";
+  member: SkillSetMemberSource;
+  installSource: SkillInstallSource;
+  primarySkillSet: SkillProject;
+  parentSkillSets: SkillProject[];
+}
+
+export type SkillNeedTarget = SkillNeedProjectTarget | SkillNeedMemberTarget;
 
 export type SkillNeedMatchReasonType =
   | "name"
@@ -21,11 +45,16 @@ export type SkillNeedMatchReasonType =
   | "tag"
   | "description"
   | "category"
+  | "path"
+  | "parent"
   | "source";
+
+export type SkillNeedMatchOrigin = "direct" | "expanded";
 
 export interface SkillNeedMatchReason {
   type: SkillNeedMatchReasonType;
   label: string;
+  origin: SkillNeedMatchOrigin;
   matchedTerms: string[];
 }
 
@@ -63,8 +92,10 @@ const INTENT_GROUPS: IntentGroup[] = [
       "selenium",
       "e2e",
       "webapp testing",
+      "browser testing",
       "网页测试",
       "自动化测试",
+      "testing",
       "测试",
     ],
     requiredAny: [
@@ -73,11 +104,12 @@ const INTENT_GROUPS: IntentGroup[] = [
       "selenium",
       "e2e",
       "webapp testing",
+      "browser testing",
       "网页测试",
       "自动化测试",
-      "测试",
       "testing",
       "test",
+      "测试",
     ],
   },
   {
@@ -87,8 +119,8 @@ const INTENT_GROUPS: IntentGroup[] = [
   },
   {
     label: "数据库",
-    trigger: /postgres|mysql|sqlite|mongodb|redis|supabase|数据库|\bsql\b/i,
-    terms: ["postgres", "mysql", "sqlite", "mongodb", "redis", "supabase", "database", "数据库", "sql"],
+    trigger: /postgres|postgresql|mysql|sqlite|mongodb|redis|supabase|数据库|\bsql\b/i,
+    terms: ["postgres", "postgresql", "mysql", "sqlite", "mongodb", "redis", "supabase", "database", "数据库", "sql"],
   },
   {
     label: "安全审计",
@@ -173,12 +205,14 @@ const FIELD_DETAILS: Array<{
     values: (candidate) => [candidate.description],
   },
   { type: "category", label: "分类", weight: 5, values: (candidate) => [candidate.category] },
+  { type: "path", label: "来源路径", weight: 4, values: (candidate) => candidate.pathTerms ?? [] },
+  { type: "parent", label: "所属集合", weight: 2.5, values: (candidate) => candidate.parentNames ?? [] },
   {
     type: "source",
     label: "来源说明",
     weight: 3,
     values: (candidate) => [
-      candidate.sourceDescription ?? "",
+      candidate.searchDescription ?? candidate.sourceDescription ?? "",
       candidate.publisher ?? "",
       candidate.sourceGroup ?? "",
     ],
@@ -218,7 +252,7 @@ function extractQueryTerms(query: string) {
       ?.filter((term) => !["the", "and", "for", "with", "this", "that"].includes(term)) ?? [],
   );
   for (const chunk of normalizedQuery.match(/[\u3400-\u9fff]{2,}/g) ?? []) {
-    const maxSize = Math.min(4, chunk.length);
+    const maxSize = Math.min(6, chunk.length);
     for (let size = 2; size <= maxSize; size += 1) {
       for (let index = 0; index <= chunk.length - size; index += 1) {
         const term = chunk.slice(index, index + size);
@@ -230,14 +264,18 @@ function extractQueryTerms(query: string) {
   const activeIntents = INTENT_GROUPS.filter((intent) =>
     intent.trigger.test(normalizedQuery),
   );
-  const expandedTerms = new Set(directTerms);
+  const expandedTerms = new Set<string>();
   activeIntents.forEach((intent) =>
-    intent.terms.forEach((term) => expandedTerms.add(normalize(term))),
+    intent.terms.forEach((term) => {
+      const normalized = normalize(term);
+      if (!directTerms.has(normalized)) expandedTerms.add(normalized);
+    }),
   );
   return {
     normalizedQuery,
     directTerms,
-    terms: [...expandedTerms].filter((term) => term.length >= 2),
+    expandedTerms,
+    terms: [...directTerms, ...expandedTerms].filter((term) => term.length >= 2),
     activeIntents,
   };
 }
@@ -249,25 +287,51 @@ function statusRank(status: SkillInstallStatus) {
   return 3;
 }
 
+interface PreparedCandidate<T extends SkillNeedCandidate> {
+  candidate: T;
+  candidateText: string;
+  fields: Array<{ detail: (typeof FIELD_DETAILS)[number]; searchable: string }>;
+}
+
+function prepareCandidate<T extends SkillNeedCandidate>(candidate: T): PreparedCandidate<T> {
+  const fields = FIELD_DETAILS.map((detail) => ({
+    detail,
+    searchable: normalize(detail.values(candidate).join(" ")),
+  }));
+  return {
+    candidate,
+    fields,
+    candidateText: normalize(fields.map((field) => field.searchable).join(" ")),
+  };
+}
+
+function inverseDocumentFrequencies<T extends SkillNeedCandidate>(
+  prepared: PreparedCandidate<T>[],
+  terms: string[],
+) {
+  const frequencies = new Map<string, number>();
+  for (const term of terms) {
+    let count = 0;
+    for (const item of prepared) {
+      if (item.candidateText.includes(term)) count += 1;
+    }
+    frequencies.set(term, Math.log((prepared.length + 1) / (count + 1)) + 1);
+  }
+  return frequencies;
+}
+
 function matchCandidate<T extends SkillNeedCandidate>(
-  candidate: T,
+  prepared: PreparedCandidate<T>,
   query: ReturnType<typeof extractQueryTerms>,
+  idf: Map<string, number>,
 ): SkillNeedMatch<T> | undefined {
-  const candidateText = normalize(
-    [
-      candidate.name,
-      candidate.description,
-      candidate.sourceDescription ?? "",
-      ...candidate.tags,
-      ...(candidate.includedSkills ?? []),
-    ].join(" "),
-  );
+  if (prepared.candidate.deprecated) return undefined;
   if (
     query.activeIntents.some(
       (intent) =>
         intent.requiredAny &&
         !intent.requiredAny.some((term) =>
-          candidateText.includes(normalize(term)),
+          prepared.candidateText.includes(normalize(term)),
         ),
     )
   ) {
@@ -276,33 +340,52 @@ function matchCandidate<T extends SkillNeedCandidate>(
   const reasons: SkillNeedMatchReason[] = [];
   let score = 0;
 
-  for (const field of FIELD_DETAILS) {
-    const searchable = normalize(field.values(candidate).join(" "));
-    if (!searchable) continue;
-    const matchedTerms = query.terms.filter((term) => searchable.includes(term));
+  for (const field of prepared.fields) {
+    if (!field.searchable) continue;
+    const matchedTerms = query.terms.filter((term) => field.searchable.includes(term));
     if (matchedTerms.length === 0) continue;
-    const directMatches = matchedTerms.filter((term) => query.directTerms.has(term));
-    const uniqueMatches = [...new Set(matchedTerms)];
-    score +=
-      field.weight +
-      Math.min(uniqueMatches.length - 1, 3) * Math.max(1, field.weight * 0.25) +
-      Math.min(directMatches.length, 3) * 1.5;
+    const uniqueMatches = [...new Set(matchedTerms)].sort((left, right) => {
+      const originDifference =
+        Number(query.directTerms.has(right)) - Number(query.directTerms.has(left));
+      return originDifference || right.length - left.length || left.localeCompare(right, "zh-CN");
+    });
+    const strongestMatches = uniqueMatches.slice(0, 5);
+    const fieldScore = strongestMatches.reduce((total, term) => {
+      const originWeight = query.directTerms.has(term) ? 1.25 : 0.7;
+      const lengthWeight = 1 + Math.min(term.length, 10) / 20;
+      return total + (idf.get(term) ?? 1) * originWeight * lengthWeight;
+    }, 0);
+    score += field.detail.weight * fieldScore;
+    if (
+      query.normalizedQuery.length >= 3 &&
+      field.searchable.includes(query.normalizedQuery)
+    ) {
+      score += field.detail.weight * 1.5;
+    }
+    const hasDirectMatch = strongestMatches.some((term) =>
+      query.directTerms.has(term),
+    );
     reasons.push({
-      type: field.type,
-      label: `${field.label}匹配`,
-      matchedTerms: uniqueMatches.slice(0, 4),
+      type: field.detail.type,
+      label: `${field.detail.label}${hasDirectMatch ? "直接匹配" : "关联匹配"}`,
+      origin: hasDirectMatch ? "direct" : "expanded",
+      matchedTerms: strongestMatches.slice(0, 4),
     });
   }
 
-  if (score < 5 || reasons.length === 0) return undefined;
+  if (score < 6 || reasons.length === 0) return undefined;
   return {
-    project: candidate,
+    project: prepared.candidate,
     score: Number(score.toFixed(2)),
-    reasons: reasons.sort(
-      (left, right) =>
+    reasons: reasons.sort((left, right) => {
+      const originDifference =
+        Number(right.origin === "direct") - Number(left.origin === "direct");
+      if (originDifference !== 0) return originDifference;
+      return (
         FIELD_DETAILS.findIndex((field) => field.type === left.type) -
-        FIELD_DETAILS.findIndex((field) => field.type === right.type),
-    ),
+        FIELD_DETAILS.findIndex((field) => field.type === right.type)
+      );
+    }),
   };
 }
 
@@ -314,8 +397,10 @@ export function findSkillsForNeed<T extends SkillNeedCandidate>(
   const query = extractQueryTerms(need.trim());
   if (!query.normalizedQuery || query.terms.length === 0) return [];
   const safeLimit = Math.max(1, Math.min(12, Math.floor(limit)));
-  return candidates
-    .map((candidate) => matchCandidate(candidate, query))
+  const prepared = candidates.map(prepareCandidate);
+  const idf = inverseDocumentFrequencies(prepared, query.terms);
+  return prepared
+    .map((candidate) => matchCandidate(candidate, query, idf))
     .filter((match): match is SkillNeedMatch<T> => Boolean(match))
     .sort((left, right) => {
       const scoreDifference = right.score - left.score;

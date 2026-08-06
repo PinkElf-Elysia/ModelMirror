@@ -23,6 +23,7 @@ import {
   buildSkillSetMembers,
   classifySkillScope,
 } from "./github-skill-tree.mjs";
+import { buildSkillSetMemberIndex } from "./skill-member-index.mjs";
 
 const OUTPUT_PATH = resolve(
   "client/src/data/skillSourceVerification.generated.ts",
@@ -635,23 +636,7 @@ function generateModule(evidence) {
 }
 
 function generateSkillSetIndex(skillSets, members) {
-  return `${JSON.stringify(
-    {
-      version: 1,
-      skillSets: Object.fromEntries(
-        Object.entries(skillSets).sort(([left], [right]) =>
-          left.localeCompare(right, "en"),
-        ),
-      ),
-      members: Object.fromEntries(
-        Object.entries(members).sort(([left], [right]) =>
-          left.localeCompare(right, "en"),
-        ),
-      ),
-    },
-    null,
-    2,
-  )}\n`;
+  return `${JSON.stringify(buildSkillSetMemberIndex(skillSets, members), null, 2)}\n`;
 }
 
 function structuralMethod(entry, classification, resolvedMethod) {
