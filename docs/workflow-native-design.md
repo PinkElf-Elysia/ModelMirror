@@ -4,6 +4,13 @@
 > `/workflow-native` 是静态校验与设计实验线，`/rag` 是独立的本地知识系统。
 > 本文前半部分保留增量时间线；涉及 Dify 主路径的早期表述已由当前状态取代。
 
+> 2026-08-06 Agent Strategy V2：`agent.tool_first` 与
+> `workflow_agent.mcp_tools` 共享 `server/xpert_runtime/agent_strategy/`
+> 运行时。新增 `agentStrategy=auto|function_calling|react`；旧工作流缺失字段
+> 时按 `auto`。`auto` 只在尚未执行工具且网关以 400/422 明确拒绝
+> `tools/tool_choice/parallel_tool_calls` 时回退 ReAct。关闭
+> `WORKFLOW_AGENT_STRATEGY_V2_ENABLED` 并重启即可恢复 ReAct-Lite，无需迁移数据。
+
 > 2026-07-23 Prompt/Plugin：新增 `plugin_resource`，通过 `plugin-binding -> plugin` 绑定一个 `workflow_agent`，不参与控制流、变量可达性或节点调度。Xpert 发布固定 Plugin 与直接 Prompt Profile 版本；运行时把 Plugin 编译为固定 Toolset、命名空间化 Skill、已注册中间件预设和私有命令。别名、工具或中间件冲突 fail-closed。Slash Command 仍执行当前 Xpert，SSE 事件类型不变。
 
 > 2026-07-23 Agent Features：Xpert 草稿和不可变版本已固定开场白、建议问题、会话标题/摘要、记忆回复、文件策略和 TTS/STT。会话摘要编译为输出 `workflow_agent` 的隐式 `context_compression`，文件关闭时附件不会进入运行或 Goal。`XpertAgentConfig` 的最大并发与递归限制约束整棵执行树；节点级工具预算仍是更窄的局部限制。Classic Workflow SSE 不新增事件类型。
@@ -641,19 +648,24 @@ Agent Task Runtime 包含三层：
 
 classic workflow 已新增 `agent_task` 节点，作为 Xpert Agent/Handoff 对齐的第一步闭环。前端可从节点调色板拖入“智能体任务”，配置 `taskTitle`、`taskInput`、`assignedAgent` 与 `outputVariable`；运行时会渲染 `{{变量}}` 模板，调用 `AgentTaskStore.create_task(...)` 创建一条 AgentTask，并将新任务的 `task_id` 写入 `outputVariable`。该节点当前只负责创建任务和输出 ID，不做真实队列分派、专家协作或任务执行；完整任务详情继续通过现有 Agent Task API 查询。
 
-classic workflow 已新增 `workflow_agent` 节点，作为 Xpert Workflow Agent 的最小执行闭环。前端可从节点调色板拖入“工作流智能体”，配置 `agentName`、`modelId`、`rolePrompt`、`taskInput`、`toolMode`、`toolNames`、`maxIterations`、`promptSuffix` 与 `outputVariable`；运行时会先渲染 `{{变量}}`，再以 `rolePrompt` 作为该节点 system prompt、`taskInput` 作为用户输入执行。
+classic workflow 已新增 `workflow_agent` 节点，作为 Xpert Workflow Agent 的最小执行闭环。前端可从节点调色板拖入“工作流智能体”，配置 `agentName`、`modelId`、`rolePrompt`、`taskInput`、`toolMode`、`agentStrategy`、`toolNames`、`maxIterations`、`parallelToolCalls`、`promptSuffix` 与 `outputVariable`；运行时会先渲染 `{{变量}}`，再以 `rolePrompt` 作为该节点 system prompt、`taskInput` 作为用户输入执行。
 
-`toolMode=none` 时，节点直接调用现有工作流 LLM 流式函数，最终把模型输出写入 `outputVariable`。`toolMode=mcp_tools` 时，节点进入 ReAct-Lite 工具循环：模型每轮必须返回 `{"tool":"工具名","arguments":{...}}` 或 `{"answer":"最终答案"}`；工具调用统一经过 `run_tool_with_runtime`、`MCPToolsetProvider` 和 `MiddlewarePipeline.wrap_tool_call`，因此 workflow 中的 `tool_policy` 与 `tool_audit` 会对 `workflow_agent` 生效。该节点会登记 `workflow_agent` 子 run，便于运行观测查看；当前不使用 OpenAI function calling、不做 Handoff 自动调度、不实现真实多 Agent 协作。
+`toolMode=none` 时，节点保持直接回答。`toolMode=mcp_tools` 时，V2 默认先发送 OpenAI 兼容的 `tools`、`tool_choice` 与 `parallel_tool_calls`；强制 `react` 时使用 `Thought → Action JSON → Observation → FinalAnswer`，隐藏 Thought，只输出动作级 `node_delta`。所有真实工具调用继续经过 `run_tool_with_runtime`、Toolset、Middleware、权限策略和审计；checkpoint 只保存脱敏参数摘要、结果预览、耗时、调用 ID、策略和 token usage。关闭 V2 开关后恢复既有 ReAct-Lite JSON 决策协议。
 
-Knowledge Agent 复用同一条 ReAct-Lite 运行路径，不新增第二套 Agent runner。`knowledgeReadEnabled` / `knowledgeWriteEnabled` 仅对 `workflow_agent` 生效，且要求 `toolMode=mcp_tools` 与 1 至 5 个 `knowledgeBaseIds`。`toolNames` 继续只过滤 MCP 工具；Memory/Knowledge capability 分别由节点开关控制。Knowledge 工具仍经过 runtime middleware、policy、audit 和 checkpoint。模型只能提出写入，正式审批和候选构建统一由 `/rag/:kbId/inbox` 完成。
+首版 V2 只接管已注册 MCP 工具。绑定 Knowledge/Toolset/Browser/Client/Office/Sandbox、Todo、Automation、Authoring 或交互式 HITL 的 `workflow_agent` 继续走可恢复的 ReAct-Lite 路径，避免破坏现有暂停/恢复和幂等语义；这些能力完成 V2 transcript checkpoint 后再迁移。
+
+Knowledge Agent 与其他 Runtime 工具复用同一共享策略运行时，不新增第二套 Agent runner。`knowledgeReadEnabled` / `knowledgeWriteEnabled` 仅对 `workflow_agent` 生效，且要求 `toolMode=mcp_tools` 与 1 至 5 个 `knowledgeBaseIds`。`toolNames` 继续只过滤 MCP 工具；Memory/Knowledge capability 分别由节点开关控制。Knowledge 工具仍经过 runtime middleware、policy、audit 和 checkpoint。模型只能提出写入，正式审批和候选构建统一由 `/rag/:kbId/inbox` 完成。
+
+V2 当前只处理文本消息与文本 observation。既有文本历史可由 middleware 传入，但不扩展公开 `ChatMessage`；不会把独立 RAG context、图片、文件或二进制工具结果直接透传给策略模型。非文本工具结果只记录类型和安全摘要，完整多模态透传留待后续。
 
 ## 2026-06-17 增量：Agent 节点
 
-`agent` 已进入 workflow-native / classic 共享实验线。它不是完整 Dify Agent 复刻，而是 ReAct-Lite MVP：模型要么直接返回答案，要么返回一个 JSON 工具调用决策，运行器再通过全局 MCP 工具注册表调用对应工具。
+`agent` 已进入 workflow-native / classic 共享实验线。工具模式复用 Agent Strategy V2；这是基于 Dify Agent 0.0.42 行为协议的独立适配实现，不引入 `dify_plugin`，也不逐行复制 SDK 代码。
 
 ### 字段
 
 - `agentMode`：`tool_first` 或 `direct`。默认 `tool_first`。
+- `agentStrategy`：`auto`、`function_calling` 或 `react`；缺失时按 `auto`。
 - `instruction`：任务指令，支持 `{{variable}}` 模板。
 - `modelId`：调用模型 ID。
 - `toolNames`：可选，逗号分隔的工具白名单；留空代表全部已注册工具。
@@ -661,13 +673,15 @@ Knowledge Agent 复用同一条 ReAct-Lite 运行路径，不新增第二套 Age
 - `maxIterations`：工具循环上限，默认 5，运行器最多允许 20。
 - `temperature`：模型温度，范围 0-2。
 - `promptSuffix`：可选补充提示词，支持 `{{variable}}` 模板。
+- `parallelToolCalls`：仅 Function Calling 使用；ReAct 模式在 UI 中禁用。
 
 ### 安全边界
 
-- `agent` 可通过 `WORKFLOW_AGENT_ENABLED=False` 降级为 no-op。
+- `agent` 可通过 `WORKFLOW_AGENT_ENABLED=False` 降级为 no-op；V2 可通过 `WORKFLOW_AGENT_STRATEGY_V2_ENABLED=false` 回退 ReAct-Lite。
 - `tool_first` 模式依赖 `/mcps` 已连接的 MCP Server；没有可用工具时会切换到直接回答。
 - 未配置 API Key、模型调用失败或工具调用失败时，运行器发出 `error` 事件并写入空字符串，不中断后续节点。
-- 当前只支持单 Agent 节点内的轻量工具循环，不实现复杂多 Agent 协作、记忆、长期任务或持久化运行态。
+- 一旦尝试真实工具调用，自动策略回退、整轮重试和备用模型切换均被禁止，避免重复外部副作用。
+- 当前不扩展 `/api/chat`、Dify 代理或 `agent_task`，也不实现图片/文件二进制工具结果透传。
 
 ## 回退方案
 

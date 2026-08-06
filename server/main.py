@@ -357,6 +357,7 @@ try:
         WorkflowExecution,
         WorkflowExecutionStore,
         RuntimeToolCall,
+        RuntimeToolError,
         RuntimeToolResult,
         TodoToolsetProvider,
         ToolPermissionPolicy,
@@ -471,6 +472,7 @@ except ModuleNotFoundError:
         WorkflowExecution,
         WorkflowExecutionStore,
         RuntimeToolCall,
+        RuntimeToolError,
         RuntimeToolResult,
         TodoToolsetProvider,
         ToolPermissionPolicy,
@@ -523,6 +525,25 @@ except ModuleNotFoundError:
         create_final_output_approval,
         human_in_the_loop_final_confirmation,
         workflow_node_registry,
+    )
+
+try:
+    from server.xpert_runtime.agent_strategy import (
+        AgentModelTurn,
+        AgentStrategyError,
+        AgentStrategyEvent,
+        AgentStrategyResult,
+        AgentStrategyRunner,
+        OpenAICompatibleAgentModelClient,
+    )
+except ModuleNotFoundError:
+    from xpert_runtime.agent_strategy import (
+        AgentModelTurn,
+        AgentStrategyError,
+        AgentStrategyEvent,
+        AgentStrategyResult,
+        AgentStrategyRunner,
+        OpenAICompatibleAgentModelClient,
     )
 
 try:
@@ -653,6 +674,10 @@ WORKFLOW_TIME_TOOL_ENABLED = True
 WORKFLOW_PYTHON_TIMEOUT_SECONDS = 3
 WORKFLOW_PYTHON_SANDBOX_ROOT = Path(__file__).resolve().parent / "workflow_sandboxes"
 WORKFLOW_AGENT_ENABLED = True
+WORKFLOW_AGENT_STRATEGY_V2_ENABLED = (
+    os.getenv("WORKFLOW_AGENT_STRATEGY_V2_ENABLED", "true").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
 WORKFLOW_AGENT_MAX_ITERATIONS_DEFAULT = 5
 WORKFLOW_AGENT_MAX_TOKENS = 1024
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
@@ -5187,10 +5212,18 @@ async def _run_workflow_response(
             )
             requested_tool_names = {
                 item.strip()
-                for item in str(tool_names_raw or "").split(",")
+                for item in re.split(r"[,\n]+", str(tool_names_raw or ""))
                 if item.strip()
             }
-            if requested_tool_names:
+            if requested_tool_names and include_mcp:
+                registered_names = {tool.name for tool in tools}
+                missing_names = sorted(requested_tool_names - registered_names)
+                if missing_names:
+                    raise AgentStrategyError(
+                        "Agent 工具白名单包含未注册或未连接的工具："
+                        + ", ".join(missing_names),
+                        code="capability_not_found",
+                    )
                 tools = [tool for tool in tools if tool.name in requested_tool_names]
             memory_tools = (
                 await workflow_memory_provider.list_tools()
@@ -5353,6 +5386,457 @@ async def _run_workflow_response(
                         allowed_tools.append(tool)
                 tools = allowed_tools
             return tools
+
+        async def record_agent_strategy_events(
+            events: list[AgentStrategyEvent],
+            *,
+            run_id: str | None,
+            checkpoint_prefix: str,
+            node: WorkflowNodePayload,
+            model_id: str,
+        ) -> None:
+            if not run_id:
+                return
+            checkpoint_names = {
+                "strategy_selected": f"{checkpoint_prefix}.strategy_selected",
+                "strategy_fallback": f"{checkpoint_prefix}.strategy_fallback",
+                "model_round": f"{checkpoint_prefix}.model_decision",
+                "tool_call": f"{checkpoint_prefix}.tool_call",
+                "final_answer": f"{checkpoint_prefix}.model_answer",
+                "iteration_limit": f"{checkpoint_prefix}.iteration_limit",
+            }
+            for event in events:
+                metadata = {
+                    "node_id": node.id,
+                    "model_id": model_id,
+                    "strategy": event.strategy,
+                    "iteration": event.iteration,
+                    "status": event.status,
+                    "tool_name": event.tool_name,
+                    "tool_call_id": event.tool_call_id,
+                    "arguments_summary": event.arguments_summary,
+                    "output_preview": event.output_preview,
+                    "duration_ms": event.duration_ms,
+                    **dict(event.metadata or {}),
+                }
+                await run_registry.record_checkpoint(
+                    run_id,
+                    event_type=checkpoint_names.get(
+                        event.event_type,
+                        f"{checkpoint_prefix}.{event.event_type}",
+                    ),
+                    title=event.event_type.replace("_", " ").title(),
+                    summary=event.message[:500],
+                    severity=(
+                        "error"
+                        if event.status in {"failed", "error"}
+                        else "warning"
+                        if event.status in {"warning", "rejected"}
+                        else "info"
+                    ),
+                    metadata={
+                        key: value
+                        for key, value in metadata.items()
+                        if value is not None
+                    },
+                )
+
+        def agent_strategy_node_events(
+            events: list[AgentStrategyEvent],
+            *,
+            node: WorkflowNodePayload,
+            title: str,
+            kind: str,
+            output_variable: str,
+            run_id: str | None,
+            max_iterations: int,
+        ) -> list[dict[str, Any]]:
+            node_events: list[dict[str, Any]] = []
+            for event in events:
+                if event.event_type == "final_answer":
+                    continue
+                if event.event_type == "tool_call":
+                    output = (
+                        f"[{event.iteration}/{max_iterations}] 调用工具 "
+                        f"{event.tool_name or 'unknown'}，状态：{event.status}"
+                    )
+                    if event.arguments_summary:
+                        output += f"，参数：{event.arguments_summary}"
+                    if event.output_preview:
+                        output += f"，结果预览：{event.output_preview}"
+                else:
+                    output = event.message
+                payload_event: dict[str, Any] = {
+                    "event": "node_delta",
+                    "node_id": node.id,
+                    "node_title": title,
+                    "node_type": kind,
+                    "output": output,
+                    "variable": output_variable,
+                    "strategy": event.strategy,
+                    "iteration": event.iteration,
+                    "status": event.status,
+                    "tool_name": event.tool_name,
+                    "tool_call_id": event.tool_call_id,
+                    "duration_ms": event.duration_ms,
+                }
+                if run_id:
+                    payload_event["run_id"] = run_id
+                node_events.append(payload_event)
+            return node_events
+
+        async def run_agent_strategy_v2(
+            *,
+            node: WorkflowNodePayload,
+            title: str,
+            kind: str,
+            model_id: str,
+            system_prompt: str,
+            user_prompt: str,
+            tool_names_raw: Any,
+            strategy: str,
+            max_iterations: int,
+            temperature: float,
+            parallel_tool_calls: bool,
+            output_variable: str,
+            max_tool_calls: int = 12,
+            max_tool_depth: int = 4,
+            run_id: str | None = None,
+            checkpoint_prefix: str = "workflow_agent",
+            include_mcp: bool = True,
+            include_memory_read: bool = False,
+            include_memory_write: bool = False,
+            include_knowledge_read: bool = False,
+            include_knowledge_write: bool = False,
+            knowledge_base_ids: list[str] | None = None,
+            external_xpert_tools: list[dict[str, Any]] | None = None,
+            toolset_resources: list[dict[str, Any]] | None = None,
+            include_datax: bool = False,
+            include_datax_proposals: bool = False,
+            include_todo: bool = False,
+            include_sandbox: bool = False,
+            include_skills: bool = False,
+            include_browser: bool = False,
+            include_client: bool = False,
+            include_office: bool = False,
+            include_automation: bool = False,
+            include_xpert_authoring: bool = False,
+            include_skill_creator: bool = False,
+            client_tools_config: dict[str, Any] | None = None,
+            office_automation_config: dict[str, Any] | None = None,
+            pipeline: MiddlewarePipeline | None = None,
+            middleware_context: MiddlewareContext | None = None,
+            middleware_specs: list[RuntimeMiddlewareSpec] | None = None,
+            selector_spec: RuntimeMiddlewareSpec | None = None,
+            history_messages: list[dict[str, Any]] | None = None,
+        ) -> AgentStrategyResult:
+            runtime_metadata = dict(task_state.get("runtime_metadata") or {})
+            current_depth = int(runtime_metadata.get("external_xpert_depth") or 0)
+            if current_depth > max_tool_depth:
+                raise RuntimeMiddlewareFatalError(
+                    f"Agent tool nesting depth exceeded maxToolDepth={max_tool_depth}."
+                )
+            available_tools = await workflow_available_tools(
+                tool_names_raw,
+                include_mcp=include_mcp,
+                include_memory_read=include_memory_read,
+                include_memory_write=include_memory_write,
+                include_knowledge_read=include_knowledge_read,
+                include_knowledge_write=include_knowledge_write,
+                external_xpert_tools=external_xpert_tools,
+                toolset_resources=toolset_resources,
+                include_datax=include_datax,
+                include_datax_proposals=include_datax_proposals,
+                include_todo=include_todo,
+                include_sandbox=include_sandbox,
+                include_skills=include_skills,
+                include_browser=include_browser,
+                include_client=include_client,
+                include_office=include_office,
+                include_automation=include_automation,
+                include_xpert_authoring=include_xpert_authoring,
+                include_skill_creator=include_skill_creator,
+                client_tools_config=client_tools_config,
+                office_automation_config=office_automation_config,
+                middleware_specs=middleware_specs,
+                apply_policy_filter=selector_spec is not None,
+            )
+            if selector_spec is not None and available_tools:
+                required_tools = set()
+                if include_todo:
+                    required_tools.update({"todo_list", "todo_create", "todo_update"})
+                if include_skills:
+                    required_tools.update({"skill_list", "skill_read", "skill_stage"})
+                if include_browser:
+                    required_tools.update(
+                        {"browser_navigate", "browser_snapshot", "browser_read"}
+                    )
+                if include_client:
+                    required_tools.update({"host_page_snapshot", "host_page_read"})
+                if include_office:
+                    required_tools.update(
+                        {
+                            "office_word_snapshot",
+                            "office_excel_snapshot",
+                            "office_powerpoint_snapshot",
+                        }
+                    )
+                if include_automation:
+                    required_tools.update({"automation_list", "automation_get"})
+                if include_datax:
+                    required_tools.update({"datax_scope", "datax_indicator_list"})
+                if include_xpert_authoring:
+                    required_tools.add("xpert_authoring_catalog")
+                if include_skill_creator:
+                    required_tools.add("skill_authoring_catalog")
+                required_tools.update(
+                    item.strip()
+                    for item in re.split(
+                        r"[,\n]",
+                        str(selector_spec.config.get("always_include_tools") or ""),
+                    )
+                    if item.strip()
+                )
+                selector_model_id = str(
+                    selector_spec.config.get("selector_model_id") or model_id
+                ).strip() or model_id
+                available_tools, selector_metadata = await select_runtime_tools(
+                    available_tools,
+                    user_prompt=user_prompt,
+                    model_id=selector_model_id,
+                    max_selected_tools=middleware_config_int(
+                        selector_spec.config,
+                        "max_selected_tools",
+                        8,
+                        1,
+                        20,
+                    ),
+                    required_tools=required_tools,
+                    model_text=middleware_model_text,
+                )
+                if middleware_context is not None:
+                    middleware_context.metadata["tool_selection"] = selector_metadata
+
+            gateway_url, gateway_key = get_llm_gateway_config()
+            if not gateway_url:
+                raise ValueError(LLM_GATEWAY_NOT_CONFIGURED_MESSAGE)
+            base_model_client = OpenAICompatibleAgentModelClient(
+                endpoint=gateway_url,
+                headers=llm_gateway_headers(gateway_key),
+                client_kwargs=llm_client_kwargs(),
+            )
+
+            class MiddlewareAgentModelClient:
+                async def complete(self, **kwargs: Any) -> AgentModelTurn:
+                    if pipeline is None or middleware_context is None:
+                        return await base_model_client.complete(**kwargs)
+                    captured_turn: AgentModelTurn | None = None
+
+                    async def handler(request: ModelCallRequest) -> ModelCallResponse:
+                        nonlocal captured_turn
+                        params = dict(request.params or {})
+                        captured_turn = await base_model_client.complete(
+                            model_id=request.model_id,
+                            messages=list(request.messages),
+                            temperature=float(
+                                params.get("temperature", kwargs["temperature"])
+                            ),
+                            max_tokens=int(params.get("max_tokens", kwargs["max_tokens"])),
+                            tools=params.get("tools", kwargs.get("tools")),
+                            tool_choice=params.get(
+                                "tool_choice", kwargs.get("tool_choice")
+                            ),
+                            parallel_tool_calls=params.get(
+                                "parallel_tool_calls",
+                                kwargs.get("parallel_tool_calls"),
+                            ),
+                        )
+                        return ModelCallResponse(
+                            text=captured_turn.content,
+                            raw=captured_turn,
+                            metadata={
+                                "model_id": request.model_id,
+                                "finish_reason": captured_turn.finish_reason,
+                                "usage": captured_turn.usage.to_dict(),
+                            },
+                        )
+
+                    response = await pipeline.run_model_call(
+                        ModelCallRequest(
+                            model_id=kwargs["model_id"],
+                            messages=list(kwargs["messages"]),
+                            params={
+                                "temperature": kwargs["temperature"],
+                                "max_tokens": kwargs["max_tokens"],
+                                "tools": kwargs.get("tools"),
+                                "tool_choice": kwargs.get("tool_choice"),
+                                "parallel_tool_calls": kwargs.get(
+                                    "parallel_tool_calls"
+                                ),
+                            },
+                        ),
+                        handler,
+                        middleware_context,
+                    )
+                    turn = (
+                        response.raw
+                        if isinstance(response.raw, AgentModelTurn)
+                        else captured_turn
+                    )
+                    if turn is None:
+                        raise RuntimeError("Agent model middleware returned no model turn.")
+                    turn.content = response.text
+                    return turn
+
+            model_client = MiddlewareAgentModelClient()
+            if not available_tools:
+                direct_turn = await model_client.complete(
+                    model_id=model_id,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        *list(history_messages or []),
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
+                )
+                answer = direct_turn.content.strip()
+                if not answer:
+                    raise AgentStrategyError(
+                        "模型没有返回直接回答。", code="empty_model_response"
+                    )
+                active_strategy = "react" if strategy == "react" else "function_calling"
+                result = AgentStrategyResult(
+                    answer=answer,
+                    strategy=active_strategy,
+                    events=[
+                        AgentStrategyEvent(
+                            event_type="strategy_fallback",
+                            strategy=active_strategy,
+                            status="warning",
+                            message="Agent 切换为直接回答：没有可用 Runtime 工具。",
+                            metadata={"reason": "no_available_tools"},
+                        ),
+                        AgentStrategyEvent(
+                            event_type="final_answer",
+                            strategy=active_strategy,
+                            status="completed",
+                            message=f"Agent 已生成最终答案（{len(answer)} 字符）。",
+                            metadata={
+                                "answer_length": len(answer),
+                                "direct_fallback": True,
+                                "usage": direct_turn.usage.to_dict(),
+                            },
+                        ),
+                    ],
+                    usage=direct_turn.usage,
+                )
+                await record_agent_strategy_events(
+                    result.events,
+                    run_id=run_id,
+                    checkpoint_prefix=checkpoint_prefix,
+                    node=node,
+                    model_id=model_id,
+                )
+                return result
+
+            tool_calls_used = 0
+
+            async def execute_tool(
+                tool_name: str,
+                arguments: dict[str, Any],
+                tool_call_id: str,
+                iteration: int,
+            ) -> RuntimeToolResult:
+                nonlocal tool_calls_used
+                tool_calls_used += 1
+                if tool_calls_used > max_tool_calls:
+                    raise RuntimeToolError(
+                        tool_name,
+                        f"Agent tool call budget exhausted: {max_tool_calls}.",
+                        code="tool_denied",
+                    )
+                try:
+                    return await call_workflow_runtime_tool(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        node=node,
+                        title=title,
+                        metadata={
+                            "agent_kind": kind,
+                            "agent_node_id": node.id,
+                            "tool_call_id": tool_call_id,
+                            "iteration": iteration,
+                            "agent_strategy_v2": True,
+                            "knowledge_read_enabled": include_knowledge_read,
+                            "knowledge_write_enabled": include_knowledge_write,
+                            "knowledge_base_ids": list(knowledge_base_ids or []),
+                            "external_xpert_tools": list(external_xpert_tools or []),
+                            "toolset_resources": list(toolset_resources or []),
+                            "max_tool_depth": max_tool_depth,
+                        },
+                        pipeline=pipeline,
+                        middleware_context=middleware_context,
+                        middleware_specs=middleware_specs,
+                    )
+                except RuntimeInterrupt:
+                    raise
+                except RuntimeToolError:
+                    raise
+                except PermissionError as exc:
+                    raise RuntimeToolError(
+                        tool_name, str(exc), code="tool_denied"
+                    ) from exc
+                except RuntimeMiddlewareFatalError as exc:
+                    raise RuntimeToolError(
+                        tool_name, str(exc), code="tool_denied"
+                    ) from exc
+                except ValueError as exc:
+                    raise RuntimeToolError(
+                        tool_name, str(exc), code="capability_not_found"
+                    ) from exc
+                except Exception as exc:
+                    raise RuntimeToolError(
+                        tool_name,
+                        workflow_error_summary(exc),
+                        code="tool_call_error",
+                    ) from exc
+
+            try:
+                runner = AgentStrategyRunner(
+                    model_client=model_client,
+                    tool_executor=execute_tool,
+                    tools=available_tools,
+                    model_id=model_id,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    strategy=strategy,  # type: ignore[arg-type]
+                    max_iterations=max_iterations,
+                    temperature=temperature,
+                    max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
+                    parallel_tool_calls=parallel_tool_calls,
+                    history_messages=history_messages,
+                )
+                result = await runner.run()
+            except RuntimeInterrupt:
+                raise
+            except AgentStrategyError as exc:
+                await record_agent_strategy_events(
+                    exc.events,
+                    run_id=run_id,
+                    checkpoint_prefix=checkpoint_prefix,
+                    node=node,
+                    model_id=model_id,
+                )
+                raise
+            await record_agent_strategy_events(
+                result.events,
+                run_id=run_id,
+                checkpoint_prefix=checkpoint_prefix,
+                node=node,
+                model_id=model_id,
+            )
+            return result
 
         async def run_react_lite_agent(
             *,
@@ -7463,6 +7947,12 @@ async def _run_workflow_response(
                             except ValueError:
                                 max_iterations = WORKFLOW_AGENT_MAX_ITERATIONS_DEFAULT
                             max_iterations = min(max(max_iterations, 1), 20)
+                            agent_strategy = str(
+                                node.data.get("agentStrategy") or "auto"
+                            ).strip()
+                            parallel_tool_calls = workflow_truthy(
+                                node.data.get("parallelToolCalls")
+                            )
 
                             async def run_direct_agent() -> str:
                                 if not get_llm_gateway_config()[0]:
@@ -7488,18 +7978,59 @@ async def _run_workflow_response(
                                     }
                                 )
                             elif agent_mode == "tool_first":
-                                output, agent_events = await run_react_lite_agent(
-                                    node=node,
-                                    title=title,
-                                    kind=kind,
-                                    model_id=model_id,
-                                    system_prompt="你是模镜工作流中的 ReAct-Lite Agent。",
-                                    user_prompt=instruction,
-                                    tool_names_raw=node.data.get("toolNames"),
-                                    max_iterations=max_iterations,
-                                    temperature=temperature,
-                                    output_variable=output_variable,
-                                )
+                                if WORKFLOW_AGENT_STRATEGY_V2_ENABLED:
+                                    try:
+                                        strategy_result = await run_agent_strategy_v2(
+                                            node=node,
+                                            title=title,
+                                            kind=kind,
+                                            model_id=model_id,
+                                            system_prompt="你是模镜工作流中的任务执行 Agent。",
+                                            user_prompt=instruction,
+                                            tool_names_raw=node.data.get("toolNames"),
+                                            strategy=agent_strategy,
+                                            max_iterations=max_iterations,
+                                            temperature=temperature,
+                                            parallel_tool_calls=parallel_tool_calls,
+                                            output_variable=output_variable,
+                                            run_id=workflow_run.run_id,
+                                            checkpoint_prefix="agent",
+                                        )
+                                    except AgentStrategyError as strategy_exc:
+                                        for agent_event in agent_strategy_node_events(
+                                            strategy_exc.events,
+                                            node=node,
+                                            title=title,
+                                            kind=kind,
+                                            output_variable=output_variable,
+                                            run_id=workflow_run.run_id,
+                                            max_iterations=max_iterations,
+                                        ):
+                                            yield sse_payload(agent_event)
+                                        raise
+                                    output = strategy_result.answer
+                                    agent_events = agent_strategy_node_events(
+                                        strategy_result.events,
+                                        node=node,
+                                        title=title,
+                                        kind=kind,
+                                        output_variable=output_variable,
+                                        run_id=workflow_run.run_id,
+                                        max_iterations=max_iterations,
+                                    )
+                                else:
+                                    output, agent_events = await run_react_lite_agent(
+                                        node=node,
+                                        title=title,
+                                        kind=kind,
+                                        model_id=model_id,
+                                        system_prompt="你是模镜工作流中的 ReAct-Lite Agent。",
+                                        user_prompt=instruction,
+                                        tool_names_raw=node.data.get("toolNames"),
+                                        max_iterations=max_iterations,
+                                        temperature=temperature,
+                                        output_variable=output_variable,
+                                    )
                                 variables[output_variable] = output
                                 for agent_event in agent_events:
                                     yield sse_payload(agent_event)
@@ -7711,6 +8242,9 @@ async def _run_workflow_response(
                                 )
                             ).strip()
                         tool_mode = str(node.data.get("toolMode") or "none").strip()
+                        agent_strategy = str(
+                            node.data.get("agentStrategy") or "auto"
+                        ).strip()
                         enable_file_understanding = workflow_truthy(
                             node.data.get("enableFileUnderstanding")
                         )
@@ -8150,6 +8684,27 @@ async def _run_workflow_response(
                             raise ValueError(
                                 "workflow_agent exceptionHandling must be none, fail, or empty_output."
                             )
+                        strategy_v2_runtime_compatible = not any(
+                            (
+                                memory_read_enabled,
+                                memory_write_enabled,
+                                knowledge_read_enabled,
+                                knowledge_write_enabled,
+                                bool(external_xpert_tools),
+                                bool(toolset_resources),
+                                datax_enabled,
+                                todo_spec is not None,
+                                sandbox_enabled,
+                                skills_enabled,
+                                browser_enabled,
+                                client_tools_enabled,
+                                office_automation_enabled,
+                                automation_enabled,
+                                xpert_authoring_enabled,
+                                skill_creator_enabled,
+                                hitl_spec is not None,
+                            )
+                        )
 
                         workflow_agent_run = await run_registry.create_run(
                             "workflow_agent",
@@ -8166,6 +8721,10 @@ async def _run_workflow_response(
                                 "agent_name": agent_name,
                                 "model_id": model_id,
                                 "tool_mode": tool_mode,
+                                "agent_strategy": agent_strategy,
+                                "strategy_v2_enabled": WORKFLOW_AGENT_STRATEGY_V2_ENABLED,
+                                "strategy_v2_runtime_compatible": strategy_v2_runtime_compatible,
+                                "parallel_tool_calls": parallel_tool_calls,
                                 "output_variable": output_variable,
                                 "retry_on_failure": retry_on_failure,
                                 "fallback_model_id": fallback_model_id or None,
@@ -8241,6 +8800,10 @@ async def _run_workflow_response(
                                 "agent_name": agent_name,
                                 "model_id": model_id,
                                 "tool_mode": tool_mode,
+                                "agent_strategy": agent_strategy,
+                                "strategy_v2_enabled": WORKFLOW_AGENT_STRATEGY_V2_ENABLED,
+                                "strategy_v2_runtime_compatible": strategy_v2_runtime_compatible,
+                                "parallel_tool_calls": parallel_tool_calls,
                                 "output_variable": output_variable,
                                 "retry_on_failure": retry_on_failure,
                                 "fallback_model_id": fallback_model_id or None,
@@ -8371,6 +8934,7 @@ async def _run_workflow_response(
                             )
 
                         last_error: Exception | None = None
+                        last_strategy_result: AgentStrategyResult | None = None
                         success = False
                         output = ""
                         final_resume_state = task_state.get("agent_resume_state")
@@ -8659,68 +9223,152 @@ async def _run_workflow_response(
                                             agent_context,
                                         )
                                 else:
-                                    output, agent_events = await run_react_lite_agent(
-                                        node=node,
-                                        title=title,
-                                        kind=kind,
-                                        model_id=attempt_model_id,
-                                        system_prompt=role_prompt,
-                                        user_prompt=task_input,
-                                        tool_names_raw=node.data.get("toolNames"),
-                                        max_iterations=max_iterations,
-                                        temperature=0.7,
-                                        output_variable=output_variable,
-                                        parallel_tool_calls=parallel_tool_calls,
-                                        max_tool_concurrency=max_tool_concurrency,
-                                        max_tool_calls=max_tool_calls,
-                                        max_tool_depth=max_tool_depth,
-                                        run_id=workflow_agent_run.run_id,
-                                        include_mcp=(tool_mode == "mcp_tools"),
-                                        include_memory_read=memory_read_enabled,
-                                        include_memory_write=memory_write_enabled,
-                                        include_knowledge_read=knowledge_read_enabled,
-                                        include_knowledge_write=(
-                                            knowledge_write_enabled
-                                            or knowledge_writer_spec is not None
-                                        ),
-                                        knowledge_base_ids=knowledge_base_ids,
-                                        external_xpert_tools=external_xpert_tools,
-                                        toolset_resources=toolset_resources,
-                                        include_datax=datax_enabled,
-                                        include_datax_proposals=datax_allow_proposals,
-                                        include_todo=todo_spec is not None,
-                                        include_sandbox=sandbox_enabled,
-                                        include_skills=skills_enabled,
-                                        include_browser=browser_enabled,
-                                        include_client=client_tools_enabled,
-                                        include_office=office_automation_enabled,
-                                        include_automation=automation_enabled,
-                                        include_xpert_authoring=xpert_authoring_enabled,
-                                        include_skill_creator=skill_creator_enabled,
-                                        client_tools_config=(
-                                            dict(client_tools_spec.config)
-                                            if client_tools_spec is not None
-                                            else {}
-                                        ),
-                                        office_automation_config=(
-                                            dict(office_automation_spec.config)
-                                            if office_automation_spec is not None
-                                            else {}
-                                        ),
-                                        pipeline=agent_pipeline,
-                                        middleware_context=agent_context,
-                                        middleware_specs=agent_specs,
-                                        selector_spec=selector_spec,
-                                        history_messages=history_messages,
-                                        resume_state=(
-                                            task_state.get("agent_resume_state")
-                                            if isinstance(
-                                                task_state.get("agent_resume_state"),
-                                                dict,
+                                    if (
+                                        WORKFLOW_AGENT_STRATEGY_V2_ENABLED
+                                        and strategy_v2_runtime_compatible
+                                    ):
+                                        try:
+                                            strategy_result = await run_agent_strategy_v2(
+                                                node=node,
+                                                title=title,
+                                                kind=kind,
+                                                model_id=attempt_model_id,
+                                                system_prompt=role_prompt,
+                                                user_prompt=task_input,
+                                                tool_names_raw=node.data.get("toolNames"),
+                                                strategy=agent_strategy,
+                                                max_iterations=max_iterations,
+                                                temperature=0.7,
+                                                parallel_tool_calls=parallel_tool_calls,
+                                                output_variable=output_variable,
+                                                max_tool_calls=max_tool_calls,
+                                                max_tool_depth=max_tool_depth,
+                                                run_id=workflow_agent_run.run_id,
+                                                checkpoint_prefix="workflow_agent",
+                                                include_mcp=(tool_mode == "mcp_tools"),
+                                                include_memory_read=memory_read_enabled,
+                                                include_memory_write=memory_write_enabled,
+                                                include_knowledge_read=knowledge_read_enabled,
+                                                include_knowledge_write=(
+                                                    knowledge_write_enabled
+                                                    or knowledge_writer_spec is not None
+                                                ),
+                                                knowledge_base_ids=knowledge_base_ids,
+                                                external_xpert_tools=external_xpert_tools,
+                                                toolset_resources=toolset_resources,
+                                                include_datax=datax_enabled,
+                                                include_datax_proposals=datax_allow_proposals,
+                                                include_todo=todo_spec is not None,
+                                                include_sandbox=sandbox_enabled,
+                                                include_skills=skills_enabled,
+                                                include_browser=browser_enabled,
+                                                include_client=client_tools_enabled,
+                                                include_office=office_automation_enabled,
+                                                include_automation=automation_enabled,
+                                                include_xpert_authoring=xpert_authoring_enabled,
+                                                include_skill_creator=skill_creator_enabled,
+                                                client_tools_config=(
+                                                    dict(client_tools_spec.config)
+                                                    if client_tools_spec is not None
+                                                    else {}
+                                                ),
+                                                office_automation_config=(
+                                                    dict(office_automation_spec.config)
+                                                    if office_automation_spec is not None
+                                                    else {}
+                                                ),
+                                                pipeline=agent_pipeline,
+                                                middleware_context=agent_context,
+                                                middleware_specs=agent_specs,
+                                                selector_spec=selector_spec,
+                                                history_messages=history_messages,
                                             )
-                                            else None
-                                        ),
-                                    )
+                                        except AgentStrategyError as strategy_exc:
+                                            for agent_event in agent_strategy_node_events(
+                                                strategy_exc.events,
+                                                node=node,
+                                                title=title,
+                                                kind=kind,
+                                                output_variable=output_variable,
+                                                run_id=workflow_agent_run.run_id,
+                                                max_iterations=max_iterations,
+                                            ):
+                                                yield sse_payload(agent_event)
+                                            raise
+                                        output = strategy_result.answer
+                                        last_strategy_result = strategy_result
+                                        agent_events = agent_strategy_node_events(
+                                            strategy_result.events,
+                                            node=node,
+                                            title=title,
+                                            kind=kind,
+                                            output_variable=output_variable,
+                                            run_id=workflow_agent_run.run_id,
+                                            max_iterations=max_iterations,
+                                        )
+                                    else:
+                                        output, agent_events = await run_react_lite_agent(
+                                            node=node,
+                                            title=title,
+                                            kind=kind,
+                                            model_id=attempt_model_id,
+                                            system_prompt=role_prompt,
+                                            user_prompt=task_input,
+                                            tool_names_raw=node.data.get("toolNames"),
+                                            max_iterations=max_iterations,
+                                            temperature=0.7,
+                                            output_variable=output_variable,
+                                            parallel_tool_calls=parallel_tool_calls,
+                                            max_tool_concurrency=max_tool_concurrency,
+                                            max_tool_calls=max_tool_calls,
+                                            max_tool_depth=max_tool_depth,
+                                            run_id=workflow_agent_run.run_id,
+                                            include_mcp=(tool_mode == "mcp_tools"),
+                                            include_memory_read=memory_read_enabled,
+                                            include_memory_write=memory_write_enabled,
+                                            include_knowledge_read=knowledge_read_enabled,
+                                            include_knowledge_write=(
+                                                knowledge_write_enabled
+                                                or knowledge_writer_spec is not None
+                                            ),
+                                            knowledge_base_ids=knowledge_base_ids,
+                                            external_xpert_tools=external_xpert_tools,
+                                            toolset_resources=toolset_resources,
+                                            include_datax=datax_enabled,
+                                            include_datax_proposals=datax_allow_proposals,
+                                            include_todo=todo_spec is not None,
+                                            include_sandbox=sandbox_enabled,
+                                            include_skills=skills_enabled,
+                                            include_browser=browser_enabled,
+                                            include_client=client_tools_enabled,
+                                            include_office=office_automation_enabled,
+                                            include_automation=automation_enabled,
+                                            include_xpert_authoring=xpert_authoring_enabled,
+                                            include_skill_creator=skill_creator_enabled,
+                                            client_tools_config=(
+                                                dict(client_tools_spec.config)
+                                                if client_tools_spec is not None
+                                                else {}
+                                            ),
+                                            office_automation_config=(
+                                                dict(office_automation_spec.config)
+                                                if office_automation_spec is not None
+                                                else {}
+                                            ),
+                                            pipeline=agent_pipeline,
+                                            middleware_context=agent_context,
+                                            middleware_specs=agent_specs,
+                                            selector_spec=selector_spec,
+                                            history_messages=history_messages,
+                                            resume_state=(
+                                                task_state.get("agent_resume_state")
+                                                if isinstance(
+                                                    task_state.get("agent_resume_state"),
+                                                    dict,
+                                                )
+                                                else None
+                                            ),
+                                        )
                                     for agent_event in agent_events:
                                         yield sse_payload(agent_event)
                                     if structured_spec is None and ralph_spec is None:
@@ -8989,8 +9637,21 @@ async def _run_workflow_response(
                                         "model_id": attempt_model_id,
                                         "fallback_used": fallback_used,
                                         "error": workflow_error_summary(attempt_exc),
+                                        "error_classification": (
+                                            attempt_exc.code
+                                            if isinstance(
+                                                attempt_exc,
+                                                AgentStrategyError,
+                                            )
+                                            else attempt_exc.__class__.__name__
+                                        ),
                                     },
                                 )
+                                if (
+                                    isinstance(attempt_exc, AgentStrategyError)
+                                    and not attempt_exc.retry_safe
+                                ):
+                                    break
 
                         if not success:
                             if exception_handling == "empty_output":
@@ -9199,6 +9860,26 @@ async def _run_workflow_response(
                                 "model_id": model_id,
                                 "output_disabled": disable_output,
                                 "exception_handling": exception_handling,
+                                "agent_strategy": (
+                                    last_strategy_result.strategy
+                                    if last_strategy_result is not None
+                                    else None
+                                ),
+                                "tool_calls_attempted": (
+                                    last_strategy_result.tool_calls_attempted
+                                    if last_strategy_result is not None
+                                    else 0
+                                ),
+                                "tool_calls_executed": (
+                                    last_strategy_result.tool_calls_executed
+                                    if last_strategy_result is not None
+                                    else 0
+                                ),
+                                "token_usage": (
+                                    last_strategy_result.usage.to_dict()
+                                    if last_strategy_result is not None
+                                    else {}
+                                ),
                             },
                         )
                         await run_registry.record_checkpoint(
@@ -9210,6 +9891,16 @@ async def _run_workflow_response(
                                 "node_id": node.id,
                                 "output_variable": output_variable,
                                 "output_disabled": disable_output,
+                                "agent_strategy": (
+                                    last_strategy_result.strategy
+                                    if last_strategy_result is not None
+                                    else None
+                                ),
+                                "token_usage": (
+                                    last_strategy_result.usage.to_dict()
+                                    if last_strategy_result is not None
+                                    else {}
+                                ),
                             },
                         )
                     except RuntimeInterrupt:

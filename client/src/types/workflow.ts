@@ -81,6 +81,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   llmFallbackPrompt?: string;
   agentName?: string;
   agentMode?: string;
+  agentStrategy?: "auto" | "function_calling" | "react";
   toolMode?: string;
   rolePrompt?: string;
   taskTitle?: string;
@@ -201,4 +202,9 @@ export interface WorkflowRunEvent {
   variables?: Record<string, string>;
   message?: string;
   at?: number;
+  strategy?: "function_calling" | "react";
+  iteration?: number;
+  status?: string;
+  tool_call_id?: string;
+  duration_ms?: number;
 }
