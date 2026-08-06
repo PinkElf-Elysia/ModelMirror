@@ -46,6 +46,7 @@ server/rag/storage/
 server/rag/uploads/
 server/skills/installed/
 server/skills/tmp/
+server/agent_workspace/storage/
 server/xperts/storage/
 server/plugins/storage/
 server/prompts/storage/

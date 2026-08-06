@@ -12,6 +12,7 @@ import {
   type SkillNeedMatch,
 } from "../data/skillNeedMatcher";
 import type { SkillInstallStatus } from "../data/skillCatalogPolicy";
+import type { BuiltinSkill } from "../types/agentWorkspace";
 
 interface InstalledSkill {
   skill_id: string;
@@ -27,7 +28,7 @@ interface InstalledSkillsResponse {
   skills: InstalledSkill[];
 }
 
-type SkillTab = "market" | "installed" | "drafts" | "proposals";
+type SkillTab = "builtin" | "market" | "installed" | "drafts" | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 const MARKET_PAGE_SIZE = 48;
@@ -385,7 +386,7 @@ function InstalledSkillCard({
 export default function SkillBrowserPage() {
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
   const [activeTab, setActiveTab] = useState<SkillTab>(
-    requestedTab === "drafts" || requestedTab === "proposals"
+    requestedTab === "builtin" || requestedTab === "drafts" || requestedTab === "proposals"
       ? requestedTab
       : "market",
   );
@@ -398,7 +399,9 @@ export default function SkillBrowserPage() {
     useState<SkillAvailabilityFilter>("all");
   const [visibleProjectCount, setVisibleProjectCount] = useState(MARKET_PAGE_SIZE);
   const [installedSkills, setInstalledSkills] = useState<InstalledSkill[]>([]);
+  const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([]);
   const [isLoadingInstalled, setIsLoadingInstalled] = useState(false);
+  const [isLoadingBuiltin, setIsLoadingBuiltin] = useState(false);
   const [installingId, setInstallingId] = useState("");
   const [uninstallingId, setUninstallingId] = useState("");
   const [notice, setNotice] = useState("");
@@ -490,6 +493,7 @@ export default function SkillBrowserPage() {
   useEffect(() => {
     document.title = "模镜 - Skill 技能货架";
     void loadInstalledSkills();
+    void loadBuiltinSkills();
   }, []);
 
   useEffect(() => {
@@ -509,6 +513,22 @@ export default function SkillBrowserPage() {
       );
     } finally {
       setIsLoadingInstalled(false);
+    }
+  }
+
+  async function loadBuiltinSkills() {
+    setIsLoadingBuiltin(true);
+    try {
+      const response = await fetch("/api/skills/library");
+      if (!response.ok) throw new Error(await readApiError(response));
+      const data = (await response.json()) as { skills: BuiltinSkill[] };
+      setBuiltinSkills(data.skills);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error ? loadError.message : "内置 Skill 加载失败",
+      );
+    } finally {
+      setIsLoadingBuiltin(false);
     }
   }
 
@@ -685,6 +705,7 @@ export default function SkillBrowserPage() {
         <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="inline-flex w-fit rounded-full border border-white/10 bg-white/[0.055] p-1">
             {[
+              { id: "builtin", label: `Agent 内置（${builtinSkills.length || 16}）` },
               { id: "market", label: "技能市场" },
               { id: "installed", label: "已安装" },
               { id: "drafts", label: "工作区草稿" },
@@ -706,11 +727,11 @@ export default function SkillBrowserPage() {
           </div>
           <button
             className="w-fit rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100 disabled:opacity-50"
-            disabled={isLoadingInstalled}
-            onClick={() => void loadInstalledSkills()}
+            disabled={isLoadingInstalled || isLoadingBuiltin}
+            onClick={() => void Promise.all([loadInstalledSkills(), loadBuiltinSkills()])}
             type="button"
           >
-            {isLoadingInstalled ? "刷新中..." : "刷新已安装"}
+            {isLoadingInstalled || isLoadingBuiltin ? "刷新中..." : "刷新资源"}
           </button>
         </div>
 
@@ -939,7 +960,51 @@ export default function SkillBrowserPage() {
           </div>
         ) : null}
 
-        {activeTab === "market" && filteredProjects.length > 0 ? (
+        {activeTab === "builtin" ? (
+          builtinSkills.length > 0 ? (
+            <div>
+              <div className="mb-4 rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm leading-6 text-cyan-50">
+                General Agent 默认 Skillset 固定包含以下 16 项并保存内容摘要。只有标记为“可运行”且环境满足的 Skill 会注入运行上下文；外部 Skill 不在此集合中。
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {builtinSkills.map((skill) => {
+                  const status =
+                    skill.status === "ready"
+                      ? { label: "可运行", className: "border-emerald-300/25 bg-emerald-300/10 text-emerald-100" }
+                      : skill.status === "conditional"
+                        ? { label: "环境探测", className: "border-sky-300/25 bg-sky-300/10 text-sky-100" }
+                        : skill.status === "dependency_missing"
+                          ? { label: "依赖缺失", className: "border-amber-300/25 bg-amber-300/10 text-amber-100" }
+                          : { label: "仅供查看", className: "border-white/15 bg-white/[0.05] text-slate-300" };
+                  return (
+                    <article className="rounded-lg border border-white/10 bg-slate-950/55 p-5" key={skill.skill_id}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate font-mono text-sm font-semibold text-white">{skill.skill_id}</h3>
+                          <p className="mt-2 text-sm leading-6 text-slate-300">{skill.description}</p>
+                        </div>
+                        <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${status.className}`}>
+                          {status.label}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-slate-500">{skill.availability_reason}</p>
+                      <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-3 text-[11px] text-slate-500">
+                        <span>{skill.source_license}</span>
+                        <span>摘要 {skill.digest.slice(0, 12)}</span>
+                        {skill.adapted ? <span>已原生适配</span> : null}
+                        <span className="ml-auto">{skill.inject_runtime ? "运行时可注入" : "运行时不注入"}</span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.04] px-6 py-12 text-center text-sm text-slate-400">
+              {isLoadingBuiltin ? "正在加载 16 个内置 Skill…" : "内置 Skill 清单不可用。"}
+            </div>
+          )
+        ) : activeTab === "market" && filteredProjects.length > 0 ? (
           <div id="skill-market-results">
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               {visibleProjects.map((project) => (
