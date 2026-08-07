@@ -9,7 +9,7 @@ import {
   Trash2,
   Unplug,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CodingProjectHostCapability,
   CodingProjectHostPairing,
@@ -81,13 +81,16 @@ export default function CodingProjectHostPanel({
   const [name, setName] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const hostAvailableRef = useRef<boolean | null>(null);
 
   const refreshStatus = useCallback(async () => {
     if (!capability?.enabled) return;
     setAction("checking");
     setError("");
     try {
-      setStatus(await getCodingProjectHost());
+      const next = await getCodingProjectHost();
+      hostAvailableRef.current = next.available;
+      setStatus(next);
     } catch (requestError) {
       setError(messageFor(requestError));
     } finally {
@@ -99,6 +102,38 @@ export default function CodingProjectHostPanel({
     if (!capability?.enabled) return;
     void refreshStatus();
   }, [capability?.available, capability?.enabled, capability?.paired, refreshStatus]);
+
+  useEffect(() => {
+    if (!capability?.enabled) return;
+    let active = true;
+    let checking = false;
+    const poll = async () => {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        const next = await getCodingProjectHost();
+        if (!active) return;
+        const changed =
+          hostAvailableRef.current !== null &&
+          hostAvailableRef.current !== next.available;
+        hostAvailableRef.current = next.available;
+        setStatus(next);
+        if (changed) {
+          await onProjectsChanged(selectedProject?.id);
+        }
+      } catch {
+        // Keep the last visible state during a short Server restart. The next
+        // low-frequency check will reconcile it without refreshing the page.
+      } finally {
+        checking = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [capability?.enabled, onProjectsChanged, selectedProject?.id]);
 
   useEffect(() => {
     if (!pairing) return;
@@ -192,6 +227,7 @@ export default function CodingProjectHostPanel({
     setNotice("");
     try {
       const next = await reconnectCodingProjectHost();
+      hostAvailableRef.current = next.available;
       setStatus(next);
       setNotice("本地项目助手已重新连接，可以继续使用所选项目。 ");
       await onProjectsChanged(selectedProject?.id);
@@ -305,15 +341,26 @@ export default function CodingProjectHostPanel({
               添加本地项目
             </button>
           ) : status?.paired ? (
-            <button
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={action === "checking"}
-              onClick={() => void reconnectHost()}
-              type="button"
-            >
-              <RefreshCw aria-hidden="true" size={16} />
-              {action === "checking" ? "正在重新连接" : "重新连接"}
-            </button>
+            <>
+              <button
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={action === "checking"}
+                onClick={() => void reconnectHost()}
+                type="button"
+              >
+                <RefreshCw aria-hidden="true" size={16} />
+                {action === "checking" ? "正在重新连接" : "重新连接"}
+              </button>
+              <button
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-400 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busy}
+                onClick={() => setConfirmRevoke(true)}
+                type="button"
+              >
+                <Unplug aria-hidden="true" size={16} />
+                重置连接
+              </button>
+            </>
           ) : (
             <button
               className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-cyan-300/35 bg-cyan-300/10 px-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-50"
@@ -423,16 +470,20 @@ export default function CodingProjectHostPanel({
         <div className="mt-4 border-t border-white/10 pt-3">
           {confirmRevoke ? (
             <div className="flex flex-col gap-2 text-xs leading-5 text-amber-50">
-              <p>这会断开整台助手并移除所有项目访问授权，本地文件不会改变。</p>
+              <p>
+                {connected
+                  ? "这会断开整台助手并移除所有项目访问授权，本地文件不会改变。"
+                  : "这会清除过期连接并移除项目访问授权，本地文件不会改变。之后可以重新生成连接码。"}
+              </p>
               <div className="flex flex-wrap gap-2">
-                <button className="min-h-9 rounded-lg bg-amber-200 px-3 font-semibold text-amber-950 disabled:opacity-50" disabled={busy || locked} onClick={() => void revokeHost()} type="button">确认移除助手</button>
+                <button className="min-h-9 rounded-lg bg-amber-200 px-3 font-semibold text-amber-950 disabled:opacity-50" disabled={busy} onClick={() => void revokeHost()} type="button">{connected ? "确认移除助手" : "确认重置连接"}</button>
                 <button className="min-h-9 rounded-lg px-3 font-semibold text-amber-100" onClick={() => setConfirmRevoke(false)} type="button">继续保留</button>
               </div>
             </div>
           ) : (
             <button
               className="inline-flex min-h-9 items-center gap-2 text-xs font-semibold text-slate-400 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={busy || locked}
+              disabled={busy}
               onClick={() => setConfirmRevoke(true)}
               type="button"
             >

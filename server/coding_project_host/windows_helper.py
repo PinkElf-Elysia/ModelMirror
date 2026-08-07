@@ -40,7 +40,7 @@ from server.coding_runtime.projects import (
 )
 
 
-HELPER_VERSION = "1.0.0"
+HELPER_VERSION = "1.0.1"
 STATE_MAGIC = b"MMCPH1\n"
 MAX_CONTROL_MESSAGE_BYTES = 256 * 1024
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
