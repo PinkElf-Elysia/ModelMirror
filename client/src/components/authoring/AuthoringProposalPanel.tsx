@@ -11,6 +11,7 @@ interface ProposalSummary {
   title: string;
   status: "pending" | "approved" | "rejected" | "cancelled" | "conflict";
   revision: number;
+  apply_key: string;
   target_id?: string | null;
   source_type: string;
   source_id: string;
@@ -66,9 +67,11 @@ export default function AuthoringProposalPanel({
       if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as { items?: ProposalSummary[] };
       setItems(
-        (data.items ?? []).filter((item) =>
-          kindPrefix ? item.kind.startsWith(`${kindPrefix}_`) : true,
-        ),
+        (data.items ?? [])
+          .filter((item) => item.source_type !== "skill_creator")
+          .filter((item) =>
+            kindPrefix ? item.kind.startsWith(`${kindPrefix}_`) : true,
+          ),
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "提案加载失败");
@@ -119,7 +122,9 @@ export default function AuthoringProposalPanel({
             }
           : {
               revision: selected.revision,
-              operator: "modelmirror-operator",
+              ...(actionName === "approve"
+                ? { apply_key: selected.apply_key }
+                : {}),
               reason: actionName === "reject" ? "管理侧拒绝" : "",
             };
       const response = await fetch(url, {

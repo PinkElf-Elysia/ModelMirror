@@ -4,6 +4,10 @@ import BrowserSessionPanel from "../runtime/BrowserSessionPanel";
 import ClientToolPanel from "../runtime/ClientToolPanel";
 import SandboxWorkspacePanel from "../runtime/SandboxWorkspacePanel";
 import DataXResultCard from "../datax/DataXResultCard";
+import SkillCreatorCaptureButton, {
+  completedWorkflowCaptureSource,
+} from "../skill-creator/SkillCreatorCaptureButton";
+import { useSkillCreatorStatus } from "../../hooks/useSkillCreatorStatus";
 import {
   type WorkflowDefinition,
   type WorkflowRunEvent,
@@ -351,6 +355,7 @@ export default function WorkflowRun({
   embedded = false,
   onRunStart,
 }: WorkflowRunProps) {
+  const { status: skillCreatorStatus } = useSkillCreatorStatus();
   const [input, setInput] = useState("请帮我把这个需求拆成三步执行计划。");
   const [events, setEvents] = useState<WorkflowRunEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -393,6 +398,14 @@ export default function WorkflowRun({
   }, [events]);
 
   const runSteps = useMemo(() => buildRunSteps(events), [events]);
+  const skillCaptureSource = useMemo(
+    () => completedWorkflowCaptureSource(events, taskId, runId, isRunning),
+    [events, isRunning, runId, taskId],
+  );
+  const skillCaptureEnabled = Boolean(
+    skillCreatorStatus?.enabled
+    && skillCreatorStatus.supported_sources.includes("workflow_classic"),
+  );
 
   async function consumeWorkflowResponse(response: Response, replaceEvents = false) {
     const reader = response.body?.getReader();
@@ -1034,6 +1047,21 @@ export default function WorkflowRun({
               )}
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {skillCaptureSource && skillCaptureEnabled ? (
+        <div className="border-t border-white/10 p-4">
+          <div className="flex flex-col gap-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold text-emerald-100">将这次成功运行沉淀为可复用流程</p>
+              <p className="mt-1 text-[11px] leading-5 text-slate-400">只会读取服务端生成的脱敏素材，完整参数和原始输出不会进入草稿。</p>
+            </div>
+            <SkillCreatorCaptureButton
+              enabled={skillCaptureEnabled}
+              source={skillCaptureSource}
+            />
+          </div>
         </div>
       ) : null}
 

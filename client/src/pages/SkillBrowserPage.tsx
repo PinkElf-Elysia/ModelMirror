@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
 import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
 import SkillDraftPanel from "../components/authoring/SkillDraftPanel";
@@ -22,6 +23,7 @@ import {
 } from "../data/skillNeedMatcher";
 import type { SkillInstallStatus } from "../data/skillCatalogPolicy";
 import type { BuiltinSkill } from "../types/agentWorkspace";
+import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
 
 interface InstalledSkill {
   skill_id: string;
@@ -848,6 +850,7 @@ function InstalledSkillCard({
 }
 
 export default function SkillBrowserPage() {
+  const { status: creatorStatus } = useSkillCreatorStatus();
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
   const [activeTab, setActiveTab] = useState<SkillTab>(
     requestedTab === "builtin" || requestedTab === "drafts" || requestedTab === "proposals"
@@ -1335,14 +1338,24 @@ export default function SkillBrowserPage() {
               </button>
             ))}
           </div>
-          <button
-            className="w-fit rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100 disabled:opacity-50"
-            disabled={isLoadingInstalled || isLoadingBuiltin}
-            onClick={() => void refreshSkillResources()}
-            type="button"
-          >
-            {isLoadingInstalled || isLoadingBuiltin ? "刷新中..." : "刷新资源"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {creatorStatus?.enabled ? (
+              <Link
+                className="w-fit rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:ring-2 focus-visible:ring-hire-100"
+                to="/skills/create"
+              >
+                创建 Skill
+              </Link>
+            ) : null}
+            <button
+              className="w-fit rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100 disabled:opacity-50"
+              disabled={isLoadingInstalled || isLoadingBuiltin}
+              onClick={() => void refreshSkillResources()}
+              type="button"
+            >
+              {isLoadingInstalled || isLoadingBuiltin ? "刷新中..." : "刷新资源"}
+            </button>
+          </div>
         </div>
 
         {activeTab === "market" ? (

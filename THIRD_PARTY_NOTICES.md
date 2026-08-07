@@ -1,5 +1,29 @@
 # Third-party notices
 
+## Anthropic skill-creator authoring guidance
+
+- Project: `anthropics/skills`
+- Source path: `skills/skill-creator/`
+- Copyright: Copyright 2026 Anthropic, PBC
+- License: Apache License 2.0
+- Upstream: <https://github.com/anthropics/skills/tree/main/skills/skill-creator>
+- Local license copy:
+  `server/skills/creator_reference/LICENSE-ANTHROPIC-SKILL-CREATOR.txt`
+- Modified derivative:
+  `server/skills/creator_reference/authoring-playbook-v1.md`
+
+ModelMirror adapts only the upstream creation-stage method: capture concrete
+usage intent, plan reusable resources, write progressively disclosed Skill
+instructions, and validate the resulting package. The local playbook was
+rewritten for ModelMirror's typed proposal contract, UTF-8-only package rules,
+trusted session requirement coverage, and PR2/PR3 quality boundary. It omits
+the upstream evaluation runner, graders, result viewer, description optimizer,
+packaging scripts, and Claude-specific execution paths.
+
+The modified playbook carries a prominent modification notice. Anthropic does
+not endorse ModelMirror, and the Apache License does not grant ModelMirror any
+right to use Anthropic or Claude trademarks beyond identifying the source.
+
 ## Dify Agent Strategy 0.0.42
 
 - Project: `langgenius/dify-official-plugins`

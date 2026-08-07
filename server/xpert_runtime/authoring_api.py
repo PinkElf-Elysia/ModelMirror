@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .authoring_service import AuthoringService
 from .authoring_store import (
@@ -19,16 +19,33 @@ _service: AuthoringService | None = None
 
 
 class ProposalPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     revision: int = Field(ge=1)
     title: str | None = Field(default=None, min_length=1, max_length=200)
     payload: dict[str, Any] | None = None
     base_revision: int | None = Field(default=None, ge=1)
 
 
-class ProposalActionRequest(BaseModel):
+class ProposalValidationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     revision: int = Field(ge=1)
-    operator: str = Field(default="modelmirror-operator", max_length=120)
+
+
+class ProposalActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=1)
     reason: str = Field(default="", max_length=1000)
+
+
+class ProposalApproveRequest(ProposalActionRequest):
+    apply_key: str = Field(
+        min_length=38,
+        max_length=80,
+        pattern=r"^apply_[A-Za-z0-9_-]+$",
+    )
 
 
 def configure_runtime_authoring(service: AuthoringService) -> None:
@@ -46,7 +63,14 @@ def _api_error(exc: Exception) -> HTTPException:
     if isinstance(exc, AuthoringProposalNotFoundError):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, AuthoringProposalConflictError):
-        return HTTPException(status_code=409, detail=str(exc))
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "authoring_conflict",
+                "message": str(exc),
+                "issues": [],
+            },
+        )
     if isinstance(exc, AuthoringProposalValidationError):
         return HTTPException(
             status_code=400,
@@ -102,7 +126,14 @@ async def patch_authoring_proposal(
     proposal_id: str, payload: ProposalPatchRequest
 ):
     try:
-        item = get_authoring_service().proposal_store.update_pending(
+        store = get_authoring_service().proposal_store
+        existing = store.require(proposal_id)
+        if existing.source_type == "skill_creator":
+            raise AuthoringProposalValidationError(
+                "Skill Creator proposals must be reviewed in the Creator workspace.",
+                code="skill_creator_proposal_managed",
+            )
+        item = get_authoring_service().update_pending(
             proposal_id,
             revision=payload.revision,
             title=payload.title,
@@ -116,7 +147,7 @@ async def patch_authoring_proposal(
 
 @router.post("/authoring-proposals/{proposal_id}/validate")
 async def validate_authoring_proposal(
-    proposal_id: str, payload: ProposalActionRequest
+    proposal_id: str, payload: ProposalValidationRequest
 ):
     try:
         item = get_authoring_service().validate(
@@ -129,11 +160,14 @@ async def validate_authoring_proposal(
 
 @router.post("/authoring-proposals/{proposal_id}/approve")
 async def approve_authoring_proposal(
-    proposal_id: str, payload: ProposalActionRequest
+    proposal_id: str, payload: ProposalApproveRequest
 ):
     try:
         item = get_authoring_service().approve(
-            proposal_id, revision=payload.revision, operator=payload.operator
+            proposal_id,
+            revision=payload.revision,
+            apply_key=payload.apply_key,
+            reason=payload.reason,
         )
         return AuthoringProposalStore.serialize(item, include_payload=True)
     except Exception as exc:
@@ -148,7 +182,6 @@ async def reject_authoring_proposal(
         item = get_authoring_service().reject(
             proposal_id,
             revision=payload.revision,
-            operator=payload.operator,
             reason=payload.reason,
         )
         return AuthoringProposalStore.serialize(item, include_payload=True)
@@ -162,7 +195,9 @@ async def cancel_authoring_proposal(
 ):
     try:
         item = get_authoring_service().cancel(
-            proposal_id, revision=payload.revision, operator=payload.operator
+            proposal_id,
+            revision=payload.revision,
+            reason=payload.reason,
         )
         return AuthoringProposalStore.serialize(item, include_payload=True)
     except Exception as exc:

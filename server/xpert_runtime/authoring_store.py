@@ -73,14 +73,28 @@ class AuthoringProposal:
     source_id: str
     source_xpert_id: str | None = None
     source_run_id: str | None = None
+    source_task_id: str | None = None
     target_id: str | None = None
     base_revision: int | None = None
+    base_digest: str | None = None
+    creator_session_id: str | None = None
+    creator_session_revision: int | None = None
+    payload_digest: str = ""
+    content_digest: str | None = None
+    apply_key: str = ""
+    applied_apply_key: str | None = None
+    applied_from_revision: int | None = None
+    applied_resource_revision: int | None = None
+    applied_content_digest: str | None = None
     status: ProposalStatus = "pending"
     revision: int = 1
     validation: dict[str, Any] = field(default_factory=dict)
     applied_resource_id: str | None = None
+    actor_kind: str = "legacy"
+    actor_id: str | None = None
     operator: str | None = None
     error: str | None = None
+    decision_reason: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -115,8 +129,15 @@ class AuthoringProposalStore:
         source_id: str,
         source_xpert_id: str | None = None,
         source_run_id: str | None = None,
+        source_task_id: str | None = None,
         target_id: str | None = None,
         base_revision: int | None = None,
+        base_digest: str | None = None,
+        creator_session_id: str | None = None,
+        creator_session_revision: int | None = None,
+        content_digest: str | None = None,
+        actor_kind: str = "workflow_agent",
+        actor_id: str | None = None,
     ) -> AuthoringProposal:
         if kind not in {
             "xpert_create",
@@ -148,6 +169,19 @@ class AuthoringProposalStore:
                 "Proposal source_type and source_id are required."
             )
         clean_payload = self._validate_payload(payload, kind=kind)
+        payload_digest = self._payload_digest(clean_payload)
+        inferred_content_digest = self._skill_content_digest(
+            clean_payload, kind=kind
+        )
+        clean_content_digest = self._optional_digest(
+            content_digest or inferred_content_digest, "content_digest"
+        )
+        clean_base_digest = self._optional_digest(base_digest, "base_digest")
+        clean_actor_kind = self._actor_kind(actor_kind)
+        if creator_session_revision is not None and int(creator_session_revision) < 1:
+            raise AuthoringProposalValidationError(
+                "creator_session_revision must be positive."
+            )
         with self._lock:
             if source_run_id:
                 run_count = sum(
@@ -181,8 +215,21 @@ class AuthoringProposalStore:
                 source_id=clean_source_id[:240],
                 source_xpert_id=self._optional_text(source_xpert_id, 200),
                 source_run_id=self._optional_text(source_run_id, 200),
+                source_task_id=self._optional_text(source_task_id, 200),
                 target_id=self._optional_text(target_id, 200),
                 base_revision=base_revision,
+                base_digest=clean_base_digest,
+                creator_session_id=self._optional_text(creator_session_id, 200),
+                creator_session_revision=(
+                    int(creator_session_revision)
+                    if creator_session_revision is not None
+                    else None
+                ),
+                payload_digest=payload_digest,
+                content_digest=clean_content_digest,
+                apply_key=f"apply_{uuid.uuid4().hex}",
+                actor_kind=clean_actor_kind,
+                actor_id=self._optional_text(actor_id, 200),
                 created_at=now,
                 updated_at=now,
             )
@@ -199,6 +246,29 @@ class AuthoringProposalStore:
                 )
             return self._copy(item)
 
+    def require_apply_binding(
+        self, proposal_id: str, *, revision: int, apply_key: str
+    ) -> AuthoringProposal:
+        with self._lock:
+            item = self._require_unlocked(proposal_id)
+            if item.status != "pending":
+                raise AuthoringProposalConflictError(
+                    f"Proposal is already {item.status}."
+                )
+            if item.revision != revision:
+                raise AuthoringProposalConflictError(
+                    "Proposal changed. Reload it before approval."
+                )
+            if not apply_key or item.apply_key != apply_key:
+                raise AuthoringProposalConflictError(
+                    "Proposal apply key changed. Reload it before approval."
+                )
+            if item.payload_digest != self._payload_digest(item.payload):
+                raise AuthoringProposalConflictError(
+                    "Proposal payload digest changed unexpectedly."
+                )
+            return self._copy(item)
+
     def list(
         self,
         *,
@@ -208,6 +278,7 @@ class AuthoringProposalStore:
         source_xpert_id: str | None = None,
         source_type: str | None = None,
         source_id: str | None = None,
+        creator_session_id: str | None = None,
         limit: int = 100,
     ) -> list[AuthoringProposal]:
         with self._lock:
@@ -224,6 +295,12 @@ class AuthoringProposalStore:
             items = [item for item in items if item.source_type == source_type]
         if source_id:
             items = [item for item in items if item.source_id == source_id]
+        if creator_session_id:
+            items = [
+                item
+                for item in items
+                if item.creator_session_id == creator_session_id
+            ]
         items.sort(key=lambda item: item.updated_at, reverse=True)
         return [self._copy(item) for item in items[: max(1, min(limit, 500))]]
 
@@ -262,6 +339,10 @@ class AuthoringProposalStore:
                     if isinstance(report, dict):
                         report["human_modified"] = True
                 item.payload = next_payload
+                item.payload_digest = self._payload_digest(next_payload)
+                item.content_digest = self._skill_content_digest(
+                    next_payload, kind=item.kind
+                )
             if base_revision is not None:
                 if base_revision < 1:
                     raise AuthoringProposalValidationError(
@@ -271,6 +352,9 @@ class AuthoringProposalStore:
             item.validation = {}
             item.error = None
             item.revision += 1
+            item.apply_key = f"apply_{uuid.uuid4().hex}"
+            item.applied_apply_key = None
+            item.applied_from_revision = None
             item.updated_at = time.time()
             self._save_unlocked()
             return self._copy(item)
@@ -281,11 +365,19 @@ class AuthoringProposalStore:
         *,
         revision: int,
         validation: dict[str, Any],
+        content_digest: str | None = None,
+        base_digest: str | None = None,
     ) -> AuthoringProposal:
         with self._lock:
             item = self._require_unlocked(proposal_id)
             self._require_pending_revision(item, revision)
             item.validation = dict(validation)
+            if content_digest is not None:
+                item.content_digest = self._optional_digest(
+                    content_digest, "content_digest"
+                )
+            if base_digest is not None:
+                item.base_digest = self._optional_digest(base_digest, "base_digest")
             item.error = None
             item.updated_at = time.time()
             self._save_unlocked()
@@ -297,9 +389,15 @@ class AuthoringProposalStore:
         *,
         revision: int,
         status: ProposalStatus,
-        operator: str,
+        actor_kind: str = "local_console",
+        actor_id: str | None = None,
+        operator: str | None = None,
+        apply_key: str | None = None,
         applied_resource_id: str | None = None,
+        applied_resource_revision: int | None = None,
+        applied_content_digest: str | None = None,
         error: str | None = None,
+        decision_reason: str | None = None,
     ) -> AuthoringProposal:
         if status not in {"approved", "rejected", "cancelled", "conflict"}:
             raise AuthoringProposalValidationError("Invalid proposal transition.")
@@ -307,9 +405,28 @@ class AuthoringProposalStore:
             item = self._require_unlocked(proposal_id)
             self._require_pending_revision(item, revision)
             item.status = status
-            item.operator = str(operator or "operator").strip()[:120] or "operator"
+            item.actor_kind = self._actor_kind(actor_kind)
+            item.actor_id = self._optional_text(actor_id, 200)
+            # ``operator`` is retained only as read-only legacy metadata.  New
+            # callers authenticate the local console actor on the server.
+            if item.operator is None and operator:
+                item.operator = str(operator).strip()[:120] or None
+            if status == "approved":
+                if applied_resource_revision is not None and applied_resource_revision < 1:
+                    raise AuthoringProposalValidationError(
+                        "applied_resource_revision must be positive."
+                    )
+                item.applied_apply_key = self._optional_text(
+                    apply_key or item.apply_key, 80
+                )
+                item.applied_from_revision = item.revision
+                item.applied_resource_revision = applied_resource_revision
+                item.applied_content_digest = self._optional_digest(
+                    applied_content_digest, "applied_content_digest"
+                )
             item.applied_resource_id = self._optional_text(applied_resource_id, 200)
             item.error = self._optional_text(error, 1000)
+            item.decision_reason = self._optional_text(decision_reason, 1000)
             item.revision += 1
             item.updated_at = time.time()
             self._save_unlocked()
@@ -366,6 +483,48 @@ class AuthoringProposalStore:
         if kind in {"skill_create", "skill_update"}:
             self._validate_skill_payload_before_persist(kind, decoded)
         return decoded
+
+    @staticmethod
+    def _payload_digest(payload: dict[str, Any]) -> str:
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _skill_content_digest(
+        payload: dict[str, Any], *, kind: ProposalKind
+    ) -> str | None:
+        if kind != "skill_create":
+            return None
+        skill = payload.get("skill") if isinstance(payload.get("skill"), dict) else payload
+        result = validate_skill_package(
+            root_name=skill.get("slug"),
+            skill_markdown=skill.get("skill_markdown") or skill.get("SKILL.md"),
+            files=skill.get("files") or {},
+        )
+        return result.content_digest if result.valid else None
+
+    @staticmethod
+    def _optional_digest(value: Any, field_name: str) -> str | None:
+        if value is None:
+            return None
+        clean = str(value).strip().lower()
+        if len(clean) != 64 or any(character not in "0123456789abcdef" for character in clean):
+            raise AuthoringProposalValidationError(
+                f"{field_name} must be a SHA-256 digest."
+            )
+        return clean
+
+    @staticmethod
+    def _actor_kind(value: Any) -> str:
+        clean = str(value or "").strip()
+        if clean not in {"local_console", "workflow_agent", "legacy"}:
+            raise AuthoringProposalValidationError("Invalid proposal actor kind.")
+        return clean
 
     @staticmethod
     def _validate_skill_payload_before_persist(
@@ -468,8 +627,29 @@ class AuthoringProposalStore:
                     sanitized = True
                     continue
                 try:
-                    item = AuthoringProposal(**record)
-                except (TypeError, ValueError):
+                    normalized_record = dict(record)
+                    payload = normalized_record.get("payload")
+                    if not isinstance(payload, dict):
+                        raise TypeError("Proposal payload must be an object.")
+                    actual_payload_digest = self._payload_digest(payload)
+                    stored_payload_digest = normalized_record.get("payload_digest")
+                    if stored_payload_digest:
+                        if stored_payload_digest != actual_payload_digest:
+                            raise ValueError("Proposal payload digest does not match.")
+                    else:
+                        normalized_record["payload_digest"] = actual_payload_digest
+                        sanitized = True
+                    if not normalized_record.get("apply_key"):
+                        normalized_record["apply_key"] = f"apply_{uuid.uuid4().hex}"
+                        sanitized = True
+                    if "actor_kind" not in normalized_record:
+                        normalized_record["actor_kind"] = "legacy"
+                        sanitized = True
+                    item = AuthoringProposal(**normalized_record)
+                    self._actor_kind(item.actor_kind)
+                    self._optional_digest(item.base_digest, "base_digest")
+                    self._optional_digest(item.content_digest, "content_digest")
+                except (TypeError, ValueError, AuthoringProposalValidationError):
                     self._quarantine.append(
                         self._safe_quarantine_record(record, index=index)
                     )

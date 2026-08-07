@@ -8,6 +8,10 @@ import ClientToolPanel from "../components/runtime/ClientToolPanel";
 import SandboxWorkspacePanel from "../components/runtime/SandboxWorkspacePanel";
 import DataXResultCard from "../components/datax/DataXResultCard";
 import FileMemoryPanel from "../components/xpert/FileMemoryPanel";
+import SkillCreatorCaptureButton, {
+  xpertMessageCaptureSource,
+} from "../components/skill-creator/SkillCreatorCaptureButton";
+import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
 import {
   type XpertConversationMessage,
   type XpertConversation,
@@ -178,6 +182,7 @@ function roleCopy(role: XpertConversationMessage["role"]) {
 export default function XpertChatPage() {
   const { xpertId = "" } = useParams();
   const navigate = useNavigate();
+  const { status: skillCreatorStatus } = useSkillCreatorStatus();
   const [xpert, setXpert] = useState<XpertDefinition | null>(null);
   const [version, setVersion] = useState<number | null>(null);
   const [messages, setMessages] = useState<XpertConversationMessage[]>([]);
@@ -310,6 +315,10 @@ export default function XpertChatPage() {
     versionFeatures?.file_upload.allowed_extensions ?? [".txt", ".md", ".markdown", ".pdf"]
   ).map((item) => item.startsWith(".") ? item.toLowerCase() : `.${item.toLowerCase()}`);
   const fileAccept = allowedFileExtensions.join(",");
+  const skillCaptureEnabled = Boolean(
+    skillCreatorStatus?.enabled
+    && skillCreatorStatus.supported_sources.includes("xpert_chat"),
+  );
 
   useEffect(() => {
     if (!xpert?.id || !version) {
@@ -383,6 +392,33 @@ export default function XpertChatPage() {
     setMemoryCandidates(candidatePayload.items);
     setTodos(todoItems);
     setToolMemories(toolMemoryPayload.items);
+  }
+
+  async function syncCompletedAssistantMessage(
+    fallback: XpertConversationMessage,
+  ) {
+    setMessages((current) => [...current, fallback]);
+    if (
+      !xpert
+      || !conversationId
+      || !fallback.source_task_id
+      || !fallback.source_run_id
+    ) {
+      return;
+    }
+    try {
+      const persisted = await getXpertConversation(xpert.id, conversationId);
+      const linked = persisted.messages?.some((message) => (
+        message.role === "assistant"
+        && message.source_task_id === fallback.source_task_id
+        && message.source_run_id === fallback.source_run_id
+        && Boolean(message.message_id)
+      ));
+      if (linked) setMessages(persisted.messages ?? []);
+    } catch {
+      // Keep the visible fallback. It intentionally has no message ID, so it
+      // cannot expose the trusted-source action until a later refresh.
+    }
   }
 
   async function listToolMemories(selectedXpertId: string, selectedConversationId: string) {
@@ -747,14 +783,13 @@ export default function XpertChatPage() {
       }
       if (buffer.trim()) processBlock(buffer);
       if (!approvalPending && !clientToolPending) {
-        setMessages((current) => [
-          ...current,
-          {
-            role: "assistant",
-            content: finalOutput || "运行完成，但没有返回文本输出。",
-            suggestions: finalSuggestions,
-          },
-        ]);
+        await syncCompletedAssistantMessage({
+          role: "assistant",
+          content: finalOutput || "运行完成，但没有返回文本输出。",
+          suggestions: finalSuggestions,
+          source_task_id: nextTaskId || null,
+          source_run_id: nextRunId || null,
+        });
         if (finalConversationTitle) {
           setConversations((current) => current.map((item) => (
             item.conversation_id === conversationId
@@ -830,10 +865,13 @@ export default function XpertChatPage() {
       }
       if (buffer.trim()) processBlock(buffer);
       if (!approvalPending && !clientToolPending && finalOutput) {
-        setMessages((current) => [
-          ...current,
-          { role: "assistant", content: finalOutput, suggestions: finalSuggestions },
-        ]);
+        await syncCompletedAssistantMessage({
+          role: "assistant",
+          content: finalOutput,
+          suggestions: finalSuggestions,
+          source_task_id: taskId,
+          source_run_id: nextRunId || null,
+        });
         if (finalConversationTitle) {
           setConversations((current) => current.map((item) => (
             item.conversation_id === conversationId
@@ -1018,8 +1056,12 @@ export default function XpertChatPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {messages.map((message, index) => (
-                  <article className={`max-w-[86%] rounded-lg border p-3 ${message.role === "user" ? "ml-auto border-hire-300/25 bg-hire-300/10" : "border-white/10 bg-white/[0.045]"}`} key={`${message.role}-${index}`}>
+                {messages.map((message, index) => {
+                  const captureSource = xpert
+                    ? xpertMessageCaptureSource(message, xpert.id, conversationId)
+                    : null;
+                  return (
+                    <article className={`max-w-[86%] rounded-lg border p-3 ${message.role === "user" ? "ml-auto border-hire-300/25 bg-hire-300/10" : "border-white/10 bg-white/[0.045]"}`} key={`${message.role}-${message.message_id ?? index}`}>
                     <p className="text-[10px] font-semibold uppercase text-slate-500">{roleCopy(message.role)}</p>
                     {message.role === "assistant" ? <DataXResultCard content={message.content} /> : null}
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-100">{message.content}</p>
@@ -1043,6 +1085,12 @@ export default function XpertChatPage() {
                             : "播放"}
                         </button>
                       ) : null}
+                      {captureSource ? (
+                        <SkillCreatorCaptureButton
+                          enabled={skillCaptureEnabled}
+                          source={captureSource}
+                        />
+                      ) : null}
                     </div>
                     {message.role === "assistant" && message.suggestions?.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -1058,8 +1106,9 @@ export default function XpertChatPage() {
                         ))}
                       </div>
                     ) : null}
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
                 {running ? (
                   <div className="max-w-[86%] rounded-lg border border-white/10 bg-white/[0.04] p-3 text-sm text-slate-400">智能体正在执行已发布工作流...</div>
                 ) : null}
