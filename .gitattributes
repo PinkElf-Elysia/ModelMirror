@@ -1,0 +1,2 @@
+# Built-in Skill digests are calculated from the vendored upstream LF bytes.
+server/skills/builtin/*/SKILL.md text eol=lf
