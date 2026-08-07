@@ -45,7 +45,7 @@ function boundaryPolicy() {
 function privatePackage(overrides = {}) {
   return {
     name: "@matrix-oasis/boundary-fixture",
-    version: "0.0.0-r0",
+    version: "0.0.0-r1",
     private: true,
     license: "UNLICENSED",
     type: "module",
@@ -744,7 +744,7 @@ const negativeCases = [
     setup: async ({ root }) => {
       await writeJson(path.join(root, "package-lock.json"), {
         name: "boundary-fixture",
-        version: "0.0.0-r0",
+        version: "0.0.0-r1",
         lockfileVersion: 3,
         packages: {
           "": privatePackage(),
@@ -774,7 +774,7 @@ const negativeCases = [
     setup: async ({ root }) => {
       await writeJson(path.join(root, "package-lock.json"), {
         name: "boundary-fixture",
-        version: "0.0.0-r0",
+        version: "0.0.0-r1",
         lockfileVersion: 3,
         packages: {
           "": privatePackage({
@@ -790,36 +790,36 @@ const negativeCases = [
     },
   },
   {
-    name: "Godot project file in R0",
-    expectedRule: "r0-godot-artifact",
+    name: "Godot project file forbidden in the active round",
+    expectedRule: "godot-artifact-forbidden",
     setup: async ({ root }) => {
       await fs.writeFile(path.join(root, "project.godot"), "[application]\n", "utf8");
     },
   },
   {
-    name: "Godot script in R0",
-    expectedRule: "r0-godot-artifact",
+    name: "Godot script forbidden in the active round",
+    expectedRule: "godot-artifact-forbidden",
     setup: async ({ root }) => {
       await fs.writeFile(path.join(root, "player.gd"), "extends Node\n", "utf8");
     },
   },
   {
-    name: "Godot addons directory in R0",
-    expectedRule: "r0-godot-addon-directory",
+    name: "Godot addons directory forbidden in the active round",
+    expectedRule: "godot-addon-directory-forbidden",
     setup: async ({ root }) => {
       await fs.mkdir(path.join(root, "addons", "fixture"), { recursive: true });
     },
   },
   {
-    name: "binary artifact in R0",
-    expectedRule: "r0-binary-artifact",
+    name: "binary artifact forbidden in the active round",
+    expectedRule: "binary-artifact-forbidden",
     setup: async ({ root }) => {
       await fs.writeFile(path.join(root, "runtime.dll"), "fixture", "utf8");
     },
   },
   {
-    name: "rotated log in R0",
-    expectedRule: "r0-rotated-log",
+    name: "rotated log forbidden in the active round",
+    expectedRule: "rotated-log-forbidden",
     setup: async ({ root }) => {
       await fs.writeFile(path.join(root, "verify.log.1"), "fixture\n", "utf8");
     },

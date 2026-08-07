@@ -8,6 +8,7 @@ if (!npmExecPath) {
 
 const steps = [
   ["doctor", ["run", "doctor"]],
+  ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],

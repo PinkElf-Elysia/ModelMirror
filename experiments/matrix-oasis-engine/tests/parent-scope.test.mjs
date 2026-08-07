@@ -143,7 +143,7 @@ test("rejects standalone extraction use explicitly", (t) => {
   );
 });
 
-test("rejects a caller-selected base that differs from the fixed R0 baseline", (t) => {
+test("rejects a caller-selected base that differs from the fixed active-round baseline", (t) => {
   const { moduleRoot, base } = makeFixture(t);
   expectCode(
     () => checkParentScope({

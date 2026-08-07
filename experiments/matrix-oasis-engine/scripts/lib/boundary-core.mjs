@@ -2,6 +2,10 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import {
+  ACTIVE_ROUND,
+  ACTIVE_ROUND_BASELINE_SHA,
+} from "./scope-policy.mjs";
 
 const DEPENDENCY_GROUPS = [
   "dependencies",
@@ -141,11 +145,12 @@ const STATIC_SECRET_PATTERNS = [
 ];
 const ASSIGNED_SECRET = /\b(?:OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|GITHUB_TOKEN|NPM_TOKEN|_authToken|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s#;,]+))/gi;
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 1],
+  [["schemaVersion"], 2],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
-  [["r0BaselineSha"], "952f8094c38b29baffa5de3a5b0caa94e501f45f"],
+  [["activeRound"], ACTIVE_ROUND],
+  [["activeRoundBaselineSha"], ACTIVE_ROUND_BASELINE_SHA],
   [["parentRepositoryPrefix"], "experiments/matrix-oasis-engine/"],
   [["parentIntegration"], "none"],
   [["allowedParentInteractions"], []],
@@ -175,9 +180,9 @@ const REQUIRED_POLICY_VALUES = [
   [["pathPolicy", "forbidAbsolutePaths"], true],
   [["pathPolicy", "forbidParentTraversal"], true],
   [["pathPolicy", "forbidResolvedPathsOutsideModule"], true],
-  [["toolchain", "requiredForR0", "node"], "24.x"],
-  [["toolchain", "requiredForR0", "npm"], "11.x"],
-  [["toolchain", "requiredForR0", "git"], "available"],
+  [["toolchain", "requiredForActiveRound", "node"], "24.x"],
+  [["toolchain", "requiredForActiveRound", "npm"], "11.x"],
+  [["toolchain", "requiredForActiveRound", "git"], "available"],
   [["toolchain", "optionalForFutureRounds", "godot"], "4.6.x"],
   [
     ["generatedPaths"],
@@ -214,11 +219,11 @@ const REQUIRED_POLICY_VALUES = [
       ".bin",
     ],
   ],
-  [["r0Restrictions", "godotArtifactsForbidden"], true],
-  [["r0Restrictions", "forbiddenDirectoryNames"], ["addons"]],
-  [["r0Restrictions", "forbiddenGodotFileNames"], ["project.godot"]],
+  [["artifactRestrictions", "godotArtifactsForbidden"], true],
+  [["artifactRestrictions", "forbiddenDirectoryNames"], ["addons"]],
+  [["artifactRestrictions", "forbiddenGodotFileNames"], ["project.godot"]],
   [
-    ["r0Restrictions", "forbiddenGodotExtensions"],
+    ["artifactRestrictions", "forbiddenGodotExtensions"],
     [
       ".gd",
       ".gdshader",
@@ -235,10 +240,10 @@ const REQUIRED_POLICY_VALUES = [
     ],
   ],
   [
-    ["r0Restrictions", "forbiddenBinaryExtensions"],
+    ["artifactRestrictions", "forbiddenBinaryExtensions"],
     [".exe", ".dll", ".so", ".dylib", ".bin"],
   ],
-  [["r0Restrictions", "rotatedLogsForbidden"], true],
+  [["artifactRestrictions", "rotatedLogsForbidden"], true],
   [["licensePolicy", "moduleLicense"], "UNLICENSED"],
   [
     ["licensePolicy", "allowedDependencyLicenses"],
@@ -309,7 +314,7 @@ function validatePolicy(policy, violations) {
         violations,
         "boundary-policy-invalid",
         "module-boundary.json",
-        `Boundary policy field ${segments.join(".")} must retain its approved R0 value.`,
+        `Boundary policy field ${segments.join(".")} must retain its approved active-round value.`,
       );
     }
   }
@@ -779,7 +784,7 @@ function checkTsconfig(moduleRoot, absolute, relative, content, violations) {
   try {
     config = JSON.parse(content);
   } catch {
-    addViolation(violations, "invalid-tsconfig", relative, "tsconfig must be valid JSON in R0.");
+    addViolation(violations, "invalid-tsconfig", relative, "tsconfig must be valid JSON.");
     return;
   }
   const baseDirectory = path.dirname(absolute);
@@ -852,7 +857,7 @@ function checkRuntimeNetwork(relative, content, specifiers, violations) {
       violations,
       "module-network-forbidden",
       relative,
-      "R0 runtime sources must not contain network capabilities or URLs.",
+      "Runtime sources must not contain network capabilities or URLs.",
     );
   }
 }
@@ -1011,7 +1016,7 @@ function checkScriptNetwork(relative, content, specifiers, violations) {
       violations,
       "script-network-forbidden",
       relative,
-      "Only the Creator smoke script may use network capabilities in R0.",
+      "Only the Creator smoke script may use network capabilities.",
     );
   }
 }
@@ -1079,7 +1084,7 @@ function scanExecutable(moduleRoot, absolute, relative, content, violations) {
           violations,
           rule,
           relative,
-          "Creator source uses a capability forbidden by the R0 boundary.",
+          "Creator source uses a capability forbidden by the module boundary.",
         );
       }
     }
@@ -1172,26 +1177,28 @@ function isForbiddenFileName(name, policy) {
   );
 }
 
-function classifyR0Artifact(name, policy) {
+function classifyForbiddenArtifact(name, policy) {
   const extension = path.extname(name).toLowerCase();
   if (
-    policy.r0Restrictions.forbiddenGodotFileNames.includes(name) ||
-    policy.r0Restrictions.forbiddenGodotExtensions.includes(extension)
+    policy.artifactRestrictions.forbiddenGodotFileNames.includes(name) ||
+    policy.artifactRestrictions.forbiddenGodotExtensions.includes(extension)
   ) {
-    return "r0-godot-artifact";
+    return "godot-artifact-forbidden";
   }
-  if (policy.r0Restrictions.forbiddenBinaryExtensions.includes(extension)) {
-    return "r0-binary-artifact";
+  if (policy.artifactRestrictions.forbiddenBinaryExtensions.includes(extension)) {
+    return "binary-artifact-forbidden";
   }
-  if (policy.r0Restrictions.rotatedLogsForbidden && isRotatedLogName(name)) {
-    return "r0-rotated-log";
+  if (policy.artifactRestrictions.rotatedLogsForbidden && isRotatedLogName(name)) {
+    return "rotated-log-forbidden";
   }
   return null;
 }
 
 async function discoverModuleFiles(moduleRoot, policy, violations) {
   const generated = new Set(policy.generatedPaths);
-  const forbiddenDirectories = new Set(policy.r0Restrictions.forbiddenDirectoryNames);
+  const forbiddenDirectories = new Set(
+    policy.artifactRestrictions.forbiddenDirectoryNames,
+  );
   const rootReal = await fs.realpath(moduleRoot);
   const files = [];
 
@@ -1231,9 +1238,9 @@ async function discoverModuleFiles(moduleRoot, policy, violations) {
         if (forbiddenDirectories.has(entry.name)) {
           addViolation(
             violations,
-            "r0-godot-addon-directory",
+            "godot-addon-directory-forbidden",
             relative,
-            "Godot addon directories are forbidden in R0.",
+            "Godot addon directories are forbidden by the active-round boundary.",
           );
           continue;
         }
@@ -1343,13 +1350,13 @@ export async function auditBoundary({ moduleRoot, policy, trackedFiles }) {
         "Sensitive, Godot, binary, and log files are forbidden in the module tree.",
       );
     }
-    const r0Artifact = classifyR0Artifact(basename, policy);
-    if (r0Artifact) {
+    const forbiddenArtifact = classifyForbiddenArtifact(basename, policy);
+    if (forbiddenArtifact) {
       addViolation(
         violations,
-        r0Artifact,
+        forbiddenArtifact,
         relative,
-        "This artifact type is explicitly forbidden in R0.",
+        "This artifact type is explicitly forbidden by the active-round boundary.",
       );
     }
 

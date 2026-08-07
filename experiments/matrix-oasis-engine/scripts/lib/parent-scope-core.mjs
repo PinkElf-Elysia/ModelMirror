@@ -1,8 +1,9 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { CREATOR_PREFIX, MODULE_PREFIX } from "./scope-policy.mjs";
 
-export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
+export { MODULE_PREFIX } from "./scope-policy.mjs";
 
 export class ParentScopeError extends Error {
   constructor(code) {
@@ -99,6 +100,10 @@ function isInsideModule(candidate) {
   return candidate === MODULE_PREFIX || candidate.startsWith(`${MODULE_PREFIX}/`);
 }
 
+function isInsideCreator(candidate) {
+  return candidate === CREATOR_PREFIX || candidate.startsWith(`${CREATOR_PREFIX}/`);
+}
+
 const MATRIX_OASIS_EXISTING = [
   /^client\/src\/pages\/MatrixOasisPage\.(?:css|tsx)$/i,
   /^client\/src\/assets\/matrix-oasis(?:\/|$)/i,
@@ -161,6 +166,18 @@ export function classifyParentPath(candidate) {
   return "PARENT_SCOPE_PATH_OUTSIDE_MODULE";
 }
 
+export function classifyRoundPath(candidate) {
+  const normalized = normalizeGitPath(candidate);
+
+  if (isInsideCreator(normalized)) {
+    return "ROUND_GUARD_CREATOR_CHANGED";
+  }
+  if (isInsideModule(normalized)) {
+    return null;
+  }
+  return "ROUND_SCOPE_PATH_OUTSIDE_MODULE";
+}
+
 function readGitRoot(moduleRoot) {
   const result = runGit(moduleRoot, ["rev-parse", "--show-toplevel"]);
   const output = decodeUtf8(result.stdout).trim();
@@ -175,7 +192,7 @@ function readGitRoot(moduleRoot) {
   }
 }
 
-function assertModuleLocation(moduleRoot, gitRoot) {
+function resolveRepositoryMode(moduleRoot, gitRoot) {
   let resolvedModuleRoot;
   try {
     resolvedModuleRoot = realpathSync(moduleRoot);
@@ -185,11 +202,12 @@ function assertModuleLocation(moduleRoot, gitRoot) {
 
   const relative = path.relative(gitRoot, resolvedModuleRoot).replaceAll(path.sep, "/");
   if (relative === "") {
-    fail("PARENT_SCOPE_STANDALONE_UNSUPPORTED");
+    return "standalone";
   }
   if (relative !== MODULE_PREFIX) {
     fail("PARENT_SCOPE_MODULE_LOCATION_INVALID");
   }
+  return "parent";
 }
 
 function assertBase(gitRoot, base) {
@@ -239,7 +257,10 @@ export function checkParentScope({ moduleRoot, base, expectedBase }) {
   }
 
   const gitRoot = readGitRoot(moduleRoot);
-  assertModuleLocation(moduleRoot, gitRoot);
+  const mode = resolveRepositoryMode(moduleRoot, gitRoot);
+  if (mode === "standalone") {
+    fail("PARENT_SCOPE_STANDALONE_UNSUPPORTED");
+  }
   assertBase(gitRoot, base);
 
   const paths = collectPaths(gitRoot, base);
@@ -267,6 +288,60 @@ export function checkParentScope({ moduleRoot, base, expectedBase }) {
 
   return {
     status: "ok",
+    mode,
+    checkedEntries: paths.length,
+    uniqueChangedPaths: new Set(paths.map((entry) => entry.path)).size,
+  };
+}
+
+export function checkRoundScope({ moduleRoot, base, expectedBase }) {
+  if (!/^[0-9a-f]{40}$/i.test(base ?? "")) {
+    fail("ROUND_SCOPE_BASE_INVALID");
+  }
+  if (!/^[0-9a-f]{40}$/i.test(expectedBase ?? "")) {
+    fail("ROUND_SCOPE_FIXED_BASE_INVALID");
+  }
+  if (base.toLowerCase() !== expectedBase.toLowerCase()) {
+    fail("ROUND_SCOPE_BASE_MISMATCH");
+  }
+
+  const gitRoot = readGitRoot(moduleRoot);
+  const mode = resolveRepositoryMode(moduleRoot, gitRoot);
+  if (mode === "standalone") {
+    return {
+      status: "not_applicable",
+      mode,
+      checkedEntries: 0,
+      uniqueChangedPaths: 0,
+    };
+  }
+
+  assertBase(gitRoot, base);
+  const paths = collectPaths(gitRoot, base);
+  const violations = [];
+  const seen = new Set();
+
+  for (const entry of paths) {
+    const code = classifyRoundPath(entry.path);
+    if (!code) {
+      continue;
+    }
+    const key = `${code}\0${entry.source}\0${entry.path}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      violations.push({ code, source: entry.source, path: entry.path });
+    }
+  }
+
+  if (violations.length > 0) {
+    const error = new ParentScopeError(violations[0].code);
+    error.violations = violations;
+    throw error;
+  }
+
+  return {
+    status: "ok",
+    mode,
     checkedEntries: paths.length,
     uniqueChangedPaths: new Set(paths.map((entry) => entry.path)).size,
   };
