@@ -78,3 +78,26 @@ server is Apache-2.0; the other reviewed contracts are MIT.
 Snyk MCP 1.15.2 was reviewed under Apache-2.0 but is not included. It remains
 blocked because local project scanning can invoke host-language build tools and
 therefore requires the later one-shot code-execution isolation boundary.
+
+The `modelmirror-mcp-database:wave5-v1` image implements independent, fixed
+read-only compatibility contracts after reviewing these upstream projects. It
+does not install their MCP server packages and never downloads runtime code:
+
+- DBHub 1.2.0 (`bytebase/dbhub`): MIT License.
+- MongoDB MCP Server 2.0.0 (`mongodb-js/mongodb-mcp-server`): Apache-2.0.
+- ClickHouse MCP 0.4.1 (`ClickHouse/mcp-clickhouse`): Apache-2.0.
+- Redis MCP Server 0.5.1 (`redis/mcp-redis`): MIT License.
+- MotherDuck MCP Server 1.0.7 (`motherduckdb/mcp-server-motherduck`): MIT
+  License. Only an isolated local DuckDB-compatible subset is implemented.
+- Supabase MCP Server 0.9.0 (`supabase-community/supabase-mcp`): Apache-2.0.
+  Only project-scoped local stdio with a PAT is represented; OAuth is absent.
+
+The archived PostgreSQL and SQLite reference servers are not bundled. Cognee,
+Graphiti and Hindsight are also absent because their stateful memory, model and
+storage requirements remain blocked for a later isolation batch.
+
+Pinned direct Python dependencies retain their installed package metadata and
+license files: MCP Python SDK (MIT), certifi (MPL-2.0), clickhouse-connect
+(Apache-2.0), DuckDB (MIT), httpx (BSD-3-Clause), psycopg (LGPL-3.0), PyMongo
+(Apache-2.0), PyMySQL (MIT), redis-py (MIT), and SQLGlot (MIT). Debian package
+notices remain under `/usr/share/doc`.

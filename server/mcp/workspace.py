@@ -32,6 +32,7 @@ ARTIFACT_TTL_SECONDS = 7 * 24 * 60 * 60
 
 FILE_PROJECTS = {
     "basic-memory-mcp",
+    "duckdb-mcp",
     "excel-mcp-server",
     "git-mcp",
     "markitdown-mcp",
@@ -39,6 +40,7 @@ FILE_PROJECTS = {
 
 PROJECT_EXTENSIONS: dict[str, set[str] | None] = {
     "basic-memory-mcp": {".md", ".markdown", ".txt"},
+    "duckdb-mcp": {".duckdb"},
     "excel-mcp-server": {".xlsx", ".xls", ".csv", ".tsv", ".json"},
     "git-mcp": None,
     "markitdown-mcp": {

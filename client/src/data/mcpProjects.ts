@@ -282,18 +282,17 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/bytebase/dbhub",
     category: "数据库",
     description:
-      "用统一 MCP Server 连接 PostgreSQL、MySQL、MariaDB、SQL Server 和 SQLite。",
+      "用统一只读 MCP 适配器查询 PostgreSQL、MySQL 和 MariaDB。",
     readmeSummary:
-      "Bytebase 社区项目，提供只读模式、行数限制、查询超时、SSH 隧道和多数据库连接。",
+      "Bytebase 社区项目；模镜固定 1.2.0，只开放只读查询、行数限制和查询超时。",
     stars: 0,
     language: "TypeScript",
     verifiedAt: "2026-08-02",
     installMode: "manual",
-    installCommand:
-      'npx @bytebase/dbhub@latest --transport stdio --dsn "<database-dsn>"',
+    installCommand: "服务端固定适配器管理连接参数；浏览器不接收 DSN 或 URI。",
     installNote:
-      "必须提供数据库 DSN，且凭证不应写入前端或仓库。请在受控运行环境中配置 Secret 后再连接。",
-    tags: ["多数据库", "只读护栏", "需要 DSN"],
+      "在卡片内分别填写受控连接字段并保存加密数据库凭据；写入、SSH 与自定义工具均关闭。",
+    tags: ["多数据库", "固定 1.2.0", "只读查询"],
   },
   {
     id: "filesystem-mcp",
@@ -934,15 +933,15 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
   plannedMcp({
     id: "supabase-mcp",
     name: "Supabase MCP",
-    repoName: "supabase-community/supabase-mcp",
-    repoUrl: "https://github.com/supabase-community/supabase-mcp",
+    repoName: "supabase/mcp",
+    repoUrl: "https://github.com/supabase/mcp",
     category: "数据库",
-    description: "查询 Supabase 项目、数据库结构、SQL、日志和开发资源。",
-    readmeSummary: "Supabase 社区官方 MCP 集成，为项目开发和排障提供结构化工具。",
+    description: "在指定 Supabase 项目内只读查询数据库结构、扩展和数据。",
+    readmeSummary: "Supabase 社区官方 MCP；模镜固定 0.9.0、项目范围、PAT stdio 与只读能力。",
     language: "TypeScript",
-    tags: ["Supabase", "Postgres", "项目管理"],
+    tags: ["Supabase", "固定 0.9.0", "项目只读"],
     requirements: ["token", "account-binding", "database-credentials", "remote-transport"],
-    usageExamples: ["检查数据库表结构", "查询项目日志和迁移状态"],
+    usageExamples: ["检查数据库表结构与扩展", "执行受限的只读 SQL 查询"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
   }),
   plannedMcp({
@@ -951,10 +950,10 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoName: "mongodb-js/mongodb-mcp-server",
     repoUrl: "https://github.com/mongodb-js/mongodb-mcp-server",
     category: "数据库",
-    description: "浏览 MongoDB 数据库、集合和索引，并执行受控查询与管理操作。",
-    readmeSummary: "MongoDB 官方 MCP Server，支持 Atlas 与自托管 MongoDB 场景。",
+    description: "浏览 MongoDB 数据库、集合和索引，并执行受控只读查询与聚合。",
+    readmeSummary: "MongoDB 官方 MCP Server；模镜固定 2.0.0，只开放自托管数据库读取能力。",
     language: "TypeScript",
-    tags: ["MongoDB 官方", "Atlas", "文档数据库"],
+    tags: ["MongoDB 官方", "固定 2.0.0", "只读模式"],
     requirements: ["database-credentials", "token", "system-permission"],
     usageExamples: ["查看集合结构和索引", "执行只读聚合查询"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
@@ -965,12 +964,12 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoName: "redis/mcp-redis",
     repoUrl: "https://github.com/redis/mcp-redis",
     category: "数据库",
-    description: "读取和管理 Redis 键、数据结构与向量搜索能力。",
-    readmeSummary: "Redis 官方 MCP Server，可连接 Redis 数据库并暴露常用数据操作工具。",
+    description: "通过只读 ACL 检查 Redis 键空间、数据结构与向量检索结果。",
+    readmeSummary: "Redis 官方 MCP Server；模镜固定 0.5.1，并以只读工具白名单过滤操作。",
     language: "Python",
-    tags: ["Redis 官方", "缓存", "向量搜索"],
+    tags: ["Redis 官方", "固定 0.5.1", "只读 ACL"],
     requirements: ["external-runtime", "database-credentials", "system-permission"],
-    usageExamples: ["检查键空间和缓存内容", "在 Redis 中执行向量检索"],
+    usageExamples: ["分页检查键空间和缓存内容", "读取 Hash、List、Set 与有序集合"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
   }),
   plannedMcp({
@@ -980,9 +979,9 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/ClickHouse/mcp-clickhouse",
     category: "数据库",
     description: "查询 ClickHouse 数据库、表结构和分析数据。",
-    readmeSummary: "ClickHouse 官方 MCP 集成，面向高性能分析数据库的探索与只读查询。",
+    readmeSummary: "ClickHouse 官方 MCP；模镜固定 0.4.1，强制只读会话并关闭 chDB。",
     language: "Python",
-    tags: ["ClickHouse 官方", "OLAP", "分析查询"],
+    tags: ["ClickHouse 官方", "固定 0.4.1", "只读 OLAP"],
     requirements: ["external-runtime", "database-credentials", "system-permission"],
     usageExamples: ["查看数据表与字段", "执行聚合分析查询"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
@@ -1175,12 +1174,12 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoName: "motherduckdb/mcp-server-motherduck",
     repoUrl: "https://github.com/motherduckdb/mcp-server-motherduck",
     category: "数据分析",
-    description: "使用 DuckDB 或 MotherDuck 对本地与云端数据执行分析查询。",
-    readmeSummary: "MotherDuck 官方 MCP Server，面向 SQL 分析、数据探索和结果解释。",
+    description: "只读分析封存工作区内的本地 DuckDB 数据库文件。",
+    readmeSummary: "MotherDuck 官方 MCP Server；模镜固定 1.0.7，仅开放断网本地 DuckDB 子集。",
     language: "Python",
-    tags: ["MotherDuck 官方", "DuckDB", "SQL 分析"],
-    requirements: ["external-runtime", "token", "database-credentials"],
-    usageExamples: ["分析 CSV 或 Parquet 数据", "执行交互式 SQL 探索"],
+    tags: ["DuckDB", "固定 1.0.7", "封存文件只读"],
+    requirements: ["external-runtime"],
+    usageExamples: ["查看本地 DuckDB 的表结构", "对封存数据执行只读 SQL 分析"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
   }),
   plannedMcp({
@@ -1721,8 +1720,16 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
   const isPublicSandbox = isBundledSandbox && adaptation.wave === 2;
   const isFileSandbox = isBundledSandbox && adaptation.wave === 3;
   const isCredentialSandbox = isBundledSandbox && adaptation.wave === 4;
+  const isDatabaseSandbox = isBundledSandbox && adaptation.wave === 5;
+  const isDatabaseFileSandbox = isDatabaseSandbox && seed.id === "duckdb-mcp";
   const requirements: McpRequirement[] = isCredentialSandbox
     ? ["token"]
+    : isDatabaseSandbox
+      ? seed.id === "supabase-mcp"
+        ? ["token"]
+        : isDatabaseFileSandbox
+          ? []
+          : ["database-credentials"]
     : isReady
     ? []
     : (seed.requirements ?? originalRequirements[seed.id] ?? ["external-runtime"]);
@@ -1737,6 +1744,8 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
       ? seed.installCommand
       : isPublicSandbox
         ? "内置公网适配器由服务端固定部署，不接受自定义命令、端点或 Header。"
+        : isDatabaseSandbox
+          ? "内置数据库适配器由服务端固定部署，不接受 DSN、URI、命令或宿主路径。"
         : isBundledSandbox
           ? "内置隔离适配器由服务端固定部署，无需安装命令。"
         : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
@@ -1746,6 +1755,12 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
         ? "先在卡片中创建受控工作区并上传文件；封存后输入只读，写入和持久记忆操作由一次性确认保护。"
       : isCredentialSandbox
         ? "直接在当前卡片的“加密凭据”区域保存 Token；凭据按项目和固定槽位隔离，固定出口、只读工具与撤销失效均由服务端执行。"
+      : isDatabaseFileSandbox
+        ? "先上传并封存本地 DuckDB 文件；适配器断网运行且只读打开数据文件，不接入 MotherDuck 或宿主路径。"
+      : isDatabaseSandbox
+        ? seed.id === "supabase-mcp"
+          ? "在当前卡片填写 20 位小写英文字母 project_ref（不含数字）并保存加密 PAT；仅使用本地 stdio 和项目范围只读能力，不跳转远程 OAuth。"
+          : "在当前卡片分别填写主机、端口、库名、TLS 和用户名，并保存加密数据库凭据；连接时自动执行目标校验和代表性只读预检。"
       : isBundledSandbox
         ? "适配器随断网 Python 沙箱镜像固定部署；浏览器不会提交命令、目录或环境变量。"
       : seed.installNote,
@@ -1762,6 +1777,20 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
           "凭据自动绑定当前 MCP 和固定槽位，不能跨项目复用；如有 Stack、区域等字段，仅填写卡片提供的受控配置。",
           "保存配置后连接 Server；连接只代表传输可用，首次只读工具调用成功后才标记凭据已验证。撤销凭据会立即断开关联会话。",
         ]
+      : isDatabaseFileSandbox
+        ? [
+            "在当前卡片新建受控工作区，上传本地 .duckdb 文件；页面不会读取或提交宿主目录路径。",
+            "完成预检后封存并绑定工作区。封存输入只读，适配器默认断网且不连接 MotherDuck。",
+            "连接 Server 时会自动执行表结构和代表性只读预检；“传输通道”和“数据源验证”会分别显示。",
+          ]
+      : isDatabaseSandbox
+        ? [
+            seed.id === "supabase-mcp"
+              ? "填写 20 位小写英文字母 project_ref（不含数字），并在“加密数据库凭据”中保存当前项目的 PAT；不使用远程 OAuth。"
+              : "分别填写卡片提供的主机、端口、库名、TLS 和用户名；不粘贴 DSN、URI、命令或环境变量。",
+            "在当前卡片创建并选择对应的加密数据库凭据。凭据按项目和固定槽位隔离，保存后不回显明文。",
+            "保存配置后连接只读 sidecar；连接时会自动校验目标并执行代表性只读预检。写入和管理工具始终关闭。",
+          ]
       : seed.configGuide ??
         (isLocalStdio
         ? [

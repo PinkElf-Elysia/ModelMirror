@@ -103,7 +103,8 @@ async def test_catalog_session_rejects_generic_call_and_disconnect(
     client: httpx.AsyncClient,
 ) -> None:
     session_id = await mcp_manager.connect([sys.executable, str(MOCK_SERVER)])
-    mcp_catalog_service._sessions["context7"] = session_id
+    scope_key = mcp_catalog_service._scope_key("context7")
+    mcp_catalog_service._sessions[scope_key] = session_id
     try:
         call = await client.post(
             f"/api/mcp/{session_id}/call",
@@ -114,7 +115,7 @@ async def test_catalog_session_rejects_generic_call_and_disconnect(
         assert disconnected.status_code == 403
         assert session_id in mcp_manager._sessions
     finally:
-        mcp_catalog_service._sessions.pop("context7", None)
+        mcp_catalog_service._sessions.pop(scope_key, None)
         await mcp_manager.disconnect(session_id)
         await tool_registry.unregister_session(session_id)
 

@@ -201,6 +201,92 @@ services:
       retries: 8
       start_period: 30s
 
+  mcp-database:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.database
+    image: modelmirror-mcp-database:wave5-v1
+    container_name: modelmirror-mcp-database
+    command: ["python", "-m", "sandbox_sidecar.database_server"]
+    networks:
+      - mcp_database_egress
+    environment:
+      MCP_DATABASE_MAX_SESSIONS: "6"
+      MCP_DATABASE_SOCKET_PATH: /run/modelmirror-database-mcp/database-mcp.sock
+      MCP_DATABASE_WORKSPACE_ROOT: /workspaces
+      MCP_DATABASE_ALLOWED_ADAPTERS: dbhub,mongodb-mcp,clickhouse-mcp,redis-mcp,supabase-mcp
+      MCP_DATABASE_PRIVATE_HOST_ALLOWLIST: ${MCP_DATABASE_PRIVATE_HOST_ALLOWLIST:-}
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspaces:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_database_socket:/run/modelmirror-database-mcp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-database-mcp/database-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  mcp-database-local:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.database
+    image: modelmirror-mcp-database:wave5-v1
+    container_name: modelmirror-mcp-database-local
+    command: ["python", "-m", "sandbox_sidecar.database_server"]
+    network_mode: none
+    environment:
+      MCP_DATABASE_MAX_SESSIONS: "4"
+      MCP_DATABASE_SOCKET_PATH: /run/modelmirror-database-local-mcp/database-mcp.sock
+      MCP_DATABASE_WORKSPACE_ROOT: /workspaces
+      MCP_DATABASE_INPUT_ROOT: /inputs
+      MCP_DATABASE_ALLOWED_ADAPTERS: duckdb-mcp
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 96
+    mem_limit: 1g
+    cpus: 1.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspaces:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_database_local_socket:/run/modelmirror-database-local-mcp
+      - mcp_file_inputs:/inputs:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-database-local-mcp/database-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
   omniroute:
     image: diegosouzapw/omniroute:3.8.48@sha256:badb560971fdc23c2fb84b3e8695116239ff215b4cca4b07076201a8efae7f0d
     container_name: modelmirror-omniroute
@@ -275,6 +361,10 @@ services:
         condition: service_healthy
       mcp-token:
         condition: service_healthy
+      mcp-database:
+        condition: service_healthy
+      mcp-database-local:
+        condition: service_healthy
       new-api:
         condition: service_healthy
     env_file:
@@ -296,6 +386,9 @@ services:
       WORLD_LABS_API_KEY: ${WORLD_LABS_API_KEY:-}
       WORLD_STORAGE_DIR: /app/world/storage/world_records.json
       MODELMIRROR_DEFAULT_TENANT_ID: ${MODELMIRROR_DEFAULT_TENANT_ID:-local}
+      MODELMIRROR_DEFAULT_OWNER_ID: ${MODELMIRROR_DEFAULT_OWNER_ID:-local}
+      MODEL_MIRROR_REQUIRE_EXTERNAL_CREDENTIAL_MASTER_KEY: ${MODEL_MIRROR_REQUIRE_EXTERNAL_CREDENTIAL_MASTER_KEY:-false}
+      MODEL_MIRROR_CREDENTIAL_MASTER_KEY: ${MODEL_MIRROR_CREDENTIAL_MASTER_KEY:-}
       RAG_STORAGE_DIR: /app/rag/storage
       RAG_UPLOAD_DIR: /app/rag/uploads
       CHROMA_DB_PATH: /app/rag/storage/chroma_db
@@ -315,6 +408,8 @@ services:
       MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
       MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
+      MCP_DATABASE_SOCKET_PATH: /run/modelmirror-database-mcp/database-mcp.sock
+      MCP_DATABASE_LOCAL_SOCKET_PATH: /run/modelmirror-database-local-mcp/database-mcp.sock
       MCP_CATALOG_STORAGE_DIR: /app/mcp/storage
       MCP_FILE_INPUT_ROOT: /app/mcp-file-inputs
       MCP_FILE_OUTPUT_ROOT: /app/mcp-file-outputs
@@ -345,6 +440,8 @@ services:
       - mcp_public_socket:/run/modelmirror-public-mcp
       - mcp_files_socket:/run/modelmirror-files-mcp
       - mcp_token_socket:/run/modelmirror-token-mcp
+      - mcp_database_socket:/run/modelmirror-database-mcp
+      - mcp_database_local_socket:/run/modelmirror-database-local-mcp
       - mcp_file_inputs:/app/mcp-file-inputs
       - mcp_file_outputs:/app/mcp-file-outputs
       - mcp_memory:/app/mcp-memory
@@ -505,6 +602,8 @@ volumes:
   mcp_public_socket:
   mcp_files_socket:
   mcp_token_socket:
+  mcp_database_socket:
+  mcp_database_local_socket:
   mcp_file_inputs:
   mcp_file_outputs:
   mcp_memory:
@@ -519,4 +618,6 @@ networks:
     driver: bridge
     internal: true
   mcp_public_egress:
+    driver: bridge
+  mcp_database_egress:
     driver: bridge

@@ -305,6 +305,8 @@ async def test_state_write_requires_bound_one_time_approval(tmp_path: Path) -> N
         "basic-memory-mcp",
         CatalogConfigurationRequest(workspace_id=workspace.workspace_id),
     )
+    public = service.list_adapters()["adapters"][0]
+    assert public["workspace_id"] == workspace.workspace_id
     await service.connect("basic-memory-mcp")
 
     with pytest.raises(CatalogApprovalRequiredError) as captured:
@@ -365,7 +367,7 @@ async def test_approval_expires_on_reconfigure_session_and_workspace_drift(tmp_p
         return str(captured.value.payload["approval_id"])
 
     expired = await request_approval()
-    service._approvals[expired].expires_at = time.time() - 1
+    service._approvals[service._approval_key(expired)].expires_at = time.time() - 1
     with pytest.raises(CatalogAdapterPolicyError):
         await service.confirm_approval("basic-memory-mcp", expired)
 
@@ -375,10 +377,10 @@ async def test_approval_expires_on_reconfigure_session_and_workspace_drift(tmp_p
         await service.confirm_approval("basic-memory-mcp", reconfigured)
 
     session_changed = await request_approval()
-    service._sessions["basic-memory-mcp"] = "replacement-session"
+    service._sessions[service._scope_key("basic-memory-mcp")] = "replacement-session"
     with pytest.raises(CatalogAdapterPolicyError):
         await service.confirm_approval("basic-memory-mcp", session_changed)
-    service._sessions["basic-memory-mcp"] = "file-session"
+    service._sessions[service._scope_key("basic-memory-mcp")] = "file-session"
 
     workspace_drift = await request_approval()
     unexpected = store.input_root / workspace.workspace_id / "unexpected.txt"

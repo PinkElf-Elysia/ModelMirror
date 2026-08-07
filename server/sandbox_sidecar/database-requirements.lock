@@ -1,0 +1,12 @@
+# Wave-5 database sidecar dependency lock. Runtime installation happens only
+# while building modelmirror-mcp-database:wave5-v1; sessions never download.
+mcp==1.27.2
+certifi==2026.7.22
+clickhouse-connect==0.10.0
+duckdb==1.4.3
+httpx==0.28.1
+psycopg[binary]==3.2.13
+pymongo==4.15.5
+PyMySQL==1.1.2
+redis==7.1.0
+sqlglot==28.10.0
