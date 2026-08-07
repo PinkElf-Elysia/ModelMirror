@@ -42,6 +42,8 @@ Pack Validator 自身无文件、网络或环境访问；模块根 CLI 是唯一
 
 `npm run verify:extraction` 不属于 `verify`，因此不会递归。它从干净 HEAD 创建本地 clone，通过 `git subtree split` 保留模块历史，再在独立仓库根执行相同验证；临时仓库、archive 和详细日志始终位于仓外临时目录。
 
+模块根 `.gitattributes` 将所有检测为文本的文件固定为 LF，并显式保持常见二进制资产和归档为 binary；父仓、subtree 与 standalone checkout 必须得到相同的样例和脚本字节。
+
 `npm run check:parent-scope -- --base <SHA>` 拒绝模块外变更；`npm run check:round-scope` 进一步拒绝 Creator 与模块外的 committed、staged、unstaged、untracked 变更。二者固定 R1 基线并使用 NUL 分隔 Git 输出。standalone 中 round scope 只在精确识别模块即仓库根时返回 `not_applicable`，其他错误均失败关闭。
 
 ## 回退

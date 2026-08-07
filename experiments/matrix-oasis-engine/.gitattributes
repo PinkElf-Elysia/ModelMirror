@@ -1,0 +1,27 @@
+# Keep text byte-stable across parent, subtree, archive, and standalone checkouts.
+* text=auto eol=lf
+
+# Common binary assets and archives must never be line-ending normalized.
+*.7z binary
+*.avif binary
+*.bin binary
+*.blend binary
+*.bmp binary
+*.fbx binary
+*.gif binary
+*.glb binary
+*.gz binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.mp3 binary
+*.mp4 binary
+*.ogg binary
+*.pdf binary
+*.png binary
+*.tar binary
+*.wasm binary
+*.wav binary
+*.webm binary
+*.webp binary
+*.zip binary
