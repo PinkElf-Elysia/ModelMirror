@@ -254,21 +254,43 @@ class FakeManager:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
         self.sessions: set[str] = set()
+        self.session_owner = ""
 
-    async def connect_profile(self, **_: Any) -> str:
+    async def connect_profile(self, **kwargs: Any) -> str:
         self.sessions.add("file-session")
+        self.session_owner = str(kwargs.get("session_owner") or "")
         return "file-session"
 
-    async def list_tools(self, session_id: str) -> list[Tool]:
+    async def list_tools(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> list[Tool]:
         assert session_id in self.sessions
+        assert session_owner == self.session_owner
         return [Tool(name="write_note", description="write", inputSchema={})]
 
-    async def call_tool(self, session_id: str, tool_name: str, arguments: dict[str, Any]) -> CallToolResult:
+    async def call_tool(
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        session_owner: str = "",
+    ) -> CallToolResult:
         assert session_id in self.sessions
+        assert session_owner == self.session_owner
         self.calls.append((session_id, tool_name, arguments))
         return CallToolResult(content=[TextContent(type="text", text="ok")])
 
-    async def disconnect(self, session_id: str) -> None:
+    async def disconnect(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> None:
+        assert session_owner == self.session_owner
         self.sessions.remove(session_id)
 
 

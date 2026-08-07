@@ -1,6 +1,6 @@
 # MCP 目录扩充与适配路线
 
-最后更新日期：2026-08-06
+最后更新日期：2026-08-07
 维护人：模镜团队
 
 ## 1. 目标与当前范围
@@ -15,11 +15,11 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-06，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0—4 已验收的 32 项保持不变；批次 5 的 DBHub、MongoDB、ClickHouse、Redis、DuckDB 与 Supabase 已标记为 `ready`。PostgreSQL、SQLite、Cognee、Graphiti 与 Hindsight 新增为 `blocked`，连同 Airbnb、BibiGPT、Manim 与 Snyk 共 9 项阻断，其余 53 项保持 `planned`。当前状态精确为 **38 ready / 53 planned / 9 blocked**。
+截至 2026-08-07，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0—5 已验收的 38 项保持不变；批次 6 的 Airtable、Asana、GitLab.com 与 Notion 已完成固定适配。中国电商经营 MCP 因八个平台的 OAuth/商家授权、短期 Token 与敏感订单数据边界尚未逐平台验收，Mem0 因本地上游归档并迁移到未锁定版本的托管远程 MCP，二者标记为 `blocked`。当前状态精确为 **42 ready / 47 planned / 11 blocked**。
 
 ## 2. 当前边界与明确不实现
 
-批次 1–5 只增加固定适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar，批次 4 使用固定 Token 槽和只读出口 sidecar，批次 5 使用结构化数据库配置及相互隔离的远程/本地数据库 sidecar。五批都不扩大账号授权、任意连接或任意执行能力：
+批次 1–6 只增加固定适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar，批次 4 使用固定 Token 槽和只读出口 sidecar，批次 5 使用结构化数据库配置及相互隔离的远程/本地数据库 sidecar，批次 6 使用固定 SaaS 服务、账号作用域和资源级一次性审批 sidecar。六批都不扩大任意连接或任意执行能力：
 
 - 不接受用户指定的 Python 包、解释器、命令、工作目录或其他额外运行时。
 - 不实现 OAuth 回调、刷新或外站登录；批次 4—5 的卡片可把明文 Secret 单次提交到服务端加密库，但连接配置只接受不透明 `credential_id`，保存后不再返回或显示明文。
@@ -28,6 +28,8 @@
 - Fetch 的用户 URL 只是工具参数，只允许公网 HTTPS，并逐次执行 DNS、SSRF、重定向和响应大小校验；它不是自定义 MCP 连接入口。
 - 批次 3 客户端只能提交不透明 `workspace_id`、文件 ID 和产物名，不能提交宿主路径、`cwd`、环境变量或 URI；输入文件封存后只读。
 - 批次 5 客户端只能提交清单声明的数据库类型、主机名、端口、库名、用户名、严格 TLS 模式或 Supabase `project_ref`；DBHub 首批仅支持 PostgreSQL、MySQL 与 MariaDB，SQL Server 保持关闭；不接受 DSN、数据库 URI、SSH 隧道、Header、环境变量名或任意连接参数。
+- 批次 6 只接受清单声明的 Personal Access Token / Internal Integration Token 与固定资源 ID；不接受服务 URL、任意 Host、Header、环境变量、OAuth 回调或外站登录。GitLab 首批只连接 `gitlab.com`，自建 GitLab 保持未开放。
+- 批次 6 的真实账号执行还需部署者显式设置单用户本地实例确认门禁；当前 API 没有逐请求认证主体传播，多用户共享部署不得开启。
 - 不接管 Blender、Zotero、Obsidian、JetBrains、Xcode、Ghidra 等桌面宿主。
 - 不提供用户自定义 MCP 连接。
 - 不提供 MCP Builder、可视化生成器或发布市场流程。
@@ -47,7 +49,7 @@
 数据层必须满足以下约束：
 
 1. 前端条目不得包含可执行 `command`、MCP URL、Header 或环境变量配置。
-2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1—5 的 31 项使用完整的逐工具策略。
+2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1—6 的 35 项使用完整的逐工具策略。
 3. `planned` 后端适配器不得包含可执行命令或端点，环境开关不能绕过状态门禁。
 4. 前端不得保存真实 Secret，也不得在仓库内出现真实凭证。
 5. 上游清单只用于发现项目；能否连接必须按模镜运行边界重新核验。
@@ -81,7 +83,7 @@
 | 3 | `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`manim-mcp`、`markitdown-mcp` | 5 | **已完成门槛判定**：Basic Memory、Excel、Git、MarkItDown 可用；Manim 因任意 Python 场景执行依赖第 8 批隔离而阻断 |
 | 4 | AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、Snyk、VirusTotal | 16 | **已完成门槛判定**：15 项通过加密凭据槽、固定出口域、只读工具和 Secret 泄漏测试；Snyk 因本地构建执行依赖第 8 批隔离而阻断 |
 | 5 | DBHub、PostgreSQL、MongoDB、ClickHouse、Cognee、Graphiti、Hindsight、Redis、SQLite、DuckDB、Supabase | 11 | **已完成门槛判定**：DBHub、MongoDB、ClickHouse、Redis、DuckDB、Supabase 通过结构化配置、租户凭据、协议级只读、预检与查询限制；PostgreSQL、SQLite 因归档实现受阻，三项状态化记忆转入第 5B 计划 |
-| 6 | Airtable、Asana、GitLab、中国电商经营、Notion、Mem0 | 6 | 修改预览与审批、幂等、限流、账号解绑 |
+| 6 | Airtable、Asana、GitLab、中国电商经营、Notion、Mem0 | 6 | **已完成门槛判定**：Airtable、Asana、GitLab.com、Notion 通过固定作用域、真实预检、资源级审批、限流与解绑；中国电商与 Mem0 因授权/托管契约受阻 |
 | 7 | Chrome DevTools、Playwright、Puppeteer、Selenium | 4 | 临时浏览器、目标域、上传下载与会话清理边界 |
 | 8 | MCP Run Python、MCP Python Interpreter | 2 | 一次性断网容器、无宿主挂载、无 Docker socket、进程资源限制 |
 | 9 | Apify、Bright Data、Browserbase、E2B、Stripe、Terraform、Aiven、Alpaca、AWS KB、ElevenLabs、MiniMax、S3、Kubernetes、Semgrep | 14 | 费用/资源上限、目标预览、终止性操作强制审批 |
@@ -129,10 +131,22 @@
 - PostgreSQL 官方参考实现因归档和 npm 弃用保持 `blocked`，可使用受控 DBHub PostgreSQL 模式；SQLite 官方实现因归档且暴露写工具保持 `blocked`。Cognee、Graphiti 与 Hindsight 属于有状态记忆系统，转入“第 5B 批：状态化记忆”，在独立持久卷、模型/费用、租户数据保留与通用写审批完成前不连接。
 - 本批不开放任何数据库写入、删除、DDL 或状态化记忆写工具，也不复用批次 3 的文件工作区审批冒充数据库审批。后续写能力必须另行实现数据库目标和状态绑定的一次性审批。
 
+批次 6 的执行结论：
+
+- 独立 `modelmirror-mcp-saas:wave6-v1` 只运行仓库内置的固定 REST 兼容契约，运行时不下载上游代码。sidecar 为非 root、只读根文件系统、无宿主目录与 Docker socket、移除 capabilities，并仅通过私有 Unix socket 接收服务端生成的短期配置。
+- Airtable 锁定兼容上游 MCP v1.14.0，Asana 锁定 v1.6.0，Notion 锁定 v2.5.0；三者均按 MIT 契约独立实现。GitLab 归档参考 MCP 0.6.2 不进入镜像，首批仅以自有固定 REST 契约访问 `gitlab.com`。每项只连接编译进镜像的官方 HTTPS Host，禁止重定向和任意 URL/Header。
+- Airtable 绑定固定 Base，Asana 绑定 Workspace/Project，GitLab 绑定数字 Project ID，Notion 绑定固定 Data Source。连接时先执行账号身份与目标资源只读预检；预检失败不保留可调用会话。Token 由卡片内加密凭据槽保存，不使用 OAuth，也没有外站登录入口。
+- 只读调用遇到 `429`、`502`、`503` 或 `504` 时最多有界重试两次，并遵守封顶后的 `Retry-After`；写调用不自动重试。明确的限流或提供商拒绝作为终止性失败返回，只有 `-32008`、发送后超时或连接中断等歧义结果才标记 `unknown_outcome`，要求用户先到服务商核对。
+- `create`、`update` 与 `comment` 类工具均为 `state-write + requires_approval`。一次性审批冻结租户、所有者、项目、会话、工具/Schema、规范化参数、配置版本、凭据版本、账号预检摘要、目标资源预览和服务端幂等键；连接时完整工具名与 `inputSchema` 摘要必须匹配冻结契约。5 分钟过期，重连、重配、凭据轮换、账号或策略漂移、重复确认都会失效。删除、归档、合并、仓库写入、批量写入和其他终止性工具不暴露。
+- 目录会话在管理器发布前即绑定目录所有者，通用会话接口不能发现、调用或断开。连接、配置、调用、确认、解绑与凭据撤销共享生命周期门禁：连接中拒绝重配，解绑/撤销开始后拒绝新调用和旧审批确认，并先等待活动读取结束再断开子进程。
+- 项目级解绑会作废待审批、清除作用域和本地执行账本，并可撤销该卡片的本地加密凭据。移除本地 Token 不等于在服务商后台撤销，界面会明确提示用户自行完成上游撤销。
+- 当前目录服务仍是部署时固定 `tenant/owner` 的单例，因此真实 SaaS 能力除项目开关外还要求 `MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK=true`；默认关闭，多用户部署继续视为发布阻断。
+- `mcp-cn-commerce` v0.1.5 覆盖八个平台和 114 个工具，各平台授权、域名、短期 Token 与订单/售后敏感数据无法作为单一契约验收，保持 `blocked`。Mem0 本地 v0.2.1 已归档，官方迁移到无固定版本的托管远程 MCP；在 OAuth、Schema 锁定和租户记忆作用域完成前保持 `blocked`。
+
 ## 6. 验收、发布和回退
 
 - 每个项目必须通过初始化、工具发现、代表性调用、超时、重连、断开与清理测试；Schema 漂移视为阻断。
-- 安全测试按批次覆盖 Secret 泄漏、SSRF、重定向、路径越界、ZIP Slip、链接与压缩炸弹、跨项目/产物/租户越权、沙箱逃逸、TLS 降级、SQL 多语句及写入旁路、查询超时/行数、权限撤销、审批绕过和高风险操作默认关闭。
+- 安全测试按批次覆盖 Secret 泄漏、SSRF、重定向、路径越界、ZIP Slip、链接与压缩炸弹、跨项目/产物/租户越权、沙箱逃逸、TLS 降级、SQL 多语句及写入旁路、查询超时/行数、权限撤销、审批绕过、参数/配置/凭据漂移、限流、重试、幂等重放、未知写入结果、账号解绑和高风险操作默认关闭。
 - 前端必须显示中文批次、状态、连接方式、风险、限制和门槛；后端未返回 `executable=true` 时按钮不可连接。
 - 每个项目有独立服务端开关。回退只关闭开关、断开会话并清理沙箱，不删除目录条目或凭据。
 - 运行日志只记录项目 ID、状态、耗时、错误类别和策略事件，不记录 Secret、完整参数或工具返回正文。
@@ -148,7 +162,7 @@
 
 主要风险是上游项目快速变化、条目说明过期，以及把“已收录”误解为“当前可安全运行”。前端必须持续使用明确的状态标签和禁用按钮表达边界。
 
-批次 0–4 不引入数据库迁移；批次 5 只把旧凭据 JSON 元数据显式迁移到 `local/local` 作用域，不接触外部数据库 schema 或数据。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭四个文件项目开关、撤销审批并停止 `mcp-files`；批次 4 回退时关闭 15 个 Token 项目的独立功能开关、断开目录会话并停止 `mcp-token`；批次 5 回退时关闭六个数据库项目开关、断开会话、停止远程和本地数据库 sidecar，并清理临时 DuckDB 工作区。回退不删除卡片专属加密凭据，也不修改或删除外部数据库数据；持久 Basic Memory 数据同样不自动删除。Airbnb、BibiGPT、Manim、Snyk、PostgreSQL、SQLite、Cognee、Graphiti 与 Hindsight 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容，但目录会话不能使用无项目策略的直接调用端点：
+批次 0–4 不引入数据库迁移；批次 5 只把旧凭据 JSON 元数据显式迁移到 `local/local` 作用域，不接触外部数据库 schema 或数据。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭四个文件项目开关、撤销审批并停止 `mcp-files`；批次 4 回退时关闭 15 个 Token 项目的独立功能开关、断开目录会话并停止 `mcp-token`；批次 5 回退时关闭六个数据库项目开关、断开会话、停止远程和本地数据库 sidecar，并清理临时 DuckDB 工作区；批次 6 回退时关闭四个 SaaS 项目开关和全局单用户确认门禁、执行项目解绑并停止 `mcp-saas`。回退不自动删除外部 SaaS 数据，也不声称撤销服务商 Token；卡片专属加密凭据仅在用户选择撤销时删除。Airbnb、BibiGPT、Manim、Snyk、PostgreSQL、SQLite、Cognee、Graphiti、Hindsight、中国电商经营 MCP 与 Mem0 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容，但目录会话不能使用无项目策略的直接调用端点：
 
 - `server/mcp/catalog.py`
 - `server/mcp/sandbox_proxy.py`
@@ -156,6 +170,7 @@
 - `server/mcp/file_proxy.py`
 - `server/mcp/token_proxy.py`
 - `server/mcp/database_proxy.py`
+- `server/mcp/saas_proxy.py`
 - `server/mcp/workspace.py`
 - `server/sandbox_sidecar/`
 - `client/src/data/mcpProjects.ts`

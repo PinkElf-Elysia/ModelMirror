@@ -387,8 +387,8 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "manual",
     installCommand: "npx -y @notionhq/notion-mcp-server",
     installNote:
-      "需要 Notion Integration Token。当前模镜 MCP 子进程不会透传业务密钥，暂保留为手动配置。",
-    tags: ["Notion 官方", "知识库", "需要 Token"],
+      "在卡片内加密保存 Integration Token，并填写显式共享给该 Integration 的 Data Source ID；写入仅限其中的新建页面与页面属性更新。",
+    tags: ["Notion 官方", "知识库", "受控写入"],
   },
   {
     id: "blender-mcp",
@@ -462,8 +462,8 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installMode: "manual",
     installCommand: "pip install mcp-cn-commerce",
     installNote:
-      "不同平台需要各自的 App Key、Secret 和 Access Token。凭证必须由服务端 Secret 管理，不能写入前端或仓库。",
-    tags: ["中国电商", "只读经营数据", "多平台"],
+      "依赖多平台 OAuth、商家授权和短期 Token；第 10 批授权与撤销能力完成前不开放配置或连接。",
+    tags: ["中国电商", "多平台授权", "适配受阻"],
   },
   {
     id: "memory-mcp",
@@ -1722,6 +1722,7 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
   const isCredentialSandbox = isBundledSandbox && adaptation.wave === 4;
   const isDatabaseSandbox = isBundledSandbox && adaptation.wave === 5;
   const isDatabaseFileSandbox = isDatabaseSandbox && seed.id === "duckdb-mcp";
+  const isStatefulSaas = isReady && adaptation.wave === 6;
   const requirements: McpRequirement[] = isCredentialSandbox
     ? ["token"]
     : isDatabaseSandbox
@@ -1730,6 +1731,8 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
         : isDatabaseFileSandbox
           ? []
           : ["database-credentials"]
+    : isStatefulSaas
+      ? ["token", "account-binding", "remote-transport"]
     : isReady
     ? []
     : (seed.requirements ?? originalRequirements[seed.id] ?? ["external-runtime"]);
@@ -1745,7 +1748,9 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
       : isPublicSandbox
         ? "内置公网适配器由服务端固定部署，不接受自定义命令、端点或 Header。"
         : isDatabaseSandbox
-          ? "内置数据库适配器由服务端固定部署，不接受 DSN、URI、命令或宿主路径。"
+        ? "内置数据库适配器由服务端固定部署，不接受 DSN、URI、命令或宿主路径。"
+        : isStatefulSaas
+          ? "内置有状态 SaaS 适配器由服务端固定部署，不接受任意 URL、Header、命令或环境变量。"
         : isBundledSandbox
           ? "内置隔离适配器由服务端固定部署，无需安装命令。"
         : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
@@ -1761,6 +1766,12 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
         ? seed.id === "supabase-mcp"
           ? "在当前卡片填写 20 位小写英文字母 project_ref（不含数字）并保存加密 PAT；仅使用本地 stdio 和项目范围只读能力，不跳转远程 OAuth。"
           : "在当前卡片分别填写主机、端口、库名、TLS 和用户名，并保存加密数据库凭据；连接时自动执行目标校验和代表性只读预检。"
+      : isStatefulSaas
+        ? seed.id === "gitlab-mcp"
+          ? "在当前卡片加密保存 Personal Access Token 并填写项目 ID；首批主机固定为 gitlab.com，写入先预览目标再逐次确认。"
+          : seed.id === "notion-mcp-server"
+            ? "在当前卡片加密保存 Integration Token，并填写已显式共享给该 Integration 的 Data Source ID；写入仅限该范围内的新建页面与页面属性更新。"
+          : "在当前卡片加密保存账号凭据并填写服务端声明的资源 ID；连接预检通过后，写入先预览目标再逐次确认。"
       : isBundledSandbox
         ? "适配器随断网 Python 沙箱镜像固定部署；浏览器不会提交命令、目录或环境变量。"
       : seed.installNote,
@@ -1790,6 +1801,17 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
               : "分别填写卡片提供的主机、端口、库名、TLS 和用户名；不粘贴 DSN、URI、命令或环境变量。",
             "在当前卡片创建并选择对应的加密数据库凭据。凭据按项目和固定槽位隔离，保存后不回显明文。",
             "保存配置后连接只读 sidecar；连接时会自动校验目标并执行代表性只读预检。写入和管理工具始终关闭。",
+          ]
+      : isStatefulSaas
+        ? [
+            "在当前卡片添加并选择专属加密凭据；明文只提交一次，不能跨 MCP 或槽位复用。",
+            seed.id === "gitlab-mcp"
+              ? "填写服务端提供的项目 ID 字段；主机固定为 gitlab.com，不输入 URL、Header、命令或环境变量。"
+              : seed.id === "notion-mcp-server"
+                ? "填写固定 Data Source ID，并先在 Notion 中将该 Data Source 显式共享给 Integration；页面不接收 Notion URL。"
+              : "填写服务端提供的账号与资源 ID 字段；当前没有资源发现接口，因此只显示受控 ID 输入，不虚构选择器。",
+            "确认单租户边界并保存配置，然后连接并等待账号预检通过。只读工具可直接执行，写入工具必须查看目标与影响摘要后一次性确认。",
+            "出现限流或结果未知时不要重复点击；先核对上游状态。解绑可只断开账号，也可同时撤销模镜内的加密凭据。",
           ]
       : seed.configGuide ??
         (isLocalStdio

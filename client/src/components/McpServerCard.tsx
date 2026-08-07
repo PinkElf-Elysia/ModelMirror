@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import McpWorkspacePanel, {
-  type McpApprovalRequest,
   type McpWorkspace,
 } from "./McpWorkspacePanel";
 import McpCredentialPanel from "./McpCredentialPanel";
+import McpApprovalDialog, {
+  type McpCatalogApprovalRequest,
+} from "./McpApprovalDialog";
 import {
   mcpCatalogSources,
   mcpRequirementLabels,
@@ -52,6 +54,28 @@ interface ToolCallResult {
   is_error: boolean;
   raw: Record<string, unknown>;
   artifacts?: Array<Record<string, unknown>>;
+  idempotency_key?: string;
+  idempotent_replay?: boolean;
+  unknown_outcome?: boolean;
+}
+
+interface CatalogOperationError {
+  code: "approval_required" | "provider_rate_limited" | "unknown_outcome" | string;
+  message: string;
+  approval_id?: string;
+  summary?: string;
+  argument_digest?: string;
+  expires_at?: number | string;
+  idempotency_key?: string;
+  retry_after_seconds?: number;
+  target_preview?: McpCatalogApprovalRequest["target_preview"];
+}
+
+interface ToolOperationNotice {
+  kind: "rate-limited" | "unknown-outcome" | "idempotent-replay" | "completed";
+  message: string;
+  idempotencyKey?: string;
+  retryAfterSeconds?: number;
 }
 
 interface InstalledMcpRecord {
@@ -94,6 +118,37 @@ const databasePreflightCopy: Record<
     label: "数据源验证失败，请检查受控配置",
     className: "text-rose-100",
   },
+};
+
+const saasPreflightCopy: Record<
+  McpCatalogAdapterStatus["preflight_status"],
+  { label: string; className: string }
+> = {
+  "not-applicable": { label: "等待账号配置", className: "text-slate-300" },
+  blocked: { label: "账号适配已阻断", className: "text-rose-100" },
+  "awaiting-workspace": { label: "等待资源范围", className: "text-amber-100" },
+  "awaiting-configuration": {
+    label: "等待保存账号与资源范围",
+    className: "text-amber-100",
+  },
+  unverified: { label: "配置已保存，等待连接预检", className: "text-amber-100" },
+  verifying: { label: "正在验证账号、权限和资源范围", className: "text-cyan-100" },
+  verified: {
+    label: "账号、最小权限与资源范围预检通过",
+    className: "text-emerald-100",
+  },
+  failed: { label: "账号预检失败，请检查受控配置", className: "text-rose-100" },
+};
+
+const saasAccountStatusCopy: Record<
+  NonNullable<McpCatalogAdapterStatus["account_status"]>,
+  { label: string; className: string }
+> = {
+  "not-applicable": { label: "不适用", className: "text-slate-300" },
+  blocked: { label: "账号绑定已阻断", className: "text-rose-100" },
+  unbound: { label: "尚未绑定账号", className: "text-slate-300" },
+  unverified: { label: "账号已配置，尚未验证", className: "text-amber-100" },
+  verified: { label: "账号绑定已验证", className: "text-emerald-100" },
 };
 
 interface McpServerCardProps {
@@ -164,6 +219,84 @@ function contentToMarkdown(result: ToolCallResult | null) {
     .join("\n\n");
 }
 
+function isCatalogOperationError(value: unknown): value is CatalogOperationError {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    typeof (value as CatalogOperationError).code === "string" &&
+    typeof (value as CatalogOperationError).message === "string",
+  );
+}
+
+function approvalFromError(
+  detail: CatalogOperationError,
+): McpCatalogApprovalRequest | null {
+  if (
+    detail.code !== "approval_required" ||
+    !detail.approval_id ||
+    !detail.argument_digest ||
+    detail.expires_at === undefined
+  ) return null;
+  return {
+    code: "approval_required",
+    message: detail.message,
+    approval_id: detail.approval_id,
+    summary: detail.summary,
+    argument_digest: detail.argument_digest,
+    expires_at: detail.expires_at,
+    idempotency_key: detail.idempotency_key,
+    target_preview: detail.target_preview,
+  };
+}
+
+function noticeFromError(detail: CatalogOperationError): ToolOperationNotice | null {
+  if (detail.code === "provider_rate_limited") {
+    return {
+      kind: "rate-limited",
+      message: detail.message || "上游服务已限流。写入不会自动重试，请稍后重新预览。",
+      retryAfterSeconds: detail.retry_after_seconds,
+    };
+  }
+  if (detail.code === "unknown_outcome") {
+    return {
+      kind: "unknown-outcome",
+      message: detail.message || "写入结果未知，禁止自动重试。请先核对上游资源状态。",
+      idempotencyKey: detail.idempotency_key,
+    };
+  }
+  return null;
+}
+
+function noticeFromResult(result: ToolCallResult): ToolOperationNotice | null {
+  if (result.unknown_outcome) {
+    return {
+      kind: "unknown-outcome",
+      message: "写入结果未知，禁止自动重试。请先核对上游资源状态。",
+      idempotencyKey: result.idempotency_key,
+    };
+  }
+  if (result.idempotent_replay) {
+    return {
+      kind: "idempotent-replay",
+      message: "检测到重复确认，本次复用了已有结果，没有再次写入。",
+      idempotencyKey: result.idempotency_key,
+    };
+  }
+  if (result.idempotency_key) {
+    return {
+      kind: "completed",
+      message: "本次写入已按幂等键完成；重复确认不会再次写入。",
+      idempotencyKey: result.idempotency_key,
+    };
+  }
+  return null;
+}
+
+function shortIdempotencyKey(value?: string) {
+  if (!value) return "";
+  return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value;
+}
+
 export default function McpServerCard({
   project,
   adapterStatus,
@@ -178,6 +311,7 @@ export default function McpServerCard({
     {},
   );
   const [toolResults, setToolResults] = useState<Record<string, ToolCallResult>>({});
+  const [toolNotices, setToolNotices] = useState<Record<string, ToolOperationNotice>>({});
   const [runningTool, setRunningTool] = useState<string | null>(null);
   const [boundWorkspace, setBoundWorkspace] = useState<McpWorkspace | null>(null);
   const [catalogConfigured, setCatalogConfigured] = useState(
@@ -189,12 +323,10 @@ export default function McpServerCard({
   const [catalogBindings, setCatalogBindings] = useState<Record<string, string>>(
     adapterStatus?.credential_bindings ?? {},
   );
-  const [pendingApproval, setPendingApproval] = useState<McpApprovalRequest | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<McpCatalogApprovalRequest | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const approvalCallbackRef = useRef<(() => void) | null>(null);
   const approvalToolRef = useRef<string | null>(null);
-  const approvalDialogRef = useRef<HTMLDivElement | null>(null);
-  const approvalCancelRef = useRef<HTMLButtonElement | null>(null);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
@@ -207,7 +339,14 @@ export default function McpServerCard({
   const requiredCapabilities =
     adapterStatus?.required_capabilities ?? project.requiredCapabilities;
   const limitations = adapterStatus?.limitations ?? project.adaptationLimitations;
-  const canConnect = adapterStatus?.executable === true && availability === "ready";
+  const isStatefulSaas = wave === 6;
+  const statefulSaasGateEnabled =
+    !isStatefulSaas || adapterStatus?.stateful_saas_gate_enabled === true;
+  const canConnect =
+    adapterStatus?.feature_enabled === true &&
+    adapterStatus.executable === true &&
+    availability === "ready" &&
+    statefulSaasGateEnabled;
   const workspacePolicy = adapterStatus?.workspace_policy ?? null;
   const databasePolicy = adapterStatus?.database_policy ?? null;
   const databasePreflight = adapterStatus?.preflight_status ?? "not-applicable";
@@ -245,45 +384,6 @@ export default function McpServerCard({
     adapterStatus?.configuration_values,
     adapterStatus?.credential_bindings,
   ]);
-
-  useEffect(() => {
-    if (!pendingApproval) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    const focusTimer = window.setTimeout(() => approvalCancelRef.current?.focus(), 0);
-
-    function handleApprovalKeyDown(event: KeyboardEvent) {
-      const dialog = approvalDialogRef.current;
-      if (!dialog) return;
-      if (event.key === "Escape" && !approvalCancelRef.current?.disabled) {
-        event.preventDefault();
-        void cancelApproval();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      );
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleApprovalKeyDown);
-    return () => {
-      window.clearTimeout(focusTimer);
-      document.removeEventListener("keydown", handleApprovalKeyDown);
-      previouslyFocused?.focus();
-    };
-  }, [pendingApproval?.approval_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -346,7 +446,7 @@ export default function McpServerCard({
   async function readErrorDetail(response: Response) {
     try {
       const data = (await response.json()) as {
-        detail?: string | McpApprovalRequest;
+        detail?: string | CatalogOperationError;
         error?: string;
       };
       return data.detail ?? data.error ?? response.statusText;
@@ -367,6 +467,7 @@ export default function McpServerCard({
     setError("");
     setTools([]);
     setToolResults({});
+    setToolNotices({});
     try {
       const response = await fetch(`/api/mcp/catalog/${project.id}/connect`, {
         method: "POST",
@@ -400,6 +501,7 @@ export default function McpServerCard({
     setSessionId(null);
     setTools([]);
     setToolResults({});
+    setToolNotices({});
     setFormValues({});
     setError("");
     setState("idle");
@@ -454,6 +556,16 @@ export default function McpServerCard({
     if (!sessionId) return;
     setRunningTool(tool.name);
     setError("");
+    setToolResults((current) => {
+      const next = { ...current };
+      delete next[tool.name];
+      return next;
+    });
+    setToolNotices((current) => {
+      const next = { ...current };
+      delete next[tool.name];
+      return next;
+    });
     try {
       const response = await fetch(
         `/api/mcp/catalog/${project.id}/tools/${encodeURIComponent(tool.name)}/call`,
@@ -465,20 +577,30 @@ export default function McpServerCard({
           }),
         },
       );
-      if (response.status === 409) {
+      if (!response.ok) {
         const detail = await readErrorDetail(response);
-        if (typeof detail !== "string" && detail.code === "approval_required") {
-          approvalToolRef.current = tool.name;
-          showApproval(detail, () => {
-            setToolResults((current) => ({ ...current }));
-            if (boundWorkspace) void refreshBoundWorkspace(boundWorkspace.workspace_id);
-          });
-          return;
+        if (typeof detail !== "string" && isCatalogOperationError(detail)) {
+          const approval = approvalFromError(detail);
+          if (approval) {
+            approvalToolRef.current = tool.name;
+            showApproval(approval, () => {
+              setToolResults((current) => ({ ...current }));
+              if (boundWorkspace) void refreshBoundWorkspace(boundWorkspace.workspace_id);
+            });
+            return;
+          }
+          const notice = noticeFromError(detail);
+          if (notice) {
+            setToolNotices((current) => ({ ...current, [tool.name]: notice }));
+            return;
+          }
         }
+        throw new Error(typeof detail === "string" ? detail : detail.message);
       }
-      if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as ToolCallResult;
       setToolResults((current) => ({ ...current, [tool.name]: data }));
+      const notice = noticeFromResult(data);
+      if (notice) setToolNotices((current) => ({ ...current, [tool.name]: notice }));
       if (boundWorkspace) await refreshBoundWorkspace(boundWorkspace.workspace_id);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "工具执行失败");
@@ -493,6 +615,7 @@ export default function McpServerCard({
     setSessionId(null);
     setTools([]);
     setToolResults({});
+    setToolNotices({});
     setFormValues({});
     setError("");
     setState("idle");
@@ -514,7 +637,7 @@ export default function McpServerCard({
     onConnectionChange?.();
   }
 
-  function showApproval(approval: McpApprovalRequest, onConfirmed: () => void) {
+  function showApproval(approval: McpCatalogApprovalRequest, onConfirmed: () => void) {
     approvalCallbackRef.current = onConfirmed;
     setPendingApproval(approval);
   }
@@ -528,18 +651,43 @@ export default function McpServerCard({
         `/api/mcp/catalog/${project.id}/approvals/${pendingApproval.approval_id}/confirm`,
         { method: "POST" },
       );
-      if (!response.ok) throw new Error(await readError(response));
+      if (!response.ok) {
+        const detail = await readErrorDetail(response);
+        if (typeof detail !== "string" && isCatalogOperationError(detail)) {
+          const notice = noticeFromError(detail);
+          if (notice && approvalToolRef.current) {
+            setToolNotices((current) => ({
+              ...current,
+              [approvalToolRef.current as string]: notice,
+            }));
+            setPendingApproval(null);
+            approvalCallbackRef.current = null;
+            approvalToolRef.current = null;
+            return;
+          }
+        }
+        throw new Error(typeof detail === "string" ? detail : detail.message);
+      }
       const data = (await response.json()) as ToolCallResult;
       if (approvalToolRef.current) {
         const toolName = approvalToolRef.current;
         setToolResults((current) => ({ ...current, [toolName]: data }));
+        const notice = noticeFromResult(data);
+        if (notice) setToolNotices((current) => ({ ...current, [toolName]: notice }));
       }
       setPendingApproval(null);
       approvalCallbackRef.current?.();
       approvalCallbackRef.current = null;
       approvalToolRef.current = null;
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "确认操作失败");
+      setPendingApproval(null);
+      approvalCallbackRef.current = null;
+      approvalToolRef.current = null;
+      setError(
+        exc instanceof Error
+          ? `${exc.message} 请重新发起预览，不要重复提交旧审批。`
+          : "确认操作失败，请重新发起预览。",
+      );
     } finally {
       setApprovalBusy(false);
     }
@@ -915,6 +1063,79 @@ export default function McpServerCard({
         </section>
       ) : null}
 
+      {wave === 6 ? (
+        <section
+          aria-label="有状态 SaaS 账号与工具策略"
+          className="relative mt-3 rounded-lg border border-violet-300/20 bg-violet-300/[0.055] p-3 text-xs"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold text-violet-100">账号与写入安全状态</h3>
+            {availability === "blocked" ? (
+              <span className="rounded-full border border-rose-300/25 bg-rose-300/[0.08] px-2.5 py-1 font-semibold text-rose-100">
+                所有入口关闭
+              </span>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-2.5 py-1 font-semibold text-emerald-100">
+                  只读直接执行
+                </span>
+                <span className="rounded-full border border-amber-300/25 bg-amber-300/[0.08] px-2.5 py-1 font-semibold text-amber-100">
+                  写入 · 预览并确认
+                </span>
+              </div>
+            )}
+          </div>
+          <dl className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-lg bg-black/15 p-2.5">
+              <dt className="text-slate-400">目录功能门禁</dt>
+              <dd
+                aria-live="polite"
+                className={`mt-1 font-semibold ${
+                  availability === "blocked" || !statefulSaasGateEnabled
+                    ? "text-rose-100"
+                    : "text-emerald-100"
+                }`}
+              >
+                {availability === "blocked"
+                  ? "适配受阻，配置与工具入口关闭"
+                  : statefulSaasGateEnabled
+                    ? "有状态 SaaS 门禁已开启"
+                    : "有状态 SaaS 总开关未开启"}
+              </dd>
+            </div>
+            <div className="rounded-lg bg-black/15 p-2.5">
+              <dt className="text-slate-400">账号绑定</dt>
+              <dd
+                aria-live="polite"
+                className={`mt-1 font-semibold ${
+                  saasAccountStatusCopy[adapterStatus?.account_status ?? "not-applicable"].className
+                }`}
+              >
+                {saasAccountStatusCopy[adapterStatus?.account_status ?? "not-applicable"].label}
+              </dd>
+            </div>
+            <div className="rounded-lg bg-black/15 p-2.5">
+              <dt className="text-slate-400">账号预检</dt>
+              <dd
+                aria-live="polite"
+                className={`mt-1 font-semibold ${saasPreflightCopy[databasePreflight].className}`}
+              >
+                {saasPreflightCopy[databasePreflight].label}
+              </dd>
+            </div>
+          </dl>
+          {adapterStatus?.saas_policy ? (
+            <p className="mt-2 leading-5 text-slate-400">
+              固定主机：{adapterStatus.saas_policy.fixed_hosts.join("、")}；每分钟最多 {adapterStatus.saas_policy.rate_limit_per_minute} 次、并发 {adapterStatus.saas_policy.max_concurrent_calls}。限流和结果未知时写入不自动重试。
+            </p>
+          ) : (
+            <p className="mt-2 leading-5 text-slate-400">
+              当前条目没有可执行账号契约；不会收集凭据、资源 ID 或工具参数。
+            </p>
+          )}
+        </section>
+      ) : null}
+
       {adapterStatus?.executable && adapterStatus.runtime_image ? (
         <div className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -948,18 +1169,21 @@ export default function McpServerCard({
 
       {canConnect && needsCatalogConfiguration && adapterStatus ? (
         <McpCredentialPanel
+          connectionPending={state === "connecting"}
           credentialFields={adapterStatus.credential_fields}
           disabled={state === "connected" || state === "connecting"}
           initialBindings={adapterStatus.credential_bindings}
           initialSettings={adapterStatus.configuration_values}
           initiallyConfigured={adapterStatus.configured}
           credentialVerification={adapterStatus.credential_verification}
+          accountStatus={adapterStatus.account_status}
           databasePreflightStatus={adapterStatus.preflight_status}
-          mode={wave === 5 ? "database" : "service"}
+          mode={wave === 5 ? "database" : wave === 6 ? "saas" : "service"}
           onConfigurationSaved={handleConfigurationSaved}
           onConfigured={setCatalogConfigured}
           onSessionInvalidated={invalidateCredentialSession}
           projectId={project.id}
+          saasPolicy={adapterStatus.saas_policy}
           settingFields={adapterStatus.setting_fields}
           workspaceId={boundWorkspace?.workspace_id ?? null}
         />
@@ -995,6 +1219,10 @@ export default function McpServerCard({
           >
             {!adapterStatus && availability === "ready"
               ? "同步服务端状态..."
+              : isStatefulSaas && availability === "ready" && !statefulSaasGateEnabled
+                ? "SaaS 门禁未开启"
+              : adapterStatus && availability === "ready" && !adapterStatus.feature_enabled
+                ? "项目开关未开启"
               : availability === "adapting"
                 ? "正在适配"
                 : availability === "blocked"
@@ -1078,7 +1306,7 @@ export default function McpServerCard({
         </div>
       ) : null}
 
-      {state === "connected" ? (
+      {state === "connected" && canConnect ? (
         <div className="relative mt-5 space-y-4 border-t border-white/10 pt-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-white">工具清单</h3>
@@ -1095,6 +1323,16 @@ export default function McpServerCard({
               const properties = tool.inputSchema.properties ?? {};
               const markdown = contentToMarkdown(toolResults[tool.name] ?? null);
               const toolPolicy = adapterStatus?.tool_policies[tool.name];
+              const isApprovedWrite =
+                toolPolicy?.effect === "state-write" && toolPolicy.requires_approval;
+              const policyClosed = Boolean(
+                toolPolicy?.sensitive ||
+                toolPolicy?.terminal ||
+                (isStatefulSaas &&
+                  (!toolPolicy ||
+                    (toolPolicy.effect === "state-write" && !toolPolicy.requires_approval))),
+              );
+              const notice = toolNotices[tool.name];
               return (
                 <div className="min-w-0 rounded-lg border border-white/10 bg-white/[0.045] p-4" key={tool.name}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1102,20 +1340,41 @@ export default function McpServerCard({
                       <p className="font-semibold text-white">{tool.title ?? tool.name}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
                         <p className="text-xs text-brand-100">{tool.name}</p>
-                        {toolPolicy?.read_only ? (
+                        {toolPolicy?.read_only || toolPolicy?.effect === "read" ? (
                           <span className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
-                            只读工具
+                            只读
+                          </span>
+                        ) : null}
+                        {isApprovedWrite ? (
+                          <span className="rounded-full border border-amber-300/25 bg-amber-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-amber-100">
+                            写入 · 需确认
+                          </span>
+                        ) : null}
+                        {toolPolicy?.effect === "artifact-create" ? (
+                          <span className="rounded-full border border-cyan-300/25 bg-cyan-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-cyan-100">
+                            生成产物
+                          </span>
+                        ) : null}
+                        {policyClosed ? (
+                          <span className="rounded-full border border-rose-300/25 bg-rose-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-rose-100">
+                            策略关闭
                           </span>
                         ) : null}
                       </div>
                     </div>
                     <button
                       className="min-h-11 w-fit rounded-full bg-hire-300 px-4 py-2 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={runningTool === tool.name}
+                      disabled={runningTool === tool.name || policyClosed}
                       onClick={() => void callTool(tool)}
                       type="button"
                     >
-                      {runningTool === tool.name ? "执行中..." : "执行"}
+                      {runningTool === tool.name
+                        ? "执行中..."
+                        : policyClosed
+                          ? "工具已关闭"
+                          : isApprovedWrite
+                            ? "预览并确认"
+                            : "执行"}
                     </button>
                   </div>
                   {tool.description ? (
@@ -1134,6 +1393,40 @@ export default function McpServerCard({
                       这个工具不需要参数。
                     </p>
                   )}
+                  {notice ? (
+                    <div
+                      aria-live="polite"
+                      className={`mt-3 rounded-lg border p-3 text-xs leading-5 ${
+                        notice.kind === "unknown-outcome"
+                          ? "border-rose-300/25 bg-rose-300/[0.08] text-rose-100"
+                          : notice.kind === "rate-limited"
+                            ? "border-amber-300/25 bg-amber-300/[0.08] text-amber-100"
+                            : notice.kind === "idempotent-replay"
+                              ? "border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-100"
+                              : "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100"
+                      }`}
+                      role="status"
+                    >
+                      <p className="font-semibold">
+                        {notice.kind === "unknown-outcome"
+                          ? "结果未知 · 禁止自动重试"
+                          : notice.kind === "rate-limited"
+                            ? "上游限流 · 写入未自动重试"
+                            : notice.kind === "idempotent-replay"
+                              ? "幂等重放 · 未重复写入"
+                              : "写入已完成"}
+                      </p>
+                      <p className="mt-1 text-slate-300">{notice.message}</p>
+                      {notice.retryAfterSeconds !== undefined ? (
+                        <p className="mt-1 text-slate-400">建议等待 {notice.retryAfterSeconds} 秒后重新发起预览。</p>
+                      ) : null}
+                      {notice.idempotencyKey ? (
+                        <p className="mt-1 font-mono text-slate-400">
+                          幂等键：{shortIdempotencyKey(notice.idempotencyKey)}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {markdown ? (
                     <div className="prose prose-invert mt-4 max-h-[32rem] min-w-0 max-w-none overflow-auto rounded-lg border border-white/10 bg-ink-950/70 p-4 [overflow-wrap:anywhere] prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:bg-slate-950 prose-code:break-words prose-code:text-brand-100 prose-table:block prose-table:max-w-full prose-table:overflow-x-auto">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -1149,53 +1442,12 @@ export default function McpServerCard({
       ) : null}
 
       {pendingApproval ? (
-        <div
-          aria-describedby={`mcp-approval-description-${project.id}`}
-          aria-labelledby={`mcp-approval-${project.id}`}
-          aria-modal="true"
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/82 p-4 backdrop-blur-sm"
-          role="dialog"
-        >
-          <div
-            className="surface-card max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-amber-300/25 p-6"
-            ref={approvalDialogRef}
-            tabIndex={-1}
-          >
-            <p className="text-sm font-semibold text-amber-100">一次性写入确认</p>
-            <h2 className="mt-2 text-xl font-semibold text-white" id={`mcp-approval-${project.id}`}>
-              确认本次受控操作
-            </h2>
-            <p
-              className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-4 text-sm leading-6 text-slate-300"
-              id={`mcp-approval-description-${project.id}`}
-            >
-              {pendingApproval.summary}
-            </p>
-            <div className="mt-3 text-[11px] leading-5 text-slate-500">
-              <p>确认仅对当前会话、工作区版本和参数摘要有效，5 分钟后自动失效。</p>
-              <p className="mt-1 break-all font-mono">摘要：{pendingApproval.argument_digest}</p>
-            </div>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button
-                className="min-h-11 rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
-                disabled={approvalBusy}
-                onClick={() => void cancelApproval()}
-                ref={approvalCancelRef}
-                type="button"
-              >
-                取消
-              </button>
-              <button
-                className="min-h-11 rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
-                disabled={approvalBusy}
-                onClick={() => void confirmApproval()}
-                type="button"
-              >
-                {approvalBusy ? "执行中…" : "确认并执行一次"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <McpApprovalDialog
+          approval={pendingApproval}
+          busy={approvalBusy}
+          onCancel={cancelApproval}
+          onConfirm={confirmApproval}
+        />
       ) : null}
 
       {isInstallOpen ? (

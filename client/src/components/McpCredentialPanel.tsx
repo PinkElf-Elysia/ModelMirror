@@ -3,6 +3,8 @@ import type {
   McpCredentialField,
   McpCredentialVerification,
   McpDatabasePreflightStatus,
+  McpSaasPolicy,
+  McpSaasAccountStatus,
   McpSettingField,
 } from "../data/mcpAdaptationPlan";
 
@@ -18,7 +20,7 @@ interface CredentialSummary {
 
 interface McpCredentialPanelProps {
   projectId: string;
-  mode?: "service" | "database";
+  mode?: "service" | "database" | "saas";
   credentialFields: McpCredentialField[];
   settingFields: McpSettingField[];
   initialBindings: Record<string, string>;
@@ -27,7 +29,10 @@ interface McpCredentialPanelProps {
   initiallyConfigured: boolean;
   credentialVerification: McpCredentialVerification;
   databasePreflightStatus?: McpDatabasePreflightStatus;
+  saasPolicy?: McpSaasPolicy | null;
+  accountStatus?: McpSaasAccountStatus;
   disabled?: boolean;
+  connectionPending?: boolean;
   onConfigured: (configured: boolean) => void;
   onConfigurationSaved?: (
     settings: Record<string, string | number | boolean>,
@@ -36,10 +41,22 @@ interface McpCredentialPanelProps {
   onSessionInvalidated: () => void;
 }
 
+interface UnbindResponse {
+  ok: true;
+  project_id: string;
+  disconnected: boolean;
+  revoked_credentials: number;
+}
+
 async function responseError(response: Response) {
   try {
-    const payload = (await response.json()) as { detail?: string };
-    return payload.detail ?? response.statusText;
+    const payload = (await response.json()) as {
+      detail?: string | { message?: string };
+      error?: string;
+    };
+    if (typeof payload.detail === "string") return payload.detail;
+    if (payload.detail?.message) return payload.detail.message;
+    return payload.error ?? response.statusText;
   } catch {
     return response.statusText;
   }
@@ -76,6 +93,70 @@ const databasePreflightVerifiedCopy = {
   className: "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100",
 };
 
+const saasPreflightCopy: Record<
+  McpDatabasePreflightStatus,
+  { label: string; className: string }
+> = {
+  "not-applicable": {
+    label: "等待账号配置",
+    className: "border-slate-300/20 bg-slate-300/[0.06] text-slate-300",
+  },
+  blocked: {
+    label: "账号连接已阻断",
+    className: "border-rose-300/25 bg-rose-300/[0.08] text-rose-100",
+  },
+  "awaiting-workspace": {
+    label: "等待账号范围",
+    className: "border-amber-300/25 bg-amber-300/[0.08] text-amber-100",
+  },
+  "awaiting-configuration": {
+    label: "等待保存账号与资源范围",
+    className: "border-amber-300/25 bg-amber-300/[0.08] text-amber-100",
+  },
+  unverified: {
+    label: "配置已保存，等待连接预检",
+    className: "border-amber-300/25 bg-amber-300/[0.08] text-amber-100",
+  },
+  verifying: {
+    label: "正在验证账号与资源范围",
+    className: "border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-100",
+  },
+  verified: {
+    label: "账号、权限与资源范围预检通过",
+    className: "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100",
+  },
+  failed: {
+    label: "账号预检失败，请检查凭据与资源 ID",
+    className: "border-rose-300/25 bg-rose-300/[0.08] text-rose-100",
+  },
+};
+
+const saasAccountCopy: Record<
+  McpSaasAccountStatus,
+  { label: string; className: string }
+> = {
+  "not-applicable": {
+    label: "账号状态不适用",
+    className: "border-slate-300/20 bg-slate-300/[0.06] text-slate-300",
+  },
+  blocked: {
+    label: "账号绑定已阻断",
+    className: "border-rose-300/25 bg-rose-300/[0.08] text-rose-100",
+  },
+  unbound: {
+    label: "账号尚未绑定",
+    className: "border-slate-300/20 bg-slate-300/[0.06] text-slate-300",
+  },
+  unverified: {
+    label: "账号已配置，尚未验证",
+    className: "border-amber-300/25 bg-amber-300/[0.08] text-amber-100",
+  },
+  verified: {
+    label: "账号绑定已验证",
+    className: "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100",
+  },
+};
+
 function visibleSettingOptions(projectId: string, field: McpSettingField) {
   if (projectId !== "dbhub" || field.key !== "engine") return field.options;
   return field.options.filter(
@@ -101,6 +182,14 @@ function dbhubDefaultPort(engine: string) {
   if (normalized === "postgres" || normalized === "postgresql") return "5432";
   if (normalized === "mysql" || normalized === "mariadb") return "3306";
   return "";
+}
+
+function writeRetryModeLabel(mode: string) {
+  const labels: Record<string, string> = {
+    never: "不自动重试",
+    "idempotency-key-only": "仅复用幂等结果，不重新发出写入",
+  };
+  return labels[mode] ?? "服务端受控且不自动重试";
 }
 
 function hasCustomizedDbhubPort(
@@ -129,7 +218,10 @@ export default function McpCredentialPanel({
   initiallyConfigured,
   credentialVerification,
   databasePreflightStatus = "not-applicable",
+  saasPolicy = null,
+  accountStatus = "not-applicable",
   disabled = false,
+  connectionPending = false,
   onConfigured,
   onConfigurationSaved,
   onSessionInvalidated,
@@ -155,6 +247,13 @@ export default function McpCredentialPanel({
   const [creating, setCreating] = useState(false);
   const [pendingRevoke, setPendingRevoke] = useState<CredentialSummary | null>(null);
   const [revoking, setRevoking] = useState(false);
+  const [tenantConfirmed, setTenantConfirmed] = useState(
+    mode !== "saas" || initiallyConfigured,
+  );
+  const [accountBound, setAccountBound] = useState(initiallyConfigured);
+  const [showUnbindConfirmation, setShowUnbindConfirmation] = useState(false);
+  const [revokeOnUnbind, setRevokeOnUnbind] = useState(false);
+  const [unbinding, setUnbinding] = useState(false);
   const [message, setMessage] = useState(
     initiallyConfigured ? "配置已保存，可建立受控连接。" : "",
   );
@@ -181,7 +280,9 @@ export default function McpCredentialPanel({
 
   useEffect(() => {
     setBindings(initialBindings);
-  }, [initialBindings]);
+    setAccountBound(initiallyConfigured);
+    if (mode === "saas" && initiallyConfigured) setTenantConfirmed(true);
+  }, [initialBindings, initiallyConfigured, mode]);
 
   useEffect(() => {
     setSettings(
@@ -200,8 +301,9 @@ export default function McpCredentialPanel({
   const complete = useMemo(
     () =>
       credentialFields.every((field) => !field.required || Boolean(bindings[field.key])) &&
-      settingFields.every((field) => !field.required || Boolean(settings[field.key]?.trim())),
-    [bindings, credentialFields, settingFields, settings],
+      settingFields.every((field) => !field.required || Boolean(settings[field.key]?.trim())) &&
+      (mode !== "saas" || tenantConfirmed),
+    [bindings, credentialFields, mode, settingFields, settings, tenantConfirmed],
   );
 
   function startCreating(field: McpCredentialField) {
@@ -279,6 +381,48 @@ export default function McpCredentialPanel({
     }
   }
 
+  async function unbindAccount() {
+    if (mode !== "saas" || unbinding || !saasPolicy?.account_unbind_supported) return;
+    setUnbinding(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/mcp/catalog/${projectId}/unbind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revoke_credentials: revokeOnUnbind }),
+      });
+      if (!response.ok) throw new Error(await responseError(response));
+      const result = (await response.json()) as UnbindResponse;
+      setBindings({});
+      setSettings(
+        Object.fromEntries(
+          settingFields.map((field) => [
+            field.key,
+            String(field.default ?? ""),
+          ]),
+        ),
+      );
+      setTenantConfirmed(false);
+      setAccountBound(false);
+      setShowUnbindConfirmation(false);
+      setRevokeOnUnbind(false);
+      if (result.revoked_credentials > 0) await loadCredentials();
+      setMessage(
+        result.revoked_credentials > 0
+          ? `账号已解绑，并撤销 ${result.revoked_credentials} 条模镜加密凭据。上游 Token 仍需在服务商后台单独撤销。`
+          : "账号已解绑；会话、审批和资源配置已清除，加密凭据仍保留在模镜中。",
+      );
+      onConfigured(false);
+      onConfigurationSaved?.({}, {});
+      onSessionInvalidated();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "账号解绑失败。");
+    } finally {
+      setUnbinding(false);
+    }
+  }
+
   async function save() {
     if (!complete || saving || disabled) return;
     setSaving(true);
@@ -306,9 +450,12 @@ export default function McpCredentialPanel({
       setMessage(
         mode === "database"
           ? "数据库配置已保存；连接时会自动校验目标并执行代表性只读预检。"
+          : mode === "saas"
+            ? "账号与资源范围已保存；连接时会验证凭据、最小权限和目标资源。"
           : "连接配置已保存；首次成功调用后才会标记凭据已验证。",
       );
       onConfigurationSaved?.(typedSettings, bindings);
+      if (mode === "saas") setAccountBound(true);
       onConfigured(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "目录配置保存失败。");
@@ -319,9 +466,11 @@ export default function McpCredentialPanel({
   }
 
   const isDatabase = mode === "database";
+  const isSaas = mode === "saas";
   const isSupabase = projectId === "supabase-mcp";
-  const verification =
-    isDatabase &&
+  const verification = isSaas
+    ? saasPreflightCopy[databasePreflightStatus]
+    : isDatabase &&
     databasePreflightStatus === "verified" &&
     credentialVerification !== "missing" &&
     credentialVerification !== "not-required" &&
@@ -331,26 +480,73 @@ export default function McpCredentialPanel({
 
   return (
     <section
-      aria-label={isDatabase ? "MCP 数据库连接配置" : "MCP 加密凭据配置"}
+      aria-label={
+        isSaas
+          ? "MCP SaaS 账号与加密凭据配置"
+          : isDatabase
+            ? "MCP 数据库连接配置"
+            : "MCP 加密凭据配置"
+      }
       className="relative mt-4 border-t border-white/10 pt-4"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-white">
-            {isDatabase ? "数据库连接与加密凭据" : "加密凭据"}
+            {isSaas
+              ? "账号范围与加密凭据"
+              : isDatabase
+                ? "数据库连接与加密凭据"
+                : "加密凭据"}
           </h3>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">
-            {isDatabase
+            {isSaas
+              ? "凭据与资源 ID 只在当前卡片管理。页面不接收任意 URL、Header、命令或环境变量，也不跳转外站登录；明文只提交一次。"
+              : isDatabase
               ? isSupabase
                 ? "20 位小写英文字母 project_ref（不含数字）与 PAT 只在当前卡片管理，不使用远程 OAuth；凭据明文只提交一次。"
                 : "连接字段与凭据只在当前卡片管理。请分别填写受控字段，不要粘贴 DSN、URI 或宿主路径；凭据明文只提交一次。"
               : "在当前 MCP 卡片内独立创建和管理。明文只提交一次，服务端加密保存后仅返回掩码。"}
           </p>
         </div>
-        <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${verification.className}`}>
-          {verification.label}
-        </span>
+        <div className="flex flex-wrap justify-end gap-2">
+          {isSaas ? (
+            <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${saasAccountCopy[accountStatus].className}`}>
+              {saasAccountCopy[accountStatus].label}
+            </span>
+          ) : null}
+          <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${verification.className}`}>
+            {verification.label}
+          </span>
+        </div>
       </div>
+
+      {isSaas && saasPolicy ? (
+        <div className="mt-3 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] p-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-cyan-100">受控账号边界</p>
+            <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 font-semibold text-cyan-50">
+              {saasPolicy.provider}
+            </span>
+          </div>
+          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg bg-black/15 p-2.5">
+              <dt className="text-slate-400">固定上游主机</dt>
+              <dd className="mt-1 break-words font-semibold text-slate-100">
+                {saasPolicy.fixed_hosts.join("、") || "由服务端固定"}
+              </dd>
+            </div>
+            <div className="rounded-lg bg-black/15 p-2.5">
+              <dt className="text-slate-400">调用护栏</dt>
+              <dd className="mt-1 font-semibold text-slate-100">
+                每分钟 {saasPolicy.rate_limit_per_minute} 次 · 最多并发 {saasPolicy.max_concurrent_calls}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-2 leading-5 text-slate-400">
+            只读调用最多重试 {saasPolicy.read_retry_limit} 次；写入策略为“{writeRetryModeLabel(saasPolicy.write_retry_mode)}”，限流或结果未知时不会自动重试。
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-3 space-y-4">
         {credentialFields.map((field) => {
@@ -408,7 +604,7 @@ export default function McpCredentialPanel({
                 {selected ? (
                   <button
                     className="min-h-11 rounded-lg border border-rose-300/25 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-45"
-                    disabled={revoking}
+                    disabled={connectionPending || revoking}
                     onClick={() => setPendingRevoke(selected)}
                     type="button"
                   >
@@ -479,9 +675,13 @@ export default function McpCredentialPanel({
         {settingFields.length > 0 ? (
           <div>
             <h4 className="text-xs font-semibold text-white">
-              {isDatabase ? "数据库连接字段" : "服务配置"}
+              {isSaas ? "账号与资源范围" : isDatabase ? "数据库连接字段" : "服务配置"}
             </h4>
-            {isDatabase ? (
+            {isSaas ? (
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                仅填写服务端声明的账号或资源 ID。当前没有资源发现接口，因此这里不会虚构资源选择器，也不会接受资源 URL。
+              </p>
+            ) : isDatabase ? (
               <p className="mt-1 text-xs leading-5 text-slate-400">
                 {isSupabase
                   ? "project_ref 仅接受 20 位小写英文字母，不含数字；页面不会接收 API URL、OAuth 回调或完整连接串。"
@@ -565,6 +765,30 @@ export default function McpCredentialPanel({
             </div>
           </div>
         ) : null}
+
+        {isSaas ? (
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-amber-300/20 bg-amber-300/[0.07] p-3">
+            <input
+              checked={tenantConfirmed}
+              className="mt-0.5 h-5 w-5 shrink-0 accent-cyan-300"
+              disabled={disabled}
+              onChange={(event) => {
+                setTenantConfirmed(event.target.checked);
+                setMessage("");
+                onConfigured(false);
+              }}
+              type="checkbox"
+            />
+            <span>
+              <span className="block text-xs font-semibold text-amber-100">
+                我确认这是固定 tenant/owner 的单租户实例
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-slate-400">
+                多用户或多租户共享部署尚未开放；切换账号或资源范围前应先解绑当前账号。
+              </span>
+            </span>
+          </label>
+        ) : null}
       </div>
 
       {pendingRevoke ? (
@@ -576,7 +800,7 @@ export default function McpCredentialPanel({
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               className="min-h-11 rounded-lg bg-rose-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-45"
-              disabled={revoking}
+              disabled={connectionPending || revoking}
               onClick={() => void revokeCredential()}
               type="button"
             >
@@ -594,6 +818,79 @@ export default function McpCredentialPanel({
         </div>
       ) : null}
 
+      {isSaas && saasPolicy?.account_unbind_supported && accountBound ? (
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold text-white">账号解绑</p>
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                解绑会断开会话、作废审批并清除账号与资源配置。默认保留模镜内的加密凭据，便于之后重新绑定。
+              </p>
+            </div>
+            <button
+              aria-controls={`${projectId}-unbind-confirmation`}
+              aria-expanded={showUnbindConfirmation}
+              className="min-h-11 rounded-lg border border-rose-300/25 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/10 disabled:opacity-45"
+              disabled={connectionPending || unbinding}
+              onClick={() => setShowUnbindConfirmation((current) => !current)}
+              type="button"
+            >
+              {showUnbindConfirmation ? "收起解绑确认" : "解绑当前账号"}
+            </button>
+          </div>
+
+          {showUnbindConfirmation ? (
+            <div
+              className="mt-3 rounded-lg border border-rose-300/20 bg-rose-300/[0.07] p-3"
+              id={`${projectId}-unbind-confirmation`}
+            >
+              <p className="text-xs font-semibold text-rose-100">再次确认解绑账号</p>
+              <p className="mt-1 text-xs leading-5 text-slate-300">
+                当前账号快照与所有未完成写入审批都会失效。已发出的上游操作不会被撤回。
+              </p>
+              <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-black/15 p-3">
+                <input
+                  checked={revokeOnUnbind}
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-rose-300"
+                  disabled={connectionPending || unbinding}
+                  onChange={(event) => setRevokeOnUnbind(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  <span className="block text-xs font-semibold text-slate-100">
+                    同时撤销此账号绑定的模镜加密凭据
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-400">
+                    只删除模镜内的加密副本，不等于撤销服务商后台的 Token；如需彻底失效，请同时在上游后台撤销。
+                  </span>
+                </span>
+              </label>
+              <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row">
+                <button
+                  className="min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200"
+                  disabled={connectionPending || unbinding}
+                  onClick={() => {
+                    setShowUnbindConfirmation(false);
+                    setRevokeOnUnbind(false);
+                  }}
+                  type="button"
+                >
+                  取消
+                </button>
+                <button
+                  className="min-h-11 rounded-lg bg-rose-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-45"
+                  disabled={unbinding}
+                  onClick={() => void unbindAccount()}
+                  type="button"
+                >
+                  {unbinding ? "正在解绑…" : "确认解绑账号"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
           className="min-h-11 rounded-lg border border-brand-300/35 bg-brand-300/10 px-4 py-2 text-xs font-semibold text-brand-100 transition hover:bg-brand-300/15 disabled:cursor-not-allowed disabled:opacity-45"
@@ -608,7 +905,11 @@ export default function McpCredentialPanel({
           className={`text-xs ${error ? "text-rose-200" : "text-emerald-200"}`}
           role="status"
         >
-          {error || message || (!complete ? "请先创建或选择凭据，并完成必填配置。" : "")}
+          {error || message || (!complete
+            ? isSaas && !tenantConfirmed
+              ? "请完成凭据与必填资源配置，并确认单租户边界。"
+              : "请先创建或选择凭据，并完成必填配置。"
+            : "")}
         </span>
       </div>
     </section>
