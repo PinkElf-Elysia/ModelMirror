@@ -19,6 +19,7 @@ COMMIT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 GIT_OBJECT_ID_PATTERN = re.compile(r"^(?:[a-f0-9]{40}|[a-f0-9]{64})$")
 MAX_COMMIT_MESSAGE_CHARS = 2_000
 MAX_COMMIT_SUBJECT_CHARS = 120
+MAX_COMMIT_BRANCH_CHARS = 200
 
 
 class CommitState(StrEnum):
@@ -56,6 +57,39 @@ def normalize_commit_message(value: str) -> str:
         )
     ):
         raise ValueError("Commit message is outside the allowed scope")
+    return normalized
+
+
+def validate_commit_branch(value: str) -> str:
+    """Validate a branch without invoking repository Git configuration."""
+    if not isinstance(value, str):
+        raise ValueError("Commit branch must be text")
+    normalized = unicodedata.normalize("NFC", value)
+    parts = normalized.split("/")
+    if (
+        not normalized
+        or normalized != value
+        or len(normalized) > MAX_COMMIT_BRANCH_CHARS
+        or normalized in {"@", "HEAD"}
+        or normalized.startswith(("-", "/"))
+        or normalized.endswith((".", "/"))
+        or ".." in normalized
+        or "@{" in normalized
+        or "\\" in normalized
+        or any(
+            not part
+            or part.startswith(".")
+            or part.endswith(".")
+            or part.endswith(".lock")
+            for part in parts
+        )
+        or any(
+            character in " ~^:?*["
+            or unicodedata.category(character).startswith("C")
+            for character in normalized
+        )
+    ):
+        raise ValueError("Commit branch is invalid")
     return normalized
 
 
@@ -105,7 +139,7 @@ class CommitReceipt:
             raise ValueError("Commit object ids are inconsistent")
         if normalize_commit_message(self.message) != self.message:
             raise ValueError("Commit message is not normalized")
-        if self.branch != COMMIT_BRANCH:
+        if validate_commit_branch(self.branch) != self.branch:
             raise ValueError("Commit branch is invalid")
         try:
             safe_files = tuple(
@@ -134,6 +168,7 @@ class CommitReceipt:
         tree_sha: str,
         message: str,
         files: tuple[str, ...],
+        branch: str = COMMIT_BRANCH,
     ) -> CommitReceipt:
         return cls(
             commit_id=secrets.token_urlsafe(18),
@@ -144,6 +179,7 @@ class CommitReceipt:
             tree_sha=tree_sha,
             message=normalize_commit_message(message),
             files=files,
+            branch=validate_commit_branch(branch),
         )
 
     def to_public(self, *, state: CommitState = CommitState.COMMITTED) -> dict[str, object]:
@@ -167,6 +203,7 @@ def not_committed_payload(
     suggested_message: str,
     state: CommitState = CommitState.NOT_COMMITTED,
     reason: str | None = None,
+    branch: str = COMMIT_BRANCH,
 ) -> dict[str, object]:
     if isinstance(revision, bool) or revision < 0:
         raise ValueError("Commit revision is invalid")
@@ -176,7 +213,7 @@ def not_committed_payload(
         "commit_id": None,
         "commit_sha": None,
         "short_sha": None,
-        "branch": COMMIT_BRANCH,
+        "branch": validate_commit_branch(branch),
         "message": None,
         "suggested_message": normalize_commit_message(suggested_message),
         "committed_at": None,

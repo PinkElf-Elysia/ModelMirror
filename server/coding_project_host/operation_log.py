@@ -11,7 +11,6 @@ import re
 import secrets
 import threading
 import time
-import unicodedata
 from dataclasses import asdict, dataclass, replace
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,6 +21,7 @@ from server.coding_runtime.commit_models import (
     COMMIT_ID_PATTERN,
     GIT_OBJECT_ID_PATTERN,
     normalize_commit_message,
+    validate_commit_branch,
 )
 from server.coding_runtime.draft_workspace import DraftPolicyError, DraftWorkspace
 from server.coding_runtime.project_host import OBJECT_ID_PATTERN, PROJECT_ID_PATTERN
@@ -78,9 +78,7 @@ _ALLOWED_TRANSITIONS = frozenset(
         ("prepared", "reverting"),
         ("prepared", "reverted"),
         ("prepared", "committing"),
-        ("prepared", "committed"),
         ("prepared", "undoing"),
-        ("prepared", "undone"),
         ("prepared", "conflict"),
         ("applying", "applied"),
         ("applying", "conflict"),
@@ -119,6 +117,12 @@ class HostOperationRecord:
     created_at: float
     updated_at: float
     patch: str = ""
+    commit_message: str | None = None
+    index_sha256: str | None = None
+    index_before_sha256: str | None = None
+    index_identity: str | None = None
+    index_before_identity: str | None = None
+    reflog_metadata: tuple[str, ...] = ()
     apply_receipt: dict[str, Any] | None = None
     commit_receipt: dict[str, Any] | None = None
     created_directories: tuple[str, ...] = ()
@@ -158,6 +162,12 @@ class HostOperationJournal:
         expected_head: str,
         patch_sha256: str,
         patch: str = "",
+        commit_message: str | None = None,
+        index_sha256: str | None = None,
+        index_before_sha256: str | None = None,
+        index_identity: str | None = None,
+        index_before_identity: str | None = None,
+        reflog_metadata: tuple[str, ...] = (),
         apply_receipt: dict[str, Any] | None = None,
         commit_receipt: dict[str, Any] | None = None,
         created_directories: tuple[str, ...] = (),
@@ -176,6 +186,12 @@ class HostOperationJournal:
             created_at=now,
             updated_at=now,
             patch=patch,
+            commit_message=commit_message,
+            index_sha256=index_sha256,
+            index_before_sha256=index_before_sha256,
+            index_identity=index_identity,
+            index_before_identity=index_before_identity,
+            reflog_metadata=tuple(reflog_metadata),
             apply_receipt=copy.deepcopy(apply_receipt),
             commit_receipt=copy.deepcopy(commit_receipt),
             created_directories=tuple(created_directories),
@@ -217,6 +233,11 @@ class HostOperationJournal:
         *,
         apply_receipt: dict[str, Any] | None = None,
         commit_receipt: dict[str, Any] | None = None,
+        index_sha256: str | None = None,
+        index_before_sha256: str | None = None,
+        index_identity: str | None = None,
+        index_before_identity: str | None = None,
+        reflog_metadata: tuple[str, ...] | None = None,
         created_directories: tuple[str, ...] | None = None,
         file_identities: tuple[str, ...] | None = None,
     ) -> HostOperationRecord:
@@ -228,6 +249,36 @@ class HostOperationJournal:
                 current = records.get(operation_id)
                 if current is None:
                     raise HostOperationLogError("operation_not_found")
+                provided_index_metadata = (
+                    index_sha256 is not None,
+                    index_before_sha256 is not None,
+                    index_identity is not None,
+                    index_before_identity is not None,
+                )
+                if any(provided_index_metadata) and not all(provided_index_metadata):
+                    raise HostOperationLogError("operation_record_invalid")
+                if (
+                    index_sha256 is not None
+                    and current.index_sha256 is not None
+                    and current.index_sha256 != index_sha256
+                ) or (
+                    index_before_sha256 is not None
+                    and current.index_before_sha256 is not None
+                    and current.index_before_sha256 != index_before_sha256
+                ) or (
+                    index_identity is not None
+                    and current.index_identity is not None
+                    and current.index_identity != index_identity
+                ) or (
+                    index_before_identity is not None
+                    and current.index_before_identity is not None
+                    and current.index_before_identity != index_before_identity
+                ) or (
+                    reflog_metadata is not None
+                    and current.reflog_metadata
+                    and current.reflog_metadata != tuple(reflog_metadata)
+                ):
+                    raise HostOperationLogError("operation_conflict")
                 if state not in _ACTION_STATES[current.action]:
                     raise HostOperationLogError("operation_state_invalid")
                 if state == current.state:
@@ -249,6 +300,24 @@ class HostOperationJournal:
                         file_identities is not None
                         and current.file_identities
                         and current.file_identities != file_identities
+                    ) or (
+                        index_sha256 is not None
+                        and current.index_sha256 not in {None, index_sha256}
+                    ) or (
+                        index_before_sha256 is not None
+                        and current.index_before_sha256
+                        not in {None, index_before_sha256}
+                    ) or (
+                        index_identity is not None
+                        and current.index_identity not in {None, index_identity}
+                    ) or (
+                        index_before_identity is not None
+                        and current.index_before_identity
+                        not in {None, index_before_identity}
+                    ) or (
+                        reflog_metadata is not None
+                        and current.reflog_metadata
+                        and current.reflog_metadata != tuple(reflog_metadata)
                     ):
                         raise HostOperationLogError("operation_conflict")
                     if (
@@ -260,6 +329,10 @@ class HostOperationJournal:
                         )
                     ) or (
                         file_identities is not None and not current.file_identities
+                    ) or (
+                        index_sha256 is not None and current.index_sha256 is None
+                    ) or (
+                        reflog_metadata is not None and not current.reflog_metadata
                     ):
                         updated = replace(
                             current,
@@ -273,6 +346,31 @@ class HostOperationJournal:
                                 tuple(file_identities)
                                 if file_identities is not None
                                 else current.file_identities
+                            ),
+                            index_sha256=(
+                                index_sha256
+                                if index_sha256 is not None
+                                else current.index_sha256
+                            ),
+                            index_before_sha256=(
+                                index_before_sha256
+                                if index_before_sha256 is not None
+                                else current.index_before_sha256
+                            ),
+                            index_identity=(
+                                index_identity
+                                if index_identity is not None
+                                else current.index_identity
+                            ),
+                            index_before_identity=(
+                                index_before_identity
+                                if index_before_identity is not None
+                                else current.index_before_identity
+                            ),
+                            reflog_metadata=(
+                                tuple(reflog_metadata)
+                                if reflog_metadata is not None
+                                else current.reflog_metadata
                             ),
                         )
                         _validate_record(updated)
@@ -297,6 +395,31 @@ class HostOperationJournal:
                         copy.deepcopy(commit_receipt)
                         if commit_receipt is not None
                         else current.commit_receipt
+                    ),
+                    index_sha256=(
+                        index_sha256
+                        if index_sha256 is not None
+                        else current.index_sha256
+                    ),
+                    index_before_sha256=(
+                        index_before_sha256
+                        if index_before_sha256 is not None
+                        else current.index_before_sha256
+                    ),
+                    index_identity=(
+                        index_identity
+                        if index_identity is not None
+                        else current.index_identity
+                    ),
+                    index_before_identity=(
+                        index_before_identity
+                        if index_before_identity is not None
+                        else current.index_before_identity
+                    ),
+                    reflog_metadata=(
+                        tuple(reflog_metadata)
+                        if reflog_metadata is not None
+                        else current.reflog_metadata
                     ),
                     created_directories=(
                         tuple(created_directories)
@@ -361,6 +484,11 @@ class HostOperationJournal:
                         **value,
                         "file_identities": tuple(value["file_identities"]),
                     }
+                if "reflog_metadata" in value:
+                    value = {
+                        **value,
+                        "reflog_metadata": tuple(value["reflog_metadata"]),
+                    }
                 record = HostOperationRecord(**value)
                 _validate_record(record)
                 if record.operation_id in records:
@@ -397,8 +525,11 @@ class HostOperationJournal:
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-        protected = self.protector.protect(plaintext)
-        encoded = OPERATION_LOG_MAGIC + base64.b64encode(protected)
+        try:
+            protected = self.protector.protect(plaintext)
+            encoded = OPERATION_LOG_MAGIC + base64.b64encode(protected)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise HostOperationLogError("operation_log_unavailable") from exc
         if len(encoded) > MAX_OPERATION_LOG_BYTES:
             raise HostOperationLogError("operation_log_too_large")
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -408,6 +539,8 @@ class HostOperationJournal:
         try:
             temporary.write_bytes(encoded)
             os.replace(temporary, self.path)
+        except OSError as exc:
+            raise HostOperationLogError("operation_log_unavailable") from exc
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -474,6 +607,9 @@ def _validate_record(record: HostOperationRecord) -> None:
         or not isinstance(record.patch, str)
         or len(record.patch.encode("utf-8")) > MAX_OPERATION_PATCH_BYTES
         or record.state not in _ACTION_STATES[record.action]
+        or not _valid_commit_message(record)
+        or not _valid_index_metadata(record)
+        or not _valid_reflog_metadata(record)
         or not _valid_apply_receipt(record.apply_receipt, record)
         or not _valid_commit_receipt(record.commit_receipt, record)
         or not _valid_created_directories(record.created_directories)
@@ -484,24 +620,101 @@ def _validate_record(record: HostOperationRecord) -> None:
 
 
 def _valid_branch(value: Any) -> bool:
+    try:
+        return validate_commit_branch(value) == value
+    except (TypeError, ValueError):
+        return False
+
+
+def _valid_commit_message(record: HostOperationRecord) -> bool:
+    if record.action != "commit":
+        return record.commit_message is None
+    if not isinstance(record.commit_message, str):
+        return False
+    try:
+        message = normalize_commit_message(record.commit_message)
+    except (TypeError, ValueError):
+        return False
+    if message != record.commit_message:
+        return False
     return bool(
-        isinstance(value, str)
-        and value
-        and value == value.strip()
-        and value == unicodedata.normalize("NFC", value)
-        and len(value) <= 200
-        and not value.startswith(("-", "/"))
-        and not value.endswith((".", "/"))
-        and not value.endswith(".lock")
-        and ".." not in value
-        and "@{" not in value
-        and "//" not in value
-        and "\\" not in value
-        and not any(
-            character in " ~^:?*[" or unicodedata.category(character).startswith("C")
-            for character in value
-        )
+        record.commit_receipt is None
+        or isinstance(record.commit_receipt, dict)
+        and record.commit_receipt.get("message") == record.commit_message
     )
+
+
+def _valid_index_metadata(record: HostOperationRecord) -> bool:
+    sha256 = record.index_sha256
+    before_sha256 = record.index_before_sha256
+    identity = record.index_identity
+    before_identity = record.index_before_identity
+    present_metadata = (
+        sha256 is not None,
+        before_sha256 is not None,
+        identity is not None,
+        before_identity is not None,
+    )
+    if any(present_metadata) and not all(present_metadata):
+        return False
+    present = all(present_metadata)
+    if present:
+        if (
+            not isinstance(sha256, str)
+            or PATCH_SHA256_PATTERN.fullmatch(sha256) is None
+            or not isinstance(before_sha256, str)
+            or PATCH_SHA256_PATTERN.fullmatch(before_sha256) is None
+            or not isinstance(identity, str)
+            or re.fullmatch(r"[a-f0-9]+-[a-f0-9]+", identity) is None
+            or not isinstance(before_identity, str)
+            or re.fullmatch(r"[a-f0-9]+-[a-f0-9]+", before_identity) is None
+        ):
+            return False
+        for value in (identity, before_identity):
+            device_text, inode_text = value.split("-", 1)
+            if int(device_text, 16) == 0 or int(inode_text, 16) == 0:
+                return False
+    if record.action in {"apply", "revert"}:
+        return not present
+    if record.state == "prepared":
+        return not present
+    if record.state in {"committing", "committed", "undoing", "undone"}:
+        return present
+    return record.state == "conflict"
+
+
+def _valid_reflog_metadata(record: HostOperationRecord) -> bool:
+    value = record.reflog_metadata
+    if not isinstance(value, tuple):
+        return False
+    present = bool(value)
+    if present:
+        if len(value) != 2:
+            return False
+        for expected_label, item in zip(("HEAD", "branch"), value, strict=True):
+            if not isinstance(item, str) or not item.startswith(f"{expected_label}:"):
+                return False
+            digest_and_identity = item[len(expected_label) + 1 :]
+            if "@" not in digest_and_identity:
+                return False
+            digest, identity = digest_and_identity.split("@", 1)
+            if (
+                PATCH_SHA256_PATTERN.fullmatch(digest) is None
+                or re.fullmatch(r"[a-f0-9]+-[a-f0-9]+", identity) is None
+            ):
+                return False
+            device_text, inode_text = identity.split("-", 1)
+            if int(device_text, 16) == 0 or int(inode_text, 16) == 0:
+                return False
+    if record.action in {"apply", "revert"}:
+        return not present
+    if record.state == "prepared":
+        # Commit/undo bind the exact reflogs before any Git command. Older
+        # prepared records may still be upgraded in place during recovery.
+        return not present or record.action in {"commit", "undo"}
+    if record.state in {"committing", "committed", "undoing", "undone"}:
+        return present
+    return record.state == "conflict"
 
 
 def _valid_created_directories(value: Any) -> bool:
@@ -719,15 +932,18 @@ def _valid_receipt_requirements(record: HostOperationRecord) -> bool:
     if record.action == "revert":
         return record.apply_receipt is not None and record.commit_receipt is None
     if record.action == "commit":
-        return bool(
-            record.apply_receipt is not None
-            and (
-                record.state == "conflict"
-                or (record.state == "committed")
-                == (record.commit_receipt is not None)
-            )
-        )
-    return record.apply_receipt is not None and record.commit_receipt is not None
+        if record.apply_receipt is None or not record.file_identities:
+            return False
+        if record.state == "prepared":
+            return record.commit_receipt is None
+        if record.state in {"committing", "committed"}:
+            return record.commit_receipt is not None
+        return record.state == "conflict"
+    return bool(
+        record.apply_receipt is not None
+        and record.commit_receipt is not None
+        and record.file_identities
+    )
 
 
 def _same_intent(left: HostOperationRecord, right: HostOperationRecord) -> bool:
@@ -743,6 +959,7 @@ def _same_intent(left: HostOperationRecord, right: HostOperationRecord) -> bool:
             "expected_head",
             "patch_sha256",
             "patch",
+            "commit_message",
         )
         )
         and (
@@ -752,6 +969,26 @@ def _same_intent(left: HostOperationRecord, right: HostOperationRecord) -> bool:
         and (
             right.commit_receipt is None
             or left.commit_receipt == right.commit_receipt
+        )
+        and (
+            right.index_sha256 is None
+            or left.index_sha256 == right.index_sha256
+        )
+        and (
+            right.index_before_sha256 is None
+            or left.index_before_sha256 == right.index_before_sha256
+        )
+        and (
+            right.index_identity is None
+            or left.index_identity == right.index_identity
+        )
+        and (
+            right.index_before_identity is None
+            or left.index_before_identity == right.index_before_identity
+        )
+        and (
+            not right.reflog_metadata
+            or left.reflog_metadata == right.reflog_metadata
         )
         and (
             not right.created_directories
