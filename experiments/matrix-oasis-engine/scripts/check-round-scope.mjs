@@ -8,9 +8,18 @@ import {
 import {
   ACTIVE_ROUND,
   ACTIVE_ROUND_BASELINE_SHA,
+  ROUND_ALLOWED_MODULE_PREFIXES,
+  ROUND_ALLOWED_MODULE_ROOT_FILES,
+  ROUND_FROZEN_MODULE_PATHS,
 } from "./lib/scope-policy.mjs";
 
 const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function sameStringArray(actual, expected) {
+  return Array.isArray(actual) &&
+    actual.length === expected.length &&
+    actual.every((value, index) => value === expected[index]);
+}
 
 try {
   if (process.argv.length !== 2) {
@@ -22,7 +31,19 @@ try {
   );
   if (
     policy.activeRound !== ACTIVE_ROUND ||
-    policy.activeRoundBaselineSha !== ACTIVE_ROUND_BASELINE_SHA
+    policy.activeRoundBaselineSha !== ACTIVE_ROUND_BASELINE_SHA ||
+    !sameStringArray(
+      policy.activeRoundChangePolicy?.allowedModuleRootFiles,
+      ROUND_ALLOWED_MODULE_ROOT_FILES,
+    ) ||
+    !sameStringArray(
+      policy.activeRoundChangePolicy?.allowedModulePrefixes,
+      ROUND_ALLOWED_MODULE_PREFIXES,
+    ) ||
+    !sameStringArray(
+      policy.activeRoundChangePolicy?.frozenModulePaths,
+      ROUND_FROZEN_MODULE_PATHS,
+    )
   ) {
     throw new ParentScopeError("ROUND_SCOPE_POLICY_INVALID");
   }

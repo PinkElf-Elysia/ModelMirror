@@ -27,7 +27,7 @@ function runDoctor(args) {
   });
 }
 
-test("R1 remains ready with a truthful Godot warning", () => {
+test("R2 remains ready with a truthful Godot warning", () => {
   const report = buildDoctorReport(readyRound);
   const godot = report.checks.find((check) => check.id === "godot");
 
