@@ -33,8 +33,21 @@ R0.2 已固定以下 Creator 直接依赖；R1.2 新增的合同 workspace 不�
 | TypeScript | 5.8.3 | Apache-2.0 | 类型检查 |
 | @types/react | 19.2.17 | MIT | React 类型 |
 | @types/react-dom | 19.2.3 | MIT | React DOM 类型 |
+| Ajv | 8.20.0 | MIT | JSON Schema 2020-12 严格结构验证 |
+| jsonc-parser | 3.3.1 | MIT | 严格 JSON 语法树与重复键定位 |
 
-测试与护栏使用 Node 24 内置能力，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。
+测试与护栏仍使用 Node 24 内置 `node:test`，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。Ajv 与 jsonc-parser 仅由模块内验证器 workspace 使用；验证过程无网络、无代码生成落盘、无父仓依赖。
+
+Ajv 8.20.0 的新增传递依赖已按模块 lockfile 盘点：
+
+| 依赖 | 版本 | 许可证 | 来源 |
+| --- | --- | --- | --- |
+| fast-deep-equal | 3.1.3 | MIT | Ajv 间接依赖 |
+| fast-uri | 3.1.5 | BSD-3-Clause | Ajv 间接依赖 |
+| json-schema-traverse | 1.0.0 | MIT | Ajv 间接依赖 |
+| require-from-string | 2.0.2 | MIT | Ajv 间接依赖 |
+
+以上均属于既有许可证准入范围，不新增例外。版本变化时必须重新盘点。
 
 当前 `npm audit` 对 Vite 的间接开发依赖 `esbuild@0.27.7` 报告 1 个 low severity 项（`GHSA-g7r4-m6w7-qqqr`，Windows 开发服务器场景）。R1.1 不自动升级用户锁定的工具链；开发与 preview 只允许绑定 loopback，后续升级前须重新审计和审批。
 

@@ -15,6 +15,8 @@
 - 修改父路由、API、数据库、环境变量、Docker、CI、公共类型或 Matrix Oasis 占位页。
 - 使用模块外 `file:` / `link:` 依赖、绝对本机路径、逃逸相对路径或外部符号链接。
 - 在 Creator 源码中使用 `fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`、环境变量或持久化 API。
+- 让 Pack CLI 接受模块外、绝对、含 `..`、符号链接逃逸或真实扩展名非 `.json` 的输入；CLI 只读不超过 1 MiB 的模块内 UTF-8 JSON。
+- 在验证报告中回显 Pack 值、任意未知键名、Ajv 参数、文件绝对路径、底层异常或堆栈。
 - 跟踪 `.env`、密钥、日志、`node_modules`、`dist`、coverage、缓存、Godot 生成物或导出物。
 
 ## 父项目工具箱策略
@@ -31,6 +33,8 @@
 - import、路径、依赖、网络、密钥和生成物护栏；
 - 正向 fixture，以及 client/server 逃逸、外部依赖、外部符号链接、跨平台绝对路径、Creator 网络、密钥、环境文件和跟踪生成物负向 fixtures；
 - 稳定的 `npm run verify` 聚合门。
+
+Pack Validator 自身无文件、网络或环境访问；模块根 CLI 是唯一文件入口，并同时执行词法 containment、realpath containment、真实扩展名、文件类型、读前/读后大小与 fatal UTF-8 检查。内容诊断退出 1，路径或工具故障退出 2；机器 JSON 模式只输出白名单化报告字段。
 
 文档允许出现父路径作为规则说明；扫描器只把可执行源码、manifest 和配置视为运行依赖证据。
 

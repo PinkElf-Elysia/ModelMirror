@@ -21,9 +21,17 @@ R1 书面语义固定为：`when` 读取 action 前状态；effects 按数组顺
 
 ## Schema 与语义验证边界
 
-Schema 负责必填字段、精确 tag、类型、闭合对象、ID 字面格式、安全整数和结构预算。后续同轮验证器负责集合唯一性、引用存在性、变量类型一致性、enum 初值、条件深度与图可达性；验证器不得填默认值、强制类型或删除字段。
+Schema 负责必填字段、精确 tag、类型、闭合对象、ID 字面格式、安全整数和结构预算。验证器负责 entities、variables、cues、nodes、endings 之间的顶层 ID 全局唯一、节点内 action ID 唯一、引用存在性、变量类型一致性、enum 初值、条件深度与图可达性；验证器不得填默认值、强制类型或删除字段。
 
-静态图允许显式循环，但入口必须存在、所有节点必须可达，且每个入口可达节点都必须在忽略条件时存在通往某个 ending 的路径。R1 不证明条件可满足性或游戏必然终止。
+condition 根深度记为 1，最大允许 16。静态图允许显式循环，但入口必须存在、所有节点必须可达，且每个入口可达节点都必须在忽略条件时存在通往某个 ending 的路径。R1 不证明条件可满足性或游戏必然终止。
+
+严格 JSON 或 Schema 任一诊断会阻断全部语义分析。图分析只在 node/ending ID 无冲突、入口存在且所有 typed target 有效后运行；不可达节点不会再叠加“无 ending 路径”诊断，以控制级联噪声。
+
+## 验证接口
+
+`@matrix-oasis/game-pack-validator` 提供内存值与严格 JSON 文本两个只读入口。二者返回 `{ reportVersion: 1, valid, diagnostics }`，不返回、修改或补全输入 Pack。诊断按 parse、schema、semantic 阶段稳定排序，使用安全 JSON Pointer 定位，并只包含静态消息；未知键名、输入值、Ajv 参数、本机路径与异常细节不会进入报告。
+
+模块根 CLI `npm.cmd run --silent validate:pack -- <relative.json> --json` 只接受模块内真实 `.json` 文件，大小上限 1 MiB。退出码 0 表示合法、1 表示内容被确定性拒绝、2 表示工具或路径故障；它不执行 Pack 中的条件或效果。
 
 ## 明确排除
 
