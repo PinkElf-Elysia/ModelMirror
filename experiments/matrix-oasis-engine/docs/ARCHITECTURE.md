@@ -1,7 +1,7 @@
 # 架构方向
 
 最后更新：2026-08-07
-状态：R1 合同与验证器轮次（R1.3 确定性验证器）
+状态：R1 合同与验证器轮次（R1.4 验收夹具）
 
 ## 当前系统
 
@@ -35,7 +35,7 @@ Immutable Runtime Pack
 Godot Runtime
 ```
 
-R1.2 已把 Authoring Game Pack 0.1.0 固定为内部稳定合同，R1.3 以 JSON Schema 2020-12 和案例无关语义规则实现 Validator。CLI 只读取模块内相对 JSON 文件，不修复、不执行也不持久化 Pack。后续批次只加入验收夹具；Compiler、Runtime Pack、AI 提案和 Godot 通信仍不在本轮定义。
+R1.2 已把 Authoring Game Pack 0.1.0 固定为内部稳定合同，R1.3 以 JSON Schema 2020-12 和案例无关语义规则实现 Validator。CLI 只读取模块内相对 JSON 文件，不修复、不执行也不持久化 Pack。R1.4 的中性夹具是机制测试权威，“末班地铁”只是可替换集成夹具；Compiler、Runtime Pack、AI 提案和 Godot 通信仍不在本轮定义。
 
 ## 独立模块原则
 

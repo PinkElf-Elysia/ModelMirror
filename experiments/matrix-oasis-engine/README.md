@@ -7,7 +7,7 @@
 - R1.1 将机器策略升级为固定轮次基线，并冻结 R0 Creator 空壳。
 - R1.2 提供案例无关的 Authoring Game Pack 0.1.0 权威 Schema 与只读合同导出。
 - R1.3 提供确定性、无副作用的严格 JSON 验证器与模块相对路径 CLI。
-- 后续批次只允许加入单 JSON 验收样例与负向诊断测试。
+- R1.4 提供题材中性的机制权威夹具、可替换的“末班地铁”薄型集成夹具和负向诊断测试。
 - 样例用于验证合同与后续可视化链路，不得驱动案例专属引擎设计或叙事打磨。
 - Godot 4.6.x 仍是未来可选工具，不是 R1 前置条件。
 
@@ -51,6 +51,8 @@ npm.cmd run check:boundary
 npm.cmd run check:round-scope
 npm.cmd run test:contracts
 npm.cmd run test:pack
+npm.cmd run validate:examples
+npm.cmd run test:examples
 npm.cmd run verify:pack
 npm.cmd test
 npm.cmd run verify
@@ -62,7 +64,7 @@ npm.cmd run verify
 npm.cmd run --silent validate:pack -- examples/mechanics-conformance.authoring-game-pack.json --json
 ```
 
-CLI 对合法内容返回 0、内容无效返回 1、工具或路径错误返回 2。`--json` 模式只向 stdout 输出一行稳定报告；R1.4 才会加入上述示例文件。
+CLI 对合法内容返回 0、内容无效返回 1、工具或路径错误返回 2。`--json` 模式只向 stdout 输出一行稳定报告。两个示例都只是合同、诊断与未来只读可视化的验收夹具，不是产品剧情或最终物料。
 
 其中带 `--silent` 的 doctor 命令是机器可解析入口：其标准输出只包含一个 JSON 文档，不带 npm 生命周期前缀。普通 `npm.cmd run doctor` 保留为供人工阅读的诊断输出。
 

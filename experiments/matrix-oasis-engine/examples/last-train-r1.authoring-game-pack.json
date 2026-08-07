@@ -1,0 +1,532 @@
+{
+  "format": "matrix-oasis.authoring-game-pack",
+  "formatVersion": "0.1.0",
+  "id": "last-train-r1-fixture",
+  "contentVersion": "fixture-1",
+  "language": "zh-CN",
+  "title": "末班地铁：回声十三站",
+  "summary": "银环线末班车停在不存在于线路图上的回声十三站，三名乘客给出了互不相同的离站方向。",
+  "entryNodeId": "node-carriage",
+  "entities": [
+    {
+      "id": "space-carriage",
+      "label": "末班车厢",
+      "description": "灯光稳定但窗外没有可辨认的站台。"
+    },
+    {
+      "id": "space-platform",
+      "label": "回声十三站站台",
+      "description": "一段封闭短站台，站名只在列车停下后出现。"
+    },
+    {
+      "id": "person-student",
+      "label": "背包学生",
+      "description": "坚持列车应该原路返回。"
+    },
+    {
+      "id": "person-nurse",
+      "label": "夜班护士",
+      "description": "认为出口藏在站台尽头。"
+    },
+    {
+      "id": "person-commuter",
+      "label": "沉默通勤者",
+      "description": "声称这座车站每天都会出现。"
+    },
+    {
+      "id": "object-route-map",
+      "label": "银环线路图",
+      "description": "终点之后留有一道没有名称的空格。"
+    },
+    {
+      "id": "object-paper-ticket",
+      "label": "褪色车票",
+      "description": "日期是今天，终点栏却印着十三。"
+    },
+    {
+      "id": "object-station-clock",
+      "label": "停摆时钟",
+      "description": "秒针每次走到十三都会回退一格。"
+    }
+  ],
+  "variables": [
+    {
+      "id": "map-inspected",
+      "type": "boolean",
+      "initial": false
+    },
+    {
+      "id": "memory-shifts",
+      "type": "integer",
+      "initial": 0
+    },
+    {
+      "id": "trusted-version",
+      "type": "enum",
+      "allowedValues": [
+        "undecided",
+        "student",
+        "nurse",
+        "commuter"
+      ],
+      "initial": "undecided"
+    }
+  ],
+  "cues": [
+    {
+      "id": "cue-arrival",
+      "channel": "audio",
+      "intent": "提示列车抵达一个未在线路图登记的车站。"
+    },
+    {
+      "id": "cue-memory-shift",
+      "channel": "visual",
+      "intent": "提示玩家采信某个版本后环境叙述发生变化。"
+    },
+    {
+      "id": "cue-final-choice",
+      "channel": "ui",
+      "intent": "提示当前选择将结束这次短流程。"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-carriage",
+      "title": "列车停下",
+      "text": "广播报出回声十三站。三名乘客同时抬头，线路图上却只有一处空格。",
+      "entityIds": [
+        "space-carriage",
+        "person-student",
+        "person-nurse",
+        "person-commuter",
+        "object-route-map",
+        "object-station-clock"
+      ],
+      "entryCueIds": [
+        "cue-arrival"
+      ],
+      "actions": [
+        {
+          "id": "inspect-map",
+          "label": "检查线路图",
+          "entityIds": [
+            "object-route-map"
+          ],
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "map-inspected",
+              "value": true
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-map"
+          }
+        },
+        {
+          "id": "ask-student",
+          "label": "询问背包学生",
+          "entityIds": [
+            "person-student"
+          ],
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-student"
+          }
+        },
+        {
+          "id": "ask-nurse",
+          "label": "询问夜班护士",
+          "entityIds": [
+            "person-nurse"
+          ],
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-nurse"
+          }
+        },
+        {
+          "id": "ask-commuter",
+          "label": "询问沉默通勤者",
+          "entityIds": [
+            "person-commuter"
+          ],
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-commuter"
+          }
+        },
+        {
+          "id": "step-out",
+          "label": "直接走上站台",
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-platform"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-map",
+      "title": "线路图的空格",
+      "text": "车票上的十三与线路图终点后的空格重合，停摆时钟发出一次轻响。",
+      "entityIds": [
+        "space-carriage",
+        "object-route-map",
+        "object-paper-ticket",
+        "object-station-clock"
+      ],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "compare-ticket",
+          "label": "把车票与空格对照",
+          "entityIds": [
+            "object-paper-ticket",
+            "object-route-map"
+          ],
+          "when": {
+            "op": "eq",
+            "variableId": "map-inspected",
+            "value": true
+          },
+          "effects": [
+            {
+              "op": "add",
+              "variableId": "memory-shifts",
+              "value": 1
+            },
+            {
+              "op": "emitCue",
+              "cueId": "cue-memory-shift"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-platform"
+          }
+        },
+        {
+          "id": "return-carriage",
+          "label": "回到车厢中央",
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-carriage"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-student",
+      "title": "学生的方向",
+      "text": "学生说，只要留在车上，列车就会沿原路返回。",
+      "entityIds": [
+        "space-carriage",
+        "person-student",
+        "object-paper-ticket"
+      ],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "trust-student",
+          "label": "暂时采信学生",
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "trusted-version",
+              "value": "student"
+            },
+            {
+              "op": "add",
+              "variableId": "memory-shifts",
+              "value": 1
+            },
+            {
+              "op": "emitCue",
+              "cueId": "cue-memory-shift"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-platform"
+          }
+        },
+        {
+          "id": "compare-nurse",
+          "label": "再听护士的说法",
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-nurse"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-nurse",
+      "title": "护士的方向",
+      "text": "护士说，站台尽头有一扇只在末班车停靠时开启的门。",
+      "entityIds": [
+        "space-carriage",
+        "person-nurse",
+        "object-station-clock"
+      ],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "trust-nurse",
+          "label": "暂时采信护士",
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "trusted-version",
+              "value": "nurse"
+            },
+            {
+              "op": "add",
+              "variableId": "memory-shifts",
+              "value": 1
+            },
+            {
+              "op": "emitCue",
+              "cueId": "cue-memory-shift"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-platform"
+          }
+        },
+        {
+          "id": "compare-commuter",
+          "label": "再听通勤者的说法",
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-commuter"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-commuter",
+      "title": "通勤者的方向",
+      "text": "通勤者说，车与站都不会离开，改变的只是乘客记住的终点。",
+      "entityIds": [
+        "space-carriage",
+        "person-commuter",
+        "object-route-map"
+      ],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "trust-commuter",
+          "label": "暂时采信通勤者",
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "trusted-version",
+              "value": "commuter"
+            },
+            {
+              "op": "add",
+              "variableId": "memory-shifts",
+              "value": 1
+            },
+            {
+              "op": "emitCue",
+              "cueId": "cue-memory-shift"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-platform"
+          }
+        },
+        {
+          "id": "inspect-map-afterward",
+          "label": "回头检查线路图",
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "map-inspected",
+              "value": true
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-map"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-platform",
+      "title": "回声十三站",
+      "text": "车门保持开启。站名、时钟和线路图在三个版本之间短暂重合。",
+      "entityIds": [
+        "space-platform",
+        "object-route-map",
+        "object-station-clock"
+      ],
+      "entryCueIds": [
+        "cue-arrival"
+      ],
+      "actions": [
+        {
+          "id": "compare-versions",
+          "label": "比较线路图与采信的版本",
+          "when": {
+            "op": "all",
+            "conditions": [
+              {
+                "op": "eq",
+                "variableId": "map-inspected",
+                "value": true
+              },
+              {
+                "op": "ne",
+                "variableId": "trusted-version",
+                "value": "undecided"
+              }
+            ]
+          },
+          "effects": [
+            {
+              "op": "emitCue",
+              "cueId": "cue-final-choice"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-decision"
+          }
+        },
+        {
+          "id": "follow-platform-light",
+          "label": "沿站台灯光前行",
+          "effects": [
+            {
+              "op": "emitCue",
+              "cueId": "cue-final-choice"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-decision"
+          }
+        },
+        {
+          "id": "trust-announcement",
+          "label": "相信重复广播",
+          "when": {
+            "op": "gte",
+            "variableId": "memory-shifts",
+            "value": 1
+          },
+          "effects": [],
+          "target": {
+            "kind": "ending",
+            "id": "ending-loop"
+          }
+        },
+        {
+          "id": "return-to-carriage",
+          "label": "退回车厢",
+          "effects": [],
+          "target": {
+            "kind": "node",
+            "id": "node-carriage"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-decision",
+      "title": "选择一个终点",
+      "text": "车门即将关闭。你只能让一个版本随列车离开，或把它们都留在站内。",
+      "entityIds": [
+        "space-platform",
+        "person-student",
+        "person-nurse",
+        "person-commuter",
+        "object-paper-ticket"
+      ],
+      "entryCueIds": [
+        "cue-final-choice"
+      ],
+      "actions": [
+        {
+          "id": "choose-return",
+          "label": "带着采信的版本返回",
+          "when": {
+            "op": "ne",
+            "variableId": "trusted-version",
+            "value": "undecided"
+          },
+          "effects": [],
+          "target": {
+            "kind": "ending",
+            "id": "ending-return"
+          }
+        },
+        {
+          "id": "choose-stay",
+          "label": "留在站台核对空格",
+          "effects": [],
+          "target": {
+            "kind": "ending",
+            "id": "ending-stay"
+          }
+        },
+        {
+          "id": "choose-none",
+          "label": "拒绝采信任何版本",
+          "when": {
+            "op": "eq",
+            "variableId": "trusted-version",
+            "value": "undecided"
+          },
+          "effects": [],
+          "target": {
+            "kind": "ending",
+            "id": "ending-loop"
+          }
+        }
+      ]
+    }
+  ],
+  "endings": [
+    {
+      "id": "ending-return",
+      "title": "带回一个版本",
+      "text": "列车重新启动。线路图补上一个终点，另外两个版本从广播中消失。",
+      "cueIds": [
+        "cue-final-choice"
+      ]
+    },
+    {
+      "id": "ending-stay",
+      "title": "留在空格里",
+      "text": "车门关闭后，站台时钟继续前进，而银环线从地图上少了一格。",
+      "cueIds": [
+        "cue-memory-shift",
+        "cue-final-choice"
+      ]
+    },
+    {
+      "id": "ending-loop",
+      "title": "再次抵达十三站",
+      "text": "广播重新报站。车厢、乘客与未命名的空格恢复到最初的位置。",
+      "cueIds": [
+        "cue-arrival"
+      ]
+    }
+  ]
+}

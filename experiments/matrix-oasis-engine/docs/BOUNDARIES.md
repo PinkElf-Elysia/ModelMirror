@@ -38,7 +38,7 @@ Pack Validator 自身无文件、网络或环境访问；模块根 CLI 是唯一
 
 文档允许出现父路径作为规则说明；扫描器只把可执行源码、manifest 和配置视为运行依赖证据。
 
-`npm run verify` 的固定顺序为：doctor → R1 范围 → 当前模块边界 → Node 测试 → Creator 构建 → Creator loopback 冒烟。普通 doctor 中 Godot 4.6.x 是 warning；`npm run doctor:godot` 才是后续轮次的严格非零检查。
+`npm run verify` 的固定顺序为：doctor → R1 范围 → 当前模块边界 → Pack 样例验证 → Node 测试 → Creator 构建 → Creator loopback 冒烟。普通 doctor 中 Godot 4.6.x 是 warning；`npm run doctor:godot` 才是后续轮次的严格非零检查。
 
 `npm run verify:extraction` 不属于 `verify`，因此不会递归。它从干净 HEAD 创建本地 clone，通过 `git subtree split` 保留模块历史，再在独立仓库根执行相同验证；临时仓库、archive 和详细日志始终位于仓外临时目录。
 

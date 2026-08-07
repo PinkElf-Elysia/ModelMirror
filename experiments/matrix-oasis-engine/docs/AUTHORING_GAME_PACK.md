@@ -38,3 +38,5 @@ condition 根深度记为 1，最大允许 16。静态图允许显式循环，�
 R1 不定义 Compiler、Runtime Pack、Domain Patch、存档、回放、计时、随机、并发、AI、NPC 认知、RAG、MCP、多文件 include、本地化资源、资产绑定、Godot 协议或 Creator 编辑能力。
 
 测试样例只是合同与诊断夹具。更换题材不得要求 Schema、验证器或公共错误码增加专属概念。
+
+R1.4 用 `mechanics-conformance` 覆盖全部冻结操作符并作为通用回归权威；`last-train-r1` 只证明同一合同可表达一段薄型叙事图并服务未来可视化验收。核心合同与验证器测试不得导入后者，替换其题材只能影响样例专属验收。
