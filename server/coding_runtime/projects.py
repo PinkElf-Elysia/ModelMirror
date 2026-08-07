@@ -74,6 +74,7 @@ _SNAPSHOT_HIDDEN_NAMES = frozenset(
 class ProjectKind(StrEnum):
     BUILTIN = "builtin"
     LOCAL_CLONE = "local_clone"
+    HOST_GIT = "host_git"
 
 
 class ProjectState(StrEnum):
@@ -112,6 +113,20 @@ class ProjectFeatures:
             download=True,
             recovery=True,
             verification=False,
+            apply=writeback,
+            commit=writeback,
+            publish=False,
+        )
+
+    @classmethod
+    def host_git(cls, *, writeback: bool = False) -> ProjectFeatures:
+        return cls(
+            chat=True,
+            draft=True,
+            diff=True,
+            download=True,
+            recovery=True,
+            verification=True,
             apply=writeback,
             commit=writeback,
             publish=False,

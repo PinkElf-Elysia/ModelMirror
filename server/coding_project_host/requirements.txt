@@ -1,0 +1,2 @@
+websockets==16.0
+pyinstaller==6.14.1

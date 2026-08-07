@@ -12,14 +12,16 @@ RUN apt-get update \
     && groupadd --gid 65532 projectsource \
     && useradd --uid 65532 --gid 65532 --home-dir /home/projectsource --no-create-home projectsource \
     && mkdir -p /opt/modelmirror/server/coding_runtime /opt/modelmirror/server/coding_project_source \
-        /home/projectsource /projects-root /snapshot-slot /run/modelmirror-coding-projects \
-    && chown -R projectsource:projectsource /home/projectsource /snapshot-slot \
+        /home/projectsource /projects-root /project-uploads /snapshot-slot /run/modelmirror-coding-projects \
+    && chown -R projectsource:projectsource /home/projectsource /project-uploads /snapshot-slot \
         /run/modelmirror-coding-projects
 
 WORKDIR /opt/modelmirror
 
 COPY server/coding_runtime/projects.py ./server/coding_runtime/projects.py
 COPY server/coding_runtime/commands.py ./server/coding_runtime/commands.py
+COPY server/coding_runtime/project_host.py ./server/coding_runtime/project_host.py
+COPY server/coding_runtime/host_snapshot.py ./server/coding_runtime/host_snapshot.py
 COPY server/coding_project_source/server.py ./server/coding_project_source/server.py
 
 RUN test "$(id -u projectsource)" = "65532" \

@@ -11,7 +11,42 @@ export type CodingEventType =
   | "cancelled"
   | "heartbeat";
 
-export type CodingProjectKind = "builtin" | "local_clone";
+export type CodingProjectKind = "builtin" | "local_clone" | "host_git";
+
+export interface CodingProjectHostCapability {
+  available: boolean;
+  direct_writeback: false;
+  enabled: boolean;
+  paired: boolean;
+  platform: "windows";
+  reason?: string;
+  remembers_projects: true;
+  selection: true;
+}
+
+export interface CodingProjectHostStatus {
+  available: boolean;
+  host_id: string | null;
+  name: string | null;
+  paired: boolean;
+  platform: "windows";
+  version: string | null;
+}
+
+export interface CodingProjectHostPairing {
+  expires_at: number;
+  pairing_code: string;
+  pairing_id: string;
+  single_use: true;
+}
+
+export interface CodingProjectSelection {
+  error: string | null;
+  expires_at: number;
+  project_id: string | null;
+  request_id: string;
+  status: "pending" | "dispatched" | "completed" | "failed" | "expired";
+}
 
 export interface CodingProjectFeatures {
   apply: boolean;
@@ -64,6 +99,7 @@ export interface CodingCapabilities {
     max_patch_bytes?: number;
   };
   mode: "readonly" | "draft";
+  project_host?: CodingProjectHostCapability;
   projects: CodingProjectsStatus;
   project_writeback?: {
     available: boolean;

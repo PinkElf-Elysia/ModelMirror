@@ -9,6 +9,9 @@ import type {
   CodingEvent,
   CodingPatchDownload,
   CodingProjectsResponse,
+  CodingProjectHostPairing,
+  CodingProjectHostStatus,
+  CodingProjectSelection,
   CodingProjectSummary,
   CodingPublishResult,
   CodingRecoveryResumeResponse,
@@ -82,6 +85,58 @@ export function getCodingCapabilities() {
 
 export function getCodingProjects() {
   return requestJson<CodingProjectsResponse>("/api/coding/projects");
+}
+
+export function getCodingProjectHost() {
+  return requestJson<CodingProjectHostStatus>("/api/coding/project-host");
+}
+
+export function createCodingProjectHostPairing() {
+  return requestJson<CodingProjectHostPairing>(
+    "/api/coding/project-host/pairings",
+    { method: "POST", body: "{}" },
+  );
+}
+
+export function reconnectCodingProjectHost() {
+  return requestJson<CodingProjectHostStatus>(
+    "/api/coding/project-host/reconnect",
+    { method: "POST" },
+  );
+}
+
+export function revokeCodingProjectHost(hostId: string) {
+  return requestJson<{ revoked: true }>(
+    `/api/coding/project-host/${encodeURIComponent(hostId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function createCodingProjectSelection() {
+  return requestJson<CodingProjectSelection>(
+    "/api/coding/projects/selections",
+    { method: "POST" },
+  );
+}
+
+export function getCodingProjectSelection(requestId: string) {
+  return requestJson<CodingProjectSelection>(
+    `/api/coding/projects/selections/${encodeURIComponent(requestId)}`,
+  );
+}
+
+export function renameCodingProject(projectId: string, name: string) {
+  return requestJson<CodingProjectSummary>(
+    `/api/coding/projects/${encodeURIComponent(projectId)}`,
+    { method: "PATCH", body: JSON.stringify({ name }) },
+  );
+}
+
+export function removeCodingProject(projectId: string) {
+  return requestJson<{ removed: true }>(
+    `/api/coding/projects/${encodeURIComponent(projectId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function createCodingSession(projectId = "modelmirror") {

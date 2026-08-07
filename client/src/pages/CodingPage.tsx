@@ -25,6 +25,7 @@ import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import CodingChangesPanel from "../components/CodingChangesPanel";
 import CodingHistoryPanel from "../components/CodingHistoryPanel";
+import CodingProjectHostPanel from "../components/CodingProjectHostPanel";
 import CodingRecoveryCard, {
   type CodingRecoveryAction,
 } from "../components/CodingRecoveryCard";
@@ -98,7 +99,7 @@ interface StoredCodingSession {
 
 const CODING_SESSION_STORAGE_KEY = "modelmirror.coding.session.v1";
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
-const SAFE_PROJECT_ID = /^(?:modelmirror|local-[a-f0-9]{24})$/;
+const SAFE_PROJECT_ID = /^(?:modelmirror|local-[a-f0-9]{24}|hostgit_[a-f0-9]{32})$/;
 const STREAM_RENDER_INTERVAL_MS = 80;
 const BUILTIN_PROJECT: CodingProjectSummary = {
   branch: null,
@@ -214,6 +215,14 @@ const errorMessage: Record<string, string> = {
   project_not_found: "这个项目已不在可选列表中，请重新选择。",
   project_operation_unavailable:
     "此项目当前只支持准备和下载修改草稿，不提供项目验证或写入。",
+  project_host_offline:
+    "本地项目助手连接已断开，请在“连接本地项目助手”区域重新连接后再试。",
+  project_host_unavailable:
+    "本地项目助手当前不可用，请重新打开助手并恢复连接后再试。",
+  project_host_snapshot_timeout:
+    "等待本地项目助手读取项目的时间过长，请确认助手在线后重试。",
+  snapshot_upload_failed:
+    "本地项目内容未能传入临时工作区，请确认助手在线后重试。",
   project_writer_not_configured:
     "本地项目写入尚未配置，当前修改仍可查看和下载。",
   project_writer_timeout:
@@ -495,7 +504,8 @@ export default function CodingPage() {
     projects.find((project) => project.id === selectedProjectId) ??
     (recovery?.project?.id === selectedProjectId ? recovery.project : null) ??
     (selectedProjectId === "modelmirror" ? BUILTIN_PROJECT : null);
-  const isLocalProject = selectedProject?.kind === "local_clone";
+  const isLocalProject =
+    selectedProject?.kind === "local_clone" || selectedProject?.kind === "host_git";
   const supportsVerification = selectedProject?.features.verification !== false;
   const supportsCommands = selectedProject?.features.commands === true;
   const supportsApply = selectedProject?.features.apply !== false;
@@ -737,6 +747,19 @@ export default function CodingPage() {
       setCapabilityState("error");
     }
   }, [loadRecovery]);
+
+  const refreshProjectCatalog = useCallback(
+    async (preferredProjectId?: string) => {
+      await loadCapabilities();
+      if (preferredProjectId) {
+        setSelectedProjectId(preferredProjectId);
+        setError("");
+        setDraftError("");
+        setDraftNotice("");
+      }
+    },
+    [loadCapabilities],
+  );
 
   useEffect(() => {
     void loadCapabilities();
@@ -2010,6 +2033,12 @@ export default function CodingPage() {
                   "本地项目列表暂时不可用，仍可选择 ModelMirror。"}
               </p>
             ) : null}
+            <CodingProjectHostPanel
+              capability={capabilities?.project_host}
+              locked={projectSelectionLocked}
+              onProjectsChanged={refreshProjectCatalog}
+              selectedProject={selectedProject}
+            />
           </div>
         </div>
       </section>

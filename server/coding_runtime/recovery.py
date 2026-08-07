@@ -99,6 +99,7 @@ class RecoveryProjectContext:
     kind: ProjectKind
     name: str
     head: str | None = None
+    branch: str | None = None
 
     def __post_init__(self) -> None:
         if SAFE_RECOVERY_ID.fullmatch(self.recovery_id) is None:
@@ -116,7 +117,11 @@ class RecoveryProjectContext:
         ):
             raise ValueError("Recovery project context is invalid")
         if self.kind is ProjectKind.BUILTIN:
-            if self.project_id != "modelmirror" or self.head is not None:
+            if (
+                self.project_id != "modelmirror"
+                or self.head is not None
+                or self.branch is not None
+            ):
                 raise ValueError("Builtin recovery project context is invalid")
         elif self.kind is ProjectKind.LOCAL_CLONE:
             if (
@@ -125,6 +130,18 @@ class RecoveryProjectContext:
                 or re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", self.head) is None
             ):
                 raise ValueError("Local recovery project context is invalid")
+        elif self.kind is ProjectKind.HOST_GIT:
+            if (
+                re.fullmatch(r"hostgit_[a-f0-9]{32}", self.project_id) is None
+                or self.head is None
+                or re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", self.head) is None
+                or not isinstance(self.branch, str)
+                or not self.branch
+                or self.branch != self.branch.strip()
+                or len(self.branch) > 200
+                or any(ord(character) < 32 or ord(character) == 127 for character in self.branch)
+            ):
+                raise ValueError("Host recovery project context is invalid")
         else:
             raise ValueError("Recovery project kind is invalid")
 
@@ -144,16 +161,15 @@ class RecoveryProjectContext:
             "kind": self.kind.value,
             "name": self.name,
             "head": self.head,
+            "branch": self.branch,
         }
 
     @classmethod
     def from_dict(cls, value: Any) -> RecoveryProjectContext:
-        if not isinstance(value, dict) or set(value) != {
-            "recovery_id",
-            "project_id",
-            "kind",
-            "name",
-            "head",
+        legacy_keys = {"recovery_id", "project_id", "kind", "name", "head"}
+        if not isinstance(value, dict) or frozenset(value) not in {
+            frozenset(legacy_keys),
+            frozenset({*legacy_keys, "branch"}),
         }:
             raise CodingRecoveryError(
                 "Recovery project context is invalid.",
@@ -166,6 +182,7 @@ class RecoveryProjectContext:
                 kind=ProjectKind(value["kind"]),
                 name=value["name"],
                 head=value["head"],
+                branch=value.get("branch"),
             )
         except (TypeError, ValueError) as exc:
             raise CodingRecoveryError(
@@ -177,7 +194,11 @@ class RecoveryProjectContext:
         features = (
             ProjectFeatures.builtin()
             if self.kind is ProjectKind.BUILTIN
-            else ProjectFeatures.local_draft()
+            else (
+                ProjectFeatures.host_git()
+                if self.kind is ProjectKind.HOST_GIT
+                else ProjectFeatures.local_draft()
+            )
         )
         return {
             "id": self.project_id,
@@ -185,7 +206,7 @@ class RecoveryProjectContext:
             "kind": self.kind.value,
             "state": "available",
             "reason": None,
-            "branch": None,
+            "branch": self.branch,
             "head": self.head[:12] if self.head else None,
             "features": features.to_dict(),
         }

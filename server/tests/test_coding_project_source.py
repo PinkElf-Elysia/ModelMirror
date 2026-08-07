@@ -270,5 +270,6 @@ def test_project_source_compose_isolates_root_socket_and_snapshot() -> None:
     }
     assert "apt-get install --yes --no-install-recommends git" in dockerfile
     assert "COPY server/coding_runtime/commands.py" in dockerfile
+    assert "COPY server/coding_runtime/project_host.py" in dockerfile
     assert "USER 65532:65532" in dockerfile
     assert 'CMD ["python", "-m", "server.coding_project_source.server"]' in dockerfile

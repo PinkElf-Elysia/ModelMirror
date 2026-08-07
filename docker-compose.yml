@@ -386,6 +386,9 @@ services:
     depends_on:
       new-api:
         condition: service_healthy
+    env_file:
+      - path: ${MODELMIRROR_DATA_ROOT:-.}/server/.env
+        required: false
     networks:
       - coding_internal
     user: "65532:65532"
@@ -406,7 +409,6 @@ services:
       CODING_VERIFIER_SOCKET_PATH: /run/modelmirror-coding/verifier.sock
       CODING_AGENT_MODE: ${CODING_AGENT_MODE:-readonly}
       CODING_AGENT_MODEL: ${CODING_AGENT_MODEL:-}
-      CODING_AGENT_GATEWAY_KEY: ${CODING_AGENT_GATEWAY_KEY:-}
       CODING_FILE_OPERATIONS_ENABLED: ${CODING_FILE_OPERATIONS_ENABLED:-true}
     volumes:
       - coding_socket:/run/modelmirror-coding
