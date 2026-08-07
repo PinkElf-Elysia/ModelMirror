@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "matrix-oasis-engine",
+  "moduleRoot": ".",
+  "moduleRootResolution": "directory-containing-module-boundary",
+  "parentRepositoryPrefix": "experiments/matrix-oasis-engine/",
+  "parentIntegration": "none",
+  "allowedParentInteractions": [],
+  "networkPolicy": {
+    "creatorSource": "none",
+    "verificationScripts": "loopback-only"
+  },
+  "forbiddenParentRoots": [
+    "client",
+    "server",
+    ".github",
+    "docker-compose.yml",
+    "Dockerfile",
+    "node_modules"
+  ],
+  "dependencyPolicy": {
+    "moduleLocalWorkspacesOnly": true,
+    "forbidExternalFileLinks": true,
+    "forbiddenExternalProtocols": [
+      "file:",
+      "link:"
+    ]
+  },
+  "pathPolicy": {
+    "forbidExternalSymlinks": true,
+    "forbidAbsolutePaths": true,
+    "forbidParentTraversal": true,
+    "forbidResolvedPathsOutsideModule": true
+  },
+  "forbiddenParentResources": [
+    "source",
+    "environment-variables",
+    "database",
+    "docker",
+    "routes",
+    "assets",
+    "build-output"
+  ],
+  "toolchain": {
+    "requiredForR0": {
+      "node": "24.x",
+      "npm": "11.x",
+      "git": "available"
+    },
+    "optionalForFutureRounds": {
+      "godot": "4.6.x"
+    }
+  },
+  "generatedPaths": [
+    "node_modules",
+    "dist",
+    "coverage",
+    ".vite",
+    ".godot",
+    "exports"
+  ],
+  "forbiddenTrackedFileNames": [
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production"
+  ],
+  "forbiddenTrackedExtensions": [
+    ".log",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx"
+  ],
+  "licensePolicy": {
+    "moduleLicense": "UNLICENSED",
+    "allowedDependencyLicenses": [
+      "MIT",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC"
+    ],
+    "otherLicensesRequireHumanApproval": true
+  }
+}

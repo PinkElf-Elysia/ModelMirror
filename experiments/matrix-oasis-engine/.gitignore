@@ -1,0 +1,17 @@
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+**/coverage/
+.vite/
+**/.vite/
+.godot/
+**/.godot/
+exports/
+**/exports/
+*.log
+*.log.*
+.env
+.env.*
+!.env.example
