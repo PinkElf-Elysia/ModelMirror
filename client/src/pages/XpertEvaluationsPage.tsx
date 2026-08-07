@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BarChart3,
   Beaker,
+  BookOpenCheck,
   CheckCircle2,
   Clock3,
   Database,
@@ -17,6 +18,7 @@ import {
   Square,
   XCircle,
 } from "lucide-react";
+import BenchmarkCatalogPanel from "../components/evaluations/BenchmarkCatalogPanel";
 import PageContainer from "../components/PageContainer";
 import { models } from "../data/models";
 import { listXpertVersions, listXperts } from "../utils/xpertApi";
@@ -50,6 +52,12 @@ interface DatasetSummary {
   published_version: number | null;
   case_count: number;
   version_count: number;
+  origin?: "manual" | "catalog" | "generated" | string;
+  catalog_ref?: {
+    pack_id?: string;
+    version?: number;
+    checksum?: string;
+  };
   updated_at: number;
 }
 
@@ -159,6 +167,8 @@ interface AuthoringProposalSummary {
   status: string;
 }
 
+type EvaluationWorkspaceView = "catalog" | "datasets" | "reports";
+
 const defaultCases: EvaluationCase[] = [
   {
     name: "基础回答",
@@ -240,6 +250,9 @@ export default function XpertEvaluationsPage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [workspaceView, setWorkspaceView] = useState<EvaluationWorkspaceView>(
+    runId ? "reports" : "catalog",
+  );
 
   const selectedItem = useMemo(
     () => run?.items?.find((item) => item.item_id === selectedItemId) ?? run?.items?.[0] ?? null,
@@ -252,7 +265,10 @@ export default function XpertEvaluationsPage() {
   }, []);
 
   useEffect(() => {
-    if (runId) void loadRun(runId);
+    if (runId) {
+      setWorkspaceView("reports");
+      void loadRun(runId);
+    }
   }, [runId]);
 
   useEffect(() => {
@@ -335,6 +351,17 @@ export default function XpertEvaluationsPage() {
     setCasesText(JSON.stringify(detail.cases ?? [], null, 2));
     const preferred = detail.published_version ?? versions.items?.[0]?.version ?? 0;
     setDatasetVersion(preferred);
+  }
+
+  async function openInstantiatedDataset(item: {
+    dataset_id: string;
+    name: string;
+    published_version: number;
+  }) {
+    await loadWorkspace();
+    await selectDataset(item.dataset_id);
+    setWorkspaceView("datasets");
+    setNotice(`${item.name} 已加入工作区，并固定发布为 v${item.published_version}。`);
   }
 
   async function loadRun(id: string, silent = false) {
@@ -505,6 +532,7 @@ export default function XpertEvaluationsPage() {
       );
       setRun(created);
       setRuns((current) => [created, ...current]);
+      setWorkspaceView("reports");
       navigate(`/agents/evaluations/${created.run_id}`, { replace: true });
       setNotice("评测已排队，执行快照不会随草稿变化。");
     } catch (caught) {
@@ -559,6 +587,78 @@ export default function XpertEvaluationsPage() {
         </div>
       ) : null}
 
+      <nav aria-label="评测工作台视图" className="mb-5 flex flex-wrap gap-1 border-b border-white/10" role="tablist">
+        {([
+          ["catalog", "标准基准", BookOpenCheck],
+          ["datasets", "我的评测集", Database],
+          ["reports", "运行报告", BarChart3],
+        ] as const).map(([view, label, Icon]) => (
+          <button
+            aria-selected={workspaceView === view}
+            className={`inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition ${
+              workspaceView === view
+                ? "border-cyan-300 text-cyan-100"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+            key={view}
+            onClick={() => setWorkspaceView(view)}
+            role="tab"
+            type="button"
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {workspaceView === "catalog" ? (
+        <BenchmarkCatalogPanel onInstantiated={openInstantiatedDataset} />
+      ) : workspaceView === "reports" ? (
+        <section className="grid min-w-0 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+          <aside className="min-w-0 border-r border-white/10 pr-5">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Clock3 className="h-4 w-4 text-cyan-200" />运行记录
+            </div>
+            <div className="mt-4 max-h-[560px] space-y-2 overflow-y-auto pr-1">
+              {runs.map((item) => (
+                <button
+                  className={`w-full rounded-md border p-3 text-left transition ${
+                    run?.run_id === item.run_id
+                      ? "border-cyan-300/35 bg-cyan-300/10"
+                      : "border-white/10 bg-white/[0.025] hover:border-white/20"
+                  }`}
+                  key={item.run_id}
+                  onClick={() => {
+                    navigate(`/agents/evaluations/${item.run_id}`);
+                    void loadRun(item.run_id);
+                  }}
+                  type="button"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate text-xs font-semibold text-slate-200">
+                      {item.dataset?.name ?? "Evaluation"}
+                    </span>
+                    <span className={`rounded border px-1.5 py-0.5 text-[10px] ${statusTone(item.status)}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[10px] text-slate-500">{formatTime(item.created_at)}</p>
+                </button>
+              ))}
+              {runs.length === 0 ? (
+                <p className="rounded-md border border-dashed border-white/10 p-4 text-xs text-slate-500">
+                  暂无评测运行。
+                </p>
+              ) : null}
+            </div>
+          </aside>
+          <div className="grid min-h-[280px] place-items-center rounded-md border border-dashed border-white/10 px-6 text-center text-sm leading-6 text-slate-500">
+            {run
+              ? "已选择运行。完整指标、基线对比和逐样例结果显示在下方。"
+              : "选择一条运行记录查看完整评测报告。"}
+          </div>
+        </section>
+      ) : (
       <div className="grid min-w-0 gap-5 2xl:grid-cols-[280px_minmax(0,1fr)_minmax(420px,0.9fr)]">
         <aside className="min-w-0 border-r border-white/10 pr-5">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -575,7 +675,10 @@ export default function XpertEvaluationsPage() {
               <button className={`w-full rounded-md border p-3 text-left transition ${dataset?.dataset_id === item.dataset_id ? "border-cyan-300/35 bg-cyan-300/10" : "border-white/10 bg-white/[0.025] hover:border-white/20"}`} key={item.dataset_id} onClick={() => void selectDataset(item.dataset_id)} type="button">
                 <div className="flex items-start justify-between gap-2">
                   <span className="truncate text-sm font-semibold text-slate-100">{item.name}</span>
-                  <span className="shrink-0 text-[10px] text-slate-500">r{item.revision}</span>
+                  <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-slate-500">
+                    {item.origin === "catalog" ? <span className="text-cyan-200">标准</span> : null}
+                    r{item.revision}
+                  </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
                   <span>{item.case_count} 用例</span>
@@ -724,8 +827,9 @@ export default function XpertEvaluationsPage() {
           </section>
         </aside>
       </div>
+      )}
 
-      {run ? (
+      {workspaceView === "reports" && run ? (
         <section className="mt-7 border-t border-white/10 pt-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

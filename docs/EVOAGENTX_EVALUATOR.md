@@ -1,6 +1,6 @@
 # EvoAgentX Xpert Evaluator
 
-最后更新日期：2026-07-25
+最后更新日期：2026-08-07
 
 ## 1. 定位
 
@@ -27,6 +27,8 @@ Evaluator 只评价固定快照。它不会批准 Authoring Proposal、修改 Xp
 - `server/evaluations/executor.py`
 - `server/evaluations/metrics.py`
 - `server/evaluations/api.py`
+- `server/benchmarks/`
+- `client/src/components/evaluations/BenchmarkCatalogPanel.tsx`
 - `client/src/pages/XpertEvaluationsPage.tsx`
 
 ## 2. 版本化数据集
@@ -45,6 +47,17 @@ Evaluator 只评价固定快照。它不会批准 Authoring Proposal、修改 Xp
 
 数据可通过管理页面人工编辑、JSON/CSV 导入，或从用户显式选择的 Xpert 会话
 导入。会话导入不复制附件、记忆、物理路径或内部 Runtime 上下文。
+
+### 2.1 标准 Benchmark 目录
+
+`EVOAGENTX-BENCHMARK-CATALOG-01` 增加四个 ModelMirror 自有中英双语合成 Pack，
+共 64 条固定用例。目录核心门禁只使用 `exact_match`、`contains` 和
+`json_schema`，不依赖 LLM Judge 或外部数据。
+
+目录 Pack 不可编辑。“添加到工作区”会在原 `XpertEvaluationStore` 中原子创建
+Dataset，并自动发布与 Pack 完全一致的 v1。Dataset 的 `origin`、`catalog_ref`、
+`provenance`、`coverage` 和 `calibration` 会固定到不可变版本；旧数据读取时默认为
+`origin=manual`。完整契约见 [BENCHMARKS.md](./BENCHMARKS.md)。
 
 ## 3. 固定快照
 
@@ -139,6 +152,10 @@ GET/POST  /api/xpert-evaluations/runs
 GET       /api/xpert-evaluations/runs/{run_id}
 POST      /api/xpert-evaluations/runs/{run_id}/cancel
 GET       /api/xpert-evaluations/capabilities
+GET       /api/benchmarks/capabilities
+GET       /api/benchmarks/catalog
+GET       /api/benchmarks/catalog/{pack_id}
+POST      /api/benchmarks/catalog/{pack_id}/instantiate
 ```
 
 列表只返回摘要。可信管理面的 detail 会移除 workflow、Prompt、完整 Tool 配置和
@@ -150,8 +167,9 @@ GET       /api/xpert-evaluations/capabilities
 - `/agents/evaluations/:runId`
 
 Meta Planner V2 候选提供“评测候选”入口，并固定当前 Proposal revision。
-Xpert Studio 的已发布版本提供“版本回归评测”入口。工作台支持数据集编辑/导入、
-发布、基线与候选选择、模型策略、预算、预检、运行、取消和报告查看。
+Xpert Studio 的已发布版本提供“版本回归评测”入口。工作台按“标准基准 / 我的评测集 /
+运行报告”组织，支持目录实例化、数据集编辑/导入、发布、基线与候选选择、模型策略、
+预算、预检、运行、取消和报告查看。
 
 ## 9. 安全边界
 
@@ -167,6 +185,7 @@ Xpert Studio 的已发布版本提供“版本回归评测”入口。工作台�
 
 ```bash
 python -m pytest server/tests/test_xpert_evaluations.py -q
+python -m pytest server/tests/test_benchmark_catalog.py -q
 python -m pytest server/tests/test_meta_agent.py server/tests/test_xpert_publish.py -q
 cd client
 npm.cmd run build

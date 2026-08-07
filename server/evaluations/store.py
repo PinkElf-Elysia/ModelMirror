@@ -45,7 +45,17 @@ class XpertEvaluationStore:
         self._lock = threading.RLock()
         self._data = self._load()
 
-    def create_dataset(self, name: str, description: str = "") -> dict[str, Any]:
+    def create_dataset(
+        self,
+        name: str,
+        description: str = "",
+        *,
+        origin: str = "manual",
+        catalog_ref: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+        coverage: dict[str, Any] | None = None,
+        calibration: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         now = time.time()
         dataset = {
             "dataset_id": f"xeval_dataset_{uuid.uuid4().hex}",
@@ -56,6 +66,13 @@ class XpertEvaluationStore:
             "published_version": None,
             "cases": [],
             "versions": [],
+            "origin": str(origin or "manual")[:80],
+            "catalog_ref": copy.deepcopy(catalog_ref or {}),
+            "provenance": copy.deepcopy(provenance or {}),
+            "coverage": copy.deepcopy(coverage or {}),
+            "calibration": copy.deepcopy(
+                calibration or {"status": "pending", "updated_at": None}
+            ),
             "created_at": now,
             "updated_at": now,
         }
@@ -63,6 +80,70 @@ class XpertEvaluationStore:
             self._data["datasets"][dataset["dataset_id"]] = dataset
             self._save_unlocked()
         return copy.deepcopy(dataset)
+
+    def instantiate_catalog_dataset(
+        self,
+        *,
+        name: str,
+        description: str,
+        cases: list[dict[str, Any]],
+        catalog_ref: dict[str, Any],
+        provenance: dict[str, Any],
+        coverage: dict[str, Any],
+        release_notes: str,
+    ) -> dict[str, Any]:
+        normalized = [self.normalize_case(item) for item in cases]
+        if not normalized:
+            raise EvaluationStateError("Benchmark pack must contain at least one case.")
+        if len(normalized) > self.MAX_DATASET_CASES:
+            raise EvaluationStateError("A dataset may contain at most 500 cases.")
+        case_ids = [str(item["case_id"]) for item in normalized]
+        if len(case_ids) != len(set(case_ids)):
+            raise EvaluationStateError("Benchmark case ids must be unique.")
+
+        now = time.time()
+        dataset_id = f"xeval_dataset_{uuid.uuid4().hex}"
+        dataset = {
+            "dataset_id": dataset_id,
+            "name": self._required(name, "name", 160),
+            "description": str(description or "").strip()[:2_000],
+            "status": "draft",
+            "revision": 1,
+            "published_version": 1,
+            "cases": copy.deepcopy(normalized),
+            "versions": [],
+            "origin": "catalog",
+            "catalog_ref": copy.deepcopy(catalog_ref),
+            "provenance": copy.deepcopy(provenance),
+            "coverage": copy.deepcopy(coverage),
+            "calibration": {
+                "status": "calibrated",
+                "mode": "catalog_integrity",
+                "checksum": str(catalog_ref.get("checksum") or "")[:64],
+                "updated_at": now,
+            },
+            "created_at": now,
+            "updated_at": now,
+        }
+        version = {
+            "dataset_id": dataset_id,
+            "version": 1,
+            "draft_revision": 1,
+            "name": dataset["name"],
+            "description": dataset["description"],
+            "cases": copy.deepcopy(normalized),
+            "case_count": len(normalized),
+            "release_notes": str(release_notes or "").strip()[:2_000],
+            "checksum": self._checksum(normalized),
+            **self._metadata_payload(dataset),
+            "published_at": now,
+        }
+        dataset["versions"] = [version]
+        self._touch(dataset)
+        with self._lock:
+            self._data["datasets"][dataset_id] = dataset
+            self._save_unlocked()
+        return self.dataset_payload(dataset, include_cases=True)
 
     def list_datasets(self, *, status: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
@@ -124,6 +205,16 @@ class XpertEvaluationStore:
             if len(by_id) > self.MAX_DATASET_CASES:
                 raise EvaluationStateError("A dataset may contain at most 500 cases.")
             item["cases"] = list(by_id.values())
+            calibration = dict(item.get("calibration") or {})
+            if calibration.get("status") == "calibrated":
+                calibration.update(
+                    {
+                        "status": "stale",
+                        "reason": "dataset_cases_changed",
+                        "updated_at": time.time(),
+                    }
+                )
+                item["calibration"] = calibration
             self._touch(item)
             self._save_unlocked()
             return copy.deepcopy(item)
@@ -152,6 +243,7 @@ class XpertEvaluationStore:
                 "case_count": len(cases),
                 "release_notes": str(release_notes or "").strip()[:2_000],
                 "checksum": self._checksum(cases),
+                **self._metadata_payload(item),
                 "published_at": time.time(),
             }
             item.setdefault("versions", []).append(version)
@@ -173,7 +265,9 @@ class XpertEvaluationStore:
         item = self.require_dataset(dataset_id)
         for snapshot in item.get("versions") or []:
             if int(snapshot.get("version") or 0) == int(version):
-                return copy.deepcopy(snapshot)
+                payload = copy.deepcopy(snapshot)
+                self._ensure_metadata(payload, fallback=item)
+                return payload
         raise EvaluationNotFoundError("Evaluation dataset version not found.")
 
     def create_run(
@@ -363,6 +457,11 @@ class XpertEvaluationStore:
     @staticmethod
     def dataset_payload(item: dict[str, Any], *, include_cases: bool) -> dict[str, Any]:
         payload = copy.deepcopy(item)
+        payload.setdefault("origin", "manual")
+        payload.setdefault("catalog_ref", {})
+        payload.setdefault("provenance", {})
+        payload.setdefault("coverage", {})
+        payload.setdefault("calibration", {"status": "pending", "updated_at": None})
         payload["case_count"] = len(payload.get("cases") or [])
         payload["version_count"] = len(payload.get("versions") or [])
         payload.pop("versions", None)
@@ -432,11 +531,51 @@ class XpertEvaluationStore:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {"schema_version": 1, "datasets": {}, "runs": {}}
+        datasets = dict(raw.get("datasets") or {})
+        for item in datasets.values():
+            if not isinstance(item, dict):
+                continue
+            self._ensure_metadata(item)
+            for version in item.get("versions") or []:
+                if isinstance(version, dict):
+                    self._ensure_metadata(version, fallback=item)
         return {
             "schema_version": 1,
-            "datasets": dict(raw.get("datasets") or {}),
+            "datasets": datasets,
             "runs": dict(raw.get("runs") or {}),
         }
+
+    @staticmethod
+    def _metadata_payload(item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "origin": str(item.get("origin") or "manual"),
+            "catalog_ref": copy.deepcopy(item.get("catalog_ref") or {}),
+            "provenance": copy.deepcopy(item.get("provenance") or {}),
+            "coverage": copy.deepcopy(item.get("coverage") or {}),
+            "calibration": copy.deepcopy(
+                item.get("calibration")
+                or {"status": "pending", "updated_at": None}
+            ),
+        }
+
+    @staticmethod
+    def _ensure_metadata(
+        item: dict[str, Any],
+        *,
+        fallback: dict[str, Any] | None = None,
+    ) -> None:
+        source = fallback or {}
+        item.setdefault("origin", str(source.get("origin") or "manual"))
+        item.setdefault("catalog_ref", copy.deepcopy(source.get("catalog_ref") or {}))
+        item.setdefault("provenance", copy.deepcopy(source.get("provenance") or {}))
+        item.setdefault("coverage", copy.deepcopy(source.get("coverage") or {}))
+        item.setdefault(
+            "calibration",
+            copy.deepcopy(
+                source.get("calibration")
+                or {"status": "pending", "updated_at": None}
+            ),
+        )
 
     def _save_unlocked(self) -> None:
         self.storage_dir.mkdir(parents=True, exist_ok=True)

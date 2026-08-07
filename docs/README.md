@@ -1,6 +1,6 @@
 # 模镜项目文档中心
 
-最后更新日期：2026-07-28
+最后更新日期：2026-08-07
 维护人：模镜团队
 
 ## 文档状态规则
@@ -43,6 +43,7 @@
 | [MCP_CATALOG_ROADMAP.md](./MCP_CATALOG_ROADMAP.md) | 规划 | MCP 中文目录边界、安全适配、自定义连接与 Builder 远期路线。 |
 | [SKILL_INTEGRATION.md](./SKILL_INTEGRATION.md) | 当前 | Skill 安装、注入和供应链边界。 |
 | [META_AGENT.md](./META_AGENT.md) | 当前 | Meta Planner 当前契约。 |
+| [BENCHMARKS.md](./BENCHMARKS.md) | 当前 | 标准 Benchmark 目录、数据来源、实例化和后续生成边界。 |
 | [workflow-native-design.md](./workflow-native-design.md) | 当前设计记录 | classic/shared 能力增量和 native 实验边界。 |
 
 ## 冻结与内部兼容文档
