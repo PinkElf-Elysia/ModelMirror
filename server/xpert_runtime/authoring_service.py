@@ -7,13 +7,16 @@ from typing import Any
 
 try:
     from server.prompts.store import PromptProfileStore
-    from server.skills.draft_store import WorkspaceSkillDraftStore
+    from server.skills.draft_store import (
+        SkillDraftValidationError,
+        WorkspaceSkillDraftStore,
+    )
     from server.xperts.models import XpertDefinition, XpertDraft
     from server.xperts.store import XpertStore, default_xpert_workflow
     from server.xperts.validation import validate_xpert_definition
 except ModuleNotFoundError:
     from prompts.store import PromptProfileStore
-    from skills.draft_store import WorkspaceSkillDraftStore
+    from skills.draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
     from xperts.models import XpertDefinition, XpertDraft
     from xperts.store import XpertStore, default_xpert_workflow
     from xperts.validation import validate_xpert_definition
@@ -66,10 +69,32 @@ class AuthoringService:
         try:
             details = self._validate_payload(proposal)
             validation = {"valid": True, "issues": [], **details}
+        except SkillDraftValidationError as exc:
+            validation = self._skill_validation_result(exc)
+        except AuthoringProposalValidationError as exc:
+            issues = list(getattr(exc, "issues", []) or [])
+            if not issues:
+                issues = [
+                    {
+                        "code": getattr(exc, "code", "authoring_validation"),
+                        "severity": "error",
+                        "message": str(exc)[:500],
+                    }
+                ]
+            validation = {
+                "valid": False,
+                "issues": issues[:20],
+            }
         except Exception as exc:
             validation = {
                 "valid": False,
-                "issues": [{"code": "authoring_validation", "message": str(exc)[:500]}],
+                "issues": [
+                    {
+                        "code": "authoring_validation",
+                        "severity": "error",
+                        "message": str(exc)[:500],
+                    }
+                ],
             }
         return self.proposal_store.set_validation(
             proposal_id, revision=revision, validation=validation
@@ -94,6 +119,18 @@ class AuthoringService:
                     operator=operator,
                     error=str(exc),
                 )
+            except SkillDraftValidationError as exc:
+                validation = self._skill_validation_result(exc)
+                self.proposal_store.set_validation(
+                    proposal_id,
+                    revision=revision,
+                    validation=validation,
+                )
+                raise AuthoringProposalValidationError(
+                    str(exc),
+                    code="skill_package_invalid",
+                    issues=list(validation.get("issues") or []),
+                ) from exc
             validation = {"valid": True, "issues": [], **details}
             proposal = self.proposal_store.set_validation(
                 proposal_id, revision=revision, validation=validation
@@ -265,6 +302,27 @@ class AuthoringService:
             "total_bytes": WorkspaceSkillDraftStore._total_bytes(
                 normalized["skill_markdown"], normalized["files"]
             ),
+            "validator_version": WorkspaceSkillDraftStore.VALIDATOR_VERSION,
+            "content_digest": WorkspaceSkillDraftStore.compute_content_digest(
+                **normalized
+            ),
+        }
+
+    @staticmethod
+    def _skill_validation_result(exc: SkillDraftValidationError) -> dict[str, Any]:
+        issues = getattr(exc, "issues", None)
+        if not isinstance(issues, list) or not issues:
+            issues = [
+                {
+                    "code": "skill_package_validation",
+                    "severity": "error",
+                    "message": str(exc)[:500],
+                }
+            ]
+        return {
+            "valid": False,
+            "validator_version": WorkspaceSkillDraftStore.VALIDATOR_VERSION,
+            "issues": issues[:20],
         }
 
     def _validate_xpert_candidate(self, candidate: XpertDefinition) -> Any:
@@ -329,9 +387,14 @@ class AuthoringService:
         else:
             target_id = proposal.target_id or str(skill.get("draft_id") or "")
             target = self.skill_draft_store.require(target_id)
+            if proposal.base_revision != target.revision:
+                raise AuthoringProposalConflictError(
+                    "Target Skill draft changed after this proposal was created."
+                )
             item = self.skill_draft_store.update(
                 target_id,
-                revision=target.revision,
+                expected_revision=int(proposal.base_revision or 0),
+                expected_digest=target.content_digest,
                 name=skill.get("name"),
                 slug=skill.get("slug"),
                 description=skill.get("description"),

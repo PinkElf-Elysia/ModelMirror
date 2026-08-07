@@ -5,7 +5,10 @@ import re
 from typing import Any, Literal
 
 from .authoring_service import AuthoringService
-from .authoring_store import AuthoringProposalStore
+from .authoring_store import (
+    AuthoringProposalStore,
+    AuthoringProposalValidationError,
+)
 from .capabilities import CapabilityRegistry
 from .toolset import RuntimeTool, RuntimeToolCall, RuntimeToolError, RuntimeToolResult
 
@@ -103,11 +106,13 @@ class AuthoringToolsetProvider:
                     "required": ["title", "skill"],
                     "properties": {
                         "title": {"type": "string", "maxLength": 200},
-                        "skill": {"type": "object"},
+                        "skill": self._skill_package_schema(require_complete=True),
                     },
                     "additionalProperties": False,
                 },
                 "authoring",
+                read_only=False,
+                parallel_safe=False,
             ),
             RuntimeTool(
                 "skill_authoring_propose_update",
@@ -119,17 +124,21 @@ class AuthoringToolsetProvider:
                         "title": {"type": "string", "maxLength": 200},
                         "draft_id": {"type": "string"},
                         "base_revision": {"type": "integer", "minimum": 1},
-                        "skill": {"type": "object"},
+                        "skill": self._skill_package_schema(require_complete=False),
                     },
                     "additionalProperties": False,
                 },
                 "authoring",
+                read_only=False,
+                parallel_safe=False,
             ),
             RuntimeTool(
                 "skill_authoring_validate_proposal",
                 "Validate a pending Skill proposal without applying it.",
                 self._proposal_schema(),
                 "authoring",
+                read_only=False,
+                parallel_safe=False,
             ),
         ]
 
@@ -202,6 +211,12 @@ class AuthoringToolsetProvider:
                 payload = AuthoringProposalStore.serialize(proposal)
         except RuntimeToolError:
             raise
+        except AuthoringProposalValidationError as exc:
+            raise RuntimeToolError(
+                call.tool_name,
+                str(exc)[:500],
+                code=getattr(exc, "code", "authoring_validation"),
+            ) from exc
         except Exception as exc:
             raise RuntimeToolError(
                 call.tool_name, str(exc)[:500], code="authoring_error"
@@ -325,6 +340,55 @@ class AuthoringToolsetProvider:
             },
             "additionalProperties": False,
         }
+
+    @staticmethod
+    def _skill_package_schema(*, require_complete: bool) -> dict[str, Any]:
+        """Return the explicit Workspace Skill package contract exposed to models."""
+
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                },
+                "slug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                },
+                "skill_markdown": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1_048_576,
+                },
+                "files": {
+                    "type": "object",
+                    "maxProperties": 39,
+                    "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 1_048_576,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        }
+        if require_complete:
+            schema["required"] = [
+                "name",
+                "slug",
+                "description",
+                "skill_markdown",
+            ]
+        return schema
 
 
 def register_authoring_toolset_capabilities(

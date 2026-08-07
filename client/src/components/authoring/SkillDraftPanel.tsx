@@ -7,6 +7,9 @@ interface SkillDraft {
   description: string;
   status: "draft" | "installed" | "archived";
   revision: number;
+  content_revision: number;
+  content_digest: string;
+  install_state: "not_installed" | "current" | "outdated";
   installed_skill_id?: string | null;
   file_count?: number;
   skill_markdown?: string;
@@ -34,6 +37,7 @@ export default function SkillDraftPanel({ onInstalled }: { onInstalled?: () => v
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
       const response = await fetch("/api/skills/drafts?limit=200");
       if (!response.ok) throw new Error(await readError(response));
@@ -72,12 +76,15 @@ export default function SkillDraftPanel({ onInstalled }: { onInstalled?: () => v
       const response = await fetch(`/api/skills/drafts/${selected.draft_id}/${actionName}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revision: selected.revision }),
+        body: JSON.stringify({
+          expected_revision: selected.revision,
+          expected_digest: selected.content_digest,
+        }),
       });
       if (!response.ok) throw new Error(await readError(response));
-      const payload = (await response.json()) as SkillDraft | { draft?: SkillDraft };
-      if ("draft" in payload && payload.draft) setSelected(payload.draft);
-      else if ("draft_id" in payload) setSelected(payload);
+      const detailResponse = await fetch(`/api/skills/drafts/${selected.draft_id}`);
+      if (!detailResponse.ok) throw new Error(await readError(detailResponse));
+      setSelected((await detailResponse.json()) as SkillDraft);
       setNotice(
         actionName === "install"
           ? "Skill 已显式安装，可由 skills_runtime 在 Sandbox 中使用。"
@@ -125,7 +132,7 @@ export default function SkillDraftPanel({ onInstalled }: { onInstalled?: () => v
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-300">{selected.description}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-              <span>{1 + Object.keys(selected.files ?? {}).length} 文件</span>
+              <span>{selected.file_count ?? 1 + Object.keys(selected.files ?? {}).length} 文件</span>
               <span>revision {selected.revision}</span>
               {selected.installed_skill_id ? <span className="text-emerald-200">已安装为 {selected.installed_skill_id}</span> : null}
             </div>

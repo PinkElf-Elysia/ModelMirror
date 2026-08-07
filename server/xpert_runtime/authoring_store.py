@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -8,6 +9,17 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+try:
+    from server.skills.package_validation import (
+        scan_skill_package_credentials,
+        validate_skill_package,
+    )
+except ModuleNotFoundError:
+    from skills.package_validation import (
+        scan_skill_package_credentials,
+        validate_skill_package,
+    )
 
 
 ProposalKind = Literal[
@@ -39,7 +51,16 @@ class AuthoringProposalConflictError(AuthoringProposalError):
 
 
 class AuthoringProposalValidationError(AuthoringProposalError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "authoring_validation",
+        issues: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.issues = list(issues or [])
 
 
 @dataclass(slots=True)
@@ -81,6 +102,7 @@ class AuthoringProposalStore:
         self.snapshot_path = self.storage_dir / "authoring_proposals.json"
         self._lock = threading.RLock()
         self._items: dict[str, AuthoringProposal] = {}
+        self._quarantine: list[dict[str, Any]] = []
         self._load()
 
     def create(
@@ -111,11 +133,21 @@ class AuthoringProposalStore:
             raise AuthoringProposalValidationError(
                 "Proposal title is required and limited to 200 characters."
             )
+        if kind in {"skill_create", "skill_update"}:
+            title_issues = scan_skill_package_credentials(
+                skill_markdown=clean_title
+            )
+            if title_issues:
+                raise AuthoringProposalValidationError(
+                    "Skill proposal title contains blocked credential material.",
+                    code="skill_credentials_blocked",
+                    issues=[issue.to_dict() for issue in title_issues],
+                )
         if not clean_source_type or not clean_source_id:
             raise AuthoringProposalValidationError(
                 "Proposal source_type and source_id are required."
             )
-        clean_payload = self._validate_payload(payload)
+        clean_payload = self._validate_payload(payload, kind=kind)
         with self._lock:
             if source_run_id:
                 run_count = sum(
@@ -211,9 +243,19 @@ class AuthoringProposalStore:
                 clean_title = str(title).strip()
                 if not clean_title or len(clean_title) > 200:
                     raise AuthoringProposalValidationError("Invalid proposal title.")
+                if item.kind in {"skill_create", "skill_update"}:
+                    title_issues = scan_skill_package_credentials(
+                        skill_markdown=clean_title
+                    )
+                    if title_issues:
+                        raise AuthoringProposalValidationError(
+                            "Skill proposal title contains blocked credential material.",
+                            code="skill_credentials_blocked",
+                            issues=[issue.to_dict() for issue in title_issues],
+                        )
                 item.title = clean_title
             if payload is not None:
-                next_payload = self._validate_payload(payload)
+                next_payload = self._validate_payload(payload, kind=item.kind)
                 payload_changed = next_payload != item.payload
                 if item.source_type == "meta_planner" and payload_changed:
                     report = next_payload.get("meta_planner_report")
@@ -304,7 +346,12 @@ class AuthoringProposalStore:
                 "Proposal changed. Reload it before applying this operation."
             )
 
-    def _validate_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _validate_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        kind: ProposalKind | None = None,
+    ) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise AuthoringProposalValidationError("Proposal payload must be an object.")
         try:
@@ -316,7 +363,88 @@ class AuthoringProposalStore:
             ) from exc
         if len(encoded.encode("utf-8")) > self.MAX_PAYLOAD_BYTES:
             raise AuthoringProposalValidationError("Proposal payload is too large.")
+        if kind in {"skill_create", "skill_update"}:
+            self._validate_skill_payload_before_persist(kind, decoded)
         return decoded
+
+    @staticmethod
+    def _validate_skill_payload_before_persist(
+        kind: ProposalKind,
+        payload: dict[str, Any],
+    ) -> None:
+        skill = payload.get("skill") if isinstance(payload.get("skill"), dict) else payload
+        markdown = skill.get("skill_markdown") or skill.get("SKILL.md")
+        files = skill.get("files")
+        payload_text = "\n".join(AuthoringProposalStore._iter_text(payload))
+        credential_issues = scan_skill_package_credentials(
+            skill_markdown=payload_text,
+            files=files,
+        )
+        if credential_issues:
+            codes = ", ".join(sorted({issue.code for issue in credential_issues}))
+            raise AuthoringProposalValidationError(
+                f"Skill proposal contains blocked credential material ({codes}).",
+                code="skill_credentials_blocked",
+                issues=[issue.to_dict() for issue in credential_issues],
+            )
+
+        if kind != "skill_create":
+            return
+        result = validate_skill_package(
+            root_name=skill.get("slug"),
+            skill_markdown=markdown,
+            files=files or {},
+        )
+        if result.valid and result.package is not None:
+            mismatches: list[dict[str, Any]] = []
+            if skill.get("name") != result.package.name:
+                mismatches.append(
+                    {
+                        "code": "skill_package_name_mismatch",
+                        "severity": "error",
+                        "field": "name",
+                        "message": "Package name must match SKILL.md frontmatter name.",
+                    }
+                )
+            if skill.get("description") != result.package.description:
+                mismatches.append(
+                    {
+                        "code": "skill_package_description_mismatch",
+                        "severity": "error",
+                        "field": "description",
+                        "message": "Package description must match SKILL.md frontmatter description.",
+                    }
+                )
+            if not mismatches:
+                return
+            raise AuthoringProposalValidationError(
+                "Skill proposal metadata does not match SKILL.md.",
+                code="skill_package_invalid",
+                issues=mismatches,
+            )
+        details = "; ".join(
+            f"{issue.code}: {issue.message}" for issue in result.issues[:8]
+        )
+        raise AuthoringProposalValidationError(
+            details or "Skill proposal package validation failed.",
+            code="skill_package_invalid",
+            issues=[issue.to_dict() for issue in result.issues],
+        )
+
+    @staticmethod
+    def _iter_text(value: Any):
+        if isinstance(value, str):
+            yield value
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if isinstance(key, str):
+                    yield key
+                yield from AuthoringProposalStore._iter_text(item)
+            return
+        if isinstance(value, list):
+            for item in value:
+                yield from AuthoringProposalStore._iter_text(item)
 
     def _load(self) -> None:
         with self._lock:
@@ -325,26 +453,118 @@ class AuthoringProposalStore:
             try:
                 raw = json.loads(self.snapshot_path.read_text(encoding="utf-8"))
                 items = raw.get("items", []) if isinstance(raw, dict) else []
-                self._items = {
-                    item["proposal_id"]: AuthoringProposal(**item)
-                    for item in items
-                    if isinstance(item, dict) and item.get("proposal_id")
-                }
+                if not isinstance(items, list):
+                    raise ValueError("Authoring proposal items must be a list.")
             except (OSError, TypeError, ValueError, json.JSONDecodeError):
                 self._items = {}
+                return
+
+            sanitized = False
+            for index, record in enumerate(items):
+                if not isinstance(record, dict) or not record.get("proposal_id"):
+                    self._quarantine.append(
+                        self._safe_quarantine_record(record, index=index)
+                    )
+                    sanitized = True
+                    continue
+                try:
+                    item = AuthoringProposal(**record)
+                except (TypeError, ValueError):
+                    self._quarantine.append(
+                        self._safe_quarantine_record(record, index=index)
+                    )
+                    sanitized = True
+                    continue
+                if item.kind in {"skill_create", "skill_update"}:
+                    searchable_text = "\n".join(self._iter_text(record))
+                    issues = scan_skill_package_credentials(
+                        skill_markdown=searchable_text,
+                        files=(
+                            item.payload.get("skill", {}).get("files")
+                            if isinstance(item.payload.get("skill"), dict)
+                            else item.payload.get("files")
+                        ),
+                    )
+                    if issues:
+                        self._quarantine.append(
+                            self._safe_quarantine_record(record, index=index)
+                        )
+                        sanitized = True
+                        continue
+                if item.proposal_id in self._items:
+                    self._quarantine.append(
+                        self._safe_quarantine_record(record, index=index)
+                    )
+                    sanitized = True
+                    continue
+                self._items[item.proposal_id] = item
+
+            existing_quarantine = raw.get("quarantine", []) if isinstance(raw, dict) else []
+            if isinstance(existing_quarantine, list):
+                for index, entry in enumerate(existing_quarantine):
+                    if not isinstance(entry, dict):
+                        sanitized = True
+                        continue
+                    digest = str(entry.get("record_sha256") or "").lower()
+                    size = entry.get("record_size_bytes")
+                    if (
+                        len(digest) == 64
+                        and all(character in "0123456789abcdef" for character in digest)
+                        and isinstance(size, int)
+                        and size >= 0
+                    ):
+                        self._quarantine.append(
+                            {
+                                "index": index,
+                                "reason_code": "blocked_or_invalid_proposal",
+                                "record_sha256": digest,
+                                "record_size_bytes": size,
+                                "quarantined_at": time.time(),
+                            }
+                        )
+                    else:
+                        sanitized = True
+            if sanitized:
+                self._save_unlocked()
+
+    @staticmethod
+    def _safe_quarantine_record(record: Any, *, index: int) -> dict[str, Any]:
+        try:
+            encoded = json.dumps(
+                record,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, UnicodeEncodeError):
+            encoded = type(record).__name__.encode("ascii", errors="replace")
+        return {
+            "index": max(0, int(index)),
+            "reason_code": "blocked_or_invalid_proposal",
+            "record_sha256": hashlib.sha256(encoded).hexdigest(),
+            "record_size_bytes": len(encoded),
+            "quarantined_at": time.time(),
+        }
 
     def _save_unlocked(self) -> None:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        temp_path = self.snapshot_path.with_suffix(".tmp")
-        temp_path.write_text(
-            json.dumps(
-                {"version": 1, "items": [asdict(item) for item in self._items.values()]},
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
+        temp_path = self.snapshot_path.with_name(
+            f"{self.snapshot_path.name}.{uuid.uuid4().hex}.tmp"
         )
-        os.replace(temp_path, self.snapshot_path)
+        payload = {
+            "version": 2,
+            "items": [asdict(item) for item in self._items.values()],
+            "quarantine": self._quarantine,
+        }
+        try:
+            encoded = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+            with temp_path.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, self.snapshot_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     @staticmethod
     def _copy(item: AuthoringProposal) -> AuthoringProposal:

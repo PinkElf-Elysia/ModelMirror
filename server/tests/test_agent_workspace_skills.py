@@ -44,6 +44,9 @@ def test_library_contains_only_the_16_digest_verified_builtins(
     assert [member.skill_id for member in default.members] == [
         skill.skill_id for skill in skills
     ]
+    assert [member.digest for member in default.members] == [
+        skill.digest for skill in skills
+    ]
     assert "external" not in {skill.skill_id for skill in skills}
 
 

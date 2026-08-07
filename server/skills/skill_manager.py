@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -9,11 +10,13 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 from .draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
+from .package_validation import compute_package_digest
 
 
 class SkillManagerError(Exception):
@@ -43,6 +46,35 @@ class InstalledSkill:
     sub_path: str
     installed_at: float
     source_ref: str | None = None
+    source_kind: str = "git"
+    source_id: str | None = None
+    source_revision: int | None = None
+    content_digest: str = ""
+    package_subpath: str = ""
+
+
+@dataclass(frozen=True)
+class SkillInstallReceipt:
+    """Crash-recovery record for a Workspace draft install transaction.
+
+    The receipt intentionally contains metadata and filesystem basenames only;
+    Skill contents remain in the staging directory and installed package.
+    """
+
+    version: int
+    transaction_id: str
+    phase: Literal["prepared", "swapped", "committed"]
+    skill_id: str
+    source_id: str
+    source_revision: int | None
+    content_digest: str
+    package_subpath: str
+    staging_name: str
+    backup_name: str
+    previous_metadata: dict[str, object] | None
+    installed_metadata: dict[str, object]
+    created_at: float
+    previous_content_digest: str | None = None
 
 
 class SkillManager:
@@ -160,13 +192,26 @@ class SkillManager:
         slug: str,
         skill_markdown: str,
         files: dict[str, str],
+        source_revision: int | None = None,
     ) -> InstalledSkill:
-        """Explicitly install a reviewed Workspace Skill draft.
+        """Install or explicitly upgrade one reviewed Workspace Skill draft.
 
-        This path never overwrites an installed Skill. A changed draft must be
-        installed as a new package after another explicit user action.
+        A draft owns one stable Skill id. Retrying the same package digest is
+        idempotent; changed content is swapped atomically and can be recovered
+        from a persisted transaction receipt after process interruption.
         """
 
+        clean_draft_id = str(draft_id or "").strip()
+        if not clean_draft_id or len(clean_draft_id) > 200:
+            raise SkillValidationError("Workspace Skill draft id is invalid.")
+        if source_revision is not None and (
+            isinstance(source_revision, bool)
+            or not isinstance(source_revision, int)
+            or source_revision < 1
+        ):
+            raise SkillValidationError(
+                "Workspace Skill source revision must be positive."
+            )
         frontmatter = WorkspaceSkillDraftStore._parse_frontmatter(skill_markdown)
         try:
             normalized = WorkspaceSkillDraftStore.validate_package(
@@ -181,42 +226,149 @@ class SkillManager:
         clean_slug = normalized["slug"]
         skill_markdown = normalized["skill_markdown"]
         files = normalized["files"]
-        suffix = re.sub(r"[^a-z0-9]+", "", draft_id.lower())[-12:]
-        skill_id = self._validate_skill_id(f"workspace-{clean_slug}-{suffix}")
+        content_digest = compute_package_digest(skill_markdown, files)
+        deterministic_skill_id = self._workspace_skill_id(clean_draft_id)
         with self._lock:
             self._ensure_dirs()
             installed = self._read_metadata()
-            if skill_id in installed:
-                raise SkillInstallError(
-                    "This Workspace Skill draft is already installed."
-                )
+            skill_id = self._find_workspace_skill_id(installed, clean_draft_id)
+            skill_id = skill_id or deterministic_skill_id
+            self._recover_workspace_install_receipt(skill_id, clean_draft_id)
+            installed = self._read_metadata()
+            skill_id = self._find_workspace_skill_id(installed, clean_draft_id) or skill_id
             target_dir = self._safe_skill_dir(skill_id)
-            if target_dir.exists():
-                raise SkillInstallError("Workspace Skill target already exists.")
-            temp_dir = Path(
-                tempfile.mkdtemp(prefix=f"{skill_id}-", dir=str(self.tmp_dir))
+            previous_record = installed.get(skill_id)
+            previous_metadata = (
+                self._installed_skill_from_record(previous_record)
+                if previous_record is not None
+                else None
             )
+            previous_content_digest = ""
+            if target_dir.exists() and previous_record is None:
+                raise SkillInstallError(
+                    "Workspace Skill target exists without installed metadata."
+                )
+            if previous_metadata is not None:
+                try:
+                    current_package_dir = self._resolve_package_directory(
+                        skill_id, previous_record
+                    )
+                    previous_content_digest = self._directory_content_digest(
+                        current_package_dir
+                    )
+                except SkillNotFoundError:
+                    previous_content_digest = ""
+                if (
+                    previous_content_digest == content_digest
+                    and previous_metadata.content_digest == content_digest
+                    and previous_metadata.package_subpath == clean_slug
+                    and (target_dir / clean_slug / "SKILL.md").is_file()
+                ):
+                    return previous_metadata
+
+            transaction_id = uuid.uuid4().hex
+            staging_dir = self.installed_dir / (
+                f".{skill_id}.staging-{transaction_id}"
+            )
+            backup_dir = self.installed_dir / (
+                f".{skill_id}.backup-{transaction_id}"
+            )
+            package_dir = staging_dir / clean_slug
+            metadata: InstalledSkill | None = None
+            receipt: SkillInstallReceipt | None = None
+            swapped = False
+            metadata_write_attempted = False
             try:
-                (temp_dir / "SKILL.md").write_text(skill_markdown, encoding="utf-8")
+                package_dir.mkdir(parents=True, exist_ok=False)
+                (package_dir / "SKILL.md").write_bytes(
+                    skill_markdown.encode("utf-8")
+                )
                 for relative_path, content in files.items():
-                    target = temp_dir.joinpath(*relative_path.split("/"))
+                    target = package_dir.joinpath(*relative_path.split("/"))
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(content, encoding="utf-8")
-                shutil.copytree(temp_dir, target_dir)
+                    target.write_bytes(content.encode("utf-8"))
                 metadata = self._parse_skill_metadata(
                     skill_id,
-                    f"workspace://draft/{draft_id}",
+                    f"workspace://draft/{clean_draft_id}",
                     "",
-                    target_dir / "SKILL.md",
+                    package_dir / "SKILL.md",
+                    source_kind="workspace_draft",
+                    source_id=clean_draft_id,
+                    source_revision=source_revision,
+                    content_digest=content_digest,
+                    package_subpath=clean_slug,
                 )
+                receipt = SkillInstallReceipt(
+                    version=1,
+                    transaction_id=transaction_id,
+                    phase="prepared",
+                    skill_id=skill_id,
+                    source_id=clean_draft_id,
+                    source_revision=source_revision,
+                    content_digest=content_digest,
+                    package_subpath=clean_slug,
+                    staging_name=staging_dir.name,
+                    backup_name=backup_dir.name,
+                    previous_metadata=(
+                        dict(previous_record)
+                        if previous_record is not None
+                        else None
+                    ),
+                    installed_metadata=asdict(metadata),
+                    created_at=time.time(),
+                    previous_content_digest=previous_content_digest or None,
+                )
+                self._write_install_receipt(receipt)
+                if target_dir.exists():
+                    target_dir.rename(backup_dir)
+                staging_dir.rename(target_dir)
+                swapped = True
+                receipt = replace(receipt, phase="swapped")
+                self._write_install_receipt(receipt)
                 installed[skill_id] = asdict(metadata)
+                metadata_write_attempted = True
                 self._write_metadata(installed)
-                return metadata
+                receipt = replace(receipt, phase="committed")
+                self._write_install_receipt(receipt)
             except Exception:
-                shutil.rmtree(target_dir, ignore_errors=True)
+                rollback_error: Exception | None = None
+                try:
+                    if backup_dir.exists():
+                        self._remove_directory_if_present(target_dir)
+                        backup_dir.rename(target_dir)
+                    elif (swapped or previous_record is None) and target_dir.exists():
+                        self._remove_directory_if_present(target_dir)
+                    if metadata_write_attempted:
+                        restored = self._read_metadata()
+                        if previous_record is None:
+                            restored.pop(skill_id, None)
+                        else:
+                            restored[skill_id] = dict(previous_record)
+                        self._write_metadata(restored)
+                    self._remove_directory_if_present(staging_dir)
+                    self._remove_directory_if_present(backup_dir)
+                    self._receipt_path(skill_id).unlink(missing_ok=True)
+                except Exception as exc:
+                    rollback_error = exc
+                if rollback_error is not None:
+                    raise SkillInstallError(
+                        "Workspace Skill installation failed and rollback is "
+                        "incomplete; retry the same installation to recover."
+                    ) from rollback_error
                 raise
-            finally:
-                shutil.rmtree(temp_dir, ignore_errors=True)
+            else:
+                try:
+                    self._remove_directory_if_present(backup_dir)
+                    self._remove_directory_if_present(staging_dir)
+                    self._receipt_path(skill_id).unlink(missing_ok=True)
+                except Exception as exc:
+                    raise SkillInstallError(
+                        "Workspace Skill was installed, but transaction cleanup is "
+                        "incomplete; retry the same installation to recover."
+                    ) from exc
+                if metadata is None:
+                    raise SkillInstallError("Workspace Skill metadata was not created.")
+                return metadata
 
     def install_plugin_skill(
         self,
@@ -276,7 +428,7 @@ class SkillManager:
             self._ensure_dirs()
             installed = self._read_metadata()
             if skill_id in installed:
-                return InstalledSkill(**installed[skill_id])
+                return self._installed_skill_from_record(installed[skill_id])
             target_dir = self._safe_skill_dir(skill_id)
             if target_dir.exists():
                 raise SkillInstallError("Plugin Skill target already exists.")
@@ -295,6 +447,9 @@ class SkillManager:
                     f"plugin://{plugin_id}/v{plugin_version}",
                     clean_skill_slug,
                     target_dir / "SKILL.md",
+                    source_kind="plugin",
+                    source_id=plugin_id,
+                    source_revision=plugin_version,
                 )
                 installed[skill_id] = asdict(metadata)
                 self._write_metadata(installed)
@@ -325,7 +480,7 @@ class SkillManager:
 
         with self._lock:
             return [
-                InstalledSkill(**item)
+                self._installed_skill_from_record(item)
                 for item in sorted(
                     self._read_metadata().values(),
                     key=lambda value: float(value.get("installed_at", 0)),
@@ -342,11 +497,10 @@ class SkillManager:
             if normalized_skill_id not in installed:
                 raise SkillNotFoundError(f"Skill '{normalized_skill_id}' is not installed")
 
-            skill_md = self._safe_skill_dir(normalized_skill_id) / "SKILL.md"
-            if not skill_md.exists():
-                raise SkillNotFoundError(
-                    f"Skill '{normalized_skill_id}' is missing SKILL.md"
-                )
+            package_dir = self._resolve_package_directory(
+                normalized_skill_id, installed[normalized_skill_id]
+            )
+            skill_md = package_dir / "SKILL.md"
             return skill_md.read_text(encoding="utf-8", errors="replace")
 
     def get_skill_directory(self, skill_id: str) -> Path:
@@ -357,12 +511,287 @@ class SkillManager:
             installed = self._read_metadata()
             if normalized_skill_id not in installed:
                 raise SkillNotFoundError(f"Skill '{normalized_skill_id}' is not installed")
-            target = self._safe_skill_dir(normalized_skill_id)
-            if not target.exists() or not target.is_dir():
-                raise SkillNotFoundError(
-                    f"Skill '{normalized_skill_id}' directory is unavailable"
+            return self._resolve_package_directory(
+                normalized_skill_id, installed[normalized_skill_id]
+            )
+
+    @staticmethod
+    def _workspace_skill_id(draft_id: str) -> str:
+        digest = hashlib.sha256(draft_id.encode("utf-8")).hexdigest()[:20]
+        return f"workspace-{digest}"
+
+    def _find_workspace_skill_id(
+        self,
+        installed: dict[str, dict[str, object]],
+        draft_id: str,
+    ) -> str | None:
+        expected_url = f"workspace://draft/{draft_id}"
+        matches: list[str] = []
+        for candidate_id, record in installed.items():
+            item = self._installed_skill_from_record(record)
+            if (
+                item.source_kind == "workspace_draft"
+                and item.source_id == draft_id
+            ) or item.repo_url == expected_url:
+                matches.append(candidate_id)
+        if len(matches) > 1:
+            raise SkillInstallError(
+                "Workspace Skill draft has multiple installed mappings."
+            )
+        return matches[0] if matches else None
+
+    def _installed_skill_from_record(
+        self, record: dict[str, object]
+    ) -> InstalledSkill:
+        repo_url = str(record.get("repo_url") or "")
+        source_kind = str(record.get("source_kind") or "").strip()
+        source_id_value = record.get("source_id")
+        source_id = (
+            str(source_id_value).strip() if source_id_value is not None else None
+        )
+        source_revision_value = record.get("source_revision")
+        source_revision = (
+            int(source_revision_value)
+            if isinstance(source_revision_value, int)
+            and not isinstance(source_revision_value, bool)
+            and source_revision_value > 0
+            else None
+        )
+        if not source_kind:
+            if repo_url.startswith("workspace://draft/"):
+                source_kind = "workspace_draft"
+                source_id = source_id or repo_url.removeprefix("workspace://draft/")
+            elif repo_url.startswith("plugin://"):
+                source_kind = "plugin"
+                source_id = source_id or repo_url.removeprefix("plugin://").split(
+                    "/", 1
+                )[0]
+            else:
+                source_kind = "git"
+        content_digest = str(record.get("content_digest") or "").lower()
+        if not re.fullmatch(r"[a-f0-9]{64}", content_digest):
+            content_digest = ""
+        package_subpath = str(record.get("package_subpath") or "").strip()
+        try:
+            package_subpath = self._validate_sub_path(package_subpath)
+        except SkillValidationError:
+            package_subpath = ""
+        source_ref_value = record.get("source_ref")
+        return InstalledSkill(
+            skill_id=str(record.get("skill_id") or ""),
+            name=str(record.get("name") or ""),
+            description=str(record.get("description") or ""),
+            repo_url=repo_url,
+            sub_path=str(record.get("sub_path") or ""),
+            installed_at=float(record.get("installed_at") or 0),
+            source_ref=(
+                str(source_ref_value) if source_ref_value is not None else None
+            ),
+            source_kind=source_kind,
+            source_id=source_id,
+            source_revision=source_revision,
+            content_digest=content_digest,
+            package_subpath=package_subpath,
+        )
+
+    def _resolve_package_directory(
+        self, skill_id: str, record: dict[str, object]
+    ) -> Path:
+        target = self._safe_skill_dir(skill_id)
+        if not target.exists() or not target.is_dir():
+            raise SkillNotFoundError(f"Skill '{skill_id}' directory is unavailable")
+        item = self._installed_skill_from_record(record)
+        if item.package_subpath:
+            nested = (target / item.package_subpath).resolve()
+            if target.resolve() not in nested.parents:
+                raise SkillValidationError(
+                    f"Unsafe package path for Skill '{skill_id}'"
                 )
+            if (nested / "SKILL.md").is_file():
+                return nested
+        if (target / "SKILL.md").is_file():
             return target
+        candidates = [
+            child
+            for child in target.iterdir()
+            if child.is_dir()
+            and target.resolve() in child.resolve().parents
+            and (child / "SKILL.md").is_file()
+        ]
+        if len(candidates) == 1:
+            return candidates[0]
+        raise SkillNotFoundError(f"Skill '{skill_id}' is missing SKILL.md")
+
+    @staticmethod
+    def _directory_content_digest(package_dir: Path) -> str:
+        skill_md = package_dir / "SKILL.md"
+        if not skill_md.is_file():
+            raise SkillNotFoundError("Installed Skill package is missing SKILL.md")
+        files: dict[str, bytes] = {}
+        for path in package_dir.rglob("*"):
+            if path.is_file() and path != skill_md:
+                files[path.relative_to(package_dir).as_posix()] = path.read_bytes()
+        return compute_package_digest(skill_md.read_bytes(), files)
+
+    def _receipt_path(self, skill_id: str) -> Path:
+        normalized_skill_id = self._validate_skill_id(skill_id)
+        return self.installed_dir / f".workspace-install-{normalized_skill_id}.receipt.json"
+
+    def _write_install_receipt(self, receipt: SkillInstallReceipt) -> None:
+        path = self._receipt_path(receipt.skill_id)
+        temporary_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            encoded = json.dumps(
+                asdict(receipt), ensure_ascii=False, indent=2
+            ).encode("utf-8")
+            with temporary_path.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    def _read_install_receipt(self, skill_id: str) -> SkillInstallReceipt | None:
+        path = self._receipt_path(skill_id)
+        if not path.exists():
+            return None
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SkillInstallError("Workspace Skill install receipt is invalid.") from exc
+        if not isinstance(raw, dict):
+            raise SkillInstallError("Workspace Skill install receipt is invalid.")
+        try:
+            receipt = SkillInstallReceipt(**raw)
+        except (TypeError, ValueError) as exc:
+            raise SkillInstallError("Workspace Skill install receipt is invalid.") from exc
+        expected_staging = f".{receipt.skill_id}.staging-{receipt.transaction_id}"
+        expected_backup = f".{receipt.skill_id}.backup-{receipt.transaction_id}"
+        if (
+            receipt.version != 1
+            or receipt.skill_id != skill_id
+            or receipt.phase not in {"prepared", "swapped", "committed"}
+            or not re.fullmatch(r"[a-f0-9]{32}", receipt.transaction_id)
+            or not re.fullmatch(r"[a-f0-9]{64}", receipt.content_digest)
+            or (
+                receipt.previous_content_digest is not None
+                and (
+                    not isinstance(receipt.previous_content_digest, str)
+                    or not re.fullmatch(
+                        r"[a-f0-9]{64}", receipt.previous_content_digest
+                    )
+                )
+            )
+            or receipt.staging_name != expected_staging
+            or receipt.backup_name != expected_backup
+            or not isinstance(receipt.installed_metadata, dict)
+            or (
+                receipt.previous_metadata is not None
+                and not isinstance(receipt.previous_metadata, dict)
+            )
+            or (
+                receipt.source_revision is not None
+                and (
+                    isinstance(receipt.source_revision, bool)
+                    or not isinstance(receipt.source_revision, int)
+                    or receipt.source_revision < 1
+                )
+            )
+        ):
+            raise SkillInstallError("Workspace Skill install receipt is invalid.")
+        self._validate_sub_path(receipt.package_subpath)
+        installed_item = self._installed_skill_from_record(
+            receipt.installed_metadata
+        )
+        if (
+            installed_item.skill_id != receipt.skill_id
+            or installed_item.source_kind != "workspace_draft"
+            or installed_item.source_id != receipt.source_id
+            or installed_item.source_revision != receipt.source_revision
+            or installed_item.content_digest != receipt.content_digest
+            or installed_item.package_subpath != receipt.package_subpath
+        ):
+            raise SkillInstallError("Workspace Skill install receipt is invalid.")
+        return receipt
+
+    def _transaction_dir(self, name: str, expected_prefix: str) -> Path:
+        if Path(name).name != name or not name.startswith(expected_prefix):
+            raise SkillInstallError("Workspace Skill install receipt path is invalid.")
+        target = (self.installed_dir / name).resolve()
+        if target.parent != self.installed_dir.resolve():
+            raise SkillInstallError("Workspace Skill install receipt path is invalid.")
+        return target
+
+    def _recover_workspace_install_receipt(
+        self, skill_id: str, draft_id: str
+    ) -> None:
+        receipt = self._read_install_receipt(skill_id)
+        if receipt is None:
+            return
+        if receipt.source_id != draft_id:
+            raise SkillInstallError(
+                "Workspace Skill install receipt belongs to another draft."
+            )
+        target_dir = self._safe_skill_dir(skill_id)
+        staging_dir = self._transaction_dir(
+            receipt.staging_name, f".{skill_id}.staging-"
+        )
+        backup_dir = self._transaction_dir(
+            receipt.backup_name, f".{skill_id}.backup-"
+        )
+        target_matches = False
+        package_dir = target_dir / receipt.package_subpath
+        if (package_dir / "SKILL.md").is_file():
+            target_matches = (
+                self._directory_content_digest(package_dir) == receipt.content_digest
+            )
+        installed = self._read_metadata()
+        if target_matches:
+            installed[skill_id] = dict(receipt.installed_metadata)
+            self._write_metadata(installed)
+        else:
+            previous_target_matches = False
+            previous_digest = receipt.previous_content_digest
+            if receipt.previous_metadata is not None and previous_digest:
+                try:
+                    previous_package_dir = self._resolve_package_directory(
+                        skill_id, receipt.previous_metadata
+                    )
+                    previous_target_matches = (
+                        self._directory_content_digest(previous_package_dir)
+                        == previous_digest
+                    )
+                except SkillNotFoundError:
+                    previous_target_matches = False
+            if previous_target_matches:
+                installed[skill_id] = dict(receipt.previous_metadata or {})
+                self._write_metadata(installed)
+            elif backup_dir.exists():
+                self._remove_directory_if_present(target_dir)
+                backup_dir.rename(target_dir)
+                if receipt.previous_metadata is None:
+                    installed.pop(skill_id, None)
+                else:
+                    installed[skill_id] = dict(receipt.previous_metadata)
+                self._write_metadata(installed)
+            elif receipt.previous_metadata is not None:
+                raise SkillInstallError(
+                    "Workspace Skill upgrade backup is unavailable; retry recovery "
+                    "after restoring the backup."
+                )
+            else:
+                self._remove_directory_if_present(target_dir)
+                installed.pop(skill_id, None)
+                self._write_metadata(installed)
+        self._remove_directory_if_present(staging_dir)
+        self._remove_directory_if_present(backup_dir)
+        self._receipt_path(skill_id).unlink(missing_ok=True)
+
+    @staticmethod
+    def _remove_directory_if_present(path: Path) -> None:
+        if path.exists():
+            shutil.rmtree(path)
 
     def _ensure_dirs(self) -> None:
         self.installed_dir.mkdir(parents=True, exist_ok=True)
@@ -388,10 +817,11 @@ class SkillManager:
         payload = {"skills": skills}
         temporary_path = self.installed_dir / f".installed-{uuid.uuid4().hex}.json.tmp"
         try:
-            temporary_path.write_text(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            encoded = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+            with temporary_path.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
             os.replace(temporary_path, self.metadata_path)
         finally:
             temporary_path.unlink(missing_ok=True)
@@ -477,6 +907,12 @@ class SkillManager:
         sub_path: str,
         skill_md: Path,
         source_ref: str | None = None,
+        *,
+        source_kind: str = "git",
+        source_id: str | None = None,
+        source_revision: int | None = None,
+        content_digest: str | None = None,
+        package_subpath: str = "",
     ) -> InstalledSkill:
         content = skill_md.read_text(encoding="utf-8", errors="replace")
         frontmatter = self._parse_frontmatter(content)
@@ -500,6 +936,11 @@ class SkillManager:
             sub_path=sub_path,
             installed_at=time.time(),
             source_ref=source_ref,
+            source_kind=source_kind,
+            source_id=source_id or f"{repo_url}#{sub_path}",
+            source_revision=source_revision,
+            content_digest=content_digest or "",
+            package_subpath=package_subpath,
         )
 
     @staticmethod

@@ -973,8 +973,7 @@ export default function SkillBrowserPage() {
 
   useEffect(() => {
     document.title = "模镜 - Skill 技能货架";
-    void loadInstalledSkills();
-    void loadBuiltinSkills();
+    void refreshSkillResources();
   }, []);
 
   useEffect(() => {
@@ -1170,6 +1169,11 @@ export default function SkillBrowserPage() {
     }
   }
 
+  async function refreshSkillResources() {
+    setError("");
+    await Promise.all([loadInstalledSkills(), loadBuiltinSkills()]);
+  }
+
   function locateRecommendedSkill(project: SkillProject) {
     setSearchQuery(project.name);
     setSelectedCategory("all");
@@ -1334,7 +1338,7 @@ export default function SkillBrowserPage() {
           <button
             className="w-fit rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100 disabled:opacity-50"
             disabled={isLoadingInstalled || isLoadingBuiltin}
-            onClick={() => void Promise.all([loadInstalledSkills(), loadBuiltinSkills()])}
+            onClick={() => void refreshSkillResources()}
             type="button"
           >
             {isLoadingInstalled || isLoadingBuiltin ? "刷新中..." : "刷新资源"}

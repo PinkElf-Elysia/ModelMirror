@@ -47,7 +47,16 @@ def _api_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, AuthoringProposalConflictError):
         return HTTPException(status_code=409, detail=str(exc))
-    if isinstance(exc, (AuthoringProposalValidationError, ValueError, TypeError)):
+    if isinstance(exc, AuthoringProposalValidationError):
+        return HTTPException(
+            status_code=400,
+            detail={
+                "code": getattr(exc, "code", "authoring_validation"),
+                "message": str(exc),
+                "issues": list(getattr(exc, "issues", []) or [])[:20],
+            },
+        )
+    if isinstance(exc, (ValueError, TypeError)):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail=str(exc))
 

@@ -21,6 +21,7 @@ from server.xpert_runtime.authoring_service import AuthoringService
 from server.xpert_runtime.authoring_store import (
     AuthoringProposalConflictError,
     AuthoringProposalStore,
+    AuthoringProposalValidationError,
 )
 from server.xpert_runtime.authoring_toolset import (
     AuthoringToolsetProvider,
@@ -40,11 +41,11 @@ def _service(tmp_path: Path) -> AuthoringService:
 
 def _skill_payload() -> dict:
     return {
-        "name": "Report Builder",
+        "name": "report-builder",
         "slug": "report-builder",
         "description": "Build a reviewed local report.",
         "skill_markdown": (
-            "---\nname: Report Builder\n"
+            "---\nname: report-builder\n"
             "description: Build a reviewed local report.\n---\n\n"
             "Use the staged script to create the report.\n"
         ),
@@ -81,6 +82,97 @@ def test_proposals_persist_and_reject_stale_revisions(tmp_path: Path) -> None:
     assert "Helper" not in json.dumps(
         AuthoringProposalStore.serialize(restored), ensure_ascii=False
     )
+
+
+def test_skill_proposal_blocks_credentials_before_persistence(tmp_path: Path) -> None:
+    store = AuthoringProposalStore(tmp_path)
+    secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890"
+
+    with pytest.raises(
+        AuthoringProposalValidationError, match="credential"
+    ) as caught:
+        store.create(
+            kind="skill_create",
+            title="Unsafe Skill proposal",
+            payload={
+                "name": "Unsafe Skill",
+                "slug": "unsafe-skill",
+                "description": "Use when a private task needs unsafe handling.",
+                "skill_markdown": (
+                    "---\n"
+                    "name: unsafe-skill\n"
+                    "description: Use when a private task needs unsafe handling.\n"
+                    "---\n\n# Unsafe\n"
+                ),
+                "files": {"references/config.md": f"api_key = {secret}\n"},
+            },
+            source_type="conversation",
+            source_id="conversation-secret",
+        )
+
+    assert caught.value.code == "skill_credentials_blocked"
+    assert {
+        issue["code"] for issue in caught.value.issues
+    } >= {"credential_token"}
+    snapshot = tmp_path / "authoring_proposals.json"
+    assert not snapshot.exists() or secret not in snapshot.read_text(encoding="utf-8")
+
+
+def test_legacy_skill_proposal_credentials_are_removed_during_load(
+    tmp_path: Path,
+) -> None:
+    secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890"
+    unsafe = {
+        "proposal_id": "proposal_unsafe",
+        "kind": "skill_create",
+        "title": "Legacy unsafe proposal",
+        "payload": {
+            "skill": {
+                "files": {"references/config.md": f"api_key = {secret}\n"}
+            }
+        },
+        "source_type": "conversation",
+        "source_id": "legacy-run",
+    }
+    # This safe record is intentionally not a valid V2 package: migration only
+    # removes historical credential material and must not delete other drafts.
+    safe_legacy = {
+        "proposal_id": "proposal_safe_legacy",
+        "kind": "skill_create",
+        "title": "Legacy safe proposal",
+        "payload": {"skill": {"skill_markdown": "legacy partial draft"}},
+        "source_type": "conversation",
+        "source_id": "legacy-run",
+    }
+    snapshot = tmp_path / "authoring_proposals.json"
+    snapshot.write_text(
+        json.dumps({"version": 1, "items": [unsafe, safe_legacy]}),
+        encoding="utf-8",
+    )
+
+    store = AuthoringProposalStore(tmp_path)
+
+    assert [item.proposal_id for item in store.list()] == ["proposal_safe_legacy"]
+    api_payload = json.dumps(
+        [
+            AuthoringProposalStore.serialize(item, include_payload=True)
+            for item in store.list()
+        ],
+        ensure_ascii=False,
+    )
+    assert secret not in api_payload
+    migrated = snapshot.read_text(encoding="utf-8")
+    assert secret not in migrated
+    payload = json.loads(migrated)
+    assert payload["version"] == 2
+    assert len(payload["quarantine"]) == 1
+    assert set(payload["quarantine"][0]) == {
+        "index",
+        "reason_code",
+        "record_sha256",
+        "record_size_bytes",
+        "quarantined_at",
+    }
 
 
 def test_approval_creates_xpert_draft_without_publishing(tmp_path: Path) -> None:
@@ -172,6 +264,61 @@ def test_skill_approval_only_creates_workspace_draft(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_skill_authoring_tools_publish_a_typed_package_contract(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    tools = await AuthoringToolsetProvider(service, "skill").list_tools()
+    schemas = {tool.name: tool.input_schema for tool in tools}
+
+    create_package = schemas["skill_authoring_propose_create"]["properties"]["skill"]
+    update_package = schemas["skill_authoring_propose_update"]["properties"]["skill"]
+
+    assert create_package["additionalProperties"] is False
+    assert create_package["required"] == [
+        "name",
+        "slug",
+        "description",
+        "skill_markdown",
+    ]
+    assert create_package["properties"]["slug"]["pattern"].startswith("^")
+    assert create_package["properties"]["files"]["maxProperties"] == 39
+    assert "required" not in update_package
+    assert update_package["additionalProperties"] is False
+    create_tool = next(
+        tool for tool in tools if tool.name == "skill_authoring_propose_create"
+    )
+    assert create_tool.read_only is False
+    assert create_tool.parallel_safe is False
+
+
+@pytest.mark.asyncio
+async def test_skill_authoring_tool_preserves_structured_validation_code(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    provider = AuthoringToolsetProvider(service, "skill")
+    skill = _skill_payload()
+    skill["description"] = "This does not match the validated package."
+
+    with pytest.raises(RuntimeToolError) as caught:
+        await provider.call_tool(
+            RuntimeToolCall(
+                "skill_authoring_propose_create",
+                {"title": "Create mismatched package", "skill": skill},
+                {
+                    "runtime_run_type": "workflow",
+                    "run_id": "run-structured-error",
+                    "skill_creator_config": {"allow_create": True},
+                },
+            )
+        )
+
+    assert caught.value.code == "skill_package_invalid"
+    assert service.proposal_store.list() == []
+
+
+@pytest.mark.asyncio
 async def test_authoring_tools_are_scoped_and_proposal_only(tmp_path: Path) -> None:
     service = _service(tmp_path)
     target = service.xpert_store.create_xpert(name="Target", slug="target")
@@ -229,10 +376,10 @@ async def test_authoring_catalog_returns_summaries_without_draft_content(
     service = _service(tmp_path)
     xpert = service.xpert_store.create_xpert(name="Catalog Xpert")
     skill = service.skill_draft_store.create(
-        name="Catalog Skill",
+        name="catalog-skill",
         slug="catalog-skill",
         description="Safe summary",
-        skill_markdown="---\nname: Catalog Skill\ndescription: Safe summary\n---\n\n# Secret instructions",
+        skill_markdown="---\nname: catalog-skill\ndescription: Safe summary\n---\n\n# Secret instructions",
         files={"references/private.md": "private reference"},
     )
     metadata = {
