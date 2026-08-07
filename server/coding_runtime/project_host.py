@@ -17,7 +17,18 @@ from typing import Any, Callable, Literal
 from .projects import MAX_PROJECT_NAME_CHARS, MAX_PROJECTS, ProjectFeatures, ProjectKind
 
 
-PROJECT_HOST_PROTOCOL = "modelmirror-coding-project-host-v1"
+PROJECT_HOST_PROTOCOL_V1 = "modelmirror-coding-project-host-v1"
+PROJECT_HOST_PROTOCOL_V2 = "modelmirror-coding-project-host-v2"
+PROJECT_HOST_PROTOCOL = PROJECT_HOST_PROTOCOL_V2
+SUPPORTED_PROJECT_HOST_PROTOCOLS = frozenset(
+    {PROJECT_HOST_PROTOCOL_V1, PROJECT_HOST_PROTOCOL_V2}
+)
+PROJECT_HOST_V2_CAPABILITIES = (
+    "snapshot",
+    "writeback",
+    "commit",
+    "reconcile",
+)
 PROJECT_HOST_PLATFORM = "windows"
 PAIRING_TTL_SECONDS = 300
 SELECTION_TTL_SECONDS = 300
@@ -54,11 +65,16 @@ class ProjectHost:
     token_hash: str
     version: str
     platform: str
+    protocol: str = PROJECT_HOST_PROTOCOL_V1
     status: Literal["online", "offline", "revoked"] = "offline"
     connection_id: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     last_heartbeat_at: float | None = None
+
+    @property
+    def supports_writeback(self) -> bool:
+        return self.protocol == PROJECT_HOST_PROTOCOL_V2
 
 
 @dataclass(slots=True)
@@ -153,6 +169,7 @@ class ProjectHostStore:
         device_id: str,
         version: str,
         platform: str,
+        protocol: str = PROJECT_HOST_PROTOCOL_V1,
     ) -> tuple[ProjectHost, str]:
         if DEVICE_ID_PATTERN.fullmatch(device_id) is None:
             raise ProjectHostError("project_host_device_invalid")
@@ -160,6 +177,8 @@ class ProjectHostStore:
             raise ProjectHostError("project_host_platform_unsupported")
         if not _valid_version(version):
             raise ProjectHostError("project_host_version_invalid")
+        if protocol not in SUPPORTED_PROJECT_HOST_PROTOCOLS:
+            raise ProjectHostError("project_host_protocol_mismatch")
         now = self._clock()
         code_hash = self._hash_secret(str(code).strip())
         with self._lock:
@@ -193,6 +212,7 @@ class ProjectHostStore:
                     token_hash=self._hash_secret(token),
                     version=version,
                     platform=platform,
+                    protocol=protocol,
                     status="online",
                     last_heartbeat_at=now,
                     created_at=now,
@@ -205,6 +225,7 @@ class ProjectHostStore:
                 host.token_hash = self._hash_secret(token)
                 host.version = version
                 host.platform = platform
+                host.protocol = protocol
                 host.status = "online"
                 host.last_heartbeat_at = now
                 host.updated_at = now
@@ -221,11 +242,23 @@ class ProjectHostStore:
                 raise ProjectHostError("project_host_authentication_failed")
             return host
 
-    def connect(self, host_id: str, token: str, *, connection_id: str, version: str) -> ProjectHost:
+    def connect(
+        self,
+        host_id: str,
+        token: str,
+        *,
+        connection_id: str,
+        version: str,
+        protocol: str = PROJECT_HOST_PROTOCOL_V1,
+    ) -> ProjectHost:
         with self._lock:
             host = self.authenticate(host_id, token)
             if not _valid_version(version):
                 raise ProjectHostError("project_host_version_invalid")
+            if protocol not in SUPPORTED_PROJECT_HOST_PROTOCOLS:
+                raise ProjectHostError("project_host_protocol_mismatch")
+            if protocol != host.protocol:
+                raise ProjectHostError("project_host_protocol_upgrade_requires_pairing")
             now = self._clock()
             host.version = version
             host.connection_id = connection_id
@@ -305,6 +338,8 @@ class ProjectHostStore:
                 "name": active.name if active else None,
                 "version": active.version if active else None,
                 "platform": active.platform if active else PROJECT_HOST_PLATFORM,
+                "protocol": active.protocol if active else None,
+                "direct_writeback": bool(active and active.supports_writeback),
             }
 
     def register_project(self, host_id: str, value: dict[str, Any]) -> HostGitProject:
@@ -451,6 +486,8 @@ class ProjectHostStore:
                 # legacy field while ensuring it is never written again.
                 sanitized.pop("token_prefix", None)
                 host = ProjectHost(**sanitized)
+                if host.protocol not in SUPPORTED_PROJECT_HOST_PROTOCOLS:
+                    raise ValueError("invalid host protocol")
                 if HOST_ID_PATTERN.fullmatch(host.host_id) and DEVICE_ID_PATTERN.fullmatch(host.device_id):
                     host.status = "revoked" if host.status == "revoked" else "offline"
                     host.connection_id = None

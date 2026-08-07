@@ -27,8 +27,10 @@ from server.coding_runtime.project_host import (
     OBJECT_ID_PATTERN,
     PROJECT_HOST_PLATFORM,
     PROJECT_HOST_PROTOCOL,
+    PROJECT_HOST_V2_CAPABILITIES,
     PROJECT_ID_PATTERN,
 )
+from server.coding_project_host.operation_log import HostOperationJournal
 from server.coding_runtime.host_snapshot import (
     HostSnapshotResult,
     create_host_snapshot_archive,
@@ -41,7 +43,7 @@ from server.coding_runtime.projects import (
 )
 
 
-HELPER_VERSION = "1.0.1"
+HELPER_VERSION = "1.1.0"
 STATE_MAGIC = b"MMCPH1\n"
 MAX_CONTROL_MESSAGE_BYTES = 256 * 1024
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
@@ -147,6 +149,10 @@ class ProjectHostRegistry:
         self.protector = protector
         self._lock = threading.RLock()
         self._state = self._load()
+        self.operations = HostOperationJournal(
+            self.path.with_name("operations.bin"),
+            protector,
+        )
 
     @property
     def device_id(self) -> str:
@@ -411,6 +417,7 @@ class ProjectHostTransport:
         self.pairing_code = str(pairing_code or "").strip()
         self.select_folder = select_folder
         self.status_changed = status_changed or (lambda _value: None)
+        self.direct_writeback = False
 
     async def run_forever(self) -> None:
         from websockets.asyncio.client import connect
@@ -484,6 +491,7 @@ class ProjectHostTransport:
                 "device_id": self.registry.device_id,
                 "version": HELPER_VERSION,
                 "platform": PROJECT_HOST_PLATFORM,
+                "capabilities": list(PROJECT_HOST_V2_CAPABILITIES),
             }
         else:
             if len(self.pairing_code) != 8 or not self.pairing_code.isdigit():
@@ -495,13 +503,26 @@ class ProjectHostTransport:
                 "device_id": self.registry.device_id,
                 "version": HELPER_VERSION,
                 "platform": PROJECT_HOST_PLATFORM,
+                "capabilities": list(PROJECT_HOST_V2_CAPABILITIES),
             }
         await websocket.send(json.dumps(first, separators=(",", ":")))
         response = _parse_message(await asyncio.wait_for(websocket.recv(), timeout=15))
         if response.get("type") == "error":
             raise ProjectHostHelperError("project_host_authentication_rejected")
-        if response.get("type") != "welcome" or response.get("protocol") != PROJECT_HOST_PROTOCOL:
+        capabilities = response.get("capabilities")
+        if (
+            response.get("type") != "welcome"
+            or response.get("protocol") != PROJECT_HOST_PROTOCOL
+            or not isinstance(capabilities, list)
+            or "snapshot" not in capabilities
+            or any(item not in PROJECT_HOST_V2_CAPABILITIES for item in capabilities)
+            or not isinstance(response.get("direct_writeback"), bool)
+        ):
             raise ProjectHostHelperError("project_host_handshake_failed")
+        self.direct_writeback = bool(
+            response["direct_writeback"]
+            and {"writeback", "commit", "reconcile"}.issubset(capabilities)
+        )
         if response.get("paired") is True:
             self.registry.save_credentials(
                 str(response.get("host_id") or ""),

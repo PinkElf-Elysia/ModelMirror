@@ -20,7 +20,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from .host_snapshot import MAX_HOST_ARCHIVE_BYTES
 from .project_host import (
     PROJECT_HOST_PLATFORM,
-    PROJECT_HOST_PROTOCOL,
+    PROJECT_HOST_PROTOCOL_V2,
+    PROJECT_HOST_V2_CAPABILITIES,
+    SUPPORTED_PROJECT_HOST_PROTOCOLS,
     PROJECT_ID_PATTERN,
     ProjectHostError,
     ProjectHostStore,
@@ -266,8 +268,17 @@ class ProjectHostRuntime:
         host_id = ""
         try:
             first = await asyncio.wait_for(self._receive(websocket), timeout=15)
-            if not isinstance(first, dict) or first.get("protocol") != PROJECT_HOST_PROTOCOL:
+            if not isinstance(first, dict):
                 raise ProjectHostError("project_host_protocol_mismatch")
+            protocol = str(first.get("protocol") or "")
+            if protocol not in SUPPORTED_PROJECT_HOST_PROTOCOLS:
+                raise ProjectHostError("project_host_protocol_mismatch")
+            capabilities = first.get("capabilities")
+            if protocol == PROJECT_HOST_PROTOCOL_V2:
+                if capabilities != list(PROJECT_HOST_V2_CAPABILITIES):
+                    raise ProjectHostError("project_host_capabilities_invalid")
+            elif capabilities is not None:
+                raise ProjectHostError("project_host_capabilities_invalid")
             message_type = first.get("type")
             if message_type == "pair":
                 host, token = self.store.consume_pairing(
@@ -275,13 +286,26 @@ class ProjectHostRuntime:
                     device_id=str(first.get("device_id") or ""),
                     version=str(first.get("version") or ""),
                     platform=str(first.get("platform") or ""),
+                    protocol=protocol,
                 )
                 host_id = host.host_id
-                self.store.connect(host_id, token, connection_id=connection_id, version=host.version)
+                self.store.connect(
+                    host_id,
+                    token,
+                    connection_id=connection_id,
+                    version=host.version,
+                    protocol=protocol,
+                )
                 await websocket.send_json(
                     {
                         "type": "welcome",
-                        "protocol": PROJECT_HOST_PROTOCOL,
+                        "protocol": protocol,
+                        "capabilities": (
+                            list(PROJECT_HOST_V2_CAPABILITIES)
+                            if protocol == PROJECT_HOST_PROTOCOL_V2
+                            else ["snapshot"]
+                        ),
+                        "direct_writeback": protocol == PROJECT_HOST_PROTOCOL_V2,
                         "paired": True,
                         "host_id": host_id,
                         "host_token": token,
@@ -296,13 +320,20 @@ class ProjectHostRuntime:
                     token,
                     connection_id=connection_id,
                     version=str(first.get("version") or ""),
+                    protocol=protocol,
                 )
                 if first.get("device_id") != host.device_id or first.get("platform") != host.platform:
                     raise ProjectHostError("project_host_identity_mismatch")
                 await websocket.send_json(
                     {
                         "type": "welcome",
-                        "protocol": PROJECT_HOST_PROTOCOL,
+                        "protocol": protocol,
+                        "capabilities": (
+                            list(PROJECT_HOST_V2_CAPABILITIES)
+                            if protocol == PROJECT_HOST_PROTOCOL_V2
+                            else ["snapshot"]
+                        ),
+                        "direct_writeback": protocol == PROJECT_HOST_PROTOCOL_V2,
                         "paired": False,
                         "host_id": host_id,
                         "heartbeat_seconds": 20,
