@@ -4,6 +4,11 @@ import json
 import re
 from typing import Any, Literal
 
+try:
+    from server.skills.draft_store import SkillDraftValidationError
+except ModuleNotFoundError:
+    from skills.draft_store import SkillDraftValidationError
+
 from .authoring_service import AuthoringService
 from .authoring_store import (
     AuthoringProposalStore,
@@ -179,20 +184,87 @@ class AuthoringToolsetProvider:
                 payload = AuthoringProposalStore.serialize(proposal)
             elif call.tool_name.endswith("_propose_update"):
                 self._require_enabled(config, "allow_update", "Updating proposals is disabled.")
-                target_id = str(
-                    arguments.get("xpert_id") or arguments.get("draft_id") or ""
-                ).strip()
-                self._require_allowed_target(target_id, config, source)
+                creator_target = None
+                skill_payload = dict(arguments.get("skill") or {})
+                if self.kind == "skill" and source.get("creator_session_id"):
+                    allowed_targets = {
+                        value.strip()
+                        for value in re.split(
+                            r"[,\n]", str(config.get("allowed_draft_ids") or "")
+                        )
+                        if value.strip()
+                    }
+                    if len(allowed_targets) != 1:
+                        raise RuntimeToolError(
+                            call.tool_name,
+                            "Dedicated Skill Creator update requires one server-bound draft.",
+                            code="skill_creator_target_invalid",
+                        )
+                    target_id = next(iter(allowed_targets))
+                    try:
+                        creator_target = self.service.skill_draft_store.require(
+                            target_id
+                        )
+                    except Exception as exc:
+                        raise RuntimeToolError(
+                            call.tool_name,
+                            "The server-bound Skill Creator draft is unavailable.",
+                            code="skill_creator_target_invalid",
+                        ) from exc
+                    if creator_target.creator_session_id != source.get(
+                        "creator_session_id"
+                    ):
+                        raise RuntimeToolError(
+                            call.tool_name,
+                            "The server-bound draft belongs to another Creator session.",
+                            code="skill_creator_target_invalid",
+                        )
+                    base_revision = creator_target.revision
+                    base_digest = creator_target.content_digest
+                    try:
+                        self.service.skill_draft_store.validate_package(
+                            name=str(skill_payload.get("name") or creator_target.name),
+                            slug=str(skill_payload.get("slug") or creator_target.slug),
+                            description=str(
+                                skill_payload.get("description")
+                                if "description" in skill_payload
+                                else creator_target.description
+                            ),
+                            skill_markdown=str(
+                                skill_payload.get("skill_markdown")
+                                or skill_payload.get("SKILL.md")
+                                or creator_target.skill_markdown
+                            ),
+                            files=dict(
+                                skill_payload.get("files")
+                                if "files" in skill_payload
+                                else creator_target.files
+                            ),
+                        )
+                    except SkillDraftValidationError as exc:
+                        raise RuntimeToolError(
+                            call.tool_name,
+                            "The proposed Skill update does not form a valid package.",
+                            code="skill_package_invalid",
+                        ) from exc
+                else:
+                    target_id = str(
+                        arguments.get("xpert_id") or arguments.get("draft_id") or ""
+                    ).strip()
+                    self._require_allowed_target(target_id, config, source)
+                    base_revision = int(arguments.get("base_revision") or 0)
+                    base_digest = None
                 proposal = self.service.proposal_store.create(
                     kind="xpert_update" if self.kind == "xpert" else "skill_update",
                     title=str(arguments.get("title") or ""),
                     payload=(
                         {"patch": dict(arguments.get("patch") or {})}
                         if self.kind == "xpert"
-                        else {"skill": dict(arguments.get("skill") or {})}
+                        else {"skill": skill_payload}
                     ),
                     target_id=target_id,
-                    base_revision=int(arguments.get("base_revision") or 0),
+                    base_revision=base_revision,
+                    base_digest=base_digest,
                     **source,
                 )
                 payload = AuthoringProposalStore.serialize(proposal)
@@ -303,11 +375,21 @@ class AuthoringToolsetProvider:
 
     @staticmethod
     def _source(call: RuntimeToolCall) -> dict[str, Any]:
+        creator_session_id = (
+            str(call.metadata.get("creator_session_id") or "").strip() or None
+        )
+        creator_session_revision = call.metadata.get("creator_session_revision")
         source_xpert_id = str(call.metadata.get("xpert_id") or "").strip() or None
         source_run_id = str(call.metadata.get("run_id") or "").strip() or None
-        source_type = str(call.metadata.get("runtime_run_type") or "workflow")[:80]
+        source_task_id = str(call.metadata.get("task_id") or "").strip() or None
+        source_type = (
+            "skill_creator"
+            if creator_session_id
+            else str(call.metadata.get("runtime_run_type") or "workflow")[:80]
+        )
         source_id = (
-            str(
+            creator_session_id
+            or str(
                 call.metadata.get("goal_id")
                 or call.metadata.get("handoff_id")
                 or call.metadata.get("conversation_id")
@@ -321,6 +403,17 @@ class AuthoringToolsetProvider:
             "source_id": source_id,
             "source_xpert_id": source_xpert_id,
             "source_run_id": source_run_id,
+            "source_task_id": source_task_id,
+            "creator_session_id": creator_session_id,
+            "creator_session_revision": (
+                int(creator_session_revision)
+                if creator_session_revision is not None
+                else None
+            ),
+            "actor_kind": "workflow_agent",
+            "actor_id": (
+                "skill-creator-assistant-v1" if creator_session_id else source_xpert_id
+            ),
         }
 
     @staticmethod

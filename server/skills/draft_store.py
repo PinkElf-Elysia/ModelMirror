@@ -22,6 +22,13 @@ from .package_validation import (
 
 SkillDraftStatus = Literal["draft", "installed", "archived"]
 SkillDraftInstallState = Literal["not_installed", "current", "outdated"]
+SkillQualityStatus = Literal[
+    "not_evaluated",
+    "running",
+    "accepted",
+    "eval_waived",
+    "outdated",
+]
 InstallResultT = TypeVar("InstallResultT")
 
 
@@ -54,6 +61,17 @@ class SkillDraftRevision:
     content_digest: str
     package: dict[str, Any]
     source_proposal_id: str | None = None
+    source_apply_key: str | None = None
+    created_at: float = field(default_factory=time.time)
+
+
+@dataclass(slots=True, frozen=True)
+class SkillProposalApplyReceipt:
+    proposal_id: str
+    apply_key: str
+    draft_id: str
+    content_revision: int
+    content_digest: str
     created_at: float = field(default_factory=time.time)
 
 
@@ -70,6 +88,10 @@ class WorkspaceSkillDraft:
     content_revision: int = 1
     content_digest: str = ""
     source_proposal_id: str | None = None
+    source_apply_key: str | None = None
+    creator_session_id: str | None = None
+    quality_required: bool = False
+    quality_status: SkillQualityStatus = "not_evaluated"
     installed_skill_id: str | None = None
     installed_content_revision: int | None = None
     installed_content_digest: str | None = None
@@ -101,6 +123,7 @@ class WorkspaceSkillDraftStore:
         self._lock = threading.RLock()
         self._items: dict[str, WorkspaceSkillDraft] = {}
         self._revisions: dict[str, dict[int, SkillDraftRevision]] = {}
+        self._proposal_receipts: dict[str, SkillProposalApplyReceipt] = {}
         self._quarantine: list[dict[str, Any]] = []
         self._load_error: str | None = None
         self._load()
@@ -114,7 +137,12 @@ class WorkspaceSkillDraftStore:
         skill_markdown: str,
         files: dict[str, str] | None = None,
         source_proposal_id: str | None = None,
+        source_apply_key: str | None = None,
+        creator_session_id: str | None = None,
+        quality_required: bool = False,
+        quality_status: SkillQualityStatus = "not_evaluated",
     ) -> WorkspaceSkillDraft:
+        self._validate_quality_status(quality_status)
         normalized = self.validate_package(
             name=name,
             slug=slug,
@@ -127,6 +155,10 @@ class WorkspaceSkillDraftStore:
         item = WorkspaceSkillDraft(
             draft_id=f"skilldraft_{uuid.uuid4().hex}",
             source_proposal_id=source_proposal_id,
+            source_apply_key=source_apply_key,
+            creator_session_id=creator_session_id,
+            quality_required=bool(quality_required),
+            quality_status=quality_status,
             content_digest=digest,
             created_at=now,
             updated_at=now,
@@ -151,6 +183,69 @@ class WorkspaceSkillDraftStore:
             if item is None:
                 raise SkillDraftNotFoundError(f"Skill draft not found: {draft_id}")
             return self._copy(item)
+
+    def find_by_creator_session(
+        self, creator_session_id: str
+    ) -> WorkspaceSkillDraft | None:
+        clean = str(creator_session_id or "").strip()
+        if not clean:
+            return None
+        with self._lock:
+            matches = [
+                item
+                for item in self._items.values()
+                if item.creator_session_id == clean
+            ]
+            if len(matches) > 1:
+                raise SkillDraftStorageError(
+                    "Multiple Workspace drafts reference one Creator session."
+                )
+            return self._copy(matches[0]) if matches else None
+
+    def create_creator_draft(
+        self,
+        *,
+        creator_session_id: str,
+        name: str,
+        slug: str,
+        description: str,
+        skill_markdown: str,
+        files: dict[str, str] | None = None,
+    ) -> WorkspaceSkillDraft:
+        """Create or replay the one manual draft owned by a Creator session."""
+
+        with self._lock:
+            existing = self.find_by_creator_session(creator_session_id)
+            if existing is not None:
+                normalized = self.validate_package(
+                    name=name,
+                    slug=slug,
+                    description=description,
+                    skill_markdown=skill_markdown,
+                    files=files or {},
+                )
+                expected_digest = self.compute_content_digest(**normalized)
+                first_snapshot = self._revisions.get(existing.draft_id, {}).get(1)
+                if (
+                    first_snapshot is None
+                    or not self._digests_equal(
+                        first_snapshot.content_digest, expected_digest
+                    )
+                ):
+                    raise SkillDraftConflictError(
+                        "Creator session already owns a different Skill draft."
+                    )
+                return existing
+            return self.create(
+                name=name,
+                slug=slug,
+                description=description,
+                skill_markdown=skill_markdown,
+                files=files or {},
+                creator_session_id=creator_session_id,
+                quality_required=True,
+                quality_status="not_evaluated",
+            )
 
     def require_revision_snapshot(
         self,
@@ -216,6 +311,8 @@ class WorkspaceSkillDraftStore:
         description: str | None = None,
         skill_markdown: str | None = None,
         files: dict[str, str] | None = None,
+        source_proposal_id: str | None = None,
+        source_apply_key: str | None = None,
     ) -> WorkspaceSkillDraft:
         with self._lock:
             self._ensure_writable_unlocked()
@@ -244,11 +341,21 @@ class WorkspaceSkillDraftStore:
             for key, value in normalized.items():
                 setattr(item, key, value)
             if content_changed:
+                previous_quality_status = item.quality_status
                 item.content_revision += 1
                 item.content_digest = digest
+                item.source_proposal_id = source_proposal_id
+                item.source_apply_key = source_apply_key
                 item.validation = {}
                 item.needs_review = False
                 item.status = "draft"
+                if item.quality_required:
+                    item.quality_status = (
+                        "outdated"
+                        if previous_quality_status
+                        in {"running", "accepted", "eval_waived", "outdated"}
+                        else "not_evaluated"
+                    )
                 item.install_state = (
                     "outdated" if item.installed_skill_id else "not_installed"
                 )
@@ -314,6 +421,7 @@ class WorkspaceSkillDraftStore:
                 expected_digest=expected_digest,
             )
             previous = self._copy(item)
+            self._require_quality_gate(item)
             item.status = "installed"
             item.installed_skill_id = str(skill_id).strip()
             item.installed_content_revision = item.content_revision
@@ -400,6 +508,7 @@ class WorkspaceSkillDraftStore:
             )
             if item.status == "archived":
                 raise SkillDraftConflictError("Archived Skill drafts cannot be installed.")
+            self._require_quality_gate(item)
 
             validation = self._validate_item_unlocked(item)
             install_result = installer(self._copy(item))
@@ -464,6 +573,217 @@ class WorkspaceSkillDraftStore:
     def validate_draft(self, draft_id: str) -> dict[str, Any]:
         item = self.require(draft_id)
         return self._validate_item_unlocked(item)
+
+    def find_applied_proposal(
+        self, proposal_id: str, apply_key: str
+    ) -> WorkspaceSkillDraft | None:
+        """Return the draft revision already produced by one proposal application."""
+
+        clean_proposal_id = str(proposal_id or "").strip()
+        clean_apply_key = str(apply_key or "").strip()
+        if not clean_proposal_id or not clean_apply_key:
+            return None
+        with self._lock:
+            receipt = self._proposal_receipts.get(clean_apply_key)
+            if receipt is not None:
+                if receipt.proposal_id != clean_proposal_id:
+                    raise SkillDraftConflictError(
+                        "Proposal apply key is already bound to another proposal."
+                    )
+                return self._copy(self._require_unlocked(receipt.draft_id))
+            for draft_id, snapshots in self._revisions.items():
+                for snapshot in snapshots.values():
+                    if (
+                        snapshot.source_proposal_id == clean_proposal_id
+                        and snapshot.source_apply_key == clean_apply_key
+                    ):
+                        return self._copy(self._require_unlocked(draft_id))
+        return None
+
+    def require_proposal_receipt(
+        self, proposal_id: str, apply_key: str
+    ) -> SkillProposalApplyReceipt | None:
+        clean_proposal_id = str(proposal_id or "").strip()
+        clean_apply_key = str(apply_key or "").strip()
+        if not clean_proposal_id or not clean_apply_key:
+            return None
+        with self._lock:
+            receipt = self._proposal_receipts.get(clean_apply_key)
+            if receipt is not None:
+                if receipt.proposal_id != clean_proposal_id:
+                    raise SkillDraftConflictError(
+                        "Proposal apply key is already bound to another proposal."
+                    )
+                return receipt
+            for draft_id, snapshots in self._revisions.items():
+                for snapshot in snapshots.values():
+                    if (
+                        snapshot.source_proposal_id == clean_proposal_id
+                        and snapshot.source_apply_key == clean_apply_key
+                    ):
+                        receipt = SkillProposalApplyReceipt(
+                            proposal_id=clean_proposal_id,
+                            apply_key=clean_apply_key,
+                            draft_id=draft_id,
+                            content_revision=snapshot.revision,
+                            content_digest=snapshot.content_digest,
+                            created_at=snapshot.created_at,
+                        )
+                        return receipt
+        return None
+
+    def apply_proposal_create(
+        self,
+        *,
+        proposal_id: str,
+        apply_key: str,
+        name: str,
+        slug: str,
+        description: str,
+        skill_markdown: str,
+        files: dict[str, str] | None = None,
+        creator_session_id: str | None = None,
+    ) -> WorkspaceSkillDraft:
+        """Create a proposal-backed draft exactly once."""
+
+        with self._lock:
+            expected = self.compute_content_digest(
+                **self.validate_package(
+                    name=name,
+                    slug=slug,
+                    description=description,
+                    skill_markdown=skill_markdown,
+                    files=files or {},
+                )
+            )
+            receipt = self.require_proposal_receipt(proposal_id, apply_key)
+            if receipt is not None:
+                if not self._digests_equal(receipt.content_digest, expected):
+                    raise SkillDraftConflictError(
+                        "Proposal apply key is already bound to different Skill content."
+                    )
+                self._persist_recovered_receipt_unlocked(receipt)
+                return self._copy(self._require_unlocked(receipt.draft_id))
+            item = self.create(
+                name=name,
+                slug=slug,
+                description=description,
+                skill_markdown=skill_markdown,
+                files=files or {},
+                source_proposal_id=proposal_id,
+                source_apply_key=apply_key,
+                creator_session_id=creator_session_id,
+                quality_required=bool(creator_session_id),
+                quality_status="not_evaluated",
+            )
+            self._persist_recovered_receipt_unlocked(
+                SkillProposalApplyReceipt(
+                    proposal_id=proposal_id,
+                    apply_key=apply_key,
+                    draft_id=item.draft_id,
+                    content_revision=item.content_revision,
+                    content_digest=item.content_digest,
+                )
+            )
+            return item
+
+    def apply_proposal_update(
+        self,
+        draft_id: str,
+        *,
+        proposal_id: str,
+        apply_key: str,
+        expected_revision: int,
+        expected_digest: str,
+        name: str | None = None,
+        slug: str | None = None,
+        description: str | None = None,
+        skill_markdown: str | None = None,
+        files: dict[str, str] | None = None,
+    ) -> WorkspaceSkillDraft:
+        """Apply a proposal update once and preserve revision provenance."""
+
+        with self._lock:
+            target = self._require_unlocked(draft_id)
+            normalized = self.validate_package(
+                name=target.name if name is None else name,
+                slug=target.slug if slug is None else slug,
+                description=target.description if description is None else description,
+                skill_markdown=(
+                    target.skill_markdown if skill_markdown is None else skill_markdown
+                ),
+                files=target.files if files is None else files,
+            )
+            expected_content_digest = self.compute_content_digest(**normalized)
+            receipt = self.require_proposal_receipt(proposal_id, apply_key)
+            if receipt is not None:
+                if receipt.draft_id != draft_id:
+                    raise SkillDraftConflictError(
+                        "Proposal apply key is already bound to another Skill draft."
+                    )
+                if not self._digests_equal(
+                    receipt.content_digest, expected_content_digest
+                ):
+                    raise SkillDraftConflictError(
+                        "Proposal apply key is already bound to different Skill content."
+                    )
+                self._persist_recovered_receipt_unlocked(receipt)
+                return self._copy(target)
+            self._require_expected_state(
+                target,
+                revision=None,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if self._digests_equal(target.content_digest, expected_content_digest):
+                receipt = SkillProposalApplyReceipt(
+                    proposal_id=proposal_id,
+                    apply_key=apply_key,
+                    draft_id=draft_id,
+                    content_revision=target.content_revision,
+                    content_digest=target.content_digest,
+                )
+                self._persist_recovered_receipt_unlocked(receipt)
+                return self._copy(target)
+            item = self.update(
+                draft_id,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+                name=name,
+                slug=slug,
+                description=description,
+                skill_markdown=skill_markdown,
+                files=files,
+                source_proposal_id=proposal_id,
+                source_apply_key=apply_key,
+            )
+            self._persist_recovered_receipt_unlocked(
+                SkillProposalApplyReceipt(
+                    proposal_id=proposal_id,
+                    apply_key=apply_key,
+                    draft_id=draft_id,
+                    content_revision=item.content_revision,
+                    content_digest=item.content_digest,
+                )
+            )
+            return item
+
+    def _persist_recovered_receipt_unlocked(
+        self, receipt: SkillProposalApplyReceipt
+    ) -> None:
+        current = self._proposal_receipts.get(receipt.apply_key)
+        if current is not None:
+            if current != receipt:
+                raise SkillDraftConflictError(
+                    "Proposal apply receipt conflicts with persisted state."
+                )
+            return
+        self._proposal_receipts[receipt.apply_key] = receipt
+        try:
+            self._save_unlocked()
+        except BaseException:
+            self._proposal_receipts.pop(receipt.apply_key, None)
+            raise
 
     def _validate_item_unlocked(self, item: WorkspaceSkillDraft) -> dict[str, Any]:
         self.validate_package(
@@ -619,6 +939,7 @@ class WorkspaceSkillDraftStore:
             content_digest=item.content_digest,
             package=self._package_from_item(item),
             source_proposal_id=item.source_proposal_id,
+            source_apply_key=item.source_apply_key,
             created_at=time.time() if created_at is None else created_at,
         )
 
@@ -637,6 +958,36 @@ class WorkspaceSkillDraftStore:
         if item is None:
             raise SkillDraftNotFoundError(f"Skill draft not found: {draft_id}")
         return item
+
+    @staticmethod
+    def _validate_quality_status(value: str) -> None:
+        if value not in {
+            "not_evaluated",
+            "running",
+            "accepted",
+            "eval_waived",
+            "outdated",
+        }:
+            raise SkillDraftValidationError(f"Invalid Skill quality status: {value}")
+
+    @staticmethod
+    def _require_quality_gate(item: WorkspaceSkillDraft) -> None:
+        if item.quality_required and item.quality_status not in {
+            "accepted",
+            "eval_waived",
+        }:
+            error = SkillDraftValidationError(
+                "Creator Skill must pass or explicitly waive evaluation before installation."
+            )
+            error.issues = [  # type: ignore[attr-defined]
+                {
+                    "code": "skill_creator_quality_gate_required",
+                    "severity": "error",
+                    "field": "quality_status",
+                    "message": str(error),
+                }
+            ]
+            raise error
 
     def _require_expected_state(
         self,
@@ -781,6 +1132,52 @@ class WorkspaceSkillDraftStore:
                         continue
                     existing[snapshot.revision] = snapshot
 
+                receipts = raw.get("proposal_receipts", [])
+                if not isinstance(receipts, list):
+                    receipts = []
+                    migrated = True
+                for index, record in enumerate(receipts):
+                    if not isinstance(record, dict):
+                        self._quarantine_record(
+                            kind="proposal_receipt",
+                            index=index,
+                            reason_code="record_not_object",
+                            reason="Skill proposal receipt must be an object.",
+                            record=record,
+                        )
+                        migrated = True
+                        continue
+                    try:
+                        receipt = self._decode_proposal_receipt(record)
+                        if receipt.draft_id not in self._items:
+                            raise ValueError(
+                                f"Receipt references missing draft_id: {receipt.draft_id}"
+                            )
+                        snapshot = self._revisions.get(receipt.draft_id, {}).get(
+                            receipt.content_revision
+                        )
+                        if snapshot is None or not self._digests_equal(
+                            snapshot.content_digest, receipt.content_digest
+                        ):
+                            raise ValueError(
+                                "Receipt does not match an immutable Skill revision."
+                            )
+                        if receipt.apply_key in self._proposal_receipts:
+                            raise ValueError(
+                                f"Duplicate Skill proposal apply key: {receipt.apply_key}"
+                            )
+                    except (KeyError, TypeError, ValueError) as exc:
+                        self._quarantine_record(
+                            kind="proposal_receipt",
+                            index=index,
+                            reason_code="invalid_proposal_receipt",
+                            reason=str(exc),
+                            record=record,
+                        )
+                        migrated = True
+                        continue
+                    self._proposal_receipts[receipt.apply_key] = receipt
+
             for item in self._items.values():
                 snapshots = self._revisions.setdefault(item.draft_id, {})
                 current = snapshots.get(item.content_revision)
@@ -906,6 +1303,12 @@ class WorkspaceSkillDraftStore:
             content_revision=content_revision,
             content_digest=actual_digest,
             source_proposal_id=self._optional_text(record.get("source_proposal_id")),
+            source_apply_key=self._optional_text(record.get("source_apply_key")),
+            creator_session_id=self._optional_text(record.get("creator_session_id")),
+            quality_required=bool(record.get("quality_required", False)),
+            quality_status=self._decode_quality_status(
+                record.get("quality_status", "not_evaluated")
+            ),
             installed_skill_id=installed_skill_id,
             installed_content_revision=installed_content_revision,
             installed_content_digest=installed_content_digest,
@@ -948,8 +1351,35 @@ class WorkspaceSkillDraftStore:
             content_digest=actual_digest,
             package=normalized_package,
             source_proposal_id=self._optional_text(record.get("source_proposal_id")),
+            source_apply_key=self._optional_text(record.get("source_apply_key")),
             created_at=self._timestamp(record.get("created_at", time.time()), "created_at"),
         )
+
+    def _decode_proposal_receipt(
+        self, record: dict[str, Any]
+    ) -> SkillProposalApplyReceipt:
+        content_digest = self._required_text(record, "content_digest").lower()
+        if len(content_digest) != 64 or any(
+            character not in "0123456789abcdef" for character in content_digest
+        ):
+            raise ValueError("Skill proposal receipt has an invalid content digest.")
+        return SkillProposalApplyReceipt(
+            proposal_id=self._required_text(record, "proposal_id"),
+            apply_key=self._required_text(record, "apply_key"),
+            draft_id=self._required_text(record, "draft_id"),
+            content_revision=self._positive_int(
+                record.get("content_revision"), "content_revision"
+            ),
+            content_digest=content_digest,
+            created_at=self._timestamp(record.get("created_at", time.time()), "created_at"),
+        )
+
+    @classmethod
+    def _decode_quality_status(cls, value: Any) -> SkillQualityStatus:
+        if not isinstance(value, str):
+            raise TypeError("Skill quality_status must be text.")
+        cls._validate_quality_status(value)
+        return value  # type: ignore[return-value]
 
     @staticmethod
     def _required_text(record: dict[str, Any], key: str) -> str:
@@ -1205,6 +1635,12 @@ class WorkspaceSkillDraftStore:
                 for snapshot in sorted(
                     self._revisions[draft_id].values(),
                     key=lambda item: item.revision,
+                )
+            ],
+            "proposal_receipts": [
+                asdict(receipt)
+                for receipt in sorted(
+                    self._proposal_receipts.values(), key=lambda item: item.apply_key
                 )
             ],
             "quarantine": self._quarantine,

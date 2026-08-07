@@ -228,16 +228,63 @@ def test_xpert_update_conflict_never_overwrites_human_draft(tmp_path: Path) -> N
         target.id, {"draft": changed_draft.model_dump(mode="json")}
     )
 
-    result = service.approve(
-        proposal.proposal_id,
-        revision=proposal.revision,
-        operator="reviewer",
-    )
+    with pytest.raises(AuthoringProposalConflictError, match="changed"):
+        service.approve(
+            proposal.proposal_id,
+            revision=proposal.revision,
+            operator="reviewer",
+        )
     current = service.xpert_store.get_xpert(target.id)
 
-    assert result.status == "conflict"
+    assert service.proposal_store.require(proposal.proposal_id).status == "conflict"
     assert current.description == ""
     assert current.draft.workflow.title == "Human edit"
+
+
+@pytest.mark.asyncio
+async def test_authoring_api_returns_structured_conflict_when_target_changed(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    target = service.xpert_store.create_xpert(
+        name="Existing Xpert", slug="existing-xpert-api"
+    )
+    proposal = service.proposal_store.create(
+        kind="xpert_update",
+        title="Change draft through API",
+        payload={"patch": {"description": "Agent proposal"}},
+        target_id=target.id,
+        base_revision=target.draft_revision,
+        source_type="workflow",
+        source_id="conversation-api-conflict",
+    )
+    changed_draft = target.draft.model_copy(deep=True)
+    changed_draft.workflow.title = "Human edit"
+    service.xpert_store.update_xpert(
+        target.id, {"draft": changed_draft.model_dump(mode="json")}
+    )
+
+    previous = authoring_api._service
+    authoring_api.configure_runtime_authoring(service)
+    app = FastAPI()
+    app.include_router(authoring_api.router)
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            response = await client.post(
+                f"/api/runtime/authoring-proposals/{proposal.proposal_id}/approve",
+                json={
+                    "revision": proposal.revision,
+                    "apply_key": proposal.apply_key,
+                },
+            )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "authoring_conflict"
+        assert service.proposal_store.require(proposal.proposal_id).status == "conflict"
+    finally:
+        authoring_api._service = previous
 
 
 def test_skill_approval_only_creates_workspace_draft(tmp_path: Path) -> None:
@@ -472,13 +519,19 @@ async def test_authoring_api_applies_revision_guard_and_draft_only_approval(
         ) as client:
             stale = await client.post(
                 f"/api/runtime/authoring-proposals/{proposal.proposal_id}/approve",
-                json={"revision": proposal.revision + 1, "operator": "reviewer"},
+                json={
+                    "revision": proposal.revision + 1,
+                    "apply_key": proposal.apply_key,
+                },
             )
             assert stale.status_code == 409
 
             approved = await client.post(
                 f"/api/runtime/authoring-proposals/{proposal.proposal_id}/approve",
-                json={"revision": proposal.revision, "operator": "reviewer"},
+                json={
+                    "revision": proposal.revision,
+                    "apply_key": proposal.apply_key,
+                },
             )
             assert approved.status_code == 200, approved.text
             body = approved.json()

@@ -108,6 +108,7 @@ interface MetaPlannerResponse {
 interface AuthoringProposal {
   proposal_id: string;
   revision: number;
+  apply_key: string;
   status: string;
   kind: "xpert_create" | "xpert_update";
   title: string;
@@ -494,7 +495,7 @@ export default function MetaPlannerV2() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             revision: proposal.revision,
-            operator: "meta-planner-operator",
+            ...(action === "approve" ? { apply_key: proposal.apply_key } : {}),
           }),
         },
       );
