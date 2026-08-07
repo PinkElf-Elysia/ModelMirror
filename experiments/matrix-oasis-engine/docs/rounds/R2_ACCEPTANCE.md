@@ -1,6 +1,6 @@
 # R2 验收记录
 
-状态：R2.3 模拟语义已验证，等待本地提交
+状态：R2.4 Creator 最小运行实验台已验证，等待本地提交
 
 固定基线：`a8e627e217c8c9e2cb8cca83fea8542c47edaeba`
 
@@ -22,8 +22,8 @@
 | --- | --- | --- | --- |
 | R2.1 | 治理、正向 allowlist 与 R1 冻结 | `1b259b7` | 已完成 |
 | R2.2 | 浏览器兼容的确定性参考模拟器 | `590449a` | 已完成 |
-| R2.3 | 运行语义与夹具轨迹 | 本批次提交，SHA 在后续批次记录 | 已验证 |
-| R2.4 | Creator 最小运行实验台 | 待记录 | 未开始 |
+| R2.3 | 运行语义与夹具轨迹 | `36f5c7a` | 已完成 |
+| R2.4 | Creator 最小运行实验台 | 本批次提交，SHA 在后续批次记录 | 已验证 |
 | R2.5 | 拆分证据与人工验收包 | 待记录 | 未开始 |
 
 ## 固定边界
@@ -69,6 +69,21 @@
 - `npm.cmd run check:boundary`、`npm.cmd run check:round-scope` 与 `git diff --check`：退出 0；R1 冻结路径和 Creator 相对 `590449a` 零差异。
 - 本批仅补齐参考模拟语义和测试，不实现 Compiler、Runtime Pack、存档或题材功能；内部 condition test seam 未通过 package root、类型声明或 exports map 暴露。
 - 回退本批提交后，R2.2 的公开模拟器核心仍可独立使用。
+
+### R2.4 验证摘要
+
+- Creator 默认加载题材中性的 mechanics fixture，并可切换 integration fixture；所有样例标题、摘要、正文和状态均来自 Pack inspection，界面没有题材条件分支。
+- 本地文件入口只在浏览器内存处理 `.json`，执行读前/读后 1 MiB、实际字节长度、fatal UTF-8 与异步 token 检查；失败或 stale 结果保持原 active session 引用，成功候选冻结后一次性提交且不保存文件名。reset/action 也以同一 base session 计算完整候选，并以引用 CAS 拒绝迟到结果，避免 prepared 与 snapshot 混合。
+- 实验台展示当前 node/ending、正文、可用与不可用 actions、变量、步数、最近 transition 与本步 Cue；只提供单步执行和重置，不提供编辑、保存、导出、回放、自动运行或 step-limit UI。
+- 保留 `MATRIX_OASIS_R0_ISOLATED_SHELL`，新增 `MATRIX_OASIS_R2_REFERENCE_SIMULATOR`；原生控件、文字状态、`aria-live`、成功后位置标题焦点、44px 目标与 320px 响应式护栏已自动检查。
+- `npm.cmd run test:creator`：退出 0，19 项 Creator shell、本地文件与会话事务测试通过；模拟器 operational throw 映射为静态 `PACK_RUNTIME_INTERNAL_ERROR` 且不泄漏底层异常。
+- `npm.cmd run verify:creator`：退出 0；TypeScript、Vite production build（227 modules）与双标识 loopback smoke 通过。
+- `npm.cmd ls --all`：退出 0；Creator 只新增 simulator 内部 workspace 链接，无 missing、extraneous 或新第三方依赖。
+- `npm.cmd run verify`：退出 0，212 项测试通过；全部固定步骤、Creator build 与 loopback smoke 通过，Godot 缺失仍是非阻塞 warning。
+- `npm.cmd run check:boundary`、`npm.cmd run check:round-scope` 与 `git diff --check`：退出 0；R1 冻结路径相对 `36f5c7a` 零差异，父仓与共享栈未触碰。
+- 独立 dev 预览曾返回 HTTP 200 并已终止；仓外截图、桌面/移动浏览器人工验收、三种 ending 与本地文件交互验收留在 R2.5，未提前标记完成。
+- 新增 `docs/PRODUCT.md` 固定 product register、用户、用途、反例与可访问性原则；未新增设计依赖、根外配置或共享服务。
+- 回退本批提交后，R2.3 参考模拟语义与测试仍保持完整。
 
 ## 回退
 

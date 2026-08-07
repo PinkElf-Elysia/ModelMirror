@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 import { preview } from "vite";
 
 const LOOPBACK_HOST = "127.0.0.1";
-const STABLE_MARKER = "MATRIX_OASIS_R0_ISOLATED_SHELL";
+const STABLE_MARKERS = Object.freeze([
+  "MATRIX_OASIS_R0_ISOLATED_SHELL",
+  "MATRIX_OASIS_R2_REFERENCE_SIMULATOR",
+]);
 const MAX_WAIT_MS = 10_000;
 
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -70,8 +73,12 @@ try {
 
   const { response, html } = await readUntilReady(url);
   assert.equal(response.status, 200, `Expected HTTP 200 from ${url}`);
-  assert.match(html, new RegExp(STABLE_MARKER), "Stable R0 marker is missing");
-  console.log(`CREATOR_SMOKE_OK status=${response.status} marker=${STABLE_MARKER}`);
+  for (const marker of STABLE_MARKERS) {
+    assert.match(html, new RegExp(marker), `Stable marker is missing: ${marker}`);
+  }
+  console.log(
+    `CREATOR_SMOKE_OK status=${response.status} markers=${STABLE_MARKERS.join(",")}`,
+  );
 } finally {
   if (previewServer) {
     await closePreview(previewServer);

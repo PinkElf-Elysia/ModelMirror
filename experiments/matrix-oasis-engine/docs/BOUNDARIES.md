@@ -16,6 +16,7 @@
 - 修改父路由、API、数据库、环境变量、Docker、CI、公共类型或 Matrix Oasis 占位页。
 - 使用模块外 `file:` / `link:` 依赖、绝对本机路径、逃逸相对路径或外部符号链接。
 - 在 Creator 源码中使用 `fetch`、`XMLHttpRequest`、`WebSocket`、`EventSource`、环境变量或持久化 API。
+- 将浏览器选择的本地 Pack 上传、保存、记录文件名或传给父项目；本地入口只在内存读取单个 `.json`。
 - 让 Pack CLI 接受模块外、绝对、含 `..`、符号链接逃逸或真实扩展名非 `.json` 的输入；CLI 只读不超过 1 MiB 的模块内 UTF-8 JSON。
 - 在验证报告中回显 Pack 值、任意未知键名、Ajv 参数、文件绝对路径、底层异常或堆栈。
 - 跟踪 `.env`、密钥、日志、`node_modules`、`dist`、coverage、缓存、Godot 生成物或导出物。
@@ -36,6 +37,10 @@
 - 稳定的 `npm run verify` 聚合门。
 
 Pack Validator 自身无文件、网络或环境访问；模块根 CLI 是唯一文件入口，并同时执行词法 containment、realpath containment、真实扩展名、文件类型、读前/读后大小与 fatal UTF-8 检查。内容诊断退出 1，路径或工具故障退出 2；机器 JSON 模式只输出白名单化报告字段。
+
+Creator 的浏览器本地入口独立执行大小写不敏感 `.json` 检查、读前与读后 1 MiB 上限、`arrayBuffer()` 实际长度复核和 fatal UTF-8 解码。每次异步读取使用递增 token；只有最新候选完整通过 Validator 与会话创建后才返回冻结 candidate。拒绝或过期结果保持原会话引用，不保存或回显本地文件名。
+
+Creator 的 reset 与单步 action 必须基于同一 active session 计算完整候选，再以引用 CAS 提交；迟到候选不得覆盖更新后的会话，也不得把新 prepared 与旧 snapshot 拼接。模拟器抛出的 operational error 只映射为静态 `PACK_RUNTIME_INTERNAL_ERROR`，不进入控制台或用户诊断的底层异常文本。
 
 文档允许出现父路径作为规则说明；扫描器只把可执行源码、manifest 和配置视为运行依赖证据。
 

@@ -5,16 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="矩阵绿洲 AI 原生 3D 游戏引擎的 R0 独立工程空壳"
+      content="矩阵绿洲 R2 确定性参考模拟器的独立运行实验台"
     />
     <meta
       name="matrix-oasis-module"
       content="MATRIX_OASIS_R0_ISOLATED_SHELL"
     />
+    <meta
+      name="matrix-oasis-capability"
+      content="MATRIX_OASIS_R2_REFERENCE_SIMULATOR"
+    />
     <title>矩阵绿洲 · Matrix Oasis Engine</title>
   </head>
   <body>
-    <div id="root" data-module-marker="MATRIX_OASIS_R0_ISOLATED_SHELL"></div>
+    <div
+      id="root"
+      data-module-marker="MATRIX_OASIS_R0_ISOLATED_SHELL"
+      data-capability-marker="MATRIX_OASIS_R2_REFERENCE_SIMULATOR"
+    ></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

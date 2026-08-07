@@ -1,6 +1,6 @@
 {
   "name": "@matrix-oasis/creator-web",
-  "version": "0.0.0-r0",
+  "version": "0.2.0-r2",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json && vite build --configLoader runner"
   },
   "dependencies": {
+    "@matrix-oasis/game-pack-simulator": "0.1.0-r2",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

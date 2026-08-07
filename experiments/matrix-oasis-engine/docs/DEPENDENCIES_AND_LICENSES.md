@@ -22,7 +22,7 @@
 
 ## 当前直接依赖
 
-R0.2 已固定以下 Creator 直接依赖；R1 合同与 R2 参考模拟器 workspace 均不新增第三方依赖：
+R0.2 已固定以下 Creator 第三方依赖；R1 合同、R2 参考模拟器与 R2.4 Creator 接入均不新增第三方依赖：
 
 | 依赖 | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |
@@ -36,7 +36,7 @@ R0.2 已固定以下 Creator 直接依赖；R1 合同与 R2 参考模拟器 work
 | Ajv | 8.20.0 | MIT | JSON Schema 2020-12 严格结构验证 |
 | jsonc-parser | 3.3.1 | MIT | 严格 JSON 语法树与重复键定位 |
 
-测试与护栏仍使用 Node 24 内置 `node:test`，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。R2 模拟器只精确依赖内部 `@matrix-oasis/game-pack-validator@0.1.0-r1`；Ajv 与 jsonc-parser 仍只由该验证器 workspace 引入。验证与模拟过程无网络、无代码生成落盘、无父仓依赖。
+测试与护栏仍使用 Node 24 内置 `node:test`，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。R2 模拟器只精确依赖内部 `@matrix-oasis/game-pack-validator@0.1.0-r1`；Creator 只新增对内部 `@matrix-oasis/game-pack-simulator@0.1.0-r2` 的精确 workspace 依赖。Ajv 与 jsonc-parser 仍只由验证器 workspace 引入。验证与模拟过程无网络、无代码生成落盘、无父仓依赖。
 
 Ajv 8.20.0 的新增传递依赖已按模块 lockfile 盘点：
 
@@ -59,7 +59,7 @@ Ajv 8.20.0 的新增传递依赖已按模块 lockfile 盘点：
 
 该例外只适用于上述精确包与版本，不扩展 CC-BY-4.0 的通用准入范围。若分发依赖材料，必须保留上游归因与许可证通知；版本变化后需要重新盘点并审批。
 
-模块根版本标识为 `0.2.0-r2`，参考模拟器为 `0.1.0-r2`；冻结的合同与验证器保持 `0.1.0-r1`，Creator 保持 `0.0.0-r0`。全部 workspace 均为 private/UNLICENSED，不代表发布版本。
+模块根与 Creator 版本标识为 `0.2.0-r2`，参考模拟器为 `0.1.0-r2`；冻结的合同与验证器保持 `0.1.0-r1`。全部 workspace 均为 private/UNLICENSED，不代表发布版本。
 
 ## 变更流程
 
