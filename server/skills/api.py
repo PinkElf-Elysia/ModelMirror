@@ -70,6 +70,11 @@ class SkillPayload(BaseModel):
     sub_path: str
     installed_at: float
     source_ref: str | None = None
+    source_kind: str = "git"
+    source_id: str | None = None
+    source_revision: int | None = None
+    content_digest: str = ""
+    package_subpath: str = ""
 
 
 class InstalledSkillsResponse(BaseModel):
@@ -82,14 +87,24 @@ class SkillContentResponse(BaseModel):
 
 
 class SkillDraftActionRequest(BaseModel):
-    revision: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+    expected_digest: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
 
 
 class SkillDraftPatchRequest(BaseModel):
-    revision: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+    expected_digest: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    slug: str | None = Field(default=None, min_length=1, max_length=80)
-    description: str | None = Field(default=None, max_length=1000)
+    slug: str | None = Field(default=None, min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=1024)
     skill_markdown: str | None = Field(default=None, max_length=1_048_576)
     files: dict[str, str] | None = None
 
@@ -267,6 +282,11 @@ def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
         sub_path=skill.sub_path,
         installed_at=skill.installed_at,
         source_ref=skill.source_ref,
+        source_kind=skill.source_kind,
+        source_id=skill.source_id,
+        source_revision=skill.source_revision,
+        content_digest=skill.content_digest,
+        package_subpath=skill.package_subpath,
     )
 
 
@@ -284,7 +304,15 @@ def _raise_draft_error(exc: Exception) -> None:
     if isinstance(exc, SkillDraftConflictError):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, SkillDraftValidationError):
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        issues = getattr(exc, "issues", None)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "skill_package_invalid",
+                "message": str(exc),
+                "issues": issues if isinstance(issues, list) else [],
+            },
+        ) from exc
     raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -297,7 +325,7 @@ async def list_skill_drafts(
         get_skill_draft_store().list, status=status, limit=limit
     )
     return {
-        "version": "workspace-skill-drafts-v1",
+        "version": "workspace-skill-drafts-v2",
         "items": [WorkspaceSkillDraftStore.serialize(item) for item in items],
         "total": len(items),
     }
@@ -318,7 +346,8 @@ async def patch_skill_draft(draft_id: str, payload: SkillDraftPatchRequest):
         item = await asyncio.to_thread(
             get_skill_draft_store().update,
             draft_id,
-            revision=payload.revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest,
             name=payload.name,
             slug=payload.slug,
             description=payload.description,
@@ -333,18 +362,23 @@ async def patch_skill_draft(draft_id: str, payload: SkillDraftPatchRequest):
 @router.post("/drafts/{draft_id}/validate")
 async def validate_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
     try:
-        item = await asyncio.to_thread(get_skill_draft_store().require, draft_id)
-        if item.revision != payload.revision:
+        store = get_skill_draft_store()
+        item = await asyncio.to_thread(store.require, draft_id)
+        if (
+            item.revision != payload.expected_revision
+            or item.content_digest.lower() != payload.expected_digest.lower()
+        ):
             raise SkillDraftConflictError(
                 "Skill draft changed. Reload it before validation."
             )
         result = await asyncio.to_thread(
-            get_skill_draft_store().validate_draft, draft_id
+            store.validate_draft, draft_id
         )
         await asyncio.to_thread(
-            get_skill_draft_store().set_validation,
+            store.set_validation,
             draft_id,
-            revision=payload.revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest,
             validation=result,
         )
         return result
@@ -356,24 +390,23 @@ async def validate_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
 async def install_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
     try:
         store = get_skill_draft_store()
-        item = await asyncio.to_thread(store.require, draft_id)
-        if item.revision != payload.revision:
-            raise SkillDraftConflictError(
-                "Skill draft changed. Reload it before installation."
+        manager = get_skill_manager()
+
+        def _install_locked(item):
+            return manager.install_workspace_draft(
+                draft_id=item.draft_id,
+                slug=item.slug,
+                skill_markdown=item.skill_markdown,
+                files=item.files,
+                source_revision=item.content_revision,
             )
-        await asyncio.to_thread(store.validate_draft, draft_id)
-        installed = await asyncio.to_thread(
-            get_skill_manager().install_workspace_draft,
-            draft_id=item.draft_id,
-            slug=item.slug,
-            skill_markdown=item.skill_markdown,
-            files=item.files,
-        )
-        updated = await asyncio.to_thread(
-            store.mark_installed,
+
+        updated, installed = await asyncio.to_thread(
+            store.install_current,
             draft_id,
-            revision=payload.revision,
-            skill_id=installed.skill_id,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest,
+            installer=_install_locked,
         )
         return {
             "draft": WorkspaceSkillDraftStore.serialize(updated),
@@ -391,7 +424,8 @@ async def archive_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
         item = await asyncio.to_thread(
             get_skill_draft_store().archive,
             draft_id,
-            revision=payload.revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest,
         )
         return WorkspaceSkillDraftStore.serialize(item)
     except SkillDraftError as exc:
@@ -419,12 +453,38 @@ async def install_skill(payload: SkillInstallRequest) -> SkillPayload:
 @router.delete("/{skill_id}")
 async def uninstall_skill(skill_id: str) -> dict[str, bool]:
     try:
-        await asyncio.to_thread(get_skill_manager().uninstall_skill, skill_id)
+        manager = get_skill_manager()
+        installed_before = next(
+            (
+                item
+                for item in await asyncio.to_thread(manager.list_installed_skills)
+                if item.skill_id == skill_id
+            ),
+            None,
+        )
+        try:
+            await asyncio.to_thread(manager.uninstall_skill, skill_id)
+        except SkillNotFoundError:
+            # A previous attempt may have removed the global files before the
+            # Workspace draft projection could be persisted.  Repair that
+            # projection idempotently before deciding this is a true 404.
+            repaired = await asyncio.to_thread(
+                get_skill_draft_store().mark_uninstalled_skill, skill_id
+            )
+            if repaired is None:
+                raise
+            return {"ok": True}
+        if installed_before and installed_before.source_kind == "workspace_draft":
+            await asyncio.to_thread(
+                get_skill_draft_store().mark_uninstalled_skill, skill_id
+            )
         return {"ok": True}
     except SkillNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except SkillValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SkillDraftError as exc:
+        _raise_draft_error(exc)
 
 
 @router.get("/{skill_id}/content", response_model=SkillContentResponse)
