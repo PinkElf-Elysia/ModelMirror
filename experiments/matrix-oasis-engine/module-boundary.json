@@ -81,6 +81,17 @@
       "BSD-3-Clause",
       "ISC"
     ],
+    "approvedDependencyLicenseExceptions": [
+      {
+        "package": "caniuse-lite",
+        "version": "1.0.30001807",
+        "license": "CC-BY-4.0",
+        "scope": "transitive-development-dependency",
+        "approvedOn": "2026-08-06",
+        "approvalRecord": "user-approved-during-r0",
+        "compliance": "Retain upstream attribution and license notice when distributing dependency materials."
+      }
+    ],
     "otherLicensesRequireHumanApproval": true
   }
 }
