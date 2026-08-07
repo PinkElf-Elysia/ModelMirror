@@ -3,8 +3,10 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest --configLoader runner",
+    "test:run": "vitest run --configLoader runner",
     "test:streaming-audio": "node scripts/verify-streaming-audio.mjs"
   },
   "dependencies": {

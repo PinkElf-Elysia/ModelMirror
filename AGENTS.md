@@ -17,7 +17,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 本文件是模镜仓库内 AI Agent、人类开发者和自动化任务的项目级操作说明。任何代码生成、重构、测试、提交和发布都必须优先遵守本文档。
 
-最后更新日期：2026-07-25
+最后更新日期：2026-08-07
 维护人：模镜团队
 
 ## 1. 项目边界
@@ -115,6 +115,7 @@ Harness Engineering 的意思是：先搭护栏，再做功能。任何变更都
 | `server/.env`、任何 token/key 文件 | 真实凭据 | 只允许本地配置，不得暂存、提交或输出原值。 |
 | `server/*/storage/`、`new-api-data/`、上传与索引目录 | 用户持久化数据 | 不纳入提交；删除、迁移或清空必须获得明确授权。 |
 | `client/package-lock.json`、`server/requirements.txt` | 依赖与供应链 | 只有任务确需依赖时修改，并记录许可证、版本和回退。 |
+| `SECURITY.md`、`.github/workflows/` | 安全报告与自动化证据 | 必须保留私密报告入口、最小权限和真实门禁状态；不得把普通检查冒充 required gate。 |
 | `docker-compose.yml`、Dockerfile、sidecar 配置 | 部署与隔离边界 | 必须运行 Compose 配置/构建与安全冒烟。 |
 | `/api/chat`、classic workflow runner、Xpert/App 执行链 | 稳定主路径 | 必须有针对性测试、全链路回归和兼容说明。 |
 | 已发布 Xpert/Toolset/Knowledge 版本 | 不可变线上快照 | 只创建新版本或显式回滚，不得原地修改。 |
@@ -126,7 +127,7 @@ Harness Engineering 的意思是：先搭护栏，再做功能。任何变更都
 - 验证结果只允许使用：`通过`、`失败`、`未运行`、`不适用`。
 - “通过”必须附实际执行命令和可核对摘要；不得把预计结果写成已运行结果。
 - 修改后必须检查 `git diff`、`git diff --check`、暂存文件清单和敏感信息扫描结果。
-- 仓库当前没有 GitHub Actions 工作流；在 CI 建立前，本地验证是强制交付证据，不能表述为“CI 已通过”。
+- 本治理 PR 包含既有 `.github/workflows/multimodal-readiness.yml` 和新增 `.github/workflows/quality.yml`；后者执行前端 typecheck、单元测试与构建、后端测试和 Compose 配置检查。`main` 的 required rules 尚未开启，因此工作流结果是自动化证据，不是强制合并门；只有实际 GitHub run 成功后才能表述为“CI 已通过”。
 
 ## 3. 红线
 
@@ -134,6 +135,7 @@ Harness Engineering 的意思是：先搭护栏，再做功能。任何变更都
 
 - 将真实 `OPENROUTER_API_KEY`、`LLM_GATEWAY_KEY`、`DIFY_API_KEY`、GitHub token 写入仓库。
 - 在前端代码中硬编码后端密钥。
+- 通过公开 Issue、Pull Request、Discussion、提交信息或 CI 日志报告漏洞、粘贴 secret；安全问题必须按 `SECURITY.md` 私密报告。
 - 未测试通过就修改 `/api/chat`、`/workflow`、`/rag` 等主路径。
 - 使用不安全批量替换处理中文源码。
 - 提交 `node_modules/`、`client/dist/`、日志、临时目录、RAG 存储数据和 Docker 持久化数据。
@@ -156,6 +158,8 @@ Harness Engineering 的意思是：先搭护栏，再做功能。任何变更都
 
 ```bash
 cd client
+npm.cmd run typecheck
+npm.cmd run test:run
 npm.cmd run build
 ```
 

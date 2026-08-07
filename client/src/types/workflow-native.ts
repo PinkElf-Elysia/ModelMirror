@@ -1,27 +1,11 @@
-import type { WorkflowDefinition, WorkflowEdge, WorkflowNode } from "./workflow";
+import type {
+  WorkflowDefinition,
+  WorkflowEdge,
+  WorkflowNode,
+  WorkflowNodeKind,
+} from "./workflow";
 
-export type NativeNodeKind =
-  | "input"
-  | "llm"
-  | "condition"
-  | "code"
-  | "variable_assign"
-  | "template_transform"
-  | "variable_aggregator"
-  | "parameter_extractor"
-  | "knowledge_retrieval"
-  | "knowledge_citation"
-  | "document_extractor"
-  | "human_intervention"
-  | "question_classifier"
-  | "agent"
-  | "workflow_agent"
-  | "mcp_tool"
-  | "time_tool"
-  | "http_request"
-  | "list_operation"
-  | "iteration"
-  | "output";
+export type NativeNodeKind = WorkflowNodeKind;
 
 export type DifyConceptNodeKind =
   | "start"

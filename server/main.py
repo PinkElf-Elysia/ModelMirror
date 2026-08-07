@@ -194,7 +194,7 @@ try:
         parse_meta_agent_plan,
     )
     from server.meta_agent.prompts import META_AGENT_SYSTEM_PROMPT
-    from server.workflow_native.schemas import NativeWorkflowDefinition
+    from server.workflow_native.schemas import NativeNodeKind, NativeWorkflowDefinition
     from server.workflow_native.validate import validate_workflow_graph
 except ModuleNotFoundError:
     from meta_agent import (
@@ -210,7 +210,7 @@ except ModuleNotFoundError:
         parse_meta_agent_plan,
     )
     from meta_agent.prompts import META_AGENT_SYSTEM_PROMPT
-    from workflow_native.schemas import NativeWorkflowDefinition
+    from workflow_native.schemas import NativeNodeKind, NativeWorkflowDefinition
     from workflow_native.validate import validate_workflow_graph
 
 try:
@@ -1263,35 +1263,7 @@ class MCPCallResponse(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
-WorkflowNodeType = Literal[
-    "input",
-    "llm",
-    "condition",
-    "code",
-    "variable_assign",
-    "template_transform",
-    "variable_aggregator",
-    "parameter_extractor",
-    "knowledge_retrieval",
-    "knowledge_citation",
-    "document_extractor",
-    "human_intervention",
-    "question_classifier",
-    "agent",
-    "workflow_agent",
-    "external_xpert",
-    "knowledge_base",
-    "agent_task",
-    "agent_handoff",
-    "handoff_router",
-    "mcp_tool",
-    "time_tool",
-    "http_request",
-    "list_operation",
-    "iteration",
-    "runtime_middleware",
-    "output",
-]
+WorkflowNodeType = NativeNodeKind
 
 
 class WorkflowPosition(BaseModel):

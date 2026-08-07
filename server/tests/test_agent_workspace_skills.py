@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import httpx
@@ -44,6 +45,27 @@ def test_library_contains_only_the_16_digest_verified_builtins(
         skill.skill_id for skill in skills
     ]
     assert "external" not in {skill.skill_id for skill in skills}
+
+
+def test_builtin_digest_normalizes_crlf_but_rejects_content_changes(
+    tmp_path: Path,
+) -> None:
+    source_root = Path(__file__).resolve().parents[1] / "skills" / "builtin"
+    copied_root = tmp_path / "builtin"
+    shutil.copytree(source_root, copied_root)
+    skill_path = copied_root / "agent-evaluation" / "SKILL.md"
+    canonical_content = skill_path.read_bytes().replace(b"\r\n", b"\n")
+    skill_path.write_bytes(canonical_content.replace(b"\n", b"\r\n"))
+
+    library = BuiltinSkillLibrary(
+        root=copied_root,
+        skillset_path=tmp_path / "skillsets.json",
+    )
+    assert len(library.list_skills()) == 16
+
+    skill_path.write_bytes(skill_path.read_bytes() + b"substantive change\r\n")
+    with pytest.raises(BuiltinSkillLibraryError, match="agent-evaluation"):
+        library.list_skills()
 
 
 def test_agent_creation_keeps_upstream_method_and_adds_native_guardrails(
