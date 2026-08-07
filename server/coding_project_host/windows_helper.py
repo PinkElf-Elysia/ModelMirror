@@ -45,6 +45,14 @@ MAX_CONTROL_MESSAGE_BYTES = 256 * 1024
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
 FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
 DRIVE_REMOTE = 4
+PROJECT_SELECTION_STATUS = {
+    "git_repository_required": "请选择独立 Git 项目的根目录",
+    "git_branch_required": "项目当前未处于普通分支，请先切换分支",
+    "git_head_required": "项目还没有可读取的提交，请先创建初始提交",
+    "git_repository_dirty": "项目中有尚未提交或未跟踪的文件，请先整理干净",
+    "git_tree_unreadable": "无法读取项目当前版本的文件列表",
+    "git_status_unreadable": "无法确认项目是否干净，请在 Git 中检查后重试",
+}
 
 
 class ProjectHostHelperError(RuntimeError):
@@ -299,18 +307,36 @@ def inspect_git_project(
     if alternates.is_symlink() or (alternates.is_file() and alternates.stat().st_size > 0):
         raise ProjectHostHelperError("git_alternates_not_allowed")
 
-    inside = _git_text(resolved, "rev-parse", "--is-inside-work-tree")
+    inside = _git_text(
+        resolved,
+        "rev-parse",
+        "--is-inside-work-tree",
+        error_code="git_repository_required",
+    )
     if inside != "true":
         raise ProjectHostHelperError("git_repository_required")
-    branch = _git_text(resolved, "symbolic-ref", "--quiet", "--short", "HEAD")
+    branch = _git_text(
+        resolved,
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD",
+        error_code="git_branch_required",
+    )
     if not _valid_branch(branch):
         raise ProjectHostHelperError("git_branch_required")
-    head = _git_text(resolved, "rev-parse", "--verify", "HEAD^{commit}").lower()
+    head = _git_text(
+        resolved,
+        "rev-parse",
+        "--verify",
+        "HEAD^{commit}",
+        error_code="git_head_required",
+    ).lower()
     if OBJECT_ID_PATTERN.fullmatch(head) is None:
         raise ProjectHostHelperError("git_head_invalid")
     tree = _run_git(resolved, "ls-tree", "-r", "-z", "--full-tree", "HEAD")
     if tree.returncode != 0:
-        raise ProjectHostHelperError("git_inspection_failed")
+        raise ProjectHostHelperError("git_tree_unreadable")
     try:
         validate_git_tree(tree.stdout)
     except Exception as exc:
@@ -318,7 +344,7 @@ def inspect_git_project(
         raise ProjectHostHelperError(str(code)) from exc
     status = _run_git(resolved, "status", "--porcelain=v2", "--untracked-files=all")
     if status.returncode != 0:
-        raise ProjectHostHelperError("git_inspection_failed")
+        raise ProjectHostHelperError("git_status_unreadable")
     if status.stdout:
         raise ProjectHostHelperError("git_repository_dirty")
 
@@ -513,6 +539,12 @@ class ProjectHostTransport:
                     )
                 )
             except ProjectHostHelperError as exc:
+                self.status_changed(
+                    PROJECT_SELECTION_STATUS.get(
+                        exc.code,
+                        "无法读取这个 Git 项目，请检查项目状态后重试",
+                    )
+                )
                 await self._error(websocket, request_id, exc.code)
         elif message_type == "rename_project":
             try:
@@ -709,15 +741,20 @@ def _run_git(path: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
             stderr=subprocess.PIPE,
             check=False,
             timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ProjectHostHelperError("git_inspection_failed") from exc
 
 
-def _git_text(path: Path, *arguments: str) -> str:
+def _git_text(
+    path: Path,
+    *arguments: str,
+    error_code: str = "git_inspection_failed",
+) -> str:
     result = _run_git(path, *arguments)
     if result.returncode != 0:
-        raise ProjectHostHelperError("git_inspection_failed")
+        raise ProjectHostHelperError(error_code)
     try:
         return result.stdout.decode("utf-8", errors="strict").strip()
     except UnicodeError as exc:

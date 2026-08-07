@@ -133,6 +133,21 @@ def test_git_inspection_rejects_worktree_pointer_alternates_and_symlink(tmp_path
     assert symlink.value.code == "project_reparse_point_not_allowed"
 
 
+def test_git_inspection_explains_missing_head_and_detached_branch(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    _git(empty, "init", "-b", "main")
+    with pytest.raises(ProjectHostHelperError) as missing_head:
+        inspect_git_project(empty, b"k" * 32, enforce_windows=False)
+    assert missing_head.value.code == "git_head_required"
+
+    project = _repository(tmp_path)
+    _git(project, "switch", "--detach")
+    with pytest.raises(ProjectHostHelperError) as detached:
+        inspect_git_project(project, b"k" * 32, enforce_windows=False)
+    assert detached.value.code == "git_branch_required"
+
+
 @pytest.mark.parametrize(
     "url",
     [
