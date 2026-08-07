@@ -251,3 +251,63 @@ async def test_helper_sends_periodic_heartbeat_without_echo_loop(
     await transport._handle_message(FakeWebSocket(), '{"type":"heartbeat"}')
 
     assert sent == ['{"type":"heartbeat"}']
+
+
+@pytest.mark.asyncio
+async def test_helper_handles_snapshot_request_without_closing_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    project_id = "hostgit_0123456789abcdef0123456789abcdef"
+    result = type(
+        "SnapshotResult",
+        (),
+        {
+            "project_id": project_id,
+            "name": "snapshot-project",
+            "branch": "main",
+            "head": "a" * 40,
+        },
+    )()
+    monkeypatch.setattr(registry, "create_snapshot", lambda *_args: result)
+    transport = ProjectHostTransport(
+        registry,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=lambda: None,
+    )
+    monkeypatch.setattr(transport, "_upload_snapshot", lambda *_args: None)
+    sent: list[dict[str, object]] = []
+
+    class FakeWebSocket:
+        async def send(self, message: str) -> None:
+            sent.append(json.loads(message))
+
+    await transport._handle_message(
+        FakeWebSocket(),
+        json.dumps(
+            {
+                "type": "snapshot_project",
+                "request_id": "phreq_0123456789abcdef0123456789abcdef",
+                "project_id": project_id,
+                "transfer_id": "b" * 32,
+            }
+        ),
+    )
+
+    assert sent == [
+        {
+            "type": "snapshot_result",
+            "request_id": "phreq_0123456789abcdef0123456789abcdef",
+            "transfer_id": "b" * 32,
+            "project": {
+                "project_id": project_id,
+                "name": "snapshot-project",
+                "branch": "main",
+                "head": "a" * 40,
+                "state": "available",
+                "reason": None,
+            },
+        }
+    ]

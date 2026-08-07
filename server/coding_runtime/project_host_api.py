@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -30,6 +31,7 @@ PROJECT_HOST_REQUEST_TIMEOUT_SECONDS = 150.0
 PROJECT_HOST_MAX_MESSAGE_BYTES = 256 * 1024
 UPLOAD_ROOT_MARKER = ".modelmirror-coding-project-uploads"
 SAFE_TRANSFER_ID = re.compile(r"^[a-f0-9]{32}$")
+logger = logging.getLogger(__name__)
 
 
 class PairingRequest(BaseModel):
@@ -321,8 +323,12 @@ class ProjectHostRuntime:
                 message = await self._receive(websocket)
                 await self._incoming(host_id, connection_id, message)
         except WebSocketDisconnect:
-            pass
+            logger.info("Coding project host connection closed by peer")
         except Exception as exc:
+            logger.warning(
+                "Coding project host connection failed: %s",
+                getattr(exc, "code", type(exc).__name__),
+            )
             with contextlib.suppress(Exception):
                 await websocket.send_json({"type": "error", "code": getattr(exc, "code", "project_host_internal_error")})
                 await websocket.close(code=4003)

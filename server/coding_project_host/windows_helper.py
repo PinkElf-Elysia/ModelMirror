@@ -10,6 +10,7 @@ import hmac
 import http.client
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
