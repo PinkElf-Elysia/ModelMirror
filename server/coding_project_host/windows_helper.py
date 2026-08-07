@@ -408,6 +408,21 @@ class ProjectHostTransport:
                         await self._handle_message(websocket, raw)
             except asyncio.CancelledError:
                 raise
+            except ProjectHostHelperError as exc:
+                if (
+                    exc.code == "project_host_authentication_rejected"
+                    and self.registry.credentials is not None
+                ):
+                    self.registry.clear_credentials()
+                    self.pairing_code = ""
+                    self.status_changed("连接凭据已失效，请生成新连接码后重新连接")
+                    return
+                if self.registry.credentials is None:
+                    self.status_changed("连接失败，请检查配对码后重试")
+                    return
+                self.status_changed("连接已断开，正在重试")
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 15.0)
             except Exception:
                 if self.registry.credentials is None:
                     self.status_changed("连接失败，请检查配对码后重试")
@@ -442,6 +457,8 @@ class ProjectHostTransport:
             }
         await websocket.send(json.dumps(first, separators=(",", ":")))
         response = _parse_message(await asyncio.wait_for(websocket.recv(), timeout=15))
+        if response.get("type") == "error":
+            raise ProjectHostHelperError("project_host_authentication_rejected")
         if response.get("type") != "welcome" or response.get("protocol") != PROJECT_HOST_PROTOCOL:
             raise ProjectHostHelperError("project_host_handshake_failed")
         if response.get("paired") is True:
@@ -618,6 +635,7 @@ class ProjectHostWindow:
         ttk.Label(form, text="配对码").grid(row=0, column=0, padx=6)
         entry = ttk.Entry(form, textvariable=self.code, width=18)
         entry.grid(row=0, column=1, padx=6)
+        self.code_entry = entry
         ttk.Button(form, text="连接", command=self._start).grid(row=0, column=2, padx=6)
         if registry.credentials is not None:
             entry.configure(state="disabled")
@@ -645,7 +663,7 @@ class ProjectHostWindow:
             self.server_url,
             self.code.get(),
             select_folder=self.select_folder,
-            status_changed=lambda value: self.root.after(0, self.status.set, value),
+            status_changed=lambda value: self.root.after(0, self._set_status, value),
         )
         self._thread = threading.Thread(
             target=lambda: asyncio.run(transport.run_forever()),
@@ -653,6 +671,12 @@ class ProjectHostWindow:
             daemon=True,
         )
         self._thread.start()
+
+    def _set_status(self, value: str) -> None:
+        self.status.set(value)
+        self.code_entry.configure(
+            state="disabled" if self.registry.credentials is not None else "normal"
+        )
 
     def run(self) -> None:
         if self.registry.credentials is not None:

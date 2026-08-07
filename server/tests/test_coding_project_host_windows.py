@@ -10,6 +10,7 @@ import pytest
 from server.coding_project_host.windows_helper import (
     ProjectHostHelperError,
     ProjectHostRegistry,
+    ProjectHostTransport,
     inspect_git_project,
     public_project,
     validate_server_url,
@@ -151,3 +152,51 @@ def test_server_url_rejects_non_loopback_or_credential_bearing_values(url: str) 
 
 def test_server_url_normalizes_the_only_supported_endpoint() -> None:
     assert validate_server_url("http://127.0.0.1:8000/") == "http://127.0.0.1:8000"
+
+
+@pytest.mark.asyncio
+async def test_rejected_saved_credentials_stop_retry_and_require_new_pairing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    registry.save_credentials(
+        "phost_0123456789abcdef0123456789abcdef",
+        "expired-token-" + "x" * 48,
+    )
+    attempts = 0
+    statuses: list[str] = []
+
+    class FakeWebSocket:
+        async def send(self, _message: str) -> None:
+            return None
+
+        async def recv(self) -> str:
+            return json.dumps({"type": "error", "code": "project_host_unavailable"})
+
+    class FakeConnection:
+        async def __aenter__(self) -> FakeWebSocket:
+            return FakeWebSocket()
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    def fake_connect(*_args: object, **_kwargs: object) -> FakeConnection:
+        nonlocal attempts
+        attempts += 1
+        return FakeConnection()
+
+    monkeypatch.setattr("websockets.asyncio.client.connect", fake_connect)
+    transport = ProjectHostTransport(
+        registry,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=lambda: None,
+        status_changed=statuses.append,
+    )
+
+    await transport.run_forever()
+
+    assert attempts == 1
+    assert registry.credentials is None
+    assert statuses == ["正在连接", "连接凭据已失效，请生成新连接码后重新连接"]
