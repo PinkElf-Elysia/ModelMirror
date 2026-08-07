@@ -1,6 +1,6 @@
 # R2 验收记录
 
-状态：R2.1 治理批次已验证，等待本地提交
+状态：R2.2 参考模拟器核心已验证，等待本地提交
 
 固定基线：`a8e627e217c8c9e2cb8cca83fea8542c47edaeba`
 
@@ -20,8 +20,8 @@
 
 | 批次 | 目标 | 提交 | 状态 |
 | --- | --- | --- | --- |
-| R2.1 | 治理、正向 allowlist 与 R1 冻结 | 本批次提交，SHA 在后续批次记录 | 已验证 |
-| R2.2 | 浏览器兼容的确定性参考模拟器 | 待记录 | 未开始 |
+| R2.1 | 治理、正向 allowlist 与 R1 冻结 | `1b259b7` | 已完成 |
+| R2.2 | 浏览器兼容的确定性参考模拟器 | 本批次提交，SHA 在后续批次记录 | 已验证 |
 | R2.3 | 运行语义与夹具轨迹 | 待记录 | 未开始 |
 | R2.4 | Creator 最小运行实验台 | 待记录 | 未开始 |
 | R2.5 | 拆分证据与人工验收包 | 待记录 | 未开始 |
@@ -46,6 +46,16 @@
 - `npm.cmd run check:parent-scope -- --base a8e627e217c8c9e2cb8cca83fea8542c47edaeba`：退出 0，父仓范围检查通过。
 - `npm.cmd run verify`：退出 0，167 项测试通过；Creator 构建与 loopback 冒烟通过；Godot 缺失如实报告为非阻塞 warning。
 - R1 contracts、validator、examples 与 R0/R1 验收记录相对固定基线零差异。
+
+### R2.2 验证摘要
+
+- 新增 private/UNLICENSED 的 `@matrix-oasis/game-pack-simulator@0.1.0-r2`；只依赖冻结的内部 Validator，不增加第三方依赖。
+- `npm.cmd ci --no-audit --no-fund`：退出 0，安装 79 个包；仅保留既有 `esbuild@0.27.7` install-script warning。
+- `npm.cmd ls --all`：退出 0，simulator workspace 链接与内部依赖完整，无 missing 或 extraneous。
+- `npm.cmd run verify:simulator`：退出 0，12 项核心模拟器测试通过。
+- `npm.cmd run verify`：退出 0，179 项测试通过；Creator 构建与 loopback 冒烟继续通过。
+- `npm.cmd run check:boundary` 与 `npm.cmd run check:round-scope`：退出 0；模拟器无父依赖、网络、持久化或题材专属实现。
+- R1 冻结路径相对 `1b259b7` 零差异；本批不修改 Creator。
 
 ## 回退
 
