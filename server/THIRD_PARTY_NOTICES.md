@@ -170,3 +170,21 @@ Project: https://github.com/tiran/defusedxml
 No Xpert AGPL implementation is copied into the API Toolset runtime. Xpert UI
 and public documentation are used only as behavioral and domain-model
 references.
+
+## Anthropic skill-creator authoring guidance
+
+ModelMirror includes a modified creation-stage authoring playbook derived from
+`anthropics/skills`, path `skills/skill-creator/`.
+
+- Copyright: Copyright 2026 Anthropic, PBC
+- License: Apache License 2.0
+- Upstream: <https://github.com/anthropics/skills/tree/main/skills/skill-creator>
+- Modified file: `/app/skills/creator_reference/authoring-playbook-v1.md`
+- License copy:
+  `/app/skills/creator_reference/LICENSE-ANTHROPIC-SKILL-CREATOR.txt`
+
+The playbook was rewritten for ModelMirror's typed proposal, UTF-8 package,
+trusted requirement-coverage and PR2/PR3 quality contracts. It excludes the
+upstream evaluator, graders, result viewer, description optimizer, packaging
+scripts and Claude-specific execution paths. Anthropic does not endorse
+ModelMirror; this notice uses the project name only to identify provenance.

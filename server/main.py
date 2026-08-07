@@ -98,8 +98,39 @@ try:
         get_skill_manager,
         router as skills_router,
     )
+    from server.skills.creator_api import (
+        configure_skill_creator,
+        router as skill_creator_router,
+    )
+    from server.skills.creator_runtime import (
+        CREATOR_WORKFLOW_VERSION,
+        CreatorWorkflowInvocation,
+        WorkflowCreatorGenerationExecutor,
+    )
+    from server.skills.creator_service import (
+        SkillCreatorService,
+        configure_creator_generation_executor,
+    )
+    from server.skills.creator_store import (
+        CREATOR_ASSISTANT_AGENT_ID,
+        SkillCreatorSessionStore,
+    )
 except ModuleNotFoundError:
     from skills.api import get_skill_draft_store, get_skill_manager, router as skills_router
+    from skills.creator_api import (
+        configure_skill_creator,
+        router as skill_creator_router,
+    )
+    from skills.creator_runtime import (
+        CREATOR_WORKFLOW_VERSION,
+        CreatorWorkflowInvocation,
+        WorkflowCreatorGenerationExecutor,
+    )
+    from skills.creator_service import (
+        SkillCreatorService,
+        configure_creator_generation_executor,
+    )
+    from skills.creator_store import CREATOR_ASSISTANT_AGENT_ID, SkillCreatorSessionStore
 
 try:
     from server.agent_workspace.api import router as agent_workspace_router
@@ -690,7 +721,33 @@ WORKFLOW_AGENT_STRATEGY_V2_ENABLED = (
 )
 WORKFLOW_AGENT_MAX_ITERATIONS_DEFAULT = 5
 WORKFLOW_AGENT_MAX_TOKENS = 1024
+SKILL_CREATOR_AGENT_MAX_TOKENS = 12_288
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
+
+
+def is_trusted_skill_creator_runtime(
+    runtime_metadata: dict[str, Any] | None,
+) -> bool:
+    """Recognize the fixed server-owned Creator workflow metadata."""
+
+    metadata = dict(runtime_metadata or {})
+    return bool(
+        str(metadata.get("creator_session_id") or "").strip()
+        and metadata.get("assistant_agent_id") == CREATOR_ASSISTANT_AGENT_ID
+        and metadata.get("creator_workflow_version") == CREATOR_WORKFLOW_VERSION
+    )
+
+
+def workflow_agent_token_budget(runtime_metadata: dict[str, Any] | None) -> int:
+    """Return the larger budget only for the server-owned Creator workflow."""
+
+    return (
+        SKILL_CREATOR_AGENT_MAX_TOKENS
+        if is_trusted_skill_creator_runtime(runtime_metadata)
+        else WORKFLOW_AGENT_MAX_TOKENS
+    )
+
+
 HANDOFF_EXECUTOR_ENABLED = os.getenv(
     "HANDOFF_EXECUTOR_ENABLED",
     "true",
@@ -772,6 +829,7 @@ app.include_router(dify_router)
 app.include_router(rag_router)
 app.include_router(datax_router)
 app.include_router(skills_router)
+app.include_router(skill_creator_router)
 app.include_router(agent_workspace_router)
 app.include_router(xperts_router)
 app.include_router(xpert_apps_router)
@@ -926,6 +984,14 @@ authoring_service = AuthoringService(
     get_prompt_profile_store(),
     xpert_preflight=preview_xpert_for_publish,
 )
+skill_creator_session_store = SkillCreatorSessionStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_creator_service = SkillCreatorService(
+    skill_creator_session_store,
+    get_skill_draft_store(),
+    authoring_service,
+)
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
     authoring_service, "xpert"
 )
@@ -933,6 +999,7 @@ workflow_skill_creator_provider = AuthoringToolsetProvider(
     authoring_service, "skill"
 )
 configure_runtime_authoring(authoring_service)
+configure_skill_creator(skill_creator_service)
 runtime_capabilities.register(
     "mcp_tools",
     workflow_mcp_provider,
@@ -4787,6 +4854,11 @@ async def _run_workflow_response(
             for metadata_key in (
                 "xpert_id",
                 "conversation_id",
+                "creator_session_id",
+                "creator_session_revision",
+                "assistant_agent_id",
+                "creator_workflow_version",
+                "creator_requirement_ids",
                 "goal_id",
                 "goal_step_id",
                 "handoff_id",
@@ -5101,7 +5173,8 @@ async def _run_workflow_response(
                             100,
                         )
                     )
-            return await run_tool_with_runtime(
+            try:
+                return await run_tool_with_runtime(
                 RuntimeToolCall(
                     tool_name=tool_name,
                     arguments=arguments,
@@ -5123,6 +5196,17 @@ async def _run_workflow_response(
                             run_context.get("external_xpert_path") or []
                         ),
                         "conversation_id": run_context.get("conversation_id"),
+                        "creator_session_id": run_context.get("creator_session_id"),
+                        "creator_session_revision": run_context.get(
+                            "creator_session_revision"
+                        ),
+                        "assistant_agent_id": run_context.get("assistant_agent_id"),
+                        "creator_workflow_version": run_context.get(
+                            "creator_workflow_version"
+                        ),
+                        "creator_requirement_ids": list(
+                            run_context.get("creator_requirement_ids") or []
+                        ),
                         "goal_id": run_context.get("goal_id"),
                         "goal_step_id": run_context.get("goal_step_id"),
                         "handoff_id": run_context.get("handoff_id"),
@@ -5172,6 +5256,7 @@ async def _run_workflow_response(
                         "datax_max_result_rows": int((effective_context.metadata.get("datax_config") or {}).get("maxResultRows") or 100),
                         "run_type": runtime_run_type,
                         "automation_config": effective_context.metadata.get("automation_config") or {},
+                        "skill_creator_config": effective_context.metadata.get("skill_creator_config") or {},
                         "todo_scope_type": todo_scope_type,
                         "todo_scope_id": todo_scope_id,
                         **dict(metadata or {}),
@@ -5187,7 +5272,42 @@ async def _run_workflow_response(
                     else selected_workflow_tool_policy(capability_name)
                 ),
                 audit_store=selected_workflow_tool_audit_store(),
-            )
+                )
+            except RuntimeToolError as exc:
+                recoverable_creator_codes = {
+                    "skill_creator_draft_incomplete",
+                    "skill_package_invalid",
+                }
+                if (
+                    capability_name != "skill_creator_tools"
+                    or not is_trusted_skill_creator_runtime(run_context)
+                    or exc.code not in recoverable_creator_codes
+                ):
+                    raise
+                return RuntimeToolResult(
+                    output=json.dumps(
+                        {
+                            "ok": False,
+                            "retryable": True,
+                            "error": {
+                                "code": exc.code,
+                                "message": exc.message,
+                            },
+                            "instruction": (
+                                "Correct the rejected Skill package against the "
+                                "versioned Creator contract, then call the same "
+                                "proposal tool once more."
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    metadata={
+                        "content_types": ["text"],
+                        "error_code": exc.code,
+                        "recoverable_creator_error": True,
+                    },
+                    is_error=True,
+                )
 
         def runtime_tool_result_text(call_result: Any) -> str:
             content_types = call_result.metadata.get("content_types", [])
@@ -5242,16 +5362,43 @@ async def _run_workflow_response(
                 for item in re.split(r"[,\n]+", str(tool_names_raw or ""))
                 if item.strip()
             }
+            skill_creator_tools = (
+                await workflow_skill_creator_provider.list_tools()
+                if include_skill_creator and runtime_run_type != "xpert_app"
+                else []
+            )
+            skill_creator_tool_names = {
+                str(tool.name) for tool in skill_creator_tools
+            }
+            dedicated_skill_creator = bool(
+                include_skill_creator
+                and str(
+                    (task_state.get("runtime_metadata") or {}).get(
+                        "creator_session_id"
+                    )
+                    or ""
+                ).strip()
+            )
+            requested_skill_creator_tool_names = (
+                requested_tool_names.intersection(skill_creator_tool_names)
+                if dedicated_skill_creator
+                else set()
+            )
+            requested_mcp_tool_names = (
+                requested_tool_names - requested_skill_creator_tool_names
+            )
             if requested_tool_names and include_mcp:
                 registered_names = {tool.name for tool in tools}
-                missing_names = sorted(requested_tool_names - registered_names)
+                missing_names = sorted(requested_mcp_tool_names - registered_names)
                 if missing_names:
                     raise AgentStrategyError(
                         "Agent 工具白名单包含未注册或未连接的工具："
                         + ", ".join(missing_names),
                         code="capability_not_found",
                     )
-                tools = [tool for tool in tools if tool.name in requested_tool_names]
+                tools = [
+                    tool for tool in tools if tool.name in requested_mcp_tool_names
+                ]
             memory_tools = (
                 await workflow_memory_provider.list_tools()
                 if app_capability_allowed("allow_xpert_memory")
@@ -5394,7 +5541,13 @@ async def _run_workflow_response(
             if include_xpert_authoring and runtime_run_type != "xpert_app":
                 tools.extend(await workflow_xpert_authoring_provider.list_tools())
             if include_skill_creator and runtime_run_type != "xpert_app":
-                tools.extend(await workflow_skill_creator_provider.list_tools())
+                tools.extend(
+                    tool
+                    for tool in skill_creator_tools
+                    if not dedicated_skill_creator
+                    or not requested_tool_names
+                    or tool.name in requested_skill_creator_tool_names
+                )
             if middleware_specs is not None and apply_policy_filter:
                 allowed_tools: list[Any] = []
                 for tool in tools:
@@ -5569,6 +5722,7 @@ async def _run_workflow_response(
             history_messages: list[dict[str, Any]] | None = None,
         ) -> AgentStrategyResult:
             runtime_metadata = dict(task_state.get("runtime_metadata") or {})
+            agent_max_tokens = workflow_agent_token_budget(runtime_metadata)
             current_depth = int(runtime_metadata.get("external_xpert_depth") or 0)
             if current_depth > max_tool_depth:
                 raise RuntimeMiddlewareFatalError(
@@ -5741,7 +5895,7 @@ async def _run_workflow_response(
                         {"role": "user", "content": user_prompt},
                     ],
                     temperature=temperature,
-                    max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
+                    max_tokens=agent_max_tokens,
                 )
                 answer = direct_turn.content.strip()
                 if not answer:
@@ -5856,7 +6010,7 @@ async def _run_workflow_response(
                     strategy=strategy,  # type: ignore[arg-type]
                     max_iterations=max_iterations,
                     temperature=temperature,
-                    max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
+                    max_tokens=agent_max_tokens,
                     parallel_tool_calls=parallel_tool_calls,
                     history_messages=history_messages,
                 )
@@ -5930,6 +6084,11 @@ async def _run_workflow_response(
             max_tool_calls = min(max(int(max_tool_calls), 1), 50)
             max_tool_depth = min(max(int(max_tool_depth), 1), 4)
             runtime_metadata = dict(task_state.get("runtime_metadata") or {})
+            trusted_creator_agent = bool(
+                include_skill_creator
+                and is_trusted_skill_creator_runtime(runtime_metadata)
+            )
+            agent_max_tokens = workflow_agent_token_budget(runtime_metadata)
             current_depth = int(runtime_metadata.get("external_xpert_depth") or 0)
             if current_depth > max_tool_depth:
                 raise RuntimeMiddlewareFatalError(
@@ -6053,7 +6212,7 @@ async def _run_workflow_response(
                         model_id,
                         messages,
                         temperature=temperature,
-                        max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
+                        max_tokens=agent_max_tokens,
                     )
 
                 async def handler(request: ModelCallRequest) -> ModelCallResponse:
@@ -6069,7 +6228,7 @@ async def _run_workflow_response(
                         max_tokens=int(
                             request.params.get(
                                 "max_tokens",
-                                WORKFLOW_AGENT_MAX_TOKENS,
+                                agent_max_tokens,
                             )
                         ),
                     )
@@ -6084,7 +6243,7 @@ async def _run_workflow_response(
                         messages=[message.model_dump() for message in messages],
                         params={
                             "temperature": temperature,
-                            "max_tokens": WORKFLOW_AGENT_MAX_TOKENS,
+                            "max_tokens": agent_max_tokens,
                         },
                     ),
                     handler,
@@ -6515,6 +6674,40 @@ async def _run_workflow_response(
                 try:
                     decision = json.loads(json_text)
                 except ValueError:
+                    if trusted_creator_agent:
+                        if run_id:
+                            await run_registry.record_checkpoint(
+                                run_id,
+                                event_type="workflow_agent.creator_tool_required",
+                                title="Creator proposal tool required",
+                                summary=(
+                                    "The model returned malformed or plain text "
+                                    "instead of a Creator proposal tool decision."
+                                ),
+                                severity="warning",
+                                metadata={"iteration": iteration_index + 1},
+                            )
+                        messages.extend(
+                            [
+                                ChatMessage(
+                                    role="assistant",
+                                    content=(
+                                        "The previous response was not accepted because "
+                                        "it was not a valid JSON proposal tool decision."
+                                    ),
+                                ),
+                                ChatMessage(
+                                    role="user",
+                                    content=(
+                                        "Regenerate the complete package from the original "
+                                        "Creator contract. Respond only with one JSON decision "
+                                        "that calls the allowed Skill proposal tool; do not "
+                                        "return the package as plain text."
+                                    ),
+                                ),
+                            ]
+                        )
+                        continue
                     output_text = raw_response
                     if run_id:
                         await run_registry.record_checkpoint(
@@ -6526,6 +6719,26 @@ async def _run_workflow_response(
                         )
                     break
                 if not isinstance(decision, dict):
+                    if trusted_creator_agent:
+                        messages.extend(
+                            [
+                                ChatMessage(
+                                    role="assistant",
+                                    content=(
+                                        "The previous response was not accepted because "
+                                        "it was not a JSON object tool decision."
+                                    ),
+                                ),
+                                ChatMessage(
+                                    role="user",
+                                    content=(
+                                        "Respond only with one JSON object that calls the "
+                                        "allowed Skill proposal tool."
+                                    ),
+                                ),
+                            ]
+                        )
+                        continue
                     output_text = raw_response
                     if run_id:
                         await run_registry.record_checkpoint(
@@ -6538,6 +6751,25 @@ async def _run_workflow_response(
                     break
                 answer = decision.get("answer")
                 if isinstance(answer, str) and answer.strip():
+                    if trusted_creator_agent:
+                        messages.extend(
+                            [
+                                ChatMessage(
+                                    role="assistant",
+                                    content=(
+                                        "A text answer cannot complete a Skill Creator run."
+                                    ),
+                                ),
+                                ChatMessage(
+                                    role="user",
+                                    content=(
+                                        "Call the allowed Skill proposal tool with the "
+                                        "complete package and design contract."
+                                    ),
+                                ),
+                            ]
+                        )
+                        continue
                     output_text = answer.strip()
                     if run_id:
                         await run_registry.record_checkpoint(
@@ -6772,6 +7004,40 @@ async def _run_workflow_response(
                 tool_name = str(decision.get("tool") or "").strip()
                 arguments = decision.get("arguments")
                 if not tool_name:
+                    if trusted_creator_agent:
+                        if run_id:
+                            await run_registry.record_checkpoint(
+                                run_id,
+                                event_type="workflow_agent.creator_tool_required",
+                                title="Creator proposal tool required",
+                                summary=(
+                                    "The model response was not a valid Creator "
+                                    "proposal tool decision."
+                                ),
+                                severity="warning",
+                                metadata={"iteration": iteration_index + 1},
+                            )
+                        messages.append(
+                            ChatMessage(
+                                role="assistant",
+                                content=(
+                                    "The previous response was not accepted because "
+                                    "it did not form a valid proposal tool decision."
+                                ),
+                            )
+                        )
+                        messages.append(
+                            ChatMessage(
+                                role="user",
+                                content=(
+                                    "Regenerate the complete package from the original "
+                                    "Creator contract. Respond only with one JSON decision "
+                                    "that calls the allowed Skill proposal tool; do not "
+                                    "return the package as plain text."
+                                ),
+                            )
+                        )
+                        continue
                     output_text = raw_response
                     if run_id:
                         await run_registry.record_checkpoint(
@@ -6910,20 +7176,56 @@ async def _run_workflow_response(
                             browser_event["run_id"] = run_id
                         events.append(browser_event)
                     if run_id:
+                        tool_failed = bool(call_result.is_error)
                         await run_registry.record_checkpoint(
                             run_id,
-                            event_type="workflow_agent.tool_call",
-                            title="Tool call completed",
+                            event_type=(
+                                "workflow_agent.tool_call_failed"
+                                if tool_failed
+                                else "workflow_agent.tool_call"
+                            ),
+                            title=(
+                                "Tool call failed"
+                                if tool_failed
+                                else "Tool call completed"
+                            ),
                             summary=f"{tool_name} result_length={len(tool_result_text)}",
+                            severity="warning" if tool_failed else "info",
                             metadata={
                                 "iteration": iteration_index + 1,
                                 "tool_name": tool_name,
                                 "result_length": len(tool_result_text),
                                 "tool_calls_used": tool_calls_used,
                                 "max_tool_calls": max_tool_calls,
+                                "is_error": tool_failed,
+                                "error_code": call_result.metadata.get(
+                                    "error_code"
+                                ),
                                 "semantics": tool_semantics(matched_tool),
                             },
                         )
+                    if (
+                        trusted_creator_agent
+                        and tool_name
+                        in {
+                            "skill_authoring_propose_create",
+                            "skill_authoring_propose_update",
+                        }
+                        and not call_result.is_error
+                    ):
+                        output_text = tool_result_text
+                        events.append(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": "Creator proposal submitted.",
+                                "variable": output_variable,
+                                **({"run_id": run_id} if run_id else {}),
+                            }
+                        )
+                        break
                     if matched_tool.terminal:
                         output_text = tool_result_text
                         terminal_event = {
@@ -11366,6 +11668,44 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     if final_event is None:
         raise RuntimeError("Xpert workflow ended without a final result.")
     return final_event
+
+
+async def run_skill_creator_generation(
+    invocation: CreatorWorkflowInvocation,
+) -> None:
+    payload = WorkflowRunRequest.model_validate(
+        {
+            "workflow": invocation.workflow,
+            "inputs": invocation.inputs,
+        }
+    )
+    session_id = str(
+        invocation.runtime_metadata.get("creator_session_id") or ""
+    ).strip()
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=session_id,
+        runtime_metadata=dict(invocation.runtime_metadata),
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {
+        "runtime_approval_pending",
+        "client_tool_waiting",
+    }:
+        raise RuntimeError(
+            "The dedicated Skill Creator Agent cannot pause for interactive tools."
+        )
+
+
+skill_creator_generation_executor = WorkflowCreatorGenerationExecutor(
+    authoring_proposal_store,
+    model_id=TEXT_FALLBACK_MODEL,
+    model_available=lambda: bool(get_llm_gateway_config()[0]),
+    runner=run_skill_creator_generation,
+)
+configure_creator_generation_executor(skill_creator_generation_executor)
 
 
 async def execute_external_xpert_resource(

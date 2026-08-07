@@ -36,6 +36,8 @@ import AgentWorkbenchPage from "./pages/AgentWorkbenchPage";
 import AgentConfigPage from "./pages/AgentConfigPage";
 
 const CodingPage = lazy(() => import("./pages/CodingPage"));
+const SkillCreatorIndexPage = lazy(() => import("./pages/SkillCreatorIndexPage"));
+const SkillCreatorStudioPage = lazy(() => import("./pages/SkillCreatorStudioPage"));
 
 function CodingPageFallback() {
   return (
@@ -90,6 +92,22 @@ export default function App() {
       <Route element={<McpBrowserPage />} path="/mcps" />
       <Route element={<ToolsetsPage />} path="/toolsets" />
       <Route element={<SkillBrowserPage />} path="/skills" />
+      <Route
+        element={
+          <Suspense fallback={<CodingPageFallback />}>
+            <SkillCreatorIndexPage />
+          </Suspense>
+        }
+        path="/skills/create"
+      />
+      <Route
+        element={
+          <Suspense fallback={<CodingPageFallback />}>
+            <SkillCreatorStudioPage />
+          </Suspense>
+        }
+        path="/skills/create/:sessionId"
+      />
       <Route element={<RuntimeOpsPage />} path="/runtime" />
       <Route element={<PromptProfilesPage />} path="/prompts" />
       <Route element={<PluginsPage />} path="/plugins" />

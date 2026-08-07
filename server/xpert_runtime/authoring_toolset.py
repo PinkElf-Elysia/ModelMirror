@@ -5,8 +5,10 @@ import re
 from typing import Any, Literal
 
 try:
+    from server.skills.creator_quality import evaluate_creator_payload
     from server.skills.draft_store import SkillDraftValidationError
 except ModuleNotFoundError:
+    from skills.creator_quality import evaluate_creator_payload
     from skills.draft_store import SkillDraftValidationError
 
 from .authoring_service import AuthoringService
@@ -112,6 +114,8 @@ class AuthoringToolsetProvider:
                     "properties": {
                         "title": {"type": "string", "maxLength": 200},
                         "skill": self._skill_package_schema(require_complete=True),
+                        "design": self._creator_design_schema(),
+                        "creator_contract_version": {"type": "string"},
                     },
                     "additionalProperties": False,
                 },
@@ -130,6 +134,8 @@ class AuthoringToolsetProvider:
                         "draft_id": {"type": "string"},
                         "base_revision": {"type": "integer", "minimum": 1},
                         "skill": self._skill_package_schema(require_complete=False),
+                        "design": self._creator_design_schema(),
+                        "creator_contract_version": {"type": "string"},
                     },
                     "additionalProperties": False,
                 },
@@ -175,10 +181,36 @@ class AuthoringToolsetProvider:
             elif call.tool_name.endswith("_propose_create"):
                 self._require_enabled(config, "allow_create", "Creating proposals is disabled.")
                 body = dict(arguments.get("xpert") or arguments.get("skill") or {})
+                proposal_payload = body
+                if self.kind == "skill" and source.get("creator_session_id"):
+                    try:
+                        body = self.service.skill_draft_store.validate_package(
+                            name=str(body.get("name") or ""),
+                            slug=str(body.get("slug") or ""),
+                            description=str(body.get("description") or ""),
+                            skill_markdown=str(
+                                body.get("skill_markdown")
+                                or body.get("SKILL.md")
+                                or ""
+                            ),
+                            files=dict(body.get("files") or {}),
+                        )
+                    except SkillDraftValidationError as exc:
+                        raise RuntimeToolError(
+                            call.tool_name,
+                            "The proposed Skill does not form a valid package.",
+                            code="skill_package_invalid",
+                        ) from exc
+                    proposal_payload = self._creator_payload(
+                        arguments,
+                        body,
+                        call.metadata,
+                    )
+                    self._require_creator_quality(call.tool_name, proposal_payload)
                 proposal = self.service.proposal_store.create(
                     kind="xpert_create" if self.kind == "xpert" else "skill_create",
                     title=str(arguments.get("title") or ""),
-                    payload=body,
+                    payload=proposal_payload,
                     **source,
                 )
                 payload = AuthoringProposalStore.serialize(proposal)
@@ -222,7 +254,7 @@ class AuthoringToolsetProvider:
                     base_revision = creator_target.revision
                     base_digest = creator_target.content_digest
                     try:
-                        self.service.skill_draft_store.validate_package(
+                        skill_payload = self.service.skill_draft_store.validate_package(
                             name=str(skill_payload.get("name") or creator_target.name),
                             slug=str(skill_payload.get("slug") or creator_target.slug),
                             description=str(
@@ -254,14 +286,22 @@ class AuthoringToolsetProvider:
                     self._require_allowed_target(target_id, config, source)
                     base_revision = int(arguments.get("base_revision") or 0)
                     base_digest = None
+                proposal_payload = (
+                    {"patch": dict(arguments.get("patch") or {})}
+                    if self.kind == "xpert"
+                    else {"skill": skill_payload}
+                )
+                if self.kind == "skill" and source.get("creator_session_id"):
+                    proposal_payload = self._creator_payload(
+                        arguments,
+                        skill_payload,
+                        call.metadata,
+                    )
+                    self._require_creator_quality(call.tool_name, proposal_payload)
                 proposal = self.service.proposal_store.create(
                     kind="xpert_update" if self.kind == "xpert" else "skill_update",
                     title=str(arguments.get("title") or ""),
-                    payload=(
-                        {"patch": dict(arguments.get("patch") or {})}
-                        if self.kind == "xpert"
-                        else {"skill": skill_payload}
-                    ),
+                    payload=proposal_payload,
                     target_id=target_id,
                     base_revision=base_revision,
                     base_digest=base_digest,
@@ -423,6 +463,48 @@ class AuthoringToolsetProvider:
             raise RuntimeToolError("authoring", message, code="authoring_action_denied")
 
     @staticmethod
+    def _creator_payload(
+        arguments: dict[str, Any],
+        skill: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        raw_requirement_ids = metadata.get("creator_requirement_ids") or []
+        if not isinstance(raw_requirement_ids, (list, tuple)):
+            raw_requirement_ids = []
+        requirement_ids = list(
+            dict.fromkeys(
+                str(item or "").strip()
+                for item in raw_requirement_ids
+                if str(item or "").strip()
+            )
+        )
+        return {
+            "skill": dict(skill),
+            "design": dict(arguments.get("design") or {}),
+            "creator_contract_version": str(
+                arguments.get("creator_contract_version") or ""
+            ).strip(),
+            # Server-owned IDs freeze which captured requirements the design must cover.
+            "creator_requirement_ids": requirement_ids,
+        }
+
+    @staticmethod
+    def _require_creator_quality(tool_name: str, payload: dict[str, Any]) -> None:
+        report = evaluate_creator_payload(
+            payload,
+            requirement_ids=payload.get("creator_requirement_ids") or (),
+        )
+        if report.ready:
+            return
+        issue_codes = list(dict.fromkeys(issue.code for issue in report.issues))[:8]
+        raise RuntimeToolError(
+            tool_name,
+            "Creator draft is not complete enough for review: "
+            + ", ".join(issue_codes),
+            code="skill_creator_draft_incomplete",
+        )
+
+    @staticmethod
     def _proposal_schema() -> dict[str, Any]:
         return {
             "type": "object",
@@ -482,6 +564,105 @@ class AuthoringToolsetProvider:
                 "skill_markdown",
             ]
         return schema
+
+    @staticmethod
+    def _creator_design_schema() -> dict[str, Any]:
+        """Design evidence required only by the trusted Skill Creator workflow."""
+
+        design_item = {
+            "type": "object",
+            "required": ["id", "description"],
+            "properties": {
+                "id": {"type": "string", "minLength": 1, "maxLength": 80},
+                "description": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 1000,
+                },
+            },
+            "additionalProperties": False,
+        }
+        return {
+            "type": "object",
+            "required": [
+                "workflow_steps",
+                "output_contract",
+                "failure_modes",
+                "resources",
+                "assumptions",
+                "requirement_coverage",
+            ],
+            "properties": {
+                "workflow_steps": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 10,
+                    "items": design_item,
+                },
+                "output_contract": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": design_item,
+                },
+                "failure_modes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": design_item,
+                },
+                "resources": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "required": ["path", "purpose", "used_by_steps"],
+                        "properties": {
+                            "path": {"type": "string", "minLength": 1},
+                            "purpose": {"type": "string", "minLength": 8},
+                            "used_by_steps": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"type": "string", "minLength": 1},
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+                "assumptions": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "items": {"type": "string", "minLength": 1},
+                },
+                "requirement_coverage": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                        "type": "object",
+                        "required": ["requirement_id", "locations"],
+                        "properties": {
+                            "requirement_id": {"type": "string", "minLength": 1},
+                            "locations": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "object",
+                                    "required": ["path", "section"],
+                                    "properties": {
+                                        "path": {"type": "string", "minLength": 1},
+                                        "section": {"type": "string", "minLength": 1},
+                                    },
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        }
 
 
 def register_authoring_toolset_capabilities(

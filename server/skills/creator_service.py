@@ -397,6 +397,9 @@ class SkillCreatorService:
             skill_id=skill_id,
             description=description,
             intent=session.intent,
+            positive_examples=session.positive_examples,
+            near_miss_examples=session.near_miss_examples,
+            expected_output=session.expected_output,
             success_criteria=session.success_criteria,
         )
         draft = self.draft_store.create_creator_draft(
@@ -466,6 +469,7 @@ class SkillCreatorService:
         session, draft = self.get_session(session_id)
         self._require_session_revision(session, expected_session_revision)
         self._require_ready_for_draft(session)
+        self._require_ready_for_generation(session)
         executor = self._executor()
         if executor is None:
             raise SkillCreatorValidationError(
@@ -722,6 +726,29 @@ class SkillCreatorService:
             )
 
     @staticmethod
+    def _require_ready_for_generation(session: SkillCreatorSession) -> None:
+        missing: list[str] = []
+        if not session.intent:
+            missing.append("intent")
+        if not session.positive_examples:
+            missing.append("positive_examples")
+        if not session.near_miss_examples:
+            missing.append("near_miss_examples")
+        if not session.expected_output:
+            missing.append("expected_output")
+        if not session.success_criteria:
+            missing.append("success_criteria")
+        if not session.evidence_confirmed:
+            missing.append("evidence")
+        if missing:
+            raise SkillCreatorValidationError(
+                "AI generation requires a purpose, a positive example, a near-miss "
+                "boundary, an output contract, success criteria, and confirmed evidence. "
+                f"Missing: {', '.join(missing)}.",
+                code="skill_creator_generation_definition_incomplete",
+            )
+
+    @staticmethod
     def _blank_preview_fingerprint(session: SkillCreatorSession) -> str:
         payload = {
             "session_id": session.session_id,
@@ -739,9 +766,18 @@ class SkillCreatorService:
 
     @staticmethod
     def _blank_skill_markdown(
-        *, skill_id: str, description: str, intent: str, success_criteria: list[str]
+        *,
+        skill_id: str,
+        description: str,
+        intent: str,
+        positive_examples: list[str],
+        near_miss_examples: list[str],
+        expected_output: str,
+        success_criteria: list[str],
     ) -> str:
         clean_description = str(description or "").strip()
+        positive = "\n".join(f"- {item}" for item in positive_examples) or "- TODO: Add a concrete request that should trigger this Skill."
+        near_miss = "\n".join(f"- {item}" for item in near_miss_examples) or "- TODO: Add a similar request that must not trigger this Skill."
         criteria = "\n".join(f"- {item}" for item in success_criteria)
         return (
             "---\n"
@@ -749,7 +785,33 @@ class SkillCreatorService:
             f"description: {json.dumps(clean_description, ensure_ascii=False)}\n"
             "---\n\n"
             f"# {skill_id}\n\n"
+            "<!-- MODEL_MIRROR_MANUAL_SCAFFOLD: incomplete -->\n\n"
+            "> This is a structured manual scaffold, not an evaluated Skill. Replace every "
+            "TODO with task-specific, executable guidance before evaluation.\n\n"
+            "## Purpose and scope\n\n"
             f"{intent.strip()}\n\n"
-            "## Success criteria\n\n"
-            f"{criteria}\n"
+            "## Trigger boundaries\n\n"
+            "Use this Skill for requests such as:\n\n"
+            f"{positive}\n\n"
+            "Do not use this Skill for near-miss requests such as:\n\n"
+            f"{near_miss}\n\n"
+            "## Inputs and preconditions\n\n"
+            "- TODO: List the required input, accepted formats, and prerequisites.\n"
+            "- TODO: State how to detect incomplete, ambiguous, or unsupported input.\n\n"
+            "## Workflow\n\n"
+            "1. TODO: Inspect and normalize the input without discarding source evidence.\n"
+            "2. TODO: Perform the repeatable task using explicit decision rules.\n"
+            "3. TODO: Validate the result against the quality checks below.\n"
+            "4. TODO: Produce the output contract and clearly mark unresolved gaps.\n\n"
+            "## Output contract\n\n"
+            f"{expected_output.strip()}\n\n"
+            "TODO: Define required fields, ordering, formats, and missing-value markers.\n\n"
+            "## Quality checks\n\n"
+            f"{criteria}\n\n"
+            "## Failure and degradation\n\n"
+            "- TODO: Fail closed when required evidence or dependencies are unavailable.\n"
+            "- TODO: Explain what partial output is safe, and never invent missing facts.\n\n"
+            "## Resources\n\n"
+            "Add only reusable UTF-8 text resources under `references/`, `scripts/`, or "
+            "`assets/`, and link every resource from the workflow step that uses it.\n"
         )

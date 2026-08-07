@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 
 from server.skills import creator_api
+from server.skills.creator_quality import CREATOR_CONTRACT_VERSION
 from server.skills.creator_service import (
     CreatorGenerationRequest,
     CreatorGenerationResult,
@@ -36,16 +37,113 @@ from server.xperts import XpertStore
 SKILL_PACKAGE = {
     "name": "review-notes",
     "slug": "review-notes",
-    "description": "Review notes when users need a concise quality report.",
-    "skill_markdown": (
-        "---\n"
-        "name: review-notes\n"
-        "description: Review notes when users need a concise quality report.\n"
-        "---\n\n"
-        "# Review notes\n\nReturn a concise report.\n"
+    "description": (
+        "Review meeting notes into a traceable action report with owners and open "
+        "questions. Use when users provide completed notes; do not use for fiction or "
+        "unrelated summaries."
     ),
-    "files": {"references/checklist.md": "# Checklist\n\nCheck clarity.\n"},
+    "skill_markdown": """---
+name: review-notes
+description: Review meeting notes into a traceable action report with owners and open questions. Use when users provide completed notes; do not use for fiction or unrelated summaries.
+---
+
+# Review notes
+
+## Purpose and boundaries
+
+Turn completed meeting notes into a factual report. Preserve source wording, separate
+decisions from suggestions, and never invent a missing owner, deadline, or agreement.
+
+## Inputs and prerequisites
+
+Require the notes, meeting objective, and any known owners. Ask for clarification when the
+source is incomplete or too ambiguous to identify an action safely.
+
+## Workflow
+
+1. Normalize headings and speaker labels without discarding original evidence.
+2. Extract decisions, open questions, and actions while marking uncertainty.
+3. Link each action to its source note and identify missing required fields.
+4. Draft the required report with explicit `unknown` markers.
+5. Verify evidence links, ownership fields, and unresolved questions before delivery.
+
+## Output contract
+
+Return decisions, open questions, and actions. Each action contains Evidence, Owner, Due,
+and Status. Use `unknown` for unavailable values and never omit a required field silently.
+
+## Quality checks
+
+Trace every claim to the notes, keep unresolved ambiguity visible, and confirm each action
+has either one named owner or an explicit `unknown` marker.
+
+## Failure and degradation
+
+If notes are missing, return the required inputs instead of a report. Preserve conflicting
+accounts and request clarification. Mark partially checked output as partial rather than
+claiming that all checks passed.
+
+## Resources
+
+This package needs no bundled resources; use only the notes supplied with the request.
+""",
+    "files": {},
 }
+
+CREATOR_REQUIREMENT_IDS = [
+    "intent",
+    "positive_example:0",
+    "near_miss:0",
+    "expected_output",
+    "success_criterion:0",
+    "success_criterion:1",
+]
+
+CREATOR_DESIGN = {
+    "workflow_steps": [
+        {"id": "normalize", "description": "Normalize the source notes safely."},
+        {"id": "extract", "description": "Extract decisions and actions."},
+        {"id": "draft", "description": "Draft the required report fields."},
+        {"id": "verify", "description": "Verify evidence and ownership."},
+    ],
+    "output_contract": [
+        {"id": "report", "description": "Return traceable decisions and actions."}
+    ],
+    "failure_modes": [
+        {"id": "missing", "description": "Request missing inputs instead of guessing."}
+    ],
+    "resources": [],
+    "assumptions": ["The supplied notes are the authoritative source."],
+    "requirement_coverage": [
+        {
+            "requirement_id": item,
+            "locations": [
+                {
+                    "path": "SKILL.md",
+                    "section": (
+                        "Purpose and boundaries"
+                        if item in {"intent", "near_miss:0"}
+                        else "Workflow"
+                        if item == "positive_example:0"
+                        else "Output contract"
+                        if item == "expected_output"
+                        else "Quality checks"
+                    ),
+                }
+            ],
+        }
+        for item in CREATOR_REQUIREMENT_IDS
+    ],
+}
+
+
+def _creator_payload() -> dict:
+    return {
+        "skill": SKILL_PACKAGE,
+        "design": CREATOR_DESIGN,
+        "creator_contract_version": CREATOR_CONTRACT_VERSION,
+        "creator_requirement_ids": CREATOR_REQUIREMENT_IDS,
+    }
 
 
 def _services(tmp_path: Path, *, executor=None):
@@ -210,6 +308,14 @@ def test_manual_draft_recovers_after_session_save_failure_and_is_quality_gated(
     assert detail["validation"]["valid"] is True
     assert detail["quality_required"] is True
     assert detail["quality_status"] == "not_evaluated"
+    scaffold = recovered_draft.skill_markdown
+    assert "MODEL_MIRROR_MANUAL_SCAFFOLD: incomplete" in scaffold
+    assert "## Trigger boundaries" in scaffold
+    assert "Review these meeting notes." in scaffold
+    assert "Summarize an unrelated novel." in scaffold
+    assert "A concise quality report." in scaffold
+    assert "Identify unclear actions" in scaffold
+    assert "## Failure and degradation" in scaffold
 
     with pytest.raises(
         SkillDraftValidationError, match="pass or explicitly waive evaluation"
@@ -231,7 +337,7 @@ def test_stale_session_patch_cannot_cancel_current_proposal(tmp_path: Path) -> N
     proposal = authoring.proposal_store.create(
         kind="skill_create",
         title="Create review notes",
-        payload={"skill": SKILL_PACKAGE},
+        payload=_creator_payload(),
         source_type="skill_creator",
         source_id=session.session_id,
         creator_session_id=session.session_id,
@@ -260,7 +366,7 @@ def test_apply_key_retry_uses_fixed_receipt_after_later_edit(tmp_path: Path) -> 
     proposal = authoring.proposal_store.create(
         kind="skill_create",
         title="Create review notes",
-        payload={"skill": SKILL_PACKAGE},
+        payload=_creator_payload(),
         source_type="skill_creator",
         source_id="skillcreator_one",
         creator_session_id="skillcreator_one",
@@ -337,7 +443,7 @@ def test_noop_update_proposal_has_replayable_fixed_receipt(tmp_path: Path) -> No
     proposal = authoring.proposal_store.create(
         kind="skill_update",
         title="Keep review notes unchanged",
-        payload={"skill": SKILL_PACKAGE},
+        payload=_creator_payload(),
         source_type="skill_creator",
         source_id="skillcreator_update",
         target_id=draft.draft_id,
@@ -384,13 +490,19 @@ class _ToolCallingExecutor:
         result = await self.provider.call_tool(
             RuntimeToolCall(
                 request.allowed_tool,
-                {"title": "Create review notes", "skill": SKILL_PACKAGE},
+                {
+                    "title": "Create review notes",
+                    "skill": SKILL_PACKAGE,
+                    "design": CREATOR_DESIGN,
+                    "creator_contract_version": CREATOR_CONTRACT_VERSION,
+                },
                 {
                     "runtime_run_type": "xpert",
                     "creator_session_id": session["session_id"],
                     "creator_session_revision": session["session_revision"],
                     "run_id": "creator-run-1",
                     "task_id": "creator-task-1",
+                    "creator_requirement_ids": CREATOR_REQUIREMENT_IDS,
                     "skill_creator_config": {"allow_create": True},
                 },
             )

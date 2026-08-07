@@ -10,6 +10,7 @@ from typing import Any
 
 try:
     from server.prompts.store import PromptProfileStore
+    from server.skills.creator_quality import evaluate_creator_payload
     from server.skills.draft_store import (
         SkillDraftValidationError,
         WorkspaceSkillDraftStore,
@@ -19,6 +20,7 @@ try:
     from server.xperts.validation import validate_xpert_definition
 except ModuleNotFoundError:
     from prompts.store import PromptProfileStore
+    from skills.creator_quality import evaluate_creator_payload
     from skills.draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
     from xperts.models import XpertDefinition, XpertDraft
     from xperts.store import XpertStore, default_xpert_workflow
@@ -77,7 +79,19 @@ class AuthoringService:
         details: dict[str, Any] = {}
         try:
             details = self._validate_payload(proposal)
-            validation = {"valid": True, "issues": [], **details}
+            creator_quality = details.get("creator_quality")
+            quality_ready = not isinstance(creator_quality, dict) or bool(
+                creator_quality.get("ready")
+            )
+            validation = {
+                "valid": quality_ready,
+                "issues": (
+                    []
+                    if quality_ready
+                    else list(creator_quality.get("issues") or [])[:20]
+                ),
+                **details,
+            }
         except SkillDraftValidationError as exc:
             validation = self._skill_validation_result(exc)
         except AuthoringProposalValidationError as exc:
@@ -204,6 +218,15 @@ class AuthoringService:
                     code="skill_package_invalid",
                     issues=list(validation.get("issues") or []),
                 ) from exc
+            creator_quality = details.get("creator_quality")
+            if isinstance(creator_quality, dict) and not bool(
+                creator_quality.get("ready")
+            ):
+                raise AuthoringProposalValidationError(
+                    "Creator draft has not passed the static authoring completeness gate.",
+                    code="skill_creator_draft_incomplete",
+                    issues=list(creator_quality.get("issues") or [])[:20],
+                )
             validation = {"valid": True, "issues": [], **details}
             proposal = self.proposal_store.set_validation(
                 proposal_id,
@@ -407,7 +430,7 @@ class AuthoringService:
                 else (target_draft.files if target_draft else {})
             ),
         )
-        return {
+        details = {
             "resource_kind": "skill",
             "file_count": 1 + len(normalized["files"]),
             "total_bytes": WorkspaceSkillDraftStore._total_bytes(
@@ -419,6 +442,13 @@ class AuthoringService:
             ),
             "base_digest": target_draft.content_digest if target_draft else None,
         }
+        if proposal.source_type == "skill_creator":
+            report = evaluate_creator_payload(
+                payload,
+                requirement_ids=payload.get("creator_requirement_ids") or (),
+            )
+            details["creator_quality"] = report.to_dict()
+        return details
 
     @staticmethod
     def _skill_validation_result(exc: SkillDraftValidationError) -> dict[str, Any]:

@@ -14,6 +14,27 @@ interface SkillDraft {
   file_count?: number;
   skill_markdown?: string;
   files?: Record<string, string>;
+  quality_required?: boolean;
+  quality_status?:
+    | "not_evaluated"
+    | "running"
+    | "accepted"
+    | "eval_waived"
+    | "outdated";
+  creator_session_id?: string | null;
+}
+
+function qualityGatePassed(item: SkillDraft) {
+  return !item.quality_required || item.quality_status === "accepted" || item.quality_status === "eval_waived";
+}
+
+function qualityLabel(item: SkillDraft) {
+  if (!item.quality_required) return "";
+  if (item.quality_status === "accepted") return "评测已接受";
+  if (item.quality_status === "eval_waived") return "评测已豁免";
+  if (item.quality_status === "running") return "评测中";
+  if (item.quality_status === "outdated") return "评测已过期";
+  return "待评测";
 }
 
 async function readError(response: Response) {
@@ -121,6 +142,7 @@ export default function SkillDraftPanel({ onInstalled }: { onInstalled?: () => v
               <div className="flex items-center justify-between gap-2"><span className="truncate text-sm font-semibold text-white">{item.name}</span><span className="text-[10px] uppercase text-slate-500">{item.status}</span></div>
               <p className="mt-1 text-xs text-slate-400">{item.slug} · revision {item.revision}</p>
               <p className="mt-2 line-clamp-2 text-xs text-slate-500">{item.description}</p>
+              {item.quality_required ? <p className={`mt-2 text-xs font-semibold ${qualityGatePassed(item) ? "text-emerald-200" : "text-amber-100"}`}>{qualityLabel(item)}</p> : null}
             </button>
           ))}
         </div>
@@ -134,12 +156,18 @@ export default function SkillDraftPanel({ onInstalled }: { onInstalled?: () => v
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
               <span>{selected.file_count ?? 1 + Object.keys(selected.files ?? {}).length} 文件</span>
               <span>revision {selected.revision}</span>
+              {selected.quality_required ? <span className={qualityGatePassed(selected) ? "text-emerald-200" : "text-amber-100"}>{qualityLabel(selected)}</span> : null}
               {selected.installed_skill_id ? <span className="text-emerald-200">已安装为 {selected.installed_skill_id}</span> : null}
             </div>
+            {selected.quality_required && !qualityGatePassed(selected) ? (
+              <div className="mt-4 rounded-md border border-amber-300/25 bg-amber-300/[0.08] p-3 text-xs leading-5 text-amber-100">
+                该草稿来自 Skill Creator，当前内容尚未通过质量门。PR3 开放对照评测后，完成评测或人工豁免才能安装。
+              </div>
+            ) : null}
             <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-white/10 bg-black/20 p-3 text-xs leading-5 text-slate-300">{selected.skill_markdown}</pre>
             <div className="mt-4 flex flex-wrap gap-2">
               <button className="rounded-md border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-xs font-semibold text-sky-100" disabled={Boolean(busy) || selected.status === "archived"} onClick={() => void action("validate")} type="button">校验包</button>
-              <button className="rounded-md bg-emerald-300 px-3 py-2 text-xs font-semibold text-ink-950" disabled={Boolean(busy) || selected.status !== "draft"} onClick={() => void action("install")} type="button">显式安装</button>
+              <button className="rounded-md bg-emerald-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500" disabled={Boolean(busy) || selected.status !== "draft" || !qualityGatePassed(selected)} onClick={() => void action("install")} type="button">{selected.quality_required && !qualityGatePassed(selected) ? "PR3 后可安装" : "显式安装"}</button>
               <button className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300" disabled={Boolean(busy) || selected.status === "archived"} onClick={() => void action("archive")} type="button">归档</button>
             </div>
           </article>
