@@ -171,6 +171,7 @@ def test_operation_journal_encrypts_patch_and_rejects_conflicting_reuse(tmp_path
         record.operation_id,
         "applied",
         apply_receipt=apply_receipt,
+        file_identities=("1-2:marker.txt",),
     )
     assert transitioned.state == "applied"
     assert transitioned.apply_receipt is not None
@@ -179,6 +180,54 @@ def test_operation_journal_encrypts_patch_and_rejects_conflicting_reuse(tmp_path
     with pytest.raises(Exception) as invalid_state:
         restored.transition(record.operation_id, "committed")
     assert getattr(invalid_state.value, "code", None) == "operation_state_invalid"
+
+
+def test_operation_journal_persists_created_directory_identity_once(tmp_path) -> None:
+    path = tmp_path / "operations.bin"
+    journal = HostOperationJournal(path, _XorProtector())
+    patch = "diff --git a/nested/new.txt b/nested/new.txt\n+stable\n"
+    record = journal.create(
+        operation_id="operation_v13_directories",
+        action="apply",
+        project_id="hostgit_0123456789abcdef0123456789abcdef",
+        revision=4,
+        branch="feature/local-k8m2",
+        expected_head="1" * 40,
+        patch_sha256=hashlib.sha256(patch.encode()).hexdigest(),
+        patch=patch,
+    )
+    receipt = {
+        "apply_id": record.operation_id,
+        "revision": 4,
+        "snapshot_fingerprint": "f" * 64,
+        "files": [
+            {
+                "path": "nested/new.txt",
+                "existed_before": False,
+                "before_sha256": None,
+                "after_sha256": "a" * 64,
+            }
+        ],
+        "applied_at": 1.0,
+    }
+    journal.transition(record.operation_id, "applying", apply_receipt=receipt)
+    updated = journal.transition(
+        record.operation_id,
+        "applying",
+        created_directories=("1a-2b@3c-4d:nested",),
+    )
+    assert updated.created_directories == ("1a-2b@3c-4d:nested",)
+    restored = HostOperationJournal(path, _XorProtector())
+    assert restored.get(record.operation_id).created_directories == (
+        "1a-2b@3c-4d:nested",
+    )
+    with pytest.raises(Exception) as conflict:
+        restored.transition(
+            record.operation_id,
+            "applying",
+            created_directories=("1a-2c@3c-4d:nested",),
+        )
+    assert getattr(conflict.value, "code", None) == "operation_conflict"
 
     with pytest.raises(Exception) as conflict:
         restored.create(
@@ -221,9 +270,27 @@ def test_operation_journal_does_not_accept_memory_state_when_persist_fails(tmp_p
         patch_sha256=hashlib.sha256(patch.encode("utf-8")).hexdigest(),
         patch=patch,
     )
+    apply_receipt = {
+        "apply_id": record.operation_id,
+        "revision": 3,
+        "snapshot_fingerprint": "b" * 64,
+        "files": [
+            {
+                "path": "a.txt",
+                "existed_before": False,
+                "before_sha256": None,
+                "after_sha256": "d" * 64,
+            }
+        ],
+        "applied_at": 1001.0,
+    }
     protector.fail_protect = True
     with pytest.raises(OSError):
-        journal.transition(record.operation_id, "applying")
+        journal.transition(
+            record.operation_id,
+            "applying",
+            apply_receipt=apply_receipt,
+        )
     protector.fail_protect = False
     assert journal.get(record.operation_id).state == "prepared"
 

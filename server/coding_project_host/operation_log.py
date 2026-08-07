@@ -121,6 +121,8 @@ class HostOperationRecord:
     patch: str = ""
     apply_receipt: dict[str, Any] | None = None
     commit_receipt: dict[str, Any] | None = None
+    created_directories: tuple[str, ...] = ()
+    file_identities: tuple[str, ...] = ()
 
 
 class HostOperationJournal:
@@ -158,6 +160,8 @@ class HostOperationJournal:
         patch: str = "",
         apply_receipt: dict[str, Any] | None = None,
         commit_receipt: dict[str, Any] | None = None,
+        created_directories: tuple[str, ...] = (),
+        file_identities: tuple[str, ...] = (),
     ) -> HostOperationRecord:
         now = self._clock()
         record = HostOperationRecord(
@@ -174,6 +178,8 @@ class HostOperationJournal:
             patch=patch,
             apply_receipt=copy.deepcopy(apply_receipt),
             commit_receipt=copy.deepcopy(commit_receipt),
+            created_directories=tuple(created_directories),
+            file_identities=tuple(file_identities),
         )
         _validate_record(record)
         with self._lock:
@@ -211,6 +217,8 @@ class HostOperationJournal:
         *,
         apply_receipt: dict[str, Any] | None = None,
         commit_receipt: dict[str, Any] | None = None,
+        created_directories: tuple[str, ...] | None = None,
+        file_identities: tuple[str, ...] | None = None,
     ) -> HostOperationRecord:
         if state not in _STATES:
             raise HostOperationLogError("operation_state_invalid")
@@ -229,8 +237,49 @@ class HostOperationJournal:
                     ) or (
                         commit_receipt is not None
                         and current.commit_receipt != commit_receipt
+                    ) or (
+                        created_directories is not None
+                        and current.created_directories
+                        and current.created_directories != created_directories
+                        and not (
+                            current.state == "applying"
+                            and not created_directories
+                        )
+                    ) or (
+                        file_identities is not None
+                        and current.file_identities
+                        and current.file_identities != file_identities
                     ):
                         raise HostOperationLogError("operation_conflict")
+                    if (
+                        created_directories is not None
+                        and (
+                            not current.created_directories
+                            or current.state == "applying"
+                            and not created_directories
+                        )
+                    ) or (
+                        file_identities is not None and not current.file_identities
+                    ):
+                        updated = replace(
+                            current,
+                            updated_at=self._clock(),
+                            created_directories=(
+                                tuple(created_directories)
+                                if created_directories is not None
+                                else current.created_directories
+                            ),
+                            file_identities=(
+                                tuple(file_identities)
+                                if file_identities is not None
+                                else current.file_identities
+                            ),
+                        )
+                        _validate_record(updated)
+                        candidate = {**records, operation_id: updated}
+                        self._persist_records(candidate)
+                        self._records = candidate
+                        return _clone_record(updated)
                     self._records = records
                     return _clone_record(current)
                 if (current.state, state) not in _ALLOWED_TRANSITIONS:
@@ -248,6 +297,16 @@ class HostOperationJournal:
                         copy.deepcopy(commit_receipt)
                         if commit_receipt is not None
                         else current.commit_receipt
+                    ),
+                    created_directories=(
+                        tuple(created_directories)
+                        if created_directories is not None
+                        else current.created_directories
+                    ),
+                    file_identities=(
+                        tuple(file_identities)
+                        if file_identities is not None
+                        else current.file_identities
                     ),
                 )
                 _validate_record(updated)
@@ -292,6 +351,16 @@ class HostOperationJournal:
             for value in raw_records:
                 if not isinstance(value, dict):
                     raise ValueError("invalid operation log")
+                if "created_directories" in value:
+                    value = {
+                        **value,
+                        "created_directories": tuple(value["created_directories"]),
+                    }
+                if "file_identities" in value:
+                    value = {
+                        **value,
+                        "file_identities": tuple(value["file_identities"]),
+                    }
                 record = HostOperationRecord(**value)
                 _validate_record(record)
                 if record.operation_id in records:
@@ -407,6 +476,8 @@ def _validate_record(record: HostOperationRecord) -> None:
         or record.state not in _ACTION_STATES[record.action]
         or not _valid_apply_receipt(record.apply_receipt, record)
         or not _valid_commit_receipt(record.commit_receipt, record)
+        or not _valid_created_directories(record.created_directories)
+        or not _valid_file_identities(record.file_identities, record)
         or not _valid_receipt_requirements(record)
     ):
         raise HostOperationLogError("operation_record_invalid")
@@ -431,6 +502,76 @@ def _valid_branch(value: Any) -> bool:
             for character in value
         )
     )
+
+
+def _valid_created_directories(value: Any) -> bool:
+    if not isinstance(value, tuple) or len(value) > 64:
+        return False
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or ":" not in item:
+            return False
+        identity_bundle, path = item.split(":", 1)
+        identities = identity_bundle.split("@")
+        if len(identities) != 2 or any(
+            re.fullmatch(r"[a-f0-9]+-[a-f0-9]+", identity) is None
+            for identity in identities
+        ):
+            return False
+        for identity in identities:
+            device_text, inode_text = identity.split("-", 1)
+            if int(device_text, 16) == 0 or int(inode_text, 16) == 0:
+                return False
+        try:
+            normalized = DraftWorkspace.normalize_relative_path(path)
+        except (DraftPolicyError, TypeError, ValueError):
+            return False
+        if normalized != path or path == ".git" or path in seen:
+            return False
+        seen.add(path)
+    return True
+
+
+def _valid_file_identities(value: Any, record: HostOperationRecord) -> bool:
+    if not isinstance(value, tuple) or len(value) > 20:
+        return False
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or ":" not in item:
+            return False
+        identity, path = item.split(":", 1)
+        if identity != "missing" and re.fullmatch(
+            r"[a-f0-9]+-[a-f0-9]+",
+            identity,
+        ) is None:
+            return False
+        if identity != "missing":
+            device_text, inode_text = identity.split("-", 1)
+            if int(device_text, 16) == 0 or int(inode_text, 16) == 0:
+                return False
+        try:
+            normalized = DraftWorkspace.normalize_relative_path(path)
+        except (DraftPolicyError, TypeError, ValueError):
+            return False
+        if normalized != path or path in seen:
+            return False
+        seen.add(path)
+    apply_files = (
+        tuple(item["path"] for item in record.apply_receipt["files"])
+        if record.apply_receipt is not None
+        else ()
+    )
+    identity_paths = tuple(item.split(":", 1)[1] for item in value)
+    if value and identity_paths != apply_files:
+        return False
+    if record.action == "apply":
+        if record.state == "applied":
+            return bool(value) and identity_paths == apply_files
+        if record.state in {"prepared", "applying"}:
+            return not value
+    if record.action == "revert" and record.state != "conflict":
+        return bool(value) and identity_paths == apply_files
+    return True
 
 
 def _valid_apply_receipt(
@@ -568,12 +709,12 @@ def _valid_commit_receipt(
 
 def _valid_receipt_requirements(record: HostOperationRecord) -> bool:
     if record.action == "apply":
-        return bool(
-            record.commit_receipt is None
-            and (
-                record.state == "conflict"
-                or (record.state == "applied") == (record.apply_receipt is not None)
-            )
+        if record.commit_receipt is not None:
+            return False
+        if record.state == "conflict":
+            return True
+        return (record.state in {"applying", "applied"}) == (
+            record.apply_receipt is not None
         )
     if record.action == "revert":
         return record.apply_receipt is not None and record.commit_receipt is None
@@ -590,7 +731,8 @@ def _valid_receipt_requirements(record: HostOperationRecord) -> bool:
 
 
 def _same_intent(left: HostOperationRecord, right: HostOperationRecord) -> bool:
-    return all(
+    return bool(
+        all(
         getattr(left, field) == getattr(right, field)
         for field in (
             "operation_id",
@@ -601,8 +743,23 @@ def _same_intent(left: HostOperationRecord, right: HostOperationRecord) -> bool:
             "expected_head",
             "patch_sha256",
             "patch",
-            "apply_receipt",
-            "commit_receipt",
+        )
+        )
+        and (
+            right.apply_receipt is None
+            or left.apply_receipt == right.apply_receipt
+        )
+        and (
+            right.commit_receipt is None
+            or left.commit_receipt == right.commit_receipt
+        )
+        and (
+            not right.created_directories
+            or left.created_directories == right.created_directories
+        )
+        and (
+            not right.file_identities
+            or left.file_identities == right.file_identities
         )
     )
 
