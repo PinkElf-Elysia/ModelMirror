@@ -100,6 +100,7 @@ class ManagedMCPSession:
     reconnect_attempts: int = 1
     operation_timeout: float = 30.0
     working_directory: str = ""
+    session_owner: str = ""
     queue: asyncio.Queue[SessionCommand] = field(default_factory=asyncio.Queue)
     task: asyncio.Task[None] | None = None
     tools_count: int = 0
@@ -132,11 +133,19 @@ class MCPClientManager:
         self._cleanup_callback: Callable[[list[str]], Awaitable[None]] | None = None
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
 
-    async def connect(self, server_command: list[str]) -> str:
+    async def connect(
+        self,
+        server_command: list[str],
+        *,
+        session_owner: str = "",
+    ) -> str:
         """Start an MCP server owner task and return a session id."""
 
         validate_server_command(server_command)
-        managed = self._new_managed_session(server_command)
+        managed = self._new_managed_session(
+            server_command,
+            session_owner=session_owner,
+        )
         return await self._start_managed_session(managed)
 
     async def connect_profile(
@@ -151,6 +160,7 @@ class MCPClientManager:
         reconnect_attempts: int = 1,
         operation_timeout: float | None = None,
         working_directory: str = "",
+        session_owner: str = "",
     ) -> str:
         """Connect an MCP profile without exposing credentials in summaries."""
 
@@ -171,6 +181,7 @@ class MCPClientManager:
             reconnect_attempts=reconnect_attempts,
             operation_timeout=operation_timeout,
             working_directory=working_directory,
+            session_owner=session_owner,
         )
         return await self._start_managed_session(managed)
 
@@ -189,10 +200,15 @@ class MCPClientManager:
             self._sessions[managed.session_id] = managed
         return managed.session_id
 
-    async def list_tools(self, session_id: str) -> list[Tool]:
+    async def list_tools(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> list[Tool]:
         """Return tools exposed by the MCP server for ``session_id``."""
 
-        managed = await self._get_session(session_id)
+        managed = await self._get_session(session_id, session_owner=session_owner)
         try:
             tools = await self._send_command(managed, "list_tools")
         except Exception as exc:
@@ -206,13 +222,16 @@ class MCPClientManager:
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any] | None = None,
+        *,
+        retry_on_failure: bool = True,
+        session_owner: str = "",
     ) -> CallToolResult:
         """Call a named MCP tool with JSON-like arguments."""
 
         if not tool_name.strip():
             raise ValueError("tool_name 不能为空。")
 
-        managed = await self._get_session(session_id)
+        managed = await self._get_session(session_id, session_owner=session_owner)
         try:
             return await self._send_command(
                 managed,
@@ -221,6 +240,8 @@ class MCPClientManager:
                 arguments=arguments or {},
             )
         except Exception as exc:
+            if not retry_on_failure:
+                raise
             managed = await self._restart_once(managed, exc)
             return await self._send_command(
                 managed,
@@ -229,21 +250,39 @@ class MCPClientManager:
                 arguments=arguments or {},
             )
 
-    async def disconnect(self, session_id: str) -> None:
+    async def disconnect(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> None:
         """Disconnect and clean up a session if it exists."""
 
         async with self._lock:
-            managed = self._sessions.pop(session_id, None)
+            managed = self._sessions.get(session_id)
+            if managed is None or managed.session_owner != str(session_owner or ""):
+                managed = None
+            else:
+                self._sessions.pop(session_id, None)
         if managed is None:
             raise MCPSessionNotFoundError(f"MCP session not found: {session_id}")
         await self._stop_session(managed)
 
-    async def get_sessions_summary(self) -> list[dict[str, Any]]:
+    async def get_sessions_summary(
+        self,
+        *,
+        session_owner: str = "",
+    ) -> list[dict[str, Any]]:
         """Return serializable metadata for active sessions."""
 
         now_mono = time.monotonic()
         async with self._lock:
-            sessions = list(self._sessions.values())
+            owner = str(session_owner or "")
+            sessions = [
+                managed
+                for managed in self._sessions.values()
+                if managed.session_owner == owner
+            ]
 
         return [
             {
@@ -278,13 +317,23 @@ class MCPClientManager:
             await self._stop_session(managed)
         return cleaned_ids
 
-    async def scrub_session_environment(self, session_id: str) -> None:
+    async def scrub_session_environment(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> None:
         """Drop short-lived child configuration after a proxy has initialized."""
 
         async with self._lock:
             managed = self._sessions.get(str(session_id or ""))
-            if managed is None:
-                raise MCPSessionNotFoundError(session_id)
+            if (
+                managed is None
+                or managed.session_owner != str(session_owner or "")
+            ):
+                raise MCPSessionNotFoundError(
+                    f"MCP session not found: {session_id}"
+                )
             managed.environment.clear()
 
     def start_ttl_cleanup(
@@ -337,6 +386,7 @@ class MCPClientManager:
         reconnect_attempts: int = 1,
         operation_timeout: float | None = None,
         working_directory: str = "",
+        session_owner: str = "",
     ) -> ManagedMCPSession:
         now_epoch = time.time()
         now_mono = time.monotonic()
@@ -354,6 +404,7 @@ class MCPClientManager:
                 min(float(operation_timeout or self.operation_timeout), 300.0),
             ),
             working_directory=str(working_directory or "").strip(),
+            session_owner=str(session_owner or ""),
             created_at=now_epoch,
             created_monotonic_at=now_mono,
             last_used_at=now_mono,
@@ -545,6 +596,7 @@ class MCPClientManager:
             reconnect_attempts=managed.reconnect_attempts,
             operation_timeout=managed.operation_timeout,
             working_directory=managed.working_directory,
+            session_owner=managed.session_owner,
         )
         ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         restarted.task = asyncio.create_task(self._session_worker(restarted, ready))
@@ -553,10 +605,18 @@ class MCPClientManager:
             self._sessions[old_session_id] = restarted
         return restarted
 
-    async def _get_session(self, session_id: str) -> ManagedMCPSession:
+    async def _get_session(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> ManagedMCPSession:
         async with self._lock:
             managed = self._sessions.get(session_id)
-        if managed is None:
+        if (
+            managed is None
+            or managed.session_owner != str(session_owner or "")
+        ):
             raise MCPSessionNotFoundError(f"MCP session not found: {session_id}")
         return managed
 

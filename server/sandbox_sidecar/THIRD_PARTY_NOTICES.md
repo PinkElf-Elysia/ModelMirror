@@ -101,3 +101,20 @@ license files: MCP Python SDK (MIT), certifi (MPL-2.0), clickhouse-connect
 (Apache-2.0), DuckDB (MIT), httpx (BSD-3-Clause), psycopg (LGPL-3.0), PyMongo
 (Apache-2.0), PyMySQL (MIT), redis-py (MIT), and SQLGlot (MIT). Debian package
 notices remain under `/usr/share/doc`.
+
+The `modelmirror-mcp-saas:wave6-v1` image implements independent, fixed API
+contracts after reviewing the following upstream MCP servers.  It does not
+install or copy their server packages and cannot accept provider URLs, command
+lines or arbitrary HTTP headers from clients:
+
+- Airtable MCP Server v1.14.0 (`domdomegg/airtable-mcp-server`): MIT License.
+- Asana MCP Server v1.6.0 (`roychri/mcp-server-asana`): MIT License.
+- Archived GitLab reference server package 0.6.2
+  (`modelcontextprotocol/servers-archived`): MIT License.  The adapter is an
+  independently implemented, project-scoped GitLab.com REST contract.
+- Notion MCP Server v2.5.0 (`makenotion/notion-mcp-server`): MIT License.
+
+The Chinese commerce bundle and archived Mem0 local MCP server are not present
+in the image.  Their OAuth/account-lifecycle and remotely versioned contract
+requirements remain blocked.  The SaaS image's only direct Python runtime
+dependency beyond CPython is the pinned MCP Python SDK 1.27.2 (MIT).

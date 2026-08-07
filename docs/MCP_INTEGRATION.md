@@ -83,7 +83,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **38 ready / 53 planned / 9 blocked**；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **42 ready / 47 planned / 11 blocked**；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
 
@@ -135,6 +135,17 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - `postgres-mcp` 与 `sqlite-mcp` 因归档或弃用的上游实现保持 `blocked`。Cognee、Graphiti、Hindsight 转入第 5B 状态化记忆计划；其持久卷、模型与费用、数据保留及写入审批尚未完成，因此没有连接入口。
 - Wave 5 首轮只开放读取、结构浏览和受限查询，不开放写入审批。数据库写审批不能复用依赖文件 manifest 的批次 3 审批；后续必须绑定租户、数据库目标、会话、配置/凭据版本、冻结参数和数据库状态。
 
+批次 6 的四个可用有状态 SaaS 适配器通过固定 `saas_proxy.py` 接入独立 `mcp-saas` sidecar：
+
+- `airtable-mcp`、`asana-mcp`、`gitlab-mcp` 与 `notion-mcp-server` 只运行仓库内置固定 REST 契约，不动态下载或执行上游 MCP 代码。GitLab 首批仅允许 `gitlab.com`；自建域名、任意 URL、Header、环境变量与 OAuth 回调全部关闭。
+- 每张卡片在本地创建和选择加密 PAT / Integration Token，并保存固定 Base、Workspace/Project、数字 GitLab Project ID 或 Notion Data Source 作用域。连接前执行账号身份与目标资源的代表性只读预检；传输、凭据、账号和目标预检状态分别展示。
+- 真实 SaaS 执行要求对应的 `MCP_CATALOG_ENABLE_<PROJECT_ID>=true` 与 `MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK=true` 同时满足；Compose 中五个门禁均默认关闭。当前目录 API 仍使用部署时固定 `tenant/owner`，尚无逐请求认证主体，因此多用户共享部署不得开启。
+- 只读工具遇到上游 `429` 或临时 `5xx` 时最多有界重试两次，并遵守封顶后的 `Retry-After`。写工具不自动重试：明确的限流或提供商拒绝会作为终止性失败返回，只有 `-32008`、发送后超时或连接中断等歧义结果才标记 `unknown_outcome` 并要求先到服务商核对。
+- `create`、`update`、`comment` 工具均先返回 409 `approval_required`。审批不是文件工作区审批：它绑定租户、所有者、项目、会话、工具/Schema、冻结参数、配置与凭据版本、账号预检摘要、目标资源预览和服务端幂等键；连接时还会核对完整工具名与 `inputSchema` 摘要。5 分钟过期，重连、重配、轮换、状态漂移或重放都会失效。删除、归档、合并、仓库写入和批量终止性操作不暴露。
+- 目录会话在管理器发布前即绑定目录所有者，通用会话列表、调用和断开接口不能发现或操作它。连接建立、调用、审批确认、解绑和凭据撤销共享生命周期门禁；连接中不能重配，解绑或撤销开始后不能排队新调用或确认旧审批。
+- 卡片内“解绑账号”会先阻止新调用并等待活动读取结束，再断开会话、撤销待审批并清除配置、预检与本地执行账本；可选择撤销该卡片的本地加密凭据。它不等于在 Airtable、Asana、GitLab 或 Notion 后台撤销 Token，用户仍需在服务商后台完成上游撤销。
+- `mcp-cn-commerce` 保持 `blocked`：八个平台、114 个工具、OAuth/商家授权、短期 Token 和订单/售后敏感数据尚未逐平台验收。`mem0-mcp` 保持 `blocked`：本地上游已归档，官方迁移到无固定版本的托管远程 MCP；OAuth、Schema 锁定和租户记忆作用域尚未完成。两项都不显示凭据、登录或连接入口。
+
 兼容层仍保留以下默认值：
 
 - 后端只接受 `list[str]` 形式的命令，不使用 shell。
@@ -185,6 +196,7 @@ npm view @example/mcp-server version
 | PUT | `/api/mcp/catalog/{project_id}/configuration` | 只接受清单允许的设置、`credential_id` 绑定和适用条目的 `workspace_id`；数据库不接受 DSN/URI |
 | POST | `/api/mcp/catalog/{project_id}/connect` | 按项目 ID 建立受控会话；数据库项目须先通过目标、TLS、认证与只读预检 |
 | DELETE | `/api/mcp/catalog/{project_id}/session` | 断开该目录项目的会话 |
+| POST | `/api/mcp/catalog/{project_id}/unbind` | 解绑当前 SaaS 账号：断开会话、作废审批并清除作用域；可选择撤销本地卡片凭据，但不声称撤销上游 Token |
 | POST | `/api/mcp/catalog/{project_id}/tools/{tool_name}/call` | 经项目工具策略调用已连接工具 |
 | GET/POST | `/api/mcp/catalog/{project_id}/workspaces` | 列出或创建当前项目的受控工作区 |
 | POST | `/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/files` | 上传多文件、目录相对路径或安全 ZIP |
@@ -431,6 +443,7 @@ python server/mcp/test_manager.py
 | `server/mcp/file_proxy.py` | 把批次 3 固定项目 ID 和服务端工作区 ID 代理到断网文件 sidecar。 |
 | `server/mcp/token_proxy.py` | 移除短期凭据环境并把批次 4 固定项目 ID 与配置单次传给私有 sidecar。 |
 | `server/mcp/database_proxy.py` | 移除短期数据库配置环境，按固定项目路由到批次 5 的远程或断网本地 Unix socket。 |
+| `server/mcp/saas_proxy.py` | 移除短期 SaaS 配置环境，把批次 6 固定项目与账号作用域单次传给私有 sidecar。 |
 | `server/mcp/workspace.py` | 工作区、上传/ZIP 校验、封存 manifest、产物与保留期管理。 |
 | `server/sandbox_sidecar/compute_mcp.py` | 批次 1 的三个内置 Python MCP 工具契约。 |
 | `server/sandbox_sidecar/public_mcp.py` | 批次 2 的内置公网 MCP 兼容契约。 |
@@ -446,6 +459,9 @@ python server/mcp/test_manager.py
 | `server/sandbox_sidecar/database_contracts.py` | 批次 5 的结构化目标、凭据槽、工具白名单、协议只读和预检契约。 |
 | `server/sandbox_sidecar/database_server.py` | 批次 5 远程/本地数据库会话、限制、清理与 fail-closed 网关。 |
 | `server/sandbox_sidecar/Dockerfile.database` | `modelmirror-mcp-database:wave5-v1` 固定依赖镜像。 |
+| `server/sandbox_sidecar/saas_contracts.py` | 批次 6 的固定服务、作用域、凭据槽、工具 Schema、读写与幂等契约。 |
+| `server/sandbox_sidecar/saas_server.py` | 批次 6 的预检、限流、有界只读重试、写入未知结果与会话清理网关。 |
+| `server/sandbox_sidecar/Dockerfile.saas` | `modelmirror-mcp-saas:wave6-v1` 独立固定契约镜像。 |
 | `server/toolsets/` | Toolset/凭据 Store、版本发布、Schema 漂移与固定版本 Provider。 |
 | `client/src/pages/ToolsetsPage.tsx` | MCP Toolset 创建、连接、工具配置、测试和发布管理页。 |
 | `server/tests/test_toolset_*.py` | Toolset Store、API、连接、固定版本与安全回归。 |
@@ -460,6 +476,7 @@ python server/mcp/test_manager.py
 | `server/tests/test_mcp_file_workspaces.py` | 批次 3 路径/ZIP、租户隔离、产物越权和一次性审批安全测试。 |
 | `server/tests/test_mcp_token_sidecar.py` | 批次 4 清单一致性、配置契约、Secret 传递、工具过滤和 URL 预检测试。 |
 | `server/tests/test_mcp_database_sidecar.py` | 批次 5 配置、租户凭据、TLS/只读预检、协议旁路、行数与超时测试。 |
+| `server/tests/test_mcp_saas_sidecar.py` | 批次 6 固定 Host、Schema、预检、审批、限流、幂等、未知写入结果与解绑测试。 |
 | `server/mcp/smoke_file_adapters.py` | 四个文件适配器初始化、发现、代表调用、重连、源文件不变和清理 smoke。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
 | `client/src/components/McpWorkspacePanel.tsx` | 中文工作区上传、封存、绑定、容量/到期、产物下载和清理面板。 |

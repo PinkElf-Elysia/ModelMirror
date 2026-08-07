@@ -16,6 +16,7 @@ import ipaddress
 import inspect
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -27,6 +28,7 @@ from typing import Any, Callable, Literal, Protocol
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from mcp.shared.exceptions import McpError
 from pydantic import BaseModel, ConfigDict, Field
 
 from mcp.types import CallToolResult, Tool
@@ -77,6 +79,7 @@ AdapterPreparationKind = Literal["installer", "bundled"]
 CatalogToolEffect = Literal["read", "artifact-create", "state-write", "terminal"]
 CatalogSettingKind = Literal["text", "integer", "enum", "slug", "hostname"]
 CatalogDatabaseMode = Literal["remote-read-only", "local-file-read-only"]
+CatalogApprovalContextKind = Literal["workspace", "remote-resource"]
 
 logger = logging.getLogger("modelmirror.mcp.catalog")
 
@@ -103,6 +106,31 @@ class CatalogApprovalRequiredError(CatalogAdapterPolicyError):
     def __init__(self, payload: dict[str, Any]) -> None:
         super().__init__("该操作需要一次性确认。")
         self.payload = payload
+
+
+class CatalogUnknownOutcomeError(CatalogAdapterPolicyError):
+    """Raised when a state-changing remote request may have been accepted."""
+
+    def __init__(self, idempotency_key: str) -> None:
+        super().__init__("远程写入结果未知；为避免重复修改，系统不会自动重试。")
+        self.idempotency_key = idempotency_key
+
+
+class CatalogProviderRejectedError(CatalogAdapterPolicyError):
+    """Raised when the provider proves that a remote write did not complete."""
+
+    def __init__(self, reason: str, idempotency_key: str) -> None:
+        normalized_reason = (
+            "rate_limited" if reason == "rate_limited" else "provider_rejected"
+        )
+        message = (
+            "上游服务已限流，本次写入未执行且不会自动重试。"
+            if normalized_reason == "rate_limited"
+            else "上游服务已明确拒绝本次写入，系统不会自动重试。"
+        )
+        super().__init__(message)
+        self.reason = normalized_reason
+        self.idempotency_key = idempotency_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +239,29 @@ class CatalogDatabasePolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class CatalogSaaSPolicy:
+    """Public guardrails for a fixed, stateful SaaS account adapter."""
+
+    provider: str
+    fixed_hosts: tuple[str, ...]
+    tool_schema_sha256: str
+    preflight_checks: tuple[str, ...] = (
+        "authentication",
+        "account-identity",
+        "resource-scope",
+        "tool-schema",
+    )
+    rate_limit_per_minute: int = 30
+    max_concurrent_calls: int = 1
+    read_retry_limit: int = 2
+    write_retry_mode: str = "idempotency-key-only"
+    account_unbind_supported: bool = True
+
+    def to_public(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class CatalogAdapterManifest:
     project_id: str
     wave: int
@@ -236,6 +287,7 @@ class CatalogAdapterManifest:
     tool_policies: dict[str, CatalogToolPolicy] = field(default_factory=dict)
     workspace_policy: CatalogWorkspacePolicy | None = None
     database_policy: CatalogDatabasePolicy | None = None
+    saas_policy: CatalogSaaSPolicy | None = None
     legacy_unrestricted_calls: bool = False
     enabled_by_default: bool = False
     operation_timeout: float = 30.0
@@ -258,8 +310,21 @@ class CatalogAdapterManifest:
         return (
             self.availability == "ready"
             and self.feature_enabled
+            and (
+                self.saas_policy is None
+                or self.stateful_saas_gate_enabled
+            )
             and bool(self.server_command or self.endpoint)
         )
+
+    @property
+    def stateful_saas_gate_enabled(self) -> bool:
+        if self.saas_policy is None:
+            return True
+        return os.getenv(
+            "MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK",
+            "",
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
     def to_public(
         self,
@@ -317,6 +382,12 @@ class CatalogAdapterManifest:
                 if self.database_policy is not None
                 else None
             ),
+            "saas_policy": (
+                self.saas_policy.to_public()
+                if self.saas_policy is not None
+                else None
+            ),
+            "stateful_saas_gate_enabled": self.stateful_saas_gate_enabled,
         }
 
 
@@ -365,6 +436,11 @@ TOKEN_SANDBOX_PROXY = (
 DATABASE_SANDBOX_PROXY = (
     sys.executable,
     str(Path(__file__).resolve().with_name("database_proxy.py")),
+)
+SAAS_SANDBOX_PROXY = (
+    sys.executable,
+    "-m",
+    "mcp.saas_proxy",
 )
 WAVE_ONE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "calculator-mcp": (
@@ -825,6 +901,144 @@ WAVE_FIVE_ADAPTERS: dict[str, WaveFiveAdapterSpec] = {
             "远程 OAuth、迁移、函数、分支、项目管理和其他修改操作继续保留到后续批次。",
         ),
         network_policy="allowlist:api.supabase.com,supabase.com",
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class WaveSixAdapterSpec:
+    adapter_version: str
+    provider: str
+    fixed_hosts: tuple[str, ...]
+    rate_limit_per_minute: int
+    tool_schema_sha256: str
+    read_tools: tuple[str, ...]
+    write_tools: tuple[str, ...]
+    credential_policies: tuple[CatalogCredentialSlotPolicy, ...]
+    setting_policies: tuple[CatalogSettingPolicy, ...]
+    limitations: tuple[str, ...] = ()
+
+
+WAVE_SIX_ADAPTERS: dict[str, WaveSixAdapterSpec] = {
+    "airtable-mcp": WaveSixAdapterSpec(
+        "wave6-v1",
+        "Airtable",
+        ("api.airtable.com",),
+        240,
+        "5fce8249d6fcfa6b57f17d6c4d996c0c1ac5b8299584547923c2f18b14ca86c4",
+        ("list_tables", "list_records", "get_record"),
+        ("create_record", "update_record"),
+        (
+            _credential(
+                "personal_access_token",
+                "Airtable Personal Access Token",
+                "仅用于访问配置中固定的 Base。",
+            ),
+        ),
+        (
+            CatalogSettingPolicy(
+                "base_id",
+                "Airtable Base ID",
+                "只填写固定 Base 标识，不接受 URL、Workspace 或任意端点。",
+                required=True,
+                pattern=r"^app[A-Za-z0-9]{14}$",
+            ),
+        ),
+        ("删除记录、修改表结构、批量写入和任意 Base 访问均关闭。",),
+    ),
+    "asana-mcp": WaveSixAdapterSpec(
+        "wave6-v1",
+        "Asana",
+        ("app.asana.com",),
+        120,
+        "c935b8d982352d5e8379fe32a84986a4dd45c7d8635a6bb95838d26680f37d86",
+        ("list_projects", "list_tasks", "get_task"),
+        ("create_task", "update_task", "add_comment"),
+        (
+            _credential(
+                "personal_access_token",
+                "Asana Personal Access Token",
+                "仅用于配置中固定的 Workspace 与 Project。",
+            ),
+        ),
+        (
+            CatalogSettingPolicy(
+                "workspace_gid",
+                "Asana Workspace GID",
+                "固定账号工作区；不接受 URL。",
+                required=True,
+                pattern=r"^[1-9][0-9]{0,31}$",
+            ),
+            CatalogSettingPolicy(
+                "project_gid",
+                "Asana Project GID",
+                "所有任务读写均限制在该项目。",
+                required=True,
+                pattern=r"^[1-9][0-9]{0,31}$",
+            ),
+        ),
+        ("删除任务或项目、批量修改和跨 Workspace 操作均关闭。",),
+    ),
+    "gitlab-mcp": WaveSixAdapterSpec(
+        "wave6-v1-gitlab-com-only",
+        "GitLab",
+        ("gitlab.com",),
+        300,
+        "c5525a94bbe3dd3c4f83381f6138375243000102d31b28360641acc3cddb6dd9",
+        (
+            "list_issues", "get_issue", "list_merge_requests",
+            "get_merge_request", "get_repository_file",
+        ),
+        ("create_issue", "update_issue", "add_issue_note"),
+        (
+            _credential(
+                "personal_access_token",
+                "GitLab Personal Access Token",
+                "仅用于 gitlab.com 上配置中固定的 Project。",
+            ),
+        ),
+        (
+            CatalogSettingPolicy(
+                "project_id",
+                "GitLab Project ID",
+                "首批只接受 gitlab.com 的数字 Project ID；自建实例继续阻断。",
+                kind="integer",
+                required=True,
+                minimum=1,
+                maximum=9_999_999_999,
+            ),
+        ),
+        ("仅支持 gitlab.com；合并、仓库写入、流水线触发和删除操作全部关闭。",),
+    ),
+    "notion-mcp-server": WaveSixAdapterSpec(
+        "wave6-v1",
+        "Notion",
+        ("api.notion.com",),
+        150,
+        "4c5a2edc829d7d8823dd6e2270d52c6bc8bc67f9a4cba55b6edc59be4a70da80",
+        ("query_data_source", "retrieve_page"),
+        ("create_page", "update_page_properties"),
+        (
+            _credential(
+                "integration_token",
+                "Notion Integration Token",
+                "仅用于 Integration 已授权且配置中固定的 Data Source。",
+            ),
+        ),
+        (
+            CatalogSettingPolicy(
+                "data_source_id",
+                "Notion Data Source ID",
+                "只填写已共享给 Integration 的固定 Data Source ID。",
+                required=True,
+                pattern=(
+                    r"^(?:[0-9a-fA-F]{32}|"
+                    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                ),
+            ),
+        ),
+        ("仅开放固定 Data Source；归档、删除、Schema 修改、任意搜索和跨作用域写入均关闭。",),
     ),
 }
 
@@ -1413,6 +1627,108 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             filesystem_policy="blocked:no-runtime",
         )
 
+    for project_id, spec in WAVE_SIX_ADAPTERS.items():
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=6,
+            availability="ready",
+            connection_kind="sandboxed-stdio",
+            risk="high",
+            required_capabilities=(
+                "fixed-saas-contract",
+                "tenant-owner-scoped-account-binding",
+                "remote-resource-approval",
+                "idempotent-write-ledger",
+                "provider-rate-limits",
+                "account-unbinding",
+                "schema-drift-recovery",
+            ),
+            limitations=(
+                *spec.limitations,
+                "只允许部署时固定 tenant/owner 的单用户本地实例；多用户共享部署保持关闭。",
+                "本批只接受用户预先创建的 Token，不提供 OAuth 或外站登录入口。",
+            ),
+            adapter_version=spec.adapter_version,
+            runtime_image="modelmirror-mcp-saas:wave6-v1",
+            network_policy="allowlist:" + ",".join(spec.fixed_hosts),
+            filesystem_policy="read-only-empty-workspace",
+            resource_limits=(
+                ("cpu", "1.5 cores / 60 CPU seconds per session process"),
+                ("memory", "768 MiB sidecar"),
+                ("processes", "maximum 4 sessions / 96 sidecar PIDs"),
+                ("operation_timeout", "30 seconds"),
+                ("tool_output", "256 KiB"),
+            ),
+            server_command=(*SAAS_SANDBOX_PROXY, project_id),
+            preparation_kind="bundled",
+            allowed_settings=tuple(item.key for item in spec.setting_policies),
+            credential_slots=tuple(item.key for item in spec.credential_policies),
+            setting_policies=spec.setting_policies,
+            credential_policies=spec.credential_policies,
+            tool_policies={
+                **{
+                    name: CatalogToolPolicy(read_only=True, effect="read")
+                    for name in spec.read_tools
+                },
+                **{
+                    name: CatalogToolPolicy(
+                        read_only=False,
+                        requires_approval=True,
+                        effect="state-write",
+                    )
+                    for name in spec.write_tools
+                },
+            },
+            saas_policy=CatalogSaaSPolicy(
+                provider=spec.provider,
+                fixed_hosts=spec.fixed_hosts,
+                tool_schema_sha256=spec.tool_schema_sha256,
+                rate_limit_per_minute=spec.rate_limit_per_minute,
+            ),
+            enabled_by_default=False,
+            operation_timeout=30.0,
+            max_output_bytes=256 * 1024,
+        )
+
+    manifests["mcp-cn-commerce"] = CatalogAdapterManifest(
+        project_id="mcp-cn-commerce",
+        wave=6,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="high",
+        required_capabilities=(
+            "per-platform-fixed-contracts",
+            "conditional-credential-slots",
+            "shop-scope-preflight",
+        ),
+        limitations=(
+            "上游同时覆盖多个平台，各平台凭据、域名和店铺作用域不同；当前不能用单一宽泛契约安全连接。",
+            "完成逐平台固定字段、固定域名与独立 smoke 前，不显示凭据、连接或外站登录入口。",
+        ),
+        adapter_version="blocked:platform-contract-matrix",
+        network_policy="blocked:no-fixed-platform-contract",
+        filesystem_policy="blocked:no-runtime",
+    )
+    manifests["mem0-mcp"] = CatalogAdapterManifest(
+        project_id="mem0-mcp",
+        wave=6,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="high",
+        required_capabilities=(
+            "tenant-isolated-memory-namespace",
+            "state-write-approval",
+            "retention-and-unbind-policy",
+        ),
+        limitations=(
+            "长期记忆涉及持久状态、用户命名空间与删除语义；当前账户/保留策略尚未完成生产核验。",
+            "完成命名空间隔离、写入幂等和数据清理验收前，不提供连接或写入入口。",
+        ),
+        adapter_version="blocked:stateful-memory-policy",
+        network_policy="blocked:no-production-runtime",
+        filesystem_policy="blocked:no-runtime",
+    )
+
     manifests["snyk-mcp"] = CatalogAdapterManifest(
         project_id="snyk-mcp",
         wave=4,
@@ -1496,12 +1812,44 @@ class CatalogWorkspaceCreateRequest(BaseModel):
     display_name: str = Field(default="", max_length=120)
 
 
+class CatalogUnbindRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revoke_credentials: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogConfigurationSnapshot:
+    revision: str
+    digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogAccountSnapshot:
+    digest: str
+    tool_schema_sha256: str
+    verified_at: float
+
+
+@dataclass(slots=True)
+class CatalogExecutionLedgerEntry:
+    approval_id: str
+    tenant_id: str
+    owner_id: str
+    project_id: str
+    idempotency_key: str
+    state: Literal["started", "completed", "unknown", "rejected"]
+    result: dict[str, Any] | None = None
+
+
 @dataclass(slots=True)
 class CatalogApproval:
     approval_id: str
     tenant_id: str
+    owner_id: str
     project_id: str
     session_id: str
+    context_kind: CatalogApprovalContextKind
     workspace_id: str
     workspace_manifest_sha256: str
     tool_name: str
@@ -1509,6 +1857,14 @@ class CatalogApproval:
     argument_digest: str
     summary: str
     expires_at: float
+    configuration_revision: str = ""
+    configuration_digest: str = ""
+    credential_snapshot_digest: str = ""
+    account_snapshot_digest: str = ""
+    tool_schema_sha256: str = ""
+    tool_policy_digest: str = ""
+    idempotency_key: str = ""
+    target_preview: dict[str, Any] = field(default_factory=dict)
     used: bool = False
 
 
@@ -1563,23 +1919,60 @@ class MCPCatalogService:
         self.workspace_store = workspace_store
         self.tenant_id = str(tenant_id or "local")
         self.owner_id = str(owner_id or "local")
-        self._sessions: dict[tuple[str, str], str] = {}
+        self._sessions: dict[tuple[str, str, str], str] = {}
         self._configurations: dict[
-            tuple[str, str], CatalogConfigurationRequest
+            tuple[str, str, str], CatalogConfigurationRequest
         ] = {}
         self._credential_snapshots: dict[
-            tuple[str, str], dict[str, tuple[str, float]]
+            tuple[str, str, str], dict[str, tuple[str, float]]
         ] = {}
-        self._credential_verification: dict[tuple[str, str], str] = {}
-        self._preflight_status: dict[tuple[str, str], str] = {}
-        self._approvals: dict[tuple[str, str], CatalogApproval] = {}
+        self._configuration_snapshots: dict[
+            tuple[str, str, str], CatalogConfigurationSnapshot
+        ] = {}
+        self._account_snapshots: dict[
+            tuple[str, str, str], CatalogAccountSnapshot
+        ] = {}
+        self._credential_verification: dict[tuple[str, str, str], str] = {}
+        self._preflight_status: dict[tuple[str, str, str], str] = {}
+        self._approvals: dict[tuple[str, str, str], CatalogApproval] = {}
+        self._execution_ledger: dict[
+            tuple[str, str, str], CatalogExecutionLedgerEntry
+        ] = {}
+        self._approval_locks: dict[
+            tuple[str, str, str], asyncio.Lock
+        ] = {}
+        self._call_locks: dict[
+            tuple[str, str, str], asyncio.Lock
+        ] = {}
+        self._connecting_scopes: set[tuple[str, str, str]] = set()
+        self._unbinding_scopes: set[tuple[str, str, str]] = set()
         self._lock = asyncio.Lock()
 
-    def _scope_key(self, project_id: str) -> tuple[str, str]:
-        return (self.tenant_id, str(project_id or "").strip())
+    def _scope_key(self, project_id: str) -> tuple[str, str, str]:
+        return (
+            self.tenant_id,
+            self.owner_id,
+            str(project_id or "").strip(),
+        )
 
-    def _approval_key(self, approval_id: str) -> tuple[str, str]:
-        return (self.tenant_id, str(approval_id or "").strip())
+    def _approval_key(self, approval_id: str) -> tuple[str, str, str]:
+        return (
+            self.tenant_id,
+            self.owner_id,
+            str(approval_id or "").strip(),
+        )
+
+    def _session_owner(self, project_id: str) -> str:
+        """Bind catalog sessions before they become visible to generic routes."""
+
+        return ":".join(
+            (
+                "catalog",
+                self.tenant_id,
+                self.owner_id,
+                str(project_id or "").strip(),
+            )
+        )
 
     def _credential_call(
         self,
@@ -1635,6 +2028,16 @@ class MCPCatalogService:
             item["workspace_id"] = (
                 configuration.workspace_id if configuration else None
             )
+            if manifest.saas_policy is None:
+                item["account_status"] = "not-applicable"
+            elif manifest.availability == "blocked":
+                item["account_status"] = "blocked"
+            elif configuration is None:
+                item["account_status"] = "unbound"
+            elif scope_key in self._account_snapshots:
+                item["account_status"] = "verified"
+            else:
+                item["account_status"] = "unverified"
             if not manifest.credential_policies:
                 item["credential_verification"] = "not-required"
             elif configuration is None:
@@ -1644,7 +2047,7 @@ class MCPCatalogService:
                     scope_key,
                     "unverified",
                 )
-            if manifest.database_policy is None:
+            if manifest.database_policy is None and manifest.saas_policy is None:
                 item["preflight_status"] = "not-applicable"
             elif manifest.availability == "blocked":
                 item["preflight_status"] = "blocked"
@@ -1729,6 +2132,10 @@ class MCPCatalogService:
             )
 
         scope_key = self._scope_key(manifest.project_id)
+        if scope_key in self._unbinding_scopes:
+            raise CatalogAdapterPolicyError("账号正在解绑，请等待操作完成。")
+        if scope_key in self._connecting_scopes:
+            raise CatalogAdapterPolicyError("连接正在建立，请等待完成后再更新目录配置。")
         if (
             manifest.credential_policies or manifest.database_policy is not None
         ) and scope_key in self._sessions:
@@ -1822,10 +2229,14 @@ class MCPCatalogService:
         normalized = request.model_copy(deep=True)
         normalized.settings = normalized_settings
         self._configurations[scope_key] = normalized
+        self._configuration_snapshots[scope_key] = self._snapshot_configuration(
+            normalized
+        )
         self._credential_snapshots.pop(scope_key, None)
+        self._account_snapshots.pop(scope_key, None)
         if manifest.credential_policies:
             self._credential_verification[scope_key] = "unverified"
-        if manifest.database_policy is not None:
+        if manifest.database_policy is not None or manifest.saas_policy is not None:
             self._preflight_status[scope_key] = "unverified"
         self._revoke_approvals(manifest.project_id)
         return {
@@ -1839,13 +2250,34 @@ class MCPCatalogService:
     async def connect(self, project_id: str) -> dict[str, Any]:
         manifest = self._require_executable(project_id)
         scope_key = self._scope_key(manifest.project_id)
+        if scope_key in self._unbinding_scopes:
+            raise CatalogAdapterPolicyError("账号正在解绑，请等待操作完成。")
+        if scope_key in self._connecting_scopes:
+            raise CatalogAdapterPolicyError("该目录连接正在建立，请等待当前操作完成。")
+        self._connecting_scopes.add(scope_key)
+        try:
+            return await self._connect_with_lifecycle_lock(manifest, scope_key)
+        finally:
+            self._connecting_scopes.discard(scope_key)
+
+    async def _connect_with_lifecycle_lock(
+        self,
+        manifest: CatalogAdapterManifest,
+        scope_key: tuple[str, str, str],
+    ) -> dict[str, Any]:
+        session_owner = self._session_owner(manifest.project_id)
         started_at = time.monotonic()
         async with self._lock:
+            if scope_key in self._unbinding_scopes:
+                raise CatalogAdapterPolicyError("账号正在解绑，请等待操作完成。")
             existing = self._sessions.get(scope_key)
             if existing:
                 try:
                     await self._ensure_credentials_fresh(manifest.project_id)
-                    tools = await self.manager.list_tools(existing)
+                    tools = await self.manager.list_tools(
+                        existing,
+                        session_owner=session_owner,
+                    )
                     return self._connection_payload(manifest, existing, tools)
                 except MCPSessionNotFoundError:
                     self._sessions.pop(scope_key, None)
@@ -1930,7 +2362,11 @@ class MCPCatalogService:
                     handshake_name = (
                         "MCP_DATABASE_HANDSHAKE_B64"
                         if manifest.database_policy is not None
-                        else "MCP_TOKEN_HANDSHAKE_B64"
+                        else (
+                            "MCP_SAAS_HANDSHAKE_B64"
+                            if manifest.saas_policy is not None
+                            else "MCP_TOKEN_HANDSHAKE_B64"
+                        )
                     )
                     environment[handshake_name] = base64.urlsafe_b64encode(
                         handshake_payload
@@ -1946,18 +2382,28 @@ class MCPCatalogService:
                         else 1
                     ),
                     "operation_timeout": manifest.operation_timeout,
+                    "session_owner": session_owner,
                 }
                 if environment:
                     profile["environment"] = environment
                 session_id = await self.manager.connect_profile(**profile)
                 if manifest.credential_policies or manifest.database_policy is not None:
-                    await self.manager.scrub_session_environment(session_id)
+                    await self.manager.scrub_session_environment(
+                        session_id,
+                        session_owner=session_owner,
+                    )
             else:
-                session_id = await self.manager.connect(list(manifest.server_command))
+                session_id = await self.manager.connect(
+                    list(manifest.server_command),
+                    session_owner=session_owner,
+                )
             try:
-                if manifest.database_policy is not None:
+                if manifest.database_policy is not None or manifest.saas_policy is not None:
                     self._preflight_status[scope_key] = "verifying"
-                tools = await self.manager.list_tools(session_id)
+                tools = await self.manager.list_tools(
+                    session_id,
+                    session_owner=session_owner,
+                )
                 if manifest.legacy_unrestricted_calls:
                     await self.registry.register_session_tools(
                         session_id=session_id,
@@ -1965,18 +2411,70 @@ class MCPCatalogService:
                         tools=tools,
                     )
             except Exception:
-                if manifest.database_policy is not None:
+                if manifest.database_policy is not None or manifest.saas_policy is not None:
                     self._preflight_status[scope_key] = "failed"
-                await self.manager.disconnect(session_id)
+                await self.manager.disconnect(
+                    session_id,
+                    session_owner=session_owner,
+                )
                 raise
+            account_snapshot: CatalogAccountSnapshot | None = None
+            if manifest.saas_policy is not None:
+                configuration_snapshot = self._configuration_snapshots.get(scope_key)
+                if configuration_snapshot is None:
+                    await self.manager.disconnect(
+                        session_id,
+                        session_owner=session_owner,
+                    )
+                    self._preflight_status[scope_key] = "failed"
+                    raise CatalogAdapterPolicyError("SaaS 配置快照缺失，请重新保存配置。")
+                schema_digest = self._tool_schema_digest(tools)
+                expected_tools = set(manifest.tool_policies)
+                if (
+                    {tool.name for tool in tools} != expected_tools
+                    or schema_digest
+                    != manifest.saas_policy.tool_schema_sha256
+                ):
+                    await self.manager.disconnect(
+                        session_id,
+                        session_owner=session_owner,
+                    )
+                    self._preflight_status[scope_key] = "failed"
+                    raise CatalogAdapterPolicyError(
+                        "SaaS 工具清单或输入 Schema 发生漂移，连接已阻断。"
+                    )
+                account_material = {
+                    "project_id": manifest.project_id,
+                    "configuration": configuration_snapshot.digest,
+                    "credentials": self._credential_snapshot_digest(snapshots),
+                    "tool_schema": schema_digest,
+                }
+                account_snapshot = CatalogAccountSnapshot(
+                    digest=self._sha256_json(account_material),
+                    tool_schema_sha256=schema_digest,
+                    verified_at=time.time(),
+                )
+            if scope_key in self._unbinding_scopes:
+                await self.manager.disconnect(
+                    session_id,
+                    session_owner=session_owner,
+                )
+                self._preflight_status[scope_key] = "unverified"
+                raise CatalogAdapterPolicyError(
+                    "账号解绑已开始，本次连接未发布。"
+                )
+            # Publish catalog ownership only after all provider preflight and
+            # fixed tools/inputSchema checks have succeeded.
             self._sessions[scope_key] = session_id
             if manifest.credential_policies:
                 self._credential_snapshots[scope_key] = snapshots
-            if manifest.database_policy is not None:
+            if account_snapshot is not None:
+                self._account_snapshots[scope_key] = account_snapshot
+            if manifest.database_policy is not None or manifest.saas_policy is not None:
                 self._preflight_status[scope_key] = "verified"
                 if manifest.credential_policies:
-                    # Database children complete a real authenticated read-only
-                    # preflight before MCP initialization succeeds.
+                    # Database and stateful SaaS children complete an
+                    # authenticated read-only preflight before initialization.
                     self._credential_verification[scope_key] = "verified"
             payload = self._connection_payload(manifest, session_id, tools)
             logger.info(
@@ -1987,25 +2485,56 @@ class MCPCatalogService:
             )
             return payload
 
-    async def disconnect(self, project_id: str) -> dict[str, Any]:
-        manifest = self.get_manifest(project_id)
+    async def _disconnect_with_scope_locked(
+        self,
+        manifest: CatalogAdapterManifest,
+    ) -> dict[str, Any]:
         scope_key = self._scope_key(manifest.project_id)
         async with self._lock:
-            session_id = self._sessions.pop(scope_key, None)
-            self._credential_snapshots.pop(scope_key, None)
-            if manifest.database_policy is not None:
-                self._preflight_status[scope_key] = "unverified"
+            session_id = self._sessions.get(scope_key)
         if session_id is None:
             raise MCPSessionNotFoundError(
                 f"MCP catalog session not found: {manifest.project_id}"
             )
         try:
-            await self.manager.disconnect(session_id)
+            await self.manager.disconnect(
+                session_id,
+                session_owner=self._session_owner(manifest.project_id),
+            )
         finally:
             await self.registry.unregister_session(session_id)
+            async with self._lock:
+                if self._sessions.get(scope_key) == session_id:
+                    self._sessions.pop(scope_key, None)
+                    self._credential_snapshots.pop(scope_key, None)
+                    self._account_snapshots.pop(scope_key, None)
+                    if (
+                        manifest.database_policy is not None
+                        or manifest.saas_policy is not None
+                    ):
+                        self._preflight_status[scope_key] = "unverified"
         self._revoke_approvals(manifest.project_id)
         logger.info("MCP catalog disconnect project=%s", manifest.project_id)
         return {"ok": True, "project_id": manifest.project_id}
+
+    async def disconnect(self, project_id: str) -> dict[str, Any]:
+        manifest = self.get_manifest(project_id)
+        scope_key = self._scope_key(manifest.project_id)
+        lock = self._approval_locks.setdefault(scope_key, asyncio.Lock())
+        async with lock:
+            if any(
+                entry.tenant_id == self.tenant_id
+                and entry.owner_id == self.owner_id
+                and entry.project_id == manifest.project_id
+                and entry.state == "started"
+                for entry in self._execution_ledger.values()
+            ):
+                raise CatalogAdapterPolicyError(
+                    "远程写入仍在执行，当前不能断开会话；请等待结果确定。"
+                )
+            call_lock = self._call_locks.setdefault(scope_key, asyncio.Lock())
+            async with call_lock:
+                return await self._disconnect_with_scope_locked(manifest)
 
     async def call_tool(
         self,
@@ -2015,6 +2544,8 @@ class MCPCatalogService:
     ) -> dict[str, Any]:
         manifest = self._require_executable(project_id)
         scope_key = self._scope_key(manifest.project_id)
+        if scope_key in self._unbinding_scopes:
+            raise CatalogAdapterPolicyError("账号正在解绑，当前不能调用工具。")
         session_id = self._sessions.get(scope_key)
         if session_id is None:
             raise CatalogAdapterUnavailableError("请先连接该 MCP 适配器。")
@@ -2059,58 +2590,181 @@ class MCPCatalogService:
         manifest = self._require_executable(project_id)
         scope_key = self._scope_key(manifest.project_id)
         approval_key = self._approval_key(approval_id)
-        approval = self._approvals.get(approval_key)
-        if (
-            approval is None
-            or approval.tenant_id != self.tenant_id
-            or approval.project_id != manifest.project_id
-        ):
-            raise CatalogAdapterPolicyError("一次性确认不存在或已经失效。")
-        if approval.used or approval.expires_at <= time.time():
+        lock = self._approval_locks.setdefault(scope_key, asyncio.Lock())
+        async with lock:
+            if scope_key in self._unbinding_scopes:
+                raise CatalogAdapterPolicyError(
+                    "账号解绑或凭据撤销正在进行，当前不能确认写入。"
+                )
+            approval = self._approvals.get(approval_key)
+            ledger = self._execution_ledger.get(approval_key)
+            if approval is None and ledger is not None:
+                if ledger.state == "completed" and ledger.result is not None:
+                    replay = json.loads(json.dumps(ledger.result, ensure_ascii=False))
+                    replay["idempotency_key"] = ledger.idempotency_key
+                    replay["idempotent_replay"] = True
+                    replay["unknown_outcome"] = False
+                    return replay
+                if ledger.state in {"started", "unknown"}:
+                    raise CatalogUnknownOutcomeError(ledger.idempotency_key)
+            if (
+                approval is None
+                or approval.tenant_id != self.tenant_id
+                or approval.owner_id != self.owner_id
+                or approval.project_id != manifest.project_id
+            ):
+                raise CatalogAdapterPolicyError("一次性确认不存在或已经失效。")
+            if approval.used or approval.expires_at <= time.time():
+                self._approvals.pop(approval_key, None)
+                raise CatalogAdapterPolicyError("一次性确认已经使用或过期。")
+            if approval.context_kind == "workspace":
+                if self.workspace_store is None:
+                    raise CatalogAdapterPolicyError("MCP 文件工作区当前不可用。")
+                workspace = self.workspace_store.require_sealed(
+                    manifest.project_id,
+                    approval.workspace_id,
+                    tenant_id=self.tenant_id,
+                )
+                if workspace.manifest_sha256 != approval.workspace_manifest_sha256:
+                    raise CatalogAdapterPolicyError("工作区内容已经变化，请重新发起操作。")
+            else:
+                await self._ensure_credentials_fresh(manifest.project_id)
+                configuration_snapshot = self._configuration_snapshots.get(scope_key)
+                account_snapshot = self._account_snapshots.get(scope_key)
+                credential_digest = self._credential_snapshot_digest(
+                    self._credential_snapshots.get(scope_key, {})
+                )
+                policy = manifest.tool_policies.get(approval.tool_name)
+                if (
+                    configuration_snapshot is None
+                    or configuration_snapshot.revision != approval.configuration_revision
+                    or configuration_snapshot.digest != approval.configuration_digest
+                    or credential_digest != approval.credential_snapshot_digest
+                    or account_snapshot is None
+                    or account_snapshot.digest != approval.account_snapshot_digest
+                    or account_snapshot.tool_schema_sha256 != approval.tool_schema_sha256
+                    or policy is None
+                    or self._tool_policy_digest(policy) != approval.tool_policy_digest
+                ):
+                    self._approvals.pop(approval_key, None)
+                    raise CatalogAdapterPolicyError(
+                        "账号、配置、凭据或工具策略已经变化，请重新发起操作。"
+                    )
+            session_id = self._sessions.get(scope_key)
+            if (
+                approval.tool_name != "__delete_workspace__"
+                and (not session_id or session_id != approval.session_id)
+            ):
+                raise CatalogAdapterPolicyError("MCP 会话已经变化，请重新发起操作。")
+            approval.used = True
             self._approvals.pop(approval_key, None)
-            raise CatalogAdapterPolicyError("一次性确认已经使用或过期。")
-        if self.workspace_store is None:
-            raise CatalogAdapterPolicyError("MCP 文件工作区当前不可用。")
-        workspace = self.workspace_store.require_sealed(
-            manifest.project_id,
-            approval.workspace_id,
-            tenant_id=self.tenant_id,
-        )
-        if workspace.manifest_sha256 != approval.workspace_manifest_sha256:
-            raise CatalogAdapterPolicyError("工作区内容已经变化，请重新发起操作。")
-        approval.used = True
-        self._approvals.pop(approval_key, None)
+            if approval.context_kind == "remote-resource":
+                ledger = CatalogExecutionLedgerEntry(
+                    approval_id=approval.approval_id,
+                    tenant_id=self.tenant_id,
+                    owner_id=self.owner_id,
+                    project_id=manifest.project_id,
+                    idempotency_key=approval.idempotency_key,
+                    state="started",
+                )
+                self._execution_ledger[approval_key] = ledger
+
         if approval.tool_name == "__delete_workspace__":
             if scope_key in self._sessions:
                 await self.disconnect(manifest.project_id)
+            assert self.workspace_store is not None
             self.workspace_store.delete(
                 manifest.project_id,
                 approval.workspace_id,
                 tenant_id=self.tenant_id,
             )
             self._configurations.pop(scope_key, None)
-            return {"ok": True, "project_id": manifest.project_id, "workspace_id": approval.workspace_id}
-        session_id = self._sessions.get(scope_key)
-        if not session_id or session_id != approval.session_id:
-            raise CatalogAdapterPolicyError("MCP 会话已经变化，请重新发起操作。")
-        return await self._execute_tool(
-            manifest,
-            session_id=session_id,
-            tool_name=approval.tool_name,
-            arguments=approval.arguments,
-        )
+            self._configuration_snapshots.pop(scope_key, None)
+            return {
+                "ok": True,
+                "project_id": manifest.project_id,
+                "workspace_id": approval.workspace_id,
+            }
+        assert session_id is not None
+        if approval.context_kind != "remote-resource":
+            return await self._execute_tool(
+                manifest,
+                session_id=session_id,
+                tool_name=approval.tool_name,
+                arguments=approval.arguments,
+            )
+        assert ledger is not None
+        execution_arguments = dict(approval.arguments)
+        execution_arguments["__modelmirror_idempotency_key"] = approval.idempotency_key
+        try:
+            result = await self._execute_tool(
+                manifest,
+                session_id=session_id,
+                tool_name=approval.tool_name,
+                arguments=execution_arguments,
+            )
+        except Exception as exc:
+            if isinstance(exc, McpError):
+                rpc_error = exc.error
+                rpc_data = rpc_error.data if isinstance(rpc_error.data, dict) else {}
+                rpc_reason = str(rpc_data.get("reason") or "")
+                if rpc_error.code == -32009 and rpc_reason in {
+                    "rate_limited",
+                    "provider_rejected",
+                }:
+                    ledger.state = "rejected"
+                    raise CatalogProviderRejectedError(
+                        rpc_reason,
+                        approval.idempotency_key,
+                    ) from exc
+                if rpc_error.code == -32008 and rpc_reason == "unknown_outcome":
+                    ledger.state = "unknown"
+                    raise CatalogUnknownOutcomeError(approval.idempotency_key) from exc
+            if isinstance(
+                exc,
+                (CatalogAdapterPolicyError, MCPSessionNotFoundError),
+            ):
+                # These failures happen before the manager can send the frozen
+                # write, so they are terminal local rejections rather than an
+                # ambiguous provider outcome.
+                ledger.state = "rejected"
+                raise
+            ledger.state = "unknown"
+            raise CatalogUnknownOutcomeError(approval.idempotency_key) from exc
+        if result.get("is_error"):
+            # A state-changing request reached the provider boundary, but an
+            # MCP error result does not prove whether the provider committed
+            # the change. Keep the one-shot ledger fail-closed and never label
+            # the operation completed or resend it automatically.
+            ledger.state = "unknown"
+            raise CatalogUnknownOutcomeError(approval.idempotency_key)
+        result["idempotency_key"] = approval.idempotency_key
+        result["idempotent_replay"] = False
+        result["unknown_outcome"] = False
+        ledger.state = "completed"
+        ledger.result = json.loads(json.dumps(result, ensure_ascii=False))
+        return result
 
-    def cancel_approval(self, project_id: str, approval_id: str) -> dict[str, Any]:
+    async def cancel_approval(
+        self,
+        project_id: str,
+        approval_id: str,
+    ) -> dict[str, Any]:
+        manifest = self.get_manifest(project_id)
+        scope_key = self._scope_key(manifest.project_id)
         approval_key = self._approval_key(approval_id)
-        approval = self._approvals.get(approval_key)
-        if (
-            approval is None
-            or approval.tenant_id != self.tenant_id
-            or approval.project_id != project_id
-        ):
-            raise CatalogAdapterPolicyError("一次性确认不存在或已经失效。")
-        self._approvals.pop(approval_key, None)
-        return {"ok": True, "approval_id": approval.approval_id}
+        lock = self._approval_locks.setdefault(scope_key, asyncio.Lock())
+        async with lock:
+            approval = self._approvals.get(approval_key)
+            if (
+                approval is None
+                or approval.tenant_id != self.tenant_id
+                or approval.owner_id != self.owner_id
+                or approval.project_id != manifest.project_id
+            ):
+                raise CatalogAdapterPolicyError("一次性确认不存在或已经失效。")
+            self._approvals.pop(approval_key, None)
+            return {"ok": True, "approval_id": approval.approval_id}
 
     async def _execute_tool(
         self,
@@ -2123,10 +2777,36 @@ class MCPCatalogService:
 
         scope_key = self._scope_key(manifest.project_id)
         started_at = time.monotonic()
+        tool_policy = manifest.tool_policies.get(tool_name)
+        retry_on_failure = not (
+            manifest.saas_policy is not None
+            and tool_policy is not None
+            and tool_policy.effect == "state-write"
+        )
         try:
-            result = await self.manager.call_tool(session_id, tool_name, arguments)
+            call_lock = self._call_locks.setdefault(scope_key, asyncio.Lock())
+            async with call_lock:
+                if scope_key in self._unbinding_scopes:
+                    raise CatalogAdapterPolicyError(
+                        "账号解绑或凭据撤销正在进行，当前不能调用工具。"
+                    )
+                if retry_on_failure:
+                    result = await self.manager.call_tool(
+                        session_id,
+                        tool_name,
+                        arguments,
+                        session_owner=self._session_owner(manifest.project_id),
+                    )
+                else:
+                    result = await self.manager.call_tool(
+                        session_id,
+                        tool_name,
+                        arguments,
+                        retry_on_failure=False,
+                        session_owner=self._session_owner(manifest.project_id),
+                    )
         except Exception:
-            if manifest.credential_policies:
+            if manifest.credential_policies and manifest.saas_policy is None:
                 self._credential_verification[scope_key] = "verification-failed"
             if manifest.database_policy is not None:
                 self._preflight_status[scope_key] = "failed"
@@ -2141,7 +2821,7 @@ class MCPCatalogService:
             result,
             max_output_bytes=manifest.max_output_bytes,
         )
-        if manifest.credential_policies:
+        if manifest.credential_policies and manifest.saas_policy is None:
             self._credential_verification[scope_key] = (
                 "verification-failed" if payload["is_error"] else "verified"
             )
@@ -2181,46 +2861,92 @@ class MCPCatalogService:
         arguments: dict[str, Any],
         workspace_id: str | None = None,
     ) -> dict[str, Any]:
-        configuration = self._configurations.get(
-            self._scope_key(manifest.project_id)
-        )
+        scope_key = self._scope_key(manifest.project_id)
+        configuration = self._configurations.get(scope_key)
         bound_workspace_id = str(
             workspace_id or (configuration.workspace_id if configuration else "") or ""
         )
-        if not bound_workspace_id or self.workspace_store is None:
-            raise CatalogAdapterPolicyError("该操作缺少有效的受控工作区。")
-        workspace = self.workspace_store.require_sealed(
-            manifest.project_id,
-            bound_workspace_id,
-            tenant_id=self.tenant_id,
-        )
-        canonical = json.dumps(
-            arguments,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        frozen_arguments, canonical = self._freeze_arguments(arguments)
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        context_kind: CatalogApprovalContextKind
+        workspace_manifest_sha256 = ""
+        configuration_revision = ""
+        configuration_digest = ""
+        credential_snapshot_digest = ""
+        account_snapshot_digest = ""
+        tool_schema_sha256 = ""
+        target_preview: dict[str, Any] = {}
+        if bound_workspace_id:
+            if self.workspace_store is None:
+                raise CatalogAdapterPolicyError("MCP 文件工作区当前不可用。")
+            workspace = self.workspace_store.require_sealed(
+                manifest.project_id,
+                bound_workspace_id,
+                tenant_id=self.tenant_id,
+            )
+            context_kind = "workspace"
+            workspace_manifest_sha256 = workspace.manifest_sha256
+            summary = self._approval_summary(
+                tool_name,
+                frozen_arguments,
+                workspace.display_name,
+            )
+        elif manifest.saas_policy is not None:
+            configuration_snapshot = self._configuration_snapshots.get(scope_key)
+            account_snapshot = self._account_snapshots.get(scope_key)
+            if configuration_snapshot is None or account_snapshot is None:
+                raise CatalogAdapterPolicyError("SaaS 账号尚未完成配置与预检。")
+            context_kind = "remote-resource"
+            configuration_revision = configuration_snapshot.revision
+            configuration_digest = configuration_snapshot.digest
+            credential_snapshot_digest = self._credential_snapshot_digest(
+                self._credential_snapshots.get(scope_key, {})
+            )
+            account_snapshot_digest = account_snapshot.digest
+            tool_schema_sha256 = account_snapshot.tool_schema_sha256
+            target_preview = self._target_preview(
+                manifest,
+                tool_name,
+                frozen_arguments,
+            )
+            summary = str(target_preview["impact"])
+        else:
+            raise CatalogAdapterPolicyError("该操作缺少有效的受控审批上下文。")
+        policy = manifest.tool_policies.get(tool_name)
+        if policy is None:
+            raise CatalogAdapterPolicyError("工具审批策略不存在。")
         approval = CatalogApproval(
             approval_id=f"mcpauth_{uuid.uuid4().hex}",
             tenant_id=self.tenant_id,
+            owner_id=self.owner_id,
             project_id=manifest.project_id,
             session_id=session_id,
+            context_kind=context_kind,
             workspace_id=bound_workspace_id,
-            workspace_manifest_sha256=workspace.manifest_sha256,
+            workspace_manifest_sha256=workspace_manifest_sha256,
             tool_name=tool_name,
-            arguments=json.loads(canonical),
+            arguments=frozen_arguments,
             argument_digest=digest,
-            summary=self._approval_summary(tool_name, arguments, workspace.display_name),
+            summary=summary,
             expires_at=time.time() + 300,
+            configuration_revision=configuration_revision,
+            configuration_digest=configuration_digest,
+            credential_snapshot_digest=credential_snapshot_digest,
+            account_snapshot_digest=account_snapshot_digest,
+            tool_schema_sha256=tool_schema_sha256,
+            tool_policy_digest=self._tool_policy_digest(policy),
+            idempotency_key=f"mcpidem_{uuid.uuid4().hex}",
+            target_preview=target_preview,
         )
         self._approvals[self._approval_key(approval.approval_id)] = approval
         return {
             "code": "approval_required",
-            "message": "该操作会写入持久记忆或生成新的表格产物，请确认后执行。",
+            "message": "该操作会修改持久状态；参数和账号上下文已由服务端冻结，请确认后执行。",
             "approval_id": approval.approval_id,
             "summary": approval.summary,
             "argument_digest": approval.argument_digest,
+            "idempotency_key": approval.idempotency_key,
+            "target_preview": approval.target_preview or None,
             "expires_at": approval.expires_at,
         }
 
@@ -2245,10 +2971,208 @@ class MCPCatalogService:
         detail = "，".join(visible) if visible else "参数已由服务端冻结"
         return f"在工作区“{workspace_name}”执行 {tool_name}：{detail}。"
 
+    @classmethod
+    def _freeze_arguments(
+        cls,
+        arguments: dict[str, Any],
+    ) -> tuple[dict[str, Any], str]:
+        cls._validate_json_value(arguments)
+        canonical = json.dumps(
+            arguments,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        if len(canonical.encode("utf-8")) > 128 * 1024:
+            raise CatalogAdapterPolicyError("工具参数超过 128 KiB 上限。")
+        return json.loads(canonical), canonical
+
+    @classmethod
+    def _validate_json_value(cls, value: Any, *, depth: int = 0) -> None:
+        if depth > 8:
+            raise CatalogAdapterPolicyError("工具参数嵌套层级超过上限。")
+        if value is None or isinstance(value, (str, bool, int)):
+            return
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise CatalogAdapterPolicyError("工具参数不能包含非有限数字。")
+            return
+        if isinstance(value, list):
+            if len(value) > 2_000:
+                raise CatalogAdapterPolicyError("工具参数数组项目过多。")
+            for child in value:
+                cls._validate_json_value(child, depth=depth + 1)
+            return
+        if isinstance(value, dict):
+            if len(value) > 500:
+                raise CatalogAdapterPolicyError("工具参数字段过多。")
+            for raw_key, child in value.items():
+                key = str(raw_key)
+                if not key or len(key) > 160 or key.startswith("__modelmirror_"):
+                    raise CatalogAdapterPolicyError("工具参数包含保留或无效字段。")
+                cls._validate_json_value(child, depth=depth + 1)
+            return
+        raise CatalogAdapterPolicyError("工具参数必须是可验证的 JSON 值。")
+
+    @staticmethod
+    def _sha256_json(value: Any) -> str:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _snapshot_configuration(
+        cls,
+        configuration: CatalogConfigurationRequest,
+    ) -> CatalogConfigurationSnapshot:
+        digest = cls._sha256_json(
+            {
+                "settings": configuration.settings,
+                "credential_bindings": configuration.credential_bindings,
+                "workspace_id": configuration.workspace_id,
+            }
+        )
+        return CatalogConfigurationSnapshot(
+            revision=f"mcpcfg_{uuid.uuid4().hex}",
+            digest=digest,
+        )
+
+    @classmethod
+    def _credential_snapshot_digest(
+        cls,
+        snapshots: dict[str, tuple[str, float]],
+    ) -> str:
+        return cls._sha256_json(
+            [
+                {"slot": slot, "credential_id": value[0], "updated_at": value[1]}
+                for slot, value in sorted(snapshots.items())
+            ]
+        )
+
+    @classmethod
+    def _tool_schema_digest(cls, tools: list[Tool]) -> str:
+        return cls._sha256_json(
+            [
+                {
+                    "name": tool.name,
+                    "inputSchema": tool.inputSchema,
+                }
+                for tool in sorted(tools, key=lambda item: item.name)
+            ]
+        )
+
+    @classmethod
+    def _tool_policy_digest(cls, policy: CatalogToolPolicy) -> str:
+        return cls._sha256_json(asdict(policy))
+
+    def _target_preview(
+        self,
+        manifest: CatalogAdapterManifest,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        configuration = self._configurations.get(self._scope_key(manifest.project_id))
+        settings = configuration.settings if configuration is not None else {}
+        action_labels = {
+            "create_record": "创建 Airtable 记录",
+            "update_record": "更新 Airtable 记录",
+            "create_task": "创建 Asana 任务",
+            "update_task": "更新 Asana 任务",
+            "add_comment": "添加 Asana 评论",
+            "create_issue": "创建 GitLab Issue",
+            "update_issue": "更新 GitLab Issue",
+            "add_issue_note": "添加 GitLab Issue 评论",
+            "create_page": "创建 Notion 页面",
+            "update_page_properties": "更新 Notion 页面属性",
+        }
+        resource_types = {
+            "airtable-mcp": "Airtable Base",
+            "asana-mcp": "Asana Project",
+            "gitlab-mcp": "GitLab Project",
+            "notion-mcp-server": "Notion Data Source",
+        }
+        scope_keys = {
+            "airtable-mcp": "base_id",
+            "asana-mcp": "project_gid",
+            "gitlab-mcp": "project_id",
+            "notion-mcp-server": "data_source_id",
+        }
+        target_keys = (
+            "record_id",
+            "task_gid",
+            "issue_iid",
+            "page_id",
+            "table_id",
+        )
+        scope_value = str(settings.get(scope_keys.get(manifest.project_id, ""), ""))
+        target_value = next(
+            (
+                str(arguments[key])
+                for key in target_keys
+                if key in arguments and str(arguments[key])
+            ),
+            scope_value,
+        )
+        id_suffix = target_value[-6:] if target_value else ""
+        content_keys = {
+            "content", "body", "comment", "text", "description", "notes",
+            "fields", "properties", "updates",
+        }
+        changes: list[dict[str, str]] = []
+        content_values: list[Any] = []
+        for key, value in arguments.items():
+            if key in content_keys:
+                content_values.append(value)
+                continue
+            if key in target_keys:
+                continue
+            if len(changes) >= 8:
+                break
+            if isinstance(value, (str, int, float, bool)):
+                summary = str(value)[:120]
+            elif isinstance(value, (list, dict)):
+                summary = f"{len(value)} 项"
+            else:
+                continue
+            changes.append({"field": key[:80], "summary": summary})
+        content: dict[str, Any] | None = None
+        if content_values:
+            encoded = json.dumps(
+                content_values,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            content = {
+                "bytes": len(encoded),
+                "sha256_prefix": hashlib.sha256(encoded).hexdigest()[:12],
+            }
+        action_label = action_labels.get(tool_name, f"执行 {tool_name}")
+        resource_type = resource_types.get(manifest.project_id, "远程资源")
+        return {
+            "action_label": action_label,
+            "resource": {
+                "type": resource_type,
+                "label": f"{resource_type} …{scope_value[-6:]}" if scope_value else resource_type,
+                "id_suffix": id_suffix,
+            },
+            "changes": changes,
+            "content": content,
+            "impact": f"将在已绑定的 {resource_type} 中{action_label}；仅执行一次，不自动重试。",
+            "destructive": False,
+        }
+
     def _revoke_approvals(self, project_id: str) -> None:
         for approval_key, approval in list(self._approvals.items()):
             if (
                 approval.tenant_id == self.tenant_id
+                and approval.owner_id == self.owner_id
                 and approval.project_id == project_id
             ):
                 self._approvals.pop(approval_key, None)
@@ -2384,21 +3308,118 @@ class MCPCatalogService:
     async def clear_sessions(self) -> None:
         async with self._lock:
             tenant_keys = [
-                key for key in self._sessions if key[0] == self.tenant_id
+                key
+                for key in self._sessions
+                if key[:2] == (self.tenant_id, self.owner_id)
             ]
-            sessions = [self._sessions.pop(key) for key in tenant_keys]
+            sessions = [
+                (key[2], self._sessions.pop(key))
+                for key in tenant_keys
+            ]
             for key in tenant_keys:
                 self._credential_snapshots.pop(key, None)
+                self._account_snapshots.pop(key, None)
                 self._preflight_status.pop(key, None)
-        for session_id in sessions:
+        for project_id, session_id in sessions:
             try:
-                await self.manager.disconnect(session_id)
+                await self.manager.disconnect(
+                    session_id,
+                    session_owner=self._session_owner(project_id),
+                )
             except Exception:
                 pass
             await self.registry.unregister_session(session_id)
         for approval_key in list(self._approvals):
-            if approval_key[0] == self.tenant_id:
+            if approval_key[:2] == (self.tenant_id, self.owner_id):
                 self._approvals.pop(approval_key, None)
+
+    async def unbind(
+        self,
+        project_id: str,
+        request: CatalogUnbindRequest,
+    ) -> dict[str, Any]:
+        manifest = self.get_manifest(project_id)
+        if manifest.saas_policy is None or manifest.availability != "ready":
+            raise CatalogAdapterPolicyError("该目录项目不支持 SaaS 账号解绑。")
+        if request.revoke_credentials and self.credential_revoker is None:
+            raise CatalogAdapterUnavailableError("目录凭据存储当前不可用。")
+        scope_key = self._scope_key(manifest.project_id)
+        if scope_key in self._unbinding_scopes:
+            raise CatalogAdapterPolicyError("账号解绑已经在进行中。")
+        self._unbinding_scopes.add(scope_key)
+        approval_lock = self._approval_locks.setdefault(scope_key, asyncio.Lock())
+        call_lock = self._call_locks.setdefault(scope_key, asyncio.Lock())
+        disconnected = False
+        revoked = 0
+        try:
+            # A connect that passed its initial tombstone check owns _lock for
+            # its full preflight. Wait for it to publish or clean up before
+            # inspecting the bound session and credentials.
+            async with self._lock:
+                pass
+            async with approval_lock:
+                project_ledgers = [
+                    (ledger_key, entry)
+                    for ledger_key, entry in self._execution_ledger.items()
+                    if entry.tenant_id == self.tenant_id
+                    and entry.owner_id == self.owner_id
+                    and entry.project_id == manifest.project_id
+                ]
+                if any(entry.state == "started" for _, entry in project_ledgers):
+                    raise CatalogAdapterPolicyError(
+                        "远程写入仍在执行，当前不能解绑账号；请等待结果确定。"
+                    )
+
+                async with call_lock:
+                    configuration = self._configurations.get(scope_key)
+                    credential_ids = sorted(
+                        set(configuration.credential_bindings.values())
+                        if configuration is not None
+                        else set()
+                    )
+                    # Stop the child before touching vault records. Calls that
+                    # were queued behind call_lock then fail against a removed
+                    # manager session instead of reusing the child's old token.
+                    if scope_key in self._sessions:
+                        try:
+                            await self._disconnect_with_scope_locked(manifest)
+                            disconnected = True
+                        except MCPSessionNotFoundError:
+                            self._sessions.pop(scope_key, None)
+
+                    if request.revoke_credentials:
+                        assert self.credential_revoker is not None
+                        for credential_id in credential_ids:
+                            self._credential_call(
+                                self.credential_revoker,
+                                credential_id,
+                            )
+                            revoked += 1
+
+                    self._revoke_approvals(manifest.project_id)
+                    self._configurations.pop(scope_key, None)
+                    self._configuration_snapshots.pop(scope_key, None)
+                    self._credential_snapshots.pop(scope_key, None)
+                    self._account_snapshots.pop(scope_key, None)
+                    self._credential_verification[scope_key] = "missing"
+                    self._preflight_status[scope_key] = "awaiting-configuration"
+                    for ledger_key, entry in project_ledgers:
+                        if entry.state == "completed":
+                            self._execution_ledger.pop(ledger_key, None)
+        finally:
+            self._unbinding_scopes.discard(scope_key)
+        logger.info(
+            "MCP catalog unbind project=%s disconnected=%s revoked_credentials=%d",
+            manifest.project_id,
+            disconnected,
+            revoked,
+        )
+        return {
+            "ok": True,
+            "project_id": manifest.project_id,
+            "disconnected": disconnected,
+            "revoked_credentials": revoked,
+        }
 
     def list_credentials(self, project_id: str) -> dict[str, Any]:
         manifest = self._require_credential_adapter(project_id)
@@ -2461,16 +3482,60 @@ class MCPCatalogService:
         slot = str(getattr(public, "catalog_slot", ""))
         if slot not in manifest.credential_slots:
             raise CatalogAdapterPolicyError("凭据槽不属于当前目录项目。")
-        revoked = self._credential_call(self.credential_revoker, credential_id)
         scope_key = self._scope_key(manifest.project_id)
         configuration = self._configurations.get(scope_key)
-        if configuration and credential_id in configuration.credential_bindings.values():
-            if scope_key in self._sessions:
-                await self.disconnect(manifest.project_id)
-            self._configurations.pop(scope_key, None)
-            self._credential_snapshots.pop(scope_key, None)
-            self._credential_verification[scope_key] = "missing"
-            self._preflight_status[scope_key] = "unverified"
+        bound = bool(
+            configuration
+            and credential_id in configuration.credential_bindings.values()
+        )
+        if not bound:
+            revoked = self._credential_call(self.credential_revoker, credential_id)
+        else:
+            if scope_key in self._unbinding_scopes:
+                raise CatalogAdapterPolicyError("账号解绑或凭据撤销已经在进行中。")
+            self._unbinding_scopes.add(scope_key)
+            approval_lock = self._approval_locks.setdefault(
+                scope_key,
+                asyncio.Lock(),
+            )
+            call_lock = self._call_locks.setdefault(scope_key, asyncio.Lock())
+            try:
+                # Drain a connect that may already hold decrypted credentials.
+                async with self._lock:
+                    pass
+                async with approval_lock:
+                    if any(
+                        entry.tenant_id == self.tenant_id
+                        and entry.owner_id == self.owner_id
+                        and entry.project_id == manifest.project_id
+                        and entry.state == "started"
+                        for entry in self._execution_ledger.values()
+                    ):
+                        raise CatalogAdapterPolicyError(
+                            "远程写入仍在执行，当前不能撤销凭据。"
+                        )
+                    async with call_lock:
+                        # The tombstone and call lock prevent any new use of
+                        # the child while the local vault mutation is applied.
+                        # If the vault rejects the revoke, session/config stay
+                        # intact and become callable again after this method.
+                        revoked = self._credential_call(
+                            self.credential_revoker,
+                            credential_id,
+                        )
+                        try:
+                            if scope_key in self._sessions:
+                                await self._disconnect_with_scope_locked(manifest)
+                        finally:
+                            self._revoke_approvals(manifest.project_id)
+                            self._configurations.pop(scope_key, None)
+                            self._configuration_snapshots.pop(scope_key, None)
+                            self._credential_snapshots.pop(scope_key, None)
+                            self._account_snapshots.pop(scope_key, None)
+                            self._credential_verification[scope_key] = "missing"
+                            self._preflight_status[scope_key] = "unverified"
+            finally:
+                self._unbinding_scopes.discard(scope_key)
         logger.info(
             "MCP catalog credential revoked project=%s slot=%s",
             manifest.project_id,
@@ -2486,11 +3551,12 @@ class MCPCatalogService:
             return
         async with self._lock:
             for scope_key, session_id in list(self._sessions.items()):
-                if scope_key[0] != self.tenant_id:
+                if scope_key[:2] != (self.tenant_id, self.owner_id):
                     continue
                 if session_id in cleaned:
                     self._sessions.pop(scope_key, None)
                     self._credential_snapshots.pop(scope_key, None)
+                    self._account_snapshots.pop(scope_key, None)
                     self._preflight_status[scope_key] = "unverified"
 
     @staticmethod
@@ -2577,16 +3643,25 @@ class MCPCatalogService:
                     break
         if not stale:
             return
-        session_id = self._sessions.pop(scope_key, None)
-        self._credential_snapshots.pop(scope_key, None)
         self._credential_verification[scope_key] = "unverified"
         self._preflight_status[scope_key] = "unverified"
         self._revoke_approvals(project_id)
+        session_id = self._sessions.get(scope_key)
         if session_id is not None:
             try:
-                await self.manager.disconnect(session_id)
+                await self.manager.disconnect(
+                    session_id,
+                    session_owner=self._session_owner(project_id),
+                )
             finally:
                 await self.registry.unregister_session(session_id)
+                if self._sessions.get(scope_key) == session_id:
+                    self._sessions.pop(scope_key, None)
+                    self._credential_snapshots.pop(scope_key, None)
+                    self._account_snapshots.pop(scope_key, None)
+        else:
+            self._credential_snapshots.pop(scope_key, None)
+            self._account_snapshots.pop(scope_key, None)
         raise CatalogAdapterPolicyError(
             "绑定凭据已撤销、轮换或不可用，会话已断开；请重新保存配置并连接。"
         )
@@ -2610,10 +3685,10 @@ class MCPCatalogService:
 
         clean = str(session_id or "")
         for scope_key, active_session_id in self._sessions.items():
-            if scope_key[0] != self.tenant_id:
+            if scope_key[:2] != (self.tenant_id, self.owner_id):
                 continue
             if active_session_id == clean:
-                return scope_key[1]
+                return scope_key[2]
         return None
 
     def _connection_payload(
@@ -2639,7 +3714,7 @@ class MCPCatalogService:
                     self._scope_key(manifest.project_id),
                     "unverified",
                 )
-                if manifest.database_policy is not None
+                if manifest.database_policy is not None or manifest.saas_policy is not None
                 else "not-applicable"
             ),
         }
@@ -2718,6 +3793,28 @@ def get_mcp_catalog_service() -> MCPCatalogService:
 def _raise_http_error(exc: Exception) -> None:
     if isinstance(exc, CatalogApprovalRequiredError):
         raise HTTPException(status_code=409, detail=exc.payload) from exc
+    if isinstance(exc, CatalogUnknownOutcomeError):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "unknown_outcome",
+                "message": str(exc),
+                "idempotency_key": exc.idempotency_key,
+            },
+        ) from exc
+    if isinstance(exc, CatalogProviderRejectedError):
+        raise HTTPException(
+            status_code=429 if exc.reason == "rate_limited" else 409,
+            detail={
+                "code": (
+                    "provider_rate_limited"
+                    if exc.reason == "rate_limited"
+                    else "provider_rejected"
+                ),
+                "message": str(exc),
+                "idempotency_key": exc.idempotency_key,
+            },
+        ) from exc
     if isinstance(exc, CatalogAdapterNotFoundError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     if isinstance(exc, CatalogAdapterUnavailableError):
@@ -2802,6 +3899,18 @@ async def configure_catalog_adapter(
         raise
 
 
+@router.post("/api/mcp/catalog/{project_id}/unbind")
+async def unbind_catalog_adapter(
+    project_id: str,
+    request: CatalogUnbindRequest,
+) -> dict[str, Any]:
+    try:
+        return await get_mcp_catalog_service().unbind(project_id, request)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
 @router.post("/api/mcp/catalog/{project_id}/connect")
 async def connect_catalog_adapter(project_id: str) -> dict[str, Any]:
     try:
@@ -2849,7 +3958,7 @@ async def confirm_catalog_approval(project_id: str, approval_id: str) -> dict[st
 @router.delete("/api/mcp/catalog/{project_id}/approvals/{approval_id}")
 async def cancel_catalog_approval(project_id: str, approval_id: str) -> dict[str, Any]:
     try:
-        return get_mcp_catalog_service().cancel_approval(project_id, approval_id)
+        return await get_mcp_catalog_service().cancel_approval(project_id, approval_id)
     except Exception as exc:
         _raise_http_error(exc)
         raise

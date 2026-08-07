@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
-from fastapi import FastAPI
-from mcp.types import CallToolResult, TextContent, Tool
+from fastapi import FastAPI, HTTPException
+from mcp.shared.exceptions import McpError
+from mcp.types import CallToolResult, ErrorData, TextContent, Tool
 from pydantic import ValidationError
 
 from server.mcp import catalog
@@ -22,12 +25,17 @@ from server.mcp.catalog import (
     WAVE_THREE_ADAPTERS,
     WAVE_FOUR_ADAPTERS,
     WAVE_FIVE_ADAPTERS,
+    WAVE_SIX_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
+    CatalogConfigurationSnapshot,
     CatalogCredentialCreateRequest,
+    CatalogUnknownOutcomeError,
+    CatalogUnbindRequest,
     MCPCatalogService,
 )
+from server.sandbox_sidecar.saas_contracts import SAAS_SCHEMA_SHA256
 from server.toolsets.credentials import CredentialStore
 
 
@@ -38,29 +46,64 @@ class FakeManager:
     def __init__(self) -> None:
         self.commands: list[list[str]] = []
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
+        self.retry_on_failure: list[bool] = []
         self.disconnected: list[str] = []
         self.sessions: set[str] = set()
+        self.session_owners: dict[str, str] = {}
         self.profiles: list[dict[str, Any]] = []
         self.scrubbed: list[str] = []
         self.call_is_error = False
+        self.call_error: Exception | None = None
+        self.call_gate: asyncio.Event | None = None
+        self.connect_gate: asyncio.Event | None = None
+        self.connect_started = asyncio.Event()
+        self.disconnect_gate: asyncio.Event | None = None
+        self.disconnect_started = asyncio.Event()
+        self.tools: list[Tool] = [Tool(name="echo", description="Echo", inputSchema={})]
 
-    async def connect(self, command: list[str]) -> str:
+    async def connect(
+        self,
+        command: list[str],
+        *,
+        session_owner: str = "",
+    ) -> str:
         self.commands.append(list(command))
         session_id = f"session-{len(self.commands)}"
         self.sessions.add(session_id)
+        self.session_owners[session_id] = session_owner
         return session_id
 
     async def connect_profile(self, **kwargs: Any) -> str:
         self.profiles.append(dict(kwargs))
-        return await self.connect(list(kwargs.get("server_command") or []))
+        self.connect_started.set()
+        if self.connect_gate is not None:
+            await self.connect_gate.wait()
+        return await self.connect(
+            list(kwargs.get("server_command") or []),
+            session_owner=str(kwargs.get("session_owner") or ""),
+        )
 
-    async def list_tools(self, session_id: str) -> list[Tool]:
-        if session_id not in self.sessions:
+    async def list_tools(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> list[Tool]:
+        if (
+            session_id not in self.sessions
+            or self.session_owners.get(session_id, "") != session_owner
+        ):
             raise catalog.MCPSessionNotFoundError(session_id)
-        return [Tool(name="echo", description="Echo", inputSchema={})]
+        return list(self.tools)
 
-    async def scrub_session_environment(self, session_id: str) -> None:
+    async def scrub_session_environment(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> None:
         assert session_id in self.sessions
+        assert self.session_owners.get(session_id, "") == session_owner
         self.scrubbed.append(session_id)
 
     async def call_tool(
@@ -68,17 +111,39 @@ class FakeManager:
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any],
+        *,
+        retry_on_failure: bool = True,
+        session_owner: str = "",
     ) -> CallToolResult:
+        if self.session_owners.get(session_id, "") != session_owner:
+            raise catalog.MCPSessionNotFoundError(session_id)
         self.calls.append((session_id, tool_name, dict(arguments)))
+        self.retry_on_failure.append(retry_on_failure)
+        if self.call_gate is not None:
+            await self.call_gate.wait()
+        if self.call_error is not None:
+            raise self.call_error
         return CallToolResult(
             content=[TextContent(type="text", text=str(arguments.get("value", "ok")))],
             isError=self.call_is_error,
         )
 
-    async def disconnect(self, session_id: str) -> None:
-        if session_id not in self.sessions:
+    async def disconnect(
+        self,
+        session_id: str,
+        *,
+        session_owner: str = "",
+    ) -> None:
+        if (
+            session_id not in self.sessions
+            or self.session_owners.get(session_id, "") != session_owner
+        ):
             raise catalog.MCPSessionNotFoundError(session_id)
+        self.disconnect_started.set()
+        if self.disconnect_gate is not None:
+            await self.disconnect_gate.wait()
         self.sessions.remove(session_id)
+        self.session_owners.pop(session_id, None)
         self.disconnected.append(session_id)
 
 
@@ -140,6 +205,10 @@ def make_service(
         "cred_pinecone": ("pinecone-assistant-mcp", "api_key"),
         "cred_dbhub": ("dbhub", "password"),
         "cred_supabase": ("supabase-mcp", "access_token"),
+        "cred_airtable": ("airtable-mcp", "personal_access_token"),
+        "cred_asana": ("asana-mcp", "personal_access_token"),
+        "cred_gitlab": ("gitlab-mcp", "personal_access_token"),
+        "cred_notion": ("notion-mcp-server", "integration_token"),
     }
 
     def credential_validator(credential_id: str) -> SimpleNamespace:
@@ -194,15 +263,15 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 38
+    ) == 42
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 53
+    ) == 47
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 9
+    ) == 11
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -246,7 +315,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["airtable-mcp"]
+    manifest = CATALOG_ADAPTERS["chrome-devtools-mcp"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
@@ -271,9 +340,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 38
-            assert payload["planned"] == 53
-            assert payload["blocked"] == 9
+            assert payload["ready"] == 42
+            assert payload["planned"] == 47
+            assert payload["blocked"] == 11
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
@@ -365,9 +434,10 @@ async def test_wave_one_adapter_uses_bundled_sandbox_profile() -> None:
             "server_command": list(
                 CATALOG_ADAPTERS["calculator-mcp"].server_command
             ),
-            "network_policy": "disabled",
-            "reconnect_attempts": 1,
-            "operation_timeout": 10.0,
+                "network_policy": "disabled",
+                "reconnect_attempts": 1,
+                "operation_timeout": 10.0,
+                "session_owner": "catalog:local:local:calculator-mcp",
         }
     ]
     public = next(
@@ -400,9 +470,10 @@ async def test_wave_two_adapter_uses_fixed_public_sidecar_profile() -> None:
         {
             "transport": "stdio",
             "server_command": list(CATALOG_ADAPTERS["fetch-mcp"].server_command),
-            "network_policy": "validated-public-https:user-supplied-host",
-            "reconnect_attempts": 1,
-            "operation_timeout": 45.0,
+                "network_policy": "validated-public-https:user-supplied-host",
+                "reconnect_attempts": 1,
+                "operation_timeout": 45.0,
+                "session_owner": "catalog:local:local:fetch-mcp",
         }
     ]
     public = next(
@@ -827,3 +898,628 @@ async def test_future_ready_adapter_requires_explicit_tool_policy() -> None:
 
     with pytest.raises(catalog.CatalogAdapterPolicyError, match="显式读写"):
         await service.call_tool(manifest.project_id, "echo", {})
+
+
+def _enable_wave_six(monkeypatch: pytest.MonkeyPatch, project_id: str) -> None:
+    monkeypatch.setenv("MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK", "true")
+    monkeypatch.setenv(
+        f"MCP_CATALOG_ENABLE_{project_id.upper().replace('-', '_')}",
+        "true",
+    )
+
+
+def _install_fake_wave_six_schema(
+    service: MCPCatalogService,
+    manager: FakeManager,
+    project_id: str,
+) -> CatalogAdapterManifest:
+    manifest = service.manifests[project_id]
+    tools = [
+        Tool(name=name, description=name, inputSchema={"type": "object"})
+        for name in manifest.tool_policies
+    ]
+    manager.tools = tools
+    assert manifest.saas_policy is not None
+    service.manifests[project_id] = replace(
+        manifest,
+        saas_policy=replace(
+            manifest.saas_policy,
+            tool_schema_sha256=service._tool_schema_digest(tools),
+        ),
+    )
+    return service.manifests[project_id]
+
+
+def test_wave_six_freezes_four_ready_and_two_blocked_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert set(WAVE_SIX_ADAPTERS) == {
+        "airtable-mcp",
+        "asana-mcp",
+        "gitlab-mcp",
+        "notion-mcp-server",
+    }
+    for project_id, spec in WAVE_SIX_ADAPTERS.items():
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.availability == "ready"
+        assert manifest.runtime_image == "modelmirror-mcp-saas:wave6-v1"
+        assert manifest.server_command == (
+            catalog.sys.executable,
+            "-m",
+            "mcp.saas_proxy",
+            project_id,
+        )
+        assert manifest.saas_policy is not None
+        assert manifest.saas_policy.fixed_hosts == spec.fixed_hosts
+        assert manifest.saas_policy.tool_schema_sha256 == SAAS_SCHEMA_SHA256[project_id]
+        assert (
+            manifest.saas_policy.rate_limit_per_minute
+            == spec.rate_limit_per_minute
+        )
+        assert manifest.executable is False
+        monkeypatch.setenv(manifest.feature_flag, "true")
+        assert manifest.executable is False
+        monkeypatch.setenv("MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK", "true")
+        assert manifest.executable is True
+        monkeypatch.delenv(manifest.feature_flag)
+        monkeypatch.delenv("MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK")
+        for tool_name in spec.write_tools:
+            policy = manifest.tool_policies[tool_name]
+            assert policy.read_only is False
+            assert policy.requires_approval is True
+            assert policy.effect == "state-write"
+        assert not {
+            "delete_record",
+            "delete_task",
+            "delete_issue",
+            "merge_merge_request",
+            "delete_page",
+        } & set(manifest.tool_policies)
+
+    assert CATALOG_ADAPTERS["mcp-cn-commerce"].availability == "blocked"
+    assert CATALOG_ADAPTERS["mem0-mcp"].availability == "blocked"
+    notion = CATALOG_ADAPTERS["notion-mcp-server"]
+    assert notion.allowed_settings == ("data_source_id",)
+    assert notion.saas_policy is not None
+    assert notion.saas_policy.fixed_hosts == ("api.notion.com",)
+
+
+@pytest.mark.asyncio
+async def test_wave_six_connect_rejects_input_schema_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "airtable-mcp")
+    service, manager, _, _ = make_service()
+    manifest = CATALOG_ADAPTERS["airtable-mcp"]
+    manager.tools = [
+        Tool(name=name, description=name, inputSchema={"type": "object"})
+        for name in manifest.tool_policies
+    ]
+    service.configure(
+        "airtable-mcp",
+        CatalogConfigurationRequest(
+            settings={"base_id": "appABCDEFGHIJKLMN"},
+            credential_bindings={"personal_access_token": "cred_airtable"},
+        ),
+    )
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="Schema"):
+        await service.connect("airtable-mcp")
+
+    assert service._scope_key("airtable-mcp") not in service._sessions
+    assert not manager.sessions
+
+
+@pytest.mark.asyncio
+async def test_wave_six_remote_approval_freezes_context_and_replays_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "airtable-mcp")
+    service, manager, _, _ = make_service()
+    manifest = _install_fake_wave_six_schema(service, manager, "airtable-mcp")
+    service.configure(
+        "airtable-mcp",
+        CatalogConfigurationRequest(
+            settings={"base_id": "appABCDEFGHIJKLMN"},
+            credential_bindings={"personal_access_token": "cred_airtable"},
+        ),
+    )
+    connected = await service.connect("airtable-mcp")
+    assert manager.profiles[-1]["session_owner"] == service._session_owner(
+        "airtable-mcp"
+    )
+    status = service.list_adapters()["adapters"]
+    airtable = next(item for item in status if item["project_id"] == "airtable-mcp")
+    assert airtable["account_status"] == "verified"
+    assert airtable["preflight_status"] == "verified"
+
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+        await service.call_tool(
+            "airtable-mcp",
+            "update_record",
+            {
+                "table_id": "tblPublic",
+                "record_id": "rec123456789",
+                "fields": {"secret_note": "正文不应进入审批摘要"},
+            },
+        )
+    approval = captured.value.payload
+    assert approval["target_preview"]["resource"]["id_suffix"] == "456789"
+    assert "正文不应进入审批摘要" not in json.dumps(
+        approval["target_preview"], ensure_ascii=False
+    )
+    assert re.fullmatch(r"mcpidem_[0-9a-f]{32}", approval["idempotency_key"])
+    assert manager.calls == []
+
+    manager.call_gate = asyncio.Event()
+    first_task = asyncio.create_task(
+        service.confirm_approval("airtable-mcp", approval["approval_id"])
+    )
+    while not manager.calls:
+        await asyncio.sleep(0)
+    with pytest.raises(CatalogUnknownOutcomeError):
+        await service.confirm_approval("airtable-mcp", approval["approval_id"])
+    with pytest.raises(catalog.CatalogAdapterPolicyError):
+        await service.cancel_approval("airtable-mcp", approval["approval_id"])
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="写入仍在执行"):
+        await service.disconnect("airtable-mcp")
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="写入仍在执行"):
+        await service.unbind(
+            "airtable-mcp",
+            CatalogUnbindRequest(revoke_credentials=False),
+        )
+    revoked_while_writing: list[str] = []
+    service.credential_revoker = lambda credential_id: revoked_while_writing.append(
+        credential_id
+    )
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="写入仍在执行"):
+        await service.revoke_credential("airtable-mcp", "cred_airtable")
+    assert revoked_while_writing == []
+    assert service._scope_key("airtable-mcp") in service._sessions
+    manager.call_gate.set()
+    first = await first_task
+    manager.call_gate = None
+    assert first["idempotent_replay"] is False
+    assert manager.calls[-1][0] == connected["session_id"]
+    assert manager.calls[-1][2]["__modelmirror_idempotency_key"] == approval["idempotency_key"]
+    assert manager.retry_on_failure == [False]
+    replay = await service.confirm_approval(
+        "airtable-mcp",
+        approval["approval_id"],
+    )
+    assert replay["idempotent_replay"] is True
+    assert len(manager.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_wave_six_approval_rejects_drift_and_marks_unknown_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "gitlab-mcp")
+    service, manager, _, _ = make_service()
+    manifest = _install_fake_wave_six_schema(service, manager, "gitlab-mcp")
+    service.configure(
+        "gitlab-mcp",
+        CatalogConfigurationRequest(
+            settings={"project_id": 12345},
+            credential_bindings={"personal_access_token": "cred_gitlab"},
+        ),
+    )
+    await service.connect("gitlab-mcp")
+
+    async def request_approval() -> dict[str, Any]:
+        with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+            await service.call_tool(
+                "gitlab-mcp",
+                "create_issue",
+                {"title": "安全复核", "description": "frozen"},
+            )
+        return captured.value.payload
+
+    drifted = await request_approval()
+    scope_key = service._scope_key("gitlab-mcp")
+    current = service._configuration_snapshots[scope_key]
+    service._configuration_snapshots[scope_key] = CatalogConfigurationSnapshot(
+        revision="mcpcfg_changed",
+        digest=current.digest,
+    )
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="已经变化"):
+        await service.confirm_approval("gitlab-mcp", drifted["approval_id"])
+
+    service._configuration_snapshots[scope_key] = current
+    unknown = await request_approval()
+    manager.call_error = RuntimeError("sidecar unknown outcome")
+    with pytest.raises(CatalogUnknownOutcomeError) as captured_unknown:
+        await service.confirm_approval("gitlab-mcp", unknown["approval_id"])
+    assert captured_unknown.value.idempotency_key == unknown["idempotency_key"]
+    with pytest.raises(CatalogUnknownOutcomeError):
+        await service.confirm_approval("gitlab-mcp", unknown["approval_id"])
+    assert len(manager.calls) == 1
+
+    manager.call_error = None
+    manager.call_is_error = True
+    rejected = await request_approval()
+    with pytest.raises(CatalogUnknownOutcomeError) as rejected_result:
+        await service.confirm_approval("gitlab-mcp", rejected["approval_id"])
+    assert rejected_result.value.idempotency_key == rejected["idempotency_key"]
+    assert len(manager.calls) == 2
+    await service.unbind(
+        "gitlab-mcp",
+        CatalogUnbindRequest(revoke_credentials=False),
+    )
+    with pytest.raises(CatalogUnknownOutcomeError):
+        await service.confirm_approval("gitlab-mcp", rejected["approval_id"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reason", "expected_code", "expected_status"),
+    [
+        ("rate_limited", "provider_rate_limited", 429),
+        ("provider_rejected", "provider_rejected", 409),
+    ],
+)
+async def test_wave_six_definite_provider_rejection_is_not_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    reason: str,
+    expected_code: str,
+    expected_status: int,
+) -> None:
+    _enable_wave_six(monkeypatch, "gitlab-mcp")
+    service, manager, _, _ = make_service()
+    _install_fake_wave_six_schema(service, manager, "gitlab-mcp")
+    service.configure(
+        "gitlab-mcp",
+        CatalogConfigurationRequest(
+            settings={"project_id": 12345},
+            credential_bindings={"personal_access_token": "cred_gitlab"},
+        ),
+    )
+    await service.connect("gitlab-mcp")
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as approval_required:
+        await service.call_tool(
+            "gitlab-mcp",
+            "create_issue",
+            {"title": "安全复核", "description": "frozen"},
+        )
+    approval = approval_required.value.payload
+    manager.call_error = McpError(
+        ErrorData(
+            code=-32009,
+            message="SaaS write rejected",
+            data={"reason": reason, "retryable": False},
+        )
+    )
+
+    with pytest.raises(catalog.CatalogProviderRejectedError) as rejected:
+        await service.confirm_approval("gitlab-mcp", approval["approval_id"])
+    assert rejected.value.reason == reason
+    ledger = service._execution_ledger[service._approval_key(approval["approval_id"])]
+    assert ledger.state == "rejected"
+    assert len(manager.calls) == 1
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="不存在或已经失效"):
+        await service.confirm_approval("gitlab-mcp", approval["approval_id"])
+
+    with pytest.raises(HTTPException) as response:
+        catalog._raise_http_error(rejected.value)
+    assert response.value.status_code == expected_status
+    assert response.value.detail["code"] == expected_code
+    assert response.value.detail["idempotency_key"] == approval["idempotency_key"]
+
+
+@pytest.mark.asyncio
+async def test_wave_six_unbind_clears_session_configuration_and_pending_approval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "asana-mcp")
+    service, manager, _, _ = make_service()
+    manifest = _install_fake_wave_six_schema(service, manager, "asana-mcp")
+    service.configure(
+        "asana-mcp",
+        CatalogConfigurationRequest(
+            settings={"workspace_gid": "100", "project_gid": "200"},
+            credential_bindings={"personal_access_token": "cred_asana"},
+        ),
+    )
+    await service.connect("asana-mcp")
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+        await service.call_tool("asana-mcp", "create_task", {"name": "Review"})
+    result = await service.unbind(
+        "asana-mcp",
+        CatalogUnbindRequest(revoke_credentials=False),
+    )
+    assert result == {
+        "ok": True,
+        "project_id": "asana-mcp",
+        "disconnected": True,
+        "revoked_credentials": 0,
+    }
+    adapter = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "asana-mcp"
+    )
+    assert adapter["account_status"] == "unbound"
+    assert adapter["configured"] is False
+    with pytest.raises(catalog.CatalogAdapterPolicyError):
+        await service.confirm_approval("asana-mcp", captured.value.payload["approval_id"])
+
+    guarded, guarded_manager, _, _ = make_service()
+    _install_fake_wave_six_schema(guarded, guarded_manager, "asana-mcp")
+    guarded.configure(
+        "asana-mcp",
+        CatalogConfigurationRequest(
+            settings={"workspace_gid": "100", "project_gid": "200"},
+            credential_bindings={"personal_access_token": "cred_asana"},
+        ),
+    )
+    await guarded.connect("asana-mcp")
+    guarded_scope = guarded._scope_key("asana-mcp")
+    with pytest.raises(catalog.CatalogAdapterUnavailableError):
+        await guarded.unbind(
+            "asana-mcp",
+            CatalogUnbindRequest(revoke_credentials=True),
+        )
+    assert guarded_scope in guarded._sessions
+    assert guarded_scope in guarded._configurations
+
+    revoked: list[str] = []
+
+    def revoke_failure_after_disconnect(credential_id: str) -> SimpleNamespace:
+        assert credential_id == "cred_asana"
+        assert guarded_scope not in guarded._sessions
+        assert guarded_scope in guarded._configurations
+        raise RuntimeError("vault unavailable")
+
+    guarded.credential_revoker = revoke_failure_after_disconnect
+    with pytest.raises(RuntimeError, match="vault unavailable"):
+        await guarded.unbind(
+            "asana-mcp",
+            CatalogUnbindRequest(revoke_credentials=True),
+        )
+    assert guarded_scope not in guarded._sessions
+    assert guarded_scope in guarded._configurations
+
+    def revoke_before_cleanup(credential_id: str) -> SimpleNamespace:
+        assert guarded_scope not in guarded._sessions
+        assert guarded_scope in guarded._configurations
+        revoked.append(credential_id)
+        return SimpleNamespace(credential_id=credential_id, status="revoked")
+
+    guarded.credential_revoker = revoke_before_cleanup
+    revoked_result = await guarded.unbind(
+        "asana-mcp",
+        CatalogUnbindRequest(revoke_credentials=True),
+    )
+    assert revoked_result["revoked_credentials"] == 1
+    assert revoked == ["cred_asana"]
+
+
+@pytest.mark.asyncio
+async def test_wave_six_unbind_blocks_new_calls_and_waits_for_active_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "asana-mcp")
+    service, manager, _, _ = make_service()
+    manifest = _install_fake_wave_six_schema(service, manager, "asana-mcp")
+    configuration = CatalogConfigurationRequest(
+        settings={"workspace_gid": "100", "project_gid": "200"},
+        credential_bindings={"personal_access_token": "cred_asana"},
+    )
+    service.configure("asana-mcp", configuration)
+    await service.connect("asana-mcp")
+
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+        await service.call_tool("asana-mcp", "create_task", {"name": "Review"})
+    approval_id = captured.value.payload["approval_id"]
+
+    manager.call_gate = asyncio.Event()
+    active_read = asyncio.create_task(
+        service.call_tool("asana-mcp", "list_tasks", {})
+    )
+    while not manager.calls:
+        await asyncio.sleep(0)
+
+    queued_execute_started = asyncio.Event()
+    original_execute_tool = service._execute_tool
+
+    async def tracked_execute_tool(
+        tracked_manifest: CatalogAdapterManifest,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        queued_execute_started.set()
+        return await original_execute_tool(tracked_manifest, **kwargs)
+
+    monkeypatch.setattr(service, "_execute_tool", tracked_execute_tool)
+    queued_read = asyncio.create_task(
+        service.call_tool("asana-mcp", "list_tasks", {})
+    )
+    await queued_execute_started.wait()
+
+    async with service._lock:
+        unbind_task = asyncio.create_task(
+            service.unbind(
+                "asana-mcp",
+                CatalogUnbindRequest(revoke_credentials=False),
+            )
+        )
+        scope_key = service._scope_key("asana-mcp")
+        while scope_key not in service._unbinding_scopes:
+            await asyncio.sleep(0)
+
+        with pytest.raises(catalog.CatalogAdapterPolicyError, match="不能确认写入"):
+            await service.confirm_approval("asana-mcp", approval_id)
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="正在解绑"):
+        await service.call_tool("asana-mcp", "list_tasks", {})
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="正在解绑"):
+        service.configure("asana-mcp", configuration)
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="正在解绑"):
+        await service.connect("asana-mcp")
+    assert len(manager.calls) == 1
+
+    manager.call_gate.set()
+    await active_read
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="不能调用工具"):
+        await queued_read
+    result = await unbind_task
+    assert result["disconnected"] is True
+    assert scope_key not in service._unbinding_scopes
+    assert scope_key not in service._sessions
+
+
+@pytest.mark.asyncio
+async def test_wave_six_unbind_cancels_connect_before_session_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "asana-mcp")
+    service, manager, _, _ = make_service()
+    _install_fake_wave_six_schema(service, manager, "asana-mcp")
+    service.configure(
+        "asana-mcp",
+        CatalogConfigurationRequest(
+            settings={"workspace_gid": "100", "project_gid": "200"},
+            credential_bindings={"personal_access_token": "cred_asana"},
+        ),
+    )
+    manager.connect_gate = asyncio.Event()
+    connect_task = asyncio.create_task(service.connect("asana-mcp"))
+    await manager.connect_started.wait()
+
+    unbind_task = asyncio.create_task(
+        service.unbind(
+            "asana-mcp",
+            CatalogUnbindRequest(revoke_credentials=False),
+        )
+    )
+    scope_key = service._scope_key("asana-mcp")
+    while scope_key not in service._unbinding_scopes:
+        await asyncio.sleep(0)
+    assert not unbind_task.done()
+
+    manager.connect_gate.set()
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="未发布"):
+        await connect_task
+    unbound = await unbind_task
+    assert unbound["disconnected"] is False
+    assert scope_key not in service._sessions
+    assert scope_key not in service._configurations
+    assert not manager.sessions
+
+
+@pytest.mark.asyncio
+async def test_wave_six_configuration_cannot_change_while_connecting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "asana-mcp")
+    service, manager, _, _ = make_service()
+    _install_fake_wave_six_schema(service, manager, "asana-mcp")
+    original = CatalogConfigurationRequest(
+        settings={"workspace_gid": "100", "project_gid": "200"},
+        credential_bindings={"personal_access_token": "cred_asana"},
+    )
+    replacement = CatalogConfigurationRequest(
+        settings={"workspace_gid": "300", "project_gid": "400"},
+        credential_bindings={"personal_access_token": "cred_asana"},
+    )
+    service.configure("asana-mcp", original)
+    manager.connect_gate = asyncio.Event()
+    connect_task = asyncio.create_task(service.connect("asana-mcp"))
+    await manager.connect_started.wait()
+
+    scope_key = service._scope_key("asana-mcp")
+    assert scope_key in service._connecting_scopes
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="连接正在建立"):
+        service.configure("asana-mcp", replacement)
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="连接正在建立"):
+        await service.connect("asana-mcp")
+
+    handshake = manager.profiles[-1]["environment"]["MCP_SAAS_HANDSHAKE_B64"]
+    handshake_payload = json.loads(base64.urlsafe_b64decode(handshake).decode("utf-8"))
+    assert handshake_payload["settings"] == original.settings
+    assert service._configurations[scope_key].settings == original.settings
+
+    manager.connect_gate.set()
+    await connect_task
+    assert scope_key not in service._connecting_scopes
+    assert service._configurations[scope_key].settings == original.settings
+
+
+@pytest.mark.asyncio
+async def test_wave_six_bound_credential_revoke_drains_calls_and_is_fail_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_wave_six(monkeypatch, "asana-mcp")
+    service, manager, _, _ = make_service()
+    _install_fake_wave_six_schema(service, manager, "asana-mcp")
+    configuration = CatalogConfigurationRequest(
+        settings={"workspace_gid": "100", "project_gid": "200"},
+        credential_bindings={"personal_access_token": "cred_asana"},
+    )
+    service.configure("asana-mcp", configuration)
+    await service.connect("asana-mcp")
+    scope_key = service._scope_key("asana-mcp")
+
+    def fail_revoke(_: str) -> SimpleNamespace:
+        raise RuntimeError("vault unavailable")
+
+    service.credential_revoker = fail_revoke
+    with pytest.raises(RuntimeError, match="vault unavailable"):
+        await service.revoke_credential("asana-mcp", "cred_asana")
+    assert scope_key in service._sessions
+    assert scope_key in service._configurations
+    assert scope_key not in service._unbinding_scopes
+
+    revoked: list[str] = []
+
+    def revoke(credential_id: str) -> SimpleNamespace:
+        revoked.append(credential_id)
+        return SimpleNamespace(
+            credential_id=credential_id,
+            name="Asana",
+            kind="provider_key",
+            masked_value="****",
+            status="revoked",
+            catalog_project_id="asana-mcp",
+            catalog_slot="personal_access_token",
+        )
+
+    service.credential_revoker = revoke
+    manager.call_gate = asyncio.Event()
+    active_read = asyncio.create_task(
+        service.call_tool("asana-mcp", "list_tasks", {})
+    )
+    while not manager.calls:
+        await asyncio.sleep(0)
+    revoke_task = asyncio.create_task(
+        service.revoke_credential("asana-mcp", "cred_asana")
+    )
+    while scope_key not in service._unbinding_scopes:
+        await asyncio.sleep(0)
+    assert revoked == []
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="正在解绑"):
+        await service.call_tool("asana-mcp", "list_tasks", {})
+
+    manager.call_gate.set()
+    await active_read
+    revoked_public = await revoke_task
+    assert revoked_public["status"] == "revoked"
+    assert revoked == ["cred_asana"]
+    assert scope_key not in service._sessions
+    assert scope_key not in service._configurations
+
+
+def test_catalog_scope_keys_include_tenant_and_owner() -> None:
+    service, _, _, _ = make_service()
+    service.tenant_id = "tenant-a"
+    service.owner_id = "owner-a"
+    assert service._scope_key("airtable-mcp") == (
+        "tenant-a",
+        "owner-a",
+        "airtable-mcp",
+    )
+    assert service._approval_key("approval") == (
+        "tenant-a",
+        "owner-a",
+        "approval",
+    )

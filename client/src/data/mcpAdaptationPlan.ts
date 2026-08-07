@@ -12,6 +12,12 @@ export type McpCredentialVerification =
   | "unverified"
   | "verified"
   | "verification-failed";
+export type McpSaasAccountStatus =
+  | "not-applicable"
+  | "blocked"
+  | "unbound"
+  | "unverified"
+  | "verified";
 export type McpDatabasePreflightStatus =
   | "not-applicable"
   | "blocked"
@@ -32,6 +38,17 @@ export interface McpDatabasePolicy {
   statement_timeout_seconds: number;
   operation_timeout_seconds: number;
   preflight_checks: string[];
+}
+
+export interface McpSaasPolicy {
+  provider: string;
+  fixed_hosts: string[];
+  preflight_checks: string[];
+  rate_limit_per_minute: number;
+  max_concurrent_calls: number;
+  read_retry_limit: number;
+  write_retry_mode: string;
+  account_unbind_supported: boolean;
 }
 
 export interface McpWorkspacePolicy {
@@ -105,6 +122,9 @@ export interface McpCatalogAdapterStatus {
   resource_limits: Record<string, string>;
   workspace_policy: McpWorkspacePolicy | null;
   database_policy: McpDatabasePolicy | null;
+  saas_policy?: McpSaasPolicy | null;
+  stateful_saas_gate_enabled?: boolean;
+  account_status?: McpSaasAccountStatus;
   preflight_status: McpDatabasePreflightStatus;
   tool_policies: Record<
     string,
@@ -162,6 +182,11 @@ export const mcpCapabilityLabels: Record<string, string> = {
   "native-read-only-mode": "数据库原生只读模式",
   "query-row-timeout-limits": "查询行数与超时硬限制",
   "database-preflight": "连接时数据源安全预检",
+  "fixed-saas-contract": "固定 SaaS 工具契约",
+  "tenant-owner-scoped-account-binding": "单租户账号范围绑定",
+  "remote-resource-approval": "远程资源写入审批",
+  "idempotent-write-ledger": "幂等写入账本",
+  "provider-rate-limits": "上游限流护栏",
   "maintained-upstream-contract": "持续维护的上游工具契约",
   "tenant-isolated-state": "租户隔离的持久状态",
   "query-limits": "查询超时与结果限制",
@@ -322,10 +347,21 @@ const waveMetadata: Record<
     ],
   },
   6: {
-    connectionKind: "remote-mcp",
+    connectionKind: "sandboxed-stdio",
     risk: "high",
-    requiredCapabilities: ["修改操作审批", "账号解绑"],
-    limitations: ["等待修改操作预览、审批、幂等和账号解绑验证。"],
+    requiredCapabilities: [
+      "fixed-saas-contract",
+      "tenant-owner-scoped-account-binding",
+      "remote-resource-approval",
+      "idempotent-write-ledger",
+      "provider-rate-limits",
+      "account-unbinding",
+      "schema-drift-recovery",
+    ],
+    limitations: [
+      "账号凭据与资源范围只在当前卡片配置；服务端固定上游主机，不接受任意 URL、Header、命令或环境变量。",
+      "写入先返回目标与影响预览，再以一次性审批和幂等键执行；限流或结果未知时不会自动重试。",
+    ],
   },
   7: {
     connectionKind: "sandboxed-stdio",
@@ -421,6 +457,46 @@ const waveFiveReadyDetails: Record<string, string[]> = {
 const waveFiveSingleTenantLimitation =
   "当前仅支持部署时固定 tenant/owner 的单租户本地实例；多用户共享部署未开放。";
 
+const waveSixReadyIds = new Set([
+  "airtable-mcp",
+  "asana-mcp",
+  "gitlab-mcp",
+  "notion-mcp-server",
+]);
+
+const waveSixReadyDetails: Record<string, string[]> = {
+  "airtable-mcp": [
+    "仅绑定一个受控 Base ID；读工具直接执行，记录创建和更新必须先预览目标与影响并逐次确认。",
+    "Personal Access Token 在当前卡片加密保存；上游主机、凭据注入位置和资源范围由服务端固定。",
+  ],
+  "asana-mcp": [
+    "仅绑定一个工作区与一个项目；查询可直接执行，任务和协作信息修改必须逐次预览并确认。",
+    "Personal Access Token 在当前卡片加密保存；不会跳转 OAuth，也不会接收任意 API URL。",
+  ],
+  "gitlab-mcp": [
+    "首批仅连接 gitlab.com，并绑定一个项目 ID；自建 GitLab 地址和任意主机输入保持关闭。",
+    "Personal Access Token 在当前卡片加密保存；Issue、合并请求等写入必须逐次预览并确认。",
+  ],
+  "notion-mcp-server": [
+    "仅绑定一个固定 Data Source ID；Integration 必须在 Notion 中被显式共享到该 Data Source。",
+    "首批写入只允许在该 Data Source 内新建页面或更新页面属性，并且必须逐次预览目标与影响后确认。",
+  ],
+};
+
+const waveSixBlockedDetails: Record<string, string[]> = {
+  "mcp-cn-commerce": [
+    "上游覆盖多个电商平台，依赖各平台 OAuth、商家授权和短期 Token，无法在本批固定为单一可核验账号契约。",
+    "已阻断配置、凭据、连接和工具入口；等待第 10 批账号授权、刷新与撤销能力完成后再评估。",
+  ],
+  "mem0-mcp": [
+    "已归档的本地实现无法继续锁定生产版本；当前远程实现尚不能满足固定工具 schema 与租户 Scope 隔离要求。",
+    "已阻断配置、凭据、连接和写入入口；等待状态化记忆的数据保留、删除与租户隔离契约完成后再评估。",
+  ],
+};
+
+const waveSixSingleTenantLimitation =
+  "当前仅支持部署时固定 tenant/owner 的单租户实例；多租户共享部署保持关闭。";
+
 function buildAdaptationPlan() {
   const records: Record<string, McpAdaptationRecord> = {};
   for (const projectId of localStdioIds) {
@@ -445,6 +521,10 @@ function buildAdaptationPlan() {
             ? "blocked"
             : wave === 5
               ? waveFiveReadyIds.has(projectId)
+                ? "ready"
+                : "blocked"
+            : wave === 6
+              ? waveSixReadyIds.has(projectId)
                 ? "ready"
                 : "blocked"
             : wave <= 4
@@ -503,6 +583,13 @@ function buildAdaptationPlan() {
               ? [
                   ...waveFiveReadyDetails[projectId],
                   waveFiveSingleTenantLimitation,
+                ]
+            : waveSixBlockedDetails[projectId]
+              ? [...waveSixBlockedDetails[projectId]]
+            : waveSixReadyDetails[projectId]
+              ? [
+                  ...waveSixReadyDetails[projectId],
+                  waveSixSingleTenantLimitation,
                 ]
             : [...metadata.limitations],
       };

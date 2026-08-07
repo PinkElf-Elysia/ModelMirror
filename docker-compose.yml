@@ -201,6 +201,48 @@ services:
       retries: 8
       start_period: 30s
 
+  mcp-saas:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.saas
+    image: modelmirror-mcp-saas:wave6-v1
+    container_name: modelmirror-mcp-saas
+    networks:
+      - mcp_saas_egress
+    environment:
+      MCP_SAAS_MAX_SESSIONS: "4"
+      MCP_SAAS_SOCKET_PATH: /run/modelmirror-saas-mcp/saas-mcp.sock
+      MCP_SAAS_WORKSPACE_ROOT: /workspaces
+      MCP_SAAS_ALLOWED_ADAPTERS: airtable-mcp,asana-mcp,gitlab-mcp,notion-mcp-server
+      MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 96
+    mem_limit: 768m
+    cpus: 1.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,uid=65532,gid=65532,mode=0700
+      - /workspaces:rw,nosuid,noexec,size=128m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_saas_socket:/run/modelmirror-saas-mcp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-saas-mcp/saas-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
   mcp-database:
     build:
       context: ./server/sandbox_sidecar
@@ -361,6 +403,8 @@ services:
         condition: service_healthy
       mcp-token:
         condition: service_healthy
+      mcp-saas:
+        condition: service_healthy
       mcp-database:
         condition: service_healthy
       mcp-database-local:
@@ -408,6 +452,12 @@ services:
       MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
       MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
+      MCP_SAAS_SOCKET_PATH: /run/modelmirror-saas-mcp/saas-mcp.sock
+      MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK: ${MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK:-false}
+      MCP_CATALOG_ENABLE_AIRTABLE_MCP: ${MCP_CATALOG_ENABLE_AIRTABLE_MCP:-false}
+      MCP_CATALOG_ENABLE_ASANA_MCP: ${MCP_CATALOG_ENABLE_ASANA_MCP:-false}
+      MCP_CATALOG_ENABLE_GITLAB_MCP: ${MCP_CATALOG_ENABLE_GITLAB_MCP:-false}
+      MCP_CATALOG_ENABLE_NOTION_MCP_SERVER: ${MCP_CATALOG_ENABLE_NOTION_MCP_SERVER:-false}
       MCP_DATABASE_SOCKET_PATH: /run/modelmirror-database-mcp/database-mcp.sock
       MCP_DATABASE_LOCAL_SOCKET_PATH: /run/modelmirror-database-local-mcp/database-mcp.sock
       MCP_CATALOG_STORAGE_DIR: /app/mcp/storage
@@ -440,6 +490,7 @@ services:
       - mcp_public_socket:/run/modelmirror-public-mcp
       - mcp_files_socket:/run/modelmirror-files-mcp
       - mcp_token_socket:/run/modelmirror-token-mcp
+      - mcp_saas_socket:/run/modelmirror-saas-mcp
       - mcp_database_socket:/run/modelmirror-database-mcp
       - mcp_database_local_socket:/run/modelmirror-database-local-mcp
       - mcp_file_inputs:/app/mcp-file-inputs
@@ -602,6 +653,7 @@ volumes:
   mcp_public_socket:
   mcp_files_socket:
   mcp_token_socket:
+  mcp_saas_socket:
   mcp_database_socket:
   mcp_database_local_socket:
   mcp_file_inputs:
@@ -620,4 +672,6 @@ networks:
   mcp_public_egress:
     driver: bridge
   mcp_database_egress:
+    driver: bridge
+  mcp_saas_egress:
     driver: bridge
