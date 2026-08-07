@@ -75,6 +75,9 @@ def test_container_isolation_uses_an_immutable_sanitized_source_snapshot() -> No
     assert "- coding_internal" in service
     assert "ports:" not in service
     assert "privileged:" not in service
+    assert "env_file:" in service
+    assert "path: ${MODELMIRROR_DATA_ROOT:-.}/server/.env" in service
+    assert "CODING_AGENT_GATEWAY_KEY:" not in service
     assert "COPY . /opt/modelmirror-source" in dockerfile
     assert "chmod -R a-w /opt/modelmirror-source" in dockerfile
     assert "COPY --chown=coding:coding . /workspace" not in dockerfile
