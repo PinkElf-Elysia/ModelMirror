@@ -12,6 +12,11 @@ build/
 
 # Environment and secrets
 .env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 *.env.local
 client/.env
 server/.env
@@ -46,18 +51,24 @@ server/rag/storage/
 server/rag/uploads/
 server/skills/installed/
 server/skills/tmp/
+server/skills/storage/
 server/agent_workspace/storage/
 server/xperts/storage/
 server/plugins/storage/
 server/prompts/storage/
 server/xpert_runtime/storage/
+server/evaluations/storage/
+server/evolutions/storage/
 server/datax/storage/
 server/toolsets/storage/
 server/model_router/storage/
 server/mcp/installed/
 server/mcp/storage/
+server/mcp/sandboxes/*
+!server/mcp/sandboxes/.gitkeep
 server/workflow_sandboxes/
 server/office_host/certs/
+server/coding-recovery/
 
 # Temporary generated assets
 .tmp-*/

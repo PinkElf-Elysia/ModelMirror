@@ -8,7 +8,7 @@ Harness Engineering 是模镜的工程交付系统。它由三部分组成：
 
 目标不是增加文档数量，而是让每次变更都可证实、可审查、可验证、可恢复。
 
-最后更新日期：2026-07-23
+最后更新日期：2026-08-07
 维护人：模镜团队
 
 ## 1. 事实优先
@@ -125,9 +125,9 @@ PR 必须包含变更摘要、事实依据、影响范围、真实验证证据�
 | 级别 | 示例 | 最低要求 |
 | --- | --- | --- |
 | L0 | 纯文档、无行为变化 | 链接/命令核对、`git diff --check`、敏感扫描 |
-| L1 | 前端页面与交互 | `npm.cmd run build`、错误/空态/禁用态、目标页面人工检查 |
+| L1 | 前端页面与交互 | `npm.cmd run typecheck`、`npm.cmd run test:run`、`npm.cmd run build`、错误/空态/禁用态、目标页面人工检查 |
 | L2 | 后端 API、Store、校验 | `py_compile`、目标测试、错误路径、重启或持久化检查 |
-| L3 | Chat、Workflow、RAG、Xpert、Toolset、公开 App | 重点测试、全量后端测试、前端构建、Docker 重建与跨入口人工验收 |
+| L3 | Chat、Workflow、RAG、Xpert、Toolset、公开 App | 重点测试、全量后端测试、前端 typecheck/test/build、Docker 重建与跨入口人工验收 |
 | L4 | 密钥、迁移、公开访问、隔离边界 | L3 + 威胁检查、失败关闭、回滚演练、明确人工批准 |
 
 ## 5. 仓库基线命令
@@ -136,6 +136,8 @@ PR 必须包含变更摘要、事实依据、影响范围、真实验证证据�
 
 ```bash
 cd client
+npm.cmd run typecheck
+npm.cmd run test:run
 npm.cmd run build
 ```
 
@@ -161,9 +163,11 @@ curl http://localhost:8000/api/health
 curl http://localhost:5173/models
 ```
 
-目标测试由任务卡按改动模块补充。仓库当前没有 GitHub Actions 工作流，也没有独立前端 lint/test 脚本；不得把本地构建表述为 CI、lint 或前端单元测试通过。
+目标测试由任务卡按改动模块补充。本治理 PR 保留 multimodal readiness workflow，并新增 repository quality workflow；quality workflow 执行前端 typecheck/test/build、后端测试和 Compose 配置检查。`main` 尚未启用 branch protection/ruleset required checks，因此这些结果是自动化验证证据而非强制合并门。不得把未实际运行的配置表述为“CI 已通过”。
 
 ## 6. 安全与受保护数据
+
+漏洞与疑似凭据泄漏必须按仓库根目录的 [`SECURITY.md`](../SECURITY.md) 使用 GitHub private vulnerability reporting 私密报告。禁止在公开 Issue、Pull Request、Discussion、提交信息或 CI 日志中粘贴漏洞细节或真实 secret。
 
 禁止提交或输出：
 

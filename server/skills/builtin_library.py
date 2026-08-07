@@ -18,6 +18,11 @@ SkillStatus = Literal[
 ]
 
 
+def _canonical_skill_digest(content: bytes) -> str:
+    """Hash Skill content with platform-independent LF line endings."""
+    return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -191,7 +196,7 @@ class BuiltinSkillLibrary:
             raise BuiltinSkillLibraryError("The built-in library must contain 16 Skills")
         for record in records:
             content = (self.root / record.skill_id / "SKILL.md").read_bytes()
-            if hashlib.sha256(content).hexdigest() != record.digest:
+            if _canonical_skill_digest(content) != record.digest:
                 raise BuiltinSkillLibraryError(
                     f"Built-in Skill digest mismatch: {record.skill_id}"
                 )
