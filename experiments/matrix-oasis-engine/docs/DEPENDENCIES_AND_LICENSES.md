@@ -20,9 +20,9 @@
 
 任何其他许可证、双重许可、未知许可或自定义条款必须在引入前提交人工审批。依赖必须使用精确版本并写入模块自己的 lockfile；不得依赖父仓 manifest、lockfile 或 `node_modules`。
 
-## R0 依赖计划
+## R0 直接依赖
 
-R0.1 尚未创建 npm 工程。R0.2 将固定以下直接依赖：
+R0.2 已固定以下直接依赖：
 
 | 依赖 | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |
@@ -36,11 +36,13 @@ R0.1 尚未创建 npm 工程。R0.2 将固定以下直接依赖：
 
 测试与护栏使用 Node 24 内置能力，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。
 
+当前 `npm audit` 对 Vite 的间接开发依赖 `esbuild@0.27.7` 报告 1 个 low severity 项（`GHSA-g7r4-m6w7-qqqr`，Windows 开发服务器场景）。R0 不自动升级用户锁定的工具链；开发与 preview 只允许绑定 loopback，后续轮次升级前须重新审计和审批。
+
 ## 人工批准的许可证例外
 
 | 包 | 版本 | 许可证 | 范围 | 审批状态 |
 | --- | --- | --- | --- | --- |
-| caniuse-lite | 1.0.30001807 | CC-BY-4.0 | `@vitejs/plugin-react` 经 Babel/Browserlist 引入的间接开发依赖 | 用户于 2026-08-06 在 R0 实施任务中明确批准 |
+| caniuse-lite | 1.0.30001807 | CC-BY-4.0 | `@vitejs/plugin-react` 经 Babel/Browserslist 引入的间接开发依赖 | 用户于 2026-08-06 在 R0 实施任务中明确批准 |
 
 该例外只适用于上述精确包与版本，不扩展 CC-BY-4.0 的通用准入范围。若分发依赖材料，必须保留上游归因与许可证通知；版本变化后需要重新盘点并审批。
 

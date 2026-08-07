@@ -37,6 +37,8 @@
 
 `npm run verify:extraction` 不属于 `verify`，因此不会递归。它从干净 HEAD 创建本地 clone，通过 `git subtree split` 保留模块历史，再在独立仓库根执行相同验证；临时仓库、archive 和详细日志始终位于仓外临时目录。
 
+父仓范围由单独的 `npm run check:parent-scope -- --base <SHA>` 检查。该检查只在父仓 worktree 可用，使用 NUL 分隔读取 committed、staged、unstaged 与 untracked 路径，并要求传入 SHA 与 `module-boundary.json` 中固定的 R0 基线完全一致。standalone 仓不把父仓范围检查纳入 `verify`，避免制造虚假的父仓依赖。
+
 ## 回退
 
 本轮没有父项目集成或数据迁移。逆序 revert 模块提交，或在合并后 revert 整个 R0 PR，即可移除全部变更；原 `/matrix-oasis` 页面不受影响。

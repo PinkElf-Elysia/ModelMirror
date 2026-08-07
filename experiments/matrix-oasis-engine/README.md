@@ -62,6 +62,14 @@ npm.cmd run doctor:godot
 npm.cmd run verify:extraction
 ```
 
+仅在父仓 worktree 中执行固定基线范围保护：
+
+```powershell
+npm.cmd run check:parent-scope -- --base 952f8094c38b29baffa5de3a5b0caa94e501f45f
+```
+
+该命令会把参数与 `module-boundary.json` 中机器固定的 R0 基线比较，不能通过传入较新的提交缩短差异范围。拆分后的 standalone 仓明确不运行这一父仓专用命令。
+
 该命令只从干净 worktree 克隆当前 HEAD，在一次性临时目录执行 `git subtree split`，并在拆分仓库根从空依赖完成安装、完整验证与 source-only archive 哈希。成功后只清理自身创建的临时目录；失败时保留并报告精确诊断目录。
 
 ## 拆分与回退
