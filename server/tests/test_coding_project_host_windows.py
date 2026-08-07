@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import subprocess
@@ -215,3 +216,38 @@ async def test_rejected_saved_credentials_stop_retry_and_require_new_pairing(
     assert attempts == 1
     assert registry.credentials is None
     assert statuses == ["正在连接", "连接凭据已失效，请生成新连接码后重新连接"]
+
+
+@pytest.mark.asyncio
+async def test_helper_sends_periodic_heartbeat_without_echo_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    transport = ProjectHostTransport(
+        registry,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=lambda: None,
+    )
+    sent: list[str] = []
+    delivered = asyncio.Event()
+
+    class FakeWebSocket:
+        async def send(self, message: str) -> None:
+            sent.append(message)
+            delivered.set()
+
+    monkeypatch.setattr(
+        "server.coding_project_host.windows_helper.HEARTBEAT_INTERVAL_SECONDS",
+        0.001,
+    )
+    heartbeat = asyncio.create_task(transport._heartbeat_loop(FakeWebSocket()))
+    await asyncio.wait_for(delivered.wait(), timeout=1)
+    heartbeat.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await heartbeat
+
+    await transport._handle_message(FakeWebSocket(), '{"type":"heartbeat"}')
+
+    assert sent == ['{"type":"heartbeat"}']

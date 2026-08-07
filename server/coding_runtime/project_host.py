@@ -238,8 +238,12 @@ class ProjectHostStore:
     def heartbeat(self, host_id: str, connection_id: str) -> ProjectHost:
         with self._lock:
             host = self.require_host(host_id)
-            if host.connection_id != connection_id or host.status != "online":
+            if host.connection_id != connection_id or host.status == "revoked":
                 raise ProjectHostError("project_host_connection_replaced")
+            # A delayed application heartbeat may arrive just after the stale
+            # timer marked an authenticated WebSocket offline. A matching
+            # ephemeral connection id can safely restore that same connection.
+            host.status = "online"
             host.last_heartbeat_at = host.updated_at = self._clock()
             return host
 
@@ -431,7 +435,6 @@ class ProjectHostStore:
                 and now - host.last_heartbeat_at > HEARTBEAT_STALE_SECONDS
             ):
                 host.status = "offline"
-                host.connection_id = None
 
     def _load(self) -> None:
         if self.state_path is None or not self.state_path.is_file():

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import contextlib
 import ctypes
 import hashlib
 import hmac
@@ -43,6 +44,7 @@ HELPER_VERSION = "1.0.0"
 STATE_MAGIC = b"MMCPH1\n"
 MAX_CONTROL_MESSAGE_BYTES = 256 * 1024
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
+HEARTBEAT_INTERVAL_SECONDS = 20.0
 FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
 DRIVE_REMOTE = 4
 PROJECT_SELECTION_STATUS = {
@@ -429,9 +431,15 @@ class ProjectHostTransport:
                     await self._authenticate(websocket)
                     self.status_changed("已连接")
                     delay = 1.0
-                    await self._send_inventory(websocket)
-                    async for raw in websocket:
-                        await self._handle_message(websocket, raw)
+                    heartbeat = asyncio.create_task(self._heartbeat_loop(websocket))
+                    try:
+                        await self._send_inventory(websocket)
+                        async for raw in websocket:
+                            await self._handle_message(websocket, raw)
+                    finally:
+                        heartbeat.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await heartbeat
             except asyncio.CancelledError:
                 raise
             except ProjectHostHelperError as exc:
@@ -456,6 +464,12 @@ class ProjectHostTransport:
                 self.status_changed("连接已断开，正在重试")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 15.0)
+
+    @staticmethod
+    async def _heartbeat_loop(websocket: Any) -> None:
+        while True:
+            await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+            await websocket.send('{"type":"heartbeat"}')
 
     async def _authenticate(self, websocket: Any) -> None:
         credentials = self.registry.credentials
@@ -521,7 +535,6 @@ class ProjectHostTransport:
         message = _parse_message(raw)
         message_type = message.get("type")
         if message_type == "heartbeat":
-            await websocket.send('{"type":"heartbeat"}')
             return
         request_id = str(message.get("request_id") or "")
         if message_type == "select_project":

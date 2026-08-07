@@ -106,6 +106,26 @@ class ProjectHostRuntime:
         )
         return selection.to_public_dict()
 
+    async def reconnect(self) -> dict[str, Any]:
+        status_payload = self.store.host_status()
+        host_id = status_payload.get("host_id")
+        if not isinstance(host_id, str) or not host_id:
+            raise ProjectHostError("project_host_not_found")
+        async with self._lock:
+            connection = self._connections.get(host_id)
+        if connection is None:
+            raise ProjectHostError("project_host_offline")
+        try:
+            await connection.send_json({"type": "heartbeat"})
+        except Exception as exc:
+            raise ProjectHostError("project_host_offline") from exc
+        for _attempt in range(10):
+            await asyncio.sleep(0.1)
+            refreshed = self.store.host_status()
+            if refreshed.get("available") is True:
+                return refreshed
+        raise ProjectHostError("project_host_offline")
+
     def selection(self, request_id: str) -> dict[str, Any]:
         return self.store.require_selection(request_id).to_public_dict()
 
@@ -347,9 +367,6 @@ class ProjectHostRuntime:
         message_type = message.get("type")
         if message_type == "heartbeat":
             self.store.heartbeat(host_id, connection_id)
-            connection = self._connections.get(host_id)
-            if connection is not None:
-                await connection.send_json({"type": "heartbeat"})
             return
         if message_type == "inventory":
             projects = message.get("projects")
@@ -518,6 +535,15 @@ async def create_pairing(payload: PairingRequest, response: Response) -> dict[st
         "expires_at": pairing.expires_at,
         "single_use": True,
     }
+
+
+@project_host_router.post("/project-host/reconnect")
+async def reconnect_project_host(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await _runtime().reconnect()
+    except ProjectHostError as exc:
+        _raise(exc)
 
 
 @project_host_router.delete("/project-host/{host_id}")

@@ -5,6 +5,7 @@ import json
 import pytest
 
 from server.coding_runtime.project_host import ProjectHostError, ProjectHostStore
+from server.coding_runtime.project_host_api import ProjectHostRuntime
 
 
 def _pair(store: ProjectHostStore) -> tuple[str, str]:
@@ -84,12 +85,37 @@ def test_authentication_revoke_and_stale_heartbeat_fail_closed(tmp_path) -> None
 
     now[0] += 61
     assert store.host_status()["available"] is False
+    store.heartbeat(host_id, "conn-r7m3")
+    assert store.host_status()["available"] is True
     store.register_project(host_id, _project())
     store.revoke(host_id)
     assert store.list_projects() == []
     with pytest.raises(ProjectHostError) as revoked:
         store.authenticate(host_id, token)
     assert revoked.value.code == "project_host_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_reconnect_probes_authenticated_stale_connection(tmp_path) -> None:
+    now = [1_000.0]
+    store = ProjectHostStore(tmp_path / "state.json", clock=lambda: now[0])
+    host_id, _token = _pair(store)
+    runtime = ProjectHostRuntime(store, tmp_path / "uploads")
+    sent: list[dict[str, str]] = []
+
+    class FakeWebSocket:
+        async def send_json(self, payload: dict[str, str]) -> None:
+            sent.append(payload)
+            await runtime._incoming(host_id, "conn-r7m3", {"type": "heartbeat"})
+
+    runtime._connections[host_id] = FakeWebSocket()  # type: ignore[assignment]
+    now[0] += 61
+    assert store.host_status()["available"] is False
+
+    status = await runtime.reconnect()
+
+    assert status["available"] is True
+    assert sent == [{"type": "heartbeat"}]
 
 
 @pytest.mark.parametrize("version", ["2.0.0", "0.9.0", "1.0", "latest"])
