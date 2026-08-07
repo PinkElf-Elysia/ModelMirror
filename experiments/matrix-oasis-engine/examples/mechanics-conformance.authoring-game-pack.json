@@ -1,0 +1,363 @@
+{
+  "format": "matrix-oasis.authoring-game-pack",
+  "formatVersion": "0.1.0",
+  "id": "mechanics-conformance",
+  "contentVersion": "1",
+  "language": "en",
+  "title": "Mechanics Conformance",
+  "summary": "Neutral structured mechanics fixture.",
+  "entryNodeId": "node-start",
+  "entities": [
+    {
+      "id": "actor-unit",
+      "label": "Actor",
+      "description": "Generic action source."
+    },
+    {
+      "id": "control-unit",
+      "label": "Control",
+      "description": "Generic interaction target."
+    }
+  ],
+  "variables": [
+    {
+      "id": "flag-active",
+      "type": "boolean",
+      "initial": false
+    },
+    {
+      "id": "counter-value",
+      "type": "integer",
+      "initial": 0
+    },
+    {
+      "id": "mode-value",
+      "type": "enum",
+      "allowedValues": ["mode-alpha", "mode-beta", "mode-gamma"],
+      "initial": "mode-alpha"
+    }
+  ],
+  "cues": [
+    {
+      "id": "cue-entry",
+      "channel": "visual",
+      "intent": "Mark node entry."
+    },
+    {
+      "id": "cue-change",
+      "channel": "ui",
+      "intent": "Mark a state change."
+    },
+    {
+      "id": "cue-complete",
+      "channel": "audio",
+      "intent": "Mark completion."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node-start",
+      "title": "Start",
+      "text": "Initialize the state.",
+      "entityIds": ["actor-unit", "control-unit"],
+      "entryCueIds": ["cue-entry"],
+      "actions": [
+        {
+          "id": "action-initialize",
+          "label": "Initialize",
+          "entityIds": ["control-unit"],
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "flag-active",
+              "value": true
+            },
+            {
+              "op": "set",
+              "variableId": "mode-value",
+              "value": "mode-beta"
+            },
+            {
+              "op": "add",
+              "variableId": "counter-value",
+              "value": 1
+            },
+            {
+              "op": "emitCue",
+              "cueId": "cue-change"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-check"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-check",
+      "title": "Check",
+      "text": "Check grouped conditions.",
+      "entityIds": ["actor-unit"],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "action-check",
+          "label": "Continue",
+          "when": {
+            "op": "all",
+            "conditions": [
+              {
+                "op": "eq",
+                "variableId": "flag-active",
+                "value": true
+              },
+              {
+                "op": "any",
+                "conditions": [
+                  {
+                    "op": "gt",
+                    "variableId": "counter-value",
+                    "value": 0
+                  },
+                  {
+                    "op": "ne",
+                    "variableId": "mode-value",
+                    "value": "mode-alpha"
+                  }
+                ]
+              },
+              {
+                "op": "not",
+                "condition": {
+                  "op": "eq",
+                  "variableId": "mode-value",
+                  "value": "mode-gamma"
+                }
+              }
+            ]
+          },
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "counter-value",
+              "value": 2
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-adjust"
+          }
+        },
+        {
+          "id": "action-check-hold",
+          "label": "Hold",
+          "when": {
+            "op": "lte",
+            "variableId": "counter-value",
+            "value": 0
+          },
+          "effects": [
+            {
+              "op": "emitCue",
+              "cueId": "cue-change"
+            }
+          ],
+          "target": {
+            "kind": "ending",
+            "id": "ending-hold"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-adjust",
+      "title": "Adjust",
+      "text": "Apply a bounded adjustment.",
+      "entityIds": ["control-unit"],
+      "entryCueIds": ["cue-change"],
+      "actions": [
+        {
+          "id": "action-adjust",
+          "label": "Apply",
+          "when": {
+            "op": "all",
+            "conditions": [
+              {
+                "op": "gte",
+                "variableId": "counter-value",
+                "value": 1
+              },
+              {
+                "op": "lt",
+                "variableId": "counter-value",
+                "value": 10
+              },
+              {
+                "op": "ne",
+                "variableId": "flag-active",
+                "value": false
+              }
+            ]
+          },
+          "effects": [
+            {
+              "op": "add",
+              "variableId": "counter-value",
+              "value": -1
+            },
+            {
+              "op": "set",
+              "variableId": "mode-value",
+              "value": "mode-gamma"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-review"
+          }
+        },
+        {
+          "id": "action-adjust-hold",
+          "label": "Stop",
+          "when": {
+            "op": "lt",
+            "variableId": "counter-value",
+            "value": 1
+          },
+          "effects": [],
+          "target": {
+            "kind": "ending",
+            "id": "ending-hold"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-review",
+      "title": "Review",
+      "text": "Review the current values.",
+      "entityIds": ["actor-unit", "control-unit"],
+      "entryCueIds": [],
+      "actions": [
+        {
+          "id": "action-review",
+          "label": "Advance",
+          "when": {
+            "op": "any",
+            "conditions": [
+              {
+                "op": "eq",
+                "variableId": "mode-value",
+                "value": "mode-gamma"
+              },
+              {
+                "op": "gt",
+                "variableId": "counter-value",
+                "value": 0
+              }
+            ]
+          },
+          "effects": [
+            {
+              "op": "emitCue",
+              "cueId": "cue-change"
+            }
+          ],
+          "target": {
+            "kind": "node",
+            "id": "node-complete"
+          }
+        },
+        {
+          "id": "action-review-hold",
+          "label": "Hold",
+          "when": {
+            "op": "not",
+            "condition": {
+              "op": "eq",
+              "variableId": "flag-active",
+              "value": true
+            }
+          },
+          "effects": [],
+          "target": {
+            "kind": "ending",
+            "id": "ending-hold"
+          }
+        }
+      ]
+    },
+    {
+      "id": "node-complete",
+      "title": "Complete",
+      "text": "Select a terminal result.",
+      "entityIds": ["actor-unit"],
+      "entryCueIds": ["cue-entry"],
+      "actions": [
+        {
+          "id": "action-complete",
+          "label": "Complete",
+          "when": {
+            "op": "all",
+            "conditions": [
+              {
+                "op": "lte",
+                "variableId": "counter-value",
+                "value": 10
+              },
+              {
+                "op": "gte",
+                "variableId": "counter-value",
+                "value": 0
+              }
+            ]
+          },
+          "effects": [
+            {
+              "op": "set",
+              "variableId": "flag-active",
+              "value": false
+            },
+            {
+              "op": "emitCue",
+              "cueId": "cue-complete"
+            }
+          ],
+          "target": {
+            "kind": "ending",
+            "id": "ending-pass"
+          }
+        },
+        {
+          "id": "action-complete-hold",
+          "label": "Hold",
+          "when": {
+            "op": "ne",
+            "variableId": "mode-value",
+            "value": "mode-gamma"
+          },
+          "effects": [],
+          "target": {
+            "kind": "ending",
+            "id": "ending-hold"
+          }
+        }
+      ]
+    }
+  ],
+  "endings": [
+    {
+      "id": "ending-pass",
+      "title": "Pass",
+      "text": "The terminal pass state.",
+      "cueIds": ["cue-complete"]
+    },
+    {
+      "id": "ending-hold",
+      "title": "Hold",
+      "text": "The terminal hold state.",
+      "cueIds": ["cue-change"]
+    }
+  ]
+}

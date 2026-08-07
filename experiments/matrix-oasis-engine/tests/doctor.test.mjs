@@ -8,7 +8,7 @@ import {
   extractVersion,
 } from "../scripts/lib/doctor-core.mjs";
 
-const readyR0 = {
+const readyRound = {
   node: "24.18.0",
   npm: "11.16.0",
   git: "2.50.1",
@@ -27,8 +27,8 @@ function runDoctor(args) {
   });
 }
 
-test("R0 remains ready with a truthful Godot warning", () => {
-  const report = buildDoctorReport(readyR0);
+test("R1 remains ready with a truthful Godot warning", () => {
+  const report = buildDoctorReport(readyRound);
   const godot = report.checks.find((check) => check.id === "godot");
 
   assert.equal(report.overallStatus, "ready_with_warnings");
@@ -38,8 +38,8 @@ test("R0 remains ready with a truthful Godot warning", () => {
   assert.equal(godot.detectedVersion, null);
 });
 
-test("required R0 tool mismatch blocks the report", () => {
-  const report = buildDoctorReport({ ...readyR0, node: "23.9.0" });
+test("required active-round tool mismatch blocks the report", () => {
+  const report = buildDoctorReport({ ...readyRound, node: "23.9.0" });
 
   assert.equal(report.overallStatus, "blocked");
   assert.equal(doctorExitCode(report), 1);
@@ -47,9 +47,9 @@ test("required R0 tool mismatch blocks the report", () => {
 });
 
 test("strict Godot mode fails until the future tool is ready", () => {
-  const missing = buildDoctorReport(readyR0, { strictGodot: true });
+  const missing = buildDoctorReport(readyRound, { strictGodot: true });
   const ready = buildDoctorReport(
-    { ...readyR0, godot: "4.6.1" },
+    { ...readyRound, godot: "4.6.1" },
     { strictGodot: true },
   );
 
@@ -69,7 +69,7 @@ test("doctor JSON contract is stable and excludes probe paths", () => {
   const separator = String.fromCharCode(92);
   const probePath = ["C:", "Users", "fixture-user", "bin"].join(separator);
   const gitVersion = extractVersion(`${probePath} git version 2.50.1`);
-  const report = buildDoctorReport({ ...readyR0, git: gitVersion });
+  const report = buildDoctorReport({ ...readyRound, git: gitVersion });
 
   assert.deepEqual(Object.keys(report).sort(), ["checks", "overallStatus"]);
   for (const check of report.checks) {

@@ -4,6 +4,7 @@ import {
   doctorExitCode,
   extractVersion,
 } from "./lib/doctor-core.mjs";
+import { ACTIVE_ROUND } from "./lib/scope-policy.mjs";
 
 const argumentsSet = new Set(process.argv.slice(2));
 const jsonOutput = argumentsSet.has("--json");
@@ -81,7 +82,9 @@ if (jsonOutput) {
   console.log(`Matrix Oasis doctor: ${report.overallStatus}`);
   for (const check of report.checks) {
     const detected = check.detectedVersion ?? "not detected";
-    const round = check.requiredForRound ? "R0 required" : "future optional";
+    const round = check.requiredForRound
+      ? `${ACTIVE_ROUND} required`
+      : "future optional";
     console.log(`[${check.status}] ${check.id}: ${detected} (${check.requirement}; ${round})`);
     if (check.status !== "ready") {
       console.log(`  Remediation: ${check.remediation}`);

@@ -63,6 +63,23 @@ function readNulStatus(repositoryRoot) {
   );
 }
 
+async function listModuleFiles(directory, relativeDirectory, predicate) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries.sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+  )) {
+    const absolutePath = path.join(directory, entry.name);
+    const relativePath = path.posix.join(relativeDirectory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await listModuleFiles(absolutePath, relativePath, predicate)));
+    } else if (entry.isFile() && predicate(entry.name)) {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
+
 test("extraction is explicit and never recursive through verify", async () => {
   const manifest = JSON.parse(
     await fs.readFile(path.join(moduleRoot, "package.json"), "utf8"),
@@ -110,6 +127,96 @@ test("extraction script preserves history and verifies a clean standalone root",
     /\["status", "--porcelain=v1", "-z", "--untracked-files=all"\]/,
     "dirty-scope inspection must use NUL-delimited porcelain output",
   );
+});
+
+test("standalone checkout carries the module attributes and preserves source bytes", async (t) => {
+  const fixtureRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "matrix-oasis-eol-fixture-"),
+  );
+  t.after(async () => {
+    await fs.rm(fixtureRoot, { recursive: true, force: true, maxRetries: 3 });
+  });
+
+  const sourceRoot = path.join(fixtureRoot, "source");
+  const checkoutRoot = path.join(fixtureRoot, "standalone");
+  const scriptPaths = await listModuleFiles(
+    path.join(moduleRoot, "scripts"),
+    "scripts",
+    (name) => name.endsWith(".mjs"),
+  );
+  const sourcePaths = [
+    ".gitattributes",
+    "examples/last-train-r1.authoring-game-pack.json",
+    "examples/mechanics-conformance.authoring-game-pack.json",
+    ...scriptPaths,
+  ];
+  const trackedPaths = [...sourcePaths];
+
+  for (const relativePath of sourcePaths) {
+    const bytes = await fs.readFile(path.join(moduleRoot, relativePath));
+    const fixturePath = path.join(sourceRoot, relativePath);
+    await fs.mkdir(path.dirname(fixturePath), { recursive: true });
+    await fs.writeFile(fixturePath, bytes);
+  }
+
+  const binaryFixturePath = "assets/binary-fixture.bin";
+  const binaryFixture = Buffer.from([0x00, 0x0d, 0x0a, 0xff]);
+  trackedPaths.push(binaryFixturePath);
+  await fs.mkdir(path.join(sourceRoot, "assets"), { recursive: true });
+  await fs.writeFile(path.join(sourceRoot, binaryFixturePath), binaryFixture);
+
+  runGit(sourceRoot, ["init", "--quiet"]);
+  runGit(sourceRoot, ["add", "."]);
+  runGit(sourceRoot, [
+    "-c",
+    "user.name=Matrix Oasis Tests",
+    "-c",
+    "user.email=matrix-oasis-tests@example.invalid",
+    "commit",
+    "--quiet",
+    "-m",
+    "fixture",
+  ]);
+  runGit(fixtureRoot, [
+    "-c",
+    "core.autocrlf=true",
+    "clone",
+    "--quiet",
+    "--no-local",
+    sourceRoot,
+    checkoutRoot,
+  ]);
+
+  for (const relativePath of trackedPaths) {
+    const expected = runGit(sourceRoot, ["show", `HEAD:${relativePath}`], {
+      encoding: "buffer",
+    });
+    assert.deepEqual(
+      await fs.readFile(path.join(checkoutRoot, relativePath)),
+      expected,
+      `${relativePath} changed bytes during a standalone checkout`,
+    );
+  }
+
+  for (const relativePath of sourcePaths.filter((name) => name !== ".gitattributes")) {
+    const attributes = runGit(checkoutRoot, [
+      "check-attr",
+      "text",
+      "eol",
+      "--",
+      relativePath,
+    ]);
+    assert.match(attributes, new RegExp(`${relativePath}: text: auto`));
+    assert.match(attributes, new RegExp(`${relativePath}: eol: lf`));
+  }
+
+  const binaryAttributes = runGit(checkoutRoot, [
+    "check-attr",
+    "text",
+    "--",
+    binaryFixturePath,
+  ]);
+  assert.match(binaryAttributes, /assets\/binary-fixture\.bin: text: unset/);
 });
 
 test("NUL-delimited status parsing preserves spaces and arrow text", () => {

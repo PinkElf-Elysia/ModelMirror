@@ -1,0 +1,24 @@
+{
+  "name": "@matrix-oasis/game-pack-contracts",
+  "version": "0.1.0-r1",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24.0.0 <25.0.0",
+    "npm": ">=11.0.0 <12.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs",
+      "default": "./src/index.mjs"
+    },
+    "./schema/0.1.0": "./schemas/0.1.0/authoring-game-pack.schema.json",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --test tests/contract.test.mjs"
+  }
+}
