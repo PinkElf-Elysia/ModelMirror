@@ -111,6 +111,47 @@ class AgentStateStore:
             self._create_agent_directory(agent_id, config=config, agents_md="")
             return self._read_payload(agent_id)
 
+    def create_generated_agent(
+        self,
+        *,
+        agent_id: str,
+        config: AgentSystemConfig,
+        agents_md: str,
+        skill_ids: list[str],
+        source_agent_id: str,
+    ) -> AgentPayload:
+        """Atomically promote a validated candidate using source Skill snapshots."""
+
+        clean_agents_md = agents_md.strip()
+        if not clean_agents_md:
+            raise AgentStateValidationError("Generated AGENTS.md cannot be empty")
+        with self._lock:
+            self._ensure_root()
+            normalized = self._validate_agent_id(agent_id)
+            if self._agent_dir(normalized).exists():
+                raise AgentConflictError(f"Agent '{normalized}' already exists")
+            source_id = self._validate_agent_id(source_agent_id)
+            source_agent = self._read_payload(source_id)
+            available = {item.skill_id: item for item in source_agent.skills}
+            if len(skill_ids) != len(set(skill_ids)):
+                raise AgentStateValidationError(
+                    "Generated Agent Skill references must be unique"
+                )
+            unknown = sorted(set(skill_ids) - set(available))
+            if unknown:
+                raise AgentStateValidationError(
+                    f"Generated Agent references unknown Skills: {', '.join(unknown)}"
+                )
+            selected = [available[skill_id] for skill_id in skill_ids]
+            self._create_agent_directory(
+                normalized,
+                config=config,
+                agents_md=clean_agents_md,
+                skill_snapshots=selected,
+                skill_source_root=self._state_dir(source_id) / "skills",
+            )
+            return self._read_payload(normalized)
+
     def update_agent(
         self,
         agent_id: str,
@@ -265,8 +306,25 @@ class AgentStateStore:
         *,
         config: AgentSystemConfig,
         agents_md: str,
+        skill_snapshots: list[AgentSkillSnapshot] | None = None,
+        skill_source_root: Path | None = None,
     ) -> None:
-        manifest = self._read_builtin_manifest()
+        manifest = self._read_builtin_manifest() if skill_snapshots is None else None
+        if skill_snapshots is None:
+            snapshots = [
+                AgentSkillSnapshot.model_validate(item)
+                for item in manifest["skills"]
+            ]
+            source_root = self.builtin_skills_root
+            snapshot_skillset_id = manifest["skillset"]["skillset_id"]
+        else:
+            snapshots = list(skill_snapshots)
+            if skill_source_root is None:
+                raise AgentStateValidationError(
+                    "Generated Skill snapshot source is required"
+                )
+            source_root = skill_source_root
+            snapshot_skillset_id = config.skillset_id
         temp_parent = Path(
             tempfile.mkdtemp(prefix=f".{agent_id}-", dir=str(self.agents_root))
         )
@@ -281,22 +339,22 @@ class AgentStateStore:
                 temp_agent / "scratchpad",
             ):
                 path.mkdir(parents=True, exist_ok=True)
-            snapshots: list[dict[str, Any]] = []
-            for item in manifest["skills"]:
-                source = self.builtin_skills_root / item["skill_id"]
+            snapshot_payloads: list[dict[str, Any]] = []
+            for snapshot in snapshots:
+                source = source_root / snapshot.skill_id
                 if not (source / "SKILL.md").exists():
                     raise AgentStateValidationError(
-                        f"built-in Skill '{item['skill_id']}' is missing SKILL.md"
+                        f"Skill snapshot '{snapshot.skill_id}' is missing SKILL.md"
                     )
-                shutil.copytree(source, skills_dir / item["skill_id"])
-                snapshots.append(item)
+                shutil.copytree(source, skills_dir / snapshot.skill_id)
+                snapshot_payloads.append(snapshot.model_dump(mode="json"))
             self._atomic_write_text(state_dir / "AGENTS.md", agents_md)
             self._atomic_write_text(
                 state_dir / "skillset_snapshot.json",
                 json.dumps(
                     {
-                        "skillset_id": manifest["skillset"]["skillset_id"],
-                        "skills": snapshots,
+                        "skillset_id": snapshot_skillset_id,
+                        "skills": snapshot_payloads,
                     },
                     ensure_ascii=False,
                     indent=2,

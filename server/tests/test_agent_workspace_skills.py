@@ -46,6 +46,20 @@ def test_library_contains_only_the_16_digest_verified_builtins(
     assert "external" not in {skill.skill_id for skill in skills}
 
 
+def test_agent_creation_keeps_upstream_method_and_adds_native_guardrails(
+    tmp_path: Path,
+) -> None:
+    library = BuiltinSkillLibrary(skillset_path=tmp_path / "skillsets.json")
+    content = library.get_content("agent-creation")
+
+    assert "## Upstream PenguinHarness v7 instructions (preserved in full)" in content
+    assert "## Resolve the inherited runtime" in content
+    assert "## The embedded agent of an SDK app" in content
+    assert "## ModelMirror native staging and quality addendum" in content
+    assert "mandatory second review pass" in content
+    assert ".modelmirror/generated-agent/" in content
+
+
 def test_custom_skillset_crud_locks_content_digests(tmp_path: Path) -> None:
     library = BuiltinSkillLibrary(skillset_path=tmp_path / "skillsets.json")
     created = library.create_skillset(

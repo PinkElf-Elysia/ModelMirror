@@ -36,9 +36,10 @@ content digest for every Skill.
 The following Skill files are modified derivatives and carry an inline
 modification notice:
 
-- `agent-creation`: rewritten for ModelMirror staging, strict validation, and
-  backend-owned atomic promotion; unsupported Vault, Benchmark, Trace, SDK,
-  and Penguin runtime claims were removed.
+- `agent-creation`: preserves the complete upstream v7 method and adds a
+  higher-priority ModelMirror staging, strict quality-review, security, and
+  backend-owned atomic-promotion addendum. Upstream-only paths and runtime
+  capabilities remain clearly marked as inactive reference material.
 - `skill-porting`: adapted to Agent-local snapshots without changing the
   fixed 16-item built-in library.
 - `software-engineering`: replaced the upstream product identity with

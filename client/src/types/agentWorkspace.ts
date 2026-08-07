@@ -82,3 +82,111 @@ export interface BuiltinSkill extends AgentSkillSnapshot {
   availability_reason: string;
   inject_runtime: boolean;
 }
+
+export type ApprovalMode =
+  | "always-ask"
+  | "read-only"
+  | "allow-all"
+  | "deny-all";
+
+export type AgentThinkingLevel = "low" | "medium" | "high" | "xhigh";
+export type AgentSessionStatus = "idle" | "running" | "waiting_approval" | "failed";
+export type AgentTaskStatus =
+  | "pending"
+  | "running"
+  | "waiting_approval"
+  | "completed"
+  | "failed"
+  | "stopped";
+
+export interface AgentSession {
+  session_id: string;
+  agent_id: string;
+  workspace_id: string;
+  title: string;
+  model_id: string;
+  thinking_level: AgentThinkingLevel;
+  approval_mode: ApprovalMode;
+  skillset_id: string;
+  status: AgentSessionStatus;
+  parent_session_id: string | null;
+  depth: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AgentMessage {
+  message_id: string;
+  session_id: string;
+  task_id: string | null;
+  sequence: number;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_call_id: string | null;
+  tool_calls: Array<Record<string, unknown>>;
+  created_at: number;
+}
+
+export interface AgentTask {
+  task_id: string;
+  session_id: string;
+  kind: "chat" | "generate_agent";
+  prompt: string;
+  model_id: string;
+  thinking_level: AgentThinkingLevel;
+  approval_mode: ApprovalMode;
+  status: AgentTaskStatus;
+  output: string;
+  error: string;
+  created_at: number;
+  updated_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+}
+
+export interface AgentApproval {
+  approval_id: string;
+  session_id: string;
+  task_id: string;
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  decision_message: string;
+  created_at: number;
+  decided_at: number | null;
+}
+
+export interface AgentSessionDetail {
+  session: AgentSession;
+  messages: AgentMessage[];
+  tasks: AgentTask[];
+  approvals: AgentApproval[];
+  last_event_sequence: number;
+}
+
+export interface AgentRuntimeEvent {
+  sequence: number;
+  session_id: string;
+  task_id: string | null;
+  type: string;
+  payload: Record<string, unknown>;
+  created_at: number;
+}
+
+export interface AgentWorkspaceEntry {
+  name: string;
+  path: string;
+  kind: "file" | "directory";
+  size: number;
+  modified_at: number;
+}
+
+export interface AgentSkillset {
+  skillset_id: string;
+  name: string;
+  description: string;
+  builtin: boolean;
+  members: Array<{ skill_id: string; digest: string }>;
+  revision: string;
+}

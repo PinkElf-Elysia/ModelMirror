@@ -38,7 +38,7 @@ async def test_disabled_flag_hides_agent_api(tmp_path: Path) -> None:
     assert status.status_code == 200
     assert status.json() == {
         "enabled": False,
-        "version": "agent-workspace-r1",
+        "version": "agent-workspace-r2",
         "runtime_enabled": False,
     }
     assert agents.status_code == 404
