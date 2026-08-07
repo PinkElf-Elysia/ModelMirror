@@ -1,18 +1,18 @@
 # 架构方向
 
 最后更新：2026-08-07
-状态：R2.1 参考模拟器治理基线
+状态：R2.3 参考模拟器语义基线
 
 ## 当前系统
 
-R2.1 当前仍沿用 R0 Creator Web 空壳。R1 已完成的 Authoring Game Pack 合同、验证器与两个样例在 R2 字节冻结；确定性参考模拟器和 Creator 最小运行实验台尚未实现。
+R1 已完成的 Authoring Game Pack 合同、验证器与两个样例在 R2 字节冻结。R2.2 已实现独立参考模拟器，R2.3 已用中性权威轨迹和可替换集成夹具固定其语义；Creator Web 仍沿用 R0 空壳，尚未接入模拟器。
 
 ```text
 ┌───────────────────────────────┐
 │ Creator Web：独立工程空壳     │
 │ - 无父项目适配器              │
 │ - 未接入 R1 Pack/Validator    │
-│ - 未接入参考模拟器            │
+│ - R2.4 前未接入参考模拟器     │
 │ - 无外部网络                  │
 │ - 无 Godot Runtime            │
 └───────────────────────────────┘
@@ -28,7 +28,7 @@ Authoring Game Pack
   │ R1 确定性验证
   ▼
 Validator
-  │ R2 参考执行与可观察轨迹（后续批次）
+  │ R2 参考执行与可观察轨迹（已实现）
   ▼
 Deterministic Reference Simulator
   │ 不构成生产运行包
@@ -42,7 +42,7 @@ Immutable Runtime Pack
 Godot Runtime
 ```
 
-参考模拟器只能消费已通过 R1 Validator 的 Pack，以显式输入产生确定性状态与轨迹；不得修改 Pack、访问网络、持久化状态或伪装为 Runtime Pack/Godot 行为。Creator 后续只提供最小内存实验台。R2.1 只固定此方向和变更范围；后续批次必须严格实现已经人工批准的 R2 API 与语义计划。
+参考模拟器只消费已通过 R1 Validator 的 Pack，以显式输入产生确定性状态与单步轨迹；它不修改 Pack、不访问网络、不持久化状态，也不伪装为 Runtime Pack 或 Godot 行为。Creator 在 R2.4 只接入这些公开纯函数，提供最小内存实验台。
 
 ## 独立模块原则
 

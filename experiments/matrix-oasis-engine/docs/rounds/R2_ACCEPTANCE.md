@@ -1,6 +1,6 @@
 # R2 验收记录
 
-状态：R2.2 参考模拟器核心已验证，等待本地提交
+状态：R2.3 模拟语义已验证，等待本地提交
 
 固定基线：`a8e627e217c8c9e2cb8cca83fea8542c47edaeba`
 
@@ -21,8 +21,8 @@
 | 批次 | 目标 | 提交 | 状态 |
 | --- | --- | --- | --- |
 | R2.1 | 治理、正向 allowlist 与 R1 冻结 | `1b259b7` | 已完成 |
-| R2.2 | 浏览器兼容的确定性参考模拟器 | 本批次提交，SHA 在后续批次记录 | 已验证 |
-| R2.3 | 运行语义与夹具轨迹 | 待记录 | 未开始 |
+| R2.2 | 浏览器兼容的确定性参考模拟器 | `590449a` | 已完成 |
+| R2.3 | 运行语义与夹具轨迹 | 本批次提交，SHA 在后续批次记录 | 已验证 |
 | R2.4 | Creator 最小运行实验台 | 待记录 | 未开始 |
 | R2.5 | 拆分证据与人工验收包 | 待记录 | 未开始 |
 
@@ -56,6 +56,19 @@
 - `npm.cmd run verify`：退出 0，179 项测试通过；Creator 构建与 loopback 冒烟继续通过。
 - `npm.cmd run check:boundary` 与 `npm.cmd run check:round-scope`：退出 0；模拟器无父依赖、网络、持久化或题材专属实现。
 - R1 冻结路径相对 `1b259b7` 零差异；本批不修改 Creator。
+
+### R2.3 验证摘要
+
+- 以题材中性的 mechanics conformance 夹具固定五步权威轨迹，精确断言变量、位置、步数、transition 与 Cue 顺序；同一输入完整执行 20 次，序列化结果逐字节一致。
+- 九种 condition、三种 effect 与两种 typed target 均有执行证据；比较符严格/含等号边界、`all`/`any`/`not` 短路、连续 `set`/`add`、正负安全整数边界与中间溢出原子回滚均已单独锁定。
+- 创建、effect、node entry 与 ending 的多 Cue 声明顺序及重复发射已锁定；循环、停滞、ending、未知/不可用 action 与精确 step limit 行为均已覆盖。
+- Snapshot 门覆盖根与嵌套字段、Pack 身份、状态/位置耦合、步数范围、变量缺失/额外/错型、JSON round-trip 与无敏感值诊断；inspection、failure 与 public result 均保持冻结。
+- 末班地铁薄型夹具无需题材特判即可到达三个 ending 并验证显式循环；模拟器运行源码无 examples 导入或题材专属 ID、文案与关键词。
+- `npm.cmd run verify:simulator`：退出 0，29 项模拟器核心与语义测试通过。
+- `npm.cmd run verify`：退出 0，196 项测试通过；Creator 构建与 loopback 冒烟继续通过，Godot 缺失仍如实报告为非阻塞 warning。
+- `npm.cmd run check:boundary`、`npm.cmd run check:round-scope` 与 `git diff --check`：退出 0；R1 冻结路径和 Creator 相对 `590449a` 零差异。
+- 本批仅补齐参考模拟语义和测试，不实现 Compiler、Runtime Pack、存档或题材功能；内部 condition test seam 未通过 package root、类型声明或 exports map 暴露。
+- 回退本批提交后，R2.2 的公开模拟器核心仍可独立使用。
 
 ## 回退
 

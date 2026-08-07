@@ -24,7 +24,7 @@ function cueDescriptors(data, cueIds) {
   return cueIds.map((cueId) => cueDescriptor(data, cueId));
 }
 
-function evaluateCondition(condition, variables) {
+export function evaluateCondition(condition, variables) {
   if (condition === undefined) {
     return true;
   }

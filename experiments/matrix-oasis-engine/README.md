@@ -1,14 +1,16 @@
 # 矩阵绿洲 AI 原生 3D 游戏引擎（实验模块）
 
-这是模镜仓库中的独立实验模块。R2 以已验收的 Authoring Game Pack 合同与确定性验证器为冻结输入，准备建设案例无关的确定性参考模拟器与 Creator 最小运行实验台；模块仍必须可独立验证、拆分和回退。
+这是模镜仓库中的独立实验模块。R2 以已验收的 Authoring Game Pack 合同与确定性验证器为冻结输入，建设案例无关的确定性参考模拟器与 Creator 最小运行实验台；模块仍必须可独立验证、拆分和回退。
 
 ## R2 固定范围
 
 - R2.1 将活动轮次切换到固定 R2 基线，并以正向 allowlist 限制本轮变更。
 - R1 contracts、validator、examples 与 R0/R1 验收记录保持字节冻结。
-- 后续批准批次只在 `packages/game-pack-simulator/**` 建设确定性参考模拟器，并以 Creator 提供最小运行实验台。
+- R2.2 已在 `packages/game-pack-simulator/**` 建立浏览器兼容的确定性参考模拟器。
+- R2.3 以中性权威夹具固定完整语义矩阵，并仅把“末班地铁”作为可替换集成输入。
+- R2.4 才会把 Creator 演进为最小运行实验台；当前页面仍是 R0 空壳。
 - 样例仅用于测试、语义追踪和可视化验收，不得驱动题材专属引擎设计或叙事打磨。
-- R2.1 不实现模拟器 API，也不宣称 Creator 已具备运行能力；后续批次严格遵循已批准的公开接口与语义。
+- 模拟器严格遵循已批准的公开接口与语义；不宣称 Creator 已具备尚未实现的运行能力。
 - Godot 4.6.x 仍是未来可选工具，不是 R2 前置条件。
 
 R2 不包含 Compiler、Runtime Pack、生产运行时、AI、NPC、RAG、MCP、Godot 工程、3D 内容、Tauri、父项目接入、部署或发布。
@@ -28,14 +30,16 @@ R2 不包含 Compiler、Runtime Pack、生产运行时、AI、NPC、RAG、MCP、
 ```text
 Creator
 → Authoring Game Pack
-→ Validator / Compiler
+→ Validator
+→ Deterministic Reference Simulator
+→ Compiler（未来）
 → Immutable Runtime Pack
 → Godot Runtime
 ```
 
 R1 已完成作者合同与验证语义。R2 只允许在冻结合同之上建设可复现、可观察的参考执行语义；Compiler、Runtime Pack 与 Godot Runtime 仍只是未来方向。
 
-R2.1 尚未修改 `apps/creator-web/**`；后续批准批次可将其从 R0 空壳演进为最小运行实验台，但不能连接父项目、网络或持久化能力。
+R2.3 尚未修改 `apps/creator-web/**`；R2.4 可将其从 R0 空壳演进为最小运行实验台，但不能连接父项目、网络或持久化能力。
 
 ## 独立运行与验证
 
@@ -54,6 +58,7 @@ npm.cmd run test:pack
 npm.cmd run validate:examples
 npm.cmd run test:examples
 npm.cmd run verify:pack
+npm.cmd run verify:simulator
 npm.cmd test
 npm.cmd run verify
 ```
