@@ -1,7 +1,12 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { CREATOR_PREFIX, MODULE_PREFIX } from "./scope-policy.mjs";
+import {
+  MODULE_PREFIX,
+  ROUND_ALLOWED_MODULE_PREFIXES,
+  ROUND_ALLOWED_MODULE_ROOT_FILES,
+  ROUND_FROZEN_MODULE_PATHS,
+} from "./scope-policy.mjs";
 
 export { MODULE_PREFIX } from "./scope-policy.mjs";
 
@@ -100,8 +105,15 @@ function isInsideModule(candidate) {
   return candidate === MODULE_PREFIX || candidate.startsWith(`${MODULE_PREFIX}/`);
 }
 
-function isInsideCreator(candidate) {
-  return candidate === CREATOR_PREFIX || candidate.startsWith(`${CREATOR_PREFIX}/`);
+function matchesPathOrDescendant(candidate, policyPath) {
+  return candidate === policyPath || candidate.startsWith(`${policyPath}/`);
+}
+
+function moduleRelativePath(candidate) {
+  if (candidate === MODULE_PREFIX) {
+    return "";
+  }
+  return candidate.slice(MODULE_PREFIX.length + 1);
 }
 
 const MATRIX_OASIS_EXISTING = [
@@ -169,13 +181,29 @@ export function classifyParentPath(candidate) {
 export function classifyRoundPath(candidate) {
   const normalized = normalizeGitPath(candidate);
 
-  if (isInsideCreator(normalized)) {
-    return "ROUND_GUARD_CREATOR_CHANGED";
+  if (!isInsideModule(normalized)) {
+    return "ROUND_SCOPE_PATH_OUTSIDE_MODULE";
   }
-  if (isInsideModule(normalized)) {
+
+  const relative = moduleRelativePath(normalized);
+  if (
+    ROUND_FROZEN_MODULE_PATHS.some((frozenPath) =>
+      matchesPathOrDescendant(relative, frozenPath)
+    )
+  ) {
+    return "ROUND_GUARD_R1_ARTIFACT_CHANGED";
+  }
+
+  if (
+    ROUND_ALLOWED_MODULE_ROOT_FILES.includes(relative) ||
+    ROUND_ALLOWED_MODULE_PREFIXES.some((allowedPrefix) =>
+      matchesPathOrDescendant(relative, allowedPrefix)
+    )
+  ) {
     return null;
   }
-  return "ROUND_SCOPE_PATH_OUTSIDE_MODULE";
+
+  return "ROUND_SCOPE_PATH_NOT_ALLOWLISTED";
 }
 
 function readGitRoot(moduleRoot) {
