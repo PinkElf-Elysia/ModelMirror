@@ -3,7 +3,7 @@
 R1 聚焦合同与验证器，以下均为真实限制而非待隐藏能力：
 
 - Creator 只是独立工程空壳，没有编辑、保存、导入、导出或预览游戏能力。
-- R1.1 只完成治理升级；Game Pack 合同与验证器将在后续批次实现，Runtime Pack、Compiler 与 Domain Patch 仍不定义。
+- R1.2 只完成 Authoring Game Pack 结构合同；严格 JSON 解析、引用与图语义验证器将在后续批次实现，Runtime Pack、Compiler 与 Domain Patch 仍不定义。
 - 未连接父项目模型、RAG、MCP、Agent、资产或鉴权能力。
 - 没有 AI Provider、NPC、3D 场景、Gaussian Splat、Tauri 或部署流程。
 - 没有 Godot 项目。Godot 4.6.x 仅由 doctor 作为未来工具检查，缺失不会阻塞 R1。

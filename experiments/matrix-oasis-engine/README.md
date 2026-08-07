@@ -5,7 +5,8 @@
 ## R1 固定范围
 
 - R1.1 将机器策略升级为固定轮次基线，并冻结 R0 Creator 空壳。
-- 后续批次只允许加入通用 Game Pack 合同、确定性验证器和单 JSON 验收样例。
+- R1.2 提供案例无关的 Authoring Game Pack 0.1.0 权威 Schema 与只读合同导出。
+- 后续批次只允许加入确定性验证器和单 JSON 验收样例。
 - 样例用于验证合同与后续可视化链路，不得驱动案例专属引擎设计或叙事打磨。
 - Godot 4.6.x 仍是未来可选工具，不是 R1 前置条件。
 
@@ -47,6 +48,7 @@ npm.cmd run doctor
 npm.cmd run --silent doctor -- --json
 npm.cmd run check:boundary
 npm.cmd run check:round-scope
+npm.cmd run test:contracts
 npm.cmd test
 npm.cmd run verify
 ```

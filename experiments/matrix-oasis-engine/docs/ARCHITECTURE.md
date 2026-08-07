@@ -1,11 +1,11 @@
 # 架构方向
 
 最后更新：2026-08-07
-状态：R1 合同与验证器轮次（R1.1 治理基线）
+状态：R1 合同与验证器轮次（R1.2 作者合同）
 
 ## 当前系统
 
-当前唯一产品面仍是冻结的 R0 Creator Web 空壳。R1 不修改该页面；合同与验证器只在模块内部以无 UI、无网络方式建设。
+当前唯一产品面仍是冻结的 R0 Creator Web 空壳。R1 不修改该页面；Authoring Game Pack 合同已在模块内部建立，验证器仍待后续批次实现。
 
 ```text
 ┌───────────────────────────────┐
@@ -35,7 +35,7 @@ Immutable Runtime Pack
 Godot Runtime
 ```
 
-R1 后续批次只允许把 Authoring Game Pack 与 Validator 变为内部稳定接口。Compiler、Runtime Pack、AI 提案和 Godot 通信仍不在本轮定义。
+R1.2 已把 Authoring Game Pack 0.1.0 固定为内部稳定合同。后续批次只实现 Validator 与验收夹具；Compiler、Runtime Pack、AI 提案和 Godot 通信仍不在本轮定义。
 
 ## 独立模块原则
 

@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:matrix-oasis:authoring-game-pack:0.1.0",
+  "title": "Matrix Oasis Authoring Game Pack 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "formatVersion",
+    "id",
+    "contentVersion",
+    "language",
+    "title",
+    "entryNodeId",
+    "entities",
+    "variables",
+    "cues",
+    "nodes",
+    "endings"
+  ],
+  "properties": {
+    "format": { "type": "string", "const": "matrix-oasis.authoring-game-pack" },
+    "formatVersion": { "type": "string", "const": "0.1.0" },
+    "id": { "$ref": "#/$defs/id" },
+    "contentVersion": { "$ref": "#/$defs/contentVersion" },
+    "language": { "$ref": "#/$defs/language" },
+    "title": { "$ref": "#/$defs/prose" },
+    "summary": { "$ref": "#/$defs/prose" },
+    "entryNodeId": { "$ref": "#/$defs/id" },
+    "entities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entity" }
+    },
+    "variables": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/variable" }
+    },
+    "cues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cue" }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "endings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/ending" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "contentVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "\\S"
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 35,
+      "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+    },
+    "prose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "\\S"
+    },
+    "safeInteger": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "nonZeroSafeInteger": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "not": { "const": 0 }
+    },
+    "enumValue": { "$ref": "#/$defs/id" },
+    "scalarValue": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "$ref": "#/$defs/safeInteger" },
+        { "$ref": "#/$defs/enumValue" }
+      ]
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "$ref": "#/$defs/prose" },
+        "description": { "$ref": "#/$defs/prose" }
+      }
+    },
+    "booleanVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "initial"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "type": "string", "const": "boolean" },
+        "initial": { "type": "boolean" }
+      }
+    },
+    "integerVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "initial"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "type": "string", "const": "integer" },
+        "initial": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "enumVariable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "allowedValues", "initial"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "type": "string", "const": "enum" },
+        "allowedValues": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/enumValue" }
+        },
+        "initial": { "$ref": "#/$defs/enumValue" }
+      }
+    },
+    "variable": {
+      "oneOf": [
+        { "$ref": "#/$defs/booleanVariable" },
+        { "$ref": "#/$defs/integerVariable" },
+        { "$ref": "#/$defs/enumVariable" }
+      ]
+    },
+    "cue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "channel", "intent"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "channel": { "type": "string", "enum": ["visual", "audio", "ui"] },
+        "intent": { "$ref": "#/$defs/prose" }
+      }
+    },
+    "entityIdList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "cueIdList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "allCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "conditions"],
+      "properties": {
+        "op": { "type": "string", "const": "all" },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/condition" }
+        }
+      }
+    },
+    "anyCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "conditions"],
+      "properties": {
+        "op": { "type": "string", "const": "any" },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/condition" }
+        }
+      }
+    },
+    "notCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "condition"],
+      "properties": {
+        "op": { "type": "string", "const": "not" },
+        "condition": { "$ref": "#/$defs/condition" }
+      }
+    },
+    "eqCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "eq" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/scalarValue" }
+      }
+    },
+    "neCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "ne" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/scalarValue" }
+      }
+    },
+    "ltCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "lt" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "lteCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "lte" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "gtCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "gt" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "gteCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "gte" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "condition": {
+      "oneOf": [
+        { "$ref": "#/$defs/allCondition" },
+        { "$ref": "#/$defs/anyCondition" },
+        { "$ref": "#/$defs/notCondition" },
+        { "$ref": "#/$defs/eqCondition" },
+        { "$ref": "#/$defs/neCondition" },
+        { "$ref": "#/$defs/ltCondition" },
+        { "$ref": "#/$defs/lteCondition" },
+        { "$ref": "#/$defs/gtCondition" },
+        { "$ref": "#/$defs/gteCondition" }
+      ]
+    },
+    "setEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "set" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/scalarValue" }
+      }
+    },
+    "addEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "variableId", "value"],
+      "properties": {
+        "op": { "type": "string", "const": "add" },
+        "variableId": { "$ref": "#/$defs/id" },
+        "value": { "$ref": "#/$defs/nonZeroSafeInteger" }
+      }
+    },
+    "emitCueEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "cueId"],
+      "properties": {
+        "op": { "type": "string", "const": "emitCue" },
+        "cueId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "effect": {
+      "oneOf": [
+        { "$ref": "#/$defs/setEffect" },
+        { "$ref": "#/$defs/addEffect" },
+        { "$ref": "#/$defs/emitCueEffect" }
+      ]
+    },
+    "nodeTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "type": "string", "const": "node" },
+        "id": { "$ref": "#/$defs/id" }
+      }
+    },
+    "endingTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "type": "string", "const": "ending" },
+        "id": { "$ref": "#/$defs/id" }
+      }
+    },
+    "target": {
+      "oneOf": [
+        { "$ref": "#/$defs/nodeTarget" },
+        { "$ref": "#/$defs/endingTarget" }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "effects", "target"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "label": { "$ref": "#/$defs/prose" },
+        "entityIds": { "$ref": "#/$defs/entityIdList" },
+        "when": { "$ref": "#/$defs/condition" },
+        "effects": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/effect" }
+        },
+        "target": { "$ref": "#/$defs/target" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "entityIds", "entryCueIds", "actions"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/prose" },
+        "text": { "$ref": "#/$defs/prose" },
+        "entityIds": { "$ref": "#/$defs/entityIdList" },
+        "entryCueIds": { "$ref": "#/$defs/cueIdList" },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/action" }
+        }
+      }
+    },
+    "ending": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "cueIds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "$ref": "#/$defs/prose" },
+        "text": { "$ref": "#/$defs/prose" },
+        "cueIds": { "$ref": "#/$defs/cueIdList" }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "@matrix-oasis/engine",
-  "version": "0.0.0-r1",
+  "version": "0.1.0-r1",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -22,7 +22,9 @@
     "check:boundary": "node scripts/check-boundary.mjs",
     "check:parent-scope": "node scripts/check-parent-scope.mjs",
     "check:round-scope": "node scripts/check-round-scope.mjs",
-    "test": "node --test tests/creator-shell.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs tests/extraction-contract.test.mjs tests/parent-scope.test.mjs tests/round-scope.test.mjs",
+    "test": "node --test tests/creator-shell.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs tests/extraction-contract.test.mjs tests/parent-scope.test.mjs tests/round-scope.test.mjs packages/game-pack-contracts/tests/contract.test.mjs",
+    "test:harness": "node --test tests/creator-shell.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs tests/extraction-contract.test.mjs tests/parent-scope.test.mjs tests/round-scope.test.mjs",
+    "test:contracts": "node --test packages/game-pack-contracts/tests/contract.test.mjs",
     "test:creator": "node --test tests/creator-shell.test.mjs",
     "smoke:creator": "node scripts/smoke-creator.mjs",
     "verify:creator": "npm run test:creator && npm run build:creator && npm run smoke:creator",
