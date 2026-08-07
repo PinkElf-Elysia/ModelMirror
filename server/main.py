@@ -72,6 +72,14 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.benchmarks import (
+        configure_benchmarks,
+        router as benchmarks_router,
+    )
+except ModuleNotFoundError:
+    from benchmarks import configure_benchmarks, router as benchmarks_router
+
+try:
     from server.evolutions import (
         configure_xpert_evolutions,
         get_xpert_evolution_executor,
@@ -780,6 +788,7 @@ app.include_router(toolsets_router)
 app.include_router(prompt_profiles_router)
 app.include_router(plugins_router)
 app.include_router(xpert_evaluations_router)
+app.include_router(benchmarks_router)
 app.include_router(xpert_evolutions_router)
 app.include_router(model_router_router)
 app.include_router(model_catalog_router)
@@ -13531,6 +13540,7 @@ configure_xpert_evaluations(
     judge_runner=run_xpert_evaluation_judge,
     run_registry=run_registry,
 )
+configure_benchmarks(get_xpert_evaluation_store())
 
 
 async def run_xpert_evolution_optimizer(

@@ -181,8 +181,24 @@ Evaluator 不批准 Proposal、不写 Xpert 草稿、不发布版本。完整契
 
 完整契约见 [EVOAGENTX_EVOLUTION.md](./EVOAGENTX_EVOLUTION.md)。
 
-### 下一步：进化收益与技术债审计
+### `EVOAGENTX-BENCHMARK-CATALOG-01`：已实现
 
-Meta Planner、Evaluator、Prompt Evolution 和 Structure Evolution 已形成第一阶段闭环。
-暂停继续增加优化器或自动发布能力，先用真实 Dataset 审计质量提升、运行成本、稳定性、
-过拟合风险和维护负担，再决定后续路线。
+- 已交付四个 ModelMirror 自有中英双语合成 Pack，共 64 条固定用例。
+- 核心回归仅使用 exact、contains 和 JSON Schema，不把 LLM Judge 作为门禁。
+- Catalog Pack 不可编辑；实例化复用 `XpertEvaluationStore` 并自动发布一致的 v1。
+- Dataset 已兼容 origin、catalog provenance、coverage 和 calibration 状态。
+- `/agents/evaluations` 已增加标准基准、我的评测集和运行报告视图。
+
+### 当前路线：Benchmark 闭环
+
+Meta Planner、Evaluator、Prompt Evolution 和 Structure Evolution 已形成第一阶段闭环，
+但缺少可重复标准数据与针对性生成。当前按以下独立轮次补齐后再做收益审计：
+
+1. 已完成标准 Xpert Benchmark 目录。
+2. 下一轮实现 Xpert/Prompt/Profile/结构目标的一键生成与受限校准。
+3. 随后实现标准 RAG Pack 与版本化 Gold 引用。
+4. 再实现知识库定向 Benchmark 生成。
+5. 最后只对 General Agent Workspace 做目录和运行摘要适配，不替换 Penguin Runtime。
+
+每轮在共享栈空闲并完成 Docker 人工验收后独立提交。完整共享契约见
+[BENCHMARKS.md](./BENCHMARKS.md)。

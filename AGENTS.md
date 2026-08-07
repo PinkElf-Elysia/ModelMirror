@@ -362,6 +362,33 @@ cd client
 npm.cmd run build
 ```
 
+### 8.5 Benchmark Catalog 与生成护栏
+
+- Benchmark 产品层只能统一 Manifest、目录和任务来源；不得复制
+  `XpertEvaluationStore`、`KnowledgeEvaluationStore` 或 Agent Workspace/Penguin Runtime。
+- 内置 Pack 必须是仓库可证明来源的自有合成数据，固定 source、license、版本和规范化
+  SHA-256；不得在运行时联网下载或静默更新。
+- Agent 标准 Pack 的核心门禁只允许 `exact_match`、`contains` 和 `json_schema`。
+  LLM Judge 只能作为附加维度，不能决定标准回归是否通过。
+- Catalog Pack 不可编辑。实例化必须在一个 Store 原子写入中创建草稿和完全一致的不可变
+  v1；后续草稿修改不得改写 v1，并应把 calibration 标记为 stale。
+- 旧 Dataset 缺少元数据时必须按 `origin=manual` 兼容读取，不得要求破坏性离线迁移。
+- 后续定向生成必须固定目标 revision/version、能力摘要、模型、资源版本和 Dataset revision；
+  生成结果只能进入待审核草稿，不得批准 Proposal、修改线上 Xpert 或自动发布。
+- 校准只能验证评分契约、重复、泄漏、难度和基线表现，不得使用当前回答或 Top-K 结果
+  改写预先固定的 Gold。
+- Benchmark API、报告和 checkpoint 不得保存完整 Prompt、知识正文、工具参数/结果、隐藏
+  推理、路径、凭据或未选择的会话内容。
+- `server/Dockerfile` 必须复制 `benchmarks/`。每轮在完成非 Docker 验证后停止，等待用户
+  确认共享栈空闲，再执行 `--build --force-recreate` 和人工验收。
+- 修改 Benchmark Catalog 或 Dataset 元数据时至少运行：
+
+```bash
+python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_xpert_evaluations.py -q
+cd client
+npm.cmd run build
+```
+
 ## 9. MCP 开发规则
 
 MCP 原生集成属于后端进程管理和工具执行能力，开发时必须：
