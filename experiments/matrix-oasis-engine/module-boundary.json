@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "matrix-oasis-engine",
+  "moduleRoot": ".",
+  "moduleRootResolution": "directory-containing-module-boundary",
+  "r0BaselineSha": "952f8094c38b29baffa5de3a5b0caa94e501f45f",
+  "parentRepositoryPrefix": "experiments/matrix-oasis-engine/",
+  "parentIntegration": "none",
+  "allowedParentInteractions": [],
+  "networkPolicy": {
+    "creatorSource": "none",
+    "verificationScripts": "loopback-only"
+  },
+  "forbiddenParentRoots": [
+    "client",
+    "server",
+    ".github",
+    "docker-compose.yml",
+    "Dockerfile",
+    "node_modules"
+  ],
+  "dependencyPolicy": {
+    "moduleLocalWorkspacesOnly": true,
+    "forbidExternalFileLinks": true,
+    "exactVersionsRequired": true,
+    "forbiddenExternalProtocols": [
+      "file:",
+      "link:"
+    ]
+  },
+  "pathPolicy": {
+    "forbidExternalSymlinks": true,
+    "forbidAbsolutePaths": true,
+    "forbidParentTraversal": true,
+    "forbidResolvedPathsOutsideModule": true
+  },
+  "forbiddenParentResources": [
+    "source",
+    "environment-variables",
+    "database",
+    "docker",
+    "routes",
+    "assets",
+    "build-output"
+  ],
+  "toolchain": {
+    "requiredForR0": {
+      "node": "24.x",
+      "npm": "11.x",
+      "git": "available"
+    },
+    "optionalForFutureRounds": {
+      "godot": "4.6.x"
+    }
+  },
+  "generatedPaths": [
+    "node_modules",
+    "dist",
+    "coverage",
+    ".vite",
+    ".godot",
+    "exports",
+    "logs"
+  ],
+  "forbiddenTrackedFileNames": [
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production",
+    "project.godot"
+  ],
+  "forbiddenTrackedExtensions": [
+    ".log",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".gd",
+    ".gdshader",
+    ".pck",
+    ".tscn",
+    ".scn",
+    ".tres",
+    ".res",
+    ".gdextension",
+    ".gdnlib",
+    ".gdns",
+    ".import",
+    ".uid",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".bin"
+  ],
+  "r0Restrictions": {
+    "godotArtifactsForbidden": true,
+    "forbiddenDirectoryNames": [
+      "addons"
+    ],
+    "forbiddenGodotFileNames": [
+      "project.godot"
+    ],
+    "forbiddenGodotExtensions": [
+      ".gd",
+      ".gdshader",
+      ".pck",
+      ".tscn",
+      ".scn",
+      ".tres",
+      ".res",
+      ".gdextension",
+      ".gdnlib",
+      ".gdns",
+      ".import",
+      ".uid"
+    ],
+    "forbiddenBinaryExtensions": [
+      ".exe",
+      ".dll",
+      ".so",
+      ".dylib",
+      ".bin"
+    ],
+    "rotatedLogsForbidden": true
+  },
+  "licensePolicy": {
+    "moduleLicense": "UNLICENSED",
+    "allowedDependencyLicenses": [
+      "MIT",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "ISC"
+    ],
+    "approvedDependencyLicenseExceptions": [
+      {
+        "package": "caniuse-lite",
+        "version": "1.0.30001807",
+        "license": "CC-BY-4.0",
+        "scope": "transitive-development-dependency",
+        "approvedOn": "2026-08-06",
+        "approvalRecord": "user-approved-during-r0",
+        "compliance": "Retain upstream attribution and license notice when distributing dependency materials."
+      }
+    ],
+    "otherLicensesRequireHumanApproval": true
+  }
+}
