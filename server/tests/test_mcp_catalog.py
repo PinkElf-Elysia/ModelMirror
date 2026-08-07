@@ -21,6 +21,7 @@ from server.mcp.catalog import (
     WAVE_TWO_ADAPTERS,
     WAVE_THREE_ADAPTERS,
     WAVE_FOUR_ADAPTERS,
+    WAVE_FIVE_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
@@ -137,6 +138,8 @@ def make_service(
         "cred_agentql": ("agentql-mcp", "api_key"),
         "cred_grafana": ("grafana-mcp", "service_token"),
         "cred_pinecone": ("pinecone-assistant-mcp", "api_key"),
+        "cred_dbhub": ("dbhub", "password"),
+        "cred_supabase": ("supabase-mcp", "access_token"),
     }
 
     def credential_validator(credential_id: str) -> SimpleNamespace:
@@ -180,18 +183,26 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
     }
     assert set(WAVE_THREE_ADAPTERS) == set(WAVE_PROJECTS[3]) - {"manim-mcp"}
     assert set(WAVE_FOUR_ADAPTERS) == set(WAVE_PROJECTS[4]) - {"snyk-mcp"}
+    assert set(WAVE_FIVE_ADAPTERS) == {
+        "dbhub",
+        "mongodb-mcp",
+        "clickhouse-mcp",
+        "redis-mcp",
+        "duckdb-mcp",
+        "supabase-mcp",
+    }
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 32
+    ) == 38
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 64
+    ) == 53
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 4
+    ) == 9
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -235,7 +246,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["dbhub"]
+    manifest = CATALOG_ADAPTERS["airtable-mcp"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
@@ -260,9 +271,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 32
-            assert payload["planned"] == 64
-            assert payload["blocked"] == 4
+            assert payload["ready"] == 38
+            assert payload["planned"] == 53
+            assert payload["blocked"] == 9
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
@@ -588,6 +599,126 @@ def test_wave_four_settings_and_snyk_fail_closed() -> None:
     assert snyk.wave == 4
     assert snyk.server_command == ()
     assert snyk.executable is False
+
+
+@pytest.mark.asyncio
+async def test_wave_five_database_adapter_uses_structured_scoped_handshake() -> None:
+    service, manager, installer, registry = make_service()
+    configured = service.configure(
+        "dbhub",
+        CatalogConfigurationRequest(
+            settings={
+                "engine": "postgresql",
+                "host": "database.example.com",
+                "port": 5432,
+                "database": "analytics",
+                "username": "readonly",
+                "tls_mode": "verify-full",
+            },
+            credential_bindings={"password": "cred_dbhub"},
+        ),
+    )
+    assert configured["configured_settings"] == [
+        "database", "engine", "host", "port", "tls_mode", "username",
+    ]
+
+    connected = await service.connect("dbhub")
+    assert connected["tools_count"] == 1
+    assert connected["preflight_status"] == "verified"
+    assert connected["credential_verification"] == "verified"
+    assert installer.calls == []
+    assert registry.registered == []
+    profile = manager.profiles[0]
+    assert profile["server_command"] == list(CATALOG_ADAPTERS["dbhub"].server_command)
+    assert profile["reconnect_attempts"] == 0
+    assert profile["operation_timeout"] == 20.0
+    assert manager.scrubbed == [connected["session_id"]]
+    assert set(profile["environment"]) == {"MCP_DATABASE_HANDSHAKE_B64"}
+    handshake = json.loads(
+        base64.urlsafe_b64decode(
+            profile["environment"]["MCP_DATABASE_HANDSHAKE_B64"]
+        ).decode("utf-8")
+    )
+    assert handshake == {
+        "settings": {
+            "engine": "postgresql",
+            "host": "database.example.com",
+            "port": 5432,
+            "database": "analytics",
+            "username": "readonly",
+            "tls_mode": "verify-full",
+        },
+        "credentials": {"password": "secret-for-cred_dbhub"},
+        "workspace_id": None,
+    }
+    serialized = json.dumps(service.list_adapters(), ensure_ascii=False)
+    assert "secret-for-cred_dbhub" not in serialized
+    assert "server_command" not in serialized
+    public = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == "dbhub"
+    )
+    assert public["database_policy"]["read_only"] is True
+    assert public["database_policy"]["max_rows_hard"] == 1000
+    assert public["preflight_status"] == "verified"
+    assert public["credential_verification"] == "verified"
+    assert all(
+        policy["read_only"] and policy["effect"] == "read"
+        for policy in public["tool_policies"].values()
+    )
+
+
+def test_wave_five_rejects_connection_strings_and_raw_secrets() -> None:
+    service, _, _, _ = make_service()
+    for forbidden, value in (
+        ("dsn", "postgresql://readonly:secret@database.example.com/app"),
+        ("connection_uri", "mongodb://database.example.com/app"),
+        ("password", "raw-secret"),
+        ("certificate_path", "C:/private/client.pem"),
+    ):
+        with pytest.raises(catalog.CatalogAdapterPolicyError, match="不能包含命令"):
+            service.configure(
+                "dbhub",
+                CatalogConfigurationRequest(settings={forbidden: value}),
+            )
+
+
+def test_wave_five_status_and_blocked_subbatch_are_exact() -> None:
+    blocked = {
+        "postgres-mcp",
+        "sqlite-mcp",
+        "cognee-mcp",
+        "graphiti-mcp",
+        "hindsight-mcp",
+    }
+    assert {
+        project_id
+        for project_id in WAVE_PROJECTS[5]
+        if CATALOG_ADAPTERS[project_id].availability == "blocked"
+    } == blocked
+    for project_id in blocked:
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.server_command == ()
+        assert manifest.executable is False
+        assert manifest.network_policy == "blocked:no-production-runtime"
+    duckdb = CATALOG_ADAPTERS["duckdb-mcp"]
+    assert duckdb.workspace_policy is not None
+    assert duckdb.workspace_policy.accepted_extensions == (".duckdb",)
+    assert duckdb.credential_policies == ()
+    assert duckdb.network_policy == "disabled"
+    dbhub = CATALOG_ADAPTERS["dbhub"]
+    engine_policy = next(item for item in dbhub.setting_policies if item.key == "engine")
+    assert {value for value, _ in engine_policy.options} == {
+        "postgresql", "mysql", "mariadb",
+    }
+    supabase = CATALOG_ADAPTERS["supabase-mcp"]
+    assert set(supabase.tool_policies) == {
+        "list_tables", "list_extensions", "execute_sql",
+    }
+    assert supabase.setting_policies[0].key == "project_ref"
+    assert supabase.setting_policies[0].pattern == r"^[a-z]{20}$"
+    assert supabase.credential_policies[0].key == "access_token"
 
 
 def test_bibigpt_is_fail_closed_until_oauth_wave() -> None:

@@ -45,6 +45,9 @@ export interface McpApprovalRequest {
 interface McpWorkspacePanelProps {
   projectId: string;
   policy: McpWorkspacePolicy;
+  configurationSettings?: Record<string, string | number | boolean>;
+  credentialBindings?: Record<string, string>;
+  boundWorkspaceId?: string | null;
   onBound: (workspace: McpWorkspace | null) => void;
   onApprovalRequired: (
     approval: McpApprovalRequest,
@@ -112,6 +115,9 @@ async function responseDetail(response: Response) {
 export default function McpWorkspacePanel({
   projectId,
   policy,
+  configurationSettings = {},
+  credentialBindings = {},
+  boundWorkspaceId = null,
   onBound,
   onApprovalRequired,
   refreshKey = "",
@@ -138,7 +144,7 @@ export default function McpWorkspacePanel({
   useEffect(() => {
     setPendingUpload(null);
     void load();
-  }, [projectId, refreshKey]);
+  }, [boundWorkspaceId, projectId, refreshKey]);
 
   async function load(preferredId = "") {
     setError("");
@@ -150,15 +156,25 @@ export default function McpWorkspacePanel({
     }
     const payload = (await response.json()) as { items: McpWorkspace[] };
     setItems(payload.items);
+    const restoredBoundId = payload.items.some(
+      (item) => item.workspace_id === boundWorkspaceId && item.status === "sealed",
+    )
+      ? boundWorkspaceId ?? ""
+      : "";
     const nextId =
       preferredId ||
+      restoredBoundId ||
       selectedId ||
       payload.items.find((item) => item.status === "sealed")?.workspace_id ||
       payload.items[0]?.workspace_id ||
       "";
     setSelectedId(nextId);
     const next = payload.items.find((item) => item.workspace_id === nextId) ?? null;
-    if (!next || next.status !== "sealed") onBound(null);
+    if (next?.status === "sealed" && next.workspace_id === restoredBoundId) {
+      onBound(next);
+    } else {
+      onBound(null);
+    }
   }
 
   async function createWorkspace() {
@@ -259,8 +275,8 @@ export default function McpWorkspacePanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             workspace_id: workspace.workspace_id,
-            settings: {},
-            credential_bindings: {},
+            settings: configurationSettings,
+            credential_bindings: credentialBindings,
           }),
         },
       );
@@ -269,7 +285,7 @@ export default function McpWorkspacePanel({
       }
       await load(workspace.workspace_id);
       onBound(workspace);
-      setMessage("工作区已封存并绑定，可以连接适配器。输入文件之后保持只读。 ");
+      setMessage("工作区已封存并绑定，可以连接适配器。已保存的连接字段和加密凭据保持不变。");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "工作区封存失败");
     } finally {
@@ -296,7 +312,7 @@ export default function McpWorkspacePanel({
       if (!response.ok) throw new Error(String(await responseDetail(response)));
       onBound(null);
       await load();
-      setMessage("工作区及临时产物已清理。 ");
+      setMessage("工作区及临时产物已清理。");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "清理工作区失败");
     } finally {
@@ -305,10 +321,16 @@ export default function McpWorkspacePanel({
   }
 
   return (
-    <section className="relative mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.055] p-3">
+    <section
+      aria-busy={Boolean(busy)}
+      aria-labelledby={`${projectId}-workspace-heading`}
+      className="relative mt-4 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.055] p-3"
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-xs font-semibold text-cyan-100">受控文件工作区</p>
+          <h3 className="text-xs font-semibold text-cyan-100" id={`${projectId}-workspace-heading`}>
+            受控文件工作区
+          </h3>
           <p className="mt-1 text-[11px] leading-5 text-slate-400">
             不上传宿主路径；输入封存后只读，产物独立保存并可清理。
           </p>
@@ -318,15 +340,22 @@ export default function McpWorkspacePanel({
         </span>
       </div>
 
-      <div className="mt-3 flex gap-2">
+      <label
+        className="mt-3 block text-xs font-semibold text-slate-200"
+        htmlFor={`${projectId}-workspace-name`}
+      >
+        工作区名称
+      </label>
+      <div className="mt-2 flex gap-2">
         <input
-          className="min-w-0 flex-1 rounded-md border border-white/10 bg-ink-950 px-2.5 py-2 text-xs text-white outline-none focus:border-cyan-300/50"
+          className="min-h-11 min-w-0 flex-1 rounded-md border border-white/10 bg-ink-950 px-2.5 py-2 text-xs text-white outline-none focus:border-cyan-300/50"
+          id={`${projectId}-workspace-name`}
           onChange={(event) => setDisplayName(event.target.value)}
           placeholder="工作区名称"
           value={displayName}
         />
         <button
-          className="rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-50"
+          className="min-h-11 rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-50"
           disabled={Boolean(busy)}
           onClick={() => void createWorkspace()}
           type="button"
@@ -336,21 +365,24 @@ export default function McpWorkspacePanel({
       </div>
 
       {items.length ? (
-        <select
-          className="mt-2 w-full rounded-md border border-white/10 bg-ink-950 px-2.5 py-2 text-xs text-white outline-none focus:border-cyan-300/50"
-          onChange={(event) => {
-            setSelectedId(event.target.value);
-            setPendingUpload(null);
-            onBound(null);
-          }}
-          value={selectedId}
-        >
-          {items.map((item) => (
-            <option key={item.workspace_id} value={item.workspace_id}>
-              {item.display_name} · {item.status === "sealed" ? "已封存" : "上传中"}
-            </option>
-          ))}
-        </select>
+        <label className="mt-3 block text-xs font-semibold text-slate-200">
+          选择工作区
+          <select
+            className="mt-2 min-h-11 w-full rounded-md border border-white/10 bg-ink-950 px-2.5 py-2 text-xs text-white outline-none focus:border-cyan-300/50"
+            onChange={(event) => {
+              setSelectedId(event.target.value);
+              setPendingUpload(null);
+              onBound(null);
+            }}
+            value={selectedId}
+          >
+            {items.map((item) => (
+              <option key={item.workspace_id} value={item.workspace_id}>
+                {item.display_name} · {item.status === "sealed" ? "已封存" : "上传中"}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
 
       {selected ? (
@@ -362,11 +394,12 @@ export default function McpWorkspacePanel({
 
           {selected.status === "uploading" ? (
             <div className="mt-3 flex flex-wrap gap-2">
-              <label className="cursor-pointer rounded-md border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/40">
+              <label className="relative inline-flex min-h-11 cursor-pointer items-center overflow-hidden rounded-md border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/40 focus-within:ring-2 focus-within:ring-cyan-300/50">
                 {busy === "upload" ? "上传中…" : "选择文件或 ZIP"}
                 <input
                   accept={accept}
-                  className="hidden"
+                  aria-label="选择文件或 ZIP"
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                   disabled={Boolean(busy)}
                   multiple
                   onChange={(event) => {
@@ -376,12 +409,12 @@ export default function McpWorkspacePanel({
                   type="file"
                 />
               </label>
-              <label className="cursor-pointer rounded-md border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/40">
+              <label className="relative inline-flex min-h-11 cursor-pointer items-center overflow-hidden rounded-md border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-300/40 focus-within:ring-2 focus-within:ring-cyan-300/50">
                 选择文件夹
                 <input
                   accept={accept}
                   aria-label="选择文件夹"
-                  className="hidden"
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                   disabled={Boolean(busy)}
                   multiple
                   onChange={(event) => {
@@ -432,7 +465,7 @@ export default function McpWorkspacePanel({
               <div className="mt-3 flex flex-wrap gap-2">
                 {pendingUpload.files.length ? (
                   <button
-                    className="rounded-md bg-amber-200 px-3 py-2 text-xs font-semibold text-ink-950 hover:bg-amber-100 focus-visible:outline-amber-200 disabled:opacity-50"
+                    className="min-h-11 rounded-md bg-amber-200 px-3 py-2 text-xs font-semibold text-ink-950 hover:bg-amber-100 focus-visible:outline-amber-200 disabled:opacity-50"
                     disabled={Boolean(busy)}
                     onClick={() =>
                       void uploadFiles(
@@ -446,7 +479,7 @@ export default function McpWorkspacePanel({
                   </button>
                 ) : null}
                 <button
-                  className="rounded-md border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-white/30 disabled:opacity-50"
+                  className="min-h-11 rounded-md border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-white/30 disabled:opacity-50"
                   disabled={Boolean(busy)}
                   onClick={() => setPendingUpload(null)}
                   type="button"
@@ -470,7 +503,7 @@ export default function McpWorkspacePanel({
 
           <div className="mt-3 flex flex-wrap gap-2">
             <button
-              className="rounded-md bg-emerald-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-50"
+              className="min-h-11 rounded-md bg-emerald-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-50"
               disabled={Boolean(busy)}
               onClick={() => void sealAndBind()}
               type="button"
@@ -478,7 +511,7 @@ export default function McpWorkspacePanel({
               {busy === "seal" ? "绑定中…" : selected.status === "sealed" ? "绑定此工作区" : "封存并绑定"}
             </button>
             <button
-              className="rounded-md border border-rose-300/25 px-3 py-2 text-xs font-semibold text-rose-100 disabled:opacity-50"
+              className="min-h-11 rounded-md border border-rose-300/25 px-3 py-2 text-xs font-semibold text-rose-100 disabled:opacity-50"
               disabled={Boolean(busy)}
               onClick={() => void removeWorkspace()}
               type="button"
@@ -493,7 +526,7 @@ export default function McpWorkspacePanel({
               <div className="mt-2 flex flex-wrap gap-2">
                 {selected.artifacts.map((artifact) => (
                   <a
-                    className="rounded-md border border-brand-300/20 bg-brand-300/10 px-2.5 py-1.5 text-[11px] text-brand-100 hover:bg-brand-300/15"
+                    className="inline-flex min-h-11 items-center rounded-md border border-brand-300/20 bg-brand-300/10 px-2.5 py-1.5 text-[11px] text-brand-100 hover:bg-brand-300/15"
                     href={`/api/mcp/catalog/${projectId}/workspaces/${selected.workspace_id}/artifacts/${artifact.artifact_id}/download`}
                     key={artifact.artifact_id}
                   >
@@ -506,8 +539,14 @@ export default function McpWorkspacePanel({
         </div>
       ) : null}
 
-      {message ? <p className="mt-2 text-[11px] leading-5 text-emerald-100">{message}</p> : null}
-      {error ? <p className="mt-2 text-[11px] leading-5 text-rose-100">{error}</p> : null}
+      <div aria-live="polite" aria-relevant="text" role="status">
+        {message ? <p className="mt-2 text-[11px] leading-5 text-emerald-100">{message}</p> : null}
+      </div>
+      {error ? (
+        <p className="mt-2 text-[11px] leading-5 text-rose-100" role="alert">
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 }

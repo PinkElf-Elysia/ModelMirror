@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   McpCredentialField,
   McpCredentialVerification,
+  McpDatabasePreflightStatus,
   McpSettingField,
 } from "../data/mcpAdaptationPlan";
 
@@ -17,14 +18,21 @@ interface CredentialSummary {
 
 interface McpCredentialPanelProps {
   projectId: string;
+  mode?: "service" | "database";
   credentialFields: McpCredentialField[];
   settingFields: McpSettingField[];
   initialBindings: Record<string, string>;
   initialSettings: Record<string, string | number | boolean>;
+  workspaceId?: string | null;
   initiallyConfigured: boolean;
   credentialVerification: McpCredentialVerification;
+  databasePreflightStatus?: McpDatabasePreflightStatus;
   disabled?: boolean;
   onConfigured: (configured: boolean) => void;
+  onConfigurationSaved?: (
+    settings: Record<string, string | number | boolean>,
+    bindings: Record<string, string>,
+  ) => void;
   onSessionInvalidated: () => void;
 }
 
@@ -63,16 +71,67 @@ const verificationCopy: Record<
   },
 };
 
+const databasePreflightVerifiedCopy = {
+  label: "当前连接已通过自动数据源预检",
+  className: "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100",
+};
+
+function visibleSettingOptions(projectId: string, field: McpSettingField) {
+  if (projectId !== "dbhub" || field.key !== "engine") return field.options;
+  return field.options.filter(
+    (option) => !["sqlserver", "mssql"].includes(option.value.toLowerCase()),
+  );
+}
+
+function initialSettingValue(
+  projectId: string,
+  field: McpSettingField,
+  initialSettings: Record<string, string | number | boolean>,
+) {
+  const value = String(initialSettings[field.key] ?? field.default ?? "");
+  if (field.kind !== "enum") return value;
+  const options = visibleSettingOptions(projectId, field);
+  return options.some((option) => option.value === value)
+    ? value
+    : (options[0]?.value ?? "");
+}
+
+function dbhubDefaultPort(engine: string) {
+  const normalized = engine.trim().toLowerCase();
+  if (normalized === "postgres" || normalized === "postgresql") return "5432";
+  if (normalized === "mysql" || normalized === "mariadb") return "3306";
+  return "";
+}
+
+function hasCustomizedDbhubPort(
+  projectId: string,
+  settingFields: McpSettingField[],
+  initialSettings: Record<string, string | number | boolean>,
+) {
+  if (projectId !== "dbhub") return false;
+  const engineField = settingFields.find((field) => field.key === "engine");
+  const portField = settingFields.find((field) => field.key === "port");
+  if (!engineField || !portField) return false;
+  const engine = initialSettingValue(projectId, engineField, initialSettings);
+  const port = initialSettingValue(projectId, portField, initialSettings).trim();
+  const defaultPort = dbhubDefaultPort(engine);
+  return Boolean(port && defaultPort && port !== defaultPort);
+}
+
 export default function McpCredentialPanel({
   projectId,
+  mode = "service",
   credentialFields,
   settingFields,
   initialBindings,
   initialSettings,
+  workspaceId = null,
   initiallyConfigured,
   credentialVerification,
+  databasePreflightStatus = "not-applicable",
   disabled = false,
   onConfigured,
+  onConfigurationSaved,
   onSessionInvalidated,
 }: McpCredentialPanelProps) {
   const [credentials, setCredentials] = useState<CredentialSummary[]>([]);
@@ -81,9 +140,12 @@ export default function McpCredentialPanel({
     Object.fromEntries(
       settingFields.map((field) => [
         field.key,
-        String(initialSettings[field.key] ?? field.default ?? ""),
+        initialSettingValue(projectId, field, initialSettings),
       ]),
     ),
+  );
+  const [dbhubPortCustomized, setDbhubPortCustomized] = useState(() =>
+    hasCustomizedDbhubPort(projectId, settingFields, initialSettings),
   );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -126,11 +188,14 @@ export default function McpCredentialPanel({
       Object.fromEntries(
         settingFields.map((field) => [
           field.key,
-          String(initialSettings[field.key] ?? field.default ?? ""),
+          initialSettingValue(projectId, field, initialSettings),
         ]),
       ),
     );
-  }, [initialSettings, settingFields]);
+    setDbhubPortCustomized(
+      hasCustomizedDbhubPort(projectId, settingFields, initialSettings),
+    );
+  }, [initialSettings, projectId, settingFields]);
 
   const complete = useMemo(
     () =>
@@ -231,10 +296,19 @@ export default function McpCredentialPanel({
       const response = await fetch(`/api/mcp/catalog/${projectId}/configuration`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: typedSettings, credential_bindings: bindings }),
+        body: JSON.stringify({
+          settings: typedSettings,
+          credential_bindings: bindings,
+          workspace_id: workspaceId,
+        }),
       });
       if (!response.ok) throw new Error(await responseError(response));
-      setMessage("连接配置已保存；首次成功调用后才会标记凭据已验证。");
+      setMessage(
+        mode === "database"
+          ? "数据库配置已保存；连接时会自动校验目标并执行代表性只读预检。"
+          : "连接配置已保存；首次成功调用后才会标记凭据已验证。",
+      );
+      onConfigurationSaved?.(typedSettings, bindings);
       onConfigured(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "目录配置保存失败。");
@@ -244,18 +318,33 @@ export default function McpCredentialPanel({
     }
   }
 
-  const verification = verificationCopy[credentialVerification];
+  const isDatabase = mode === "database";
+  const isSupabase = projectId === "supabase-mcp";
+  const verification =
+    isDatabase &&
+    databasePreflightStatus === "verified" &&
+    credentialVerification !== "missing" &&
+    credentialVerification !== "not-required" &&
+    credentialVerification !== "verification-failed"
+      ? databasePreflightVerifiedCopy
+      : verificationCopy[credentialVerification];
 
   return (
     <section
-      aria-label="MCP 加密凭据配置"
+      aria-label={isDatabase ? "MCP 数据库连接配置" : "MCP 加密凭据配置"}
       className="relative mt-4 border-t border-white/10 pt-4"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-white">加密凭据</h3>
+          <h3 className="text-sm font-semibold text-white">
+            {isDatabase ? "数据库连接与加密凭据" : "加密凭据"}
+          </h3>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-400">
-            在当前 MCP 卡片内独立创建和管理。明文只提交一次，服务端加密保存后仅返回掩码。
+            {isDatabase
+              ? isSupabase
+                ? "20 位小写英文字母 project_ref（不含数字）与 PAT 只在当前卡片管理，不使用远程 OAuth；凭据明文只提交一次。"
+                : "连接字段与凭据只在当前卡片管理。请分别填写受控字段，不要粘贴 DSN、URI 或宿主路径；凭据明文只提交一次。"
+              : "在当前 MCP 卡片内独立创建和管理。明文只提交一次，服务端加密保存后仅返回掩码。"}
           </p>
         </div>
         <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${verification.className}`}>
@@ -286,8 +375,9 @@ export default function McpCredentialPanel({
                   </span>
                 </label>
                 <button
+                  aria-controls={`${fieldId}-create`}
                   aria-expanded={isCreating}
-                  className="rounded-lg border border-brand-300/30 bg-brand-300/10 px-3 py-2 text-xs font-semibold text-brand-100 transition hover:bg-brand-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+                  className="min-h-11 rounded-lg border border-brand-300/30 bg-brand-300/10 px-3 py-2 text-xs font-semibold text-brand-100 transition hover:bg-brand-300/15 disabled:cursor-not-allowed disabled:opacity-45"
                   disabled={disabled || creating}
                   onClick={() => (isCreating ? stopCreating() : startCreating(field))}
                   type="button"
@@ -298,7 +388,7 @@ export default function McpCredentialPanel({
 
               <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                 <select
-                  className="min-w-0 flex-1 rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50 focus-visible:ring-2 focus-visible:ring-brand-300/30 disabled:opacity-50"
+                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50 focus-visible:ring-2 focus-visible:ring-brand-300/30 disabled:opacity-50"
                   disabled={disabled || loading}
                   id={fieldId}
                   onChange={(event) => {
@@ -317,7 +407,7 @@ export default function McpCredentialPanel({
                 </select>
                 {selected ? (
                   <button
-                    className="rounded-lg border border-rose-300/25 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-45"
+                    className="min-h-11 rounded-lg border border-rose-300/25 px-3 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-45"
                     disabled={revoking}
                     onClick={() => setPendingRevoke(selected)}
                     type="button"
@@ -334,7 +424,7 @@ export default function McpCredentialPanel({
               ) : null}
 
               {isCreating ? (
-                <div className="mt-3 rounded-lg bg-white/[0.04] p-3">
+                <div className="mt-3 rounded-lg bg-white/[0.04] p-3" id={`${fieldId}-create`}>
                   <p className="text-xs font-semibold text-white">新增加密凭据</p>
                   <p className="mt-1 text-xs leading-5 text-slate-400">
                     该凭据只允许用于 {field.label}，不能被其他 MCP 或 Toolset 选择。
@@ -344,17 +434,17 @@ export default function McpCredentialPanel({
                       凭据名称
                       <input
                         autoComplete="off"
-                        className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-300/50"
+                        className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-300/50"
                         maxLength={160}
                         onChange={(event) => setCredentialName(event.target.value)}
                         value={credentialName}
                       />
                     </label>
                     <label className="text-xs font-semibold text-slate-300">
-                      Token / API Key
+                      {field.label}（明文仅本次提交）
                       <input
                         autoComplete="new-password"
-                        className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-300/50"
+                        className="mt-1 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-300/50"
                         maxLength={20_000}
                         onChange={(event) => setCredentialValue(event.target.value)}
                         placeholder="仅本次提交，保存后不可查看"
@@ -365,7 +455,7 @@ export default function McpCredentialPanel({
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
-                      className="rounded-lg bg-brand-300 px-3 py-2 text-xs font-semibold text-ink-950 transition hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
+                      className="min-h-11 rounded-lg bg-brand-300 px-3 py-2 text-xs font-semibold text-ink-950 transition hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
                       disabled={creating || !credentialName.trim() || !credentialValue}
                       onClick={() => void createCredential()}
                       type="button"
@@ -373,7 +463,7 @@ export default function McpCredentialPanel({
                       {creating ? "正在加密保存…" : "加密保存并选择"}
                     </button>
                     <button
-                      className="rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+                      className="min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.06]"
                       onClick={stopCreating}
                       type="button"
                     >
@@ -388,7 +478,16 @@ export default function McpCredentialPanel({
 
         {settingFields.length > 0 ? (
           <div>
-            <h4 className="text-xs font-semibold text-white">服务配置</h4>
+            <h4 className="text-xs font-semibold text-white">
+              {isDatabase ? "数据库连接字段" : "服务配置"}
+            </h4>
+            {isDatabase ? (
+              <p className="mt-1 text-xs leading-5 text-slate-400">
+                {isSupabase
+                  ? "project_ref 仅接受 20 位小写英文字母，不含数字；页面不会接收 API URL、OAuth 回调或完整连接串。"
+                  : "主机、端口、库名、TLS 和用户名按字段独立校验；页面不会生成或展示完整连接串。"}
+              </p>
+            ) : null}
             <div className="mt-2 grid gap-3 sm:grid-cols-2">
               {settingFields.map((field) => {
                 const fieldId = `${projectId}-${field.key}-setting`;
@@ -402,36 +501,59 @@ export default function McpCredentialPanel({
                     </span>
                     {field.kind === "enum" ? (
                       <select
-                        className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-300/50"
+                        className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none focus:border-brand-300/50"
                         disabled={disabled}
                         id={fieldId}
                         onChange={(event) => {
-                          setSettings((current) => ({ ...current, [field.key]: event.target.value }));
+                          const nextValue = event.target.value;
+                          setSettings((current) => {
+                            const next = { ...current, [field.key]: nextValue };
+                            if (
+                              projectId === "dbhub" &&
+                              field.key === "engine" &&
+                              !dbhubPortCustomized
+                            ) {
+                              const defaultPort = dbhubDefaultPort(nextValue);
+                              if (defaultPort) next.port = defaultPort;
+                            }
+                            return next;
+                          });
                           setMessage("");
                           onConfigured(false);
                         }}
                         value={settings[field.key] ?? ""}
                       >
                         <option value="">请选择</option>
-                        {field.options.map((option) => (
+                        {visibleSettingOptions(projectId, field).map((option) => (
                           <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
                     ) : (
                       <input
                         autoComplete="off"
-                        className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50 focus-visible:ring-2 focus-visible:ring-brand-300/30 disabled:opacity-50"
+                        className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50 focus-visible:ring-2 focus-visible:ring-brand-300/30 disabled:opacity-50"
                         disabled={disabled}
                         id={fieldId}
                         max={field.maximum ?? undefined}
                         maxLength={253}
                         min={field.minimum ?? undefined}
                         onChange={(event) => {
+                          if (projectId === "dbhub" && field.key === "port") {
+                            setDbhubPortCustomized(true);
+                          }
                           setSettings((current) => ({ ...current, [field.key]: event.target.value }));
                           setMessage("");
                           onConfigured(false);
                         }}
-                        placeholder={field.allowed_hostname_suffixes[0] ? `example${field.allowed_hostname_suffixes[0]}` : undefined}
+                        placeholder={
+                          field.key === "project_ref"
+                            ? "abcdefghijklmnopqrst"
+                            : field.allowed_hostname_suffixes[0]
+                            ? `example${field.allowed_hostname_suffixes[0]}`
+                            : field.kind === "hostname"
+                              ? "db.example.com"
+                              : undefined
+                        }
                         spellCheck={false}
                         type={field.kind === "integer" ? "number" : "text"}
                         value={settings[field.key] ?? ""}
@@ -453,7 +575,7 @@ export default function McpCredentialPanel({
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
-              className="rounded-lg bg-rose-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-45"
+              className="min-h-11 rounded-lg bg-rose-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-45"
               disabled={revoking}
               onClick={() => void revokeCredential()}
               type="button"
@@ -461,7 +583,7 @@ export default function McpCredentialPanel({
               {revoking ? "正在撤销…" : "确认撤销凭据"}
             </button>
             <button
-              className="rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200"
+              className="min-h-11 rounded-lg border border-white/15 px-3 py-2 text-xs font-semibold text-slate-200"
               disabled={revoking}
               onClick={() => setPendingRevoke(null)}
               type="button"
@@ -474,7 +596,7 @@ export default function McpCredentialPanel({
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button
-          className="rounded-lg border border-brand-300/35 bg-brand-300/10 px-4 py-2 text-xs font-semibold text-brand-100 transition hover:bg-brand-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+          className="min-h-11 rounded-lg border border-brand-300/35 bg-brand-300/10 px-4 py-2 text-xs font-semibold text-brand-100 transition hover:bg-brand-300/15 disabled:cursor-not-allowed disabled:opacity-45"
           disabled={!complete || saving || disabled}
           onClick={() => void save()}
           type="button"

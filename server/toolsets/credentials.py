@@ -39,6 +39,7 @@ class CredentialStore:
         storage_dir: str | Path | None = None,
         *,
         master_key: str | bytes | None = None,
+        require_external_master_key: bool | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.storage_dir = Path(
@@ -50,6 +51,13 @@ class CredentialStore:
         self.storage_path = self.storage_dir / "credentials.json"
         self.master_key_path = self.storage_dir / "credential-master.key"
         self._lock = threading.RLock()
+        self.require_external_master_key = (
+            self._environment_flag(
+                "MODEL_MIRROR_REQUIRE_EXTERNAL_CREDENTIAL_MASTER_KEY"
+            )
+            if require_external_master_key is None
+            else bool(require_external_master_key)
+        )
         self._fernet = Fernet(self._resolve_master_key(master_key))
         self._ensure_storage_unlocked()
 
@@ -59,11 +67,15 @@ class CredentialStore:
         name: str,
         value: str,
         kind: Literal["header", "environment", "provider_key", "generic"] = "generic",
+        tenant_id: str = "local",
+        owner_id: str = "local",
         catalog_project_id: str = "",
         catalog_slot: str = "",
     ) -> tuple[CredentialRecord, str]:
         clean_name = self._required_text(name, "name", 160)
         clean_value = self._required_text(value, "value", 20_000)
+        clean_tenant_id = self._scope_text(tenant_id, "tenant_id", 120)
+        clean_owner_id = self._scope_text(owner_id, "owner_id", 160)
         clean_catalog_project_id = str(catalog_project_id or "").strip()
         clean_catalog_slot = str(catalog_slot or "").strip()
         if bool(clean_catalog_project_id) != bool(clean_catalog_slot):
@@ -80,6 +92,8 @@ class CredentialStore:
             prefix=self._prefix(clean_value),
             masked_value=self._mask(clean_value),
             ciphertext=self._fernet.encrypt(clean_value.encode("utf-8")).decode("ascii"),
+            tenant_id=clean_tenant_id,
+            owner_id=clean_owner_id,
             catalog_project_id=clean_catalog_project_id,
             catalog_slot=clean_catalog_slot,
             created_at=now,
@@ -91,20 +105,54 @@ class CredentialStore:
             self._write_unlocked(items)
         return self._public(record), clean_value
 
-    def list(self) -> list[CredentialRecord]:
+    def list(
+        self,
+        *,
+        tenant_id: str = "local",
+        owner_id: str = "local",
+    ) -> list[CredentialRecord]:
+        clean_tenant_id = self._scope_text(tenant_id, "tenant_id", 120)
+        clean_owner_id = self._scope_text(owner_id, "owner_id", 160)
         with self._lock:
-            items = self._read_unlocked()
+            items = [
+                item
+                for item in self._read_unlocked()
+                if item.tenant_id == clean_tenant_id
+                and item.owner_id == clean_owner_id
+            ]
         items.sort(key=lambda item: (-item.updated_at, item.credential_id))
         return [self._public_with_runtime_status(item) for item in items]
 
-    def get_public(self, credential_id: str) -> CredentialRecord:
+    def get_public(
+        self,
+        credential_id: str,
+        *,
+        tenant_id: str = "local",
+        owner_id: str = "local",
+    ) -> CredentialRecord:
         with self._lock:
-            record = self._find_unlocked(self._read_unlocked(), credential_id)
+            record = self._find_unlocked(
+                self._read_unlocked(),
+                credential_id,
+                tenant_id=self._scope_text(tenant_id, "tenant_id", 120),
+                owner_id=self._scope_text(owner_id, "owner_id", 160),
+            )
         return self._public_with_runtime_status(record)
 
-    def resolve(self, credential_id: str) -> str:
+    def resolve(
+        self,
+        credential_id: str,
+        *,
+        tenant_id: str = "local",
+        owner_id: str = "local",
+    ) -> str:
         with self._lock:
-            record = self._find_unlocked(self._read_unlocked(), credential_id)
+            record = self._find_unlocked(
+                self._read_unlocked(),
+                credential_id,
+                tenant_id=self._scope_text(tenant_id, "tenant_id", 120),
+                owner_id=self._scope_text(owner_id, "owner_id", 160),
+            )
         if record.status != "active":
             raise CredentialUnavailableError("Credential is not active.")
         try:
@@ -119,11 +167,18 @@ class CredentialStore:
         credential_id: str,
         *,
         value: str,
+        tenant_id: str = "local",
+        owner_id: str = "local",
     ) -> tuple[CredentialRecord, str]:
         clean_value = self._required_text(value, "value", 20_000)
         with self._lock:
             items = self._read_unlocked()
-            record = self._find_unlocked(items, credential_id)
+            record = self._find_unlocked(
+                items,
+                credential_id,
+                tenant_id=self._scope_text(tenant_id, "tenant_id", 120),
+                owner_id=self._scope_text(owner_id, "owner_id", 160),
+            )
             record.ciphertext = self._fernet.encrypt(
                 clean_value.encode("utf-8")
             ).decode("ascii")
@@ -134,10 +189,21 @@ class CredentialStore:
             self._write_unlocked(items)
             return self._public(record), clean_value
 
-    def revoke(self, credential_id: str) -> CredentialRecord:
+    def revoke(
+        self,
+        credential_id: str,
+        *,
+        tenant_id: str = "local",
+        owner_id: str = "local",
+    ) -> CredentialRecord:
         with self._lock:
             items = self._read_unlocked()
-            record = self._find_unlocked(items, credential_id)
+            record = self._find_unlocked(
+                items,
+                credential_id,
+                tenant_id=self._scope_text(tenant_id, "tenant_id", 120),
+                owner_id=self._scope_text(owner_id, "owner_id", 160),
+            )
             record.status = "revoked"
             record.updated_at = time.time()
             self._write_unlocked(items)
@@ -149,6 +215,10 @@ class CredentialStore:
         environment_key = os.getenv("MODEL_MIRROR_CREDENTIAL_MASTER_KEY", "").strip()
         if environment_key:
             return self._normalize_key(environment_key)
+        if self.require_external_master_key:
+            raise CredentialStoreError(
+                "An external credential master key is required by runtime policy."
+            )
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         if self.master_key_path.exists():
             raw = self.master_key_path.read_bytes().strip()
@@ -183,13 +253,23 @@ class CredentialStore:
         try:
             payload = json.loads(self.storage_path.read_text(encoding="utf-8"))
             raw = payload.get("credentials", []) if isinstance(payload, dict) else []
-            return [CredentialRecord.model_validate(item) for item in raw]
+            items = [CredentialRecord.model_validate(item) for item in raw]
+            if any(
+                isinstance(item, dict)
+                and ("tenant_id" not in item or "owner_id" not in item)
+                for item in raw
+            ):
+                # Persist the safe local ownership assigned by model defaults so
+                # the migration is explicit and future readers cannot interpret
+                # a missing owner as a wildcard.
+                self._write_unlocked(items)
+            return items
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             raise CredentialStoreError("Credential storage is unreadable.") from exc
 
     def _write_unlocked(self, items: list[CredentialRecord]) -> None:
         payload = {
-            "version": "modelmirror-credentials-v1",
+            "version": "modelmirror-credentials-v2",
             "credentials": [item.model_dump(mode="json") for item in items],
         }
         temporary = self.storage_path.with_suffix(".tmp")
@@ -201,11 +281,21 @@ class CredentialStore:
 
     @staticmethod
     def _find_unlocked(
-        items: list[CredentialRecord], credential_id: str
+        items: list[CredentialRecord],
+        credential_id: str,
+        *,
+        tenant_id: str,
+        owner_id: str,
     ) -> CredentialRecord:
         for item in items:
-            if item.credential_id == credential_id:
+            if (
+                item.credential_id == credential_id
+                and item.tenant_id == tenant_id
+                and item.owner_id == owner_id
+            ):
                 return item
+        # Deliberately use the same not-found error for a missing record and a
+        # cross-scope lookup so callers cannot probe another owner's vault.
         raise CredentialNotFoundError(f"Credential not found: {credential_id}")
 
     @staticmethod
@@ -245,3 +335,16 @@ class CredentialStore:
         if len(text) > limit:
             raise CredentialStoreError(f"{field_name} exceeds {limit} characters.")
         return text
+
+    @staticmethod
+    def _scope_text(value: str, field_name: str, limit: int) -> str:
+        text = str(value or "").strip()
+        if not text or len(text) > limit:
+            raise CredentialStoreError(
+                f"{field_name} must contain between 1 and {limit} characters."
+            )
+        return text
+
+    @staticmethod
+    def _environment_flag(name: str) -> bool:
+        return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}

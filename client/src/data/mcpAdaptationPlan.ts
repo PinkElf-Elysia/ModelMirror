@@ -12,6 +12,27 @@ export type McpCredentialVerification =
   | "unverified"
   | "verified"
   | "verification-failed";
+export type McpDatabasePreflightStatus =
+  | "not-applicable"
+  | "blocked"
+  | "awaiting-workspace"
+  | "awaiting-configuration"
+  | "unverified"
+  | "verifying"
+  | "verified"
+  | "failed";
+
+export interface McpDatabasePolicy {
+  mode: "remote-read-only" | "local-file-read-only";
+  engine: string;
+  read_only: boolean;
+  tls_required: boolean;
+  max_rows_default: number;
+  max_rows_hard: number;
+  statement_timeout_seconds: number;
+  operation_timeout_seconds: number;
+  preflight_checks: string[];
+}
 
 export interface McpWorkspacePolicy {
   required: boolean;
@@ -75,6 +96,7 @@ export interface McpCatalogAdapterStatus {
   configured_credential_slots: string[];
   configuration_values: Record<string, string | number | boolean>;
   credential_bindings: Record<string, string>;
+  workspace_id?: string | null;
   credential_verification: McpCredentialVerification;
   adapter_version: string;
   runtime_image: string;
@@ -82,6 +104,8 @@ export interface McpCatalogAdapterStatus {
   filesystem_policy: string;
   resource_limits: Record<string, string>;
   workspace_policy: McpWorkspacePolicy | null;
+  database_policy: McpDatabasePolicy | null;
+  preflight_status: McpDatabasePreflightStatus;
   tool_policies: Record<
     string,
     {
@@ -132,6 +156,14 @@ export const mcpCapabilityLabels: Record<string, string> = {
   "fixed-egress-policy": "固定服务出口域名",
   "read-only-tool-policy": "只读工具策略",
   "database-read-only-policy": "数据库只读策略",
+  "database-target-validation": "数据库目标校验",
+  "tenant-scoped-credential-binding": "租户级加密凭据绑定",
+  "structured-database-configuration": "结构化数据库连接字段",
+  "native-read-only-mode": "数据库原生只读模式",
+  "query-row-timeout-limits": "查询行数与超时硬限制",
+  "database-preflight": "连接时数据源安全预检",
+  "maintained-upstream-contract": "持续维护的上游工具契约",
+  "tenant-isolated-state": "租户隔离的持久状态",
   "query-limits": "查询超时与结果限制",
   "mutating-tool-approval": "修改操作审批",
   "account-unbinding": "账号解绑",
@@ -165,6 +197,16 @@ export const mcpIsolationLabels: Record<string, string> = {
   "blocked:arbitrary-code-execution": "已阻断：需要任意代码执行隔离",
   "blocked:no-runtime": "已阻断：不启动运行时",
   "blocked:local-build-execution": "已阻断：可能执行本地构建链",
+  "database-read-only-remote": "远程数据库仅允许受控只读连接",
+  "sealed-database-read-only": "封存数据库文件只读；不接入云端数据源",
+  "blocked:archived-upstream": "已阻断：上游实现已经归档",
+  "blocked:stateful-memory-runtime": "已阻断：需要状态化记忆运行时与写入隔离",
+  "database-egress:validated-host,admin-private-allowlist":
+    "数据库目标逐次校验；私网目标仅允许服务端管理员白名单",
+  "sealed-database-input-read-only,no-artifact-write":
+    "封存数据库输入只读；不允许写入原文件或生成旁路产物",
+  "allowlist:api.supabase.com,supabase.com": "仅允许 Supabase 官方 API 域名",
+  "blocked:no-production-runtime": "已阻断：没有生产级运行时",
 };
 
 export function formatMcpCapability(capability: string) {
@@ -268,8 +310,16 @@ const waveMetadata: Record<
   5: {
     connectionKind: "sandboxed-stdio",
     risk: "high",
-    requiredCapabilities: ["数据库只读策略", "查询限制"],
-    limitations: ["等待只读账号、TLS、查询超时和结果行数限制验证。"],
+    requiredCapabilities: [
+      "数据库只读策略",
+      "加密凭据绑定",
+      "数据库目标校验",
+      "查询超时与结果限制",
+    ],
+    limitations: [
+      "浏览器只提交受控的主机、端口、库名、TLS 和用户名字段；不接受 DSN、URI、命令、环境变量或宿主路径。",
+      "首轮仅发现并调用只读工具，写入、删除、迁移、管理和任意命令能力全部关闭。",
+    ],
   },
   6: {
     connectionKind: "remote-mcp",
@@ -309,6 +359,68 @@ const waveMetadata: Record<
   },
 };
 
+const waveFiveReadyIds = new Set([
+  "dbhub",
+  "mongodb-mcp",
+  "clickhouse-mcp",
+  "redis-mcp",
+  "duckdb-mcp",
+  "supabase-mcp",
+]);
+
+const waveFiveBlockedDetails: Record<string, string[]> = {
+  "postgres-mcp": [
+    "官方 PostgreSQL 参考实现已经归档，不再作为生产运行时部署。需要 PostgreSQL 时可使用本批受控的 DBHub 只读适配器。",
+    "连接入口保持关闭；不接受数据库 URI，也不会回退到未锁定的社区包。",
+  ],
+  "sqlite-mcp": [
+    "官方 SQLite 参考实现已经归档且包含写入能力，不满足本批生产只读门槛。",
+    "连接与本地路径输入保持关闭；后续只能基于封存副本和维护中的固定适配器重新评估。",
+  ],
+  "cognee-mcp": [
+    "Cognee 会组合 LLM、Embedding、图数据库与持久写入，不属于普通数据库只读查询。",
+    "转入后续“状态化记忆”适配；在模型调用、数据保留和写入隔离通过前不开放连接。",
+  ],
+  "graphiti-mcp": [
+    "Graphiti 需要图数据库、模型调用和时序知识写入，无法使用本批只读数据库 sidecar。",
+    "转入后续“状态化记忆”适配；当前不提供凭据、连接或初始化入口。",
+  ],
+  "hindsight-mcp": [
+    "Hindsight 的 retain、recall 与 reflect 依赖持久记忆写入及模型能力，不属于只读数据库工具。",
+    "转入后续“状态化记忆”适配；数据生命周期与写入审批完成前保持阻断。",
+  ],
+};
+
+const waveFiveReadyDetails: Record<string, string[]> = {
+  dbhub: [
+    "固定 DBHub 1.2.0，仅开放 PostgreSQL、MySQL 与 MariaDB 的只读查询；关闭 SQLite、SSH 隧道和自定义工具。",
+    "连接参数由服务端生成，查询强制超时和行数上限，浏览器不能提交 DSN 或 URI。",
+  ],
+  "mongodb-mcp": [
+    "固定 MongoDB MCP 2.0.0 并启用只读模式，仅开放集合、索引、结构和受控查询能力。",
+    "Atlas 管理、创建、更新和删除工具全部关闭；连接时自动执行目标校验和代表性只读预检。",
+  ],
+  "clickhouse-mcp": [
+    "固定 ClickHouse MCP 0.4.1，服务端强制只读会话、查询超时与结果上限。",
+    "写访问、DROP、TRUNCATE 与 chDB 全部关闭；连接时自动验证目标与代表性只读能力。",
+  ],
+  "redis-mcp": [
+    "固定 Redis MCP 0.5.1，仅允许只读 ACL 与工具白名单覆盖的键空间读取和检索。",
+    "任意命令、写键、删除、过期时间修改和管理操作均不可发现或调用。",
+  ],
+  "duckdb-mcp": [
+    "固定 DuckDB MCP 1.0.7，仅打开封存工作区中的本地 .duckdb 文件，输入始终只读。",
+    "运行环境默认断网，不开放 MotherDuck、Token、宿主路径或任意文件 URI。",
+  ],
+  "supabase-mcp": [
+    "固定 Supabase MCP 0.9.0，仅支持项目范围内的 stdio、PAT 与只读数据库能力。",
+    "远程 OAuth、组织管理、迁移和写入工具继续关闭，留待第 10 批授权适配。",
+  ],
+};
+
+const waveFiveSingleTenantLimitation =
+  "当前仅支持部署时固定 tenant/owner 的单租户本地实例；多用户共享部署未开放。";
+
 function buildAdaptationPlan() {
   const records: Record<string, McpAdaptationRecord> = {};
   for (const projectId of localStdioIds) {
@@ -331,6 +443,10 @@ function buildAdaptationPlan() {
         availability:
           projectId === "bibigpt-mcp" || projectId === "airbnb-mcp" || projectId === "manim-mcp" || projectId === "snyk-mcp"
             ? "blocked"
+            : wave === 5
+              ? waveFiveReadyIds.has(projectId)
+                ? "ready"
+                : "blocked"
             : wave <= 4
               ? "ready"
               : "planned",
@@ -338,7 +454,14 @@ function buildAdaptationPlan() {
           projectId === "bibigpt-mcp"
             ? "remote-mcp"
             : metadata.connectionKind,
-        risk: projectId === "manim-mcp" || projectId === "snyk-mcp" ? "critical" : metadata.risk,
+        risk:
+          projectId === "manim-mcp" ||
+          projectId === "snyk-mcp" ||
+          projectId === "cognee-mcp" ||
+          projectId === "graphiti-mcp" ||
+          projectId === "hindsight-mcp"
+            ? "critical"
+            : metadata.risk,
         requiredCapabilities:
           projectId === "bibigpt-mcp"
             ? ["OAuth PKCE", "授权撤销与解绑", "最小 Scope 审核"]
@@ -348,6 +471,10 @@ function buildAdaptationPlan() {
               ? ["一次性代码沙箱", "进程资源上限"]
             : projectId === "snyk-mcp"
               ? ["一次性代码沙箱", "受控文件授权", "终止性操作审批"]
+            : projectId === "postgres-mcp" || projectId === "sqlite-mcp"
+              ? ["维护中的固定上游契约", "数据库只读策略", "查询超时与结果限制"]
+            : projectId === "cognee-mcp" || projectId === "graphiti-mcp" || projectId === "hindsight-mcp"
+              ? ["状态化记忆运行时", "模型与向量服务隔离", "持久写入审批与数据保留"]
             : [...metadata.requiredCapabilities],
         limitations:
           projectId === "bibigpt-mcp"
@@ -369,6 +496,13 @@ function buildAdaptationPlan() {
               ? [
                   "Snyk MCP 会读取本地项目，并可能启动 Gradle、Maven 等构建链，超出本批 Token 只读远程检索边界。",
                   "保留第 4 批编号但关闭连接、安装与外站登录；等待第 8 批一次性代码执行隔离后再适配。",
+                ]
+            : waveFiveBlockedDetails[projectId]
+              ? [...waveFiveBlockedDetails[projectId]]
+            : waveFiveReadyDetails[projectId]
+              ? [
+                  ...waveFiveReadyDetails[projectId],
+                  waveFiveSingleTenantLimitation,
                 ]
             : [...metadata.limitations],
       };

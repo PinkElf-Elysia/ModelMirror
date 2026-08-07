@@ -149,6 +149,11 @@ class CredentialRecord(BaseModel):
     masked_value: str = ""
     ciphertext: str
     status: Literal["active", "unavailable", "revoked"] = "active"
+    # Older vault records predate tenant-aware catalog credentials.  Defaulting
+    # both dimensions to ``local`` keeps those records usable only in the
+    # original single-user scope instead of turning them into global secrets.
+    tenant_id: str = Field(default="local", min_length=1, max_length=120)
+    owner_id: str = Field(default="local", min_length=1, max_length=160)
     catalog_project_id: str = Field(default="", max_length=120)
     catalog_slot: str = Field(default="", max_length=80)
     created_at: float

@@ -182,7 +182,7 @@ export default function McpBrowserPage() {
             </p>
           </div>
           <button
-            className="mt-4 w-full rounded-full border border-brand-300/25 bg-brand-300/10 px-4 py-2 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/15"
+            className="mt-4 min-h-11 w-full rounded-full border border-brand-300/25 bg-brand-300/10 px-4 py-2 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/15"
             onClick={() => void refreshRuntime()}
             type="button"
           >
@@ -268,7 +268,7 @@ export default function McpBrowserPage() {
 
         <div className="mb-5 flex flex-wrap gap-2">
           <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+            className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold transition ${
               activeView === "servers"
                 ? "bg-hire-300 text-ink-950"
                 : "border border-white/10 bg-white/[0.055] text-slate-200 hover:border-hire-300/30"
@@ -279,7 +279,7 @@ export default function McpBrowserPage() {
             工具货架
           </button>
           <button
-            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+            className={`min-h-11 rounded-full px-4 py-2 text-sm font-semibold transition ${
               activeView === "registry"
                 ? "bg-brand-300 text-ink-950"
                 : "border border-white/10 bg-white/[0.055] text-slate-200 hover:border-brand-300/30"
@@ -329,7 +329,7 @@ export default function McpBrowserPage() {
               </label>
               <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                 <input
-                  className="min-w-0 flex-1 rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-brand-300/60"
+                  className="min-h-11 min-w-0 flex-1 rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-brand-300/60"
                   id="mcp-search"
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="搜索名称、仓库、用途或标签"
@@ -338,7 +338,7 @@ export default function McpBrowserPage() {
                 />
                 {query || selectedCategory !== "全部" || availabilityFilter !== "all" ? (
                   <button
-                    className="rounded-lg border border-white/10 bg-white/[0.055] px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:text-brand-100"
+                    className="min-h-11 rounded-lg border border-white/10 bg-white/[0.055] px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-brand-300/35 hover:text-brand-100"
                     onClick={() => {
                       setQuery("");
                       setSelectedCategory("全部");
@@ -368,7 +368,7 @@ export default function McpBrowserPage() {
                     return (
                       <button
                         aria-pressed={isSelected}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                        className={`min-h-11 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                           isSelected
                             ? value === "planned" || value === "blocked"
                               ? "border-amber-300/60 bg-amber-300 text-ink-950"
@@ -399,7 +399,7 @@ export default function McpBrowserPage() {
                   return (
                     <button
                       aria-pressed={isSelected}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                      className={`min-h-11 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                         isSelected
                           ? "border-hire-300/60 bg-hire-300 text-ink-950"
                           : "border-white/10 bg-white/[0.045] text-slate-300 hover:border-hire-300/35 hover:text-hire-100"
@@ -457,7 +457,7 @@ export default function McpBrowserPage() {
               {visibleProjects.length < filteredProjects.length ? (
                 <div className="mt-6 flex justify-center">
                   <button
-                    className="rounded-lg border border-brand-300/30 bg-brand-300/10 px-5 py-2.5 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/15 focus:outline-none focus:ring-2 focus:ring-brand-300/50"
+                    className="min-h-11 rounded-lg border border-brand-300/30 bg-brand-300/10 px-5 py-2.5 text-sm font-semibold text-brand-100 transition hover:bg-brand-300/15 focus:outline-none focus:ring-2 focus:ring-brand-300/50"
                     onClick={() =>
                       setVisibleCount((count) => count + INITIAL_VISIBLE_COUNT)
                     }
@@ -475,7 +475,7 @@ export default function McpBrowserPage() {
                 尝试缩短关键词、切换分类，或清除当前筛选条件查看完整目录。
               </p>
               <button
-                className="mt-4 rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-brand-200"
+                className="mt-4 min-h-11 rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-brand-200"
                 onClick={() => {
                   setQuery("");
                   setSelectedCategory("全部");

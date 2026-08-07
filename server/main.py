@@ -808,6 +808,7 @@ mcp_catalog_service = MCPCatalogService(
     credential_revoker=toolset_credential_store.revoke,
     workspace_store=mcp_catalog_workspace_store,
     tenant_id=os.getenv("MODELMIRROR_DEFAULT_TENANT_ID", "local"),
+    owner_id=os.getenv("MODELMIRROR_DEFAULT_OWNER_ID", "local"),
 )
 configure_mcp_catalog(mcp_catalog_service)
 toolset_service = ToolsetService(

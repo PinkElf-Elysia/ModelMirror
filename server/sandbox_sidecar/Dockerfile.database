@@ -1,0 +1,26 @@
+FROM python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MCP_DATABASE_SOCKET_PATH=/run/modelmirror-database-mcp/database-mcp.sock \
+    MCP_DATABASE_INPUT_ROOT=/inputs
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 65532 sandbox \
+    && useradd --uid 65532 --gid 65532 --home-dir /tmp --no-create-home sandbox \
+    && mkdir -p /opt/modelmirror/sandbox_sidecar /inputs \
+        /run/modelmirror-database-mcp /run/modelmirror-database-local-mcp \
+    && chown -R sandbox:sandbox \
+        /run/modelmirror-database-mcp /run/modelmirror-database-local-mcp
+
+WORKDIR /opt/modelmirror
+COPY database-requirements.lock ./database-requirements.lock
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r database-requirements.lock
+
+COPY __init__.py engine.py landlock_exec.py database_contracts.py database_landlock_exec.py database_mcp.py database_server.py ./sandbox_sidecar/
+COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-database/THIRD_PARTY_NOTICES.md
+
+USER 65532:65532
+CMD ["python", "-m", "sandbox_sidecar.database_server"]

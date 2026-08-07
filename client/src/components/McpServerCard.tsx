@@ -58,6 +58,44 @@ interface InstalledMcpRecord {
   project_id: string;
 }
 
+const databasePreflightCopy: Record<
+  McpCatalogAdapterStatus["preflight_status"],
+  { label: string; className: string }
+> = {
+  "not-applicable": {
+    label: "不适用",
+    className: "text-slate-300",
+  },
+  blocked: {
+    label: "数据源验证已阻断",
+    className: "text-rose-100",
+  },
+  "awaiting-workspace": {
+    label: "等待封存并绑定数据库文件",
+    className: "text-amber-100",
+  },
+  "awaiting-configuration": {
+    label: "等待保存连接字段和加密凭据",
+    className: "text-amber-100",
+  },
+  unverified: {
+    label: "配置已保存，等待连接预检",
+    className: "text-amber-100",
+  },
+  verifying: {
+    label: "正在验证数据库目标与只读能力",
+    className: "text-cyan-100",
+  },
+  verified: {
+    label: "数据源预检与代表性只读调用通过",
+    className: "text-emerald-100",
+  },
+  failed: {
+    label: "数据源验证失败，请检查受控配置",
+    className: "text-rose-100",
+  },
+};
+
 interface McpServerCardProps {
   project: McpProject;
   adapterStatus?: McpCatalogAdapterStatus;
@@ -145,10 +183,18 @@ export default function McpServerCard({
   const [catalogConfigured, setCatalogConfigured] = useState(
     adapterStatus?.configured ?? false,
   );
+  const [catalogSettings, setCatalogSettings] = useState<
+    Record<string, string | number | boolean>
+  >(adapterStatus?.configuration_values ?? {});
+  const [catalogBindings, setCatalogBindings] = useState<Record<string, string>>(
+    adapterStatus?.credential_bindings ?? {},
+  );
   const [pendingApproval, setPendingApproval] = useState<McpApprovalRequest | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const approvalCallbackRef = useRef<(() => void) | null>(null);
   const approvalToolRef = useRef<string | null>(null);
+  const approvalDialogRef = useRef<HTMLDivElement | null>(null);
+  const approvalCancelRef = useRef<HTMLButtonElement | null>(null);
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
@@ -163,6 +209,8 @@ export default function McpServerCard({
   const limitations = adapterStatus?.limitations ?? project.adaptationLimitations;
   const canConnect = adapterStatus?.executable === true && availability === "ready";
   const workspacePolicy = adapterStatus?.workspace_policy ?? null;
+  const databasePolicy = adapterStatus?.database_policy ?? null;
+  const databasePreflight = adapterStatus?.preflight_status ?? "not-applicable";
   const needsCatalogConfiguration = Boolean(
     adapterStatus?.credential_fields.length || adapterStatus?.setting_fields.length,
   );
@@ -190,7 +238,52 @@ export default function McpServerCard({
 
   useEffect(() => {
     setCatalogConfigured(adapterStatus?.configured ?? false);
-  }, [adapterStatus?.configured]);
+    setCatalogSettings(adapterStatus?.configuration_values ?? {});
+    setCatalogBindings(adapterStatus?.credential_bindings ?? {});
+  }, [
+    adapterStatus?.configured,
+    adapterStatus?.configuration_values,
+    adapterStatus?.credential_bindings,
+  ]);
+
+  useEffect(() => {
+    if (!pendingApproval) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusTimer = window.setTimeout(() => approvalCancelRef.current?.focus(), 0);
+
+    function handleApprovalKeyDown(event: KeyboardEvent) {
+      const dialog = approvalDialogRef.current;
+      if (!dialog) return;
+      if (event.key === "Escape" && !approvalCancelRef.current?.disabled) {
+        event.preventDefault();
+        void cancelApproval();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleApprovalKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleApprovalKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [pendingApproval?.approval_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -406,6 +499,21 @@ export default function McpServerCard({
     onConnectionChange?.();
   }
 
+  function handleWorkspaceBound(workspace: McpWorkspace | null) {
+    setBoundWorkspace(workspace);
+    if (workspacePolicy?.required) setCatalogConfigured(Boolean(workspace));
+    onConnectionChange?.();
+  }
+
+  function handleConfigurationSaved(
+    settings: Record<string, string | number | boolean>,
+    bindings: Record<string, string>,
+  ) {
+    setCatalogSettings(settings);
+    setCatalogBindings(bindings);
+    onConnectionChange?.();
+  }
+
   function showApproval(approval: McpApprovalRequest, onConfirmed: () => void) {
     approvalCallbackRef.current = onConfirmed;
     setPendingApproval(approval);
@@ -473,7 +581,7 @@ export default function McpServerCard({
             只能选择已封存工作区中的文件，不能输入宿主路径或 URI。
           </span>
           <select
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
             onChange={(event) => updateField(tool.name, key, event.target.value)}
             value={value || boundWorkspace?.files[0]?.file_id || ""}
           >
@@ -504,7 +612,7 @@ export default function McpServerCard({
             只能选择已封存工作区内的目录，不接受手工路径。
           </span>
           <select
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
             onChange={(event) => updateField(tool.name, key, event.target.value)}
             value={value}
           >
@@ -529,7 +637,7 @@ export default function McpServerCard({
           </span>
           <input
             autoComplete="off"
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
             maxLength={120}
             onChange={(event) =>
               updateField(tool.name, key, event.target.value.replace(/[\\/:]/g, ""))
@@ -557,7 +665,7 @@ export default function McpServerCard({
 
         {property.enum?.length ? (
           <select
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
             onChange={(event) => updateField(tool.name, key, event.target.value)}
             value={value}
           >
@@ -569,7 +677,7 @@ export default function McpServerCard({
           </select>
         ) : type === "boolean" ? (
           <select
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
             onChange={(event) => updateField(tool.name, key, event.target.value)}
             value={value}
           >
@@ -584,7 +692,7 @@ export default function McpServerCard({
           />
         ) : (
           <input
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-brand-300/50"
             onChange={(event) => updateField(tool.name, key, event.target.value)}
             type={type === "number" || type === "integer" ? "number" : "text"}
             value={value}
@@ -720,6 +828,10 @@ export default function McpServerCard({
               ? "不需要 OAuth、Token、桌面宿主或外部运行时；文件只进入断网受控工作区。"
             : wave === 4
               ? "需要在当前卡片的“加密凭据”区域保存 Token；凭据仅绑定当前 MCP，并通过固定出口的只读 sidecar 建立隔离 stdio 会话。"
+            : wave === 5
+              ? project.id === "duckdb-mcp"
+                ? "无需 Token 或远程数据库凭据；只读取当前卡片中上传、封存并绑定的本地 DuckDB 文件。"
+                : "数据库连接按只读策略运行；连接字段与加密凭据均在当前卡片独立配置，不接受完整连接串。"
             : "不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。"}
         </div>
       )}
@@ -743,6 +855,66 @@ export default function McpServerCard({
         ))}
       </div>
 
+      {wave === 5 ? (
+        <section
+          aria-label="数据库安全与验证状态"
+          className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.055] p-3 text-xs"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold text-emerald-100">数据库安全状态</h3>
+            <div className="flex flex-wrap gap-2">
+              <span
+                className={`rounded-full border px-2.5 py-1 font-semibold ${
+                  availability === "blocked"
+                    ? "border-rose-300/25 bg-rose-300/[0.08] text-rose-100"
+                    : "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-100"
+                }`}
+              >
+                {availability === "blocked" ? "连接关闭" : "只读连接"}
+              </span>
+              <span className="rounded-full border border-slate-300/20 bg-slate-300/[0.06] px-2.5 py-1 font-semibold text-slate-200">
+                写入工具关闭
+              </span>
+            </div>
+          </div>
+          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg bg-black/15 p-2.5">
+              <dt className="text-slate-400">传输通道</dt>
+              <dd aria-live="polite" className="mt-1 font-semibold text-slate-100">
+                {availability === "blocked"
+                  ? "未启动，连接入口关闭"
+                  : state === "connecting"
+                    ? "正在建立隔离 stdio"
+                    : state === "connected" || adapterStatus?.connected
+                      ? "隔离 stdio 已连接"
+                      : state === "error"
+                        ? "连接失败"
+                        : "尚未连接"}
+              </dd>
+            </div>
+            <div className="rounded-lg bg-black/15 p-2.5">
+              <dt className="text-slate-400">数据源验证</dt>
+              <dd
+                aria-live="polite"
+                className={`mt-1 font-semibold ${databasePreflightCopy[databasePreflight].className}`}
+              >
+                {databasePreflightCopy[databasePreflight].label}
+              </dd>
+            </div>
+          </dl>
+          {databasePolicy ? (
+            <p className="mt-2 leading-5 text-slate-400">
+              单次查询默认最多 {databasePolicy.max_rows_default} 行，硬上限 {databasePolicy.max_rows_hard} 行，语句超时 {databasePolicy.statement_timeout_seconds} 秒
+              {databasePolicy.tls_required ? "；远程连接强制严格 TLS 校验。" : "；本地封存数据文件断网读取。"}
+            </p>
+          ) : (
+            <p className="mt-2 leading-5 text-slate-400">
+              当前条目未达到数据库运行门槛，不会启动连接或收集凭据。
+            </p>
+          )}
+        </section>
+      ) : null}
+
       {adapterStatus?.executable && adapterStatus.runtime_image ? (
         <div className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -763,8 +935,11 @@ export default function McpServerCard({
 
       {workspacePolicy && canConnect ? (
         <McpWorkspacePanel
+          boundWorkspaceId={adapterStatus?.workspace_id ?? null}
+          configurationSettings={catalogSettings}
+          credentialBindings={catalogBindings}
           onApprovalRequired={showApproval}
-          onBound={setBoundWorkspace}
+          onBound={handleWorkspaceBound}
           policy={workspacePolicy}
           projectId={project.id}
           refreshKey={boundWorkspace?.artifacts.map((item) => item.artifact_id).join(",") ?? ""}
@@ -779,17 +954,21 @@ export default function McpServerCard({
           initialSettings={adapterStatus.configuration_values}
           initiallyConfigured={adapterStatus.configured}
           credentialVerification={adapterStatus.credential_verification}
+          databasePreflightStatus={adapterStatus.preflight_status}
+          mode={wave === 5 ? "database" : "service"}
+          onConfigurationSaved={handleConfigurationSaved}
           onConfigured={setCatalogConfigured}
           onSessionInvalidated={invalidateCredentialSession}
           projectId={project.id}
           settingFields={adapterStatus.setting_fields}
+          workspaceId={boundWorkspace?.workspace_id ?? null}
         />
       ) : null}
 
       <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
         {canConnect ? (
           <button
-            className="rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition duration-200 hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
+            className="min-h-11 rounded-full bg-brand-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition duration-200 hover:bg-brand-200 disabled:cursor-not-allowed disabled:opacity-45"
             disabled={
               state === "connecting" ||
               state === "connected" ||
@@ -810,7 +989,7 @@ export default function McpServerCard({
           </button>
         ) : (
           <button
-            className="cursor-not-allowed rounded-full border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-100 opacity-75"
+            className="min-h-11 cursor-not-allowed rounded-full border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-100 opacity-75"
             disabled
             type="button"
           >
@@ -825,7 +1004,7 @@ export default function McpServerCard({
         )}
         {state === "connected" ? (
           <button
-            className="rounded-full border border-rose-300/30 bg-rose-300/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/15"
+            className="min-h-11 rounded-full border border-rose-300/30 bg-rose-300/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/15"
             onClick={() => void disconnect()}
             type="button"
           >
@@ -834,7 +1013,7 @@ export default function McpServerCard({
         ) : null}
         {canInstall ? (
           <button
-            className={`rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
+            className={`min-h-11 rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
               installState === "installed"
                 ? "border-emerald-300/35 bg-emerald-300/12 text-emerald-100"
                 : "border-white/10 bg-white/[0.055] text-slate-100 hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-brand-100"
@@ -857,7 +1036,7 @@ export default function McpServerCard({
           </button>
         ) : null}
         <button
-          className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-300 transition duration-200 hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
+          className="min-h-11 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-300 transition duration-200 hover:border-hire-300/35 hover:bg-hire-300/10 hover:text-hire-100"
           onClick={() => setIsInstallOpen(true)}
           type="button"
         >
@@ -915,15 +1094,23 @@ export default function McpServerCard({
             tools.map((tool) => {
               const properties = tool.inputSchema.properties ?? {};
               const markdown = contentToMarkdown(toolResults[tool.name] ?? null);
+              const toolPolicy = adapterStatus?.tool_policies[tool.name];
               return (
-                <div className="rounded-lg border border-white/10 bg-white/[0.045] p-4" key={tool.name}>
+                <div className="min-w-0 rounded-lg border border-white/10 bg-white/[0.045] p-4" key={tool.name}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="font-semibold text-white">{tool.title ?? tool.name}</p>
-                      <p className="mt-1 text-xs text-brand-100">{tool.name}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <p className="text-xs text-brand-100">{tool.name}</p>
+                        {toolPolicy?.read_only ? (
+                          <span className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
+                            只读工具
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     <button
-                      className="w-fit rounded-full bg-hire-300 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="min-h-11 w-fit rounded-full bg-hire-300 px-4 py-2 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={runningTool === tool.name}
                       onClick={() => void callTool(tool)}
                       type="button"
@@ -948,7 +1135,7 @@ export default function McpServerCard({
                     </p>
                   )}
                   {markdown ? (
-                    <div className="prose prose-invert mt-4 max-w-none rounded-lg border border-white/10 bg-ink-950/70 p-4 prose-pre:bg-slate-950 prose-code:text-brand-100">
+                    <div className="prose prose-invert mt-4 max-h-[32rem] min-w-0 max-w-none overflow-auto rounded-lg border border-white/10 bg-ink-950/70 p-4 [overflow-wrap:anywhere] prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:bg-slate-950 prose-code:break-words prose-code:text-brand-100 prose-table:block prose-table:max-w-full prose-table:overflow-x-auto">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {markdown}
                       </ReactMarkdown>
@@ -963,17 +1150,25 @@ export default function McpServerCard({
 
       {pendingApproval ? (
         <div
+          aria-describedby={`mcp-approval-description-${project.id}`}
           aria-labelledby={`mcp-approval-${project.id}`}
           aria-modal="true"
           className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/82 p-4 backdrop-blur-sm"
           role="dialog"
         >
-          <div className="surface-card w-full max-w-lg rounded-lg border border-amber-300/25 p-6">
+          <div
+            className="surface-card max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-amber-300/25 p-6"
+            ref={approvalDialogRef}
+            tabIndex={-1}
+          >
             <p className="text-sm font-semibold text-amber-100">一次性写入确认</p>
             <h2 className="mt-2 text-xl font-semibold text-white" id={`mcp-approval-${project.id}`}>
               确认本次受控操作
             </h2>
-            <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-4 text-sm leading-6 text-slate-300">
+            <p
+              className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-4 text-sm leading-6 text-slate-300"
+              id={`mcp-approval-description-${project.id}`}
+            >
               {pendingApproval.summary}
             </p>
             <div className="mt-3 text-[11px] leading-5 text-slate-500">
@@ -982,15 +1177,16 @@ export default function McpServerCard({
             </div>
             <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button
-                className="rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
+                className="min-h-11 rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200"
                 disabled={approvalBusy}
                 onClick={() => void cancelApproval()}
+                ref={approvalCancelRef}
                 type="button"
               >
                 取消
               </button>
               <button
-                className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
+                className="min-h-11 rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
                 disabled={approvalBusy}
                 onClick={() => void confirmApproval()}
                 type="button"
@@ -1024,7 +1220,7 @@ export default function McpServerCard({
               </div>
               <button
                 aria-label="关闭安装说明"
-                className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+                className="min-h-11 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
                 onClick={() => setIsInstallOpen(false)}
                 type="button"
               >
