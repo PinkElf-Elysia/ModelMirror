@@ -98,6 +98,13 @@ export function createCodingProjectHostPairing() {
   );
 }
 
+export function reconnectCodingProjectHost() {
+  return requestJson<CodingProjectHostStatus>(
+    "/api/coding/project-host/reconnect",
+    { method: "POST" },
+  );
+}
+
 export function revokeCodingProjectHost(hostId: string) {
   return requestJson<{ revoked: true }>(
     `/api/coding/project-host/${encodeURIComponent(hostId)}`,

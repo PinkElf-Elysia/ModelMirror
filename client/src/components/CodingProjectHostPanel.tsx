@@ -23,6 +23,7 @@ import {
   createCodingProjectSelection,
   getCodingProjectHost,
   getCodingProjectSelection,
+  reconnectCodingProjectHost,
   removeCodingProject,
   renameCodingProject,
   revokeCodingProjectHost,
@@ -47,7 +48,8 @@ interface CodingProjectHostPanelProps {
 const hostError: Record<string, string> = {
   project_active: "当前任务正在使用这个项目，请先处理或结束当前任务。",
   project_host_already_paired: "已有一台助手完成连接，请先移除原有授权。",
-  project_host_offline: "本地项目助手尚未连接，请先在 Windows 中打开它。",
+  project_host_offline:
+    "本地项目助手没有响应。请确认助手仍在运行，然后再次重新连接。",
   project_host_request_timeout: "等待本地项目助手响应的时间过长，请确认助手仍在运行。",
   project_host_unavailable: "本地项目助手暂时不可用，请打开助手后重新检查。",
   project_name_invalid: "项目名称不能为空，也不能包含控制字符。",
@@ -184,6 +186,22 @@ export default function CodingProjectHostPanel({
     }
   };
 
+  const reconnectHost = async () => {
+    setAction("checking");
+    setError("");
+    setNotice("");
+    try {
+      const next = await reconnectCodingProjectHost();
+      setStatus(next);
+      setNotice("本地项目助手已重新连接，可以继续使用所选项目。 ");
+      await onProjectsChanged(selectedProject?.id);
+    } catch (requestError) {
+      setError(messageFor(requestError));
+    } finally {
+      setAction("idle");
+    }
+  };
+
   const addProject = async () => {
     setAction("selecting");
     setError("");
@@ -271,7 +289,7 @@ export default function CodingProjectHostPanel({
             {connected
               ? "助手已连接。选择文件夹时，项目路径只保存在你的电脑上。"
               : status?.paired
-                ? "已记住这台电脑，请打开 Windows 本地项目助手，然后检查连接。"
+                ? "助手连接已断开。请确认 Windows 助手仍在运行，然后重新连接。"
                 : "打开 Windows 本地项目助手并输入一次性连接码，之后即可选择你允许访问的项目。"}
           </p>
         </div>
@@ -289,12 +307,12 @@ export default function CodingProjectHostPanel({
           ) : status?.paired ? (
             <button
               className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={busy}
-              onClick={() => void refreshStatus()}
+              disabled={action === "checking"}
+              onClick={() => void reconnectHost()}
               type="button"
             >
               <RefreshCw aria-hidden="true" size={16} />
-              重新连接
+              {action === "checking" ? "正在重新连接" : "重新连接"}
             </button>
           ) : (
             <button

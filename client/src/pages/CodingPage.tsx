@@ -215,6 +215,14 @@ const errorMessage: Record<string, string> = {
   project_not_found: "这个项目已不在可选列表中，请重新选择。",
   project_operation_unavailable:
     "此项目当前只支持准备和下载修改草稿，不提供项目验证或写入。",
+  project_host_offline:
+    "本地项目助手连接已断开，请在“连接本地项目助手”区域重新连接后再试。",
+  project_host_unavailable:
+    "本地项目助手当前不可用，请重新打开助手并恢复连接后再试。",
+  project_host_snapshot_timeout:
+    "等待本地项目助手读取项目的时间过长，请确认助手在线后重试。",
+  snapshot_upload_failed:
+    "本地项目内容未能传入临时工作区，请确认助手在线后重试。",
   project_writer_not_configured:
     "本地项目写入尚未配置，当前修改仍可查看和下载。",
   project_writer_timeout:
