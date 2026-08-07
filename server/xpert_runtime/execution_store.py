@@ -18,6 +18,7 @@ WorkflowExecutionStatus = Literal[
     "failed",
     "cancelled",
 ]
+WorkflowExecutionSourceKind = Literal["workflow_classic", "xpert_chat"]
 
 
 class WorkflowExecutionError(Exception):
@@ -40,6 +41,7 @@ class WorkflowExecution:
     status: WorkflowExecutionStatus
     workflow: dict[str, Any]
     inputs: dict[str, Any]
+    source_kind: WorkflowExecutionSourceKind | None = None
     runtime_metadata: dict[str, Any] = field(default_factory=dict)
     continuation: dict[str, Any] = field(default_factory=dict)
     wait_kind: str | None = None
@@ -81,6 +83,7 @@ class WorkflowExecutionStore:
         run_type: str,
         workflow: dict[str, Any],
         inputs: dict[str, Any],
+        source_kind: WorkflowExecutionSourceKind | None = None,
         runtime_metadata: dict[str, Any] | None = None,
     ) -> WorkflowExecution:
         with self._lock:
@@ -94,6 +97,11 @@ class WorkflowExecutionStore:
                 status="running",
                 workflow=dict(workflow),
                 inputs=dict(inputs),
+                source_kind=self._validated_source_kind(
+                    source_kind,
+                    run_type=str(run_type),
+                    strict=True,
+                ),
                 runtime_metadata=dict(runtime_metadata or {}),
             )
             self._items[item.task_id] = item
@@ -278,6 +286,7 @@ class WorkflowExecutionStore:
             "task_id": item.task_id,
             "run_id": item.run_id,
             "run_type": item.run_type,
+            "source_kind": item.source_kind,
             "status": item.status,
             "approval_id": item.approval_id,
             "wait_kind": item.wait_kind,
@@ -343,6 +352,28 @@ class WorkflowExecutionStore:
             raise WorkflowExecutionNotFoundError("Workflow execution not found.")
         return item
 
+    @staticmethod
+    def _validated_source_kind(
+        source_kind: str | None,
+        *,
+        run_type: str,
+        strict: bool,
+    ) -> WorkflowExecutionSourceKind | None:
+        clean = str(source_kind or "").strip()
+        if not clean:
+            return None
+        expected_run_types = {
+            "workflow_classic": "workflow",
+            "xpert_chat": "xpert",
+        }
+        if clean not in expected_run_types or expected_run_types[clean] != str(run_type):
+            if strict:
+                raise WorkflowExecutionConflictError(
+                    "Workflow execution source kind does not match its run type."
+                )
+            return None
+        return clean  # type: ignore[return-value]
+
     def _persist_unlocked(self) -> None:
         self.snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -364,6 +395,11 @@ class WorkflowExecutionStore:
             for raw in payload.get("items", []):
                 if not isinstance(raw, dict):
                     continue
+                raw["source_kind"] = self._validated_source_kind(
+                    raw.get("source_kind"),
+                    run_type=str(raw.get("run_type") or ""),
+                    strict=False,
+                )
                 if not raw.get("wait_kind") and raw.get("approval_id"):
                     raw["wait_kind"] = "approval"
                     raw["wait_id"] = raw.get("approval_id")

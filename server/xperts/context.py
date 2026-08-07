@@ -59,6 +59,8 @@ class XpertConversationMessage:
     content: str
     version: int | None = None
     suggestions: list[str] = field(default_factory=list)
+    source_task_id: str | None = None
+    source_run_id: str | None = None
     created_at: float = field(default_factory=time.time)
 
 
@@ -223,8 +225,14 @@ class XpertContextStore:
         content: str,
         version: int | None = None,
         suggestions: list[str] | None = None,
+        source_task_id: str | None = None,
+        source_run_id: str | None = None,
     ) -> XpertConversationMessage:
         clean_content = self._required_text(content, "content", 100_000)
+        clean_task_id, clean_run_id = self._clean_execution_binding(
+            source_task_id,
+            source_run_id,
+        )
         message = XpertConversationMessage(
             message_id=str(uuid.uuid4()),
             role=role,
@@ -235,6 +243,8 @@ class XpertContextStore:
                 limit=6,
                 max_length=500,
             ),
+            source_task_id=clean_task_id,
+            source_run_id=clean_run_id,
         )
         with self._lock:
             conversation = self._require_conversation_unlocked(xpert_id, conversation_id)
@@ -246,6 +256,80 @@ class XpertContextStore:
             conversation.updated_at = time.time()
             self._persist_unlocked()
         return message
+
+    def bind_message_execution(
+        self,
+        xpert_id: str,
+        conversation_id: str,
+        message_id: str,
+        *,
+        source_task_id: str,
+        source_run_id: str,
+    ) -> XpertConversationMessage:
+        clean_task_id, clean_run_id = self._clean_execution_binding(
+            source_task_id,
+            source_run_id,
+        )
+        with self._lock:
+            conversation = self._require_conversation_unlocked(xpert_id, conversation_id)
+            message = next(
+                (item for item in conversation.messages if item.message_id == message_id),
+                None,
+            )
+            if message is None:
+                raise XpertContextNotFoundError("Xpert conversation message not found.")
+            existing = (message.source_task_id, message.source_run_id)
+            requested = (clean_task_id, clean_run_id)
+            if existing not in {(None, None), requested}:
+                raise XpertContextConflictError(
+                    "Xpert conversation message is already bound to another execution."
+                )
+            if existing != requested:
+                message.source_task_id = clean_task_id
+                message.source_run_id = clean_run_id
+                conversation.updated_at = time.time()
+                self._persist_unlocked()
+            return message
+
+    def rebind_execution_run(
+        self,
+        xpert_id: str,
+        conversation_id: str,
+        *,
+        source_task_id: str,
+        previous_run_id: str,
+        source_run_id: str,
+    ) -> int:
+        clean_task_id, clean_run_id = self._clean_execution_binding(
+            source_task_id,
+            source_run_id,
+        )
+        clean_previous_run_id = self._required_text(
+            previous_run_id,
+            "previous_run_id",
+            200,
+        )
+        with self._lock:
+            conversation = self._require_conversation_unlocked(xpert_id, conversation_id)
+            matching = [
+                item
+                for item in conversation.messages
+                if item.source_task_id == clean_task_id
+            ]
+            for message in matching:
+                if message.source_run_id not in {clean_previous_run_id, clean_run_id}:
+                    raise XpertContextConflictError(
+                        "Xpert conversation execution binding changed unexpectedly."
+                    )
+            changed = 0
+            for message in matching:
+                if message.source_run_id == clean_previous_run_id:
+                    message.source_run_id = clean_run_id
+                    changed += 1
+            if changed:
+                conversation.updated_at = time.time()
+                self._persist_unlocked()
+            return changed
 
     def update_conversation_title(
         self,
@@ -1299,6 +1383,23 @@ class XpertContextStore:
         if not clean:
             raise XpertContextValidationError(f"{field_name} is required.")
         return clean[:max_length]
+
+    @classmethod
+    def _clean_execution_binding(
+        cls,
+        source_task_id: str | None,
+        source_run_id: str | None,
+    ) -> tuple[str | None, str | None]:
+        if source_task_id is None and source_run_id is None:
+            return None, None
+        if source_task_id is None or source_run_id is None:
+            raise XpertContextValidationError(
+                "source_task_id and source_run_id must be provided together."
+            )
+        return (
+            cls._required_text(source_task_id, "source_task_id", 200),
+            cls._required_text(source_run_id, "source_run_id", 200),
+        )
 
     @staticmethod
     def _safe_filename(filename: str) -> str:

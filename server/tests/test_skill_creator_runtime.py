@@ -6,12 +6,19 @@ from pathlib import Path
 import pytest
 
 from server.skills.creator_runtime import (
+    TrustedCreatorSourceProvider,
     WorkflowCreatorGenerationExecutor,
     build_creator_workflow_invocation,
 )
-from server.skills.creator_service import CreatorGenerationRequest
-from server.skills.creator_store import SkillCreatorValidationError
+from server.skills.creator_service import CreatorGenerationRequest, CreatorSourceDescriptor
+from server.skills.creator_store import (
+    SkillCreatorConflictError,
+    SkillCreatorSession,
+    SkillCreatorValidationError,
+)
 from server.xpert_runtime.authoring_store import AuthoringProposalStore
+from server.xpert_runtime.execution_store import WorkflowExecutionStore
+from server.xperts.context import XpertContextStore
 
 
 def _request() -> CreatorGenerationRequest:
@@ -178,3 +185,71 @@ async def test_creator_executor_accepts_exactly_one_proposal_from_runner(
 
     result = await executor.generate(_request())
     assert store.require(result.proposal_id).creator_session_revision == 3
+
+
+def test_trusted_source_provider_rebuilds_and_checks_classic_evidence(
+    tmp_path: Path,
+) -> None:
+    execution_store = WorkflowExecutionStore(tmp_path)
+    execution_store.create(
+        task_id="task-classic",
+        run_id="run-classic",
+        run_type="workflow",
+        source_kind="workflow_classic",
+        workflow={
+            "id": "workflow-1",
+            "title": "PDF report workflow",
+            "nodes": [
+                {
+                    "id": "summarize",
+                    "type": "llm",
+                    "data": {"kind": "llm", "title": "Summarize PDF"},
+                }
+            ],
+        },
+        inputs={"user_input": "Summarize the PDF with page references."},
+    )
+    execution_store.append_event(
+        "task-classic",
+        {
+            "event": "node_end",
+            "node_id": "summarize",
+            "status": "completed",
+        },
+    )
+    execution_store.complete("task-classic", result="Report with cited pages.")
+    provider = TrustedCreatorSourceProvider(
+        execution_store,
+        XpertContextStore(tmp_path),
+    )
+    descriptor = CreatorSourceDescriptor(
+        source_kind="workflow_classic",
+        source_task_id="task-classic",
+        source_run_id="run-classic",
+    )
+    provider.validate_source(descriptor)
+    session = SkillCreatorSession(
+        session_id="skillcreator_source",
+        mode="run",
+        source_kind="workflow_classic",
+        source_task_id="task-classic",
+        source_run_id="run-classic",
+    )
+    preview = provider.preview(session)
+    assert preview.candidates
+    assert all(item["summary"] for item in preview.candidates)
+
+    selected = provider.select(
+        session,
+        preview_fingerprint=preview.fingerprint,
+        candidate_ids=[preview.candidates[0]["candidate_id"]],
+    )
+    assert selected[0]["content_hash"] == preview.candidates[0]["content_hash"]
+    assert selected[0]["title"]
+
+    with pytest.raises(SkillCreatorConflictError):
+        provider.select(
+            session,
+            preview_fingerprint="0" * 64,
+            candidate_ids=[],
+        )

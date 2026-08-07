@@ -175,6 +175,8 @@ export interface XpertConversationMessage {
   content: string;
   suggestions?: string[];
   version?: number | null;
+  source_task_id?: string | null;
+  source_run_id?: string | null;
   created_at?: number;
 }
 

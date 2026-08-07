@@ -4,25 +4,33 @@ import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
+from .creator_evidence import CreatorEvidenceError, build_creator_evidence_preview
 from .creator_quality import (
     CREATOR_CONTRACT_VERSION,
     build_session_requirements,
     load_creator_authoring_playbook,
 )
 from .creator_service import (
+    CreatorEvidencePreview,
     CreatorGenerationRequest,
     CreatorGenerationResult,
+    CreatorSourceDescriptor,
 )
 from .creator_store import (
     CREATOR_ASSISTANT_AGENT_ID,
     SkillCreatorConflictError,
+    SkillCreatorSession,
     SkillCreatorValidationError,
 )
 
 try:
     from server.xpert_runtime.authoring_store import AuthoringProposalStore
+    from server.xpert_runtime.execution_store import WorkflowExecutionStore
+    from server.xperts.context import XpertContextStore
 except ModuleNotFoundError:
     from xpert_runtime.authoring_store import AuthoringProposalStore
+    from xpert_runtime.execution_store import WorkflowExecutionStore
+    from xperts.context import XpertContextStore
 
 
 CREATOR_WORKFLOW_VERSION = "skill-creator-workflow-v1"
@@ -42,6 +50,99 @@ class CreatorWorkflowInvocation:
 
 
 CreatorWorkflowRunner = Callable[[CreatorWorkflowInvocation], Awaitable[None]]
+
+
+class TrustedCreatorSourceProvider:
+    """Adapt completed private runs into bounded, redacted Creator evidence."""
+
+    def __init__(
+        self,
+        execution_store: WorkflowExecutionStore,
+        context_store: XpertContextStore,
+    ) -> None:
+        self.execution_store = execution_store
+        self.context_store = context_store
+
+    @property
+    def supported_sources(self) -> tuple[str, ...]:
+        return ("xpert_chat", "workflow_classic")
+
+    def validate_source(self, source: CreatorSourceDescriptor) -> None:
+        self._build(source)
+
+    def preview(self, session: SkillCreatorSession) -> CreatorEvidencePreview:
+        preview = self._build(self._descriptor(session))
+        return CreatorEvidencePreview(
+            fingerprint=preview.preview_fingerprint,
+            candidates=tuple(
+                {
+                    "candidate_id": item.candidate_id,
+                    "kind": item.kind,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "content_hash": item.content_hash,
+                    "default_selected": item.default_selected,
+                }
+                for item in preview.candidates
+            ),
+        )
+
+    def select(
+        self,
+        session: SkillCreatorSession,
+        *,
+        preview_fingerprint: str,
+        candidate_ids: list[str],
+    ) -> list[dict[str, str]]:
+        preview = self._build(self._descriptor(session))
+        if preview.preview_fingerprint != str(preview_fingerprint or "").lower():
+            raise SkillCreatorConflictError(
+                "Creator evidence changed. Refresh the preview before selecting it."
+            )
+        by_id = {item.candidate_id: item for item in preview.candidates}
+        requested = list(
+            dict.fromkeys(str(item or "").strip() for item in candidate_ids)
+        )
+        if any(not item or item not in by_id for item in requested):
+            raise SkillCreatorConflictError(
+                "Creator evidence selection is stale or contains an unknown candidate."
+            )
+        return [
+            {
+                "candidate_id": by_id[item].candidate_id,
+                "kind": by_id[item].kind,
+                "title": by_id[item].title,
+                "summary": by_id[item].summary,
+                "content_hash": by_id[item].content_hash,
+            }
+            for item in requested
+        ]
+
+    def _build(self, source: CreatorSourceDescriptor):
+        try:
+            return build_creator_evidence_preview(
+                self.execution_store,
+                source_kind=source.source_kind,
+                source_task_id=source.source_task_id,
+                source_run_id=source.source_run_id,
+                context_store=self.context_store,
+                source_xpert_id=source.source_xpert_id,
+                source_conversation_id=source.source_conversation_id,
+                source_message_id=source.source_message_id,
+            )
+        except CreatorEvidenceError as exc:
+            raise SkillCreatorValidationError(str(exc), code=exc.code) from exc
+
+    @staticmethod
+    def _descriptor(session: SkillCreatorSession) -> CreatorSourceDescriptor:
+        return CreatorSourceDescriptor(
+            source_kind=session.source_kind,
+            source_task_id=str(session.source_task_id or ""),
+            source_run_id=str(session.source_run_id or ""),
+            source_xpert_id=session.source_xpert_id,
+            source_conversation_id=session.source_conversation_id,
+            source_message_id=session.source_message_id,
+        )
 
 
 class WorkflowCreatorGenerationExecutor:

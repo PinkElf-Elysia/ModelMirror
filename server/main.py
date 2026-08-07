@@ -105,6 +105,7 @@ try:
     from server.skills.creator_runtime import (
         CREATOR_WORKFLOW_VERSION,
         CreatorWorkflowInvocation,
+        TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
     )
     from server.skills.creator_service import (
@@ -124,6 +125,7 @@ except ModuleNotFoundError:
     from skills.creator_runtime import (
         CREATOR_WORKFLOW_VERSION,
         CreatorWorkflowInvocation,
+        TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
     )
     from skills.creator_service import (
@@ -987,10 +989,15 @@ authoring_service = AuthoringService(
 skill_creator_session_store = SkillCreatorSessionStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
 )
+skill_creator_source_provider = TrustedCreatorSourceProvider(
+    workflow_execution_store,
+    xpert_context_store,
+)
 skill_creator_service = SkillCreatorService(
     skill_creator_session_store,
     get_skill_draft_store(),
     authoring_service,
+    source_provider=skill_creator_source_provider,
 )
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
     authoring_service, "xpert"
@@ -3981,6 +3988,25 @@ async def run_manual_xpert_memory_writeback(
 configure_memory_writeback_runner(run_manual_xpert_memory_writeback)
 
 
+def _trusted_workflow_execution_source_kind(
+    request: Request | None,
+    *,
+    runtime_run_type: str,
+    resume_execution: WorkflowExecution | None,
+) -> Literal["workflow_classic", "xpert_chat"] | None:
+    if resume_execution is not None:
+        return resume_execution.source_kind
+    if request is None:
+        return None
+    route = request.scope.get("route")
+    route_path = str(getattr(route, "path", "") or "")
+    if runtime_run_type == "workflow" and route_path == "/api/workflow/run":
+        return "workflow_classic"
+    if runtime_run_type == "xpert" and route_path == "/api/xperts/{xpert_id}/run":
+        return "xpert_chat"
+    return None
+
+
 async def _run_workflow_response(
     payload: WorkflowRunRequest,
     request: Request | None,
@@ -3993,6 +4019,11 @@ async def _run_workflow_response(
     resolved_approval: RuntimeApprovalRequest | None = None,
     resolved_client_request: ClientToolRequest | None = None,
 ):
+    trusted_source_kind = _trusted_workflow_execution_source_kind(
+        request,
+        runtime_run_type=runtime_run_type,
+        resume_execution=resume_execution,
+    )
     requires_model = any(
         (node.data.get("kind") if isinstance(node.data.get("kind"), str) else node.type)
         in {"llm", "workflow_agent"}
@@ -4078,10 +4109,31 @@ async def _run_workflow_response(
         resume_execution is not None
         and resume_execution.run_id != workflow_run.run_id
     ):
+        previous_run_id = resume_execution.run_id
         workflow_execution_store.update_run_id(
             resume_execution.task_id,
             run_id=workflow_run.run_id,
         )
+        if trusted_source_kind == "xpert_chat":
+            xpert_id = str(resume_execution.runtime_metadata.get("xpert_id") or "").strip()
+            conversation_id = str(
+                resume_execution.runtime_metadata.get("conversation_id") or ""
+            ).strip()
+            if xpert_id and conversation_id:
+                try:
+                    await asyncio.to_thread(
+                        xpert_context_store.rebind_execution_run,
+                        xpert_id,
+                        conversation_id,
+                        source_task_id=resume_execution.task_id,
+                        previous_run_id=previous_run_id,
+                        source_run_id=workflow_run.run_id,
+                    )
+                except XpertContextError as exc:
+                    logger.warning(
+                        "Failed to rebind Xpert conversation execution: %s",
+                        exc,
+                    )
     await run_registry.record_checkpoint(
         workflow_run.run_id,
         event_type=(
@@ -4196,6 +4248,7 @@ async def _run_workflow_response(
             run_type=runtime_run_type,
             workflow=payload.workflow.model_dump(),
             inputs=dict(payload.inputs),
+            source_kind=trusted_source_kind,
             runtime_metadata=run_metadata,
         )
 
@@ -11216,12 +11269,17 @@ async def _run_workflow_response(
                     output = final_output
 
                 executed.add(node_id)
+                node_end_event = {
+                    "event": "node_end",
+                    "node_id": node.id,
+                    "node_title": title,
+                    "node_type": kind,
+                    "status": "completed",
+                }
+                workflow_execution_store.append_event(task_id, node_end_event)
                 yield sse_payload(
                     {
-                        "event": "node_end",
-                        "node_id": node.id,
-                        "node_title": title,
-                        "node_type": kind,
+                        **node_end_event,
                         "output": output,
                         "variables": variables,
                     }
@@ -11352,6 +11410,8 @@ async def _run_workflow_response(
                         content=final_output or "Run completed without text output.",
                         version=int(run_metadata.get("xpert_version") or 1),
                         suggestions=conversation_suggestions,
+                        source_task_id=task_id,
+                        source_run_id=workflow_run.run_id,
                     )
                     if generated_conversation_title:
                         await asyncio.to_thread(
@@ -12757,10 +12817,11 @@ async def run_published_xpert(
     payload: XpertRunRequest,
     request: Request,
 ):
+    persisted_user_message = None
     try:
         prepared = await prepare_published_xpert_run(xpert_id, payload)
         if payload.conversation_id:
-            await asyncio.to_thread(
+            persisted_user_message = await asyncio.to_thread(
                 xpert_context_store.append_message,
                 prepared.xpert.id,
                 payload.conversation_id,
@@ -12780,13 +12841,33 @@ async def run_published_xpert(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except XpertStoreError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return await _run_workflow_response(
+    response = await _run_workflow_response(
         prepared.request,
         request,
         runtime_run_type="xpert",
         runtime_source_id=prepared.xpert.id,
         runtime_metadata=prepared.runtime_metadata,
     )
+    if persisted_user_message is not None and isinstance(response, StreamingResponse):
+        source_task_id = str(
+            response.headers.get("X-ModelMirror-Runtime-Task-Id") or ""
+        ).strip()
+        source_run_id = str(
+            response.headers.get("X-ModelMirror-Runtime-Run-Id") or ""
+        ).strip()
+        if source_task_id and source_run_id:
+            try:
+                await asyncio.to_thread(
+                    xpert_context_store.bind_message_execution,
+                    prepared.xpert.id,
+                    str(payload.conversation_id or ""),
+                    persisted_user_message.message_id,
+                    source_task_id=source_task_id,
+                    source_run_id=source_run_id,
+                )
+            except XpertContextError as exc:
+                logger.warning("Failed to bind Xpert user message execution: %s", exc)
+    return response
 
 
 async def run_deployed_xpert_app(
