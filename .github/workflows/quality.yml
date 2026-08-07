@@ -63,7 +63,11 @@ jobs:
         run: python -m pip install -r server/requirements.txt
       - name: Run workflow contract tests
         run: python -m pytest server/tests/test_workflow_run_contract.py -q
+        env:
+          CODING_PROJECT_UPLOAD_ROOT: ${{ runner.temp }}/modelmirror-project-uploads
       - name: Run remaining backend test suite
         run: python -m pytest server/tests/ -q --ignore=server/tests/test_workflow_run_contract.py
+        env:
+          CODING_PROJECT_UPLOAD_ROOT: ${{ runner.temp }}/modelmirror-project-uploads
       - name: Validate Docker Compose configuration
         run: docker compose config --quiet
