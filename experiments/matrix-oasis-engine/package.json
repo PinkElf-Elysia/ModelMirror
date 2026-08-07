@@ -17,8 +17,13 @@
     "dev": "npm run dev --workspace @matrix-oasis/creator-web",
     "build": "npm run build --workspace @matrix-oasis/creator-web",
     "build:creator": "npm run build --workspace @matrix-oasis/creator-web",
+    "doctor": "node scripts/doctor.mjs",
+    "doctor:godot": "node scripts/doctor.mjs --strict-godot",
+    "check:boundary": "node scripts/check-boundary.mjs",
+    "test": "node --test tests/creator-shell.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs",
     "test:creator": "node --test tests/creator-shell.test.mjs",
     "smoke:creator": "node scripts/smoke-creator.mjs",
-    "verify:creator": "npm run test:creator && npm run build:creator && npm run smoke:creator"
+    "verify:creator": "npm run test:creator && npm run build:creator && npm run smoke:creator",
+    "verify": "node scripts/run-verify.mjs"
   }
 }

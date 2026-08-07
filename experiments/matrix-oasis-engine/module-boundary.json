@@ -3,6 +3,7 @@
   "moduleId": "matrix-oasis-engine",
   "moduleRoot": ".",
   "moduleRootResolution": "directory-containing-module-boundary",
+  "r0BaselineSha": "952f8094c38b29baffa5de3a5b0caa94e501f45f",
   "parentRepositoryPrefix": "experiments/matrix-oasis-engine/",
   "parentIntegration": "none",
   "allowedParentInteractions": [],
@@ -21,6 +22,7 @@
   "dependencyPolicy": {
     "moduleLocalWorkspacesOnly": true,
     "forbidExternalFileLinks": true,
+    "exactVersionsRequired": true,
     "forbiddenExternalProtocols": [
       "file:",
       "link:"
@@ -57,21 +59,71 @@
     "coverage",
     ".vite",
     ".godot",
-    "exports"
+    "exports",
+    "logs"
   ],
   "forbiddenTrackedFileNames": [
     ".env",
     ".env.local",
     ".env.development",
-    ".env.production"
+    ".env.production",
+    "project.godot"
   ],
   "forbiddenTrackedExtensions": [
     ".log",
     ".pem",
     ".key",
     ".p12",
-    ".pfx"
+    ".pfx",
+    ".gd",
+    ".gdshader",
+    ".pck",
+    ".tscn",
+    ".scn",
+    ".tres",
+    ".res",
+    ".gdextension",
+    ".gdnlib",
+    ".gdns",
+    ".import",
+    ".uid",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".bin"
   ],
+  "r0Restrictions": {
+    "godotArtifactsForbidden": true,
+    "forbiddenDirectoryNames": [
+      "addons"
+    ],
+    "forbiddenGodotFileNames": [
+      "project.godot"
+    ],
+    "forbiddenGodotExtensions": [
+      ".gd",
+      ".gdshader",
+      ".pck",
+      ".tscn",
+      ".scn",
+      ".tres",
+      ".res",
+      ".gdextension",
+      ".gdnlib",
+      ".gdns",
+      ".import",
+      ".uid"
+    ],
+    "forbiddenBinaryExtensions": [
+      ".exe",
+      ".dll",
+      ".so",
+      ".dylib",
+      ".bin"
+    ],
+    "rotatedLogsForbidden": true
+  },
   "licensePolicy": {
     "moduleLicense": "UNLICENSED",
     "allowedDependencyLicenses": [

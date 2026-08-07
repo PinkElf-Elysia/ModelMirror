@@ -35,14 +35,28 @@ Creator
 
 ## 独立运行与验证
 
-R0.2 起，模块根将提供：
+在模块根执行：
 
 ```powershell
 npm.cmd ci
+npm.cmd run dev
+npm.cmd run verify:creator
+npm.cmd run doctor
+npm.cmd run --silent doctor -- --json
+npm.cmd run check:boundary
+npm.cmd test
 npm.cmd run verify
 ```
 
-R0.4 起，模块根将提供：
+其中带 `--silent` 的 doctor 命令是机器可解析入口：其标准输出只包含一个 JSON 文档，不带 npm 生命周期前缀。普通 `npm.cmd run doctor` 保留为供人工阅读的诊断输出。
+
+缺少 Godot 不会阻塞 R0，普通 doctor 返回 `ready_with_warnings`。用于后续轮次的严格检查会如实失败：
+
+```powershell
+npm.cmd run doctor:godot
+```
+
+R0.4 将补充：
 
 ```powershell
 npm.cmd run verify:extraction

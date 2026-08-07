@@ -24,14 +24,16 @@
 
 ## 自动检查
 
-`module-boundary.json` 是 R0 机器可读策略源。R0.3 将提供：
+`module-boundary.json` 是 R0 机器可读策略源。R0.3 已提供：
 
 - 环境 doctor；
 - import、路径、依赖、网络、密钥和生成物护栏；
-- 正向与负向 fixtures；
+- 正向 fixture，以及 client/server 逃逸、外部依赖、外部符号链接、跨平台绝对路径、Creator 网络、密钥、环境文件和跟踪生成物负向 fixtures；
 - 稳定的 `npm run verify` 聚合门。
 
 文档允许出现父路径作为规则说明；扫描器只把可执行源码、manifest 和配置视为运行依赖证据。
+
+`npm run verify` 的固定顺序为：doctor → 当前模块边界 → Node 测试 → Creator 构建 → Creator loopback 冒烟。普通 doctor 中 Godot 4.6.x 是 warning；`npm run doctor:godot` 才是后续轮次的严格非零检查。
 
 ## 回退
 
