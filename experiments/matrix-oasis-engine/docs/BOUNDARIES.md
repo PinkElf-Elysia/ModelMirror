@@ -35,6 +35,8 @@
 
 `npm run verify` 的固定顺序为：doctor → 当前模块边界 → Node 测试 → Creator 构建 → Creator loopback 冒烟。普通 doctor 中 Godot 4.6.x 是 warning；`npm run doctor:godot` 才是后续轮次的严格非零检查。
 
+`npm run verify:extraction` 不属于 `verify`，因此不会递归。它从干净 HEAD 创建本地 clone，通过 `git subtree split` 保留模块历史，再在独立仓库根执行相同验证；临时仓库、archive 和详细日志始终位于仓外临时目录。
+
 ## 回退
 
 本轮没有父项目集成或数据迁移。逆序 revert 模块提交，或在合并后 revert 整个 R0 PR，即可移除全部变更；原 `/matrix-oasis` 页面不受影响。

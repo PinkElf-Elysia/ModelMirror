@@ -20,10 +20,11 @@
     "doctor": "node scripts/doctor.mjs",
     "doctor:godot": "node scripts/doctor.mjs --strict-godot",
     "check:boundary": "node scripts/check-boundary.mjs",
-    "test": "node --test tests/creator-shell.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs",
+    "test": "node --test tests/creator-shell.test.mjs tests/doctor.test.mjs tests/boundary.test.mjs tests/extraction-contract.test.mjs",
     "test:creator": "node --test tests/creator-shell.test.mjs",
     "smoke:creator": "node scripts/smoke-creator.mjs",
     "verify:creator": "npm run test:creator && npm run build:creator && npm run smoke:creator",
-    "verify": "node scripts/run-verify.mjs"
+    "verify": "node scripts/run-verify.mjs",
+    "verify:extraction": "node scripts/verify-extraction.mjs"
   }
 }

@@ -56,11 +56,13 @@ npm.cmd run verify
 npm.cmd run doctor:godot
 ```
 
-R0.4 将补充：
+历史保留型拆分演练：
 
 ```powershell
 npm.cmd run verify:extraction
 ```
+
+该命令只从干净 worktree 克隆当前 HEAD，在一次性临时目录执行 `git subtree split`，并在拆分仓库根从空依赖完成安装、完整验证与 source-only archive 哈希。成功后只清理自身创建的临时目录；失败时保留并报告精确诊断目录。
 
 ## 拆分与回退
 
