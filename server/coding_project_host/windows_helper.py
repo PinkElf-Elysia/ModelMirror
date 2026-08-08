@@ -30,7 +30,18 @@ from server.coding_runtime.project_host import (
     PROJECT_HOST_V2_CAPABILITIES,
     PROJECT_ID_PATTERN,
 )
-from server.coding_project_host.operation_log import HostOperationJournal
+from server.coding_runtime.applier_client import _receipt_from_response, _receipt_to_payload
+from server.coding_runtime.committer_client import (
+    _commit_receipt_from_response,
+    _commit_receipt_to_payload,
+)
+from server.coding_runtime.commit_models import validate_commit_branch
+from server.coding_project_host.host_apply_engine import HostApplyError, HostGitApplyEngine
+from server.coding_project_host.host_commit_engine import HostCommitError, HostGitCommitEngine
+from server.coding_project_host.operation_log import (
+    HostOperationJournal,
+    HostOperationLogError,
+)
 from server.coding_runtime.host_snapshot import (
     HostSnapshotResult,
     create_host_snapshot_archive,
@@ -46,6 +57,10 @@ from server.coding_runtime.projects import (
 HELPER_VERSION = "1.1.0"
 STATE_MAGIC = b"MMCPH1\n"
 MAX_CONTROL_MESSAGE_BYTES = 256 * 1024
+MAX_OPERATION_PAYLOAD_BYTES = 1200 * 1024
+OPERATION_ACTIONS = frozenset({"apply", "revert", "commit", "undo", "reconcile"})
+OPERATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
+PAYLOAD_ID_PATTERN = re.compile(r"^phop_[a-f0-9]{32}$")
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
 HEARTBEAT_INTERVAL_SECONDS = 20.0
 FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
@@ -198,6 +213,43 @@ class ProjectHostRegistry:
             self._state["projects"][project_id] = dict(project)
             self._persist()
 
+    def update_project_head(
+        self,
+        project_id: str,
+        *,
+        branch: str,
+        expected_heads: set[str],
+        head: str,
+    ) -> None:
+        try:
+            normalized_branch = validate_commit_branch(branch)
+        except ValueError as exc:
+            raise ProjectHostHelperError("project_registry_invalid") from exc
+        if (
+            PROJECT_ID_PATTERN.fullmatch(project_id) is None
+            or OBJECT_ID_PATTERN.fullmatch(head) is None
+            or not expected_heads
+            or any(OBJECT_ID_PATTERN.fullmatch(item) is None for item in expected_heads)
+        ):
+            raise ProjectHostHelperError("project_registry_invalid")
+        with self._lock:
+            project = self._state["projects"].get(project_id)
+            if (
+                project is None
+                or project.get("branch") != normalized_branch
+                or project.get("head") not in expected_heads
+            ):
+                raise ProjectHostHelperError("project_changed")
+            if project["head"] == head:
+                return
+            previous = dict(project)
+            project["head"] = head
+            try:
+                self._persist()
+            except (OSError, ProjectHostHelperError):
+                self._state["projects"][project_id] = previous
+                raise
+
     def rename_project(self, project_id: str, name: str) -> None:
         normalized = _normalize_name(name)
         with self._lock:
@@ -220,38 +272,120 @@ class ProjectHostRegistry:
                 raise ProjectHostHelperError("project_not_found")
             return dict(value)
 
-    def create_snapshot(self, project_id: str, destination: Path) -> HostSnapshotResult:
+    def create_snapshot(
+        self,
+        project_id: str,
+        destination: Path,
+        *,
+        expected_head: str | None = None,
+        expected_branch: str | None = None,
+        managed_operation_id: str | None = None,
+    ) -> HostSnapshotResult:
         registered = self.project(project_id)
-        inspected = inspect_git_project(
-            registered["path"],
-            self.device_secret,
+        managed_recovery = bool(
+            expected_head
+            and expected_branch
+            and managed_operation_id is not None
+            and self.has_managed_operation(
+                project_id,
+                branch=expected_branch,
+                expected_head=expected_head,
+                operation_id=managed_operation_id,
+            )
+        )
+        inspected = (
+            inspect_git_project_for_recovery(
+                registered["path"],
+                self.device_secret,
+                expected_project_id=project_id,
+                expected_branch=str(expected_branch),
+                expected_head=str(expected_head),
+            )
+            if managed_recovery
+            else inspect_git_project(
+                registered["path"],
+                self.device_secret,
+            )
         )
         if inspected["project_id"] != project_id:
             raise ProjectHostHelperError("project_identity_changed")
+        if managed_operation_id is not None and not managed_recovery:
+            if (
+                expected_head is None
+                or expected_branch is None
+                or inspected.get("head") != expected_head
+                or inspected.get("branch") != expected_branch
+            ):
+                raise ProjectHostHelperError("project_changed")
         inspected["name"] = registered["name"]
-        self.remember_project(inspected)
+        if not managed_recovery:
+            self.remember_project(inspected)
         try:
             result = create_host_snapshot_archive(
                 Path(inspected["path"]),
                 destination,
                 project_id=project_id,
                 name=inspected["name"],
-                branch=inspected["branch"],
-                head=inspected["head"],
+                branch=str(expected_branch or inspected["branch"]),
+                head=str(expected_head or inspected["head"]),
             )
-            rechecked = inspect_git_project(
-                registered["path"],
-                self.device_secret,
+            rechecked = (
+                inspect_git_project_for_recovery(
+                    registered["path"],
+                    self.device_secret,
+                    expected_project_id=project_id,
+                    expected_branch=str(expected_branch),
+                    expected_head=str(expected_head),
+                )
+                if managed_recovery
+                else inspect_git_project(
+                    registered["path"],
+                    self.device_secret,
+                )
             )
             if any(
                 rechecked[key] != inspected[key]
-                for key in ("project_id", "branch", "head")
+                for key in (
+                    ("project_id", "branch")
+                    if managed_recovery
+                    else ("project_id", "branch", "head")
+                )
             ):
                 destination.unlink(missing_ok=True)
                 raise ProjectHostHelperError("project_changed")
             return result
         except Exception as exc:
             raise ProjectHostHelperError(getattr(exc, "code", "snapshot_failed")) from exc
+
+    def has_managed_operation(
+        self,
+        project_id: str,
+        *,
+        branch: str,
+        expected_head: str,
+        operation_id: str,
+    ) -> bool:
+        # The journal is loaded and authenticated by HostOperationJournal.  A
+        # matching durable intent is the only reason a helper may bypass the
+        # initial clean-worktree qualification after a managed writeback.
+        try:
+            record = self.operations.get(operation_id)
+        except HostOperationLogError:
+            return False
+        return bool(
+            record is not None
+            and record.action in {"apply", "commit"}
+            and record.project_id == project_id
+            and record.branch == branch
+            and record.expected_head == expected_head
+            and record.state
+            in {
+                "applying",
+                "applied",
+                "committing",
+                "committed",
+            }
+        )
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -364,6 +498,82 @@ def inspect_git_project(
         "name": _normalize_name(resolved.name),
         "branch": branch,
         "head": head,
+        "state": "available",
+        "reason": "",
+        "path": str(resolved),
+    }
+
+
+def inspect_git_project_for_recovery(
+    path: str | Path,
+    device_secret: bytes,
+    *,
+    expected_project_id: str,
+    expected_branch: str,
+    expected_head: str,
+    enforce_windows: bool = True,
+) -> dict[str, str]:
+    """Inspect only immutable identity needed to rebuild a managed baseline.
+
+    This deliberately does not require a clean worktree or current HEAD: an
+    applied draft is dirty by design and a committed task has advanced HEAD.
+    The caller must first prove a matching authenticated operation journal.
+    """
+    project_path = Path(path)
+    if not project_path.is_absolute() or not project_path.is_dir():
+        raise ProjectHostHelperError("project_path_invalid")
+    if enforce_windows:
+        _validate_windows_local_path(project_path)
+    elif project_path.is_symlink():
+        raise ProjectHostHelperError("project_reparse_point_not_allowed")
+    resolved = project_path.resolve(strict=True)
+    git_path = resolved / ".git"
+    if git_path.is_symlink() or git_path.is_file():
+        raise ProjectHostHelperError("git_worktree_not_allowed")
+    if not git_path.is_dir() or (git_path / "commondir").exists():
+        raise ProjectHostHelperError("git_shared_directory_not_allowed")
+    for name in ("alternates", "http-alternates"):
+        alternate = git_path / "objects" / "info" / name
+        if alternate.is_symlink() or (
+            alternate.is_file() and alternate.stat().st_size > 0
+        ):
+            raise ProjectHostHelperError("git_alternates_not_allowed")
+    branch = _git_text(
+        resolved,
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD",
+        error_code="git_branch_required",
+    )
+    if branch != expected_branch or not _valid_branch(branch):
+        raise ProjectHostHelperError("project_changed")
+    historical_head = _git_text(
+        resolved,
+        "rev-parse",
+        "--verify",
+        f"{expected_head}^{{commit}}",
+        error_code="git_head_required",
+    ).lower()
+    if historical_head != expected_head or OBJECT_ID_PATTERN.fullmatch(historical_head) is None:
+        raise ProjectHostHelperError("project_changed")
+    tree = _run_git(resolved, "ls-tree", "-r", "-z", "--full-tree", expected_head)
+    if tree.returncode != 0:
+        raise ProjectHostHelperError("git_tree_unreadable")
+    try:
+        validate_git_tree(tree.stdout)
+    except Exception as exc:
+        raise ProjectHostHelperError(getattr(exc, "code", "git_tree_invalid")) from exc
+    canonical = os.path.normcase(str(resolved)).encode("utf-8", errors="strict")
+    digest = hmac.new(device_secret, canonical, hashlib.sha256).hexdigest()[:32]
+    project_id = f"hostgit_{digest}"
+    if project_id != expected_project_id:
+        raise ProjectHostHelperError("project_identity_changed")
+    return {
+        "project_id": project_id,
+        "name": _normalize_name(resolved.name),
+        "branch": branch,
+        "head": expected_head,
         "state": "available",
         "reason": "",
         "path": str(resolved),
@@ -596,6 +806,9 @@ class ProjectHostTransport:
         elif message_type == "snapshot_project":
             project_id = str(message.get("project_id") or "")
             transfer_id = str(message.get("transfer_id") or "")
+            expected_head = message.get("expected_head")
+            expected_branch = message.get("expected_branch")
+            managed_operation_id = message.get("managed_operation_id")
             if PROJECT_ID_PATTERN.fullmatch(project_id) is None or not re.fullmatch(
                 r"[a-f0-9]{32}", transfer_id
             ):
@@ -609,6 +822,17 @@ class ProjectHostTransport:
                     self.registry.create_snapshot,
                     project_id,
                     archive,
+                    expected_head=(
+                        str(expected_head) if expected_head is not None else None
+                    ),
+                    expected_branch=(
+                        str(expected_branch) if expected_branch is not None else None
+                    ),
+                    managed_operation_id=(
+                        str(managed_operation_id)
+                        if managed_operation_id is not None
+                        else None
+                    ),
                 )
                 await asyncio.to_thread(self._upload_snapshot, transfer_id, archive)
                 await websocket.send(
@@ -633,8 +857,542 @@ class ProjectHostTransport:
                 await self._error(websocket, request_id, exc.code)
             finally:
                 archive.unlink(missing_ok=True)
+        elif message_type == "execute_operation":
+            try:
+                if not self.direct_writeback:
+                    raise ProjectHostHelperError("project_host_writeback_disabled")
+                result = await asyncio.to_thread(
+                    self._handle_operation_message,
+                    message,
+                )
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "operation_result",
+                            "request_id": request_id,
+                            "project_id": str(message.get("project_id") or ""),
+                            "operation_id": str(message.get("operation_id") or ""),
+                            "action": str(message.get("action") or ""),
+                            "result": result,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                )
+            except (ProjectHostHelperError, HostApplyError, HostCommitError) as exc:
+                await self._error(websocket, request_id, exc.code)
         else:
             raise ProjectHostHelperError("project_host_message_unsupported")
+
+    def _handle_operation_message(self, message: dict[str, Any]) -> dict[str, Any]:
+        expected_keys = {
+            "type",
+            "request_id",
+            "project_id",
+            "operation_id",
+            "action",
+            "payload_id",
+            "payload_sha256",
+            "payload_size",
+            "payload_expires_at",
+        }
+        project_id = str(message.get("project_id") or "")
+        operation_id = str(message.get("operation_id") or "")
+        action = str(message.get("action") or "")
+        payload_id = str(message.get("payload_id") or "")
+        digest = str(message.get("payload_sha256") or "")
+        size = message.get("payload_size")
+        expires_at = message.get("payload_expires_at")
+        if (
+            set(message) != expected_keys
+            or PROJECT_ID_PATTERN.fullmatch(project_id) is None
+            or OPERATION_ID_PATTERN.fullmatch(operation_id) is None
+            or action not in OPERATION_ACTIONS
+            or PAYLOAD_ID_PATTERN.fullmatch(payload_id) is None
+            or not re.fullmatch(r"[a-f0-9]{64}", digest)
+            or isinstance(size, bool)
+            or not isinstance(size, int)
+            or not 0 < size <= MAX_OPERATION_PAYLOAD_BYTES
+            or isinstance(expires_at, bool)
+            or not isinstance(expires_at, (int, float))
+            or not time.time() < float(expires_at) <= time.time() + 120.0
+        ):
+            raise ProjectHostHelperError("operation_request_invalid")
+        body = self._download_operation_payload(
+            payload_id=payload_id,
+            project_id=project_id,
+            operation_id=operation_id,
+            action=action,
+            expected_size=size,
+            expected_sha256=digest,
+        )
+        try:
+            envelope = json.loads(body.decode("utf-8", errors="strict"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ProjectHostHelperError("operation_payload_invalid") from exc
+        if (
+            not isinstance(envelope, dict)
+            or set(envelope)
+            != {
+                "version",
+                "host_id",
+                "project_id",
+                "operation_id",
+                "action",
+                "branch",
+                "head",
+                "payload",
+            }
+            or envelope.get("version") != 1
+            or envelope.get("project_id") != project_id
+            or envelope.get("operation_id") != operation_id
+            or envelope.get("action") != action
+            or not isinstance(envelope.get("payload"), dict)
+        ):
+            raise ProjectHostHelperError("operation_payload_mismatch")
+        credentials = self.registry.credentials
+        if credentials is None or envelope.get("host_id") != credentials[0]:
+            raise ProjectHostHelperError("operation_payload_mismatch")
+        registered = self.registry.project(project_id)
+        try:
+            branch = validate_commit_branch(str(envelope.get("branch") or ""))
+        except ValueError as exc:
+            raise ProjectHostHelperError("operation_payload_invalid") from exc
+        baseline_head = str(envelope.get("head") or "").lower()
+        if OBJECT_ID_PATTERN.fullmatch(baseline_head) is None:
+            raise ProjectHostHelperError("operation_payload_invalid")
+        result = self._execute_project_operation(
+            registered,
+            operation_id=operation_id,
+            action=action,
+            payload=envelope["payload"],
+            branch=branch,
+            baseline_head=baseline_head,
+        )
+        try:
+            self._update_registry_after_operation(
+                registered,
+                branch=branch,
+                baseline_head=baseline_head,
+                result=result,
+            )
+        except (OSError, ProjectHostHelperError) as exc:
+            raise ProjectHostHelperError("operation_result_unknown") from exc
+        return result
+
+    def _download_operation_payload(
+        self,
+        *,
+        payload_id: str,
+        project_id: str,
+        operation_id: str,
+        action: str,
+        expected_size: int,
+        expected_sha256: str,
+    ) -> bytes:
+        credentials = self.registry.credentials
+        if credentials is None:
+            raise ProjectHostHelperError("project_host_credentials_invalid")
+        host_id, token = credentials
+        parsed = urlsplit(self.server_url)
+        connection = http.client.HTTPConnection(
+            "127.0.0.1",
+            parsed.port or 80,
+            timeout=30,
+        )
+        try:
+            connection.request(
+                "GET",
+                f"/api/coding/project-host/operations/{payload_id}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-ModelMirror-Project-Host-Id": host_id,
+                    "X-ModelMirror-Project-Id": project_id,
+                    "X-ModelMirror-Operation-Id": operation_id,
+                    "X-ModelMirror-Operation-Action": action,
+                    "Accept": "application/json",
+                },
+            )
+            response = connection.getresponse()
+            content_length = response.getheader("Content-Length")
+            content_type = response.getheader("Content-Type") or ""
+            cache_control = response.getheader("Cache-Control") or ""
+            if response.status != 200:
+                response.read(64 * 1024)
+                raise ProjectHostHelperError("operation_payload_unavailable")
+            if (
+                content_length != str(expected_size)
+                or not content_type.lower().startswith("application/json")
+                or "no-store" not in cache_control.lower()
+            ):
+                raise ProjectHostHelperError("operation_payload_invalid")
+            body = response.read(expected_size + 1)
+        except (OSError, http.client.HTTPException) as exc:
+            raise ProjectHostHelperError("operation_payload_unavailable") from exc
+        finally:
+            connection.close()
+        if (
+            len(body) != expected_size
+            or hashlib.sha256(body).hexdigest() != expected_sha256
+        ):
+            raise ProjectHostHelperError("operation_payload_invalid")
+        return body
+
+    def _execute_project_operation(
+        self,
+        registered: dict[str, str],
+        *,
+        operation_id: str,
+        action: str,
+        payload: dict[str, Any],
+        branch: str,
+        baseline_head: str,
+    ) -> dict[str, Any]:
+        project_id = registered["project_id"]
+        root = Path(registered["path"])
+        apply_engine = HostGitApplyEngine(root, project_id, self.registry.operations)
+        commit_engine = HostGitCommitEngine(root, project_id, self.registry.operations)
+        try:
+            if action == "apply":
+                _require_payload_keys(
+                    payload,
+                    {
+                        "kind",
+                        "revision",
+                        "expected_head",
+                        "snapshot_fingerprint",
+                        "patch",
+                        "paths",
+                    },
+                    kind="apply",
+                )
+                _require_expected_head(payload, baseline_head)
+                receipt = apply_engine.apply(
+                    operation_id=operation_id,
+                    revision=int(payload["revision"]),
+                    branch=branch,
+                    expected_head=baseline_head,
+                    snapshot_fingerprint=str(payload["snapshot_fingerprint"]),
+                    patch=str(payload["patch"]),
+                    paths=_string_paths(payload["paths"]),
+                )
+                return {"state": "applied", "receipt": _receipt_to_payload(receipt)}
+            if action == "revert":
+                _require_payload_keys(
+                    payload,
+                    {"kind", "expected_head", "apply_receipt"},
+                    kind="revert",
+                )
+                _require_expected_head(payload, baseline_head)
+                receipt = _apply_receipt(payload.get("apply_receipt"))
+                _require_bound_apply_record(
+                    self.registry.operations,
+                    project_id=project_id,
+                    branch=branch,
+                    expected_head=baseline_head,
+                    receipt=receipt,
+                )
+                reverted = apply_engine.revert(
+                    operation_id=operation_id,
+                    apply_receipt=receipt,
+                    branch=branch,
+                    expected_head=baseline_head,
+                )
+                return {"state": "reverted", "receipt": _receipt_to_payload(reverted)}
+            if action == "commit":
+                _require_payload_keys(
+                    payload,
+                    {"kind", "expected_head", "apply_receipt", "message"},
+                    kind="commit",
+                )
+                _require_expected_head(payload, baseline_head)
+                apply_receipt = _apply_receipt(payload.get("apply_receipt"))
+                _require_bound_apply_record(
+                    self.registry.operations,
+                    project_id=project_id,
+                    branch=branch,
+                    expected_head=baseline_head,
+                    receipt=apply_receipt,
+                )
+                receipt = commit_engine.commit(
+                    operation_id=operation_id,
+                    apply_receipt=apply_receipt,
+                    branch=branch,
+                    expected_head=baseline_head,
+                    message=str(payload["message"]),
+                )
+                return {"state": "committed", "receipt": _commit_receipt_to_payload(receipt)}
+            if action == "undo":
+                _require_payload_keys(
+                    payload,
+                    {
+                        "kind",
+                        "expected_head",
+                        "apply_receipt",
+                        "commit_receipt",
+                    },
+                    kind="undo",
+                )
+                _require_expected_head(payload, baseline_head)
+                apply_receipt = _apply_receipt(payload.get("apply_receipt"))
+                commit_receipt = _commit_receipt(payload.get("commit_receipt"))
+                _require_bound_apply_record(
+                    self.registry.operations,
+                    project_id=project_id,
+                    branch=branch,
+                    expected_head=baseline_head,
+                    receipt=apply_receipt,
+                )
+                _require_bound_commit_record(
+                    self.registry.operations,
+                    project_id=project_id,
+                    branch=branch,
+                    apply_receipt=apply_receipt,
+                    receipt=commit_receipt,
+                )
+                receipt = commit_engine.undo(
+                    operation_id=operation_id,
+                    apply_receipt=apply_receipt,
+                    commit_receipt=commit_receipt,
+                    branch=branch,
+                )
+                return {"state": "undone", "receipt": _commit_receipt_to_payload(receipt)}
+            if action == "reconcile":
+                kind = payload.get("kind")
+                if kind == "apply":
+                    return self._reconcile_apply_operation(
+                        apply_engine,
+                        project_id=project_id,
+                        operation_id=operation_id,
+                        branch=branch,
+                        baseline_head=baseline_head,
+                        payload=payload,
+                    )
+                if kind == "commit":
+                    return self._reconcile_commit_operation(
+                        apply_engine,
+                        commit_engine,
+                        project_id=project_id,
+                        operation_id=operation_id,
+                        branch=branch,
+                        baseline_head=baseline_head,
+                        payload=payload,
+                    )
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ProjectHostHelperError("operation_payload_invalid") from exc
+        raise ProjectHostHelperError("operation_request_invalid")
+
+    def _update_registry_after_operation(
+        self,
+        registered: dict[str, str],
+        *,
+        branch: str,
+        baseline_head: str,
+        result: dict[str, Any],
+    ) -> None:
+        state = result.get("state")
+        if state == "conflict":
+            return
+        head = baseline_head
+        expected_heads = {baseline_head}
+        if state in {"committed", "undone"}:
+            receipt_payload = (
+                result.get("commit_receipt")
+                if "commit_receipt" in result
+                else result.get("receipt")
+            )
+            receipt = _commit_receipt(receipt_payload)
+            head = receipt.commit_sha if state == "committed" else receipt.parent_sha
+            expected_heads.update({receipt.parent_sha, receipt.commit_sha})
+        elif state not in {
+            "applied",
+            "reverted",
+            "not_applied",
+            "not_committed",
+        }:
+            raise ProjectHostHelperError("operation_result_unknown")
+        self.registry.update_project_head(
+            registered["project_id"],
+            branch=branch,
+            expected_heads=expected_heads | {head},
+            head=head,
+        )
+
+    def _reconcile_apply_operation(
+        self,
+        engine: HostGitApplyEngine,
+        *,
+        project_id: str,
+        operation_id: str,
+        branch: str,
+        baseline_head: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        _require_payload_keys(
+            payload,
+            {
+                "kind",
+                "revision",
+                "expected_head",
+                "snapshot_fingerprint",
+                "patch_sha256",
+                "paths",
+            },
+            kind="apply",
+        )
+        _require_expected_head(payload, baseline_head)
+        record = self.registry.operations.get(operation_id)
+        if record is None:
+            return {"state": "not_applied", "receipt": None}
+        if (
+            record.action != "apply"
+            or record.project_id != project_id
+            or record.branch != branch
+            or record.expected_head != baseline_head
+            or record.patch_sha256 != payload.get("patch_sha256")
+            or record.revision != payload.get("revision")
+        ):
+            return {"state": "conflict", "receipt": None}
+        receipt = (
+            _apply_receipt(record.apply_receipt)
+            if record.apply_receipt is not None
+            else None
+        )
+        if receipt is not None and tuple(item.path for item in receipt.files) != _string_paths(
+            payload.get("paths")
+        ):
+            return {"state": "conflict", "receipt": None}
+        revert_id = _followup_operation_id("revert", operation_id)
+        revert_record = self.registry.operations.get(revert_id)
+        if revert_record is not None:
+            if (
+                receipt is None
+                or revert_record.action != "revert"
+                or revert_record.project_id != project_id
+                or revert_record.branch != branch
+                or revert_record.expected_head != baseline_head
+                or revert_record.apply_receipt != _receipt_to_payload(receipt)
+                or revert_record.state == "conflict"
+            ):
+                return {"state": "conflict", "receipt": None}
+            if revert_record.state != "reverted":
+                engine.revert(
+                    operation_id=revert_id,
+                    apply_receipt=receipt,
+                    branch=branch,
+                    expected_head=baseline_head,
+                )
+            return {"state": "not_applied", "receipt": None}
+        state, restored = engine.reconcile_apply(
+            operation_id=operation_id,
+            snapshot_fingerprint=str(payload["snapshot_fingerprint"]),
+        )
+        return {
+            "state": state,
+            "receipt": _receipt_to_payload(restored) if restored is not None else None,
+        }
+
+    def _reconcile_commit_operation(
+        self,
+        apply_engine: HostGitApplyEngine,
+        commit_engine: HostGitCommitEngine,
+        *,
+        project_id: str,
+        operation_id: str,
+        branch: str,
+        baseline_head: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        _require_payload_keys(
+            payload,
+            {
+                "kind",
+                "apply_operation_id",
+                "revision",
+                "expected_head",
+                "snapshot_fingerprint",
+                "patch_sha256",
+                "paths",
+                "apply_receipt",
+                "message",
+            },
+            kind="commit",
+        )
+        _require_expected_head(payload, baseline_head)
+        apply_operation_id = str(payload.get("apply_operation_id") or "")
+        if OPERATION_ID_PATTERN.fullmatch(apply_operation_id) is None:
+            raise ProjectHostHelperError("operation_payload_invalid")
+        apply_receipt = _apply_receipt(payload.get("apply_receipt"))
+        apply_record = self.registry.operations.get(apply_operation_id)
+        if (
+            apply_record is None
+            or apply_record.action != "apply"
+            or apply_record.project_id != project_id
+            or apply_record.branch != branch
+            or apply_record.expected_head != baseline_head
+            or apply_record.patch_sha256 != payload.get("patch_sha256")
+            or apply_record.revision != payload.get("revision")
+            or apply_record.apply_receipt != _receipt_to_payload(apply_receipt)
+            or tuple(item.path for item in apply_receipt.files)
+            != _string_paths(payload.get("paths"))
+        ):
+            raise ProjectHostHelperError("operation_conflict")
+        commit_record = self.registry.operations.get(operation_id)
+        if commit_record is None:
+            apply_state, restored_apply = apply_engine.reconcile_apply(
+                operation_id=apply_operation_id,
+                snapshot_fingerprint=str(payload["snapshot_fingerprint"]),
+            )
+            if apply_state != "applied" or restored_apply != apply_receipt:
+                raise ProjectHostHelperError("operation_conflict")
+            return {
+                "state": "not_committed",
+                "apply_receipt": _receipt_to_payload(apply_receipt),
+                "commit_receipt": None,
+            }
+        if (
+            commit_record.action != "commit"
+            or commit_record.project_id != project_id
+            or commit_record.branch != branch
+            or commit_record.expected_head != baseline_head
+            or commit_record.commit_message != payload.get("message")
+            or commit_record.revision != apply_receipt.revision
+            or commit_record.patch_sha256 != apply_record.patch_sha256
+            or commit_record.apply_receipt != _receipt_to_payload(apply_receipt)
+        ):
+            raise ProjectHostHelperError("operation_conflict")
+        undo_id = _followup_operation_id("undo", operation_id)
+        undo_record = self.registry.operations.get(undo_id)
+        if undo_record is not None:
+            stored_commit_receipt = (
+                _commit_receipt(commit_record.commit_receipt)
+                if commit_record.commit_receipt is not None
+                else None
+            )
+            if (
+                stored_commit_receipt is None
+                or undo_record.action != "undo"
+                or undo_record.project_id != project_id
+                or undo_record.branch != branch
+                or undo_record.expected_head != stored_commit_receipt.commit_sha
+                or undo_record.revision != apply_receipt.revision
+                or undo_record.patch_sha256 != apply_record.patch_sha256
+                or undo_record.apply_receipt != _receipt_to_payload(apply_receipt)
+                or undo_record.commit_receipt
+                != _commit_receipt_to_payload(stored_commit_receipt)
+            ):
+                raise ProjectHostHelperError("operation_conflict")
+        target_operation = undo_id if undo_record is not None else operation_id
+        state, receipt = commit_engine.reconcile(target_operation)
+        if state == "conflict":
+            raise ProjectHostHelperError("operation_conflict")
+        return {
+            "state": state,
+            "apply_receipt": _receipt_to_payload(apply_receipt),
+            "commit_receipt": (
+                _commit_receipt_to_payload(receipt) if receipt is not None else None
+            ),
+        }
 
     def _upload_snapshot(self, transfer_id: str, archive: Path) -> None:
         credentials = self.registry.credentials
@@ -749,6 +1507,108 @@ class ProjectHostWindow:
         if self.registry.credentials is not None:
             self._start()
         self.root.mainloop()
+
+
+def _require_bound_apply_record(
+    journal: HostOperationJournal,
+    *,
+    project_id: str,
+    branch: str,
+    expected_head: str,
+    receipt: Any,
+) -> None:
+    try:
+        record = journal.get(receipt.apply_id)
+    except HostOperationLogError as exc:
+        raise ProjectHostHelperError("operation_conflict") from exc
+    if (
+        record is None
+        or record.action != "apply"
+        or record.state != "applied"
+        or record.project_id != project_id
+        or record.branch != branch
+        or record.expected_head != expected_head
+        or record.revision != receipt.revision
+        or record.apply_receipt != _receipt_to_payload(receipt)
+    ):
+        raise ProjectHostHelperError("operation_conflict")
+
+
+def _require_bound_commit_record(
+    journal: HostOperationJournal,
+    *,
+    project_id: str,
+    branch: str,
+    apply_receipt: Any,
+    receipt: Any,
+) -> None:
+    try:
+        record = journal.get(receipt.commit_id)
+    except HostOperationLogError as exc:
+        raise ProjectHostHelperError("operation_conflict") from exc
+    if (
+        record is None
+        or record.action != "commit"
+        or record.state != "committed"
+        or record.project_id != project_id
+        or record.branch != branch
+        or record.expected_head != receipt.parent_sha
+        or record.revision != apply_receipt.revision
+        or record.apply_receipt != _receipt_to_payload(apply_receipt)
+        or record.commit_receipt != _commit_receipt_to_payload(receipt)
+    ):
+        raise ProjectHostHelperError("operation_conflict")
+
+
+def _require_payload_keys(
+    payload: dict[str, Any],
+    expected: set[str],
+    *,
+    kind: str,
+) -> None:
+    if set(payload) != expected or payload.get("kind") != kind:
+        raise ProjectHostHelperError("operation_payload_invalid")
+
+
+def _require_expected_head(payload: dict[str, Any], expected_head: str) -> None:
+    if payload.get("expected_head") != expected_head:
+        raise ProjectHostHelperError("project_changed")
+
+
+def _string_paths(value: Any) -> tuple[str, ...]:
+    if (
+        not isinstance(value, list)
+        or not 1 <= len(value) <= 20
+        or any(not isinstance(item, str) or not item for item in value)
+        or tuple(value) != tuple(sorted(set(value)))
+    ):
+        raise ProjectHostHelperError("operation_payload_invalid")
+    return tuple(value)
+
+
+def _apply_receipt(value: Any):
+    if not isinstance(value, dict):
+        raise ProjectHostHelperError("operation_payload_invalid")
+    try:
+        return _receipt_from_response({"receipt": value})
+    except Exception as exc:
+        raise ProjectHostHelperError("operation_payload_invalid") from exc
+
+
+def _commit_receipt(value: Any):
+    if not isinstance(value, dict):
+        raise ProjectHostHelperError("operation_payload_invalid")
+    try:
+        return _commit_receipt_from_response({"receipt": value})
+    except Exception as exc:
+        raise ProjectHostHelperError("operation_payload_invalid") from exc
+
+
+def _followup_operation_id(action: str, operation_id: str) -> str:
+    if action not in {"revert", "undo"} or OPERATION_ID_PATTERN.fullmatch(operation_id) is None:
+        raise ProjectHostHelperError("operation_request_invalid")
+    digest = hashlib.sha256(f"{action}\0{operation_id}".encode("utf-8")).hexdigest()
+    return f"{action}_{digest[:40]}"
 
 
 def _validate_windows_local_path(path: Path) -> None:
