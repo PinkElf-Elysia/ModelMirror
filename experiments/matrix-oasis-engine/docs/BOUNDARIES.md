@@ -30,9 +30,9 @@
 
 ## 输入与工具边界
 
-现有 Authoring Pack CLI 和 Creator 本地入口继续执行路径/realpath、`.json`、1 MiB、fatal UTF-8 与安全诊断检查。R3 Compiler/Runtime CLI 的新上限、输出和完整性规则必须在对应批次实现后才能宣称可用；R3.1 不新增文件入口。
+现有 Authoring Pack CLI 和 Creator 本地入口继续执行路径/realpath、`.json`、1 MiB、fatal UTF-8 与安全诊断检查。R3.2 Runtime Validator 只接受调用方已提供的两个 JSON 字符串，不读取文件；先验证 Pack/Receipt 合同与 typed index，再强制规范文本、UTF-8 byteLength 和 Web Crypto SHA-256。R3 Compiler/Runtime CLI 的文件上限、输出和路径规则必须在 R3.3 实现后才能宣称可用。
 
-R2 Simulator 只能通过包根公开 API 作为黑盒 oracle。R3 新包必须浏览器兼容，运行源码不得访问网络、环境变量、文件系统或 `node:*`；Node 文件入口只能存在于模块根 CLI/验证层。
+R2 Simulator 只能通过包根公开 API 作为黑盒 oracle。R3 contracts/validator 运行源码保持浏览器兼容，不访问网络、环境变量、文件系统、storage 或 `node:*`；Node 文件入口只能存在于模块根 CLI/验证层。
 
 ## 自动范围门
 

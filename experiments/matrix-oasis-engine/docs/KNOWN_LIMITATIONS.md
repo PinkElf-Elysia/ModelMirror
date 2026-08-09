@@ -1,9 +1,11 @@
-# R3.1 已知限制
+# R3.2 已知限制
 
-- R3.1 只有治理与隔离基线；Compiler、Runtime Pack/Receipt、Runtime Validator、Runtime Simulator、parity harness 与 Creator 双执行均未实现。
+- Runtime Pack/Receipt 0.1.0 合同、canonical-json/1 与严格 Validator 已实现；Compiler、Runtime Simulator、parity harness 与 Creator 双执行仍未实现。
 - 当前可运行能力仍是 R2 参考模拟器和最小运行实验台，不能宣称编译态或生产运行时就绪。
 - R1/R2 权威输入已冻结；发现缺陷时必须停报，不能混入 R3 修复。
-- Runtime Pack 0.1.0、规范 JSON 与 Receipt 的稳定合同要到后续批次才形成。
+- `source.canonicalSha256` 目前只能验证格式；在 R3.3 Compiler 提供 Authoring 输入前不能核验其来源内容。
+- Receipt 只提供字节一致性，不是签名、身份或可信编译器证明；恶意方可同时替换 Pack 与 Receipt。
+- canonicalizer 无法可靠识别所有透明 JavaScript Proxy；trap 故障会安全地转为静态 operational error。
 - 不提供正式存档、回放、undo/redo、自动运行、随机、时间或并发。
 - 样例只用于验证，不承诺最终题材、剧情、美术、音频或成品质量。
 - 未连接父项目、共享栈、AI、NPC、RAG、MCP、Godot、3D、资产或部署。

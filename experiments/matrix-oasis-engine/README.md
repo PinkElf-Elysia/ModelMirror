@@ -1,10 +1,11 @@
 # 矩阵绿洲 AI 原生 3D 游戏引擎（实验模块）
 
-这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。
+这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.2 已形成 Runtime Pack/Receipt 0.1.0 合同和严格 Validator，但尚未实现 Compiler 或编译态执行。
 
 ## R3 当前状态
 
-- R3.1 只切换活动轮次、固定基线与正向范围策略，不实现 Runtime API。
+- R3.1 已切换活动轮次、固定基线与正向范围策略。
+- R3.2 新增浏览器兼容的 Runtime Pack/Receipt 合同、canonical-json/1 与严格 Validator；Receipt 为必需完整性输入，但不是签名或信任证明。
 - 固定基线为 `380c747e62193855c724a947d99a84070ca623ff`。
 - R1 contracts、Validator/CLI、examples，R2 Simulator/语义测试以及 R0-R2 历史 ADR/验收记录字节冻结。
 - schema v3 对既有 app/docs/scripts/tests 使用精确文件白名单，只对五个批准的新 R3 package 使用目录前缀。
@@ -25,7 +26,7 @@ Authoring Game Pack 0.1.0
 → Creator parity lab
 ```
 
-R3.1 后面的组件仍须按批准批次实现和验收，文档中的方向不代表能力已经存在。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。
+R3.2 只完成合同与 Validator；Compiler、独立 Runtime Simulator、parity harness 和 Creator 双执行仍须按批准批次实现和验收。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。
 
 ## 独立性约束
 

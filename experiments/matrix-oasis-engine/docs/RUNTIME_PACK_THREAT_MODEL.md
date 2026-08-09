@@ -1,6 +1,6 @@
 # R3 Runtime Pack 威胁模型
 
-状态：R3.1 治理骨架；实现控制将在 R3.2-R3.6 逐批验证。
+状态：R3.2 已实现合同、规范 JSON 与 Pack/Receipt Validator；Compiler、独立执行和 parity 控制将在 R3.3-R3.6 逐批验证。
 
 ## 保护目标
 

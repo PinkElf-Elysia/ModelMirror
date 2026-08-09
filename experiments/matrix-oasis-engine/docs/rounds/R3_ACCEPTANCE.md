@@ -1,6 +1,6 @@
 # R3 验收记录
 
-状态：R3.1 治理与隔离基线已完成并验证；R3.2-R3.6 尚未实施
+状态：R3.1 已提交；R3.2 Runtime Pack/Receipt 合同与 Validator 已完成并验证，等待本地提交；R3.3-R3.6 尚未实施
 
 固定基线：`380c747e62193855c724a947d99a84070ca623ff`
 
@@ -20,8 +20,8 @@
 
 | 批次 | 目标 | 提交 | 状态 |
 | --- | --- | --- | --- |
-| R3.1 | 治理、精确 allowlist 与 R1/R2 冻结 | 本提交；SHA 由下一批或仓外交付清单记录 | 已验证 |
-| R3.2 | Runtime Pack/Receipt 合同与 Validator | 待提交 | 未开始 |
+| R3.1 | 治理、精确 allowlist 与 R1/R2 冻结 | `27a33d65e8eb7ed43821a907ae991797449ed5bc` | 已完成 |
+| R3.2 | Runtime Pack/Receipt 合同与 Validator | 本批提交；SHA 由下一批或仓外交付清单记录 | 已验证，等待本地提交 |
 | R3.3 | 确定性 Compiler 与安全 CLI | 待提交 | 未开始 |
 | R3.4 | 独立 Runtime Simulator 与 parity harness | 待提交 | 未开始 |
 | R3.5 | Creator 双执行锁步实验台 | 待提交 | 未开始 |
@@ -52,5 +52,29 @@
 环境事实：首次测试因隔离 worktree 尚无 `node_modules` 出现 6 个 `ERR_MODULE_NOT_FOUND`，执行离线 `npm ci` 后消除。首次 Creator build 在沙箱内创建忽略的 `dist` 目录时遇到 `EPERM`；仅对模块本地 build/verify 使用提升后的文件写权限重跑即通过。未终止进程、未操作父仓或共享栈，故该事件不作为代码失败。
 
 风险与回退：R3.1 仅改变治理、范围护栏、文档和模块根版本标识；逆序 `git revert` 本提交即可恢复 R2 治理。无数据库、服务、路由、环境变量或运行数据迁移。
+
+## R3.2 验收证据
+
+本批变更严格限于 30 个模块内路径：
+
+- 模块根与文档：`README.md`、`package.json`、`package-lock.json`、`scripts/run-verify.mjs`、`docs/ARCHITECTURE.md`、`docs/BOUNDARIES.md`、`docs/DEPENDENCIES_AND_LICENSES.md`、`docs/KNOWN_LIMITATIONS.md`、`docs/RUNTIME_GAME_PACK.md`、`docs/RUNTIME_PACK_THREAT_MODEL.md` 与本文。
+- Runtime 合同包：`packages/runtime-pack-contracts/**` 共 8 个文件，包含两份权威 Schema、canonical-json/1 实现、类型、说明和测试。
+- Runtime Validator：`packages/runtime-pack-validator/**` 共 11 个文件，包含公开入口、诊断、严格解析、结构/语义/完整性验证、类型、说明和测试。
+
+已执行并通过：
+
+- `npm.cmd ci --offline --no-audit --no-fund`：从本机缓存安装 81 packages，退出 0；未联网，未新增 registry 依赖。
+- `npm.cmd prefix`：精确指向当前 R3 模块根；`npm.cmd ls --all`：退出 0，无 missing/extraneous，仅既有平台 optional dependency 与 esbuild install-script 提示。
+- `npm.cmd run test:runtime-pack`：49/49 通过；覆盖合同闭合性、规范 JSON、双文档 parse/schema/semantic/integrity 门、typed index、图、Unicode/数字规范拼写、256/257 深度边界、深输入 fresh process、完整性与静态脱敏。
+- `npm.cmd test`：270/270 通过，既有 R0-R2 harness 与语义测试无回归。
+- 浏览器兼容 bundle：contracts 19,010 bytes、validator 345,326 bytes；`platform=browser`、无 `node:*`、文件系统、网络、环境变量或 storage 依赖。
+- `npm.cmd run verify`：8/8 步通过；包含 doctor、round scope、boundary、样例、Runtime Pack、全部测试、Creator build 与 loopback smoke。
+- `npm.cmd run check:boundary`、`npm.cmd run check:round-scope`、`npm.cmd run check:parent-scope -- --base 380c747e62193855c724a947d99a84070ca623ff` 与 `git diff --check`：全部退出 0。
+
+范围证据：R1/R2 contracts、Validator、Simulator、examples、既有 CLI/语义测试及 R0-R2 ADR/验收记录相对固定基线零差异；父 `client`、`server`、`.github`、Docker、根 manifest/lock 与现有 Matrix Oasis 页面零差异。未启动父前后端、Docker 或共享栈。
+
+安全事实：原始 JSON 嵌套在递归 parser 前以字符串感知扫描限制为 256 层；重复键仅在当前位置 Schema 声明属性时发布精确 pointer，错层或未知键退回安全父路径。Web Crypto、Proxy trap 与解析器故障只产生固定 operational code，不回显输入、键名、哈希或底层异常。
+
+已知限制与回退：R3.2 尚无 Compiler、独立 Runtime Simulator、parity harness 或 Creator 双执行；`source.canonicalSha256` 只能校验格式，Receipt 不是签名或信任证明。逆序 `git revert` 本批提交可删除两个新 workspace、根脚本接线和本批文档，R1/R2 冻结输入与现有 Creator 保持不变；无数据库、服务、路由、环境变量或运行数据迁移。
 
 用户明确回复“R3 验收通过，可以创建PR”前不 push、不创建 PR。

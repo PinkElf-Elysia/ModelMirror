@@ -11,6 +11,7 @@ const steps = [
   ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
   ["pack-examples", ["run", "validate:examples"]],
+  ["runtime-pack", ["run", "verify:runtime-pack"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],
