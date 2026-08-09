@@ -421,17 +421,17 @@ class ToolBroker:
                 stderr=asyncio.subprocess.STDOUT,
             )
             try:
-                output, _ = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout_seconds
+                output = await asyncio.wait_for(
+                    self._collect_bounded_output(process), timeout=timeout_seconds
                 )
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
                 raise ToolBrokerError("Command timed out.", code="command_timeout")
-            if len(output) > self.max_output_bytes:
-                raise ToolBrokerError(
-                    "Command output is too large.", code="tool_output_too_large"
-                )
+            except asyncio.CancelledError:
+                process.kill()
+                await process.wait()
+                raise
             return {
                 "argv": list(normalized),
                 "exit_code": int(process.returncode or 0),
@@ -440,6 +440,28 @@ class ToolBroker:
         finally:
             if execution_root is not None:
                 self.workspace_broker._remove_tree(execution_root)
+
+    async def _collect_bounded_output(
+        self, process: asyncio.subprocess.Process
+    ) -> bytes:
+        if process.stdout is None:
+            raise ToolBrokerError("Command output is unavailable.", code="command_failed")
+        chunks: list[bytes] = []
+        size = 0
+        while True:
+            chunk = await process.stdout.read(64 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > self.max_output_bytes:
+                process.kill()
+                await process.wait()
+                raise ToolBrokerError(
+                    "Command output is too large.", code="tool_output_too_large"
+                )
+            chunks.append(chunk)
+        await process.wait()
+        return b"".join(chunks)
 
     def _target(self, workspace_id: str, value: str, *, create_parents: bool = False) -> Path:
         path = PurePosixPath(value)

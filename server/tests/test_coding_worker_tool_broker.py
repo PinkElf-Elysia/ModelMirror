@@ -214,6 +214,30 @@ async def test_unknown_write_reconciles_but_command_never_replays(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_command_is_killed_while_output_limit_is_crossed(tmp_path: Path) -> None:
+    broker, store, task_id, _ = await _broker(tmp_path)
+    broker.max_output_bytes = 1024
+    argv = ["python", "-c", "print('x' * 5000)"]
+    approval = store.create_approval(
+        task_id=task_id,
+        operation_id="approve-large-output",
+        capability="command",
+        request={"argv": argv},
+    )
+    lease = store.decide_approval(approval.approval_id, approved=True).lease
+    assert lease is not None
+    with pytest.raises(ToolBrokerError) as too_large:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="large-output",
+            tool_name="run_command",
+            arguments={"argv": argv},
+            lease_id=lease.lease_id,
+        )
+    assert too_large.value.code == "tool_output_too_large"
+
+
+@pytest.mark.asyncio
 async def test_missing_command_lease_creates_one_approval_and_same_operation_resumes(
     tmp_path: Path,
 ) -> None:
