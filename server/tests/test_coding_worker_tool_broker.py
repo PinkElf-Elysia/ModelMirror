@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import sys
 from unittest.mock import AsyncMock
@@ -21,6 +22,7 @@ from server.coding_worker.contracts import (
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.process_manager import BackgroundProcessManager
 from server.coding_worker.network_policy import EgressPolicy
+from server.coding_worker.executor import SidecarExecutor
 from server.coding_worker.tool_broker import FrozenCheck, ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
@@ -100,6 +102,88 @@ async def test_develop_can_write_search_diff_and_run_frozen_check(tmp_path: Path
     )
     assert check.data["exit_code"] == 0
     assert repository.joinpath("app.py").read_text() == content
+
+
+@pytest.mark.asyncio
+async def test_command_execution_can_be_delegated_to_sidecar(tmp_path: Path) -> None:
+    broker, store, task_id, _ = await _broker(tmp_path)
+    executor = AsyncMock()
+    executor.run_process.return_value = {
+        "argv": ["python", "-V"],
+        "exit_code": 0,
+        "output": "Python sidecar",
+    }
+    broker.executor = executor
+    arguments = {"argv": ["python", "-V"], "timeout_seconds": 30}
+    approval = store.create_approval(
+        task_id=task_id,
+        operation_id="sidecar-command",
+        capability="command",
+        request=arguments,
+    )
+    lease = store.decide_approval(
+        approval.approval_id, approved=True, task_scope=False
+    ).lease
+    assert lease is not None
+    result = await broker.execute(
+        task_id=task_id,
+        operation_id="sidecar-command",
+        tool_name="run_command",
+        arguments=arguments,
+        lease_id=lease.lease_id,
+    )
+    assert result.data["output"] == "Python sidecar"
+    executor.run_process.assert_awaited_once()
+    executor.service_status.return_value = {
+        "service_id": "service_" + "a" * 32,
+        "task_id": task_id,
+        "state": "completed",
+        "output": "archived sidecar output",
+    }
+    status = await broker.execute(
+        task_id=task_id,
+        operation_id="sidecar-status",
+        tool_name="service_status",
+        arguments={"service_id": "service_" + "a" * 32},
+    )
+    assert "output" not in status.data
+    artifact_id = status.data["output_artifact_id"]
+    assert store.read_artifact(artifact_id, task_id=task_id) == b"archived sidecar output"
+
+
+@pytest.mark.asyncio
+async def test_sidecar_executor_owns_commands_and_background_services(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "slot" / "workspaces" / "workspace_one" / "repo"
+    repository.mkdir(parents=True)
+    executor = SidecarExecutor(
+        lambda _workspace_id: repository,
+        runtime_root=tmp_path / "slot" / "runtime",
+    )
+    command = await executor.run_process(
+        workspace_id="workspace_one",
+        argv=(sys.executable, "-c", "print('sidecar-command')"),
+        timeout_seconds=10,
+        isolated=False,
+    )
+    assert command["exit_code"] == 0
+    assert command["output"].strip() == "sidecar-command"
+    service = await executor.start_service(
+        task_id="task_sidecar",
+        workspace_id="workspace_one",
+        argv=(sys.executable, "-c", "print('sidecar-service')"),
+        ttl_seconds=10,
+    )
+    for _ in range(100):
+        status = executor.service_status(
+            task_id="task_sidecar", service_id=str(service["service_id"])
+        )
+        if status["state"] != "running":
+            break
+        await asyncio.sleep(0.01)
+    assert status["state"] == "completed"
+    assert str(status["output"]).strip() == "sidecar-service"
 
 
 @pytest.mark.asyncio

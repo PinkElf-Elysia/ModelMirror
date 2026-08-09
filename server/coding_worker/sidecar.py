@@ -9,6 +9,7 @@ from pathlib import Path
 from .contracts import SAFE_ID
 from .opencode_provider import OpenCodeProvider, OpenCodeRoute
 from .provider_rpc import ProviderRPCServer
+from .executor import SidecarExecutor
 
 
 def _required_environment(name: str) -> str:
@@ -62,11 +63,15 @@ async def run() -> None:
         routes={route_id: route},
         tool_broker_command=("python", "-m", "coding_worker.broker_mcp"),
     )
+    executor = SidecarExecutor(
+        _workspace_resolver(workspace_root), runtime_root=runtime_root
+    )
     server = ProviderRPCServer(
         provider,
         token=_required_environment("CODING_WORKER_SIDECAR_TOKEN"),
         bind_broker=provider.bind_broker,
         unbind_broker=provider.unbind_broker,
+        executor=executor,
     )
     await server.start_unix(socket_path)
     stop = asyncio.Event()

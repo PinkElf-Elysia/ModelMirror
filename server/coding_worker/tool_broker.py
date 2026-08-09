@@ -10,7 +10,7 @@ import tempfile
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from pydantic import Field
@@ -67,6 +67,14 @@ class ToolResult(StrictModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolExecutor(Protocol):
+    async def run_process(self, *, task_id: str, workspace_id: str, argv: Sequence[str], timeout_seconds: int, isolated: bool, environment_overrides: Mapping[str, str] | None = None) -> dict[str, Any]: ...
+    async def start_service(self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int) -> dict[str, Any]: ...
+    async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
+    async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]: ...
+    async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
+
+
 class ToolBroker:
     """The sole side-effect boundary exposed to a coding provider.
 
@@ -84,6 +92,7 @@ class ToolBroker:
         egress_policy: EgressPolicy | None = None,
         egress_proxy_url: str | None = None,
         max_output_bytes: int = MAX_TOOL_OUTPUT_BYTES,
+        executor: ToolExecutor | None = None,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
             raise ValueError("tool output limit is invalid")
@@ -94,6 +103,7 @@ class ToolBroker:
         self.egress_policy = egress_policy
         self.egress_proxy_url = self._validate_proxy_url(egress_proxy_url)
         self.max_output_bytes = max_output_bytes
+        self.executor = executor
 
     async def execute(
         self,
@@ -193,6 +203,18 @@ class ToolBroker:
             if isinstance(exc, ToolBrokerError):
                 raise
             raise ToolBrokerError("Tool operation failed.", code=getattr(exc, "code", "tool_failed")) from exc
+        except Exception as exc:
+            current = self.store.get_operation(operation_id)
+            if current.state in {OperationState.PREPARED, OperationState.RUNNING}:
+                self.store.transition_operation(
+                    operation_id,
+                    OperationState.FAILED,
+                    result={"code": getattr(exc, "code", "tool_failed")},
+                    expected_state=current.state,
+                )
+            raise ToolBrokerError(
+                "Tool operation failed.", code=getattr(exc, "code", "tool_failed")
+            ) from exc
 
     def reconcile(self, operation_id: str) -> ToolResult:
         operation = self.store.get_operation(operation_id)
@@ -387,6 +409,7 @@ class ToolBroker:
             if check is None:
                 raise ToolBrokerError("Check is not registered.", code="check_not_found")
             return await self._run_process(
+                task_id,
                 workspace_id,
                 check.argv,
                 check.timeout_seconds,
@@ -400,9 +423,8 @@ class ToolBroker:
                 raise ToolBrokerError("Command argv is invalid.", code="tool_input_invalid")
             if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 1800:
                 raise ToolBrokerError("Command timeout is invalid.", code="tool_input_invalid")
-            return await self._run_process(workspace_id, tuple(argv), timeout)
+            return await self._run_process(task_id, workspace_id, tuple(argv), timeout)
         if tool_name == "start_service":
-            manager = self._require_process_manager()
             argv = arguments.get("argv")
             ttl = arguments.get("ttl_seconds", 900)
             if (
@@ -412,7 +434,14 @@ class ToolBroker:
                 or not isinstance(ttl, int)
             ):
                 raise ToolBrokerError("Service input is invalid.", code="tool_input_invalid")
-            record = await manager.start(
+            if self.executor is not None:
+                return await self.executor.start_service(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    argv=self._validate_argv(argv),
+                    ttl_seconds=ttl,
+                )
+            record = await self._require_process_manager().start(
                 task_id=task_id,
                 workspace_id=workspace_id,
                 argv=self._validate_argv(argv),
@@ -420,6 +449,13 @@ class ToolBroker:
             )
             return record.model_dump(mode="json")
         if tool_name == "service_status":
+            if self.executor is not None:
+                result = await self.executor.service_status(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    service_id=str(arguments.get("service_id", "")),
+                )
+                return self._archive_service_output(task_id, result)
             record = self._require_process_manager().status(
                 task_id=task_id,
                 service_id=str(arguments.get("service_id", "")),
@@ -430,6 +466,13 @@ class ToolBroker:
             data = arguments.get("data")
             if not isinstance(data, str):
                 raise ToolBrokerError("Service input is invalid.", code="tool_input_invalid")
+            if self.executor is not None:
+                return await self.executor.service_input(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    service_id=service_id,
+                    data=data,
+                )
             await self._require_process_manager().send_input(
                 task_id=task_id,
                 service_id=service_id,
@@ -437,6 +480,13 @@ class ToolBroker:
             )
             return {"service_id": service_id, "accepted": True}
         if tool_name == "stop_service":
+            if self.executor is not None:
+                result = await self.executor.stop_service(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    service_id=str(arguments.get("service_id", "")),
+                )
+                return self._archive_service_output(task_id, result)
             record = await self._require_process_manager().interrupt(
                 task_id=task_id,
                 service_id=str(arguments.get("service_id", "")),
@@ -451,6 +501,7 @@ class ToolBroker:
             if self.egress_proxy_url is None:
                 raise ToolBrokerError("Egress proxy is unavailable.", code="network_disabled")
             result = await self._run_process(
+                task_id,
                 workspace_id,
                 ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"),
                 1800,
@@ -483,6 +534,30 @@ class ToolBroker:
         if self.process_manager is None:
             raise ToolBrokerError("Service manager is unavailable.", code="service_unavailable")
         return self.process_manager
+
+    def _archive_service_output(
+        self, task_id: str, result: dict[str, Any]
+    ) -> dict[str, Any]:
+        output = result.pop("output", None)
+        if not isinstance(output, str):
+            return result
+        service_id = str(result.get("service_id", ""))
+        existing = next(
+            (
+                item
+                for item in self.store.list_artifacts(task_id)
+                if item.metadata.get("kind") == "service_output"
+                and item.metadata.get("service_id") == service_id
+            ),
+            None,
+        )
+        artifact = existing or self.store.create_artifact(
+            task_id=task_id,
+            media_type="text/plain; charset=utf-8",
+            content=output.encode("utf-8"),
+            metadata={"kind": "service_output", "service_id": service_id},
+        )
+        return {**result, "output_artifact_id": artifact.artifact_id}
 
     def _require_egress_policy(self) -> EgressPolicy:
         if self.egress_policy is None:
@@ -532,6 +607,7 @@ class ToolBroker:
 
     async def _run_process(
         self,
+        task_id: str,
         workspace_id: str,
         argv: Sequence[str],
         timeout_seconds: int,
@@ -541,6 +617,15 @@ class ToolBroker:
         environment_overrides: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         normalized = self._validate_argv(argv, trusted=trusted)
+        if self.executor is not None:
+            return await self.executor.run_process(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                argv=normalized,
+                timeout_seconds=timeout_seconds,
+                isolated=isolated,
+                environment_overrides=environment_overrides,
+            )
         repository = self.workspace_broker.repository_path(workspace_id)
         execution_root: Path | None = None
         execution_repository = repository

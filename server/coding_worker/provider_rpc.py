@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from .provider import (
     ProviderOpenRequest,
     ProviderSession,
 )
+from .executor import SidecarExecutor
 
 
 MAX_PROVIDER_RPC_BYTES = 8 * 1024 * 1024
@@ -46,6 +47,7 @@ class ProviderRPCServer:
         token: str,
         bind_broker: Callable[[str, str, str], None] | None = None,
         unbind_broker: Callable[[str], None] | None = None,
+        executor: SidecarExecutor | None = None,
     ) -> None:
         if len(token) < 32:
             raise ValueError("provider RPC token is too short")
@@ -53,6 +55,7 @@ class ProviderRPCServer:
         self._token = token
         self._bind_broker = bind_broker
         self._unbind_broker = unbind_broker
+        self._executor = executor
         self._server: asyncio.AbstractServer | None = None
         self.endpoint: str | None = None
         self._active_task_id: str | None = None
@@ -127,6 +130,45 @@ class ProviderRPCServer:
     async def _dispatch(self, request: ProviderRPCRequest) -> dict[str, Any]:
         if request.action == "capabilities":
             return (await self.provider.capabilities()).model_dump(mode="json")
+        if request.action == "execute_process":
+            executor = self._require_executor()
+            self._require_active(str(request.payload.get("task_id", "")))
+            return await executor.run_process(
+                workspace_id=str(request.payload.get("workspace_id", "")),
+                argv=tuple(request.payload.get("argv", ())),
+                timeout_seconds=int(request.payload.get("timeout_seconds", 0)),
+                isolated=request.payload.get("isolated") is True,
+                environment_overrides=request.payload.get("environment_overrides"),
+            )
+        if request.action == "start_service":
+            executor = self._require_executor()
+            self._require_active(str(request.payload.get("task_id", "")))
+            return await executor.start_service(
+                task_id=str(request.payload.get("task_id", "")),
+                workspace_id=str(request.payload.get("workspace_id", "")),
+                argv=tuple(request.payload.get("argv", ())),
+                ttl_seconds=int(request.payload.get("ttl_seconds", 0)),
+            )
+        if request.action == "service_status":
+            self._require_active(str(request.payload.get("task_id", "")))
+            return self._require_executor().service_status(
+                task_id=str(request.payload.get("task_id", "")),
+                service_id=str(request.payload.get("service_id", "")),
+            )
+        if request.action == "service_input":
+            self._require_active(str(request.payload.get("task_id", "")))
+            await self._require_executor().service_input(
+                task_id=str(request.payload.get("task_id", "")),
+                service_id=str(request.payload.get("service_id", "")),
+                data=str(request.payload.get("data", "")),
+            )
+            return {"accepted": True}
+        if request.action == "stop_service":
+            self._require_active(str(request.payload.get("task_id", "")))
+            return await self._require_executor().stop_service(
+                task_id=str(request.payload.get("task_id", "")),
+                service_id=str(request.payload.get("service_id", "")),
+            )
         if request.action in {"open", "restore"}:
             opened = ProviderOpenRequest.model_validate(request.payload.get("request"))
             broker_endpoint = request.payload.get("broker_endpoint")
@@ -164,6 +206,8 @@ class ProviderRPCServer:
             return (await self.provider.checkpoint(session)).model_dump(mode="json")
         if request.action == "close":
             await self.provider.close(session)
+            if self._executor is not None:
+                await self._executor.stop_task(session.task_id)
             async with self._lock:
                 if self._active_task_id == session.task_id:
                     self._active_task_id = None
@@ -173,6 +217,13 @@ class ProviderRPCServer:
         raise ProviderRPCError(
             "Provider action is invalid.", code="provider_request_invalid"
         )
+
+    def _require_executor(self) -> SidecarExecutor:
+        if self._executor is None:
+            raise ProviderRPCError(
+                "Provider executor is unavailable.", code="executor_unavailable"
+            )
+        return self._executor
 
     def _require_active(self, task_id: str) -> None:
         if self._active_task_id != task_id:
@@ -329,6 +380,53 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             )
         finally:
             self._broker_rpc.revoke_task(session.task_id)
+
+    async def run_process(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        argv: Sequence[str],
+        timeout_seconds: int,
+        isolated: bool,
+        environment_overrides: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        return await self._workspace_call(
+            workspace_id,
+            "execute_process",
+            {
+                "task_id": task_id,
+                "workspace_id": workspace_id,
+                "argv": list(argv),
+                "timeout_seconds": timeout_seconds,
+                "isolated": isolated,
+                "environment_overrides": dict(environment_overrides or {}),
+            },
+        )
+
+    async def start_service(
+        self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int
+    ) -> dict[str, Any]:
+        return await self._workspace_call(
+            workspace_id,
+            "start_service",
+            {"task_id": task_id, "workspace_id": workspace_id, "argv": list(argv), "ttl_seconds": ttl_seconds},
+        )
+
+    async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "service_status", {"task_id": task_id, "service_id": service_id})
+
+    async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "service_input", {"task_id": task_id, "service_id": service_id, "data": data})
+
+    async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "stop_service", {"task_id": task_id, "service_id": service_id})
+
+    async def _workspace_call(self, workspace_id: str, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        slot_id = self._workspace_slot_resolver(workspace_id)
+        if slot_id not in self._endpoints:
+            raise ProviderRPCError("Provider slot is unavailable.", code="provider_unavailable")
+        return await self._call(slot_id, action, payload)
 
     def _require_session(self, session: ProviderSession) -> str:
         binding = self._sessions.get(session.session_id)
