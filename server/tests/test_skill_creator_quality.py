@@ -8,6 +8,7 @@ from server.skills.creator_quality import (
     CREATOR_CONTRACT_VERSION,
     CREATOR_PLAYBOOK_VERSION,
     build_session_requirements,
+    evaluate_creator_final_package,
     evaluate_creator_payload,
     load_creator_authoring_playbook,
 )
@@ -166,6 +167,83 @@ def test_complete_creator_payload_passes_with_traceable_checks() -> None:
     assert all(check["code"] == check["check_id"] for check in serialized["checks"])
     assert all(check["label"] for check in serialized["checks"])
     assert serialized["playbook_version"] == CREATOR_PLAYBOOK_VERSION
+
+
+def test_final_package_gate_accepts_complete_package_without_design_metadata() -> None:
+    skill = _rich_payload(with_resource=True)["skill"]
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"],
+        skill_markdown=skill["skill_markdown"],
+        files=skill["files"],
+    )
+
+    assert report.ready is True
+    assert report.score == 100
+    assert report.issues == ()
+
+
+def test_final_package_gate_rejects_manual_scaffold_and_resource_placeholders() -> None:
+    skill = _rich_payload(with_resource=True)["skill"]
+    markdown = skill["skill_markdown"].replace(
+        "# Incident review",
+        "<!-- MODEL_MIRROR_MANUAL_SCAFFOLD: incomplete -->\n\n# Incident review",
+    )
+    files = dict(skill["files"])
+    files["references/notes.md"] = "# Notes\n\nTODO: replace this placeholder.\n"
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"], skill_markdown=markdown, files=files
+    )
+
+    assert report.ready is False
+    assert {issue.code for issue in report.issues} >= {
+        "creator_manual_scaffold_incomplete"
+    }
+
+
+@pytest.mark.parametrize(
+    ("original_heading", "issue_code"),
+    [
+        ("## Inputs and prerequisites", "creator_inputs_preconditions_missing"),
+        ("## Workflow", "creator_workflow_missing"),
+        ("## Output contract", "creator_output_contract_missing"),
+        ("## Quality checks", "creator_quality_checks_missing"),
+        ("## Failure handling", "creator_failure_behavior_missing"),
+    ],
+)
+def test_final_package_gate_requires_substantive_operational_sections(
+    original_heading: str, issue_code: str
+) -> None:
+    skill = _rich_payload()["skill"]
+    markdown = skill["skill_markdown"].replace(original_heading, "## Background")
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"], skill_markdown=markdown, files=skill["files"]
+    )
+
+    assert report.ready is False
+    assert issue_code in {issue.code for issue in report.issues}
+
+
+def test_final_package_gate_rejects_repeated_workflow_steps() -> None:
+    skill = _rich_payload()["skill"]
+    markdown = skill["skill_markdown"]
+    for instruction in (
+        "Normalize the timeline while preserving timestamps and source labels.",
+        "Separate observed facts from hypotheses, and mark conflicting evidence explicitly.",
+        "Derive findings only from cited facts; record remaining uncertainty.",
+        "Draft actions with one accountable owner, a due date, and a verification condition.",
+        "Verify the complete report against the quality checks before delivery.",
+    ):
+        markdown = markdown.replace(instruction, "Repeat the same vague instruction.")
+
+    report = evaluate_creator_final_package(
+        root_name=skill["name"], skill_markdown=markdown, files=skill["files"]
+    )
+
+    assert report.ready is False
+    assert "creator_workflow_missing" in {issue.code for issue in report.issues}
 
 
 @pytest.mark.parametrize(

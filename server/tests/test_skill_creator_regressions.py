@@ -25,7 +25,7 @@ from server.skills.creator_store import (
     SkillCreatorNotFoundError,
     SkillCreatorSessionStore,
 )
-from server.skills.draft_store import WorkspaceSkillDraftStore
+from server.skills.draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
 from server.xpert_runtime import WorkflowExecutionStore
 from server.xpert_runtime import authoring_api
 from server.xpert_runtime.authoring_service import AuthoringService
@@ -159,6 +159,36 @@ CREATOR_DESIGN = {
         },
     ],
 }
+
+
+def test_skill_evaluation_runtime_budget_and_service_are_server_bound() -> None:
+    metadata = {
+        "runtime_run_type": "skill_evaluation",
+        "skill_evaluation_workflow_version": (
+            main_module.SKILL_EVALUATION_WORKFLOW_VERSION
+        ),
+        "skill_evaluation_profile": main_module.SKILL_EVALUATION_PROFILE,
+        "skill_evaluation_item_id": "item-regression",
+        "skill_evaluation_workspace_id": "workspace-regression",
+    }
+    assert (
+        main_module.workflow_agent_token_budget(metadata)
+        == main_module.SKILL_EVALUATION_AGENT_MAX_TOKENS
+    )
+    assert (
+        main_module.workflow_agent_token_budget(
+            {**metadata, "skill_evaluation_profile": "default"}
+        )
+        == main_module.WORKFLOW_AGENT_MAX_TOKENS
+    )
+    assert (
+        main_module.skill_creator_evaluation_service.evaluation_store
+        is main_module.skill_evaluation_store
+    )
+    assert (
+        main_module.skill_creator_evaluation_service.executor
+        is main_module.skill_evaluation_executor
+    )
 
 
 def _creator_tool_arguments(skill: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -602,7 +632,7 @@ async def test_trusted_creator_recovers_non_tool_model_responses(
 
 
 @pytest.mark.asyncio
-async def test_trusted_creator_stops_after_two_rejected_tool_calls(
+async def test_trusted_creator_stops_after_three_rejected_tool_calls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -612,6 +642,7 @@ async def test_trusted_creator_stops_after_two_rejected_tool_calls(
         [
             _creator_create_decision(_thin_creator_tool_arguments()),
             _creator_create_decision(_thin_creator_tool_arguments()),
+            _creator_create_decision(_thin_creator_tool_arguments()),
             _creator_create_decision(_creator_tool_arguments()),
         ],
     )
@@ -619,7 +650,7 @@ async def test_trusted_creator_stops_after_two_rejected_tool_calls(
     with pytest.raises(RuntimeError, match="tool call budget exhausted"):
         await main_module.run_skill_creator_generation(invocation)
 
-    assert len(model_messages) == 3
+    assert len(model_messages) == 4
     assert authoring.proposal_store.list(
         creator_session_id="skillcreator_runtime_scenario"
     ) == []
@@ -1397,3 +1428,235 @@ async def test_authoring_api_persists_reason_structures_conflicts_and_guards_cre
             )
     finally:
         authoring_api._service = previous_service
+
+
+def test_creator_quality_decisions_reject_incomplete_manual_scaffold(
+    tmp_path: Path,
+) -> None:
+    drafts = WorkspaceSkillDraftStore(tmp_path / "drafts")
+    markdown = """---
+name: manual-review
+description: Review supplied notes into a structured report. Use when a user needs repeatable note review; do not use for fictional prose.
+---
+
+<!-- MODEL_MIRROR_MANUAL_SCAFFOLD: incomplete -->
+
+# Manual review
+
+## Purpose and boundaries
+
+Review the supplied notes without inventing missing facts.
+
+## Inputs and prerequisites
+
+TODO: list required inputs.
+
+## Workflow
+
+1. TODO: inspect the input.
+2. TODO: extract findings.
+3. TODO: verify evidence.
+4. TODO: format the result.
+
+## Output contract
+
+TODO: define the output.
+
+## Quality checks
+
+TODO: define the checks.
+
+## Failure handling
+
+TODO: define safe degradation.
+"""
+    draft = drafts.create(
+        name="manual-review",
+        slug="manual-review",
+        description=(
+            "Review supplied notes into a structured report. Use when a user needs "
+            "repeatable note review; do not use for fictional prose."
+        ),
+        skill_markdown=markdown,
+        files={},
+        creator_session_id="skillcreator_manual_incomplete",
+        quality_required=True,
+    )
+
+    operations = (
+        lambda: drafts.begin_evaluation(
+            draft.draft_id,
+            expected_revision=draft.revision,
+            expected_digest=draft.content_digest,
+            run_id="skill_eval_incomplete",
+        ),
+        lambda: drafts.accept_evaluation(
+            draft.draft_id,
+            expected_revision=draft.revision,
+            expected_digest=draft.content_digest,
+            run_id="skill_eval_incomplete",
+            decision_id="review_incomplete",
+            actor_id="console_regression_test",
+        ),
+        lambda: drafts.waive_evaluation(
+            draft.draft_id,
+            expected_revision=draft.revision,
+            expected_digest=draft.content_digest,
+            decision_id="waiver_incomplete",
+            actor_id="console_regression_test",
+            reason="subjective",
+        ),
+    )
+    for operation in operations:
+        with pytest.raises(SkillDraftValidationError) as captured:
+            operation()
+        assert "creator_manual_scaffold_incomplete" in {
+            issue["code"] for issue in captured.value.issues
+        }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reported_model", "expected_observation"),
+    [("provider/actual-model", "provider/actual-model"), (None, ""), (123, "")],
+)
+async def test_chat_completion_reports_provider_model_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    reported_model: Any,
+    expected_observation: str,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        payload: dict[str, Any] = {
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "done"},
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+        if reported_model is not None:
+            payload["model"] = reported_model
+        return httpx.Response(200, json=payload)
+
+    monkeypatch.setattr(
+        main_module,
+        "llm_client_kwargs",
+        lambda: {"transport": httpx.MockTransport(handler)},
+    )
+    observed: list[str] = []
+
+    result = await main_module.collect_chat_completion_text(
+        "gateway/requested-model",
+        [main_module.ChatMessage(role="user", content="test")],
+        gateway_url="http://test-gateway.local/v1/chat/completions",
+        gateway_key="test-key",
+        actual_model_observer=observed.append,
+    )
+
+    assert result == "done"
+    assert observed == [expected_observation]
+
+
+@pytest.mark.asyncio
+async def test_failed_chat_completion_does_not_forge_unknown_model_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        main_module,
+        "llm_client_kwargs",
+        lambda: {
+            "transport": httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    503, json={"error": {"message": "temporary failure"}}
+                )
+            )
+        },
+    )
+    observed: list[str] = []
+
+    with pytest.raises(RuntimeError):
+        await main_module.collect_chat_completion_text(
+            "gateway/requested-model",
+            [main_module.ChatMessage(role="user", content="test")],
+            gateway_url="http://test-gateway.local/v1/chat/completions",
+            gateway_key="test-key",
+            actual_model_observer=observed.append,
+        )
+
+    assert observed == []
+
+
+@pytest.mark.asyncio
+async def test_unusable_chat_completion_does_not_record_provider_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        main_module,
+        "llm_client_kwargs",
+        lambda: {
+            "transport": httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200,
+                    json={
+                        "model": "provider/unusable-model",
+                        "choices": [
+                            {
+                                "message": {"role": "assistant", "content": ""},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                    },
+                )
+            )
+        },
+    )
+    observed: list[str] = []
+
+    with pytest.raises(RuntimeError):
+        await main_module.collect_chat_completion_text(
+            "gateway/requested-model",
+            [main_module.ChatMessage(role="user", content="test")],
+            gateway_url="http://test-gateway.local/v1/chat/completions",
+            gateway_key="test-key",
+            actual_model_observer=observed.append,
+        )
+
+    assert observed == []
+
+
+def test_skill_creator_is_enabled_by_default_for_the_private_console(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SKILL_CREATOR_V2_ENABLED", raising=False)
+    runtime_dir = tmp_path / "enabled-default"
+    drafts = WorkspaceSkillDraftStore(runtime_dir)
+    authoring = AuthoringService(
+        AuthoringProposalStore(runtime_dir),
+        XpertStore(tmp_path / "enabled-xperts"),
+        drafts,
+        local_console_actor_id="console_default_enabled",
+    )
+
+    service = SkillCreatorService(
+        SkillCreatorSessionStore(runtime_dir), drafts, authoring
+    )
+
+    assert service.enabled is True
+
+
+def test_corrupt_evaluation_store_disables_only_evaluation_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenExecutor:
+        def start(self) -> None:
+            raise main_module.SkillEvaluationError("corrupt evaluation store")
+
+    configured: list[Any] = []
+    monkeypatch.setattr(main_module.skill_creator_service, "enabled", True)
+    monkeypatch.setattr(main_module, "skill_evaluation_executor", BrokenExecutor())
+    monkeypatch.setattr(
+        main_module, "configure_skill_creator_evaluation", configured.append
+    )
+
+    assert main_module.start_skill_creator_evaluation_runtime() is False
+    assert configured == [None]

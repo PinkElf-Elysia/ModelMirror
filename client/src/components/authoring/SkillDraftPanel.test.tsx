@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import SkillDraftPanel from "./SkillDraftPanel";
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -44,10 +45,14 @@ describe("SkillDraftPanel quality gate", () => {
       return jsonResponse({ items: [creator, legacy] });
     }));
 
-    render(<SkillDraftPanel />);
+    render(<MemoryRouter><SkillDraftPanel /></MemoryRouter>);
     await userEvent.click(await screen.findByRole("button", { name: /PDF Helper.*待评测/ }));
-    expect(await screen.findByRole("button", { name: "PR3 后可安装" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "通过质量门后可安装" })).toBeDisabled();
     expect(screen.getByText(/当前内容尚未通过质量门/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "前往 Creator 完成评测" })).toHaveAttribute(
+      "href",
+      "/skills/create/creator_1",
+    );
 
     await userEvent.click(screen.getByRole("button", { name: /Legacy PDF Helper/ }));
     expect(await screen.findByRole("button", { name: "显式安装" })).toBeEnabled();

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -17,8 +19,14 @@ from typing import Any
 WORKSPACE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 OPERATION_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}")
 DEFAULT_ALLOWED_COMMANDS = {"python", "python3", "node", "npm", "npx", "git", "rg"}
+SKILL_EVALUATION_ALLOWED_COMMANDS = {"python", "python3", "node", "rg"}
+DEFAULT_PROFILE = "default"
+SKILL_EVALUATION_PROFILE = "skill_evaluation_v1"
+SUPPORTED_PROFILES = {DEFAULT_PROFILE, SKILL_EVALUATION_PROFILE}
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
+MAX_MANIFEST_FILES = 500
+MAX_MANIFEST_PREVIEW_CHARS = 4_000
 
 
 class SandboxEngineError(RuntimeError):
@@ -50,11 +58,55 @@ class SandboxEngine:
                 "engine": "modelmirror-sandbox-v1",
                 "landlock_required": self.require_landlock,
                 "allowed_commands": sorted(self.allowed_commands),
+                "profiles": {
+                    DEFAULT_PROFILE: {
+                        "allowed_commands": sorted(self.allowed_commands),
+                        "network_policy": "container_network_none_required",
+                    },
+                    SKILL_EVALUATION_PROFILE: {
+                        "allowed_commands": sorted(SKILL_EVALUATION_ALLOWED_COMMANDS),
+                        "network_policy": "container_network_none_required",
+                        "read_only_roots": ["inputs", "skills"],
+                        "writable_roots": ["work", ".tmp"],
+                        "write_file_roots": ["work"],
+                        "provisioning": "capability_bound",
+                        "lifecycle_actions": [
+                            "ensure_workspace",
+                            "seed_file",
+                            "seal_workspace",
+                            "collect_work_manifest",
+                            "cleanup_workspace",
+                        ],
+                    },
+                },
             }
+        profile = self._profile(request.get("profile"))
         workspace_id = self._workspace_id(request.get("workspace_id"))
-        workspace = self._ensure_workspace(workspace_id)
+        if profile == SKILL_EVALUATION_PROFILE:
+            if action == "ensure_workspace":
+                return self._ensure_evaluation_workspace(workspace_id, request)
+            workspace = self._evaluation_workspace(workspace_id, request)
+            if action == "seed_file":
+                return self._idempotent(workspace, action, request, self._seed_evaluation_file)
+            if action == "seal_workspace":
+                self._seal_evaluation_workspace(workspace)
+                return {"ok": True, "workspace_id": workspace_id, "sealed": True}
+            if action == "collect_work_manifest":
+                self._seal_evaluation_workspace(workspace)
+                return self._collect_work_manifest(workspace)
+            if action == "cleanup_workspace":
+                shutil.rmtree(workspace)
+                return {"ok": True, "workspace_id": workspace_id, "removed": True}
+            if action == "publish_artifact":
+                raise SandboxEngineError(
+                    "Artifact publishing is unavailable in the Skill evaluation profile.",
+                    code="profile_action_denied",
+                )
+            self._seal_evaluation_workspace(workspace)
+        else:
+            workspace = self._ensure_workspace(workspace_id)
         if action == "ensure_workspace":
-            return {"ok": True, "workspace_id": workspace_id}
+            return {"ok": True, "workspace_id": workspace_id, "profile": profile}
         if action == "list_files":
             return self._list_files(workspace, request)
         if action == "read_file":
@@ -73,9 +125,178 @@ class SandboxEngine:
         workspace = (self.root / workspace_id).resolve()
         if workspace.parent != self.root:
             raise SandboxEngineError("Unsafe workspace identifier.", code="unsafe_workspace")
+        marker = workspace / ".modelmirror" / "profile.json"
+        if marker.exists():
+            stored = self._read_profile_marker(marker)
+            if stored.get("profile") == SKILL_EVALUATION_PROFILE:
+                raise SandboxEngineError(
+                    "Workspace is bound to a different sandbox profile.",
+                    code="sandbox_profile_mismatch",
+                )
         for name in ("inputs", "work", "artifacts", ".modelmirror/operations", ".tmp"):
             (workspace / name).mkdir(parents=True, exist_ok=True)
         return workspace
+
+    def _ensure_evaluation_workspace(
+        self,
+        workspace_id: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        workspace = (self.root / workspace_id).resolve()
+        if workspace.parent != self.root:
+            raise SandboxEngineError("Unsafe workspace identifier.", code="unsafe_workspace")
+        marker = workspace / ".modelmirror" / "profile.json"
+        if marker.exists():
+            self._validate_evaluation_capability(workspace, request)
+            return {
+                "ok": True,
+                "workspace_id": workspace_id,
+                "profile": SKILL_EVALUATION_PROFILE,
+                "sealed": bool(self._read_profile_marker(marker).get("sealed")),
+            }
+        if workspace.exists() and any(workspace.iterdir()):
+            raise SandboxEngineError(
+                "Existing workspace cannot be rebound to the Skill evaluation profile.",
+                code="sandbox_profile_mismatch",
+            )
+        for name in (
+            "inputs",
+            "work",
+            "skills/evaluation-skill",
+            ".modelmirror/operations",
+            ".tmp",
+        ):
+            (workspace / name).mkdir(parents=True, exist_ok=True)
+        capability = secrets.token_urlsafe(32)
+        self._write_profile_marker(
+            marker,
+            {
+                "profile": SKILL_EVALUATION_PROFILE,
+                "capability_sha256": hashlib.sha256(capability.encode("utf-8")).hexdigest(),
+                "sealed": False,
+            },
+        )
+        return {
+            "ok": True,
+            "workspace_id": workspace_id,
+            "profile": SKILL_EVALUATION_PROFILE,
+            "provisioning_capability": capability,
+            "sealed": False,
+        }
+
+    def _evaluation_workspace(self, workspace_id: str, request: dict[str, Any]) -> Path:
+        workspace = (self.root / workspace_id).resolve()
+        if workspace.parent != self.root:
+            raise SandboxEngineError("Unsafe workspace identifier.", code="unsafe_workspace")
+        if not workspace.exists():
+            raise SandboxEngineError(
+                "Skill evaluation workspace has not been initialized.",
+                code="workspace_not_found",
+            )
+        self._validate_evaluation_capability(workspace, request)
+        return workspace
+
+    def _validate_evaluation_capability(
+        self,
+        workspace: Path,
+        request: dict[str, Any],
+    ) -> None:
+        marker = workspace / ".modelmirror" / "profile.json"
+        if not marker.exists():
+            raise SandboxEngineError(
+                "Workspace is not bound to the Skill evaluation profile.",
+                code="sandbox_profile_mismatch",
+            )
+        stored = self._read_profile_marker(marker)
+        if stored.get("profile") != SKILL_EVALUATION_PROFILE:
+            raise SandboxEngineError(
+                "Workspace is bound to a different sandbox profile.",
+                code="sandbox_profile_mismatch",
+            )
+        supplied = str(request.get("provisioning_capability") or "")
+        expected = str(stored.get("capability_sha256") or "")
+        actual = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+        if not supplied or not expected or not hmac.compare_digest(actual, expected):
+            raise SandboxEngineError(
+                "A valid Skill evaluation provisioning capability is required.",
+                code="sandbox_profile_capability_invalid",
+            )
+
+    def _seal_evaluation_workspace(self, workspace: Path) -> None:
+        marker = workspace / ".modelmirror" / "profile.json"
+        stored = self._read_profile_marker(marker)
+        if stored.get("sealed") is True:
+            return
+        stored["sealed"] = True
+        self._write_profile_marker(marker, stored)
+
+    def _seed_evaluation_file(
+        self,
+        workspace: Path,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        marker = workspace / ".modelmirror" / "profile.json"
+        if self._read_profile_marker(marker).get("sealed") is True:
+            raise SandboxEngineError(
+                "Skill evaluation inputs are sealed and cannot be changed.",
+                code="evaluation_workspace_sealed",
+            )
+        target = self._safe_path(workspace, request.get("path"), for_write=True)
+        relative = target.relative_to(workspace)
+        if not (
+            relative.parts[0] == "inputs"
+            or relative.parts[:2] == ("skills", "evaluation-skill")
+        ):
+            raise SandboxEngineError(
+                "Evaluation seed files must be under inputs/ or skills/evaluation-skill/.",
+                code="seed_scope_denied",
+            )
+        content = self._request_content(request)
+        quota = self._quota(request)
+        previous_size = target.stat().st_size if target.exists() and target.is_file() else 0
+        if self._workspace_size(workspace) - previous_size + len(content) > quota:
+            raise SandboxEngineError("Sandbox workspace quota exceeded.", code="quota_exceeded")
+        if target.exists():
+            if not target.is_file() or target.read_bytes() != content:
+                raise SandboxEngineError(
+                    "Evaluation seed files are immutable.",
+                    code="seed_conflict",
+                )
+            return self._file_result(relative, content)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._reject_symlink_chain(workspace, target.parent)
+        temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}")
+        temporary.write_bytes(content)
+        os.replace(temporary, target)
+        return self._file_result(relative, content)
+
+    def _collect_work_manifest(self, workspace: Path) -> dict[str, Any]:
+        work = workspace / "work"
+        files: list[dict[str, Any]] = []
+        truncated = False
+        for path in sorted(work.rglob("*")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            if len(files) >= MAX_MANIFEST_FILES:
+                truncated = True
+                break
+            content = path.read_bytes()
+            text_preview: str | None = None
+            preview_truncated = False
+            if b"\x00" not in content[:4096]:
+                decoded = content.decode("utf-8", errors="replace")
+                text_preview = decoded[:MAX_MANIFEST_PREVIEW_CHARS]
+                preview_truncated = len(decoded) > MAX_MANIFEST_PREVIEW_CHARS
+            files.append(
+                {
+                    "path": path.relative_to(workspace).as_posix(),
+                    "size_bytes": len(content),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                    "text_preview": text_preview,
+                    "preview_truncated": preview_truncated,
+                }
+            )
+        return {"ok": True, "files": files, "truncated": truncated}
 
     def _list_files(self, workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
         relative = str(request.get("path") or "").strip()
@@ -118,21 +339,19 @@ class SandboxEngine:
     def _write_file(self, workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
         target = self._safe_path(workspace, request.get("path"), for_write=True)
         relative = target.relative_to(workspace)
-        if relative.parts[0] not in {"inputs", "work", "skills"}:
+        profile = self._profile(request.get("profile"))
+        allowed_roots = {"work"} if profile == SKILL_EVALUATION_PROFILE else {"inputs", "work", "skills"}
+        if relative.parts[0] not in allowed_roots:
             raise SandboxEngineError(
-                "Files may only be written under inputs/, work/, or skills/.",
+                (
+                    "Files may only be written under work/ in the Skill evaluation profile."
+                    if profile == SKILL_EVALUATION_PROFILE
+                    else "Files may only be written under inputs/, work/, or skills/."
+                ),
                 code="write_scope_denied",
             )
-        if "content_base64" in request:
-            try:
-                content = base64.b64decode(str(request.get("content_base64") or ""), validate=True)
-            except ValueError as exc:
-                raise SandboxEngineError("Invalid base64 file content.", code="invalid_content") from exc
-        else:
-            content = str(request.get("content") or "").encode("utf-8")
-        if len(content) > 10 * 1024 * 1024:
-            raise SandboxEngineError("File exceeds the 10 MB operation limit.", code="file_too_large")
-        quota = max(1, min(int(request.get("quota_bytes") or 256 * 1024 * 1024), 1024 * 1024 * 1024))
+        content = self._request_content(request)
+        quota = self._quota(request)
         previous_size = target.stat().st_size if target.exists() and target.is_file() else 0
         if self._workspace_size(workspace) - previous_size + len(content) > quota:
             raise SandboxEngineError("Sandbox workspace quota exceeded.", code="quota_exceeded")
@@ -141,12 +360,7 @@ class SandboxEngine:
         temporary = target.with_name(f".{target.name}.tmp-{os.getpid()}")
         temporary.write_bytes(content)
         os.replace(temporary, target)
-        return {
-            "ok": True,
-            "path": relative.as_posix(),
-            "size_bytes": len(content),
-            "sha256": hashlib.sha256(content).hexdigest(),
-        }
+        return self._file_result(relative, content)
 
     def _search_files(self, workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
         query = str(request.get("query") or "").strip()
@@ -191,7 +405,13 @@ class SandboxEngine:
         if len(argv) > 128 or any(not item or len(item) > 4096 or "\x00" in item or "\n" in item for item in argv):
             raise SandboxEngineError("sandbox_shell argv is invalid.", code="invalid_argv")
         command = argv[0]
-        if "/" in command or "\\" in command or command not in self.allowed_commands:
+        profile = self._profile(request.get("profile"))
+        profile_allowed_commands = (
+            SKILL_EVALUATION_ALLOWED_COMMANDS
+            if profile == SKILL_EVALUATION_PROFILE
+            else self.allowed_commands
+        )
+        if "/" in command or "\\" in command or command not in profile_allowed_commands:
             raise SandboxEngineError("Sandbox command is not allowed.", code="command_denied")
         requested_allowed = request.get("allowed_commands")
         if isinstance(requested_allowed, list):
@@ -210,6 +430,11 @@ class SandboxEngine:
                 sys.executable,
                 str(Path(__file__).with_name("landlock_exec.py")),
                 str(workspace),
+                *(
+                    ["--skill-evaluation"]
+                    if profile == SKILL_EVALUATION_PROFILE
+                    else []
+                ),
                 "--",
                 *argv,
             ]
@@ -221,6 +446,8 @@ class SandboxEngine:
             "LC_ALL": "C.UTF-8",
             "NO_PROXY": "*",
             "no_proxy": "*",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
         }
         started = time.monotonic()
         process = subprocess.Popen(
@@ -309,7 +536,12 @@ class SandboxEngine:
         if not raw and allow_root:
             return workspace
         pure = PurePosixPath(raw)
-        if not raw or pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        if (
+            not raw
+            or not pure.parts
+            or pure.is_absolute()
+            or any(part in {"", ".", ".."} for part in pure.parts)
+        ):
             raise SandboxEngineError("Unsafe sandbox path.", code="unsafe_path")
         if pure.parts[0] == ".modelmirror":
             raise SandboxEngineError("Internal sandbox paths are not accessible.", code="unsafe_path")
@@ -355,6 +587,83 @@ class SandboxEngine:
             if path.is_file() and not path.is_symlink() and ".modelmirror" not in path.parts:
                 total += path.stat().st_size
         return total
+
+    @staticmethod
+    def _request_content(request: dict[str, Any]) -> bytes:
+        if "content_base64" in request:
+            try:
+                content = base64.b64decode(
+                    str(request.get("content_base64") or ""),
+                    validate=True,
+                )
+            except ValueError as exc:
+                raise SandboxEngineError(
+                    "Invalid base64 file content.",
+                    code="invalid_content",
+                ) from exc
+        else:
+            content = str(request.get("content") or "").encode("utf-8")
+        if len(content) > 10 * 1024 * 1024:
+            raise SandboxEngineError(
+                "File exceeds the 10 MB operation limit.",
+                code="file_too_large",
+            )
+        return content
+
+    @staticmethod
+    def _quota(request: dict[str, Any]) -> int:
+        return max(
+            1,
+            min(
+                int(request.get("quota_bytes") or 256 * 1024 * 1024),
+                1024 * 1024 * 1024,
+            ),
+        )
+
+    @staticmethod
+    def _file_result(relative: Path, content: bytes) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "path": relative.as_posix(),
+            "size_bytes": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        }
+
+    @staticmethod
+    def _profile(value: Any) -> str:
+        profile = str(value or DEFAULT_PROFILE).strip() or DEFAULT_PROFILE
+        if profile not in SUPPORTED_PROFILES:
+            raise SandboxEngineError(
+                "Unsupported sandbox profile.",
+                code="sandbox_profile_unsupported",
+            )
+        return profile
+
+    @staticmethod
+    def _read_profile_marker(marker: Path) -> dict[str, Any]:
+        try:
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError) as exc:
+            raise SandboxEngineError(
+                "Sandbox profile metadata is invalid.",
+                code="sandbox_profile_invalid",
+            ) from exc
+        if not isinstance(payload, dict):
+            raise SandboxEngineError(
+                "Sandbox profile metadata is invalid.",
+                code="sandbox_profile_invalid",
+            )
+        return payload
+
+    @staticmethod
+    def _write_profile_marker(marker: Path, payload: dict[str, Any]) -> None:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        temporary = marker.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        os.replace(temporary, marker)
 
     @staticmethod
     def _bounded_output(value: bytes) -> tuple[str, bool]:

@@ -318,8 +318,8 @@ def test_manual_draft_recovers_after_session_save_failure_and_is_quality_gated(
     assert "## Failure and degradation" in scaffold
 
     with pytest.raises(
-        SkillDraftValidationError, match="pass or explicitly waive evaluation"
-    ):
+        SkillDraftValidationError, match="not complete enough"
+    ) as incomplete:
         drafts.install_current(
             recovered_draft.draft_id,
             expected_revision=recovered_draft.revision,
@@ -329,6 +329,9 @@ def test_manual_draft_recovers_after_session_save_failure_and_is_quality_gated(
                 content_digest=item.content_digest,
             ),
         )
+    assert "creator_manual_scaffold_incomplete" in {
+        issue["code"] for issue in incomplete.value.issues
+    }
 
 
 def test_stale_session_patch_cannot_cancel_current_proposal(tmp_path: Path) -> None:

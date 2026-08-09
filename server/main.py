@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -100,6 +100,7 @@ try:
     )
     from server.skills.creator_api import (
         configure_skill_creator,
+        configure_skill_creator_evaluation,
         router as skill_creator_router,
     )
     from server.skills.creator_runtime import (
@@ -107,6 +108,28 @@ try:
         CreatorWorkflowInvocation,
         TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
+    )
+    from server.skills.creator_evaluation import (
+        SkillEvaluationError,
+        SkillEvaluationExecutor,
+        SkillEvaluationRunnerResult,
+        SkillEvaluationStore,
+        SkillEvaluationValidationError,
+    )
+    from server.skills.creator_evaluation_runtime import (
+        SKILL_EVALUATION_ALLOWED_TOOLS,
+        SKILL_EVALUATION_PROFILE,
+        SKILL_EVALUATION_WORKFLOW_VERSION,
+        build_skill_evaluation_model_identity,
+        build_skill_evaluation_workflow_invocation,
+        is_recoverable_skill_evaluation_tool_error,
+        is_trusted_skill_evaluation_metadata,
+        normalize_skill_evaluation_model_id,
+        require_skill_evaluation_actual_model,
+        skill_evaluation_model_temperature,
+    )
+    from server.skills.creator_evaluation_service import (
+        SkillCreatorEvaluationService,
     )
     from server.skills.creator_service import (
         SkillCreatorService,
@@ -120,6 +143,7 @@ except ModuleNotFoundError:
     from skills.api import get_skill_draft_store, get_skill_manager, router as skills_router
     from skills.creator_api import (
         configure_skill_creator,
+        configure_skill_creator_evaluation,
         router as skill_creator_router,
     )
     from skills.creator_runtime import (
@@ -128,6 +152,26 @@ except ModuleNotFoundError:
         TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
     )
+    from skills.creator_evaluation import (
+        SkillEvaluationError,
+        SkillEvaluationExecutor,
+        SkillEvaluationRunnerResult,
+        SkillEvaluationStore,
+        SkillEvaluationValidationError,
+    )
+    from skills.creator_evaluation_runtime import (
+        SKILL_EVALUATION_ALLOWED_TOOLS,
+        SKILL_EVALUATION_PROFILE,
+        SKILL_EVALUATION_WORKFLOW_VERSION,
+        build_skill_evaluation_model_identity,
+        build_skill_evaluation_workflow_invocation,
+        is_recoverable_skill_evaluation_tool_error,
+        is_trusted_skill_evaluation_metadata,
+        normalize_skill_evaluation_model_id,
+        require_skill_evaluation_actual_model,
+        skill_evaluation_model_temperature,
+    )
+    from skills.creator_evaluation_service import SkillCreatorEvaluationService
     from skills.creator_service import (
         SkillCreatorService,
         configure_creator_generation_executor,
@@ -724,6 +768,7 @@ WORKFLOW_AGENT_STRATEGY_V2_ENABLED = (
 WORKFLOW_AGENT_MAX_ITERATIONS_DEFAULT = 5
 WORKFLOW_AGENT_MAX_TOKENS = 1024
 SKILL_CREATOR_AGENT_MAX_TOKENS = 12_288
+SKILL_EVALUATION_AGENT_MAX_TOKENS = 4_096
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
 
 
@@ -741,13 +786,14 @@ def is_trusted_skill_creator_runtime(
 
 
 def workflow_agent_token_budget(runtime_metadata: dict[str, Any] | None) -> int:
-    """Return the larger budget only for the server-owned Creator workflow."""
+    """Return larger budgets only for server-owned Creator workflows."""
 
-    return (
-        SKILL_CREATOR_AGENT_MAX_TOKENS
-        if is_trusted_skill_creator_runtime(runtime_metadata)
-        else WORKFLOW_AGENT_MAX_TOKENS
-    )
+    if is_trusted_skill_creator_runtime(runtime_metadata):
+        return SKILL_CREATOR_AGENT_MAX_TOKENS
+    metadata = dict(runtime_metadata or {})
+    if is_trusted_skill_evaluation_metadata(metadata):
+        return SKILL_EVALUATION_AGENT_MAX_TOKENS
+    return WORKFLOW_AGENT_MAX_TOKENS
 
 
 HANDOFF_EXECUTOR_ENABLED = os.getenv(
@@ -934,6 +980,12 @@ workflow_sandbox_provider = SandboxToolsetProvider(
     sandbox_sidecar_client,
     skill_manager=get_skill_manager(),
     context_store=xpert_context_store,
+)
+skill_evaluation_store = SkillEvaluationStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+workflow_sandbox_provider.configure_skill_evaluation(
+    skill_evaluation_store.require_overlay
 )
 configure_runtime_sandbox(sandbox_workspace_store, sandbox_sidecar_client)
 browser_session_store = BrowserSessionStore(
@@ -2145,6 +2197,8 @@ async def collect_chat_completion_text(
     max_tokens: int = 2048,
     gateway_url: str | None = None,
     gateway_key: str | None = None,
+    actual_model_observer: Callable[[str], None] | None = None,
+    usage_observer: Callable[[dict[str, int]], None] | None = None,
 ) -> str:
     if gateway_url is not None:
         url = gateway_url
@@ -2195,9 +2249,29 @@ async def collect_chat_completion_text(
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("模型返回了无法解析的响应。")
+        raw_reported_model = data.get("model")
+        reported_model = (
+            raw_reported_model.strip()
+            if isinstance(raw_reported_model, str)
+            else ""
+        )
         text = completion_text_from_payload(data)
         if not text.strip():
             raise RuntimeError("模型没有返回可用内容。")
+        if actual_model_observer is not None:
+            actual_model_observer(reported_model)
+        if usage_observer is not None:
+            raw_usage = data.get("usage")
+            raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+            usage_observer(
+                {
+                    str(metric): max(0, int(value))
+                    for metric, value in raw_usage.items()
+                    if isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and value >= 0
+                }
+            )
         return text
 
 
@@ -4912,6 +4986,16 @@ async def _run_workflow_response(
                 "assistant_agent_id",
                 "creator_workflow_version",
                 "creator_requirement_ids",
+                "skill_evaluation_workflow_version",
+                "skill_evaluation_profile",
+                "skill_evaluation_run_id",
+                "skill_evaluation_item_id",
+                "skill_evaluation_pair_id",
+                "skill_evaluation_case_id",
+                "skill_evaluation_target",
+                "skill_evaluation_overlay_id",
+                "skill_evaluation_workspace_id",
+                "skill_evaluation_frozen_digest",
                 "goal_id",
                 "goal_step_id",
                 "handoff_id",
@@ -5031,6 +5115,7 @@ async def _run_workflow_response(
             middleware_context: MiddlewareContext | None = None,
             middleware_specs: list[RuntimeMiddlewareSpec] | None = None,
         ):
+            run_context = task_state.get("runtime_metadata") or {}
             toolset_resources = (
                 middleware_context.metadata.get("toolset_resources")
                 if middleware_context is not None
@@ -5151,6 +5236,28 @@ async def _run_workflow_response(
                 raise PermissionError("Xpert App authoring tools are disabled.")
             if not matched_tool:
                 raise ValueError(f"MCP 工具未注册：{tool_name}")
+            if runtime_run_type == "skill_evaluation":
+                trusted_evaluation = bool(
+                    run_context.get("runtime_run_type") == "skill_evaluation"
+                    and run_context.get("skill_evaluation_workflow_version")
+                    == SKILL_EVALUATION_WORKFLOW_VERSION
+                    and run_context.get("skill_evaluation_profile")
+                    == SKILL_EVALUATION_PROFILE
+                    and str(run_context.get("skill_evaluation_item_id") or "").strip()
+                    and str(
+                        run_context.get("skill_evaluation_workspace_id") or ""
+                    ).strip()
+                )
+                if (
+                    not trusted_evaluation
+                    or capability_name != "sandbox_tools"
+                    or tool_name not in set(SKILL_EVALUATION_ALLOWED_TOOLS)
+                    or matched_tool.requires_approval
+                    or matched_tool.sensitive
+                ):
+                    raise RuntimeMiddlewareFatalError(
+                        "Skill evaluation only permits its fixed offline toolset."
+                    )
             if runtime_run_type == "xpert_evaluation":
                 blocked_evaluation_capabilities = {
                     "memory_tools",
@@ -5260,6 +5367,36 @@ async def _run_workflow_response(
                         "creator_requirement_ids": list(
                             run_context.get("creator_requirement_ids") or []
                         ),
+                        "skill_evaluation_workflow_version": run_context.get(
+                            "skill_evaluation_workflow_version"
+                        ),
+                        "skill_evaluation_profile": run_context.get(
+                            "skill_evaluation_profile"
+                        ),
+                        "skill_evaluation_run_id": run_context.get(
+                            "skill_evaluation_run_id"
+                        ),
+                        "skill_evaluation_item_id": run_context.get(
+                            "skill_evaluation_item_id"
+                        ),
+                        "skill_evaluation_pair_id": run_context.get(
+                            "skill_evaluation_pair_id"
+                        ),
+                        "skill_evaluation_case_id": run_context.get(
+                            "skill_evaluation_case_id"
+                        ),
+                        "skill_evaluation_target": run_context.get(
+                            "skill_evaluation_target"
+                        ),
+                        "skill_evaluation_overlay_id": run_context.get(
+                            "skill_evaluation_overlay_id"
+                        ),
+                        "skill_evaluation_workspace_id": run_context.get(
+                            "skill_evaluation_workspace_id"
+                        ),
+                        "skill_evaluation_frozen_digest": run_context.get(
+                            "skill_evaluation_frozen_digest"
+                        ),
                         "goal_id": run_context.get("goal_id"),
                         "goal_step_id": run_context.get("goal_step_id"),
                         "handoff_id": run_context.get("handoff_id"),
@@ -5327,6 +5464,38 @@ async def _run_workflow_response(
                 audit_store=selected_workflow_tool_audit_store(),
                 )
             except RuntimeToolError as exc:
+                if is_recoverable_skill_evaluation_tool_error(
+                    run_context,
+                    tool_name=exc.tool_name,
+                    error_code=exc.code,
+                ):
+                    return RuntimeToolResult(
+                        output=json.dumps(
+                            {
+                                "ok": False,
+                                "retryable": True,
+                                "error": {
+                                    "code": exc.code,
+                                    "message": (
+                                        "The fixed evaluation sandbox rejected "
+                                        "these tool arguments."
+                                    ),
+                                },
+                                "instruction": (
+                                    "Correct only the rejected arguments, stay inside "
+                                    "inputs/, skills/, and work/, then continue the same "
+                                    "evaluation case."
+                                ),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        metadata={
+                            "content_types": ["text"],
+                            "error_code": exc.code,
+                            "recoverable_evaluation_error": True,
+                        },
+                        is_error=True,
+                    )
                 recoverable_creator_codes = {
                     "skill_creator_draft_incomplete",
                     "skill_package_invalid",
@@ -5601,6 +5770,38 @@ async def _run_workflow_response(
                     or not requested_tool_names
                     or tool.name in requested_skill_creator_tool_names
                 )
+            if runtime_run_type == "skill_evaluation":
+                evaluation_metadata = dict(task_state.get("runtime_metadata") or {})
+                trusted_evaluation = bool(
+                    evaluation_metadata.get("runtime_run_type") == "skill_evaluation"
+                    and evaluation_metadata.get("skill_evaluation_workflow_version")
+                    == SKILL_EVALUATION_WORKFLOW_VERSION
+                    and evaluation_metadata.get("skill_evaluation_profile")
+                    == SKILL_EVALUATION_PROFILE
+                    and str(
+                        evaluation_metadata.get("skill_evaluation_item_id") or ""
+                    ).strip()
+                    and str(
+                        evaluation_metadata.get("skill_evaluation_workspace_id") or ""
+                    ).strip()
+                )
+                if not trusted_evaluation:
+                    raise RuntimeMiddlewareFatalError(
+                        "Skill evaluation Runtime metadata is incomplete."
+                    )
+                fixed_names = set(SKILL_EVALUATION_ALLOWED_TOOLS)
+                tools = [
+                    tool
+                    for tool in tools
+                    if str(tool.provider or "") in {"sandbox", "skill"}
+                    and tool.name in fixed_names
+                ]
+                available_names = {tool.name for tool in tools}
+                if available_names != fixed_names:
+                    missing = sorted(fixed_names - available_names)
+                    raise RuntimeMiddlewareFatalError(
+                        "Skill evaluation toolset is incomplete: " + ", ".join(missing)
+                    )
             if middleware_specs is not None and apply_policy_filter:
                 allowed_tools: list[Any] = []
                 for tool in tools:
@@ -5663,6 +5864,14 @@ async def _run_workflow_response(
                     "duration_ms": event.duration_ms,
                     **dict(event.metadata or {}),
                 }
+                summary = event.message[:500]
+                if runtime_run_type == "skill_evaluation":
+                    metadata.pop("arguments_summary", None)
+                    metadata.pop("output_preview", None)
+                    summary = (
+                        f"status={event.status}, tool={event.tool_name or 'none'}, "
+                        f"iteration={event.iteration}"
+                    )
                 await run_registry.record_checkpoint(
                     run_id,
                     event_type=checkpoint_names.get(
@@ -5670,7 +5879,7 @@ async def _run_workflow_response(
                         f"{checkpoint_prefix}.{event.event_type}",
                     ),
                     title=event.event_type.replace("_", " ").title(),
-                    summary=event.message[:500],
+                    summary=summary,
                     severity=(
                         "error"
                         if event.status in {"failed", "error"}
@@ -5773,6 +5982,7 @@ async def _run_workflow_response(
             middleware_specs: list[RuntimeMiddlewareSpec] | None = None,
             selector_spec: RuntimeMiddlewareSpec | None = None,
             history_messages: list[dict[str, Any]] | None = None,
+            actual_model_observer: Callable[[str], None] | None = None,
         ) -> AgentStrategyResult:
             runtime_metadata = dict(task_state.get("runtime_metadata") or {})
             agent_max_tokens = workflow_agent_token_budget(runtime_metadata)
@@ -5879,11 +6089,18 @@ async def _run_workflow_response(
             class MiddlewareAgentModelClient:
                 async def complete(self, **kwargs: Any) -> AgentModelTurn:
                     if pipeline is None or middleware_context is None:
-                        return await base_model_client.complete(**kwargs)
+                        turn = await base_model_client.complete(**kwargs)
+                        if actual_model_observer is not None:
+                            raw_model = turn.raw.get("model")
+                            actual_model_observer(
+                                raw_model.strip() if isinstance(raw_model, str) else ""
+                            )
+                        return turn
                     captured_turn: AgentModelTurn | None = None
+                    observed_turn = False
 
                     async def handler(request: ModelCallRequest) -> ModelCallResponse:
-                        nonlocal captured_turn
+                        nonlocal captured_turn, observed_turn
                         params = dict(request.params or {})
                         captured_turn = await base_model_client.complete(
                             model_id=request.model_id,
@@ -5901,6 +6118,12 @@ async def _run_workflow_response(
                                 kwargs.get("parallel_tool_calls"),
                             ),
                         )
+                        observed_turn = True
+                        if actual_model_observer is not None:
+                            raw_model = captured_turn.raw.get("model")
+                            actual_model_observer(
+                                raw_model.strip() if isinstance(raw_model, str) else ""
+                            )
                         return ModelCallResponse(
                             text=captured_turn.content,
                             raw=captured_turn,
@@ -5935,6 +6158,11 @@ async def _run_workflow_response(
                     )
                     if turn is None:
                         raise RuntimeError("Agent model middleware returned no model turn.")
+                    if not observed_turn and actual_model_observer is not None:
+                        raw_model = turn.raw.get("model")
+                        actual_model_observer(
+                            raw_model.strip() if isinstance(raw_model, str) else ""
+                        )
                     turn.content = response.text
                     return turn
 
@@ -6132,6 +6360,8 @@ async def _run_workflow_response(
             selector_spec: RuntimeMiddlewareSpec | None = None,
             history_messages: list[dict[str, Any]] | None = None,
             resume_state: dict[str, Any] | None = None,
+            actual_model_observer: Callable[[str], None] | None = None,
+            usage_observer: Callable[[dict[str, int]], None] | None = None,
         ) -> tuple[str, list[dict[str, Any]]]:
             max_tool_concurrency = min(max(int(max_tool_concurrency), 1), 8)
             max_tool_calls = min(max(int(max_tool_calls), 1), 50)
@@ -6260,12 +6490,22 @@ async def _run_workflow_response(
                     )
 
             async def invoke_agent_model(messages: list[ChatMessage]) -> str:
+                def capture_actual_model(reported_model_id: str) -> None:
+                    if actual_model_observer is not None:
+                        actual_model_observer(reported_model_id)
+
+                def capture_usage(reported_usage: dict[str, int]) -> None:
+                    if usage_observer is not None:
+                        usage_observer(reported_usage)
+
                 if pipeline is None or middleware_context is None:
                     return await collect_chat_completion_text(
                         model_id,
                         messages,
                         temperature=temperature,
                         max_tokens=agent_max_tokens,
+                        actual_model_observer=capture_actual_model,
+                        usage_observer=capture_usage,
                     )
 
                 async def handler(request: ModelCallRequest) -> ModelCallResponse:
@@ -6284,6 +6524,8 @@ async def _run_workflow_response(
                                 agent_max_tokens,
                             )
                         ),
+                        actual_model_observer=capture_actual_model,
+                        usage_observer=capture_usage,
                     )
                     return ModelCallResponse(
                         text=text,
@@ -9378,6 +9620,7 @@ async def _run_workflow_response(
                                 },
                             )
 
+                        requested_model_id = model_id
                         attempt_models: list[tuple[str, bool]] = [(model_id, False)]
                         if retry_on_failure:
                             attempt_models.append((model_id, False))
@@ -9385,6 +9628,59 @@ async def _run_workflow_response(
                             attempt_models.append((fallback_model_id, True))
                             if retry_on_failure:
                                 attempt_models.append((fallback_model_id, True))
+
+                        actual_model_ids: set[str] = set()
+                        actual_model_successful_responses = 0
+                        actual_model_missing_count = 0
+                        evaluation_token_usage: dict[str, int] = {}
+                        agent_temperature = skill_evaluation_model_temperature(
+                            run_context,
+                            default=0.7,
+                        )
+
+                        def observe_actual_model(reported_model_id: str) -> None:
+                            nonlocal actual_model_missing_count
+                            nonlocal actual_model_successful_responses
+                            if runtime_run_type != "skill_evaluation":
+                                return
+                            actual_model_successful_responses += 1
+                            clean_model_id = normalize_skill_evaluation_model_id(
+                                reported_model_id
+                            )
+                            if clean_model_id:
+                                actual_model_ids.add(clean_model_id)
+                            else:
+                                actual_model_missing_count += 1
+
+                        def observe_token_usage(reported_usage: dict[str, int]) -> None:
+                            if runtime_run_type != "skill_evaluation":
+                                return
+                            evaluation_token_usage["model_calls"] = (
+                                evaluation_token_usage.get("model_calls", 0) + 1
+                            )
+                            aliases = {
+                                "prompt_tokens": "input_tokens",
+                                "completion_tokens": "output_tokens",
+                            }
+                            for raw_key, raw_value in reported_usage.items():
+                                if raw_key not in {
+                                    "prompt_tokens",
+                                    "completion_tokens",
+                                    "total_tokens",
+                                    "input_tokens",
+                                    "output_tokens",
+                                    "estimated_tokens",
+                                }:
+                                    continue
+                                value = max(0, int(raw_value))
+                                evaluation_token_usage[raw_key] = (
+                                    evaluation_token_usage.get(raw_key, 0) + value
+                                )
+                                canonical = aliases.get(raw_key)
+                                if canonical:
+                                    evaluation_token_usage[canonical] = (
+                                        evaluation_token_usage.get(canonical, 0) + value
+                                    )
 
                         def base_agent_messages(
                             system_prompt: str,
@@ -9412,6 +9708,9 @@ async def _run_workflow_response(
                             async def handler(
                                 request: ModelCallRequest,
                             ) -> ModelCallResponse:
+                                def capture_actual_model(reported_model_id: str) -> None:
+                                    observe_actual_model(reported_model_id)
+
                                 text = await collect_chat_completion_text(
                                     request.model_id,
                                     [
@@ -9427,6 +9726,8 @@ async def _run_workflow_response(
                                     max_tokens=int(
                                         request.params.get("max_tokens", max_tokens)
                                     ),
+                                    actual_model_observer=capture_actual_model,
+                                    usage_observer=observe_token_usage,
                                 )
                                 return ModelCallResponse(
                                     text=text,
@@ -9695,7 +9996,7 @@ async def _run_workflow_response(
                                                 model_id=attempt_model_id,
                                                 messages=direct_messages,
                                                 params={
-                                                    "temperature": 0.7,
+                                                    "temperature": agent_temperature,
                                                     "max_tokens": WORKFLOW_AGENT_MAX_TOKENS,
                                                     "stream": True,
                                                 },
@@ -9722,7 +10023,7 @@ async def _run_workflow_response(
                                             model_stream = stream_workflow_llm_messages(
                                                 prepared_request.model_id,
                                                 prepared_messages,
-                                                temperature=0.7,
+                                                temperature=agent_temperature,
                                                 max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
                                             )
                                         async for delta in model_stream:
@@ -9764,7 +10065,7 @@ async def _run_workflow_response(
                                                 tool_names_raw=node.data.get("toolNames"),
                                                 strategy=agent_strategy,
                                                 max_iterations=max_iterations,
-                                                temperature=0.7,
+                                                temperature=agent_temperature,
                                                 parallel_tool_calls=parallel_tool_calls,
                                                 output_variable=output_variable,
                                                 max_tool_calls=max_tool_calls,
@@ -9808,6 +10109,7 @@ async def _run_workflow_response(
                                                 middleware_specs=agent_specs,
                                                 selector_spec=selector_spec,
                                                 history_messages=history_messages,
+                                                actual_model_observer=observe_actual_model,
                                             )
                                         except AgentStrategyError as strategy_exc:
                                             for agent_event in agent_strategy_node_events(
@@ -9842,7 +10144,7 @@ async def _run_workflow_response(
                                             user_prompt=task_input,
                                             tool_names_raw=node.data.get("toolNames"),
                                             max_iterations=max_iterations,
-                                            temperature=0.7,
+                                            temperature=agent_temperature,
                                             output_variable=output_variable,
                                             parallel_tool_calls=parallel_tool_calls,
                                             max_tool_concurrency=max_tool_concurrency,
@@ -9894,6 +10196,8 @@ async def _run_workflow_response(
                                                 )
                                                 else None
                                             ),
+                                            actual_model_observer=observe_actual_model,
+                                            usage_observer=observe_token_usage,
                                         )
                                     for agent_event in agent_events:
                                         if agent_event.get("event") == "skill_runtime_status":
@@ -9992,6 +10296,8 @@ async def _run_workflow_response(
                                             middleware_specs=agent_specs,
                                             selector_spec=selector_spec,
                                             history_messages=history_messages,
+                                            actual_model_observer=observe_actual_model,
+                                            usage_observer=observe_token_usage,
                                         )
                                         ralph_events.extend(next_events)
                                         return next_output
@@ -10388,6 +10694,21 @@ async def _run_workflow_response(
                                 "output_length": len(output or ""),
                                 "variables_count": len(variables),
                                 "model_id": model_id,
+                                **(
+                                    {
+                                        "model_identity": build_skill_evaluation_model_identity(
+                                            requested_model_id=requested_model_id,
+                                            selected_model_id=model_id,
+                                            observed_model_ids=actual_model_ids,
+                                            successful_response_count=(
+                                                actual_model_successful_responses
+                                            ),
+                                            missing_model_count=actual_model_missing_count,
+                                        )
+                                    }
+                                    if runtime_run_type == "skill_evaluation"
+                                    else {}
+                                ),
                                 "output_disabled": disable_output,
                                 "exception_handling": exception_handling,
                                 "agent_strategy": (
@@ -10408,7 +10729,11 @@ async def _run_workflow_response(
                                 "token_usage": (
                                     last_strategy_result.usage.to_dict()
                                     if last_strategy_result is not None
-                                    else {}
+                                    else (
+                                        dict(evaluation_token_usage)
+                                        if runtime_run_type == "skill_evaluation"
+                                        else {}
+                                    )
                                 ),
                             },
                         )
@@ -10429,14 +10754,27 @@ async def _run_workflow_response(
                                 "token_usage": (
                                     last_strategy_result.usage.to_dict()
                                     if last_strategy_result is not None
-                                    else {}
+                                    else (
+                                        dict(evaluation_token_usage)
+                                        if runtime_run_type == "skill_evaluation"
+                                        else {}
+                                    )
                                 ),
                             },
                         )
                     except RuntimeInterrupt:
                         raise
                     except Exception as exc:
-                        logger.warning("Workflow workflow_agent node failed: %s", exc)
+                        if runtime_run_type == "skill_evaluation":
+                            logger.exception(
+                                "Skill evaluation workflow_agent node failed: %s",
+                                exc,
+                            )
+                        else:
+                            logger.warning(
+                                "Workflow workflow_agent node failed: %s",
+                                exc,
+                            )
                         output = ""
                         variables[output_variable] = output
                         if agent_pipeline is not None and agent_context is not None:
@@ -13905,6 +14243,182 @@ async def run_xpert_evaluation_target(
     }
 
 
+async def run_skill_evaluation_item(
+    run: Any,
+    item: Any,
+    case: Any,
+    overlay: Any | None,
+) -> SkillEvaluationRunnerResult:
+    """Execute one frozen comparison side in the dedicated offline profile."""
+
+    workspace_id = await workflow_sandbox_provider.provision_skill_evaluation_workspace(
+        item_id=item.item_id,
+        fixtures=list(case.fixtures),
+        overlay=overlay,
+    )
+    runtime_run_id = ""
+    task_id = ""
+    manifest: list[dict[str, Any]] = []
+    usage_evidence: dict[str, Any] = {}
+    try:
+        invocation = build_skill_evaluation_workflow_invocation(
+            run,
+            item,
+            case,
+            overlay,
+            workspace_id=workspace_id,
+        )
+        response = await _run_workflow_response(
+            WorkflowRunRequest.model_validate(
+                {"workflow": invocation.workflow, "inputs": invocation.inputs}
+            ),
+            None,
+            runtime_run_type="skill_evaluation",
+            runtime_source_id=item.item_id,
+            runtime_metadata=dict(invocation.runtime_metadata),
+            runtime_parent_run_id=None,
+        )
+        headers = getattr(response, "headers", {})
+        task_id = str(headers.get("X-ModelMirror-Runtime-Task-Id") or "")
+        runtime_run_id = str(headers.get("X-ModelMirror-Runtime-Run-Id") or "")
+        final_event = await consume_workflow_stream(response)
+        if final_event.get("event") != "workflow_end":
+            raise RuntimeError(
+                "Skill evaluation attempted to wait for an interactive action."
+            )
+        output = str(final_event.get("final_output") or "")
+        manifest = await workflow_sandbox_provider.collect_skill_evaluation_manifest(
+            workspace_id
+        )
+        usage_evidence = workflow_sandbox_provider.consume_skill_evaluation_usage(
+            item.item_id
+        )
+        child_runs = await run_registry.list_runs(
+            run_type="workflow_agent",
+            parent_run_id=runtime_run_id,
+            limit=10,
+        )
+        completed = [child for child in child_runs if child.status == "completed"]
+        if len(completed) != 1:
+            raise RuntimeError(
+                "Skill evaluation could not prove one completed workflow agent run."
+            )
+        child = completed[0]
+        actual_model = require_skill_evaluation_actual_model(child.metadata)
+        raw_usage = child.metadata.get("token_usage")
+        raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+        usage = {
+            str(key): max(0, int(value))
+            for key, value in raw_usage.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        }
+        usage["tool_calls"] = len(usage_evidence.get("tool_names") or [])
+        return SkillEvaluationRunnerResult(
+            output=output,
+            actual_model=actual_model,
+            skill_read=bool(usage_evidence.get("skill_read", False)),
+            work_manifest=manifest,
+            usage=usage,
+            runtime_run_id=runtime_run_id or None,
+        )
+    finally:
+        # Do not let model-visible traces retain case inputs, tool outputs, or
+        # package contents. The dedicated Evaluation Store is authoritative.
+        workflow_sandbox_provider.consume_skill_evaluation_usage(item.item_id)
+        await workflow_sandbox_provider.cleanup_skill_evaluation_workspace(
+            workspace_id
+        )
+
+
+skill_evaluation_executor = SkillEvaluationExecutor(
+    skill_evaluation_store,
+    runner=run_skill_evaluation_item,
+)
+
+
+async def preflight_skill_evaluation(
+    _draft: Any, purpose: Literal["evaluate", "accept", "waive"]
+) -> dict[str, Any]:
+    if purpose != "evaluate":
+        return {"model_id": TEXT_FALLBACK_MODEL, "config": {}}
+    gateway_url, gateway_key = get_llm_gateway_config()
+    if not gateway_url or not gateway_key:
+        raise SkillEvaluationValidationError(
+            "The model gateway is not configured.",
+            code="model_gateway_unconfigured",
+        )
+    try:
+        health = await sandbox_sidecar_client.health(
+            required_profile=SKILL_EVALUATION_PROFILE
+        )
+        workflow_sandbox_provider.require_skill_evaluation_attestation(health)
+    except SkillEvaluationValidationError:
+        raise
+    except Exception as exc:
+        raise SkillEvaluationValidationError(
+            "The isolated Skill evaluation sidecar is unavailable.",
+            code="skill_evaluation_sidecar_unavailable",
+        ) from exc
+    return {
+        "model_id": TEXT_FALLBACK_MODEL,
+        "config": {
+            "timeout_seconds": 120,
+            "max_concurrency": 2,
+            "max_output_chars": 20_000,
+            "seed": 0,
+            "isolation_profile": SKILL_EVALUATION_PROFILE,
+            "sidecar_engine": str(health.get("engine") or ""),
+            "network_policy": "none",
+            "landlock_required": health.get("landlock_required") is True,
+        },
+    }
+
+
+async def iterate_skill_creator_from_evaluation(
+    session: Any,
+    draft: Any,
+    run: Any,
+    feedback: str,
+) -> Any:
+    review = run.reviews[-1]
+    return await skill_creator_service.generate(
+        session.session_id,
+        expected_session_revision=session.session_revision,
+        trusted_iteration={
+            "evaluation_run_id": run.run_id,
+            "review_id": review.review_id,
+            "evaluated_digest": draft.content_digest,
+            "feedback": feedback,
+        },
+    )
+
+
+skill_creator_evaluation_service = SkillCreatorEvaluationService(
+    skill_creator_session_store,
+    get_skill_draft_store(),
+    skill_evaluation_store,
+    executor=skill_evaluation_executor,
+    preflight=preflight_skill_evaluation,
+    actor_id=authoring_service.local_console_actor_id,
+    iteration=iterate_skill_creator_from_evaluation,
+)
+configure_skill_creator_evaluation(skill_creator_evaluation_service)
+
+
+def start_skill_creator_evaluation_runtime() -> bool:
+    if not skill_creator_service.enabled:
+        return False
+    try:
+        skill_evaluation_executor.start()
+    except SkillEvaluationError:
+        logger.exception(
+            "Skill Creator evaluation storage is unavailable; evaluation is disabled."
+        )
+        configure_skill_creator_evaluation(None)
+        return False
+    return True
+
+
 async def run_xpert_evaluation_judge(
     model_id: str,
     user_input: str,
@@ -14009,6 +14523,7 @@ async def start_mcp_ttl_cleanup() -> None:
     get_pipeline_executor().start()
     get_evaluation_executor().start()
     get_xpert_evaluation_executor().start()
+    start_skill_creator_evaluation_runtime()
     get_xpert_evolution_executor().start()
     get_handoff_executor().start()
     get_goal_coordinator().start()
@@ -14023,6 +14538,7 @@ async def shutdown_mcp_sessions() -> None:
     await get_evaluation_executor().stop()
     await get_xpert_evolution_executor().stop()
     await get_xpert_evaluation_executor().stop()
+    await skill_evaluation_executor.stop()
     if goal_coordinator is not None:
         await goal_coordinator.stop()
     if handoff_executor is not None:

@@ -16,6 +16,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import SkillCreatorFinish from "../components/skill-creator/SkillCreatorFinish";
+import SkillEvaluationDesigner from "../components/skill-creator/SkillEvaluationDesigner";
+import SkillEvaluationReview from "../components/skill-creator/SkillEvaluationReview";
 import SkillPackageEditor from "../components/skill-creator/SkillPackageEditor";
 import SkillProposalReview from "../components/skill-creator/SkillProposalReview";
 import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
@@ -25,6 +28,7 @@ import {
   createBlankSkillCreatorDraft,
   generateSkillCreatorProposal,
   previewSkillCreatorSource,
+  readSkillCreatorEvaluation,
   readSkillCreatorDraft,
   readSkillCreatorProposal,
   readSkillCreatorSession,
@@ -38,6 +42,7 @@ import {
   type SkillCreatorProposal,
   type SkillCreatorSession,
   type SkillCreatorSourcePreview,
+  type SkillEvaluationRun,
   type SkillPackageIssue,
   type SkillPackagePayload,
 } from "../utils/skillCreatorApi";
@@ -46,9 +51,9 @@ const STEPS = [
   { title: "定义用途", detail: "触发条件与成功标准", icon: Lightbulb },
   { title: "确认素材", detail: "选择证据并生成草稿", icon: ClipboardCheck },
   { title: "编辑草稿", detail: "文件、规范与安全", icon: FileEdit },
-  { title: "设计测试", detail: "PR3 开放", icon: FlaskConical, locked: true },
-  { title: "评审结果", detail: "PR3 开放", icon: ShieldCheck, locked: true },
-  { title: "迭代与安装", detail: "PR3 开放", icon: Sparkles, locked: true },
+  { title: "设计测试", detail: "三个真实用例", icon: FlaskConical },
+  { title: "评审结果", detail: "Baseline 对照", icon: ShieldCheck },
+  { title: "迭代与安装", detail: "反馈、质量门与安装", icon: Sparkles },
 ] as const;
 
 const EVIDENCE_LABELS: Record<SkillCreatorEvidenceCandidate["kind"], string> = {
@@ -122,21 +127,39 @@ function DisabledStudio() {
 
 function StepRail({
   activeStep,
-  hasDraft,
+  availableSteps,
   onSelect,
 }: {
   activeStep: number;
-  hasDraft: boolean;
+  availableSteps: boolean[];
   onSelect: (index: number) => void;
 }) {
+  const previous = [...availableSteps.keys()].filter((index) => index < activeStep && availableSteps[index]).at(-1);
+  const next = [...availableSteps.keys()].find((index) => index > activeStep && availableSteps[index]);
   return (
-    <nav aria-label="Skill Creator 阶段" className="overflow-x-auto pb-2">
-      <ol className="grid min-w-[850px] grid-cols-6 gap-2">
+    <nav aria-label="Skill Creator 阶段">
+      <div className="rounded-lg border border-white/10 bg-surface-900/70 p-3 lg:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <button aria-label="上一步" className="rounded-md border border-white/10 p-2 text-slate-200 disabled:opacity-30" disabled={previous == null} onClick={() => previous != null && onSelect(previous)} type="button"><ArrowLeft aria-hidden="true" size={15} /></button>
+          <div className="min-w-0 text-center">
+            <p className="text-xs text-slate-500">当前步骤 {activeStep + 1}/6</p>
+            <p className="mt-1 truncate text-sm font-semibold text-white">{STEPS[activeStep].title}</p>
+          </div>
+          <button aria-label="下一步" className="rounded-md border border-white/10 p-2 text-slate-200 disabled:opacity-30" disabled={next == null} onClick={() => next != null && onSelect(next)} type="button"><ArrowRight aria-hidden="true" size={15} /></button>
+        </div>
+        <details className="mt-3 border-t border-white/10 pt-3">
+          <summary className="cursor-pointer text-center text-xs font-semibold text-slate-300">展开全部步骤</summary>
+          <ol className="mt-3 grid gap-2">
+            {STEPS.map((step, index) => (
+              <li key={step.title}><button aria-current={activeStep === index ? "step" : undefined} className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs ${activeStep === index ? "bg-hire-300/10 text-hire-100" : "text-slate-300"}`} disabled={!availableSteps[index]} onClick={() => onSelect(index)} type="button"><span>{index + 1}. {step.title}</span>{!availableSteps[index] ? <LockKeyhole aria-hidden="true" size={12} /> : null}</button></li>
+            ))}
+          </ol>
+        </details>
+      </div>
+      <ol className="hidden grid-cols-6 gap-2 lg:grid">
         {STEPS.map((step, index) => {
           const Icon = step.icon;
-          const inaccessible =
-            ("locked" in step && Boolean(step.locked)) ||
-            (index === 2 && !hasDraft);
+          const inaccessible = !availableSteps[index];
           const current = activeStep === index;
           return (
             <li key={step.title}>
@@ -177,6 +200,7 @@ export default function SkillCreatorStudioPage() {
   const [session, setSession] = useState<SkillCreatorSession | null>(null);
   const [draft, setDraft] = useState<SkillCreatorDraft | null>(null);
   const [proposal, setProposal] = useState<SkillCreatorProposal | null>(null);
+  const [evaluationRun, setEvaluationRun] = useState<SkillEvaluationRun | null>(null);
   const [sourcePreview, setSourcePreview] = useState<SkillCreatorSourcePreview | null>(null);
   const [selectedEvidence, setSelectedEvidence] = useState<Set<string>>(new Set());
   const [activeStep, setActiveStep] = useState(0);
@@ -213,12 +237,32 @@ export default function SkillCreatorStudioPage() {
     if (!hydratedProposal && value.proposal_id) {
       hydratedProposal = await readSkillCreatorProposal(value.proposal_id);
     }
-    setSession({ ...value, draft: hydratedDraft, proposal: hydratedProposal });
+    let hydratedRun = value.evaluation_run ?? null;
+    const runId = value.active_evaluation_run_id ?? value.latest_evaluation_run_id;
+    if (!hydratedRun && runId) {
+      try {
+        hydratedRun = await readSkillCreatorEvaluation(runId);
+      } catch {
+        hydratedRun = null;
+      }
+    }
+    const hydratedSession = { ...value, draft: hydratedDraft, proposal: hydratedProposal, evaluation_run: hydratedRun };
+    setSession(hydratedSession);
     setDraft(hydratedDraft);
     setProposal(hydratedProposal);
+    setEvaluationRun(hydratedRun);
     syncSessionForm(value);
-    if (hydratedProposal?.status === "pending") setActiveStep(1);
-    else if (hydratedDraft) setActiveStep((current) => Math.max(current, 2));
+    let restoredStep = 0;
+    if (hydratedDraft) restoredStep = 2;
+    if (value.state === "designing_tests") restoredStep = 3;
+    if (hydratedRun || value.state === "reviewing_results") restoredStep = 4;
+    if (
+      value.state === "iterating" || value.state === "completed" ||
+      value.review_state === "revise" || value.review_state === "accepted" || value.review_state === "waived" ||
+      value.quality_status === "accepted" || value.quality_status === "eval_waived"
+    ) restoredStep = 5;
+    if (hydratedProposal?.status === "pending" && value.review_state !== "revise") restoredStep = 1;
+    setActiveStep((current) => Math.max(current, restoredStep));
   }, [syncSessionForm]);
 
   const loadSession = useCallback(async () => {
@@ -388,7 +432,7 @@ export default function SkillCreatorStudioPage() {
       await approveSkillCreatorProposal(proposal);
       await loadSession();
       setActiveStep(2);
-      setNotice("提案已写入不可变草稿版本。该草稿仍需 PR3 评测后才能安装。");
+      setNotice("提案已写入不可变草稿版本。该草稿仍需完成当前摘要的三例对照评测后才能安装。");
     } catch (caught) {
       handleError(caught, "提案批准失败。");
     } finally {
@@ -455,6 +499,7 @@ export default function SkillCreatorStudioPage() {
   }
 
   function selectStep(index: number) {
+    if (!availableSteps[index]) return;
     if (index !== 2 && !confirmDraftNavigation()) return;
     setActiveStep(index);
   }
@@ -505,6 +550,38 @@ export default function SkillCreatorStudioPage() {
   }, [draftDirty]);
 
   const currentStep = useMemo(() => STEPS[activeStep], [activeStep]);
+  const qualityStatus = session?.quality_status ?? draft?.quality_status ?? "not_evaluated";
+  const installState = session?.install_state ?? draft?.install_state ?? "not_installed";
+  const evaluationTerminal = Boolean(evaluationRun && ["completed", "failed", "cancelled", "stale"].includes(evaluationRun.status));
+  const availableSteps = useMemo(() => [
+    true,
+    true,
+    Boolean(draft),
+    Boolean(draft),
+    Boolean(evaluationRun),
+    Boolean(draft && (evaluationTerminal || session?.review_state === "revise" || qualityStatus === "accepted" || qualityStatus === "eval_waived")),
+  ], [draft, evaluationRun, evaluationTerminal, qualityStatus, session?.review_state]);
+
+  async function acceptHydratedSession(value: SkillCreatorSession) {
+    await hydrate(value);
+  }
+
+  function evaluationError(caught: unknown, fallback: string) {
+    setError("");
+    setNotice("");
+    handleError(caught, fallback);
+  }
+
+  function evaluationNotice(message: string) {
+    setError("");
+    setNotice(message);
+  }
+
+  async function acceptIterationProposal(nextProposal: SkillCreatorProposal, nextSession?: SkillCreatorSession) {
+    setProposal(nextProposal);
+    if (nextSession) await hydrate({ ...nextSession, proposal: nextProposal });
+    else await loadSession();
+  }
 
   return (
     <PageContainer activeResource="skills" hideSidebar maxWidthClassName="max-w-[1540px]">
@@ -560,11 +637,13 @@ export default function SkillCreatorStudioPage() {
             </div>
             <div className="flex shrink-0 items-center gap-2 text-xs">
               <span className="rounded-full bg-white/[0.055] px-3 py-1.5 text-slate-300">{session.mode === "run" ? "运行沉淀" : "从零创建"}</span>
-              <span className="rounded-full bg-amber-300/10 px-3 py-1.5 font-semibold text-amber-100">不可安装</span>
+              <span className={`rounded-full px-3 py-1.5 font-semibold ${installState === "current" ? "bg-emerald-300/10 text-emerald-100" : qualityStatus === "accepted" ? "bg-emerald-300/10 text-emerald-100" : qualityStatus === "eval_waived" ? "bg-amber-300/10 text-amber-100" : qualityStatus === "running" ? "bg-brand-300/10 text-brand-100" : "bg-white/[0.055] text-slate-400"}`}>
+                {installState === "current" ? "已安装当前版本" : qualityStatus === "accepted" ? "评测已接受" : qualityStatus === "eval_waived" ? "人工豁免" : qualityStatus === "running" ? "评测中" : "不可安装"}
+              </span>
             </div>
           </header>
 
-          <StepRail activeStep={activeStep} hasDraft={Boolean(draft)} onSelect={selectStep} />
+          <StepRail activeStep={activeStep} availableSteps={availableSteps} onSelect={selectStep} />
 
           {error ? (
             <div className="mt-4 rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-50" role="alert">{error}</div>
@@ -680,7 +759,7 @@ export default function SkillCreatorStudioPage() {
                     <p className="mt-3 text-sm leading-6 text-slate-400">
                       {draft
                         ? "固定 Creator Agent 读取当前不可变草稿，提交具备完整工作流、输出约定和失败处理的更新提案。你仍需检查文件差异并批准。"
-                        : "固定 Creator Agent 根据六项已确认信息生成具备完整工作流、输出约定和失败处理的提案。生成结果仍需人工审阅与 PR3 行为评测。"}
+                        : "固定 Creator Agent 根据六项已确认信息生成具备完整工作流、输出约定和失败处理的提案。生成结果仍需人工审阅与三例行为评测。"}
                     </p>
                     {!status.model_available ? <p className="mt-3 rounded-md bg-amber-300/[0.08] p-3 text-xs leading-5 text-amber-100">{status.model_unavailable_reason || "当前未配置模型网关 Key，AI 生成已禁用。结构化手工模板仍可使用。"}</p> : null}
                     <GenerationReadiness items={generationReadiness} />
@@ -695,7 +774,7 @@ export default function SkillCreatorStudioPage() {
                       <FileEdit aria-hidden="true" className="text-hire-200" size={20} />
                       <h2 className="text-base font-semibold text-white">结构化手工模板</h2>
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-400">不调用模型，只创建带待办段落的编辑模板。模板不代表初稿完整度通过，也不能绕过 PR3 行为评测。</p>
+                    <p className="mt-3 text-sm leading-6 text-slate-400">不调用模型，只创建带待办段落的编辑模板。模板不代表初稿完整度通过，也不能绕过行为评测质量门。</p>
                     <label className="mt-4 block" htmlFor="creator-root-name">
                       <span className="text-xs font-semibold text-slate-300">Skill ID</span>
                       <input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/75 px-3 py-2.5 font-mono text-sm text-white placeholder:text-slate-500 focus:border-hire-300/50 focus:outline-none" id="creator-root-name" maxLength={64} onChange={(event) => setRootName(event.target.value.toLowerCase())} placeholder="compare-competitor-pdf" value={rootName} />
@@ -773,12 +852,66 @@ export default function SkillCreatorStudioPage() {
             </div>
           ) : null}
 
-          {activeStep >= 3 ? (
-            <section className="mt-5 rounded-lg border border-dashed border-white/15 bg-white/[0.025] px-6 py-14 text-center">
-              <LockKeyhole aria-hidden="true" className="mx-auto text-slate-500" size={28} />
-              <h2 className="mt-4 text-xl font-semibold text-white">{currentStep.title}将在 PR3 开放</h2>
-              <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-400">隔离对照评测、人工反馈、迭代和正式安装需要完整质量门。本轮草稿不会提供绕过入口。</p>
+          {activeStep === 3 && draft ? (
+            <SkillEvaluationDesigner
+              draft={draft}
+              onError={evaluationError}
+              onNotice={evaluationNotice}
+              onRunStarted={(run) => {
+                setEvaluationRun(run);
+                setActiveStep(4);
+              }}
+              onSessionChange={acceptHydratedSession}
+              session={session}
+            />
+          ) : null}
+
+          {activeStep === 4 && draft && evaluationRun ? (
+            <SkillEvaluationReview
+              draft={draft}
+              onError={evaluationError}
+              onNotice={evaluationNotice}
+              onRunChange={setEvaluationRun}
+              onSessionRefresh={loadSession}
+              run={evaluationRun}
+              session={session}
+            />
+          ) : null}
+
+          {activeStep === 4 && draft && !evaluationRun ? (
+            <section className="mt-5 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-6 text-center">
+              <ShieldCheck aria-hidden="true" className="mx-auto text-amber-100" size={26} />
+              <h2 className="mt-4 text-lg font-semibold text-white">评测记录暂不可用</h2>
+              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-amber-50/80">会话声明了评测阶段，但服务端没有返回完整 run。请刷新恢复；系统不会静默显示不完整结果。</p>
+              <button className="mt-4 inline-flex items-center gap-2 rounded-md border border-amber-200/25 px-4 py-2 text-sm font-semibold text-amber-50" onClick={() => void loadSession()} type="button"><RefreshCw aria-hidden="true" size={14} />重新读取会话</button>
             </section>
+          ) : null}
+
+          {activeStep === 5 && draft ? (
+            <>
+              {proposal?.status === "pending" ? (
+                <div className="mt-5">
+                  <SkillProposalReview
+                    approving={busy === "approve"}
+                    baseDraft={draft}
+                    onApprove={approveProposal}
+                    onReject={rejectProposal}
+                    proposal={proposal}
+                    rejecting={busy === "reject"}
+                  />
+                </div>
+              ) : null}
+              <SkillCreatorFinish
+                draft={draft}
+                onError={evaluationError}
+                onNotice={evaluationNotice}
+                onProposal={acceptIterationProposal}
+                onReload={loadSession}
+                proposal={proposal}
+                run={evaluationRun}
+                session={session}
+              />
+            </>
           ) : null}
         </>
       ) : null}

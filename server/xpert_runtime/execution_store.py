@@ -90,6 +90,66 @@ class WorkflowExecutionStore:
             existing = self._items.get(task_id)
             if existing is not None:
                 return existing
+            is_skill_evaluation = str(run_type) == "skill_evaluation"
+            safe_runtime_metadata = dict(runtime_metadata or {})
+            is_skill_creator = bool(
+                str(run_type) == "workflow"
+                and safe_runtime_metadata.get("assistant_agent_id")
+                == "skill-creator-assistant-v1"
+                and safe_runtime_metadata.get("creator_workflow_version")
+                == "skill-creator-workflow-v1"
+                and str(safe_runtime_metadata.get("creator_session_id") or "").strip()
+            )
+            if is_skill_evaluation:
+                allowed_metadata = {
+                    "runtime_run_type",
+                    "skill_evaluation_workflow_version",
+                    "skill_evaluation_profile",
+                    "skill_evaluation_run_id",
+                    "skill_evaluation_item_id",
+                    "skill_evaluation_pair_id",
+                    "skill_evaluation_case_id",
+                    "skill_evaluation_target",
+                    "skill_evaluation_overlay_id",
+                    "skill_evaluation_workspace_id",
+                    "skill_evaluation_frozen_digest",
+                }
+                safe_runtime_metadata = {
+                    key: value
+                    for key, value in safe_runtime_metadata.items()
+                    if key in allowed_metadata
+                }
+                workflow = {
+                    "id": str(workflow.get("id") or "skill-evaluation"),
+                    "title": "Skill Creator isolated evaluation",
+                }
+                inputs = {
+                    "case_id": safe_runtime_metadata.get(
+                        "skill_evaluation_case_id"
+                    )
+                }
+            elif is_skill_creator:
+                allowed_metadata = {
+                    "creator_session_id",
+                    "creator_session_revision",
+                    "assistant_agent_id",
+                    "creator_workflow_version",
+                    "creator_requirement_ids",
+                }
+                safe_runtime_metadata = {
+                    key: value
+                    for key, value in safe_runtime_metadata.items()
+                    if key in allowed_metadata
+                }
+                workflow = {
+                    "id": str(workflow.get("id") or "skill-creator"),
+                    "title": "Skill Creator generation",
+                }
+                inputs = {
+                    "creator_session_id": safe_runtime_metadata.get(
+                        "creator_session_id"
+                    )
+                }
             item = WorkflowExecution(
                 task_id=str(task_id),
                 run_id=str(run_id),
@@ -102,7 +162,7 @@ class WorkflowExecutionStore:
                     run_type=str(run_type),
                     strict=True,
                 ),
-                runtime_metadata=dict(runtime_metadata or {}),
+                runtime_metadata=safe_runtime_metadata,
             )
             self._items[item.task_id] = item
             self._persist_unlocked()
@@ -143,6 +203,10 @@ class WorkflowExecutionStore:
     ) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
+            if item.run_type == "skill_evaluation":
+                raise WorkflowExecutionConflictError(
+                    "Skill evaluation cannot enter an interactive wait state."
+                )
             item.status = "waiting"
             resolved_wait_id = str(wait_id or approval_id or "").strip()
             if not resolved_wait_id:
@@ -265,8 +329,20 @@ class WorkflowExecutionStore:
         with self._lock:
             item = self._require_unlocked(task_id)
             item.status = status
-            item.result = str(result or "")[:200_000] if result is not None else item.result
-            item.error = str(error or "")[:4_000] if error is not None else None
+            if item.run_type == "skill_evaluation" or self._is_skill_creator(item):
+                item.result = None
+                item.error = (
+                    (
+                        "skill_evaluation_failed"
+                        if item.run_type == "skill_evaluation"
+                        else "skill_creator_generation_failed"
+                    )
+                    if error is not None
+                    else None
+                )
+            else:
+                item.result = str(result or "")[:200_000] if result is not None else item.result
+                item.error = str(error or "")[:4_000] if error is not None else None
             item.approval_id = None
             item.wait_kind = None
             item.wait_id = None
@@ -308,6 +384,10 @@ class WorkflowExecutionStore:
     ) -> None:
         item.sequence += 1
         clean = self._safe_event(event)
+        if item.run_type == "skill_evaluation" or self._is_skill_creator(item):
+            clean.pop("message", None)
+            clean.pop("final_output", None)
+            clean.pop("variable", None)
         clean["sequence"] = item.sequence
         item.events.append(clean)
         if len(item.events) > 500:
@@ -345,6 +425,17 @@ class WorkflowExecutionStore:
             if key in clean:
                 clean[key] = str(clean[key] or "")[:200_000]
         return clean
+
+    @staticmethod
+    def _is_skill_creator(item: WorkflowExecution) -> bool:
+        metadata = item.runtime_metadata
+        return bool(
+            item.run_type == "workflow"
+            and metadata.get("assistant_agent_id") == "skill-creator-assistant-v1"
+            and metadata.get("creator_workflow_version")
+            == "skill-creator-workflow-v1"
+            and str(metadata.get("creator_session_id") or "").strip()
+        )
 
     def _require_unlocked(self, task_id: str) -> WorkflowExecution:
         item = self._items.get(task_id)

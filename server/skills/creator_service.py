@@ -70,6 +70,7 @@ class CreatorGenerationRequest:
     session: dict[str, Any]
     target_draft: dict[str, Any] | None
     allowed_tool: str
+    trusted_iteration: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +114,7 @@ def get_creator_generation_executor() -> CreatorGenerationExecutor | None:
 
 
 class SkillCreatorService:
-    VERSION = "skill-creator-v2-pr2"
+    VERSION = "skill-creator-v1"
 
     def __init__(
         self,
@@ -129,7 +130,7 @@ class SkillCreatorService:
         self.draft_store = draft_store
         self.authoring_service = authoring_service
         self.enabled = (
-            os.getenv("SKILL_CREATOR_V2_ENABLED", "false").strip().lower()
+            os.getenv("SKILL_CREATOR_V2_ENABLED", "true").strip().lower()
             in {"1", "true", "yes", "on"}
             if enabled is None
             else bool(enabled)
@@ -452,7 +453,11 @@ class SkillCreatorService:
         return session, draft
 
     async def generate(
-        self, session_id: str, *, expected_session_revision: int
+        self,
+        session_id: str,
+        *,
+        expected_session_revision: int,
+        trusted_iteration: dict[str, Any] | None = None,
     ) -> AuthoringProposal:
         self.require_enabled()
         session = self.session_store.require(session_id)
@@ -460,10 +465,15 @@ class SkillCreatorService:
             return await self._generate_locked(
                 session.session_id,
                 expected_session_revision=expected_session_revision,
+                trusted_iteration=trusted_iteration,
             )
 
     async def _generate_locked(
-        self, session_id: str, *, expected_session_revision: int
+        self,
+        session_id: str,
+        *,
+        expected_session_revision: int,
+        trusted_iteration: dict[str, Any] | None = None,
     ) -> AuthoringProposal:
         self.require_enabled()
         session, draft = self.get_session(session_id)
@@ -506,6 +516,10 @@ class SkillCreatorService:
                         else None
                     ),
                     allowed_tool=allowed_tool,
+                    trusted_iteration=self._normalize_trusted_iteration(
+                        trusted_iteration,
+                        expected_digest=(draft.content_digest if draft else None),
+                    ),
                 )
             )
         except SkillCreatorError:
@@ -594,6 +608,41 @@ class SkillCreatorService:
             )
             raise
         return proposal
+
+    @staticmethod
+    def _normalize_trusted_iteration(
+        value: dict[str, Any] | None,
+        *,
+        expected_digest: str | None,
+    ) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        if not isinstance(value, dict) or not expected_digest:
+            raise SkillCreatorValidationError(
+                "Creator iteration context is invalid.",
+                code="skill_creator_iteration_context_invalid",
+            )
+        run_id = str(value.get("evaluation_run_id") or "").strip()
+        review_id = str(value.get("review_id") or "").strip()
+        digest = str(value.get("evaluated_digest") or "").strip().lower()
+        feedback = str(value.get("feedback") or "").strip()
+        if (
+            not run_id
+            or not review_id
+            or digest != expected_digest.lower()
+            or not feedback
+            or len(feedback) > 4_000
+        ):
+            raise SkillCreatorValidationError(
+                "Creator iteration context no longer matches the reviewed draft.",
+                code="skill_creator_iteration_context_invalid",
+            )
+        return {
+            "evaluation_run_id": run_id[:200],
+            "review_id": review_id[:200],
+            "evaluated_digest": digest,
+            "feedback": feedback,
+        }
 
     def _mark_generated_proposal_conflict(
         self,

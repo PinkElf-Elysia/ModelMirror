@@ -64,7 +64,12 @@ def _syscall_numbers() -> tuple[int, int, int]:
     raise RuntimeError(f"Unsupported Landlock architecture: {machine}")
 
 
-def _apply_landlock(workspace: Path, *, workspace_writable: bool = True) -> None:
+def _apply_landlock(
+    workspace: Path,
+    *,
+    workspace_writable: bool = True,
+    skill_evaluation: bool = False,
+) -> None:
     create_nr, add_nr, restrict_nr = _syscall_numbers()
     libc = ctypes.CDLL(None, use_errno=True)
     abi = libc.syscall(create_nr, 0, 0, LANDLOCK_CREATE_RULESET_VERSION)
@@ -119,7 +124,13 @@ def _apply_landlock(workspace: Path, *, workspace_writable: bool = True) -> None
             add_path(path, READ_EXECUTE)
         for path in (Path("/dev/null"), Path("/dev/urandom"), Path("/dev/random")):
             add_path(path, ACCESS_FS_READ_FILE | ACCESS_FS_WRITE_FILE)
-        add_path(workspace, WORKSPACE_ACCESS if workspace_writable else READ_EXECUTE)
+        if skill_evaluation:
+            add_path(workspace / "inputs", READ_EXECUTE)
+            add_path(workspace / "skills", READ_EXECUTE)
+            add_path(workspace / "work", WORKSPACE_ACCESS)
+            add_path(workspace / ".tmp", WORKSPACE_ACCESS)
+        else:
+            add_path(workspace, WORKSPACE_ACCESS if workspace_writable else READ_EXECUTE)
         if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             errno = ctypes.get_errno()
             raise RuntimeError(f"no_new_privs failed (errno={errno}).")
@@ -146,7 +157,7 @@ def main() -> int:
     separator_index = 2
     while separator_index < len(sys.argv) and sys.argv[separator_index] != "--":
         option = sys.argv[separator_index]
-        if option not in {"--read-only", "--compute-limits"}:
+        if option not in {"--read-only", "--compute-limits", "--skill-evaluation"}:
             print(f"unsupported sandbox option: {option}", file=sys.stderr)
             return 64
         options.add(option)
@@ -154,7 +165,7 @@ def main() -> int:
     if len(sys.argv) <= separator_index or sys.argv[separator_index] != "--":
         print(
             "usage: landlock_exec.py WORKSPACE [--read-only] "
-            "[--compute-limits] -- COMMAND [ARGS...]",
+            "[--compute-limits] [--skill-evaluation] -- COMMAND [ARGS...]",
             file=sys.stderr,
         )
         return 64
@@ -169,6 +180,7 @@ def main() -> int:
         _apply_landlock(
             workspace,
             workspace_writable="--read-only" not in options,
+            skill_evaluation="--skill-evaluation" in options,
         )
     except Exception as exc:
         print(f"sandbox isolation failed: {exc}", file=sys.stderr)

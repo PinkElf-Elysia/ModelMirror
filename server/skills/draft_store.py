@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Literal, TypeVar
 
+from .creator_quality import evaluate_creator_final_package
 from .package_validation import (
     VALIDATOR_VERSION as PACKAGE_VALIDATOR_VERSION,
     compute_package_digest,
@@ -75,6 +76,19 @@ class SkillProposalApplyReceipt:
     created_at: float = field(default_factory=time.time)
 
 
+@dataclass(slots=True, frozen=True)
+class SkillQualityDecision:
+    status: Literal["running", "accepted", "eval_waived"]
+    content_revision: int
+    content_digest: str
+    run_id: str | None = None
+    decision_id: str | None = None
+    actor_kind: str | None = None
+    actor_id: str | None = None
+    reason: str | None = None
+    decided_at: float = field(default_factory=time.time)
+
+
 @dataclass(slots=True)
 class WorkspaceSkillDraft:
     draft_id: str
@@ -92,6 +106,7 @@ class WorkspaceSkillDraft:
     creator_session_id: str | None = None
     quality_required: bool = False
     quality_status: SkillQualityStatus = "not_evaluated"
+    quality_decision: SkillQualityDecision | None = None
     installed_skill_id: str | None = None
     installed_content_revision: int | None = None
     installed_content_digest: str | None = None
@@ -394,6 +409,204 @@ class WorkspaceSkillDraftStore:
             bound_validation = self._bound_validation(item, validation)
             item.validation = bound_validation
             item.needs_review = not bool(bound_validation.get("valid", False))
+            item.updated_at = time.time()
+            try:
+                self._save_unlocked()
+            except BaseException:
+                self._items[draft_id] = previous
+                raise
+            return self._copy(item)
+
+    def begin_evaluation(
+        self,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        run_id: str,
+    ) -> WorkspaceSkillDraft:
+        with self._lock:
+            self._ensure_writable_unlocked()
+            item = self._require_unlocked(draft_id)
+            self._require_expected_state(
+                item,
+                revision=None,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if not item.quality_required:
+                raise SkillDraftValidationError(
+                    "Only Creator drafts use the evaluation quality gate."
+                )
+            self._require_creator_final_package(item)
+            clean_run_id = self._quality_identifier(run_id, "run_id")
+            if (
+                item.quality_status == "running"
+                and item.quality_decision is not None
+                and item.quality_decision.run_id == clean_run_id
+                and item.quality_decision.content_revision == item.content_revision
+                and self._digests_equal(
+                    item.quality_decision.content_digest, item.content_digest
+                )
+            ):
+                return self._copy(item)
+            validation = self._validate_item_unlocked(item)
+            previous = self._copy(item)
+            item.validation = self._bound_validation(item, validation)
+            item.needs_review = False
+            item.quality_status = "running"
+            item.quality_decision = SkillQualityDecision(
+                status="running",
+                run_id=clean_run_id,
+                content_revision=item.content_revision,
+                content_digest=item.content_digest,
+            )
+            item.revision += 1
+            item.updated_at = time.time()
+            try:
+                self._save_unlocked()
+            except BaseException:
+                self._items[draft_id] = previous
+                raise
+            return self._copy(item)
+
+    def accept_evaluation(
+        self,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        run_id: str,
+        decision_id: str,
+        actor_id: str,
+        reason: str | None = None,
+    ) -> WorkspaceSkillDraft:
+        return self._set_quality_decision(
+            draft_id,
+            expected_revision=expected_revision,
+            expected_digest=expected_digest,
+            status="accepted",
+            run_id=run_id,
+            decision_id=decision_id,
+            actor_id=actor_id,
+            reason=reason,
+        )
+
+    def waive_evaluation(
+        self,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        decision_id: str,
+        actor_id: str,
+        reason: str,
+    ) -> WorkspaceSkillDraft:
+        return self._set_quality_decision(
+            draft_id,
+            expected_revision=expected_revision,
+            expected_digest=expected_digest,
+            status="eval_waived",
+            run_id=None,
+            decision_id=decision_id,
+            actor_id=actor_id,
+            reason=reason,
+        )
+
+    def mark_quality_outdated(
+        self,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+    ) -> WorkspaceSkillDraft:
+        with self._lock:
+            self._ensure_writable_unlocked()
+            item = self._require_unlocked(draft_id)
+            self._require_expected_state(
+                item,
+                revision=None,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if not item.quality_required or item.quality_status in {
+                "not_evaluated",
+                "outdated",
+            }:
+                return self._copy(item)
+            previous = self._copy(item)
+            item.quality_status = "outdated"
+            item.revision += 1
+            item.updated_at = time.time()
+            try:
+                self._save_unlocked()
+            except BaseException:
+                self._items[draft_id] = previous
+                raise
+            return self._copy(item)
+
+    def _set_quality_decision(
+        self,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        status: Literal["accepted", "eval_waived"],
+        run_id: str | None,
+        decision_id: str,
+        actor_id: str,
+        reason: str | None,
+    ) -> WorkspaceSkillDraft:
+        with self._lock:
+            self._ensure_writable_unlocked()
+            item = self._require_unlocked(draft_id)
+            self._require_expected_state(
+                item,
+                revision=None,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if not item.quality_required:
+                raise SkillDraftValidationError(
+                    "Only Creator drafts use the evaluation quality gate."
+                )
+            self._require_creator_final_package(item)
+            clean_decision_id = self._quality_identifier(
+                decision_id, "decision_id"
+            )
+            clean_run_id = (
+                self._quality_identifier(run_id, "run_id")
+                if run_id is not None
+                else None
+            )
+            clean_actor_id = self._quality_identifier(actor_id, "actor_id")
+            clean_reason = self._quality_reason(reason, required=status == "eval_waived")
+            if status == "accepted" and not clean_run_id:
+                raise SkillDraftValidationError(
+                    "Accepted Creator quality decisions require an evaluation run."
+                )
+            if (
+                item.quality_status == status
+                and item.quality_decision is not None
+                and item.quality_decision.decision_id == clean_decision_id
+            ):
+                return self._copy(item)
+            validation = self._validate_item_unlocked(item)
+            previous = self._copy(item)
+            item.validation = self._bound_validation(item, validation)
+            item.needs_review = False
+            item.quality_status = status
+            item.quality_decision = SkillQualityDecision(
+                status=status,
+                run_id=clean_run_id,
+                decision_id=clean_decision_id,
+                actor_kind="local_console",
+                actor_id=clean_actor_id,
+                reason=clean_reason,
+                content_revision=item.content_revision,
+                content_digest=item.content_digest,
+            )
+            item.revision += 1
             item.updated_at = time.time()
             try:
                 self._save_unlocked()
@@ -972,10 +1185,30 @@ class WorkspaceSkillDraftStore:
 
     @staticmethod
     def _require_quality_gate(item: WorkspaceSkillDraft) -> None:
-        if item.quality_required and item.quality_status not in {
-            "accepted",
-            "eval_waived",
-        }:
+        WorkspaceSkillDraftStore._require_creator_final_package(item)
+        decision = item.quality_decision
+        decision_matches = bool(
+            decision is not None
+            and decision.status == item.quality_status
+            and decision.content_revision == item.content_revision
+            and WorkspaceSkillDraftStore._digests_equal(
+                decision.content_digest, item.content_digest
+            )
+            and decision.actor_kind == "local_console"
+            and decision.actor_id
+            and decision.decision_id
+            and (
+                (item.quality_status == "accepted" and decision.run_id)
+                or (
+                    item.quality_status == "eval_waived"
+                    and decision.reason
+                )
+            )
+        )
+        if item.quality_required and (
+            item.quality_status not in {"accepted", "eval_waived"}
+            or not decision_matches
+        ):
             error = SkillDraftValidationError(
                 "Creator Skill must pass or explicitly waive evaluation before installation."
             )
@@ -988,6 +1221,55 @@ class WorkspaceSkillDraftStore:
                 }
             ]
             raise error
+
+    @staticmethod
+    def _require_creator_final_package(item: WorkspaceSkillDraft) -> None:
+        if not item.quality_required:
+            return
+        report = evaluate_creator_final_package(
+            root_name=item.slug,
+            skill_markdown=item.skill_markdown,
+            files=item.files,
+        )
+        if report.ready:
+            return
+        error = SkillDraftValidationError(
+            "Creator Skill package is not complete enough for evaluation or installation."
+        )
+        error.issues = [issue.to_dict() for issue in report.issues]  # type: ignore[attr-defined]
+        raise error
+
+    @staticmethod
+    def _quality_identifier(value: Any, field_name: str) -> str:
+        clean = str(value or "").strip()
+        if not clean or len(clean) > 200:
+            raise SkillDraftValidationError(
+                f"Invalid Creator quality {field_name}."
+            )
+        return clean
+
+    @staticmethod
+    def _quality_reason(value: Any, *, required: bool) -> str | None:
+        if value is None:
+            if required:
+                raise SkillDraftValidationError(
+                    "Evaluation waiver reason is required."
+                )
+            return None
+        if not isinstance(value, str):
+            raise SkillDraftValidationError("Quality decision reason must be text.")
+        clean = value.strip()
+        if required and not clean:
+            raise SkillDraftValidationError(
+                "Evaluation waiver reason is required."
+            )
+        if len(clean) > 4_000:
+            raise SkillDraftValidationError("Quality decision reason is too long.")
+        if clean and scan_skill_package_credentials(skill_markdown=clean):
+            raise SkillDraftValidationError(
+                "Quality decision reason contains blocked credential material."
+            )
+        return clean or None
 
     def _require_expected_state(
         self,
@@ -1291,6 +1573,27 @@ class WorkspaceSkillDraftStore:
 
         created_at = self._timestamp(record.get("created_at", time.time()), "created_at")
         updated_at = self._timestamp(record.get("updated_at", created_at), "updated_at")
+        quality_status = self._decode_quality_status(
+            record.get("quality_status", "not_evaluated")
+        )
+        quality_decision = self._decode_quality_decision(
+            record.get("quality_decision")
+        )
+        if quality_status in {"accepted", "eval_waived"}:
+            decision_matches = bool(
+                quality_decision is not None
+                and quality_decision.status == quality_status
+                and quality_decision.content_revision == content_revision
+                and self._digests_equal(
+                    quality_decision.content_digest, actual_digest
+                )
+                and quality_decision.actor_kind == "local_console"
+                and quality_decision.actor_id
+                and quality_decision.decision_id
+            )
+            if not decision_matches:
+                quality_status = "outdated"
+
         return WorkspaceSkillDraft(
             draft_id=draft_id,
             name=name,
@@ -1306,9 +1609,8 @@ class WorkspaceSkillDraftStore:
             source_apply_key=self._optional_text(record.get("source_apply_key")),
             creator_session_id=self._optional_text(record.get("creator_session_id")),
             quality_required=bool(record.get("quality_required", False)),
-            quality_status=self._decode_quality_status(
-                record.get("quality_status", "not_evaluated")
-            ),
+            quality_status=quality_status,
+            quality_decision=quality_decision,
             installed_skill_id=installed_skill_id,
             installed_content_revision=installed_content_revision,
             installed_content_digest=installed_content_digest,
@@ -1372,6 +1674,41 @@ class WorkspaceSkillDraftStore:
             ),
             content_digest=content_digest,
             created_at=self._timestamp(record.get("created_at", time.time()), "created_at"),
+        )
+
+    def _decode_quality_decision(
+        self, record: Any
+    ) -> SkillQualityDecision | None:
+        if record is None:
+            return None
+        if not isinstance(record, dict):
+            raise TypeError("Skill quality decision must be an object.")
+        status = record.get("status")
+        if status not in {"running", "accepted", "eval_waived"}:
+            raise ValueError("Invalid Skill quality decision status.")
+        content_digest = self._required_text(record, "content_digest").lower()
+        if len(content_digest) != 64 or any(
+            character not in "0123456789abcdef"
+            for character in content_digest
+        ):
+            raise ValueError("Skill quality decision has an invalid digest.")
+        reason = self._optional_text(record.get("reason"))
+        if reason and scan_skill_package_credentials(skill_markdown=reason):
+            raise ValueError("Skill quality decision contains blocked credentials.")
+        return SkillQualityDecision(
+            status=status,
+            content_revision=self._positive_int(
+                record.get("content_revision"), "content_revision"
+            ),
+            content_digest=content_digest,
+            run_id=self._optional_text(record.get("run_id")),
+            decision_id=self._optional_text(record.get("decision_id")),
+            actor_kind=self._optional_text(record.get("actor_kind")),
+            actor_id=self._optional_text(record.get("actor_id")),
+            reason=reason,
+            decided_at=self._timestamp(
+                record.get("decided_at", time.time()), "decided_at"
+            ),
         )
 
     @classmethod
@@ -1664,9 +2001,11 @@ class WorkspaceSkillDraftStore:
 
     @staticmethod
     def _copy(item: WorkspaceSkillDraft) -> WorkspaceSkillDraft:
-        return WorkspaceSkillDraft(
-            **WorkspaceSkillDraftStore._json_copy(asdict(item))
-        )
+        payload = WorkspaceSkillDraftStore._json_copy(asdict(item))
+        raw_decision = payload.get("quality_decision")
+        if isinstance(raw_decision, dict):
+            payload["quality_decision"] = SkillQualityDecision(**raw_decision)
+        return WorkspaceSkillDraft(**payload)
 
     @staticmethod
     def _copy_revision(item: SkillDraftRevision) -> SkillDraftRevision:
