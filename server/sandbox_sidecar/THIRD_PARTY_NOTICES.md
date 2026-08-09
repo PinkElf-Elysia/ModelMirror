@@ -55,9 +55,11 @@ Git MCP, MarkItDown MCP, or Manim MCP server packages:
 The `modelmirror-mcp-files:wave3-v1` runtime also includes these pinned direct
 dependencies under their upstream licenses: MCP Python SDK 1.27.2 (MIT),
 pandas 2.3.3 (BSD-3-Clause), openpyxl 3.1.5 (MIT), xlrd 2.0.2 (BSD),
-matplotlib 3.10.7 (PSF-based), and MarkItDown 0.1.7 (MIT). Transitive package
-metadata and Debian license texts remain available in the image's installed
-package and `/usr/share/doc` directories.
+matplotlib 3.10.7 (PSF-based), MarkItDown 0.1.7 (MIT), python-docx 1.2.0
+(MIT), and python-pptx 1.0.2 (MIT). The Office libraries are used only after
+the sidecar independently validates the complete OOXML package. Transitive
+package metadata and Debian license texts remain available in the image's
+installed package and `/usr/share/doc` directories.
 
 The `modelmirror-mcp-token:wave4-v1` runtime bundles the following pinned MCP
 packages and their locked transitive npm dependencies. Runtime installation and

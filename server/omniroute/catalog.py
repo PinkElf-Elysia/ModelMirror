@@ -79,6 +79,8 @@ def _operations(
         operations.append("analyze_audio")
     if "video" in inputs and "text" in outputs:
         operations.append("analyze_video")
+    if "file" in inputs and "text" in outputs:
+        operations.append("analyze_document")
     if "text" in inputs and "text" in outputs:
         operations.append("chat")
     return list(dict.fromkeys(operations)) or ["chat"]
@@ -94,6 +96,7 @@ def _primary_operation(operations: list[str]) -> str:
         "embed",
         "rerank",
         "chat",
+        "analyze_document",
         "analyze_image",
         "analyze_audio",
         "analyze_video",

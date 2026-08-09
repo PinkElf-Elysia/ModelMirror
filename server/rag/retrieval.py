@@ -105,6 +105,10 @@ class RetrievalCandidate:
     start_char: int = 0
     end_char: int = 0
     page_number: int | None = None
+    slide: int | None = None
+    heading_path: tuple[str, ...] = ()
+    sheet: str | None = None
+    row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
     vector_score: float | None = None

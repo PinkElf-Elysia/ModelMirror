@@ -44,6 +44,43 @@ def test_enabled_workflow_node_kinds_are_supported() -> None:
     assert registry.enabled_kinds().issubset(SUPPORTED_NODE_KINDS)
 
 
+def test_document_extractor_palette_follows_file_asset_gate(monkeypatch) -> None:
+    monkeypatch.delenv("WORKFLOW_FILE_ASSETS_ENABLED", raising=False)
+    monkeypatch.delenv("FILE_ASSET_STORE_MODE", raising=False)
+    disabled = _registry()
+    item = next(
+        item
+        for section in disabled.sections()
+        for item in section.items
+        if item.kind == "document_extractor"
+    )
+    assert item.enabled is False
+    assert item.metadata["status_reason"]
+    assert "本地路径" not in item.description
+
+    monkeypatch.setenv("WORKFLOW_FILE_ASSETS_ENABLED", "true")
+    legacy_store = _registry()
+    item = next(
+        item
+        for section in legacy_store.sections()
+        for item in section.items
+        if item.kind == "document_extractor"
+    )
+    assert item.enabled is False
+
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "shadow")
+    enabled = _registry()
+    item = next(
+        item
+        for section in enabled.sections()
+        for item in section.items
+        if item.kind == "document_extractor"
+    )
+    assert item.enabled is True
+    assert item.metadata == {}
+    assert item.planner_default_data["assetIdVariable"] == "document_asset_id"
+
+
 def test_placeholders_are_disabled_and_do_not_declare_kind() -> None:
     payload = _registry().to_payload()
 

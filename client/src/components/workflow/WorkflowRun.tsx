@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RuntimeApprovalPanel from "../runtime/RuntimeApprovalPanel";
 import BrowserSessionPanel from "../runtime/BrowserSessionPanel";
 import ClientToolPanel from "../runtime/ClientToolPanel";
@@ -74,6 +74,44 @@ interface WorkflowRunProps {
   onRunStart?: () => void;
 }
 
+interface WorkflowFileFormatCapability {
+  extensions: string[];
+  interaction_status: "ready" | "planned" | "disabled";
+  status_reason?: string | null;
+}
+
+interface WorkflowFileCapability {
+  input_kind: string;
+  interaction_status: "ready" | "planned" | "disabled";
+  max_bytes_per_file: number;
+  status_reason?: string | null;
+  formats: WorkflowFileFormatCapability[];
+}
+
+interface WorkflowFileCapabilitiesResponse {
+  capabilities: WorkflowFileCapability[];
+}
+
+interface WorkflowFileAssetListResponse {
+  items: WorkflowFileAsset[];
+  total: number;
+}
+
+interface WorkflowFileAsset {
+  asset_id: string;
+  display_name: string;
+  byte_size: number;
+  format: string;
+  status: string;
+}
+
+interface WorkflowFileSelection {
+  asset: WorkflowFileAsset | null;
+  busy: boolean;
+  error: string;
+  notice: string;
+}
+
 interface PendingHumanIntervention {
   nodeId: string;
   nodeTitle: string;
@@ -110,6 +148,48 @@ function serializeWorkflow(definition: WorkflowDefinition) {
       targetHandle: edge.targetHandle,
     })),
   };
+}
+
+export function workflowFileScopeId(workflowId: string) {
+  return `workflow:${workflowId}`;
+}
+
+export function apiErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object") return fallback;
+  const candidate = payload as {
+    error?: unknown;
+    detail?: unknown;
+  };
+  if (typeof candidate.error === "string" && candidate.error.trim()) {
+    return candidate.error;
+  }
+  if (typeof candidate.detail === "string" && candidate.detail.trim()) {
+    return candidate.detail;
+  }
+  if (
+    candidate.detail &&
+    typeof candidate.detail === "object" &&
+    "message" in candidate.detail &&
+    typeof candidate.detail.message === "string"
+  ) {
+    return candidate.detail.message;
+  }
+  return fallback;
+}
+
+export const workflowFileDeleteConfirmation =
+  "彻底删除此文件？这会解除当前工作流绑定；如果这是最后一个引用，原件和派生物也会被清理。此操作不可撤销。";
+
+export function confirmWorkflowFileDeletion(
+  confirmAction: (message: string) => boolean,
+) {
+  return confirmAction(workflowFileDeleteConfirmation);
+}
+
+function formatFileSize(byteSize: number) {
+  if (byteSize < 1024) return `${byteSize} B`;
+  if (byteSize < 1024 * 1024) return `${(byteSize / 1024).toFixed(1)} KiB`;
+  return `${(byteSize / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function readSseEvent(eventText: string) {
@@ -378,6 +458,21 @@ export default function WorkflowRun({
     Record<string, RuntimeRunCheckpoint[]>
   >({});
   const [runCheckpointsLoading, setRunCheckpointsLoading] = useState(false);
+  const [fileCapability, setFileCapability] =
+    useState<WorkflowFileCapability | null>(null);
+  const [fileCapabilityLoading, setFileCapabilityLoading] = useState(false);
+  const [fileCapabilityError, setFileCapabilityError] = useState("");
+  const [fileSelections, setFileSelections] = useState<
+    Record<string, WorkflowFileSelection>
+  >({});
+  const [workflowFileAssets, setWorkflowFileAssets] = useState<
+    WorkflowFileAsset[]
+  >([]);
+  const [workflowFileListLoading, setWorkflowFileListLoading] = useState(false);
+  const [workflowFileListError, setWorkflowFileListError] = useState("");
+  const [workflowFileListNotice, setWorkflowFileListNotice] = useState("");
+  const [deletingWorkflowAssetId, setDeletingWorkflowAssetId] = useState("");
+  const workflowFileListGeneration = useRef(0);
 
   const inputVariable = useMemo(() => {
     const inputNode = definition.nodes.find((node) => node.data.kind === "input");
@@ -386,6 +481,163 @@ export default function WorkflowRun({
       ? variableName.trim()
       : "user_input";
   }, [definition.nodes]);
+
+  const fileAssetVariables = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          definition.nodes
+            .filter((node) => node.data.kind === "document_extractor")
+            .map((node) =>
+              typeof node.data.assetIdVariable === "string"
+                ? node.data.assetIdVariable.trim()
+                : "",
+            )
+            .filter(Boolean),
+        ),
+      ),
+    [definition.nodes],
+  );
+
+  const fileScopeId = useMemo(
+    () => workflowFileScopeId(definition.id),
+    [definition.id],
+  );
+  const workflowFileScopeRef = useRef(fileScopeId);
+  workflowFileScopeRef.current = fileScopeId;
+
+  useEffect(() => {
+    workflowFileListGeneration.current += 1;
+    setFileSelections({});
+    setWorkflowFileAssets([]);
+    setWorkflowFileListError("");
+    setWorkflowFileListNotice("");
+  }, [fileScopeId]);
+
+  useEffect(() => {
+    if (fileAssetVariables.length === 0) {
+      setFileCapability(null);
+      setFileCapabilityError("");
+      setFileCapabilityLoading(false);
+      return;
+    }
+
+    let active = true;
+    setFileCapabilityLoading(true);
+    setFileCapabilityError("");
+    fetch("/api/files/capabilities?purpose=workflow")
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => null)) as
+          | WorkflowFileCapabilitiesResponse
+          | null;
+        if (!response.ok || !payload) {
+          throw new Error(
+            apiErrorMessage(payload, "无法读取工作流文件能力。"),
+          );
+        }
+        const capability = payload.capabilities.find(
+          (item) => item.input_kind === "document",
+        );
+        if (!capability) {
+          throw new Error("工作流文件能力尚未登记。");
+        }
+        if (active) setFileCapability(capability);
+      })
+      .catch((caught) => {
+        if (!active) return;
+        setFileCapability(null);
+        setFileCapabilityError(
+          caught instanceof Error ? caught.message.trim() : "无法读取工作流文件能力。",
+        );
+      })
+      .finally(() => {
+        if (active) setFileCapabilityLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fileAssetVariables.length]);
+
+  const workflowFileInputEnabled =
+    fileCapability?.interaction_status === "ready";
+  const workflowFileDisabledReason =
+    fileCapabilityError ||
+    fileCapability?.status_reason ||
+    (fileCapabilityLoading ? "正在读取文件能力..." : "工作流文件资产当前未启用。");
+  const workflowFileAccept = useMemo(
+    () =>
+      fileCapability?.formats
+        .filter((format) => format.interaction_status === "ready")
+        .flatMap((format) => format.extensions)
+        .join(",") ?? "",
+    [fileCapability],
+  );
+  const workflowFilesReady = fileAssetVariables.every(
+    (variable) => fileSelections[variable]?.asset?.status === "ready",
+  );
+  const workflowFileBusy = fileAssetVariables.some(
+    (variable) => fileSelections[variable]?.busy,
+  ) || Boolean(deletingWorkflowAssetId);
+
+  const refreshWorkflowFileAssets = useCallback(async () => {
+    const requestedScopeId = fileScopeId;
+    if (requestedScopeId !== workflowFileScopeRef.current) return;
+    const generation = workflowFileListGeneration.current + 1;
+    workflowFileListGeneration.current = generation;
+    setWorkflowFileListLoading(true);
+    setWorkflowFileListError("");
+    try {
+      const response = await fetch(
+        `/api/files?purpose=workflow&scope_id=${encodeURIComponent(fileScopeId)}`,
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | WorkflowFileAssetListResponse
+        | null;
+      if (!response.ok || !payload || !Array.isArray(payload.items)) {
+        throw new Error(apiErrorMessage(payload, "无法读取已有文件资产。"));
+      }
+      if (
+        requestedScopeId !== workflowFileScopeRef.current ||
+        generation !== workflowFileListGeneration.current
+      ) return;
+      setWorkflowFileAssets(payload.items);
+    } catch (caught) {
+      if (
+        requestedScopeId !== workflowFileScopeRef.current ||
+        generation !== workflowFileListGeneration.current
+      ) return;
+      setWorkflowFileAssets([]);
+      setWorkflowFileListError(
+        caught instanceof Error ? caught.message : "无法读取已有文件资产。",
+      );
+    } finally {
+      if (
+        requestedScopeId === workflowFileScopeRef.current &&
+        generation === workflowFileListGeneration.current
+      ) {
+        setWorkflowFileListLoading(false);
+      }
+    }
+  }, [fileScopeId]);
+
+  useEffect(() => {
+    if (fileAssetVariables.length === 0 || !workflowFileInputEnabled) {
+      workflowFileListGeneration.current += 1;
+      setWorkflowFileAssets([]);
+      setWorkflowFileListError("");
+      setWorkflowFileListLoading(false);
+      return;
+    }
+    void refreshWorkflowFileAssets();
+    return () => {
+      workflowFileListGeneration.current += 1;
+    };
+  }, [
+    fileAssetVariables.length,
+    refreshWorkflowFileAssets,
+    workflowFileInputEnabled,
+  ]);
 
   const finalOutput = useMemo(() => {
     for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -441,7 +693,154 @@ export default function WorkflowRun({
     }
   }
 
+  async function selectWorkflowFile(
+    variableName: string,
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const uploadScopeId = fileScopeId;
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !workflowFileInputEnabled || !fileCapability) return;
+    if (file.size > fileCapability.max_bytes_per_file) {
+      setFileSelections((current) => ({
+        ...current,
+        [variableName]: {
+          asset: current[variableName]?.asset ?? null,
+          busy: false,
+          error: `文件超过 ${formatFileSize(fileCapability.max_bytes_per_file)} 上限。`,
+          notice: "",
+        },
+      }));
+      return;
+    }
+
+    setFileSelections((current) => ({
+      ...current,
+      [variableName]: {
+        asset: current[variableName]?.asset ?? null,
+        busy: true,
+        error: "",
+        notice: "",
+      },
+    }));
+    setWorkflowFileListNotice("");
+    try {
+      const body = new FormData();
+      body.append("purpose", "workflow");
+      body.append("scope_id", fileScopeId);
+      body.append("file", file);
+      const response = await fetch("/api/files", {
+        method: "POST",
+        body,
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | WorkflowFileAsset
+        | null;
+      if (!response.ok || !payload?.asset_id) {
+        throw new Error(apiErrorMessage(payload, "文件上传失败，请重试。"));
+      }
+      if (uploadScopeId !== workflowFileScopeRef.current) return;
+      setFileSelections((current) => ({
+        ...current,
+        [variableName]: {
+          asset: payload,
+          busy: false,
+          error: "",
+          notice: "文件已上传并选中用于本轮。",
+        },
+      }));
+      await refreshWorkflowFileAssets();
+    } catch (caught) {
+      if (uploadScopeId !== workflowFileScopeRef.current) return;
+      setFileSelections((current) => ({
+        ...current,
+        [variableName]: {
+          asset: current[variableName]?.asset ?? null,
+          busy: false,
+          error: caught instanceof Error ? caught.message : "文件上传失败，请重试。",
+          notice: "",
+        },
+      }));
+    }
+  }
+
+  function selectExistingWorkflowFile(variableName: string, assetId: string) {
+    const asset = workflowFileAssets.find((item) => item.asset_id === assetId) ?? null;
+    setFileSelections((current) => ({
+      ...current,
+      [variableName]: {
+        asset,
+        busy: false,
+        error: "",
+        notice: asset ? "已选择已有文件用于本轮。" : "",
+      },
+    }));
+  }
+
+  function removeWorkflowFileFromRun(variableName: string) {
+    setFileSelections((current) => ({
+      ...current,
+      [variableName]: {
+        asset: null,
+        busy: false,
+        error: "",
+        notice: "已从本轮移除，文件仍保留在当前工作流。",
+      },
+    }));
+  }
+
+  async function deleteWorkflowFile(asset: WorkflowFileAsset) {
+    if (!confirmWorkflowFileDeletion(window.confirm.bind(window))) return;
+    const deleteScopeId = fileScopeId;
+    setDeletingWorkflowAssetId(asset.asset_id);
+    setWorkflowFileListError("");
+    setWorkflowFileListNotice("");
+    try {
+      const response = await fetch(
+        `/api/files/${encodeURIComponent(asset.asset_id)}?purpose=workflow&scope_id=${encodeURIComponent(fileScopeId)}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok && response.status !== 202) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(apiErrorMessage(payload, "文件删除失败，请重试。"));
+      }
+      const cleanupPending = response.status === 202;
+      if (deleteScopeId !== workflowFileScopeRef.current) return;
+      setFileSelections((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([variableName, selection]) => [
+            variableName,
+            selection.asset?.asset_id === asset.asset_id
+              ? { asset: null, busy: false, error: "", notice: "" }
+              : selection,
+          ]),
+        ),
+      );
+      setWorkflowFileListNotice(
+        cleanupPending
+          ? "已解除绑定，物理清理待完成。"
+          : "已解除当前工作流绑定。",
+      );
+      await refreshWorkflowFileAssets();
+    } catch (caught) {
+      if (deleteScopeId !== workflowFileScopeRef.current) return;
+      setWorkflowFileListError(
+        caught instanceof Error ? caught.message : "文件删除失败，请重试。",
+      );
+    } finally {
+      setDeletingWorkflowAssetId("");
+    }
+  }
+
   async function runWorkflow() {
+    if (fileAssetVariables.length > 0 && !workflowFileInputEnabled) {
+      setError(workflowFileDisabledReason);
+      return;
+    }
+    if (!workflowFilesReady) {
+      setError("请先为每个文件资产变量选择一个已就绪文件。");
+      return;
+    }
     onRunStart?.();
     setEvents([]);
     setError("");
@@ -469,6 +868,12 @@ export default function WorkflowRun({
           inputs: {
             [inputVariable]: input,
             ...(inputVariable === "user_input" ? {} : { user_input: input }),
+            ...Object.fromEntries(
+              fileAssetVariables.map((variableName) => [
+                variableName,
+                fileSelections[variableName]?.asset?.asset_id ?? "",
+              ]),
+            ),
           },
         }),
       });
@@ -668,9 +1073,218 @@ export default function WorkflowRun({
           />
         </label>
 
+        {fileAssetVariables.length > 0 ? (
+          <div className="space-y-2 border-t border-white/10 pt-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-slate-300">文件资产</p>
+                <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                  文件只绑定到当前工作流作用域，运行请求仅提交 asset_id。
+                </p>
+              </div>
+              <span
+                aria-live="polite"
+                className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
+                  workflowFileInputEnabled
+                    ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                    : "border-amber-300/25 bg-amber-300/10 text-amber-100"
+                }`}
+                role="status"
+              >
+                {fileCapabilityLoading
+                  ? "检查中"
+                  : workflowFileInputEnabled
+                    ? "可用"
+                    : "未启用"}
+              </span>
+            </div>
+
+            {!workflowFileInputEnabled ? (
+              <p
+                aria-live="polite"
+                className="rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-2 text-[11px] leading-5 text-amber-100"
+                role="status"
+              >
+                {workflowFileDisabledReason}
+              </p>
+            ) : null}
+
+            {fileAssetVariables.map((variableName) => {
+              const selection = fileSelections[variableName];
+              const asset = selection?.asset;
+              return (
+                <div
+                  className="rounded-md border border-white/10 bg-white/[0.035] px-3 py-2.5"
+                  key={variableName}
+                >
+                  <p className="truncate font-mono text-[11px] text-slate-300">
+                    {variableName}
+                  </p>
+                  <select
+                    aria-label={`${variableName} 已有文件`}
+                    className="mt-2 min-h-11 w-full rounded-md border border-white/10 bg-slate-950/60 px-2.5 py-1.5 text-xs text-white outline-none transition focus:border-hire-300/45 disabled:cursor-not-allowed disabled:text-slate-500"
+                    disabled={
+                      !workflowFileInputEnabled ||
+                      workflowFileListLoading ||
+                      Boolean(selection?.busy) ||
+                      Boolean(deletingWorkflowAssetId) ||
+                      isRunning
+                    }
+                    onChange={(event) =>
+                      selectExistingWorkflowFile(variableName, event.target.value)
+                    }
+                    value={asset?.asset_id ?? ""}
+                  >
+                    <option value="">选择已有文件</option>
+                    {workflowFileAssets.map((item) => (
+                      <option key={item.asset_id} value={item.asset_id}>
+                        {item.display_name} · {item.format.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                  {asset ? (
+                    <p className="mt-1.5 truncate text-[11px] text-slate-400">
+                      本轮：{asset.display_name} · {formatFileSize(asset.byte_size)}
+                    </p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <label
+                      className={`flex min-h-11 items-center rounded-full border px-3 py-1 text-[11px] font-semibold outline-none transition focus-within:ring-2 focus-within:ring-hire-300/60 focus-within:ring-offset-2 focus-within:ring-offset-slate-950 ${
+                        workflowFileInputEnabled && !selection?.busy && !isRunning
+                          ? "cursor-pointer border-hire-300/30 bg-hire-300/10 text-hire-100 hover:bg-hire-300/20"
+                          : "cursor-not-allowed border-white/10 bg-white/[0.03] text-slate-500"
+                      }`}
+                    >
+                      {selection?.busy ? "上传中" : "上传新文件"}
+                      <input
+                        accept={workflowFileAccept}
+                        aria-label={`为 ${variableName} 上传新文件`}
+                        className="sr-only"
+                        disabled={
+                          !workflowFileInputEnabled ||
+                          Boolean(selection?.busy) ||
+                          Boolean(deletingWorkflowAssetId) ||
+                          isRunning
+                        }
+                        onChange={(event) =>
+                          void selectWorkflowFile(variableName, event)
+                        }
+                        type="file"
+                      />
+                    </label>
+                    {asset ? (
+                      <button
+                        aria-label={`从本轮移除 ${asset.display_name}`}
+                        className="min-h-11 rounded-full border border-white/15 px-3 py-1 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={Boolean(selection?.busy) || isRunning}
+                        onClick={() => removeWorkflowFileFromRun(variableName)}
+                        type="button"
+                      >
+                        移出本轮
+                      </button>
+                    ) : null}
+                  </div>
+                  {selection?.error ? (
+                    <p
+                      aria-live="assertive"
+                      className="mt-2 text-[11px] leading-5 text-rose-200"
+                      role="alert"
+                    >
+                      {selection.error}
+                    </p>
+                  ) : null}
+                  {selection?.notice ? (
+                    <p
+                      aria-live="polite"
+                      className="mt-2 text-[11px] leading-5 text-emerald-200"
+                      role="status"
+                    >
+                      {selection.notice}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            {workflowFileInputEnabled ? (
+              <div className="border-t border-white/10 pt-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-semibold text-slate-300">
+                    当前工作流已有文件（{workflowFileAssets.length}）
+                  </p>
+                  <button
+                    className="min-h-11 rounded-full border border-white/10 px-3 py-1 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={workflowFileListLoading || Boolean(deletingWorkflowAssetId)}
+                    onClick={() => void refreshWorkflowFileAssets()}
+                    type="button"
+                  >
+                    {workflowFileListLoading ? "刷新中" : "刷新列表"}
+                  </button>
+                </div>
+                {workflowFileListError ? (
+                  <p
+                    aria-live="assertive"
+                    className="mt-2 text-[11px] leading-5 text-rose-200"
+                    role="alert"
+                  >
+                    {workflowFileListError}
+                  </p>
+                ) : null}
+                {workflowFileListNotice ? (
+                  <p
+                    aria-live="polite"
+                    className="mt-2 text-[11px] leading-5 text-emerald-200"
+                    role="status"
+                  >
+                    {workflowFileListNotice}
+                  </p>
+                ) : null}
+                {!workflowFileListLoading && workflowFileAssets.length === 0 ? (
+                  <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                    暂无持久文件。上传后会出现在这里，刷新页面也可重新选择。
+                  </p>
+                ) : null}
+                {workflowFileAssets.length > 0 ? (
+                  <div className="mt-2 max-h-36 space-y-1.5 overflow-y-auto">
+                    {workflowFileAssets.map((item) => (
+                      <div
+                        className="flex items-center justify-between gap-3 rounded-md bg-slate-950/30 px-2.5 py-1.5"
+                        key={item.asset_id}
+                      >
+                        <p className="min-w-0 truncate text-[11px] text-slate-300">
+                          {item.display_name}
+                          <span className="ml-1.5 text-[10px] text-slate-500">
+                            {item.format.toUpperCase()} · {formatFileSize(item.byte_size)}
+                          </span>
+                        </p>
+                        <button
+                          aria-label={`彻底删除 ${item.display_name}`}
+                          className="min-h-11 shrink-0 rounded-full border border-rose-300/25 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={Boolean(deletingWorkflowAssetId) || isRunning}
+                          onClick={() => void deleteWorkflowFile(item)}
+                          type="button"
+                        >
+                          {deletingWorkflowAssetId === item.asset_id
+                            ? "删除中"
+                            : "彻底删除"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <button
           className="w-full rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-          disabled={isRunning}
+          disabled={
+            isRunning ||
+            workflowFileBusy ||
+            (fileAssetVariables.length > 0 &&
+              (!workflowFileInputEnabled || !workflowFilesReady))
+          }
           onClick={() => void runWorkflow()}
           type="button"
         >
@@ -746,7 +1360,11 @@ export default function WorkflowRun({
       ) : null}
 
       {error ? (
-        <div className="mx-4 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100">
+        <div
+          aria-live="assertive"
+          className="mx-4 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100"
+          role="alert"
+        >
           {error}
         </div>
       ) : null}

@@ -7,6 +7,11 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from .source_metadata import (
+    decode_heading_path,
+    encode_heading_path,
+)
+
 
 _LATIN_TOKEN = re.compile(r"[a-z0-9_]+", re.IGNORECASE)
 _CJK_RUN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]+")
@@ -26,6 +31,10 @@ class LexicalChunk:
     start_char: int = 0
     end_char: int = 0
     page_number: int | None = None
+    slide: int | None = None
+    heading_path: tuple[str, ...] = ()
+    sheet: str | None = None
+    row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
 
@@ -45,6 +54,10 @@ class LexicalSearchResult:
     start_char: int = 0
     end_char: int = 0
     page_number: int | None = None
+    slide: int | None = None
+    heading_path: tuple[str, ...] = ()
+    sheet: str | None = None
+    row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
 
@@ -74,8 +87,9 @@ class SqliteLexicalStore:
                     INSERT INTO rag_chunks (
                         chunk_id, namespace, doc_id, document_name, text, chunk_index,
                         parent_chunk_id, parent_text, chunk_type, start_char, end_char
-                        , page_number, visual_kind, source_block_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        , page_number, slide, heading_path_json, sheet, row_range,
+                        visual_kind, source_block_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         chunk.chunk_id,
@@ -90,6 +104,10 @@ class SqliteLexicalStore:
                         chunk.start_char,
                         chunk.end_char,
                         chunk.page_number,
+                        chunk.slide,
+                        encode_heading_path(chunk.heading_path),
+                        chunk.sheet,
+                        chunk.row_range,
                         chunk.visual_kind,
                         chunk.source_block_id,
                     ),
@@ -130,6 +148,10 @@ class SqliteLexicalStore:
                 start_char=int(row["start_char"] or 0),
                 end_char=int(row["end_char"] or 0),
                 page_number=int(row["page_number"]) if row["page_number"] else None,
+                slide=int(row["slide"]) if row["slide"] else None,
+                heading_path=decode_heading_path(row["heading_path_json"]),
+                sheet=str(row["sheet"]) if row["sheet"] else None,
+                row_range=str(row["row_range"]) if row["row_range"] else None,
                 visual_kind=str(row["visual_kind"]) if row["visual_kind"] else None,
                 source_block_id=str(row["source_block_id"]) if row["source_block_id"] else None,
             )
@@ -186,6 +208,10 @@ class SqliteLexicalStore:
                     start_char INTEGER NOT NULL,
                     end_char INTEGER NOT NULL
                     , page_number INTEGER
+                    , slide INTEGER
+                    , heading_path_json TEXT
+                    , sheet TEXT
+                    , row_range TEXT
                     , visual_kind TEXT
                     , source_block_id TEXT
                 )
@@ -196,6 +222,10 @@ class SqliteLexicalStore:
             }
             for name, sql_type in (
                 ("page_number", "INTEGER"),
+                ("slide", "INTEGER"),
+                ("heading_path_json", "TEXT"),
+                ("sheet", "TEXT"),
+                ("row_range", "TEXT"),
                 ("visual_kind", "TEXT"),
                 ("source_block_id", "TEXT"),
             ):

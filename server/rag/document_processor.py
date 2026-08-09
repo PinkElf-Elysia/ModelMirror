@@ -8,13 +8,62 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .document_parser import DocumentParseError, parse_document
+from .document_parser import (
+    DocumentParseError,
+    parse_document,
+    parse_document_structured,
+)
+from .source_metadata import normalize_heading_path
 
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _LIST_ITEM = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+\S")
 _TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_SEMANTIC_LAYOUT_EXTENSIONS = {
+    ".json",
+    ".jsonl",
+    ".ndjson",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".py",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".java",
+    ".go",
+    ".rs",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
+    ".cs",
+    ".php",
+    ".rb",
+    ".sh",
+    ".ps1",
+    ".sql",
+    ".css",
+    ".scss",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".log",
+}
+_SHARED_SECTION_EXTENSIONS = _SEMANTIC_LAYOUT_EXTENSIONS | {
+    ".csv",
+    ".tsv",
+    ".xlsx",
+    ".html",
+    ".htm",
+    ".srt",
+    ".vtt",
+    ".docx",
+    ".pptx",
+}
 
 
 @dataclass(slots=True)
@@ -114,6 +163,10 @@ class StructuredDocumentProcessor:
                 remove_repeated=bool(options.get("remove_repeated_headers_footers", True)),
             )
             text, blocks = self._page_blocks(pages, source_id)
+        elif extension in _SHARED_SECTION_EXTENSIONS:
+            parsed = parse_document_structured(path, filename)
+            text, blocks = self._shared_section_blocks(parsed, source_id)
+            warnings = list(parsed.warnings)
         else:
             text = self._clean_text(parse_document(path, filename))
             blocks = self._plain_blocks(text, source_id)
@@ -177,7 +230,7 @@ class StructuredDocumentProcessor:
                     text=block_text,
                     start_char=start,
                     end_char=cursor,
-                    heading_path=[str(item) for item in (raw.get("heading_path") or []) if str(item).strip()],
+                    heading_path=list(normalize_heading_path(raw.get("heading_path"))),
                     page_number=self._optional_int(raw.get("page_number")),
                     metadata=dict(metadata) if isinstance(metadata, dict) else {},
                 )
@@ -375,6 +428,65 @@ class StructuredDocumentProcessor:
             )
         return "".join(parts), blocks
 
+    def _shared_section_blocks(
+        self,
+        parsed: Any,
+        source_id: str,
+    ) -> tuple[str, list[DocumentBlock]]:
+        """Preserve ParsedSection source coordinates in RAG blocks."""
+
+        blocks: list[DocumentBlock] = []
+        parts: list[str] = []
+        cursor = 0
+        for section in parsed.sections:
+            if parts:
+                parts.append("\n\n")
+                cursor += 2
+            start = cursor
+            parts.append(section.text)
+            cursor += len(section.text)
+            heading_path = list(normalize_heading_path(section.heading_path))
+            metadata = {
+                key: value
+                for key, value in {
+                    "page": section.page,
+                    "slide": section.slide,
+                    "sheet": section.sheet,
+                    "line_range": section.line_range,
+                    "row_range": section.row_range,
+                    "time_range": section.time_range,
+                    "heading_path": heading_path or None,
+                }.items()
+                if value is not None
+            }
+            if parsed.format in {"csv", "tsv", "xlsx"}:
+                kind = "table"
+            elif parsed.format in {"srt", "vtt"}:
+                kind = "subtitle"
+            elif heading_path and heading_path[-1] == section.text:
+                kind = "heading"
+            elif parsed.format in {
+                "json", "jsonl", "yaml", "xml", "configuration"
+            }:
+                kind = "structured"
+            elif parsed.format in {"source_code", "log"}:
+                kind = "source"
+            else:
+                kind = "paragraph"
+            blocks.append(
+                self._block(
+                    source_id,
+                    kind,
+                    section.text,
+                    start,
+                    cursor,
+                    heading_path=heading_path,
+                    page_number=section.page,
+                    metadata=metadata,
+                )
+            )
+        return "".join(parts), blocks
+
     def _block(
         self,
         source_id: str,
@@ -385,6 +497,7 @@ class StructuredDocumentProcessor:
         *,
         heading_path: list[str] | None = None,
         page_number: int | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> DocumentBlock:
         digest = hashlib.sha256(f"{source_id}:{kind}:{start}:{end}".encode("utf-8")).hexdigest()[:20]
         return DocumentBlock(
@@ -393,6 +506,7 @@ class StructuredDocumentProcessor:
             text=text,
             start_char=start,
             end_char=end,
-            heading_path=list(heading_path or []),
+            heading_path=list(normalize_heading_path(heading_path)),
             page_number=page_number,
+            metadata=dict(metadata or {}),
         )

@@ -1,0 +1,87 @@
+name: File readiness
+
+on:
+  pull_request:
+    paths:
+      - "docs/file-readiness.json"
+      - "docs/MULTIMODAL_FORMAT_AUDIT.md"
+      - "scripts/check-file-readiness.mjs"
+      - "server/rag/**"
+      - "server/datax/**"
+      - "server/file_assets/**"
+      - "server/main.py"
+      - "server/Dockerfile"
+      - "server/tests/test_file_assets.py"
+      - "server/xperts/**"
+      - "server/omniroute/catalog.py"
+      - "server/omniroute/schemas.py"
+      - "server/tests/test_omniroute_integration.py"
+      - "server/mcp/workspace.py"
+      - "server/sandbox_sidecar/**"
+      - "server/requirements.txt"
+      - "client/src/pages/RagPage.tsx"
+      - "client/src/data/fileCapabilities.ts"
+      - "client/src/data/fileCapabilities.test.ts"
+      - "client/src/data/filterOptions.ts"
+      - "client/src/pages/ModelListPage.tsx"
+      - "client/src/components/ModelCard.tsx"
+      - "client/src/pages/DataXProjectPage.tsx"
+      - "client/src/pages/DataXInboxPage.tsx"
+      - "client/src/components/xpert/XpertFeatureSettings.tsx"
+      - "client/src/components/workflow/WorkflowEditor.tsx"
+      - ".github/workflows/file-readiness.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/file-readiness.json"
+      - "docs/MULTIMODAL_FORMAT_AUDIT.md"
+      - "scripts/check-file-readiness.mjs"
+      - "server/rag/**"
+      - "server/datax/**"
+      - "server/file_assets/**"
+      - "server/main.py"
+      - "server/Dockerfile"
+      - "server/tests/test_file_assets.py"
+      - "server/xperts/**"
+      - "server/omniroute/catalog.py"
+      - "server/omniroute/schemas.py"
+      - "server/tests/test_omniroute_integration.py"
+      - "server/mcp/workspace.py"
+      - "server/sandbox_sidecar/**"
+      - "server/requirements.txt"
+      - "client/src/pages/RagPage.tsx"
+      - "client/src/data/fileCapabilities.ts"
+      - "client/src/data/fileCapabilities.test.ts"
+      - "client/src/data/filterOptions.ts"
+      - "client/src/pages/ModelListPage.tsx"
+      - "client/src/components/ModelCard.tsx"
+      - "client/src/pages/DataXProjectPage.tsx"
+      - "client/src/pages/DataXInboxPage.tsx"
+      - "client/src/components/xpert/XpertFeatureSettings.tsx"
+      - "client/src/components/workflow/WorkflowEditor.tsx"
+      - ".github/workflows/file-readiness.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check file format readiness evidence
+        run: node scripts/check-file-readiness.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+      - name: Install minimum file registry test dependencies
+        run: >-
+          python -m pip install
+          "fastapi==0.116.2"
+          "httpx==0.28.1"
+          "pytest==9.1.0"
+      - name: Test shared file registry
+        run: python -m pytest server/tests/test_file_assets.py -q

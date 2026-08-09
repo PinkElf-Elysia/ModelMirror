@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import mimetypes
 import os
@@ -20,12 +21,27 @@ try:
 except ModuleNotFoundError:
     from context_engine import optimize_context
 
-from .document_parser import DocumentParseError, parse_document, supported_extensions
+try:
+    from server.file_assets.contracts import FileInputKind, FilePurpose
+    from server.file_assets.service import FileAssetServiceError, get_file_asset_service
+    from server.file_assets.validation import FileUploadValidator
+except ModuleNotFoundError:
+    from file_assets.contracts import FileInputKind, FilePurpose
+    from file_assets.service import FileAssetServiceError, get_file_asset_service
+    from file_assets.validation import FileUploadValidator
+
+from .document_parser import (
+    DocumentParseError,
+    parse_document,
+    parse_document_structured,
+    supported_extensions,
+)
 from .document_processor import ProcessedDocument, StructuredDocumentProcessor
 from .embedder import EmbeddingClient, EmbeddingError
 from .lexical_store import LexicalSearchResult, SqliteLexicalStore
 from .reranker import RerankDocument, RerankService
 from .retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
+from .source_metadata import normalize_heading_path
 from .processor_generator import ProcessorGenerationService
 from .pipeline_graph import (
     GraphValidationIssue,
@@ -52,6 +68,49 @@ def _safe_env_int(name: str, default: int, *, minimum: int = 1) -> int:
         return max(minimum, default)
 
 
+MAX_DOCUMENT_WARNINGS = 20
+MAX_DOCUMENT_WARNING_CHARACTERS = 500
+MAX_DOCUMENT_WARNINGS_CHARACTERS = 4_000
+_WARNING_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _bounded_document_warnings(values: Any) -> list[str]:
+    """Return deduplicated, single-line parser warnings safe for metadata/API use."""
+
+    if not isinstance(values, (list, tuple)):
+        return []
+    result: list[str] = []
+    used_characters = 0
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        clean = _WARNING_CONTROL_CHARACTERS.sub(" ", value)
+        clean = " ".join(clean.split())
+        clean = re.sub(
+            r"(?i)(bearer\s+|api[_-]?key[=:]\s*)\S+",
+            r"\1[redacted]",
+            clean,
+        )
+        if not clean:
+            continue
+        if len(clean) > MAX_DOCUMENT_WARNING_CHARACTERS:
+            clean = clean[: MAX_DOCUMENT_WARNING_CHARACTERS - 1].rstrip() + "…"
+        remaining = MAX_DOCUMENT_WARNINGS_CHARACTERS - used_characters
+        if remaining <= 0:
+            break
+        if len(clean) > remaining:
+            if remaining <= 1:
+                break
+            clean = clean[: remaining - 1].rstrip() + "…"
+        if clean in result:
+            continue
+        result.append(clean)
+        used_characters += len(clean)
+        if len(result) >= MAX_DOCUMENT_WARNINGS:
+            break
+    return result
+
+
 class RagError(RuntimeError):
     """Base error for local RAG operations."""
 
@@ -60,8 +119,16 @@ class KnowledgeBaseNotFoundError(RagError):
     """Raised when a knowledge base does not exist."""
 
 
+class KnowledgeBaseDeletionError(KnowledgeBaseNotFoundError):
+    """Raised when a tombstoned knowledge base still needs cleanup retry."""
+
+
 class DocumentNotFoundError(RagError):
     """Raised when a document does not exist."""
+
+
+class DocumentDeletionError(RagError):
+    """Raised when a tombstoned document still needs cleanup retry."""
 
 
 class UnsupportedDocumentError(RagError):
@@ -144,6 +211,9 @@ class RagService:
         self.pipeline_vision_dir = self.storage_dir / "pipeline_vision"
         self.pipeline_vision_dir.mkdir(parents=True, exist_ok=True)
         self._metadata_lock = threading.RLock()
+        self._document_delete_claims: set[str] = set()
+        self._knowledge_base_delete_claims: set[str] = set()
+        self._knowledge_base_write_claims: dict[str, int] = {}
         self.embedder = embedder or EmbeddingClient()
         self.vector_store = vector_store or create_vector_store(self.storage_dir)
         self.lexical_store = lexical_store or SqliteLexicalStore(
@@ -193,65 +263,347 @@ class RagService:
         return sorted(items, key=lambda item: item["created_at"], reverse=True)
 
     def delete_knowledge_base(self, kb_id: str) -> None:
-        """Delete a knowledge base and all related documents and vectors."""
+        """Durably isolate, strictly purge, then forget one knowledge base."""
 
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            deletion = metadata["knowledge_base_deletions"].get(kb_id)
+            if kb_id not in metadata["knowledge_bases"]:
+                if isinstance(deletion, dict) and deletion.get("status") == "deleted":
+                    return
+                raise KnowledgeBaseNotFoundError("Knowledge base not found.")
+            if kb_id in self._knowledge_base_delete_claims:
+                raise KnowledgeBaseDeletionError(
+                    "Knowledge base cleanup is already in progress; retry shortly."
+                )
+            self._knowledge_base_delete_claims.add(kb_id)
+        try:
+            self._delete_knowledge_base_claimed(kb_id)
+        finally:
+            with self._metadata_lock:
+                self._knowledge_base_delete_claims.discard(kb_id)
+
+    def _delete_knowledge_base_claimed(self, kb_id: str) -> None:
+        requested_at = time.time()
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            knowledge_base = metadata["knowledge_bases"].get(kb_id)
+            deletion = metadata["knowledge_base_deletions"].get(kb_id)
+            if not isinstance(knowledge_base, dict):
+                if isinstance(deletion, dict) and deletion.get("status") == "deleted":
+                    return
+                raise KnowledgeBaseNotFoundError("Knowledge base not found.")
+
+            deletion = metadata["knowledge_base_deletions"].setdefault(
+                kb_id,
+                {
+                    "tenant_id": "local",
+                    "requested_at": requested_at,
+                    "deleted_at": None,
+                    "status": "deleting",
+                    "error_code": None,
+                    "document_ids": [],
+                    "asset_ids": [],
+                },
+            )
+            deletion["status"] = "deleting"
+            deletion["error_code"] = None
+            deletion["deleted_at"] = None
+            knowledge_base["deletion_status"] = "deleting"
+            knowledge_base["deletion_error_code"] = None
+            knowledge_base["updated_at"] = requested_at
+
+            document_ids = {
+                str(doc_id)
+                for doc_id, document in metadata["documents"].items()
+                if isinstance(document, dict) and str(document.get("kb_id")) == kb_id
+            }
+            document_ids.update(str(item) for item in deletion.get("document_ids", []))
+            deletion["document_ids"] = sorted(document_ids)
+            for doc_id in document_ids:
+                document = metadata["documents"].get(doc_id)
+                if not isinstance(document, dict):
+                    continue
+                document["deletion_status"] = "deleting"
+                document_deletion = metadata["document_deletions"].setdefault(doc_id, {})
+                document_deletion.update(
+                    {
+                        "tenant_id": "local",
+                        "content_hash": str(document.get("content_hash") or ""),
+                        "requested_at": float(
+                            document_deletion.get("requested_at") or requested_at
+                        ),
+                        "deleted_at": None,
+                        "status": "deleting",
+                        "error_code": None,
+                    }
+                )
+
+            for job in metadata["pipeline_jobs"].values():
+                if not isinstance(job, dict) or str(job.get("kb_id")) != kb_id:
+                    continue
+                job["deletion_invalidated"] = True
+                job["deletion_artifacts_purged"] = False
+                job["deletion_cleanup_error"] = None
+                if job.get("status") == "running":
+                    job["cancel_requested"] = True
+                elif job.get("status") == "queued":
+                    job["status"] = "cancelled"
+                    job["cancel_requested"] = True
+                    job["completed_at"] = requested_at
+                    job["error"] = "Cancelled because the knowledge base was deleted."
+            self._write_metadata_unlocked(metadata)
+
+        cleanup_pending = False
+        error_code: str | None = None
+        asset_service = get_file_asset_service()
+        asset_metadata = self._read_metadata()
+        deletion_asset_ids = {
+            str(item)
+            for item in asset_metadata["knowledge_base_deletions"]
+            .get(kb_id, {})
+            .get("asset_ids", [])
+        }
+        deletion_asset_ids.update(
+            str(document.get("asset_id"))
+            for document in asset_metadata["documents"].values()
+            if isinstance(document, dict)
+            and str(document.get("kb_id")) == kb_id
+            and str(document.get("asset_id") or "")
+        )
+        file_assets_enabled = asset_service.mode in {"shadow", "native"}
+        if not file_assets_enabled and deletion_asset_ids:
+            cleanup_pending = True
+            error_code = "file_asset_store_unavailable"
+        elif file_assets_enabled:
+            try:
+                asset_ids, assets_pending = asset_service.block_and_delete_rag_scope(kb_id)
+                with self._metadata_lock:
+                    metadata = self._read_metadata_unlocked()
+                    current = metadata["knowledge_base_deletions"].setdefault(kb_id, {})
+                    current["asset_ids"] = sorted(
+                        set(str(item) for item in current.get("asset_ids", []))
+                        | set(str(item) for item in asset_ids)
+                    )
+                    current["asset_scope_blocked"] = True
+                    self._write_metadata_unlocked(metadata)
+                cleanup_pending = cleanup_pending or assets_pending
+                if assets_pending:
+                    error_code = "file_asset_cleanup_pending"
+            except Exception:
+                cleanup_pending = True
+                error_code = "file_asset_scope_cleanup_failed"
+
+        current_metadata = self._read_metadata()
+        current_document_ids = [
+            str(doc_id)
+            for doc_id, document in current_metadata["documents"].items()
+            if isinstance(document, dict) and str(document.get("kb_id")) == kb_id
+        ]
+        for doc_id in current_document_ids:
+            try:
+                self.delete_document(doc_id)
+            except (DocumentDeletionError, DocumentNotFoundError):
+                cleanup_pending = True
+                error_code = error_code or "rag_document_cleanup_pending"
+            except Exception:
+                cleanup_pending = True
+                error_code = error_code or "rag_document_cleanup_failed"
+
+        pipeline_pending = self._knowledge_base_pipeline_cleanup_pending(kb_id)
+        if pipeline_pending:
+            cleanup_pending = True
+            error_code = error_code or "rag_pipeline_cleanup_pending"
+
+        with self._metadata_lock:
+            active_writes = self._knowledge_base_write_claims.get(kb_id, 0)
+        if active_writes:
+            cleanup_pending = True
+            error_code = error_code or "rag_knowledge_base_write_pending"
+
+        if not active_writes and not pipeline_pending:
+            try:
+                self._purge_knowledge_base_namespaces_and_uploads(kb_id)
+            except Exception:
+                cleanup_pending = True
+                error_code = error_code or "rag_knowledge_base_cleanup_failed"
+
+        if file_assets_enabled:
+            try:
+                if not asset_service.rag_scope_cleanup_complete(kb_id):
+                    cleanup_pending = True
+                    error_code = error_code or "file_asset_cleanup_pending"
+            except Exception:
+                cleanup_pending = True
+                error_code = error_code or "file_asset_cleanup_failed"
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            remaining_documents = [
+                doc_id
+                for doc_id, document in metadata["documents"].items()
+                if isinstance(document, dict) and str(document.get("kb_id")) == kb_id
+            ]
+            remaining_jobs = [
+                job_id
+                for job_id, job in metadata["pipeline_jobs"].items()
+                if isinstance(job, dict)
+                and str(job.get("kb_id")) == kb_id
+                and (
+                    job.get("status") == "running"
+                    or not bool(job.get("deletion_artifacts_purged"))
+                )
+            ]
+            if (
+                remaining_documents
+                or remaining_jobs
+                or self._knowledge_base_write_claims.get(kb_id, 0)
+            ):
+                cleanup_pending = True
+                error_code = error_code or "rag_knowledge_base_cleanup_pending"
+
+            if cleanup_pending:
+                knowledge_base = metadata["knowledge_bases"].get(kb_id)
+                if isinstance(knowledge_base, dict):
+                    knowledge_base["deletion_status"] = "cleanup_pending"
+                    knowledge_base["deletion_error_code"] = error_code
+                    knowledge_base["updated_at"] = time.time()
+                deletion = metadata["knowledge_base_deletions"].setdefault(kb_id, {})
+                deletion.update(
+                    {
+                        "tenant_id": "local",
+                        "deleted_at": None,
+                        "status": "cleanup_pending",
+                        "error_code": error_code
+                        or "rag_knowledge_base_cleanup_pending",
+                    }
+                )
+                self._write_metadata_unlocked(metadata)
+                raise KnowledgeBaseDeletionError(
+                    "Knowledge base was isolated, but cleanup is incomplete; retry deletion."
+                )
+
+            metadata["pipeline_drafts"].pop(kb_id, None)
+            metadata["pipeline_graphs"].pop(kb_id, None)
+            metadata["pipeline_active_versions"].pop(kb_id, None)
+            metadata["knowledge_write_proposals"] = {
+                proposal_id: item
+                for proposal_id, item in metadata["knowledge_write_proposals"].items()
+                if not isinstance(item, dict) or str(item.get("kb_id")) != kb_id
+            }
+            metadata["pipeline_versions"] = {
+                version_id: item
+                for version_id, item in metadata["pipeline_versions"].items()
+                if not isinstance(item, dict) or str(item.get("kb_id")) != kb_id
+            }
+            metadata["pipeline_jobs"] = {
+                job_id: item
+                for job_id, item in metadata["pipeline_jobs"].items()
+                if not isinstance(item, dict) or str(item.get("kb_id")) != kb_id
+            }
+            metadata["knowledge_bases"].pop(kb_id, None)
+            deletion = metadata["knowledge_base_deletions"].setdefault(kb_id, {})
+            deletion.update(
+                {
+                    "tenant_id": "local",
+                    "deleted_at": time.time(),
+                    "status": "deleted",
+                    "error_code": None,
+                }
+            )
+            self._write_metadata_unlocked(metadata)
+
+    def _knowledge_base_pipeline_cleanup_pending(self, kb_id: str) -> bool:
         metadata = self._read_metadata()
-        if kb_id not in metadata["knowledge_bases"]:
-            raise KnowledgeBaseNotFoundError("知识库不存在。")
-
-        doc_ids = [
-            doc_id
-            for doc_id, document in metadata["documents"].items()
-            if document["kb_id"] == kb_id
-        ]
-        for doc_id in doc_ids:
-            metadata["documents"].pop(doc_id, None)
-        metadata["knowledge_bases"].pop(kb_id, None)
-        metadata["pipeline_drafts"].pop(kb_id, None)
-        metadata["pipeline_graphs"].pop(kb_id, None)
-        metadata["pipeline_active_versions"].pop(kb_id, None)
-        metadata["knowledge_write_proposals"] = {
-            proposal_id: item
-            for proposal_id, item in metadata["knowledge_write_proposals"].items()
-            if item.get("kb_id") != kb_id
-        }
-        version_namespaces = [
-            str(item.get("namespace") or "")
-            for item in metadata["pipeline_versions"].values()
-            if item.get("kb_id") == kb_id
-        ]
-        metadata["pipeline_versions"] = {
-            version_id: item
-            for version_id, item in metadata["pipeline_versions"].items()
-            if item.get("kb_id") != kb_id
-        }
         job_ids = [
-            job_id
-            for job_id, item in metadata["pipeline_jobs"].items()
-            if item.get("kb_id") == kb_id
+            str(job_id)
+            for job_id, job in metadata["pipeline_jobs"].items()
+            if isinstance(job, dict) and str(job.get("kb_id")) == kb_id
         ]
-        metadata["pipeline_jobs"] = {
-            job_id: item
-            for job_id, item in metadata["pipeline_jobs"].items()
-            if item.get("kb_id") != kb_id
-        }
-        self._write_metadata(metadata)
-        self.vector_store.delete_knowledge_base(kb_id)
-        self.lexical_store.delete_namespace(kb_id)
-        for namespace in version_namespaces:
-            if namespace:
-                self.vector_store.delete_knowledge_base(namespace)
-                self.lexical_store.delete_namespace(namespace)
+        pending = False
         for job_id in job_ids:
-            shutil.rmtree(self.pipeline_sources_dir / job_id, ignore_errors=True)
-            shutil.rmtree(self.pipeline_processed_dir / job_id, ignore_errors=True)
-            shutil.rmtree(self.pipeline_vision_dir / job_id, ignore_errors=True)
-        shutil.rmtree(self.uploads_dir / kb_id, ignore_errors=True)
+            job = self.get_pipeline_job(job_id)
+            if job.get("status") == "running":
+                pending = True
+                continue
+            if job.get("deletion_artifacts_purged"):
+                continue
+            try:
+                self.cleanup_invalidated_pipeline_job(job_id)
+            except Exception:
+                pending = True
+        refreshed = self._read_metadata()
+        return pending or any(
+            isinstance(refreshed["pipeline_jobs"].get(job_id), dict)
+            and (
+                refreshed["pipeline_jobs"][job_id].get("status") == "running"
+                or not refreshed["pipeline_jobs"][job_id].get(
+                    "deletion_artifacts_purged"
+                )
+            )
+            for job_id in job_ids
+        )
 
-    async def upload_document(self, kb_id: str, filename: str, content: bytes) -> dict[str, Any]:
+    def _purge_knowledge_base_namespaces_and_uploads(self, kb_id: str) -> None:
+        metadata = self._read_metadata()
+        namespaces = {
+            kb_id,
+            *(
+                str(version.get("namespace") or "")
+                for version in metadata["pipeline_versions"].values()
+                if isinstance(version, dict) and str(version.get("kb_id")) == kb_id
+            ),
+        }
+        for namespace in namespaces:
+            if not namespace:
+                continue
+            self.vector_store.delete_knowledge_base(namespace)
+            self.lexical_store.delete_namespace(namespace)
+        upload_dir = self.uploads_dir / kb_id
+        if upload_dir.exists():
+            shutil.rmtree(upload_dir)
+
+    async def upload_document(
+        self,
+        kb_id: str,
+        filename: str,
+        content: bytes,
+        declared_media_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Hold a write claim so knowledge-base deletion cannot finalize mid-upload."""
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            self._ensure_kb_exists(metadata, kb_id)
+            self._knowledge_base_write_claims[kb_id] = (
+                self._knowledge_base_write_claims.get(kb_id, 0) + 1
+            )
+        try:
+            return await self._upload_document_claimed(
+                kb_id,
+                filename,
+                content,
+                declared_media_type=declared_media_type,
+            )
+        finally:
+            with self._metadata_lock:
+                remaining = self._knowledge_base_write_claims.get(kb_id, 0) - 1
+                if remaining > 0:
+                    self._knowledge_base_write_claims[kb_id] = remaining
+                else:
+                    self._knowledge_base_write_claims.pop(kb_id, None)
+
+    async def _upload_document_claimed(
+        self,
+        kb_id: str,
+        filename: str,
+        content: bytes,
+        declared_media_type: str | None = None,
+    ) -> dict[str, Any]:
         """Save, parse, split, embed and index an uploaded document."""
 
         metadata = self._read_metadata()
+        self._ensure_kb_exists(metadata, kb_id)
         if kb_id not in metadata["knowledge_bases"]:
             raise KnowledgeBaseNotFoundError("知识库不存在。")
 
@@ -266,6 +618,27 @@ class RagService:
                 visual_metadata = self.vision_processor.validate_image_bytes(content, filename)
             except VisionProcessingError as exc:
                 raise UnsupportedDocumentError(str(exc)) from exc
+            expected_image_media_types = {
+                ".png": {"image/png"},
+                ".jpg": {"image/jpeg"},
+                ".jpeg": {"image/jpeg"},
+                ".webp": {"image/webp"},
+            }[extension]
+            if (
+                declared_media_type
+                and declared_media_type not in expected_image_media_types
+            ):
+                raise UnsupportedDocumentError(
+                    "Image MIME type does not match the selected file extension."
+                )
+        else:
+            FileUploadValidator().validate_stream(
+                io.BytesIO(content),
+                purpose=FilePurpose.RAG,
+                input_kind=FileInputKind.DOCUMENT,
+                filename=filename,
+                declared_media_type=declared_media_type,
+            )
 
         doc_id = f"doc_{uuid.uuid4().hex}"
         safe_name = _safe_filename(filename)
@@ -276,18 +649,75 @@ class RagService:
 
         pipeline_required = is_image
         chunks: list[str] = []
+        chunk_sources: list[dict[str, Any]] = []
         embeddings: list[list[float]] = []
+        document_warnings: list[str] = []
         if not is_image:
             try:
-                text = parse_document(stored_path, filename)
-                chunks = self.splitter.split_text(text)
+                if extension in {".xlsx", ".docx", ".pptx"}:
+                    if extension in {".docx", ".pptx"}:
+                        parsed = await asyncio.to_thread(
+                            parse_document_structured,
+                            stored_path,
+                            filename,
+                        )
+                    else:
+                        parsed = parse_document_structured(stored_path, filename)
+                    document_warnings = _bounded_document_warnings(parsed.warnings)
+                    for section in parsed.sections:
+                        heading_path = list(
+                            normalize_heading_path(section.heading_path)
+                        )
+                        heading_prefix = " > ".join(heading_path)
+                        section_text = section.text
+                        if (
+                            heading_prefix
+                            and section.text.strip() != heading_path[-1]
+                            and not section.text.lstrip().startswith(heading_prefix)
+                        ):
+                            section_text = f"{heading_prefix}\n{section.text}"
+                        section_chunks = self.splitter.split_text(section_text)
+                        chunks.extend(section_chunks)
+                        chunk_sources.extend(
+                            {
+                                "page_number": section.page,
+                                "slide": section.slide,
+                                "sheet": section.sheet,
+                                "row_range": section.row_range,
+                                "heading_path": heading_path,
+                            }
+                            for _chunk in section_chunks
+                        )
+                else:
+                    text = parse_document(stored_path, filename)
+                    chunks = self.splitter.split_text(text)
+                    chunk_sources = [
+                        {
+                            "page_number": None,
+                            "slide": None,
+                            "sheet": None,
+                            "row_range": None,
+                            "heading_path": [],
+                        }
+                        for _chunk in chunks
+                    ]
                 if not chunks:
                     raise UnsupportedDocumentError("文档没有可索引的文本片段。")
                 embeddings = await self.embedder.embed_texts(chunks)
-            except (DocumentParseError, UnsupportedDocumentError) as exc:
+            except DocumentParseError as exc:
                 if extension != ".pdf":
                     stored_path.unlink(missing_ok=True)
+                    raise
+                try:
+                    visual_metadata = self.vision_processor.validate_pdf_bytes(content)
+                except VisionProcessingError:
+                    stored_path.unlink(missing_ok=True)
                     raise UnsupportedDocumentError(str(exc)) from exc
+                pipeline_required = True
+            except UnsupportedDocumentError as exc:
+                if extension != ".pdf":
+                    stored_path.unlink(missing_ok=True)
+                    raise
                 try:
                     visual_metadata = self.vision_processor.validate_pdf_bytes(content)
                 except VisionProcessingError:
@@ -307,11 +737,37 @@ class RagService:
                 text=chunk,
                 embedding=embeddings[index],
                 chunk_index=index,
+                chunk_type=("table" if extension == ".xlsx" else "standard"),
+                page_number=chunk_sources[index]["page_number"],
+                slide=chunk_sources[index]["slide"],
+                heading_path=tuple(chunk_sources[index]["heading_path"]),
+                sheet=chunk_sources[index]["sheet"],
+                row_range=chunk_sources[index]["row_range"],
             )
             for index, chunk in enumerate(chunks)
         ]
         if vector_chunks:
             self.vector_store.add_chunks(vector_chunks)
+
+        asset_id: str | None = None
+        asset_store_mode = os.getenv("FILE_ASSET_STORE_MODE", "legacy").strip().lower()
+        if asset_store_mode in {"shadow", "native"}:
+            try:
+                registered = get_file_asset_service().upload(
+                    io.BytesIO(content),
+                    purpose=FilePurpose.RAG,
+                    scope_id=kb_id,
+                    filename=filename,
+                    declared_media_type=declared_media_type,
+                )
+                asset_id = registered.asset_id
+            except FileAssetServiceError:
+                document_warnings = _bounded_document_warnings(
+                    [
+                        *document_warnings,
+                        "Unified file asset registration failed; legacy RAG storage remains active.",
+                    ]
+                )
 
         document = {
             "id": doc_id,
@@ -324,16 +780,55 @@ class RagService:
             "ingestion_status": "pipeline_required" if pipeline_required else "indexed_legacy",
             "visual_candidate": pipeline_required,
             "visual_metadata": visual_metadata,
+            "warnings": document_warnings,
+            "content_hash": hashlib.sha256(content).hexdigest(),
             "created_at": time.time(),
         }
+        if asset_id:
+            document["asset_id"] = asset_id
         with self._metadata_lock:
             latest = self._read_metadata_unlocked()
-            if kb_id not in latest["knowledge_bases"]:
-                self.vector_store.delete_document(doc_id)
-                stored_path.unlink(missing_ok=True)
-                raise KnowledgeBaseNotFoundError("Knowledge base was removed during upload.")
+            knowledge_base = latest["knowledge_bases"].get(kb_id)
+            if not isinstance(knowledge_base, dict) or knowledge_base.get(
+                "deletion_status"
+            ):
+                document["deletion_status"] = "deleting"
+                latest["documents"][doc_id] = document
+                deletion = latest["knowledge_base_deletions"].setdefault(
+                    kb_id,
+                    {
+                        "tenant_id": "local",
+                        "requested_at": time.time(),
+                        "deleted_at": None,
+                        "status": "cleanup_pending",
+                        "error_code": "rag_knowledge_base_write_pending",
+                        "document_ids": [],
+                        "asset_ids": [],
+                    },
+                )
+                deletion["document_ids"] = sorted(
+                    set(str(item) for item in deletion.get("document_ids", []))
+                    | {doc_id}
+                )
+                if asset_id:
+                    deletion["asset_ids"] = sorted(
+                        set(str(item) for item in deletion.get("asset_ids", []))
+                        | {asset_id}
+                    )
+                latest["document_deletions"][doc_id] = {
+                    "tenant_id": "local",
+                    "content_hash": str(document.get("content_hash") or ""),
+                    "requested_at": time.time(),
+                    "deleted_at": None,
+                    "status": "deleting",
+                    "error_code": None,
+                }
+                self._write_metadata_unlocked(latest)
+                raise KnowledgeBaseDeletionError(
+                    "Knowledge base deletion started during upload; uploaded data was isolated."
+                )
             latest["documents"][doc_id] = document
-            latest["knowledge_bases"][kb_id]["updated_at"] = time.time()
+            knowledge_base["updated_at"] = time.time()
             self._write_metadata_unlocked(latest)
         return self._document_payload(document)
 
@@ -341,14 +836,52 @@ class RagService:
         """List documents belonging to a knowledge base."""
 
         metadata = self._read_metadata()
+        self._ensure_kb_exists(metadata, kb_id)
         if kb_id not in metadata["knowledge_bases"]:
             raise KnowledgeBaseNotFoundError("知识库不存在。")
         documents = [
             self._document_payload(document)
             for document in metadata["documents"].values()
             if document["kb_id"] == kb_id
+            and not document.get("deletion_status")
         ]
         return sorted(documents, key=lambda item: item["created_at"], reverse=True)
+
+    def list_pending_document_deletions(
+        self,
+        kb_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return restart-safe deletion retries scoped to one local tenant/KB."""
+
+        metadata = self._read_metadata()
+        self._ensure_kb_exists(metadata, kb_id)
+        if kb_id not in metadata["knowledge_bases"]:
+            raise KnowledgeBaseNotFoundError("知识库不存在。")
+        pending: list[dict[str, Any]] = []
+        for doc_id, document in metadata["documents"].items():
+            if not isinstance(document, dict) or str(document.get("kb_id")) != kb_id:
+                continue
+            status = str(document.get("deletion_status") or "")
+            if status not in {"deleting", "cleanup_pending", "failed"}:
+                continue
+            deletion = metadata["document_deletions"].get(doc_id)
+            if not isinstance(deletion, dict):
+                deletion = {}
+            pending.append(
+                {
+                    "document_id": str(doc_id),
+                    "filename": str(document.get("filename") or "document"),
+                    "status": status,
+                    "error_code": str(deletion.get("error_code") or "") or None,
+                    "requested_at": float(
+                        deletion.get("requested_at") or document.get("created_at") or 0
+                    ),
+                }
+            )
+        return sorted(
+            pending,
+            key=lambda item: (item["requested_at"], item["document_id"]),
+        )
 
     def create_knowledge_write_proposal(
         self,
@@ -578,7 +1111,8 @@ class RagService:
         assets = [
             self._file_asset_payload(document)
             for document in metadata["documents"].values()
-            if kb_id is None or document["kb_id"] == kb_id
+            if (kb_id is None or document["kb_id"] == kb_id)
+            and not document.get("deletion_status")
         ]
         return sorted(assets, key=lambda item: item["created_at"], reverse=True)
 
@@ -590,7 +1124,8 @@ class RagService:
         artifacts = [
             self._artifact_payload(document)
             for document in metadata["documents"].values()
-            if kb_id is None or document["kb_id"] == kb_id
+            if (kb_id is None or document["kb_id"] == kb_id)
+            and not document.get("deletion_status")
         ]
         return sorted(artifacts, key=lambda item: item["created_at"], reverse=True)
 
@@ -1275,6 +1810,7 @@ class RagService:
                 item
                 for item in metadata["documents"].values()
                 if item["kb_id"] == kb_id
+                and not item.get("deletion_status")
             ]
             if source_document_ids is not None:
                 requested = list(dict.fromkeys(str(item) for item in source_document_ids))
@@ -1560,6 +2096,8 @@ class RagService:
                 "sources",
                 "document_results",
                 "processor_error",
+                "deletion_invalidated",
+                "deletion_artifacts_purged",
             }
         } | {
             "sources": sources,
@@ -1599,6 +2137,17 @@ class RagService:
                 namespace = str(job.get("candidate_namespace") or "")
                 self.vector_store.delete_knowledge_base(namespace)
                 self.lexical_store.delete_namespace(namespace)
+                if job.get("deletion_invalidated"):
+                    job["status"] = "cancelled"
+                    job["cancel_requested"] = True
+                    job["completed_at"] = time.time()
+                    job["error"] = "Cancelled because a source document was deleted."
+                    job["updated_at"] = time.time()
+                    for stage in job.get("stages", []):
+                        if stage.get("status") in {"pending", "running"}:
+                            stage["status"] = "cancelled"
+                    recovered += 1
+                    continue
                 job["status"] = "queued"
                 job["error"] = "Recovered after process restart."
                 job["updated_at"] = time.time()
@@ -2022,6 +2571,14 @@ class RagService:
         def update(job: dict[str, Any]) -> None:
             if job.get("status") not in {"failed", "cancelled"}:
                 raise PipelineJobStateError("Only failed or cancelled jobs can be retried.")
+            if not job.get("sources"):
+                raise PipelineJobStateError(
+                    "This job has no remaining source documents and cannot be retried."
+                )
+            if job.get("deletion_invalidated"):
+                raise PipelineJobStateError(
+                    "This job was invalidated by source deletion and cannot be retried."
+                )
             job.update(
                 {
                     "status": "queued",
@@ -2058,6 +2615,42 @@ class RagService:
         job = self._update_pipeline_job(job_id, update)
         return self.pipeline_job_payload(job)
 
+    def cleanup_invalidated_pipeline_job(self, job_id: str) -> None:
+        """Strictly purge an invalidated run, then persist its cleanup ack."""
+
+        job = self.get_pipeline_job(job_id)
+        if not job.get("deletion_invalidated"):
+            return
+        if job.get("status") == "running":
+            raise PipelineJobStateError(
+                "Running pipeline jobs cannot acknowledge deletion cleanup."
+            )
+        namespace = str(job.get("candidate_namespace") or "")
+        try:
+            if namespace:
+                self.vector_store.delete_knowledge_base(namespace)
+                self.lexical_store.delete_namespace(namespace)
+            for path in (
+                self.pipeline_sources_dir / job_id,
+                self.pipeline_processed_dir / job_id,
+                self.pipeline_vision_dir / job_id,
+            ):
+                if path.exists():
+                    shutil.rmtree(path)
+        except Exception:
+            def mark_pending(current: dict[str, Any]) -> None:
+                current["deletion_artifacts_purged"] = False
+                current["deletion_cleanup_error"] = "rag_pipeline_cleanup_failed"
+
+            self._update_pipeline_job(job_id, mark_pending)
+            raise
+
+        def mark_purged(current: dict[str, Any]) -> None:
+            current["deletion_artifacts_purged"] = True
+            current["deletion_cleanup_error"] = None
+
+        self._update_pipeline_job(job_id, mark_purged)
+
     def fail_pipeline_job(self, job_id: str, error: str) -> None:
         def update(job: dict[str, Any]) -> None:
             job["status"] = "failed"
@@ -2082,6 +2675,14 @@ class RagService:
         version_holder: dict[str, Any] = {}
 
         def update(metadata: dict[str, Any], job: dict[str, Any]) -> None:
+            if (
+                job.get("status") != "running"
+                or bool(job.get("cancel_requested"))
+                or bool(job.get("deletion_invalidated"))
+            ):
+                raise PipelineJobStateError(
+                    "Cancelled or deletion-invalidated pipeline jobs cannot publish a candidate version."
+                )
             now = time.time()
             processor_profile = json.loads(
                 json.dumps(
@@ -2203,6 +2804,7 @@ class RagService:
         version = metadata["pipeline_versions"].get(version_id)
         if not isinstance(version, dict):
             raise PipelineVersionNotFoundError("Knowledge pipeline version not found.")
+        self._ensure_kb_exists(metadata, str(version.get("kb_id") or ""))
         return json.loads(json.dumps(version))
 
     def pipeline_version_payload(
@@ -2226,6 +2828,7 @@ class RagService:
             if not isinstance(version, dict):
                 raise PipelineVersionNotFoundError("Knowledge pipeline version not found.")
             kb_id = str(version["kb_id"])
+            self._ensure_kb_exists(metadata, kb_id)
             previous_id = metadata["pipeline_active_versions"].get(kb_id)
             if previous_id and previous_id in metadata["pipeline_versions"]:
                 metadata["pipeline_versions"][previous_id]["status"] = "ready"
@@ -2505,6 +3108,27 @@ class RagService:
         proposal: dict[str, Any],
     ) -> dict[str, Any]:
         kb_id = str(proposal["kb_id"])
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            self._ensure_kb_exists(metadata, kb_id)
+            self._knowledge_base_write_claims[kb_id] = (
+                self._knowledge_base_write_claims.get(kb_id, 0) + 1
+            )
+        try:
+            return self._create_managed_proposal_document_claimed(proposal)
+        finally:
+            with self._metadata_lock:
+                remaining = self._knowledge_base_write_claims.get(kb_id, 0) - 1
+                if remaining > 0:
+                    self._knowledge_base_write_claims[kb_id] = remaining
+                else:
+                    self._knowledge_base_write_claims.pop(kb_id, None)
+
+    def _create_managed_proposal_document_claimed(
+        self,
+        proposal: dict[str, Any],
+    ) -> dict[str, Any]:
+        kb_id = str(proposal["kb_id"])
         doc_id = f"doc_{uuid.uuid4().hex}"
         filename = f"knowledge_proposal_{proposal['proposal_id']}.md"
         target_dir = self.uploads_dir / kb_id
@@ -2533,9 +3157,42 @@ class RagService:
         }
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
-            self._ensure_kb_exists(metadata, kb_id)
+            knowledge_base = metadata["knowledge_bases"].get(kb_id)
+            if not isinstance(knowledge_base, dict) or knowledge_base.get(
+                "deletion_status"
+            ):
+                document["deletion_status"] = "deleting"
+                metadata["documents"][doc_id] = document
+                deletion = metadata["knowledge_base_deletions"].setdefault(
+                    kb_id,
+                    {
+                        "tenant_id": "local",
+                        "requested_at": now,
+                        "deleted_at": None,
+                        "status": "cleanup_pending",
+                        "error_code": "rag_knowledge_base_write_pending",
+                        "document_ids": [],
+                        "asset_ids": [],
+                    },
+                )
+                deletion["document_ids"] = sorted(
+                    set(str(item) for item in deletion.get("document_ids", []))
+                    | {doc_id}
+                )
+                metadata["document_deletions"][doc_id] = {
+                    "tenant_id": "local",
+                    "content_hash": self._file_sha256(stored_path),
+                    "requested_at": now,
+                    "deleted_at": None,
+                    "status": "deleting",
+                    "error_code": None,
+                }
+                self._write_metadata_unlocked(metadata)
+                raise KnowledgeBaseDeletionError(
+                    "Knowledge base deletion started during proposal approval; generated data was isolated."
+                )
             metadata["documents"][doc_id] = document
-            metadata["knowledge_bases"][kb_id]["updated_at"] = now
+            knowledge_base["updated_at"] = now
             self._write_metadata_unlocked(metadata)
         return self._document_payload(document)
 
@@ -2618,6 +3275,11 @@ class RagService:
         chunk = self.vector_store.get_chunk(namespace, chunk_id)
         if chunk is None:
             raise DocumentNotFoundError("Knowledge chunk was not found in the active version.")
+        if self._indexed_document_is_deleted(
+            str(chunk.doc_id),
+            self._deleted_document_ids(),
+        ):
+            raise DocumentNotFoundError("Knowledge chunk was deleted.")
         indexed_document_id = str(chunk.doc_id)
         version_id = str(version.get("version_id") or "") if isinstance(version, dict) else ""
         prefix = f"{version_id}_" if version_id else ""
@@ -2639,6 +3301,10 @@ class RagService:
             "parent_chunk_id": chunk.parent_chunk_id,
             "chunk_type": chunk.chunk_type,
             "page_number": chunk.page_number,
+            "slide": chunk.slide,
+            "heading_path": list(chunk.heading_path),
+            "sheet": chunk.sheet,
+            "row_range": chunk.row_range,
             "visual_kind": chunk.visual_kind,
             "source_block_id": chunk.source_block_id,
         }
@@ -2657,6 +3323,10 @@ class RagService:
                 "index": chunk.chunk_index,
                 "text_preview": _preview_text(chunk.text),
                 "text_length": len(chunk.text),
+                "slide": chunk.slide,
+                "heading_path": list(chunk.heading_path),
+                "sheet": chunk.sheet,
+                "row_range": chunk.row_range,
             }
             for chunk in chunks
         ]
@@ -2693,6 +3363,10 @@ class RagService:
                         str(source.get("matched_text") or source.get("text", ""))
                     ),
                     "page_number": source.get("page_number"),
+                    "slide": source.get("slide"),
+                    "heading_path": source.get("heading_path", []),
+                    "sheet": source.get("sheet"),
+                    "row_range": source.get("row_range"),
                     "visual_kind": source.get("visual_kind"),
                     "source_block_id": source.get("source_block_id"),
                 }
@@ -2716,22 +3390,373 @@ class RagService:
             )
         return result
 
+    def _deleted_document_ids(self, metadata: dict[str, Any] | None = None) -> set[str]:
+        current = metadata if metadata is not None else self._read_metadata()
+        return {
+            str(doc_id)
+            for doc_id, deletion in current.get("document_deletions", {}).items()
+            if isinstance(deletion, dict)
+            and deletion.get("status")
+            in {"deleting", "cleanup_pending", "failed", "deleted"}
+        }
+
+    def _indexed_document_is_deleted(
+        self,
+        indexed_doc_id: str,
+        deleted_document_ids: set[str],
+    ) -> bool:
+        return any(
+            indexed_doc_id == doc_id or indexed_doc_id.endswith(f"_{doc_id}")
+            for doc_id in deleted_document_ids
+        )
+
     def delete_document(self, doc_id: str) -> None:
-        """Delete one document and its vector chunks."""
+        """Claim one in-process delete while allowing restart recovery."""
+
+        with self._metadata_lock:
+            if doc_id in self._document_delete_claims:
+                raise DocumentDeletionError("Document cleanup is already in progress.")
+            self._document_delete_claims.add(doc_id)
+        try:
+            self._delete_document_claimed(doc_id)
+        finally:
+            with self._metadata_lock:
+                self._document_delete_claims.discard(doc_id)
+
+    def _delete_document_claimed(self, doc_id: str) -> None:
+        """Tombstone one document before purging every RAG-derived payload.
+
+        The tombstone is committed before physical cleanup. Retrieval paths use
+        it as a deny-list, so a failed cleanup can never expose the document
+        again. A repeated DELETE retries failed cleanup safely.
+        """
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            document = metadata["documents"].get(doc_id)
+            deletion = metadata["document_deletions"].get(doc_id)
+            if not isinstance(document, dict):
+                if isinstance(deletion, dict) and deletion.get("status") == "deleted":
+                    return
+                raise DocumentNotFoundError("Document not found.")
+
+            stored_path = Path(str(document.get("stored_path") or ""))
+            content_hash = str(document.get("content_hash") or "")
+            if not content_hash and self._is_managed_upload_path(stored_path) and stored_path.is_file():
+                content_hash = self._file_sha256(stored_path)
+            if content_hash:
+                document["content_hash"] = content_hash
+            requested_at = time.time()
+            document["deletion_status"] = "deleting"
+            metadata["document_deletions"][doc_id] = {
+                "tenant_id": "local",
+                "content_hash": content_hash,
+                "requested_at": requested_at,
+                "deleted_at": None,
+                "status": "deleting",
+                "error_code": None,
+            }
+            for job in metadata["pipeline_jobs"].values():
+                if not isinstance(job, dict) or not self._job_references_document(job, doc_id):
+                    continue
+                if job.get("status") == "running":
+                    job["cancel_requested"] = True
+                    job["deletion_invalidated"] = True
+                elif job.get("status") == "queued":
+                    job["status"] = "cancelled"
+                    job["deletion_invalidated"] = True
+                    job["completed_at"] = requested_at
+                    job["error"] = "Cancelled because a source document was deleted."
+            kb_id = str(document["kb_id"])
+            if kb_id in metadata["knowledge_bases"]:
+                metadata["knowledge_bases"][kb_id]["updated_at"] = requested_at
+            cleanup_snapshot = json.loads(json.dumps(metadata))
+            document_snapshot = json.loads(json.dumps(document))
+            self._write_metadata_unlocked(metadata)
+
+        try:
+            asset_cleanup_pending = self._purge_document_payloads(
+                doc_id,
+                document_snapshot,
+                cleanup_snapshot,
+            )
+            pipeline_cleanup_pending = (
+                self._invalidated_pipeline_cleanup_pending(doc_id)
+            )
+        except Exception as exc:
+            with self._metadata_lock:
+                metadata = self._read_metadata_unlocked()
+                current = metadata["documents"].get(doc_id)
+                if isinstance(current, dict):
+                    current["deletion_status"] = "failed"
+                deletion = metadata["document_deletions"].setdefault(doc_id, {})
+                deletion.update(
+                    {
+                        "tenant_id": "local",
+                        "content_hash": str(
+                            deletion.get("content_hash")
+                            or document_snapshot.get("content_hash")
+                            or ""
+                        ),
+                        "deleted_at": None,
+                        "status": "failed",
+                        "error_code": "rag_document_cleanup_failed",
+                    }
+                )
+                self._write_metadata_unlocked(metadata)
+            raise DocumentDeletionError(
+                "Document was isolated, but cleanup is incomplete; retry deletion."
+            ) from exc
+
+        if asset_cleanup_pending or pipeline_cleanup_pending:
+            with self._metadata_lock:
+                metadata = self._read_metadata_unlocked()
+                current = metadata["documents"].get(doc_id)
+                if isinstance(current, dict):
+                    current["deletion_status"] = "cleanup_pending"
+                    if asset_cleanup_pending:
+                        current["asset_binding_removed"] = True
+                deletion = metadata["document_deletions"].setdefault(doc_id, {})
+                deletion.update(
+                    {
+                        "tenant_id": "local",
+                        "content_hash": str(
+                            deletion.get("content_hash")
+                            or document_snapshot.get("content_hash")
+                            or ""
+                        ),
+                        "deleted_at": None,
+                        "status": "cleanup_pending",
+                        "error_code": (
+                            "rag_pipeline_cleanup_pending"
+                            if pipeline_cleanup_pending
+                            else "file_asset_cleanup_pending"
+                        ),
+                    }
+                )
+                self._write_metadata_unlocked(metadata)
+            raise DocumentDeletionError(
+                "Document was isolated, but pipeline or file asset cleanup is still pending."
+            )
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            metadata["documents"].pop(doc_id, None)
+            self._remove_document_references(metadata, doc_id)
+            deletion = metadata["document_deletions"].setdefault(doc_id, {})
+            deletion.update(
+                {
+                    "tenant_id": "local",
+                    "content_hash": str(
+                        deletion.get("content_hash")
+                        or document_snapshot.get("content_hash")
+                        or ""
+                    ),
+                    "deleted_at": time.time(),
+                    "status": "deleted",
+                    "error_code": None,
+                }
+            )
+            self._write_metadata_unlocked(metadata)
+
+    def _invalidated_pipeline_cleanup_pending(self, doc_id: str) -> bool:
+        """Wait for running writers and strictly purge every invalidated run."""
 
         metadata = self._read_metadata()
-        document = metadata["documents"].pop(doc_id, None)
-        if not document:
-            raise DocumentNotFoundError("文档不存在。")
-        stored_path = Path(document.get("stored_path", ""))
-        if stored_path.exists():
-            stored_path.unlink()
+        job_ids = [
+            str(job_id)
+            for job_id, job in metadata["pipeline_jobs"].items()
+            if isinstance(job, dict)
+            and job.get("deletion_invalidated")
+            and self._job_references_document(job, doc_id)
+        ]
+        pending = False
+        for job_id in job_ids:
+            job = self.get_pipeline_job(job_id)
+            if job.get("status") == "running":
+                pending = True
+                continue
+            if job.get("deletion_artifacts_purged"):
+                continue
+            try:
+                self.cleanup_invalidated_pipeline_job(job_id)
+            except Exception:
+                pending = True
+
+        refreshed = self._read_metadata()
+        for job_id in job_ids:
+            job = refreshed["pipeline_jobs"].get(job_id)
+            if not isinstance(job, dict):
+                continue
+            if job.get("status") == "running" or not job.get(
+                "deletion_artifacts_purged"
+            ):
+                pending = True
+        return pending
+
+    def _purge_document_payloads(
+        self,
+        doc_id: str,
+        document: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> bool:
+        stored_path = Path(str(document.get("stored_path") or ""))
+        if stored_path and self._is_managed_upload_path(stored_path):
+            stored_path.unlink(missing_ok=True)
+
         self.vector_store.delete_document(doc_id)
         self.lexical_store.delete_document(doc_id)
-        kb_id = document["kb_id"]
-        if kb_id in metadata["knowledge_bases"]:
-            metadata["knowledge_bases"][kb_id]["updated_at"] = time.time()
-        self._write_metadata(metadata)
+
+        indexed_ids: set[str] = set()
+        for version_id, version in metadata["pipeline_versions"].items():
+            if isinstance(version, dict) and version.get("kb_id") == document.get("kb_id"):
+                indexed_ids.add(f"{version_id}_{doc_id}")
+        for job in metadata["pipeline_jobs"].values():
+            if not isinstance(job, dict) or not self._job_references_document(job, doc_id):
+                continue
+            candidate_id = str(job.get("candidate_version_id") or "")
+            if candidate_id:
+                indexed_ids.add(f"{candidate_id}_{doc_id}")
+            matching_results = [
+                item
+                for item in job.get("document_results", [])
+                if isinstance(item, dict) and str(item.get("source_id")) == doc_id
+            ]
+            for source in job.get("sources", []):
+                if not isinstance(source, dict) or str(source.get("source_id")) != doc_id:
+                    continue
+                key = str(source.get("snapshot_key") or "")
+                if key:
+                    self._pipeline_snapshot_path(key).unlink(missing_ok=True)
+            for result in matching_results:
+                processed_key = str(result.get("artifact_key") or "")
+                if processed_key:
+                    self._pipeline_processed_path(processed_key).unlink(missing_ok=True)
+                vision_key = str(result.get("vision_artifact_key") or "")
+                if vision_key:
+                    vision_path = self._pipeline_vision_path(vision_key)
+                    vision_path.unlink(missing_ok=True)
+                    page_dir = vision_path.parent / f"{vision_path.stem}_pages"
+                    if page_dir.exists():
+                        shutil.rmtree(page_dir)
+        for indexed_id in indexed_ids:
+            self.vector_store.delete_document(indexed_id)
+            self.lexical_store.delete_document(indexed_id)
+
+        asset_id = str(document.get("asset_id") or "").strip()
+        if asset_id:
+            asset_service = get_file_asset_service()
+            if document.get("asset_binding_removed"):
+                return not asset_service.asset_cleanup_complete(asset_id)
+            try:
+                return asset_service.delete_asset(
+                    asset_id,
+                    purpose=FilePurpose.RAG,
+                    scope_id=str(document["kb_id"]),
+                )
+            except FileAssetServiceError as exc:
+                if exc.error_code != "file_asset_not_found":
+                    raise
+                return not asset_service.asset_cleanup_complete(asset_id)
+        return False
+
+    def _remove_document_references(
+        self,
+        metadata: dict[str, Any],
+        doc_id: str,
+    ) -> None:
+        metadata["knowledge_write_proposals"] = {
+            proposal_id: item
+            for proposal_id, item in metadata["knowledge_write_proposals"].items()
+            if not isinstance(item, dict) or str(item.get("document_id") or "") != doc_id
+        }
+        for job in metadata["pipeline_jobs"].values():
+            if not isinstance(job, dict):
+                continue
+            job["sources"] = [
+                item
+                for item in job.get("sources", [])
+                if not isinstance(item, dict) or str(item.get("source_id")) != doc_id
+            ]
+            removed_results = [
+                item
+                for item in job.get("document_results", [])
+                if isinstance(item, dict) and str(item.get("source_id")) == doc_id
+            ]
+            job["document_results"] = [
+                item
+                for item in job.get("document_results", [])
+                if not isinstance(item, dict) or str(item.get("source_id")) != doc_id
+            ]
+            if removed_results and not job["sources"] and job.get("status") in {
+                "queued",
+                "running",
+                "failed",
+                "cancelled",
+            }:
+                job["status"] = "cancelled"
+                job["cancel_requested"] = True
+                job["completed_at"] = time.time()
+                job["error"] = "Source document deleted; this job cannot be retried."
+
+        for version in metadata["pipeline_versions"].values():
+            if not isinstance(version, dict):
+                continue
+            removed_results = [
+                item
+                for item in version.get("document_results", [])
+                if isinstance(item, dict) and str(item.get("source_id")) == doc_id
+            ]
+            version["source_summary"] = [
+                item
+                for item in version.get("source_summary", [])
+                if not isinstance(item, dict) or str(item.get("source_id")) != doc_id
+            ]
+            version["document_results"] = [
+                item
+                for item in version.get("document_results", [])
+                if not isinstance(item, dict) or str(item.get("source_id")) != doc_id
+            ]
+            if removed_results:
+                version["document_count"] = max(
+                    0,
+                    int(version.get("document_count", 0)) - len(removed_results),
+                )
+                version["chunk_count"] = max(
+                    0,
+                    int(version.get("chunk_count", 0))
+                    - sum(int(item.get("chunk_count", 0)) for item in removed_results),
+                )
+                for field in (
+                    "block_count",
+                    "qa_count",
+                    "summary_count",
+                    "vision_page_count",
+                    "vision_processed_page_count",
+                    "vision_failed_page_count",
+                    "vision_block_count",
+                ):
+                    version[field] = max(
+                        0,
+                        int(version.get(field, 0))
+                        - sum(int(item.get(field, 0)) for item in removed_results),
+                    )
+
+    def _job_references_document(self, job: dict[str, Any], doc_id: str) -> bool:
+        return any(
+            isinstance(item, dict) and str(item.get("source_id")) == doc_id
+            for item in job.get("sources", [])
+        )
+
+    def _is_managed_upload_path(self, path: Path) -> bool:
+        if not str(path):
+            return False
+        try:
+            resolved = path.resolve()
+            root = self.uploads_dir.resolve()
+        except OSError:
+            return False
+        return resolved != root and root in resolved.parents
 
     async def query(
         self,
@@ -2744,6 +3769,7 @@ class RagService:
         """Run retrieval and generate an answer from the retrieved context."""
 
         metadata = self._read_metadata()
+        self._ensure_kb_exists(metadata, kb_id)
         if kb_id not in metadata["knowledge_bases"]:
             raise KnowledgeBaseNotFoundError("Knowledge base not found.")
         active_version_id = metadata["pipeline_active_versions"].get(kb_id)
@@ -2783,6 +3809,7 @@ class RagService:
         if not clean_question:
             raise ValueError("问题不能为空。")
         metadata = self._read_metadata()
+        self._ensure_kb_exists(metadata, kb_id)
         if kb_id not in metadata["knowledge_bases"]:
             raise KnowledgeBaseNotFoundError("知识库不存在。")
 
@@ -2800,6 +3827,23 @@ class RagService:
             else:
                 warnings.append("Full-text index is unavailable for this legacy version; vector retrieval was used.")
 
+        deleted_document_ids = self._deleted_document_ids()
+        if deleted_document_ids:
+            vector_results = [
+                item
+                for item in vector_results
+                if not self._indexed_document_is_deleted(
+                    str(item.doc_id), deleted_document_ids
+                )
+            ]
+            lexical_results = [
+                item
+                for item in lexical_results
+                if not self._indexed_document_is_deleted(
+                    str(item.doc_id), deleted_document_ids
+                )
+            ]
+
         vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
         lexical_candidates = [self._candidate_from_lexical(item) for item in lexical_results]
         effective_config = config
@@ -2810,6 +3854,13 @@ class RagService:
             if not vector_candidates:
                 query_embedding = (await self.embedder.embed_texts([clean_question]))[0]
                 vector_results = self.vector_store.query(namespace, query_embedding, candidate_count)
+                vector_results = [
+                    item
+                    for item in vector_results
+                    if not self._indexed_document_is_deleted(
+                        str(item.doc_id), deleted_document_ids
+                    )
+                ]
                 vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
         fused = fuse_rankings(vector_candidates, lexical_candidates, effective_config)
 
@@ -2837,7 +3888,15 @@ class RagService:
                 by_id.values(), key=lambda item: (-item.fused_score, item.chunk_id)
             )
 
-        results = [item for item in fused if item.score >= config.score_threshold][: config.top_k]
+        deleted_document_ids = self._deleted_document_ids()
+        results = [
+            item
+            for item in fused
+            if item.score >= config.score_threshold
+            and not self._indexed_document_is_deleted(
+                str(item.doc_id), deleted_document_ids
+            )
+        ][: config.top_k]
         if not results:
             return {
                 "answer": "没有在该知识库中找到相关内容，请尝试换一种问法或上传更多资料。",
@@ -2872,6 +3931,10 @@ class RagService:
                     "start_char": result.start_char,
                     "end_char": result.end_char,
                     "page_number": result.page_number,
+                    "slide": result.slide,
+                    "heading_path": list(result.heading_path),
+                    "sheet": result.sheet,
+                    "row_range": result.row_range,
                     "visual_kind": result.visual_kind,
                     "source_block_id": result.source_block_id,
                 }
@@ -3028,6 +4091,10 @@ class RagService:
             start_char=item.start_char,
             end_char=item.end_char,
             page_number=item.page_number,
+            slide=item.slide,
+            heading_path=normalize_heading_path(item.heading_path),
+            sheet=item.sheet,
+            row_range=item.row_range,
             visual_kind=item.visual_kind,
             source_block_id=item.source_block_id,
             vector_score=item.score,
@@ -3045,6 +4112,10 @@ class RagService:
             start_char=item.start_char,
             end_char=item.end_char,
             page_number=item.page_number,
+            slide=item.slide,
+            heading_path=normalize_heading_path(item.heading_path),
+            sheet=item.sheet,
+            row_range=item.row_range,
             visual_kind=item.visual_kind,
             source_block_id=item.source_block_id,
             fulltext_score=item.score,
@@ -3641,7 +4712,9 @@ class RagService:
     def _empty_metadata(self) -> dict[str, dict[str, Any]]:
         return {
             "knowledge_bases": {},
+            "knowledge_base_deletions": {},
             "documents": {},
+            "document_deletions": {},
             "pipeline_drafts": {},
             "pipeline_graphs": {},
             "pipeline_jobs": {},
@@ -3665,7 +4738,9 @@ class RagService:
             return self._empty_metadata()
         metadata = {
             "knowledge_bases": data.get("knowledge_bases") if isinstance(data.get("knowledge_bases"), dict) else {},
+            "knowledge_base_deletions": data.get("knowledge_base_deletions") if isinstance(data.get("knowledge_base_deletions"), dict) else {},
             "documents": data.get("documents") if isinstance(data.get("documents"), dict) else {},
+            "document_deletions": data.get("document_deletions") if isinstance(data.get("document_deletions"), dict) else {},
             "pipeline_drafts": data.get("pipeline_drafts") if isinstance(data.get("pipeline_drafts"), dict) else {},
             "pipeline_graphs": data.get("pipeline_graphs") if isinstance(data.get("pipeline_graphs"), dict) else {},
             "pipeline_jobs": data.get("pipeline_jobs") if isinstance(data.get("pipeline_jobs"), dict) else {},
@@ -3679,6 +4754,9 @@ class RagService:
             document.setdefault("content_type", mimetypes.guess_type(str(document.get("filename") or ""))[0] or "application/octet-stream")
             document.setdefault("ingestion_status", "indexed_legacy")
             document.setdefault("visual_candidate", False)
+            document["warnings"] = _bounded_document_warnings(
+                document.get("warnings", [])
+            )
         for job in metadata["pipeline_jobs"].values():
             if not isinstance(job, dict):
                 continue
@@ -3722,11 +4800,17 @@ class RagService:
 
     def _kb_payload(self, item: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
         doc_count = sum(
-            1 for document in metadata["documents"].values() if document["kb_id"] == item["id"]
+            1
+            for document in metadata["documents"].values()
+            if document["kb_id"] == item["id"]
+            and not document.get("deletion_status")
         )
         return {
             **item,
             "document_count": doc_count,
+            "deletion_status": str(item.get("deletion_status") or "active"),
+            "deletion_error_code": str(item.get("deletion_error_code") or "")
+            or None,
         }
 
     def _document_payload(self, document: dict[str, Any]) -> dict[str, Any]:
@@ -3741,18 +4825,31 @@ class RagService:
             or "application/octet-stream",
             "ingestion_status": document.get("ingestion_status", "indexed_legacy"),
             "visual_candidate": bool(document.get("visual_candidate", False)),
+            "warnings": _bounded_document_warnings(document.get("warnings", [])),
             "created_at": document["created_at"],
         }
 
     def _ensure_kb_exists(self, metadata: dict[str, Any], kb_id: str | None) -> None:
-        if kb_id is not None and kb_id not in metadata["knowledge_bases"]:
+        if kb_id is None:
+            return
+        knowledge_base = metadata["knowledge_bases"].get(kb_id)
+        if not isinstance(knowledge_base, dict):
             raise KnowledgeBaseNotFoundError("知识库不存在。")
+
+        if knowledge_base.get("deletion_status") or (
+            isinstance(metadata["knowledge_base_deletions"].get(kb_id), dict)
+            and metadata["knowledge_base_deletions"][kb_id].get("status")
+            in {"deleting", "cleanup_pending", "failed"}
+        ):
+            raise KnowledgeBaseDeletionError(
+                "Knowledge base is isolated for deletion and no longer accepts reads or writes."
+            )
 
     def _document_for_artifact_id(self, artifact_id: str) -> dict[str, Any]:
         doc_id = artifact_id.removeprefix("artifact_")
         metadata = self._read_metadata()
         document = metadata["documents"].get(doc_id)
-        if not document:
+        if not document or document.get("deletion_status"):
             raise DocumentNotFoundError("文档不存在。")
         return document
 
@@ -3760,7 +4857,9 @@ class RagService:
         extension = Path(document["filename"]).suffix.lower()
         mime_type, _ = mimetypes.guess_type(document["filename"])
         return {
-            "file_asset_id": self._file_asset_id(document["id"]),
+            "file_asset_id": str(
+                document.get("asset_id") or self._file_asset_id(document["id"])
+            ),
             "document_id": document["id"],
             "knowledge_base_id": document["kb_id"],
             "filename": document["filename"],
@@ -3775,7 +4874,9 @@ class RagService:
     def _artifact_payload(self, document: dict[str, Any]) -> dict[str, Any]:
         return {
             "artifact_id": self._artifact_id(document["id"]),
-            "file_asset_id": self._file_asset_id(document["id"]),
+            "file_asset_id": str(
+                document.get("asset_id") or self._file_asset_id(document["id"])
+            ),
             "document_id": document["id"],
             "knowledge_base_id": document["kb_id"],
             "title": document["filename"],

@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .embedder import cosine_similarity
+from .source_metadata import (
+    decode_heading_path,
+    encode_heading_path,
+    normalize_heading_path,
+)
 
 
 @dataclass(slots=True)
@@ -25,6 +30,10 @@ class VectorChunk:
     start_char: int = 0
     end_char: int = 0
     page_number: int | None = None
+    slide: int | None = None
+    heading_path: tuple[str, ...] = ()
+    sheet: str | None = None
+    row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
 
@@ -43,6 +52,10 @@ class SearchResult:
     start_char: int = 0
     end_char: int = 0
     page_number: int | None = None
+    slide: int | None = None
+    heading_path: tuple[str, ...] = ()
+    sheet: str | None = None
+    row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
 
@@ -60,6 +73,10 @@ class StoredVectorChunk:
     start_char: int = 0
     end_char: int = 0
     page_number: int | None = None
+    slide: int | None = None
+    heading_path: tuple[str, ...] = ()
+    sheet: str | None = None
+    row_range: str | None = None
     visual_kind: str | None = None
     source_block_id: str | None = None
 
@@ -122,6 +139,10 @@ class LocalJsonVectorStore:
                     start_char=int(record.get("start_char", 0)),
                     end_char=int(record.get("end_char", 0)),
                     page_number=_optional_int(record.get("page_number")),
+                    slide=_optional_int(record.get("slide")),
+                    heading_path=normalize_heading_path(record.get("heading_path")),
+                    sheet=str(record.get("sheet") or "") or None,
+                    row_range=str(record.get("row_range") or "") or None,
                     visual_kind=str(record.get("visual_kind") or "") or None,
                     source_block_id=str(record.get("source_block_id") or "") or None,
                 )
@@ -152,6 +173,10 @@ class LocalJsonVectorStore:
                 start_char=int(record.get("start_char", 0)),
                 end_char=int(record.get("end_char", 0)),
                 page_number=_optional_int(record.get("page_number")),
+                slide=_optional_int(record.get("slide")),
+                heading_path=normalize_heading_path(record.get("heading_path")),
+                sheet=str(record.get("sheet") or "") or None,
+                row_range=str(record.get("row_range") or "") or None,
                 visual_kind=str(record.get("visual_kind") or "") or None,
                 source_block_id=str(record.get("source_block_id") or "") or None,
             )
@@ -176,6 +201,10 @@ class LocalJsonVectorStore:
                 start_char=int(record.get("start_char", 0)),
                 end_char=int(record.get("end_char", 0)),
                 page_number=_optional_int(record.get("page_number")),
+                slide=_optional_int(record.get("slide")),
+                heading_path=normalize_heading_path(record.get("heading_path")),
+                sheet=str(record.get("sheet") or "") or None,
+                row_range=str(record.get("row_range") or "") or None,
                 visual_kind=str(record.get("visual_kind") or "") or None,
                 source_block_id=str(record.get("source_block_id") or "") or None,
             )
@@ -229,6 +258,10 @@ class ChromaVectorStore:
                     "start_char": chunk.start_char,
                     "end_char": chunk.end_char,
                     "page_number": chunk.page_number or 0,
+                    "slide": chunk.slide or 0,
+                    "heading_path_json": encode_heading_path(chunk.heading_path),
+                    "sheet": chunk.sheet or "",
+                    "row_range": chunk.row_range or "",
                     "visual_kind": chunk.visual_kind or "",
                     "source_block_id": chunk.source_block_id or "",
                     "updated_at": time.time(),
@@ -267,6 +300,10 @@ class ChromaVectorStore:
                     start_char=int(metadata.get("start_char", 0)),
                     end_char=int(metadata.get("end_char", 0)),
                     page_number=_optional_int(metadata.get("page_number")),
+                    slide=_optional_int(metadata.get("slide")),
+                    heading_path=decode_heading_path(metadata.get("heading_path_json")),
+                    sheet=str(metadata.get("sheet") or "") or None,
+                    row_range=str(metadata.get("row_range") or "") or None,
                     visual_kind=str(metadata.get("visual_kind") or "") or None,
                     source_block_id=str(metadata.get("source_block_id") or "") or None,
                 )
@@ -305,6 +342,10 @@ class ChromaVectorStore:
                     start_char=int(metadata.get("start_char", 0)),
                     end_char=int(metadata.get("end_char", 0)),
                     page_number=_optional_int(metadata.get("page_number")),
+                    slide=_optional_int(metadata.get("slide")),
+                    heading_path=decode_heading_path(metadata.get("heading_path_json")),
+                    sheet=str(metadata.get("sheet") or "") or None,
+                    row_range=str(metadata.get("row_range") or "") or None,
                     visual_kind=str(metadata.get("visual_kind") or "") or None,
                     source_block_id=str(metadata.get("source_block_id") or "") or None,
                 )
@@ -335,6 +376,10 @@ class ChromaVectorStore:
             start_char=int(metadata.get("start_char", 0)),
             end_char=int(metadata.get("end_char", 0)),
             page_number=_optional_int(metadata.get("page_number")),
+            slide=_optional_int(metadata.get("slide")),
+            heading_path=decode_heading_path(metadata.get("heading_path_json")),
+            sheet=str(metadata.get("sheet") or "") or None,
+            row_range=str(metadata.get("row_range") or "") or None,
             visual_kind=str(metadata.get("visual_kind") or "") or None,
             source_block_id=str(metadata.get("source_block_id") or "") or None,
         )
@@ -368,6 +413,10 @@ def _chunk_to_record(chunk: VectorChunk) -> dict[str, Any]:
         "start_char": chunk.start_char,
         "end_char": chunk.end_char,
         "page_number": chunk.page_number,
+        "slide": chunk.slide,
+        "heading_path": list(normalize_heading_path(chunk.heading_path)),
+        "sheet": chunk.sheet,
+        "row_range": chunk.row_range,
         "visual_kind": chunk.visual_kind,
         "source_block_id": chunk.source_block_id,
     }

@@ -11,7 +11,13 @@ import threading
 from pathlib import Path
 
 
-ALLOWED_ADAPTERS = {"basic-memory-mcp", "excel-mcp-server", "git-mcp", "markitdown-mcp"}
+ALLOWED_ADAPTERS = {
+    "basic-memory-mcp",
+    "excel-mcp-server",
+    "git-mcp",
+    "markitdown-mcp",
+    "office-parser-mcp",
+}
 WORKSPACE_PATTERN = re.compile(r"mcpws_[0-9a-f]{32}")
 SOCKET_PATH = Path(os.getenv("MCP_FILES_SOCKET_PATH", "/run/modelmirror-files-mcp/files-mcp.sock"))
 

@@ -26,7 +26,7 @@ export const inputModalityOptions: Option<InputModality>[] = [
   { value: "image", label: "图片输入", icon: "图" },
   { value: "audio", label: "音频输入", icon: "音" },
   { value: "video", label: "视频输入", icon: "影" },
-  { value: "file", label: "文件输入", icon: "档" },
+  { value: "file", label: "文件输入（看卡片状态）", icon: "档" },
 ];
 
 export const contextQuickOptions = [
@@ -75,7 +75,7 @@ export const jobCapabilityOptions: Option<JobCapability>[] = [
   { value: "coding", label: "编程开发" },
   { value: "reasoning", label: "推理分析" },
   { value: "tool_use", label: "工具调用" },
-  { value: "document_understanding", label: "文档理解" },
+  { value: "document_understanding", label: "文档理解（看卡片状态）" },
   { value: "image_understanding", label: "图片识别" },
   { value: "image_generation", label: "图片生成/编辑" },
   { value: "audio_understanding", label: "音频理解" },

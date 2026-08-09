@@ -7,10 +7,17 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+try:
+    from server.file_assets.validation import FileValidationError
+except ModuleNotFoundError:
+    from file_assets.validation import FileValidationError
 
 from .rag_service import (
+    DocumentDeletionError,
     DocumentNotFoundError,
+    KnowledgeBaseDeletionError,
     KnowledgeBaseNotFoundError,
     KnowledgeWriteProposalConflictError,
     KnowledgeWriteProposalNotFoundError,
@@ -22,8 +29,10 @@ from .rag_service import (
     RagService,
     UnsupportedDocumentError,
 )
+from .document_parser import DocumentParseError
 from .pipeline_graph import PipelineGraphValidationError
 from .pipeline_executor import KnowledgePipelineExecutor
+from .source_metadata import MAX_HEADING_PATH_LEVELS, normalize_heading_path
 from .processor_generator import ProcessorGenerationError
 from .evaluation import (
     EvaluationPromotionError,
@@ -55,6 +64,8 @@ class KnowledgeBasePayload(BaseModel):
     document_count: int
     created_at: float
     updated_at: float
+    deletion_status: str = "active"
+    deletion_error_code: str | None = None
 
 
 class KnowledgeBaseListResponse(BaseModel):
@@ -70,6 +81,7 @@ class DocumentPayload(BaseModel):
     content_type: str = "application/octet-stream"
     ingestion_status: str = "indexed_legacy"
     visual_candidate: bool = False
+    warnings: list[str] = Field(default_factory=list, max_length=20)
     created_at: float
 
 
@@ -77,7 +89,33 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentPayload]
 
 
-class RagSourcePayload(BaseModel):
+class PendingDocumentDeletionPayload(BaseModel):
+    document_id: str
+    filename: str
+    status: str
+    error_code: str | None = None
+    requested_at: float
+
+
+class PendingDocumentDeletionListResponse(BaseModel):
+    tenant_id: str = "local"
+    knowledge_base_id: str
+    deletions: list[PendingDocumentDeletionPayload]
+
+
+class _HeadingPathPayload(BaseModel):
+    heading_path: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_HEADING_PATH_LEVELS,
+    )
+
+    @field_validator("heading_path", mode="before")
+    @classmethod
+    def bound_heading_path(cls, value: Any) -> list[str]:
+        return list(normalize_heading_path(value))
+
+
+class RagSourcePayload(_HeadingPathPayload):
     chunk_id: str
     doc_id: str
     source_document_id: str | None = None
@@ -95,6 +133,9 @@ class RagSourcePayload(BaseModel):
     start_char: int = 0
     end_char: int = 0
     page_number: int | None = None
+    slide: int | None = Field(default=None, ge=1, le=100_000)
+    sheet: str | None = Field(default=None, max_length=31)
+    row_range: str | None = Field(default=None, max_length=80)
     visual_kind: str | None = None
     source_block_id: str | None = None
 
@@ -161,7 +202,7 @@ class ArtifactListResponse(BaseModel):
     artifact_count: int
 
 
-class KnowledgeChunkPayload(BaseModel):
+class KnowledgeChunkPayload(_HeadingPathPayload):
     chunk_id: str
     artifact_id: str
     knowledge_base_id: str
@@ -169,6 +210,9 @@ class KnowledgeChunkPayload(BaseModel):
     index: int
     text_preview: str
     text_length: int
+    slide: int | None = Field(default=None, ge=1, le=100_000)
+    sheet: str | None = Field(default=None, max_length=31)
+    row_range: str | None = Field(default=None, max_length=80)
 
 
 class KnowledgeChunkListResponse(BaseModel):
@@ -475,7 +519,7 @@ class PipelineVersionQueryResponse(BaseModel):
     retrieval: dict[str, Any] = Field(default_factory=dict)
 
 
-class CitationAnchorPayload(BaseModel):
+class CitationAnchorPayload(_HeadingPathPayload):
     citation_id: str
     chunk_id: str
     artifact_id: str
@@ -484,6 +528,9 @@ class CitationAnchorPayload(BaseModel):
     score: float
     snippet: str
     page_number: int | None = None
+    slide: int | None = Field(default=None, ge=1, le=100_000)
+    sheet: str | None = Field(default=None, max_length=31)
+    row_range: str | None = Field(default=None, max_length=80)
     visual_kind: str | None = None
     source_block_id: str | None = None
 
@@ -698,6 +745,14 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, bool]:
     try:
         get_rag_service().delete_knowledge_base(kb_id)
         return {"ok": True}
+    except KnowledgeBaseDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rag_knowledge_base_cleanup_pending",
+                "message": str(exc),
+            },
+        ) from exc
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -709,30 +764,35 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)) -> dict[str,
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="文件过大，请上传 10MB 以内的文档。")
 
-    extension = Path(filename).suffix.lower()
-    declared_type = str(file.content_type or "").lower().strip()
-    expected_types = {
-        ".png": {"image/png"},
-        ".jpg": {"image/jpeg"},
-        ".jpeg": {"image/jpeg"},
-        ".webp": {"image/webp"},
-        ".pdf": {"application/pdf"},
-    }
-    if (
-        extension in expected_types
-        and declared_type
-        and declared_type != "application/octet-stream"
-        and declared_type not in expected_types[extension]
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="The uploaded MIME type does not match the file extension.",
-        )
+    declared_type = str(file.content_type or "").split(";", 1)[0].strip().lower()
 
     try:
-        return await get_rag_service().upload_document(kb_id, filename, content)
+        return await get_rag_service().upload_document(
+            kb_id,
+            filename,
+            content,
+            declared_media_type=declared_type or None,
+        )
+    except KnowledgeBaseDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rag_knowledge_base_deleting",
+                "message": str(exc),
+            },
+        ) from exc
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileValidationError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.error_code, "message": exc.message},
+        ) from exc
+    except DocumentParseError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.error_code, "message": exc.message},
+        ) from exc
     except UnsupportedDocumentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -750,6 +810,25 @@ async def list_documents(kb_id: str) -> DocumentListResponse:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get(
+    "/knowledge_bases/{kb_id}/pending-deletions",
+    response_model=PendingDocumentDeletionListResponse,
+)
+async def list_pending_document_deletions(
+    kb_id: str,
+) -> PendingDocumentDeletionListResponse:
+    try:
+        return PendingDocumentDeletionListResponse(
+            knowledge_base_id=kb_id,
+            deletions=[
+                PendingDocumentDeletionPayload.model_validate(item)
+                for item in get_rag_service().list_pending_document_deletions(kb_id)
+            ],
+        )
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str) -> dict[str, bool]:
     try:
@@ -757,6 +836,14 @@ async def delete_document(doc_id: str) -> dict[str, bool]:
         return {"ok": True}
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DocumentDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rag_document_cleanup_pending",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @router.get("/pipeline/assets", response_model=FileAssetListResponse)
@@ -926,6 +1013,11 @@ async def execute_pipeline_graph(
         )
         get_pipeline_executor().notify()
         return PipelineJobPayload.model_validate(job)
+    except KnowledgeBaseDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "rag_knowledge_base_deleting", "message": str(exc)},
+        ) from exc
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DocumentNotFoundError as exc:
@@ -1071,6 +1163,11 @@ async def execute_pipeline_draft(
         )
         get_pipeline_executor().notify()
         return PipelineJobPayload.model_validate(job)
+    except KnowledgeBaseDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "rag_knowledge_base_deleting", "message": str(exc)},
+        ) from exc
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DocumentNotFoundError as exc:

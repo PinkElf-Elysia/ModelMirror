@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import httpx
 import pytest
 import pytest_asyncio
+from openpyxl import Workbook
 
 from server.main import app
 from server.rag.api import set_rag_service_for_tests
@@ -36,6 +39,52 @@ async def create_kb(client: httpx.AsyncClient, name: str = "测试知识库") ->
     response = await client.post("/api/rag/knowledge_bases", json={"name": name})
     assert response.status_code == 200, response.text
     return response.json()["id"]
+
+
+def _xlsx_bytes() -> bytes:
+    workbook = Workbook()
+    sales = workbook.active
+    sales.title = "销售数据"
+    sales.append(["城市", "数量"])
+    sales.append(["上海", 42])
+    notes = workbook.create_sheet("说明")
+    notes.append(["口径", "已确认订单"])
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def _unsafe_xlsx(kind: str) -> bytes:
+    source_bytes = _xlsx_bytes()
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(source_bytes), "r") as source, zipfile.ZipFile(
+        output, "w", zipfile.ZIP_DEFLATED
+    ) as target:
+        external_rewritten = False
+        for entry in source.infolist():
+            content = source.read(entry.filename)
+            if kind == "external" and entry.filename == "xl/_rels/workbook.xml.rels":
+                relationship = (
+                    b'<Relationship Id="external" Type="urn:modelmirror:test" '
+                    b'Target="https://example.invalid/book.xlsx" TargetMode="External"/>'
+                )
+                updated = content.replace(
+                    b"</Relationships>",
+                    relationship + b"</Relationships>",
+                )
+                assert updated != content
+                content = updated
+                external_rewritten = True
+            target.writestr(entry, content)
+        if kind == "macro":
+            target.writestr("xl/vbaProject.bin", b"must-not-be-persisted")
+        elif kind == "bomb":
+            target.writestr("xl/media/compression-bomb.bin", b"A" * (4 * 1024 * 1024))
+        elif kind == "external":
+            assert external_rewritten
+        else:  # pragma: no cover - fixture guard
+            raise ValueError(kind)
+    return output.getvalue()
 
 
 @pytest.mark.asyncio
@@ -75,6 +124,134 @@ async def test_create_upload_query_and_cleanup(client: httpx.AsyncClient) -> Non
 
     delete_kb_response = await client.delete(f"/api/rag/knowledge_bases/{kb_id}")
     assert delete_kb_response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_xlsx_upload_persists_sheet_and_cell_range_in_real_index(
+    client: httpx.AsyncClient,
+) -> None:
+    kb_id = await create_kb(client, "XLSX 来源元数据")
+    upload_response = await client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents",
+        files={
+            "file": (
+                "销售.xlsx",
+                _xlsx_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert upload_response.status_code == 200, upload_response.text
+    document = upload_response.json()
+    assert document["chunk_count"] >= 2
+
+    chunks_response = await client.get(
+        f"/api/rag/pipeline/artifacts/artifact_{document['id']}/chunks"
+    )
+    assert chunks_response.status_code == 200, chunks_response.text
+    chunks = chunks_response.json()["chunks"]
+    sales_chunks = [item for item in chunks if item["sheet"] == "销售数据"]
+    assert sales_chunks
+    assert all(item["row_range"] == "A1:B2" for item in sales_chunks)
+    assert any("上海" in item["text_preview"] for item in sales_chunks)
+
+    query_response = await client.post(
+        "/api/rag/query",
+        json={"kb_id": kb_id, "question": "上海的数量是多少？", "top_k": 10},
+    )
+    assert query_response.status_code == 200, query_response.text
+    sources = query_response.json()["sources"]
+    indexed = next(
+        item
+        for item in sources
+        if item["sheet"] == "销售数据" and "上海" in item["matched_text"]
+    )
+    assert indexed["row_range"] == "A1:B2"
+    assert indexed["chunk_type"] == "table"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "expected_code"),
+    (
+        ("macro", "unsupported_xlsx_feature"),
+        ("external", "unsupported_xlsx_feature"),
+        ("bomb", "xlsx_complexity_limit_exceeded"),
+    ),
+)
+async def test_rag_api_rejects_unsafe_xlsx_before_persistence(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    kind: str,
+    expected_code: str,
+) -> None:
+    kb_id = await create_kb(client, f"unsafe xlsx {kind}")
+    response = await client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents",
+        files={
+            "file": (
+                "unsafe.xlsx",
+                _unsafe_xlsx(kind),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == expected_code
+
+    documents = await client.get(f"/api/rag/knowledge_bases/{kb_id}/documents")
+    assert documents.status_code == 200
+    assert documents.json()["documents"] == []
+    artifacts = await client.get(f"/api/rag/pipeline/artifacts?kb_id={kb_id}")
+    assert artifacts.status_code == 200
+    assert artifacts.json()["artifacts"] == []
+    uploads = tmp_path / "uploads"
+    assert not uploads.exists() or not any(path.is_file() for path in uploads.rglob("*"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    (
+        ("notes.txt", "text/plain; charset=utf-8"),
+        ("notes.md", "text/markdown; charset=UTF-8"),
+    ),
+)
+async def test_upload_accepts_mime_parameters(
+    client: httpx.AsyncClient,
+    filename: str,
+    content_type: str,
+) -> None:
+    kb_id = await create_kb(client)
+    response = await client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents",
+        files={"file": (filename, b"ModelMirror file input", content_type)},
+    )
+
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.asyncio
+async def test_rag_api_rejects_mime_mismatch_before_persistence(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    kb_id = await create_kb(client, "MIME mismatch")
+    response = await client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents",
+        files={"file": ("notes.txt", b"must not be persisted", "application/pdf")},
+    )
+
+    assert response.status_code == 415, response.text
+    assert response.json()["detail"]["code"] == "mime_type_mismatch"
+    documents = await client.get(f"/api/rag/knowledge_bases/{kb_id}/documents")
+    assert documents.status_code == 200
+    assert documents.json()["documents"] == []
+    artifacts = await client.get(f"/api/rag/pipeline/artifacts?kb_id={kb_id}")
+    assert artifacts.status_code == 200
+    assert artifacts.json()["artifacts"] == []
+    uploads = tmp_path / "uploads"
+    assert not uploads.exists() or not any(path.is_file() for path in uploads.rglob("*"))
 
 
 @pytest.mark.asyncio

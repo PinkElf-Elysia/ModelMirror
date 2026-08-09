@@ -1,0 +1,4050 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-08-08",
+  "summary_unit": "module_format_operation",
+  "scope": {
+    "modules": [
+      "chat",
+      "rag",
+      "datax",
+      "agent",
+      "workflow"
+    ],
+    "input_kinds": [
+      "document",
+      "data_source"
+    ],
+    "multimodal_readiness": "docs/multimodal-readiness.json",
+    "audit_only": true,
+    "format_support_is_module_scoped": true
+  },
+  "module_policies": [
+    {
+      "module": "chat",
+      "interaction_status": "ready",
+      "status_reason": "TXT、Markdown、文本型 PDF、XLSX、DOCX、PPTX 及常用文本、结构化、字幕和源码格式已开放本地提取与会话级预览；Office 由断网隔离 sidecar 处理，PDF 原生读取仍须实时模型能力确认。"
+    },
+    {
+      "module": "rag",
+      "interaction_status": "ready",
+      "status_reason": "共享安全 ParsedDocument、文本/视觉索引与来源元数据保持可用；单文档与整库删除均先隔离再清理原件、活动/历史索引、流水线派生物及 RAG 作用域文件资产。整库删除使用持久 scope tombstone 与 asset ledger，清理失败可在重启后继续重试；其他模块仍引用的共享资产保留。"
+    },
+    {
+      "module": "datax",
+      "interaction_status": "ready",
+      "status_reason": "CSV、XLSX 和 Parquet 继续用于 50 MiB、100 万行边界内的结构化分析；Chat/RAG 的 XLSX 语义预览采用独立的 10 MiB 安全预算。"
+    },
+    {
+      "module": "agent",
+      "interaction_status": "ready",
+      "status_reason": "现有 Xpert 会话文件上下文保持可用，并已补齐本轮显式选择、兼容归档、可重试永久删除与读取冲突保护；claim 仅覆盖单进程读取阶段，统一 FileAssetService binding 与跨进程运行租约仍延期。"
+    },
+    {
+      "module": "workflow",
+      "interaction_status": "ready",
+      "status_reason": "工作流已支持固定作用域的文件资产上传、选择和 asset_id 变量解析；默认由 WORKFLOW_FILE_ASSETS_ENABLED=false 关闭，启用后仍执行租户、用途和工作流作用域隔离。"
+    }
+  ],
+  "formats": [
+    {
+      "format_id": "plain_text",
+      "label": "纯文本",
+      "family": "text",
+      "extensions": [
+        ".txt"
+      ],
+      "mime_types": [
+        "text/plain"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scoped_storage",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/rag/document_parser.py",
+              "server/rag/api.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_rag_integration.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [
+            "binary_and_nul_detection",
+            "decoded_output_limit"
+          ],
+          "status_reason": "当前已上线；二进制伪装、NUL 字符和解码后输出上限仍待加固。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "opaque_file_id",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/xperts/context.py",
+              "server/xperts/api.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_xpert_context.py",
+              "server/tests/test_xpert_agent_features.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "binary_and_nul_detection",
+            "unified_asset_binding_migration",
+            "in_process_read_phase_claim",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "纯文本 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "temporary_original",
+            "artifact_ttl",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/service.py",
+              "server/file_assets/api.py"
+            ],
+            "ui": [
+              "client/src/pages/ChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_chat_parse.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_chat_parse.py"
+            ]
+          },
+          "known_gaps": [
+            "native_file_routing"
+          ],
+          "status_reason": "TXT 已支持本地结构化提取、预览及会话级解析结果复用。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "markdown",
+      "label": "Markdown",
+      "family": "text",
+      "extensions": [
+        ".md",
+        ".markdown"
+      ],
+      "mime_types": [
+        "text/markdown",
+        "text/plain"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scoped_storage",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_rag_processor.py",
+              "server/tests/test_rag_integration.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [
+            "binary_and_nul_detection",
+            "decoded_output_limit"
+          ],
+          "status_reason": "当前已上线并保留标题、表格和代码块结构；通用文本安全护栏仍待补齐。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "opaque_file_id",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/xperts/context.py",
+              "server/xperts/api.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_xpert_context.py",
+              "server/tests/test_xpert_agent_features.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "binary_and_nul_detection",
+            "unified_asset_binding_migration",
+            "in_process_read_phase_claim",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "Markdown 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "temporary_original",
+            "artifact_ttl",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/service.py",
+              "server/file_assets/api.py"
+            ],
+            "ui": [
+              "client/src/pages/ChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_chat_parse.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_chat_parse.py"
+            ]
+          },
+          "known_gaps": [
+            "native_file_routing"
+          ],
+          "status_reason": "Markdown 已支持本地结构化提取、预览及会话级解析结果复用。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "pdf",
+      "label": "PDF",
+      "family": "document",
+      "extensions": [
+        ".pdf"
+      ],
+      "mime_types": [
+        "application/pdf"
+      ],
+      "container_kind": "pdf",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scoped_storage",
+            "input_size_limit",
+            "declared_mime_check"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/rag/document_parser.py",
+              "server/rag/api.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_rag_integration.py",
+              "server/tests/test_rag_processor.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [
+            "encrypted_pdf_policy",
+            "page_limit",
+            "wall_timeout",
+            "parser_isolation"
+          ],
+          "status_reason": "当前文本提取已上线；加密文件、页数预算、墙钟超时和解析隔离仍待闭环。"
+        },
+        {
+          "module": "rag",
+          "operation": "visual_extract",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "rag.vision_processor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_pages": 200,
+            "timeout_seconds": 90
+          },
+          "security_controls": [
+            "pdfium_validation",
+            "page_selection_limit",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/rag/vision_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_rag_vision.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_rag_vision.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [
+            "universal_preflight_before_text_parser",
+            "parser_process_isolation"
+          ],
+          "status_reason": "扫描 PDF 视觉处理已上线；统一预检和原生解析器进程隔离仍待补齐。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "opaque_file_id",
+            "input_size_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/xperts/context.py",
+              "server/xperts/api.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_xpert_context.py",
+              "server/tests/test_xpert_agent_features.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "encrypted_pdf_policy",
+            "page_limit",
+            "parser_isolation",
+            "unified_asset_binding_migration",
+            "in_process_read_phase_claim",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "PDF 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "temporary_original",
+            "artifact_ttl",
+            "input_size_limit",
+            "encrypted_pdf_rejection",
+            "pdf_page_limit"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/service.py",
+              "server/file_assets/api.py"
+            ],
+            "ui": [
+              "client/src/pages/ChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_chat_parse.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_chat_parse.py",
+              "server/tests/test_file_asset_validation.py"
+            ]
+          },
+          "known_gaps": [
+            "chat_one_shot_vision_ocr"
+          ],
+          "status_reason": "文本型 PDF 已支持本地逐页提取；Chat 扫描件的一次性视觉/OCR入口明确延期，当前不会调用付费 OCR。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "xlsx",
+      "label": "Excel 工作簿",
+      "family": "spreadsheet",
+      "extensions": [
+        ".xlsx"
+      ],
+      "mime_types": [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      ],
+      "container_kind": "zip",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "chat",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_visible_sheets": 50,
+            "max_nonempty_cells": 100000,
+            "max_columns_per_sheet": 200
+          },
+          "security_controls": [
+            "ooxml_zip_preflight",
+            "macro_activex_ole_rejection",
+            "external_relationship_rejection",
+            "read_only_workbook",
+            "keep_links_false",
+            "formula_cache_fallback_without_execution",
+            "hidden_sheet_ignore",
+            "sheet_cell_and_output_limits"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/registry.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx",
+              "client/src/components/XlsxDestinationChooser.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_xlsx.py",
+              "client/src/components/ChatFileComposer.test.tsx"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_xlsx.py",
+              "server/tests/test_file_asset_validation.py"
+            ]
+          },
+          "known_gaps": [
+            "killable_openpyxl_process_isolation",
+            "cross_module_asset_transfer"
+          ],
+          "status_reason": "XLSX 已可本地只读提取、按 Sheet 预览并逐文件确认发送；复杂解析仍在有界进程内执行，跨模块切换需要重新选择文件。"
+        },
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_visible_sheets": 50,
+            "max_nonempty_cells": 100000,
+            "max_columns_per_sheet": 200
+          },
+          "security_controls": [
+            "ooxml_zip_preflight",
+            "macro_activex_ole_rejection",
+            "external_relationship_rejection",
+            "read_only_workbook",
+            "keep_links_false",
+            "formula_cache_fallback_without_execution",
+            "hidden_sheet_ignore",
+            "sheet_cell_and_output_limits",
+            "sheet_and_cell_range_source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx",
+              "client/src/components/XlsxDestinationChooser.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_xlsx.py",
+              "server/tests/test_rag_processor.py",
+              "server/tests/test_rag_integration.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_xlsx.py",
+              "server/tests/test_file_asset_validation.py",
+              "server/tests/test_rag_integration.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [
+            "killable_openpyxl_process_isolation"
+          ],
+          "status_reason": "RAG 已复用同一安全解析内核并保留 Sheet 与单元格范围来源；复杂解析仍在有界进程内执行。"
+        },
+        {
+          "module": "datax",
+          "operation": "structured_analysis",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "datax.source_importer",
+          "isolation": "in_process",
+          "ui_entrypoint": "/datax",
+          "limits": {
+            "max_input_bytes": 52428800,
+            "max_rows": 1000000,
+            "max_columns": 200
+          },
+          "security_controls": [
+            "bounded_multipart_request",
+            "ooxml_zip_preflight",
+            "macro_activex_ole_rejection",
+            "external_relationship_rejection",
+            "read_only_workbook",
+            "keep_links_false",
+            "cached_formula_values",
+            "formula_text_fallback_without_execution",
+            "row_and_column_limits",
+            "failed_source_cleanup"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/datax/api.py",
+              "server/datax/service.py",
+              "server/datax/store.py"
+            ],
+            "ui": [
+              "client/src/pages/DataXProjectPage.tsx",
+              "client/src/components/XlsxDestinationChooser.tsx"
+            ],
+            "tests": [
+              "server/tests/test_datax.py",
+              "server/tests/test_datax_file_safety.py"
+            ],
+            "security_tests": [
+              "server/tests/test_datax_file_safety.py",
+              "server/tests/test_file_asset_validation.py"
+            ]
+          },
+          "known_gaps": [
+            "one_sheet_per_snapshot"
+          ],
+          "status_reason": "Data X 已完成 OOXML 预检、外链拒绝、公式安全回退、持久任务状态和失败原件清理；每个快照仍只导入活动可见工作表。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "parquet",
+      "label": "Parquet",
+      "family": "structured",
+      "extensions": [
+        ".parquet"
+      ],
+      "mime_types": [
+        "application/vnd.apache.parquet",
+        "application/octet-stream"
+      ],
+      "container_kind": "columnar",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "datax",
+          "operation": "structured_analysis",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "datax.source_importer",
+          "isolation": "in_process",
+          "ui_entrypoint": "/datax",
+          "limits": {
+            "max_input_bytes": 52428800,
+            "max_rows": 1000000
+          },
+          "security_controls": [
+            "input_size_limit",
+            "row_limit",
+            "parameterized_import"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/datax/service.py"
+            ],
+            "ui": [
+              "client/src/pages/DataXInboxPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_datax.py"
+            ],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "signature_preflight",
+            "nested_schema_budget"
+          ],
+          "status_reason": "Data X 分析已上线；文件签名和复杂嵌套 schema 资源预算仍待补齐。"
+        },
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "disabled",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "not_applicable",
+          "ui_entrypoint": "datax",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [],
+          "status_reason": "Parquet 继续由 Data X 承担结构化分析，不进入本轮 RAG 文件闭环。"
+        }
+      ]
+    },
+    {
+      "format_id": "docx",
+      "label": "Word 文档",
+      "family": "document",
+      "extensions": [
+        ".docx"
+      ],
+      "mime_types": [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      ],
+      "container_kind": "zip",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "chat",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "office-parser-mcp.extract_office_document",
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_extracted_chars": 500000,
+            "max_result_bytes": 2097152,
+            "timeout_seconds": 30
+          },
+          "security_controls": [
+            "ooxml_central_directory_preflight",
+            "network_none_nonroot_readonly_sidecar",
+            "ephemeral_readonly_workspace",
+            "marker_and_sha256_revalidation",
+            "macro_activex_ole_and_external_resource_rejection",
+            "bounded_xml_relationship_and_crc_validation",
+            "single_operation_deadline",
+            "image_placeholder_without_automatic_vision"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/office_sidecar.py",
+              "server/file_assets/document_parser.py",
+              "server/sandbox_sidecar/file_mcp.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_office_sidecar.py",
+              "client/src/components/ChatFileComposer.test.tsx"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_office_preflight.py",
+              "server/tests/test_mcp_office_parser.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "DOCX 已通过一次性只读工作区调用断网、非 root Office sidecar；图片仅保留占位符，修订不完整会警告，且不会自动调用视觉模型。"
+        },
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "office-parser-mcp.extract_office_document",
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_extracted_chars": 500000,
+            "max_result_bytes": 2097152,
+            "timeout_seconds": 30
+          },
+          "security_controls": [
+            "ooxml_central_directory_preflight",
+            "network_none_nonroot_readonly_sidecar",
+            "ephemeral_readonly_workspace",
+            "marker_and_sha256_revalidation",
+            "macro_activex_ole_and_external_resource_rejection",
+            "bounded_xml_relationship_and_crc_validation",
+            "single_operation_deadline",
+            "heading_path_source_metadata",
+            "bounded_persisted_fidelity_warnings"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/office_sidecar.py",
+              "server/rag/document_parser.py",
+              "server/rag/rag_service.py",
+              "server/rag/pipeline_executor.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_rag_office_metadata.py",
+              "client/src/pages/RagPage.test.ts",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_office_preflight.py",
+              "server/tests/test_mcp_office_parser.py",
+              "server/tests/test_rag_integration.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "DOCX 已通过同一隔离解析器进入 RAG，并保留标题路径、来源引用和有界忠实度警告；图片仅作占位且不自动调用视觉模型。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "office-parser-mcp.extract_office_document",
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off",
+            "network_isolated_sidecar"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/office_sidecar.py",
+              "server/sandbox_sidecar/file_mcp.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "pptx",
+      "label": "PowerPoint 演示文稿",
+      "family": "presentation",
+      "extensions": [
+        ".pptx"
+      ],
+      "mime_types": [
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      ],
+      "container_kind": "zip",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "chat",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "office-parser-mcp.extract_office_document",
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_extracted_chars": 500000,
+            "max_result_bytes": 2097152,
+            "timeout_seconds": 30
+          },
+          "security_controls": [
+            "ooxml_central_directory_preflight",
+            "network_none_nonroot_readonly_sidecar",
+            "ephemeral_readonly_workspace",
+            "marker_and_sha256_revalidation",
+            "macro_activex_ole_and_external_resource_rejection",
+            "bounded_xml_relationship_and_crc_validation",
+            "single_operation_deadline",
+            "image_placeholder_without_automatic_vision"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/office_sidecar.py",
+              "server/file_assets/document_parser.py",
+              "server/sandbox_sidecar/file_mcp.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_office_sidecar.py",
+              "client/src/components/ChatFileComposer.test.tsx"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_office_preflight.py",
+              "server/tests/test_mcp_office_parser.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "PPTX 已通过一次性只读工作区调用断网、非 root Office sidecar；逐张幻灯片提取文本、表格和备注，图片仅保留占位且不自动调用视觉模型。"
+        },
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "office-parser-mcp.extract_office_document",
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_extracted_chars": 500000,
+            "max_result_bytes": 2097152,
+            "timeout_seconds": 30
+          },
+          "security_controls": [
+            "ooxml_central_directory_preflight",
+            "network_none_nonroot_readonly_sidecar",
+            "ephemeral_readonly_workspace",
+            "marker_and_sha256_revalidation",
+            "macro_activex_ole_and_external_resource_rejection",
+            "bounded_xml_relationship_and_crc_validation",
+            "single_operation_deadline",
+            "slide_and_heading_source_metadata",
+            "bounded_persisted_fidelity_warnings"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/office_sidecar.py",
+              "server/rag/document_parser.py",
+              "server/rag/rag_service.py",
+              "server/rag/pipeline_executor.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_rag_office_metadata.py",
+              "client/src/pages/RagPage.test.ts",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_office_preflight.py",
+              "server/tests/test_mcp_office_parser.py",
+              "server/tests/test_rag_integration.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "PPTX 已通过同一隔离解析器进入 RAG，并保留幻灯片号、标题路径、备注和有界忠实度警告；图片仅作占位且不自动调用视觉模型。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_structure",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "office-parser-mcp.extract_office_document",
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off",
+            "network_isolated_sidecar"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/office_sidecar.py",
+              "server/sandbox_sidecar/file_mcp.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "epub",
+      "label": "EPUB 电子书",
+      "family": "ebook",
+      "extensions": [
+        ".epub"
+      ],
+      "mime_types": [
+        "application/epub+zip"
+      ],
+      "container_kind": "zip",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "zip_safety",
+            "spine_order",
+            "html_sanitization",
+            "drm_policy"
+          ],
+          "status_reason": "延后到电子书批次；需按 spine 顺序解析、清洗 HTML，并拒绝加密或 DRM 内容。"
+        }
+      ]
+    },
+    {
+      "format_id": "eml",
+      "label": "EML 邮件",
+      "family": "email",
+      "extensions": [
+        ".eml"
+      ],
+      "mime_types": [
+        "message/rfc822"
+      ],
+      "container_kind": "mime",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "mime_recursion_limit",
+            "attachment_budget",
+            "remote_tracking_blocking"
+          ],
+          "status_reason": "延后到邮件批次；需限制 MIME 递归和附件，并阻止远程追踪资源。"
+        }
+      ]
+    },
+    {
+      "format_id": "msg",
+      "label": "Outlook MSG",
+      "family": "email",
+      "extensions": [
+        ".msg"
+      ],
+      "mime_types": [
+        "application/vnd.ms-outlook"
+      ],
+      "container_kind": "ole",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "dependency_audit",
+            "ole_safety",
+            "attachment_budget"
+          ],
+          "status_reason": "当前没有已验证的 MSG 解析依赖；需单独审计 OLE 与附件处理后再实施。"
+        }
+      ]
+    },
+    {
+      "format_id": "rtf",
+      "label": "RTF 文档",
+      "family": "document",
+      "extensions": [
+        ".rtf"
+      ],
+      "mime_types": [
+        "application/rtf",
+        "text/rtf"
+      ],
+      "container_kind": "none",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "dependency_audit",
+            "object_embedding_policy",
+            "fidelity_tests"
+          ],
+          "status_reason": "当前没有已验证的 RTF 解析器；需完成依赖、安全和保真审计。"
+        }
+      ]
+    },
+    {
+      "format_id": "odf",
+      "label": "OpenDocument",
+      "family": "document",
+      "extensions": [
+        ".odt",
+        ".ods",
+        ".odp"
+      ],
+      "mime_types": [
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation"
+      ],
+      "container_kind": "zip",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "dependency_audit",
+            "zip_and_xml_safety",
+            "fidelity_tests"
+          ],
+          "status_reason": "当前没有已验证的 ODF 解析器；需完成 ZIP/XML 安全和格式保真审计。"
+        }
+      ]
+    },
+    {
+      "format_id": "csv",
+      "label": "CSV 表格",
+      "family": "structured",
+      "extensions": [
+        ".csv"
+      ],
+      "mime_types": [
+        "text/csv"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "datax",
+          "operation": "structured_analysis",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "datax.source_importer",
+          "isolation": "in_process",
+          "ui_entrypoint": "/datax",
+          "limits": {
+            "max_input_bytes": 52428800,
+            "max_rows": 1000000
+          },
+          "security_controls": [
+            "input_size_limit",
+            "row_limit",
+            "parameterized_import"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/datax/service.py"
+            ],
+            "ui": [
+              "client/src/pages/DataXInboxPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_datax.py"
+            ],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "mime_and_binary_spoof_detection",
+            "field_size_limit"
+          ],
+          "status_reason": "Data X 结构化分析已上线；MIME、二进制伪装和单字段资源上限仍待加固。"
+        },
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "CSV 表格 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "tsv",
+      "label": "TSV 表格",
+      "family": "structured",
+      "extensions": [
+        ".tsv"
+      ],
+      "mime_types": [
+        "text/plain",
+        "text/tab-separated-values",
+        "text/tsv"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "TSV 表格 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "json",
+      "label": "JSON",
+      "family": "structured",
+      "extensions": [
+        ".json"
+      ],
+      "mime_types": [
+        "application/json",
+        "text/json"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "JSON 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "jsonl",
+      "label": "JSON Lines",
+      "family": "structured",
+      "extensions": [
+        ".jsonl",
+        ".ndjson"
+      ],
+      "mime_types": [
+        "application/json",
+        "application/jsonl",
+        "application/x-ndjson",
+        "text/plain"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "JSON Lines 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "yaml",
+      "label": "YAML",
+      "family": "structured",
+      "extensions": [
+        ".yaml",
+        ".yml"
+      ],
+      "mime_types": [
+        "application/x-yaml",
+        "application/yaml",
+        "text/plain",
+        "text/x-yaml",
+        "text/yaml"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "YAML 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "xml",
+      "label": "XML",
+      "family": "structured",
+      "extensions": [
+        ".xml"
+      ],
+      "mime_types": [
+        "application/xml",
+        "text/xml"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "XML 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "html",
+      "label": "HTML 安全正文",
+      "family": "text",
+      "extensions": [
+        ".htm",
+        ".html"
+      ],
+      "mime_types": [
+        "text/html"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "HTML 安全正文 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "srt",
+      "label": "SRT 字幕",
+      "family": "text",
+      "extensions": [
+        ".srt"
+      ],
+      "mime_types": [
+        "application/x-subrip",
+        "text/plain",
+        "text/srt"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "SRT 字幕 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "vtt",
+      "label": "WebVTT 字幕",
+      "family": "text",
+      "extensions": [
+        ".vtt"
+      ],
+      "mime_types": [
+        "text/plain",
+        "text/vtt"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "WebVTT 字幕 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "source_code",
+      "label": "常见源码",
+      "family": "text",
+      "extensions": [
+        ".c",
+        ".cpp",
+        ".cs",
+        ".css",
+        ".go",
+        ".h",
+        ".hpp",
+        ".java",
+        ".js",
+        ".jsx",
+        ".php",
+        ".ps1",
+        ".py",
+        ".rb",
+        ".rs",
+        ".scss",
+        ".sh",
+        ".sql",
+        ".ts",
+        ".tsx"
+      ],
+      "mime_types": [
+        "application/javascript",
+        "application/sql",
+        "application/typescript",
+        "application/x-powershell",
+        "text/css",
+        "text/javascript",
+        "text/plain",
+        "text/typescript",
+        "text/x-c",
+        "text/x-c++src",
+        "text/x-csharp",
+        "text/x-java-source",
+        "text/x-python",
+        "text/x-shellscript"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "常见源码 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "configuration",
+      "label": "配置文件",
+      "family": "text",
+      "extensions": [
+        ".cfg",
+        ".conf",
+        ".ini",
+        ".toml"
+      ],
+      "mime_types": [
+        "application/toml",
+        "text/plain",
+        "text/x-ini",
+        "text/x-toml"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "配置文件 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "log",
+      "label": "日志",
+      "family": "text",
+      "extensions": [
+        ".log"
+      ],
+      "mime_types": [
+        "text/plain"
+      ],
+      "container_kind": "none",
+      "signature_policy": "advisory",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "rag.document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/rag",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py",
+              "server/rag/document_processor.py",
+              "server/rag/rag_service.py"
+            ],
+            "ui": [
+              "client/src/pages/RagPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_rag_deletion_closure.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "agent",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "xperts.context_file_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/agents",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/rag/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/xpert/XpertFeatureSettings.tsx",
+              "client/src/pages/XpertChatPage.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py",
+              "client/src/pages/XpertChatPage.file-assets.test.ts"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py",
+              "server/tests/test_xpert_context.py"
+            ]
+          },
+          "known_gaps": [
+            "in_process_read_phase_claim",
+            "unified_asset_binding_migration",
+            "purge_restore_secondary_failure"
+          ],
+          "status_reason": "日志 的现有 Xpert 文件上下文可用，永久删除可重试并在活跃读取时返回冲突；claim 仅覆盖单进程读取阶段，统一资产 binding 与跨进程租约仍待后续迁移。"
+        },
+        {
+          "module": "chat",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "converted",
+          "parser_id": "chat.local_document_parser",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_output_characters": 500000
+          },
+          "security_controls": [
+            "utf8_and_binary_preflight",
+            "bounded_structure",
+            "bounded_output",
+            "source_metadata"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/document_parser.py",
+              "server/file_assets/validation.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/ChatFileComposer.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_extended_formats.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "已通过共享格式注册表、安全校验和 ParsedDocument 解析内核接入。"
+        },
+        {
+          "module": "workflow",
+          "operation": "extract_text",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "converted",
+          "parser_id": "workflow.document_extractor",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760
+          },
+          "security_controls": [
+            "tenant_scope_binding",
+            "opaque_asset_id",
+            "input_size_limit",
+            "pathless_execution",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/main.py",
+              "server/file_assets/service.py",
+              "server/file_assets/registry.py",
+              "server/file_assets/document_parser.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "client/src/components/workflow/WorkflowRun.file-assets.test.ts",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ],
+            "security_tests": [
+              "server/tests/test_file_asset_workflow.py",
+              "server/tests/test_workflow_file_asset_node.py",
+              "server/tests/test_workflow_file_asset_claims.py"
+            ]
+          },
+          "known_gaps": [
+            "feature_flag_default_off",
+            "single_process_runtime_claim"
+          ],
+          "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "legacy_xls",
+      "label": "旧版 Excel",
+      "family": "legacy_office",
+      "extensions": [
+        ".xls"
+      ],
+      "mime_types": [
+        "application/vnd.ms-excel"
+      ],
+      "container_kind": "ole",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "ole_preflight",
+            "macro_and_embedding_policy",
+            "sandbox_contract"
+          ],
+          "status_reason": "仅考虑隔离侧车内只读解析；完成 OLE、宏和嵌入对象护栏前不开放 RAG。"
+        }
+      ]
+    },
+    {
+      "format_id": "legacy_doc_ppt",
+      "label": "旧版 Word/PowerPoint",
+      "family": "legacy_office",
+      "extensions": [
+        ".doc",
+        ".ppt"
+      ],
+      "mime_types": [
+        "application/msword",
+        "application/vnd.ms-powerpoint"
+      ],
+      "container_kind": "ole",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "converter_selection",
+            "ole_and_macro_safety",
+            "sandbox_contract"
+          ],
+          "status_reason": "当前无解析器；必须先确定无网络、非 root、受资源限制的独立转换方案。"
+        }
+      ]
+    },
+    {
+      "format_id": "macro_office",
+      "label": "含宏 Office",
+      "family": "legacy_office",
+      "extensions": [
+        ".docm",
+        ".pptm",
+        ".xlsm",
+        ".xltm",
+        ".xlam"
+      ],
+      "mime_types": [
+        "application/vnd.ms-word.document.macroenabled.12",
+        "application/vnd.ms-powerpoint.presentation.macroenabled.12",
+        "application/vnd.ms-excel.sheet.macroenabled.12"
+      ],
+      "container_kind": "zip",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "extract_structure",
+          "interaction_status": "disabled",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "vba_and_activex_rejection",
+            "embedded_object_policy"
+          ],
+          "status_reason": "首期明确拒绝含宏 Office；不能以忽略宏代替可验证的静态提取安全方案。"
+        }
+      ]
+    },
+    {
+      "format_id": "zip",
+      "label": "ZIP 批量导入",
+      "family": "archive",
+      "extensions": [
+        ".zip"
+      ],
+      "mime_types": [
+        "application/zip"
+      ],
+      "container_kind": "archive",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "batch_import",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [
+              "server/tests/test_mcp_file_workspaces.py"
+            ],
+            "security_tests": [
+              "server/tests/test_mcp_file_workspaces.py"
+            ]
+          },
+          "known_gaps": [
+            "streaming_extraction",
+            "rag_specific_limits",
+            "manifest_selection_ui",
+            "nested_archive_policy"
+          ],
+          "status_reason": "MCP 已有可复用安全测试，但 RAG 需以批量导入清单而非单篇文档实现，并采用更严格流式边界。"
+        }
+      ]
+    },
+    {
+      "format_id": "other_archives",
+      "label": "其他压缩包",
+      "family": "archive",
+      "extensions": [
+        ".7z",
+        ".rar",
+        ".tar",
+        ".tar.gz",
+        ".tgz"
+      ],
+      "mime_types": [
+        "application/x-7z-compressed",
+        "application/vnd.rar",
+        "application/x-tar",
+        "application/gzip"
+      ],
+      "container_kind": "archive",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "rag",
+          "operation": "batch_import",
+          "interaction_status": "planned",
+          "verification_status": "not_applicable",
+          "support_level": "converted",
+          "parser_id": null,
+          "isolation": "file_sidecar",
+          "ui_entrypoint": "rag",
+          "limits": {},
+          "security_controls": [],
+          "evidence": {
+            "implementation": [],
+            "ui": [],
+            "tests": [],
+            "security_tests": []
+          },
+          "known_gaps": [
+            "dependency_and_license_audit",
+            "hardlink_and_device_rejection",
+            "encrypted_archive_policy"
+          ],
+          "status_reason": "延后到 ZIP 闭环之后；需分别审计外部工具、许可证、硬链接和设备节点风险。"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "format_count": 29,
+    "module_operation_count": 84,
+    "ready_count": 73,
+    "verified_count": 28,
+    "contract_verified_count": 45,
+    "planned_count": 9,
+    "disabled_count": 2
+  }
+}

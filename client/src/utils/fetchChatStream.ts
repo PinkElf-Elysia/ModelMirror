@@ -22,6 +22,13 @@ export interface ChatInputVideoPart {
   attachment_id: string;
 }
 
+export interface ChatInputFilePart {
+  type: "input_file";
+  asset_id: string;
+  handling: "native" | "extract";
+  confirmation_revision: number;
+}
+
 export type ChatMessageContent =
   | string
   | Array<
@@ -29,6 +36,7 @@ export type ChatMessageContent =
       | ChatImagePart
       | ChatInputAudioPart
       | ChatInputVideoPart
+      | ChatInputFilePart
     >;
 
 export interface ChatApiMessage {
@@ -108,6 +116,13 @@ export interface RouteReceipt {
     format?: string | null;
     raw_retained?: boolean;
   };
+  files?: {
+    count: number;
+    formats: string[];
+    handling: "extract" | "native" | "mixed";
+    parsed_locally: boolean;
+    originals_retained: boolean;
+  };
   version?: string | null;
 }
 
@@ -118,6 +133,7 @@ interface FetchChatStreamOptions {
   routing?: ChatRoutingOptions;
   compression?: ChatCompressionOptions;
   responseAudio?: ChatResponseAudioOptions;
+  fileScopeId?: string;
   temperature?: number;
   topP?: number;
   maxTokens?: number;
@@ -314,6 +330,7 @@ function handleSseEvent(
   onAudioDelta?: (audio: ChatAudioDelta) => void,
   onMessageEnd?: () => void,
   endOnFinishReason = true,
+  requireExplicitMessageEnd = false,
 ) {
   const eventName = eventText
     .split(/\r?\n/)
@@ -335,7 +352,7 @@ function handleSseEvent(
   for (const data of dataLines) {
     if (!data) continue;
     if (data === "[DONE]") {
-      onMessageEnd?.();
+      if (!requireExplicitMessageEnd) onMessageEnd?.();
       continue;
     }
 
@@ -362,8 +379,22 @@ function handleSseEvent(
     if (delta) onDelta(delta);
     const audio = readAudioDelta(payload);
     if (audio) onAudioDelta?.(audio);
-    if (endOnFinishReason && readFinishReason(payload)) onMessageEnd?.();
+    if (
+      endOnFinishReason &&
+      !requireExplicitMessageEnd &&
+      readFinishReason(payload)
+    ) {
+      onMessageEnd?.();
+    }
   }
+}
+
+function includesInputFile(messages: ChatApiMessage[]) {
+  return messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === "input_file"),
+  );
 }
 
 export async function fetchChatStream({
@@ -373,6 +404,7 @@ export async function fetchChatStream({
   routing,
   compression,
   responseAudio,
+  fileScopeId,
   temperature = 0.7,
   topP,
   maxTokens = 2048,
@@ -399,6 +431,7 @@ export async function fetchChatStream({
       routing,
       compression,
       response_audio: responseAudio,
+      file_scope_id: fileScopeId,
       temperature,
       top_p: topP,
       max_tokens: maxTokens,
@@ -448,6 +481,8 @@ export async function fetchChatStream({
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
   let messageEnded = false;
+  const requiresExplicitMessageEnd =
+    Boolean(fileScopeId) || includesInputFile(messages);
   const emitMessageEnd = () => {
     if (messageEnded) return;
     messageEnded = true;
@@ -470,7 +505,8 @@ export async function fetchChatStream({
           onRouteReceipt,
           onAudioDelta,
           emitMessageEnd,
-          !responseAudio?.enabled,
+          !responseAudio?.enabled && !requiresExplicitMessageEnd,
+          requiresExplicitMessageEnd,
         );
       } catch (error) {
         console.error("ModelMirror chat stream event failed", error);
@@ -488,7 +524,8 @@ export async function fetchChatStream({
         onRouteReceipt,
         onAudioDelta,
         emitMessageEnd,
-        !responseAudio?.enabled,
+        !responseAudio?.enabled && !requiresExplicitMessageEnd,
+        requiresExplicitMessageEnd,
       );
     } catch (error) {
       console.error("ModelMirror chat stream tail failed", error);
@@ -496,6 +533,11 @@ export async function fetchChatStream({
     }
   }
   if (!messageEnded) {
+    if (requiresExplicitMessageEnd) {
+      throw new Error(
+        "文件处理未收到完成确认，附件已保留。请检查连接后重试。",
+      );
+    }
     throw new Error(
       "流式响应在完成标记到达前中断。已保留收到的内容，请检查模型服务连接后重试。",
     );

@@ -42,6 +42,15 @@ class DataXValidationError(DataXError):
     pass
 
 
+class DataXUploadValidationError(DataXValidationError):
+    """Stable upload rejection that preserves the public HTTP status/code."""
+
+    def __init__(self, error_code: str, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.status_code = status_code
+
+
 class DataXStore:
     """Atomic file-backed metadata store with project-isolated DuckDB files."""
 
@@ -88,11 +97,14 @@ class DataXStore:
 
     def _save(self) -> None:
         temp = self.path.with_suffix(f".{uuid.uuid4().hex}.tmp")
-        temp.write_text(
-            json.dumps(self._data, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        os.replace(temp, self.path)
+        try:
+            temp.write_text(
+                json.dumps(self._data, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            os.replace(temp, self.path)
+        finally:
+            temp.unlink(missing_ok=True)
 
     def insert(self, collection: str, item: BaseModel, id_field: str) -> BaseModel:
         with self._lock:
@@ -100,7 +112,11 @@ class DataXStore:
             if key in self._data[collection]:
                 raise DataXConflictError(f"Data X resource already exists: {key}")
             self._data[collection][key] = item.model_dump(mode="json")
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                self._data[collection].pop(key, None)
+                raise
         return item
 
     def replace(self, collection: str, item: BaseModel, id_field: str) -> BaseModel:
@@ -108,8 +124,13 @@ class DataXStore:
             key = str(getattr(item, id_field))
             if key not in self._data[collection]:
                 raise DataXNotFoundError(f"Data X resource not found: {key}")
+            previous = self._data[collection][key]
             self._data[collection][key] = item.model_dump(mode="json")
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                self._data[collection][key] = previous
+                raise
         return item
 
     def get(self, collection: str, key: str, model: type[T]) -> T | None:
@@ -129,24 +150,73 @@ class DataXStore:
 
     def delete(self, collection: str, key: str) -> None:
         with self._lock:
-            self._data[collection].pop(key, None)
-            self._save()
+            previous = self._data[collection].pop(key, None)
+            try:
+                self._save()
+            except Exception:
+                if previous is not None:
+                    self._data[collection][key] = previous
+                raise
 
     def project_db_path(self, project_id: str) -> Path:
         safe = _safe_id(project_id)
         return self.databases_dir / f"{safe}.duckdb"
 
     def source_file_path(self, project_id: str, sha256: str, suffix: str) -> Path:
-        directory = self.sources_dir / _safe_id(project_id)
+        safe_project_id = _safe_id(project_id)
+        safe_sha256 = _safe_sha256(sha256)
+        safe_suffix = _safe_suffix(suffix)
+        source_root = self.sources_dir.resolve()
+        directory = self.sources_dir / safe_project_id
+        if directory.is_symlink():
+            raise DataXValidationError("Invalid Data X source directory.")
         directory.mkdir(parents=True, exist_ok=True)
-        return directory / f"{sha256}{suffix.lower()}"
+        if directory.is_symlink() or directory.resolve() != source_root / safe_project_id:
+            raise DataXValidationError("Invalid Data X source directory.")
+        return directory / f"{safe_sha256}{safe_suffix}"
 
-    def write_source(self, path: Path, content: bytes) -> None:
-        if path.exists():
-            return
-        temp = path.with_suffix(f"{path.suffix}.{uuid.uuid4().hex}.tmp")
-        temp.write_bytes(content)
-        os.replace(temp, path)
+    def write_source(self, path: Path, content: bytes) -> bool:
+        candidate = self._validated_source_blob_path(path)
+        if candidate.is_symlink():
+            raise DataXValidationError("Invalid Data X source path.")
+        if candidate.exists():
+            if not candidate.is_file():
+                raise DataXValidationError("Invalid Data X source path.")
+            return False
+        temp = candidate.with_suffix(f"{candidate.suffix}.{uuid.uuid4().hex}.tmp")
+        try:
+            temp.write_bytes(content)
+            os.replace(temp, candidate)
+        finally:
+            temp.unlink(missing_ok=True)
+        return True
+
+    def delete_source_file(self, path: Path) -> None:
+        candidate = self._validated_source_blob_path(path)
+        candidate.unlink(missing_ok=True)
+        try:
+            candidate.parent.rmdir()
+        except OSError:
+            pass
+
+    def _validated_source_blob_path(self, path: Path) -> Path:
+        source_root = self.sources_dir.resolve()
+        candidate = Path(os.path.abspath(path))
+        try:
+            relative = candidate.relative_to(source_root)
+        except ValueError as exc:
+            raise DataXValidationError("Invalid Data X source path.") from exc
+        if len(relative.parts) != 2:
+            raise DataXValidationError("Invalid Data X source path.")
+        project_id, filename = relative.parts
+        _safe_id(project_id)
+        suffix = Path(filename).suffix
+        digest = filename[: -len(suffix)] if suffix else ""
+        _safe_sha256(digest)
+        _safe_suffix(suffix)
+        if candidate.parent.is_symlink() or candidate.parent.resolve() != source_root / project_id:
+            raise DataXValidationError("Invalid Data X source directory.")
+        return candidate
 
     @staticmethod
     def new_id(prefix: str) -> str:
@@ -166,3 +236,22 @@ def _safe_id(value: str) -> str:
     if not value or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for char in value):
         raise DataXValidationError("Invalid Data X identifier.")
     return value
+
+
+def _safe_sha256(value: str) -> str:
+    clean = str(value or "").lower()
+    if len(clean) != 64 or any(char not in "0123456789abcdef" for char in clean):
+        raise DataXValidationError("Invalid Data X source digest.")
+    return clean
+
+
+def _safe_suffix(value: str) -> str:
+    clean = str(value or "").lower()
+    if (
+        len(clean) < 2
+        or len(clean) > 16
+        or not clean.startswith(".")
+        or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789" for char in clean[1:])
+    ):
+        raise DataXValidationError("Invalid Data X source suffix.")
+    return clean

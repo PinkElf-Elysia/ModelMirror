@@ -123,6 +123,11 @@ def test_catalog_operations_route_specialized_models_to_adapted_ui() -> None:
                     "input_modalities": ["text", "audio"],
                     "output_modalities": ["text"],
                 },
+                {
+                    "id": "example/document-analyst",
+                    "input_modalities": ["text", "file"],
+                    "output_modalities": ["text"],
+                },
             ]
         }
     )
@@ -167,6 +172,12 @@ def test_catalog_operations_route_specialized_models_to_adapted_ui() -> None:
     assert audio.operations == ["analyze_audio", "chat"]
     assert audio.primary_operation == "chat"
     assert audio.ui_entrypoint == "chat"
+
+    document = by_id["example/document-analyst"]
+    assert document.operations == ["analyze_document", "chat"]
+    assert document.primary_operation == "chat"
+    assert document.interaction_status == "ready"
+    assert document.ui_entrypoint == "chat"
 
 
 @pytest.mark.asyncio

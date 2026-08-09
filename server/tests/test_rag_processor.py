@@ -125,6 +125,70 @@ def test_structured_processor_preserves_markdown_structure(tmp_path: Path) -> No
     assert all(block.block_id.startswith("block_") for block in result.blocks)
 
 
+def test_shared_csv_and_vtt_sections_keep_source_metadata(tmp_path: Path) -> None:
+    csv_path = tmp_path / "records.csv"
+    csv_path.write_text("name,value\nalpha,42\n", encoding="utf-8")
+    csv_result = StructuredDocumentProcessor().process(
+        csv_path,
+        filename="records.csv",
+        source_id="doc-csv",
+    )
+
+    assert csv_result.blocks[0].kind == "table"
+    assert csv_result.blocks[0].metadata["row_range"] == "1-2"
+    assert "alpha" in csv_result.blocks[0].text
+
+    vtt_path = tmp_path / "captions.vtt"
+    vtt_path.write_text(
+        "WEBVTT\n\n00:00.000 --> 00:01.500\nHello\n",
+        encoding="utf-8",
+    )
+    vtt_result = StructuredDocumentProcessor().process(
+        vtt_path,
+        filename="captions.vtt",
+        source_id="doc-vtt",
+    )
+
+    assert vtt_result.blocks[0].kind == "subtitle"
+    assert vtt_result.blocks[0].metadata["time_range"] == (
+        "00:00.000 --> 00:01.500"
+    )
+    assert vtt_result.blocks[0].metadata["line_range"]
+
+
+def test_shared_html_and_source_sections_keep_heading_and_line_metadata(
+    tmp_path: Path,
+) -> None:
+    html_path = tmp_path / "guide.html"
+    html_path.write_text(
+        "<h1>Guide</h1><p>Safe body</p><script>hidden()</script>",
+        encoding="utf-8",
+    )
+    html_result = StructuredDocumentProcessor().process(
+        html_path,
+        filename="guide.html",
+        source_id="doc-html",
+    )
+
+    assert html_result.blocks[0].kind == "heading"
+    assert html_result.blocks[0].heading_path == ["Guide"]
+    assert html_result.blocks[0].metadata["heading_path"] == ["Guide"]
+    assert "hidden" not in html_result.text
+
+    source_path = tmp_path / "app.py"
+    source_text = "  def greet():\n      return 'hello'\n"
+    source_path.write_text(source_text, encoding="utf-8")
+    source_result = StructuredDocumentProcessor().process(
+        source_path,
+        filename="app.py",
+        source_id="doc-source-layout",
+    )
+
+    assert source_result.text == source_text
+    assert source_result.blocks[0].kind == "source"
+    assert source_result.blocks[0].metadata["line_range"] == "1-2"
+
+
 def test_pdf_processor_removes_repeated_page_edges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -20,6 +20,11 @@ import BrandLogo from "../components/BrandLogo";
 import ChatAudioComposer, {
   QuickTranscriptionControl,
 } from "../components/ChatAudioComposer";
+import ChatFileComposer, {
+  buildChatFileHistoryContext,
+  formatFileFormatLabel,
+  type ChatFileComposerState,
+} from "../components/ChatFileComposer";
 import ChatVideoComposer, {
   analyzeChatVideo,
   deleteChatVideoAttachment,
@@ -42,6 +47,13 @@ import {
   DEFAULT_CHAT_MODEL_ID,
   useModelPreference,
 } from "../context/ModelPreferenceContext";
+import {
+  activateChatFileScope,
+  createChatFileScopeId,
+  forgetChatFileScope,
+  purgeChatFileScope,
+  rotateChatFileScope,
+} from "../data/fileCapabilities";
 import { models } from "../data/models";
 import { recruitmentTheme } from "../theme/recruitmentTheme";
 import { compressImage } from "../utils/compressImage";
@@ -84,6 +96,9 @@ const WorldGenerationPanel = lazy(() =>
 
 const TTS_MODEL_SESSION_KEY = "modelmirror-chat-tts-model";
 const TTS_VOICE_SESSION_KEY = "modelmirror-chat-tts-voice";
+
+export const CHAT_HEADER_POSITION_CLASSES =
+  "md:sticky md:top-4 lg:top-24";
 
 interface UploadedImage {
   id: string;
@@ -168,6 +183,13 @@ interface ChatMessage {
   routeReceipt?: RouteReceipt;
   audio?: AssistantMessageAudio;
   videoContext?: VideoUnderstandingContext;
+  files?: Array<{
+    name: string;
+    format: string;
+    handling: "native" | "extract";
+    extractedChars: number;
+    warnings: string[];
+  }>;
 }
 
 const STREAM_UI_UPDATE_INTERVAL_MS = 80;
@@ -645,6 +667,11 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
             原生语音 · {(receipt.media.format ?? "mp3").toUpperCase()}
           </span>
         ) : null}
+        {receipt.files ? (
+          <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-1 text-emerald-100">
+            {receipt.files.count} 个文件 · 本地解析
+          </span>
+        ) : null}
       </div>
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400 sm:grid-cols-4">
         <div>
@@ -689,7 +716,8 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
       ) : null}
       {receipt.reason_codes?.length ||
       compression?.stages?.length ||
-      receipt.budget?.status ? (
+      receipt.budget?.status ||
+      receipt.files ? (
         <details className="mt-2 text-slate-400">
           <summary className="cursor-pointer select-none text-slate-300">
             查看运行详情
@@ -716,6 +744,18 @@ function RouteReceiptCard({ receipt }: { receipt: RouteReceipt }) {
                 预算状态：
                 {budgetStatusLabels[receipt.budget.status] ??
                   receipt.budget.status}
+              </p>
+            ) : null}
+            {receipt.files ? (
+              <p>
+                文件处理：
+                {receipt.files.handling === "native"
+                  ? "当前模型直接读取"
+                  : receipt.files.handling === "mixed"
+                    ? "原生读取与本地提取"
+                    : "本地提取"}
+                ；格式 {receipt.files.formats.map(formatFileFormatLabel).join("、")}；原件
+                {receipt.files.originals_retained ? "暂时保留" : "已清理"}
               </p>
             ) : null}
           </div>
@@ -875,6 +915,23 @@ const MessageBubble = memo(function MessageBubble({
               </button>
             ))}
           </div>
+        ) : null}
+
+        {isUser && message.files?.length ? (
+          <details className="mb-3 border-y border-ink-950/15 py-2 text-ink-950">
+            <summary className="cursor-pointer text-xs font-semibold">
+              已使用 {message.files.length} 个文件
+            </summary>
+            <ul className="mt-2 space-y-1 text-xs leading-5">
+              {message.files.map((file) => (
+                <li className="break-words" key={`${file.name}-${file.format}`}>
+                  {file.name} · {formatFileFormatLabel(file.format)} ·
+                  {file.handling === "native" ? " 模型直接读取" : " 本地提取"}
+                  {file.warnings.length > 0 ? " · 有解析提示" : ""}
+                </li>
+              ))}
+            </ul>
+          </details>
         ) : null}
 
         {extractedImages.length > 0 ? (
@@ -1117,6 +1174,19 @@ function ChatConversationPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
+  const [chatFileState, setChatFileState] = useState<ChatFileComposerState>({
+    files: [],
+    count: 0,
+    busy: false,
+    allConfirmed: false,
+  });
+  const [chatFileResetVersion, setChatFileResetVersion] = useState(0);
+  const [chatFileDiscardVersion, setChatFileDiscardVersion] = useState(0);
+  const [chatFileScope, setChatFileScope] = useState(() => ({
+    modelId: decodedModelId,
+    scopeId: createChatFileScopeId(),
+  }));
+  const chatFileScopeActivatedRef = useRef(false);
   const [audioComposerOpen, setAudioComposerOpen] = useState(
     () => searchParams.get("media") === "audio",
   );
@@ -1194,6 +1264,11 @@ function ChatConversationPage() {
   const routingSessionId = useMemo(
     () => (isOmniAutoRoute ? getOrCreateRoutingSessionId(decodedModelId) : ""),
     [decodedModelId, isOmniAutoRoute],
+  );
+  const chatFileScopeId = chatFileScope.scopeId;
+  const handleChatFileStateChange = useCallback(
+    (state: ChatFileComposerState) => setChatFileState(state),
+    [],
   );
   const chatSectionRef = useRef<HTMLElement>(null);
   const messageViewportRef = useRef<HTMLDivElement>(null);
@@ -1322,6 +1397,34 @@ function ChatConversationPage() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!chatFileScopeActivatedRef.current) {
+      chatFileScopeActivatedRef.current = true;
+      const previousScopeId = activateChatFileScope(
+        chatFileScope.modelId,
+        chatFileScope.scopeId,
+      );
+      if (previousScopeId && previousScopeId !== chatFileScope.scopeId) {
+        void purgeChatFileScope(previousScopeId);
+      }
+      return;
+    }
+
+    if (chatFileScope.modelId === decodedModelId) return;
+
+    forgetChatFileScope(chatFileScope.modelId, chatFileScope.scopeId);
+    void purgeChatFileScope(chatFileScope.scopeId);
+    const nextScope = rotateChatFileScope(decodedModelId);
+    if (
+      nextScope.previousScopeId &&
+      nextScope.previousScopeId !== chatFileScope.scopeId
+    ) {
+      void purgeChatFileScope(nextScope.previousScopeId);
+    }
+    setChatFileScope({ modelId: decodedModelId, scopeId: nextScope.scopeId });
+    setChatFileDiscardVersion((current) => current + 1);
+  }, [chatFileScope.modelId, chatFileScope.scopeId, decodedModelId]);
 
   useEffect(() => {
     document.title = agentInterview
@@ -1574,9 +1677,11 @@ function ChatConversationPage() {
   async function addImageFiles(files: File[]) {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
-    if (audioComposerOpen || videoComposerOpen) {
+    if (chatFileState.count > 0 || audioComposerOpen || videoComposerOpen) {
       setError(
-        videoComposerOpen
+        chatFileState.count > 0
+          ? "本轮只能选择文件、图片、音频或视频中的一种附件，请先移除文件。"
+          : videoComposerOpen
           ? "本轮只能选择图片、音频或视频中的一种附件，请先关闭视频输入。"
           : "本轮只能选择图片、音频或视频中的一种附件，请先关闭语音输入。",
       );
@@ -1866,21 +1971,57 @@ function ChatConversationPage() {
   ): Promise<boolean> {
     const directAudio = options.directAudio;
     const directVideo = options.directVideo;
+    const selectedFiles = directAudio || directVideo ? [] : chatFileState.files;
     const requestedText = (overrideText ?? input).trim();
     const rawText =
       !requestedText && directAudio
         ? "请理解并概括这段音频。"
         : !requestedText && directVideo
           ? "请概括这段视频的主要内容、关键事件和可见文字。"
+          : !requestedText && selectedFiles.length > 0
+            ? "请总结这些文件的主要内容，并指出重要信息。"
           : requestedText;
     const images =
       overrideText || directAudio || directVideo ? [] : uploadedImages;
     if (
-      (!rawText && images.length === 0 && !directAudio && !directVideo) ||
+      (!rawText &&
+        images.length === 0 &&
+        selectedFiles.length === 0 &&
+        !directAudio &&
+        !directVideo) ||
       isSending ||
       !model
     ) {
       return false;
+    }
+
+    if (chatFileState.count > 0) {
+      if (selectedKnowledgeBaseId) {
+        setError(
+          "文件发送暂不与知识库检索组合。请取消知识库选择，或前往资料库上传文件。",
+        );
+        return false;
+      }
+      if (chatFileState.busy || !chatFileState.allConfirmed) {
+        setError("请等待文件处理完成，并在预览中逐个确认后再发送。");
+        return false;
+      }
+      if (
+        uploadedImages.length > 0 ||
+        audioComposerOpen ||
+        videoComposerOpen ||
+        Boolean(videoSelection)
+      ) {
+        setError("本轮文件不能与图片、音频或视频附件混用，请保留一种附件。");
+        return false;
+      }
+      if (
+        runtimeToolsEnabled &&
+        selectedFiles.some((file) => file.handling === "native")
+      ) {
+        setError("PDF 原生读取暂不与 MCP 工具组合，请改用“提取内容后发送”。");
+        return false;
+      }
     }
 
     if (directAudio) {
@@ -1961,6 +2102,20 @@ function ChatConversationPage() {
       }
     }
 
+    const fileRequestContent: ChatMessageContent = selectedFiles.length
+      ? [
+          {
+            type: "text" as const,
+            text: superPromptMode ? wrapWithSuperPrompt(rawText) : rawText,
+          },
+          ...selectedFiles.map((file) => ({
+            type: "input_file" as const,
+            asset_id: file.assetId,
+            handling: file.handling,
+            confirmation_revision: file.confirmationRevision,
+          })),
+        ]
+      : "";
     const userContent: ChatMessageContent = directAudio
       ? [
           { type: "text", text: rawText },
@@ -1977,11 +2132,21 @@ function ChatConversationPage() {
               attachment_id: directVideo.attachmentId,
             },
           ]
-        : buildUserContent(rawText, images, superPromptMode);
+        : selectedFiles.length
+          ? fileRequestContent
+          : buildUserContent(rawText, images, superPromptMode);
+    const storedUserContent: ChatMessageContent = selectedFiles.length
+      ? [
+          superPromptMode ? wrapWithSuperPrompt(rawText) : rawText,
+          buildChatFileHistoryContext(selectedFiles),
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      : userContent;
     const userMessage: ChatMessage = {
       id: createId(),
       role: "user",
-      content: userContent,
+      content: storedUserContent,
       displayContent:
         options.displayText ??
         (directAudio
@@ -1991,6 +2156,13 @@ function ChatConversationPage() {
             : rawText),
       images,
       videoContext: options.videoContext,
+      files: selectedFiles.map((file) => ({
+        name: file.displayName,
+        format: file.format,
+        handling: file.handling,
+        extractedChars: file.preview.extracted_chars,
+        warnings: file.preview.warnings,
+      })),
     };
     const assistantId = createId();
     const assistantMessage: ChatMessage = {
@@ -2252,6 +2424,7 @@ function ChatConversationPage() {
               format: "mp3",
             }
           : undefined,
+        fileScopeId: selectedFiles.length > 0 ? chatFileScopeId : undefined,
         temperature: advancedParams.temperature,
         topP: advancedParams.topP,
         maxTokens: advancedParams.maxTokens,
@@ -2342,6 +2515,9 @@ function ChatConversationPage() {
           true,
         );
       }
+      if (selectedFiles.length > 0) {
+        setChatFileResetVersion((current) => current + 1);
+      }
       completed = true;
     } catch (streamError) {
       assistantUiUpdate.flush();
@@ -2400,6 +2576,15 @@ function ChatConversationPage() {
           ),
         );
       }
+      if (!completed && selectedFiles.length > 0) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === userMessage.id
+              ? { ...message, content: rawText }
+              : message,
+          ),
+        );
+      }
       setIsSending(false);
     }
     return completed;
@@ -2416,9 +2601,15 @@ function ChatConversationPage() {
   }
 
   function openAudioComposer(source: "upload" | "record") {
-    if (uploadedImages.length > 0 || videoComposerOpen) {
+    if (
+      chatFileState.count > 0 ||
+      uploadedImages.length > 0 ||
+      videoComposerOpen
+    ) {
       setError(
-        videoComposerOpen
+        chatFileState.count > 0
+          ? "本轮只能选择文件、图片、音频或视频中的一种附件，请先移除文件。"
+          : videoComposerOpen
           ? "本轮只能选择图片、音频或视频中的一种附件，请先关闭视频输入。"
           : "本轮只能选择图片、音频或视频中的一种附件，请先移除图片。",
       );
@@ -2438,9 +2629,15 @@ function ChatConversationPage() {
   }
 
   function openVideoComposer() {
-    if (uploadedImages.length > 0 || audioComposerOpen) {
+    if (
+      chatFileState.count > 0 ||
+      uploadedImages.length > 0 ||
+      audioComposerOpen
+    ) {
       setError(
-        audioComposerOpen
+        chatFileState.count > 0
+          ? "本轮只能选择文件、图片、音频或视频中的一种附件，请先移除文件。"
+          : audioComposerOpen
           ? "本轮只能选择图片、音频或视频中的一种附件，请先关闭语音输入。"
           : "本轮只能选择图片、音频或视频中的一种附件，请先移除图片。",
       );
@@ -2631,9 +2828,12 @@ function ChatConversationPage() {
   }
 
   function handleModelChange(nextModelId: string) {
-    if (!nextModelId || nextModelId === model?.id) return;
+    if (!nextModelId || nextModelId === decodedModelId) return;
 
+    forgetChatFileScope(chatFileScope.modelId, chatFileScope.scopeId);
+    void purgeChatFileScope(chatFileScope.scopeId);
     setPreferredModelId(nextModelId);
+    setChatFileDiscardVersion((current) => current + 1);
     setModelSwitchNotice("已切换当前使用模型；切换模型后对话上下文可能不兼容。");
     setError("");
 
@@ -2651,6 +2851,16 @@ function ChatConversationPage() {
   function exitAgentInterview() {
     if (isSending) return;
 
+    forgetChatFileScope(chatFileScope.modelId, chatFileScope.scopeId);
+    void purgeChatFileScope(chatFileScope.scopeId);
+    const nextScope = rotateChatFileScope(decodedModelId);
+    if (
+      nextScope.previousScopeId &&
+      nextScope.previousScopeId !== chatFileScope.scopeId
+    ) {
+      void purgeChatFileScope(nextScope.previousScopeId);
+    }
+    setChatFileScope({ modelId: decodedModelId, scopeId: nextScope.scopeId });
     releaseAllMessageAudio();
     clearAgentInterview();
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -2664,6 +2874,7 @@ function ChatConversationPage() {
     setSearchParams(nextSearchParams, { replace: true });
     setMessages([]);
     setUploadedImages([]);
+    setChatFileDiscardVersion((current) => current + 1);
     setError("");
     setAgentDefaultModelNotice("");
     setRuntimeMeta(null);
@@ -2724,11 +2935,14 @@ function ChatConversationPage() {
     (
       input.trim().length > 0 ||
       uploadedImages.length > 0 ||
-      Boolean(videoSelection)
+      Boolean(videoSelection) ||
+      (chatFileState.count > 0 && chatFileState.allConfirmed)
     ) &&
     !isSending &&
     !isPreparingVideo &&
-    !isUploadingImage;
+    !isUploadingImage &&
+    !chatFileState.busy &&
+    (chatFileState.count === 0 || chatFileState.allConfirmed);
   const supportsImageInput =
     omniRouteSupportsImage || imageAnalysisModelIds?.has(model.id) === true;
   const directAudioBlockedReason = selectedKnowledgeBaseId
@@ -2737,6 +2951,13 @@ function ChatConversationPage() {
       ? "当前已选择 Skill，请先转成文字后再发送。"
       : runtimeToolsEnabled
         ? "MCP 工具模式需先把音频转成文字。"
+        : undefined;
+  const chatFileMediaBlockedReason = uploadedImages.length > 0
+    ? "本轮已选择图片，请先移除图片再添加文件。"
+    : audioComposerOpen
+      ? "本轮已打开语音输入，请先关闭后再添加文件。"
+      : videoComposerOpen || Boolean(videoSelection)
+        ? "本轮已打开视频输入，请先关闭后再添加文件。"
         : undefined;
   const providerName = isOmniAutoRoute
     ? "智能调度"
@@ -2797,7 +3018,9 @@ function ChatConversationPage() {
     <main className="museum-grid min-h-screen pb-24 pt-5 text-slate-100 lg:pt-24">
       <ResourceNav activeResource={agentInterview ? "agents" : "models"} />
       <div className="mx-auto flex min-h-screen w-full max-w-[1540px] flex-col px-4 py-5 sm:px-6 lg:px-8">
-        <header className="sticky top-4 z-30 border-y border-hire-300/20 bg-ink-950/72 px-0 py-4 backdrop-blur-2xl md:flex md:items-center md:justify-between md:gap-6 lg:top-24">
+        <header
+          className={`${CHAT_HEADER_POSITION_CLASSES} z-30 border-y border-hire-300/20 bg-ink-950/72 px-0 py-4 backdrop-blur-2xl md:flex md:items-center md:justify-between md:gap-6`}
+        >
           <div>
             <BrandLogo className="mb-4 lg:hidden" />
             <Link
@@ -3614,6 +3837,20 @@ function ChatConversationPage() {
 
                   <div className="flex flex-col gap-3 px-2 pb-1 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
+                      <ChatFileComposer
+                        disabled={isSending || isPreparingVideo || isUploadingImage}
+                        discardVersion={chatFileDiscardVersion}
+                        drawerHost={messageViewportRef.current}
+                        inputBoundary={messageInputRef.current}
+                        isAutoRoute={isOmniAutoRoute}
+                        knowledgeBaseSelected={Boolean(selectedKnowledgeBaseId)}
+                        mediaBlockedReason={chatFileMediaBlockedReason}
+                        modelId={isOmniAutoRoute ? decodedModelId : model.id}
+                        onError={setError}
+                        onStateChange={handleChatFileStateChange}
+                        resetVersion={chatFileResetVersion}
+                        scopeId={chatFileScopeId}
+                      />
                       <input
                         accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
                         className="hidden"
@@ -3631,7 +3868,8 @@ function ChatConversationPage() {
                           isSending ||
                           isUploadingImage ||
                           audioComposerOpen ||
-                          videoComposerOpen
+                          videoComposerOpen ||
+                          chatFileState.count > 0
                         }
                         onClick={() => fileInputRef.current?.click()}
                         title="上传图片"
@@ -3650,7 +3888,8 @@ function ChatConversationPage() {
                           isSending ||
                           isUploadingImage ||
                           uploadedImages.length > 0 ||
-                          videoComposerOpen
+                          videoComposerOpen ||
+                          chatFileState.count > 0
                         }
                         onClick={() => openAudioComposer("upload")}
                         type="button"
@@ -3669,7 +3908,8 @@ function ChatConversationPage() {
                             isPreparingVideo ||
                             isUploadingImage ||
                             uploadedImages.length > 0 ||
-                            audioComposerOpen
+                            audioComposerOpen ||
+                            chatFileState.count > 0
                           }
                           onClick={openVideoComposer}
                           type="button"
@@ -3687,7 +3927,8 @@ function ChatConversationPage() {
                             isSending ||
                             isUploadingImage ||
                             uploadedImages.length > 0 ||
-                            videoComposerOpen
+                            videoComposerOpen ||
+                            chatFileState.count > 0
                           }
                           enabled
                           isAutoRoute={isOmniAutoRoute}
@@ -3715,7 +3956,13 @@ function ChatConversationPage() {
                         </Link>
                       ) : null}
                       <p className="text-xs text-slate-400">
-                        {isUploadingImage
+                        {chatFileState.busy
+                          ? "正在本地提取文件内容..."
+                          : chatFileState.count > 0
+                            ? chatFileState.allConfirmed
+                              ? `已确认 ${chatFileState.count} 个文件，可发送`
+                              : "请打开文件预览并逐个确认"
+                        : isUploadingImage
                           ? "正在压缩图片..."
                           : isPreparingVideo
                             ? videoSelection?.mode === "assist"

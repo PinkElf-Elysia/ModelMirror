@@ -21,6 +21,7 @@ from server.xpert_runtime.goals import GoalStep, GoalStore
 from server.xpert_runtime.run_registry import RunRegistry
 from server.xpert_runtime.toolset import RuntimeToolCall
 from server.xperts import (
+    XpertContextError,
     XpertContextNotFoundError,
     XpertContextStore,
     XpertContextValidationError,
@@ -141,6 +142,113 @@ def test_context_store_rejects_unsafe_files_and_cross_xpert_access(stores) -> No
         context.get_conversation("xpert-2", conversation.conversation_id)
 
 
+def test_context_store_rolls_back_file_delete_when_snapshot_persistence_fails(
+    stores,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, context = stores
+    conversation = context.create_conversation("xpert-delete-rollback")
+    asset = context.add_file(
+        "xpert-delete-rollback",
+        conversation.conversation_id,
+        filename="rollback.txt",
+        content=b"keep this attachment",
+    )
+    raw_path = context.files_dir / asset.storage_key
+    text_path = context.files_dir / asset.text_key
+
+    def fail_persist() -> None:
+        raise OSError("simulated persistence interruption")
+
+    monkeypatch.setattr(context, "_persist_unlocked", fail_persist)
+    with pytest.raises(XpertContextError, match="persist Xpert file deletion"):
+        context.purge_file(
+            "xpert-delete-rollback",
+            conversation.conversation_id,
+            asset.asset_id,
+        )
+
+    assert raw_path.exists()
+    assert text_path.exists()
+    assert context.get_file(
+        "xpert-delete-rollback",
+        asset.asset_id,
+        conversation_id=conversation.conversation_id,
+    )
+    assert asset.asset_id in conversation.file_asset_ids
+
+
+def test_context_store_rolls_back_unlink_failure_and_allows_retry(
+    stores,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, context = stores
+    conversation = context.create_conversation("xpert-delete-retry")
+    asset = context.add_file(
+        "xpert-delete-retry",
+        conversation.conversation_id,
+        filename="retry.txt",
+        content=b"retry this attachment deletion",
+    )
+    raw_path = context.files_dir / asset.storage_key
+    text_path = context.files_dir / asset.text_key
+    original_unlink = context._unlink_file_path
+    failed = False
+
+    def fail_text_unlink_once(path: Path) -> None:
+        nonlocal failed
+        if path == text_path and not failed:
+            failed = True
+            raise OSError("simulated unlink interruption")
+        original_unlink(path)
+
+    monkeypatch.setattr(context, "_unlink_file_path", fail_text_unlink_once)
+    with pytest.raises(XpertContextError, match="delete Xpert file content"):
+        context.purge_file(
+            "xpert-delete-retry",
+            conversation.conversation_id,
+            asset.asset_id,
+        )
+    assert raw_path.read_bytes() == b"retry this attachment deletion"
+    assert text_path.exists()
+    assert context.get_file("xpert-delete-retry", asset.asset_id)
+
+    monkeypatch.setattr(context, "_unlink_file_path", original_unlink)
+    context.purge_file(
+        "xpert-delete-retry",
+        conversation.conversation_id,
+        asset.asset_id,
+    )
+    assert not raw_path.exists()
+    assert not text_path.exists()
+
+
+def test_context_store_rejects_reparse_component_before_path_resolution(
+    stores,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, context = stores
+    conversation = context.create_conversation("xpert-path-guard")
+    asset = context.add_file(
+        "xpert-path-guard",
+        conversation.conversation_id,
+        filename="guard.txt",
+        content=b"guarded attachment",
+    )
+    blocked_parent = (context.files_dir / asset.storage_key).parent
+    checked: list[Path] = []
+    original_check = context._is_symlink_or_reparse
+
+    def mark_parent_as_reparse(path: Path) -> bool:
+        checked.append(path)
+        return path == blocked_parent or original_check(path)
+
+    monkeypatch.setattr(context, "_is_symlink_or_reparse", mark_parent_as_reparse)
+    with pytest.raises(XpertContextError, match="path is unsafe"):
+        context.read_file_bytes(asset)
+    assert blocked_parent in checked
+
+
 def test_context_store_persists_derived_conversation_summary(stores) -> None:
     _, context = stores
     conversation = context.create_conversation("xpert-summary")
@@ -190,7 +298,7 @@ def test_context_store_persists_derived_conversation_summary(stores) -> None:
 
 @pytest.mark.asyncio
 async def test_context_api_upload_memory_and_candidate_flow(client, stores) -> None:
-    xperts, _ = stores
+    xperts, context = stores
     xpert = xperts.create_xpert(name="Context API")
     conversation_response = await client.post(
         f"/api/xperts/{xpert.id}/conversations",
@@ -206,6 +314,10 @@ async def test_context_api_upload_memory_and_candidate_flow(client, stores) -> N
     assert upload.status_code == 200, upload.text
     assert "storage_key" not in upload.json()
     assert "text_key" not in upload.json()
+    asset_id = upload.json()["asset_id"]
+    stored_asset = context.get_file(xpert.id, asset_id, conversation_id=conversation_id)
+    raw_path = context.files_dir / stored_asset.storage_key
+    text_path = context.files_dir / stored_asset.text_key
 
     memory = await client.post(
         f"/api/xperts/{xpert.id}/memories",
@@ -228,6 +340,49 @@ async def test_context_api_upload_memory_and_candidate_flow(client, stores) -> N
         f"/api/xperts/{other.id}/conversations/{conversation_id}"
     )
     assert denied.status_code == 404
+
+    cross_xpert_delete = await client.delete(
+        f"/api/xperts/{other.id}/conversations/{conversation_id}/files/{asset_id}/purge"
+    )
+    assert cross_xpert_delete.status_code == 404
+    other_conversation = context.create_conversation(xpert.id)
+    cross_conversation_delete = await client.delete(
+        f"/api/xperts/{xpert.id}/conversations/{other_conversation.conversation_id}/files/{asset_id}/purge"
+    )
+    assert cross_conversation_delete.status_code == 404
+    assert raw_path.exists()
+    assert text_path.exists()
+
+    with context.claim_file(xpert.id, conversation_id, asset_id):
+        claimed_delete = await client.delete(
+            f"/api/xperts/{xpert.id}/conversations/{conversation_id}/files/{asset_id}/purge"
+        )
+    assert claimed_delete.status_code == 409
+    assert raw_path.exists()
+    assert text_path.exists()
+
+    archived = await client.delete(
+        f"/api/xperts/{xpert.id}/conversations/{conversation_id}/files/{asset_id}"
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["status"] == "archived"
+    assert raw_path.exists()
+    assert text_path.exists()
+
+    deleted = await client.delete(
+        f"/api/xperts/{xpert.id}/conversations/{conversation_id}/files/{asset_id}/purge"
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"asset_id": asset_id, "deleted": True}
+    assert not raw_path.exists()
+    assert not text_path.exists()
+    with pytest.raises(XpertContextNotFoundError):
+        context.get_file(xpert.id, asset_id, include_archived=True)
+    restored = XpertContextStore(context.storage_dir)
+    assert asset_id not in restored.get_conversation(
+        xpert.id,
+        conversation_id,
+    ).file_asset_ids
 
 
 @pytest.mark.asyncio

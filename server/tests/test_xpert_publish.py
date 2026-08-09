@@ -222,6 +222,41 @@ async def test_xpert_publish_preflight_rejects_invalid_chat_contract(
 
 
 @pytest.mark.asyncio
+async def test_xpert_publish_uses_file_registry_allowlist(
+    client: httpx.AsyncClient,
+) -> None:
+    create_response = await client.post(
+        "/api/xperts",
+        json={"name": "Controlled file formats"},
+    )
+    assert create_response.status_code == 200, create_response.text
+    xpert = create_response.json()
+    draft = xpert["draft"]
+    draft["features"]["file_upload"]["allowed_extensions"] = [
+        ".txt",
+        ".exe",
+    ]
+
+    update_response = await client.patch(
+        f"/api/xperts/{xpert['id']}",
+        json={"draft": draft},
+    )
+    assert update_response.status_code == 200, update_response.text
+
+    publish_response = await client.post(
+        f"/api/xperts/{xpert['id']}/publish",
+        json={},
+    )
+    assert publish_response.status_code == 422
+    issues = publish_response.json()["detail"]["issues"]
+    assert any(
+        item["code"] == "xpert_file_extension_unsupported"
+        and ".exe" in item["message"]
+        for item in issues
+    )
+
+
+@pytest.mark.asyncio
 async def test_published_xpert_runs_immutable_snapshot_and_registers_trace(
     client: httpx.AsyncClient,
     xpert_store: XpertStore,

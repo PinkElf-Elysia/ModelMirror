@@ -30,7 +30,15 @@ export interface DataXSource {
   row_count: number;
   column_count: number;
   status: DataXStatus;
-  profile: { row_count?: number; columns?: DataXColumnProfile[] };
+  profile: {
+    row_count?: number;
+    columns?: DataXColumnProfile[];
+    source?: {
+      selected_sheet?: string;
+      visible_sheets_ignored?: string[];
+      hidden_sheets_ignored?: string[];
+    };
+  };
   error: string;
   created_at: number;
   updated_at: number;

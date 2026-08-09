@@ -2,6 +2,7 @@
 
 > 审计基线：多模态与音频闭环批次 A–I，以及未验证模型收尾批次 A–H；实时模型目录复核日期 2026-08-06。OpenRouter 快照为 517 个模型（462 个实时条目 + 52 个可能不可用的保留条目 + 3 个到期条目），另有直接 OpenAI 精选档案。
 > 本文描述的是当前真实能力和分阶段交付边界，不代表一次性承诺支持所有格式。
+> 文件输入 A–H 的发布门禁、回退与验收证据见 [`FILE_INPUT_CLOSURE_ACCEPTANCE.md`](./FILE_INPUT_CLOSURE_ACCEPTANCE.md)。
 
 ## 0. 2026-08-06 图片、音频与视频能力复核
 
@@ -81,7 +82,7 @@ node scripts/audit-model-modalities.mjs \
 | 图片 | JPEG/JPG、PNG、WebP、GIF、SVG、TIFF、HEIC/HEIF、BMP | 审计；不新增 GIF 动画处理 |
 | 音频 | WAV、MP3、AAC、M4A、FLAC、OGG/Opus、WebM、WebRTC 媒体流 | 已交付 STT、TTS、Chat 音频附件、录音后转写、原生音频流、音乐生成和纯语音实时对话 |
 | 视频 | MP4、MPEG、MOV、WebM、MKV、AVI | 已交付 MP4/MPEG/MOV/WebM 理解、Chat 单轮附件和异步生成闭环；MKV/AVI 仅审计 |
-| 文档 | PDF、DOCX、PPTX、XLSX、CSV/TSV、EPUB、RTF、ODF | 只审计；RAG XLSX 延后到专项路线审计 |
+| 文档 | PDF、DOCX、PPTX、XLSX、CSV/TSV、EPUB、RTF、ODF | Chat、RAG、Data X 与 Workflow 已按任务边界接入；Agent 继续使用兼容文件上下文，统一资产 binding 迁移延期 |
 | 结构化数据 | JSON、JSON Schema、表格、数据库查询结果、Parquet | 审计 Chat、RAG、Data X 分工 |
 | 字幕与时间轴 | SRT、VTT、ASS/SSA、带时间戳的转录 JSON | 审计，归入音视频后处理 |
 | 压缩包 | ZIP、7z、RAR、TAR.GZ | 只审计，待解压安全边界明确 |
@@ -136,7 +137,7 @@ node scripts/audit-model-modalities.mjs \
 | 图片理解 | 已收录 | 已支持，模型原生 | 已支持，视觉转换/组合 | 不适用 | 文件能力按配置 | 节点能力按配置 | 不适用 | 已支持 |
 | 图片生成 | 专用实时目录确认 | 独立图片生成/编辑工作区，不复用 Chat SSE | 不适用 | 不适用 | 按模型配置 | 按节点配置 | `/chat/:modelId?operation=generate_image` | 已支持，OpenRouter-first |
 | GIF 动画 | 已收录为图片 | 当前压缩会静态化 | 当前按静态图片处理 | 不适用 | 未验证 | 未验证 | 无 | 仅静态首帧，不算动画支持 |
-| PDF | 已收录为 file | 无附件契约 | 已支持，文本/视觉转换 | 不适用 | 文件能力按配置 | 文件节点按配置 | 无 | 部分支持 |
+| PDF | 已收录为 file | 已支持原生读取或本地提取；扫描件一次性视觉/OCR入口延期 | 已支持，文本/视觉转换 | 不适用 | 文件能力按配置 | 文件节点按配置 | 无 | 部分支持；Chat 当前不会调用付费 OCR |
 | 音频转写 STT | 实时与本地档案确认 | Chat 媒体面板可上传或录音后转写并编辑 | 不适用 | 不适用 | Agent Runtime 可按配置调用 | 无 | 独立深链兼容保留 | 已支持，OpenRouter-first |
 | 文字转语音 TTS | 实时与版本化档案确认 | 助手回答可朗读，自动朗读默认关闭 | 不适用 | 不适用 | Agent Runtime 可按配置调用 | 无 | 独立深链兼容保留 | 已支持，按已验证模型/声线开放 |
 | 音频理解 | 实时与本地档案确认 | 已验证模型可直接理解；普通模型和 auto 显式先转写 | 不适用 | 不适用 | 按模型配置 | 无 | 无 | 部分支持，OpenRouter-first |
@@ -146,8 +147,10 @@ node scripts/audit-model-modalities.mjs \
 | 声音克隆 | 能力可识别 | 不开放上传或创建 | 不适用 | 不适用 | 不开放 | 不适用 | 仅安全占位 | 计划中，上游无法验证删除临时音色 |
 | 视频理解 | 实时能力确认 | 本地附件可由当前模型直接理解或先生成辅助摘要 | 无拆帧流水线 | 不适用 | 未形成通用能力 | 无 | 文件或 HTTPS/YouTube URL | 已支持，OpenRouter-first |
 | 视频生成 | 实时能力确认 | 独立异步工作区，不复用 Chat SSE | 不适用 | 不适用 | 未形成通用能力 | 无 | 文生视频、首尾帧、最多三参考图、受控高级参数 | 已支持，OpenRouter-first |
-| XLSX | 归类为 file | 不支持 | 未支持，待专项审计 | 已支持，结构化解析 | 文件能力按配置 | 文件节点按配置 | 不适用 | 部分支持，仅 Data X 等特定模块 |
-| CSV / TSV | 归类为 file | 不支持 | 尚未纳入资料库 | 已支持 CSV | 文件能力按配置 | 文件节点按配置 | 不适用 | 部分支持 |
+| XLSX | 归类为 file | 已支持本地结构化预览，确认后发送 | 已支持按 Sheet 语义检索 | 已支持专业结构化分析 | 本批未接入 | 通过固定工作流作用域的资产变量提取 | 不适用 | 已在 Chat、RAG、Data X、Workflow 按不同任务闭环 |
+| CSV / TSV | 归类为 file | 已支持有界表格预览和来源行号 | 已支持语义检索 | 已支持 CSV | 文件能力按配置 | 文件节点按配置 | 不适用 | 已支持转换后输入 |
+| JSON / JSONL / YAML / XML / HTML | 归类为 file | 已支持安全预检、结构保真或安全正文提取 | 已支持语义检索 | 不默认进入 | 文件能力按配置 | 文件节点按配置 | 不适用 | 已支持转换后输入 |
+| SRT / VTT、源码、配置和日志 | 归类为 file | 已支持时间轴或行号来源预览 | 已支持语义检索 | 不适用 | 文件能力按配置 | 文件节点按配置 | 不适用 | 已支持转换后输入 |
 | Parquet | 未作为聊天模态 | 不适用 | 不支持 | 已支持 | 文件能力按配置 | 文件节点按配置 | 不适用 | 部分支持 |
 | Embedding | 已收录 | 不适用 | 已支持，专用配置 | 不适用 | 可作为检索依赖 | 可作为检索节点 | RAG 设置 | 已支持，入口仅在 RAG |
 | Rerank | 已收录 | 不适用 | 已支持，专用 API/LLM | 不适用 | 可作为检索依赖 | 可作为检索节点 | RAG 设置 | 已支持，入口仅在 RAG |
@@ -157,7 +160,7 @@ node scripts/audit-model-modalities.mjs \
 
 ### 2.3 UI 入口规则
 
-- `chat`：文本、图片、音频和本地视频附件；不支持当前模态的模型必须显式经过 STT 或视频理解辅助模型。
+- `chat`：文本、图片、音频、本地视频及已验证的常用文件附件；文件必须先预览确认，不支持当前媒体模态的模型必须显式经过 STT 或视频理解辅助模型。
 - `rag`：资料上传、Embedding、Rerank、引用检索和检索流水线。
 - `datax`：CSV、XLSX、Parquet 的结构化分析，不承担知识库语义切片。
 - `agents`：配置化媒体工具、工具调用、审批和 Agent 事件。
@@ -171,18 +174,19 @@ node scripts/audit-model-modalities.mjs \
 
 | 格式 | Chat | RAG | Data X | 支持层级 | 后续动作 |
 |---|---|---|---|---|---|
-| TXT | 文本粘贴，不支持附件 | 已支持 | 不适用 | 转换后 | 保持 |
-| MD / Markdown | 文本粘贴，不支持附件 | 已支持 | 不适用 | 转换后 | 保持 |
-| PDF | 不支持附件 | 已支持文本与视觉处理 | 不适用 | 转换后 | 后续补 Chat `file` |
+| TXT | 已支持附件和本地预览 | 已支持 | 不适用 | 转换后 | 保持 |
+| MD / Markdown | 已支持附件和本地预览 | 已支持 | 不适用 | 转换后 | 保持 |
+| PDF | 已支持原生读取或本地提取 | 已支持文本与视觉处理 | 不适用 | 原生/转换后 | Chat 扫描件一次性视觉/OCR入口延期；当前不调用付费 OCR |
 | PNG / JPG / JPEG / WebP | 已支持图片输入 | 已支持视觉处理 | 不适用 | 模型原生/组合 | 保持 |
-| XLSX | 不支持 | 未支持 | 已支持 | 转换后 | 下一轮先审计解析路线、资源边界与 RAG 入口 |
-| CSV | 不支持 | 未支持 | 已支持 | 转换后 | 与 RAG 常用表格格式一起重新排序 |
+| XLSX | 已支持按 Sheet 本地预览 | 已支持按 Sheet 语义检索 | 已支持专业分析 | 转换后/专用 | Chat、RAG、Data X 与 Workflow 分流明确；Agent 统一资产迁移延期 |
+| CSV / TSV | 已支持有界表格预览 | 已支持语义检索 | 已支持 CSV | 转换后 | 保持 Data X 专业分析分工 |
 | Parquet | 不适用 | 未支持 | 已支持 | 转换后 | 保持 Data X 专用 |
-| HTML / JSON / YAML / XML | 文本粘贴 | 未作为文件支持 | JSON 可经其他入口使用 | 转换后 | 第二轮常用文本文件 |
-| DOCX / PPTX | 不支持 | 不支持 | 不适用 | 无 | 依赖与版式保真审计后实施 |
+| HTML / JSON / JSONL / YAML / XML | 已支持安全文件预览 | 已支持语义检索 | JSON 可经其他入口使用 | 转换后 | 保持深度、节点和主动内容门禁 |
+| 常见源码、配置和日志 | 已支持并保留行号/语义布局 | 已支持语义检索 | 不适用 | 转换后 | 不做 NFKC 归一化 |
+| DOCX / PPTX | 已支持隔离静态提取与预览 | 已支持隔离解析和来源引用 | 不适用 | 转换后 | Workflow 复用同一断网 sidecar；宏、ActiveX、OLE 与外部资源拒绝，图片仅占位且不自动调用视觉模型 |
 | EPUB / RTF / ODT / ODS / ODP | 不支持 | 不支持 | 不适用 | 无 | 仅审计 |
 | XLS / DOC / PPT | 不支持 | 不支持 | 不适用 | 无 | 需要隔离转换方案 |
-| SRT / VTT / ASS | 不支持附件 | 不支持 | 不适用 | 无 | 音视频后处理阶段 |
+| SRT / VTT | 已支持并保留时间轴 | 已支持语义检索 | 不适用 | 转换后 | ASS / SSA 继续延期 |
 | ZIP / 7z / RAR / TAR.GZ | 不支持 | 不支持 | 不支持 | 无 | 完成路径穿越、炸弹和嵌套限制后再评估 |
 
 ### 3.2 图片
@@ -214,15 +218,16 @@ node scripts/audit-model-modalities.mjs \
 
 ### 示例 A：XLSX
 
-“Data X 支持 XLSX”不等于“平台所有模块支持 XLSX”。
+“平台支持 XLSX”仍不等于每个模块采用同一种处理方式。
 
 ```text
 格式：XLSX
-Data X：已支持，结构化解析
-RAG：未支持；下一轮先审计解析保真、资源边界与独立入口
-Chat：不支持附件
-能力层级：Data X 为转换后支持；RAG 尚未形成可验收链路
-UI：当前仅 Data X；未来若进入 RAG，也不进入普通 Chat
+Chat：本地只读提取，逐文件预览确认后作为非可信用户数据发送
+RAG：按工作表与单元格范围保留来源，用于语义检索
+Data X：保留 50 MiB、100 万行的专业分析边界，公式不执行
+能力层级：Chat/RAG 为转换后支持；Data X 为专用分析
+UI：上传时显式选择“与模型讨论”“加入资料库”或“用 Data X 分析”；切换模块需在目标页重新选择文件
+限制：Chat/RAG 单文件 10 MiB、最多 50 个可见 Sheet、100,000 个非空单元格、每 Sheet 200 列
 ```
 
 ### 示例 B：Embedding 模型
@@ -274,7 +279,7 @@ UI：模型卡进入“分析视频”或“生成视频”专用工作区
 9. Lyria Clip/Pro 音乐生成、幂等任务、临时播放器和下载。
 10. 直接 OpenAI WebRTC 实时语音、语义 VAD、自然打断、静音、显式重连和 10 分钟硬上限。
 
-实时翻译、语音/视频电话、SIP、自定义持久音色库、实时工具调用、音频 URL、Chat 视频 URL、RAG XLSX 和其他文件格式继续延期，必须重新建立独立验收路线。
+实时翻译、语音/视频电话、SIP、自定义持久音色库、实时工具调用、音频 URL、Chat 视频 URL、Agent 统一文件资产 binding、跨模块免重选转交和其他尚未开放格式继续延期，必须重新建立独立验收路线。
 
 ### 通用 STT 后端契约
 
@@ -436,9 +441,9 @@ MULTIMODAL_VOICE_CLONING_ENABLED=false
 - GIF 动画、SVG 主动内容、HEIC/TIFF 高级处理。
 - 视频音轨单独识别、视频多轮原始媒体上下文。
 - 实时翻译、语音/视频电话、电话/SIP 接入、实时工具调用和自定义持久音色库。
-- RAG XLSX、CSV 等表格资料解析及其前端入口。
+- Agent 的统一文件资产 binding、跨进程运行租约，以及跨模块免重选转交。
 - 3D、点云、传感器、科学数据和医学影像。
-- 压缩包、旧版 Office 和复杂办公版式保真。
+- 压缩包、旧版 Office，以及 DOCX/PPTX 中无法由静态结构可靠还原的复杂版式与修订细节。
 
 ## 6. 文档验收标准
 
@@ -450,6 +455,26 @@ MULTIMODAL_VOICE_CLONING_ENABLED=false
 4. 已支持项能找到真实代码或测试证据；无法验证的项目只能标为“计划中”或“仅审计”。
 5. GIF、视频、3D、医学影像等不会因目录标签被误写成当前平台能力。
 6. 新增格式必须补充大小、数量、超时、安全、隐私和降级约束后才能进入实施。
+
+### 6.1 文件格式 readiness 离线门禁
+
+文件格式的机读审计证据保存在 `docs/file-readiness.json`。它只记录 Chat、RAG、Data X、智能体和工作流各自的真实状态，不作为后端运行时配置；一个模块支持某种格式，不代表平台其他模块自动支持。
+
+已上线但安全护栏尚未完全闭环的能力使用 `ready + contract_verified`，与具备完整安全测试证据的 `ready + verified` 分开统计。计划或关闭的格式必须保留可理解的原因，不能用无说明的“待适配”代替。
+
+Chat 扫描 PDF 的“一次性视觉识别 / 供应商 OCR”入口已明确延后到下一轮专项闭环：届时应在当前文件预览中直接展示页数、费用与隐私提示，识别结果先预览确认，再决定发送或保存到资料库。当前实现只本地提取文本型 PDF；扫描件会安全停止，绝不隐式调用付费 OCR。
+
+Batch G 的生命周期边界如下：RAG 文档删除先进入不可检索 tombstone，再清理原件、活动/历史索引、流水线 snapshot、处理产物与视觉缓存；清理失败保持 `cleanup_pending` 并允许从资料库作用域恢复重试。删除单个文档或整个资料库时只解绑对应 RAG binding，其他模块仍引用的共享 blob 保留。整库删除在用户明确授权后采用持久 scope tombstone 与 asset ledger：先原子隔离资料库并停止新写入，再等待流水线停写、严格清理派生物和无引用资产；任何步骤失败都保留可刷新、可重试状态，不会提前报告删除完成。
+
+Xpert 兼容文件上下文恢复时不自动勾选历史附件，发送只消费本轮显式选择；旧 DELETE 保留一版归档语义，永久删除使用独立 purge 入口并在活跃读取时返回冲突。该 claim 仅覆盖单进程读取阶段，统一 FileAssetService binding 与跨进程运行租约仍延期。
+
+Workflow 使用 `workflow:{workflow_id}` 固定作用域、`assetIdVariable` 和真实上传/已有资产选择；`WORKFLOW_FILE_ASSETS_ENABLED=false` 与非 shadow/native 存储模式均 fail closed。旧 `sourcePathVariable` 只读兼容一版，不允许新建或与资产变量并存。
+
+离线检查会重算统计、验证证据路径，并确认 RAG、Data X、智能体和 Workflow 的后端解析与前端上传入口均接入各自声明的文件能力契约；运行时能力值则由 `server/tests/test_file_assets.py` 与审计报告逐项对账：
+
+```text
+node scripts/check-file-readiness.mjs
+```
 
 ## 7. 接口依据
 

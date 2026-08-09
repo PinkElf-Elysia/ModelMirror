@@ -260,8 +260,8 @@ function createNodeData(
     return {
       kind,
       title: "文档提取器",
-      description: "从受限本地文件路径中提取纯文本。",
-      sourcePathVariable: "document_path",
+      description: "从当前工作流作用域的文件资产中提取纯文本。",
+      assetIdVariable: "document_asset_id",
       outputVariable: "document_text",
     };
   }
@@ -1029,8 +1029,9 @@ function AgentStudioPanel({
           />
           <ConfigSwitch
             checked={workflowBooleanValue(data.enableFileUnderstanding)}
-            description="为后续文件变量和附件理解预留。"
-            label="文件理解"
+            description="仅显示已有配置的只读状态；通用文件资产变量尚未接入，当前不能新建或修改。"
+            disabled
+            label="文件理解（只读）"
             onChange={(checked) =>
               setStringBoolean("enableFileUnderstanding", checked)
             }
@@ -2479,18 +2480,36 @@ function NodeConfig({
 
       {data.kind === "document_extractor" ? (
         <>
-          <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
-            安全提示：该节点只读取后端允许目录内的本地文件路径，不提供上传能力。
-          </div>
-          <Field label="文件路径变量">
-            <input
-              className={textInputClass()}
-              onChange={(event) =>
-                update({ sourcePathVariable: event.target.value })
-              }
-              value={data.sourcePathVariable ?? ""}
-            />
-          </Field>
+          {data.sourcePathVariable && !data.assetIdVariable ? (
+            <>
+              <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-50">
+                这是旧版路径配置，仅保留一个发布周期的读取兼容。当前不能修改或新建路径型配置，请迁移到文件资产变量。
+              </div>
+              <Field label="旧路径变量（只读）">
+                <input
+                  aria-readonly="true"
+                  className={`${textInputClass()} cursor-not-allowed opacity-70`}
+                  readOnly
+                  value={String(data.sourcePathVariable)}
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <div className="rounded-lg border border-sky-300/25 bg-sky-300/10 px-3 py-2 text-xs leading-5 text-sky-50">
+                运行前在试运行面板选择文件。后端只接受当前工作流作用域内的 asset_id，不接受服务器路径。
+              </div>
+              <Field label="文件资产变量">
+                <input
+                  className={textInputClass()}
+                  onChange={(event) =>
+                    update({ assetIdVariable: event.target.value })
+                  }
+                  value={data.assetIdVariable ?? ""}
+                />
+              </Field>
+            </>
+          )}
           <Field label="输出变量">
             <input
               className={textInputClass()}

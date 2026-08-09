@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import httpx
@@ -61,13 +62,69 @@ def test_sqlite_fts5_indexes_mixed_chinese_and_english(tmp_path: Path) -> None:
                 document_name="guide.txt",
                 text="蓝鲸计划 uses manual approval before production deployment.",
                 chunk_index=0,
+                sheet="发布计划",
+                row_range="A1:B4",
             )
         ]
     )
     assert "蓝鲸" in tokenize_for_search("蓝鲸计划")
-    assert store.query("kb-v2", "蓝鲸", 5)[0].chunk_id == "c1"
+    result = store.query("kb-v2", "蓝鲸", 5)[0]
+    assert result.chunk_id == "c1"
+    assert result.sheet == "发布计划"
+    assert result.row_range == "A1:B4"
     assert store.query("kb-v2", "production deployment", 5)[0].document_name == "guide.txt"
     assert store.query("other", "蓝鲸", 5) == []
+
+
+def test_sqlite_fts5_migrates_old_source_schema_with_optional_defaults(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "legacy-lexical.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE rag_chunks (
+                chunk_id TEXT PRIMARY KEY,
+                namespace TEXT NOT NULL,
+                doc_id TEXT NOT NULL,
+                document_name TEXT NOT NULL,
+                text TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                parent_chunk_id TEXT,
+                parent_text TEXT,
+                chunk_type TEXT NOT NULL,
+                start_char INTEGER NOT NULL,
+                end_char INTEGER NOT NULL,
+                page_number INTEGER,
+                visual_kind TEXT,
+                source_block_id TEXT
+            )
+            """
+        )
+
+    store = SqliteLexicalStore(path)
+    with sqlite3.connect(path) as connection:
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(rag_chunks)")
+        }
+    assert {"sheet", "row_range"}.issubset(columns)
+
+    store.add_chunks(
+        [
+            LexicalChunk(
+                chunk_id="legacy-compatible",
+                namespace="legacy",
+                doc_id="doc",
+                document_name="legacy.txt",
+                text="legacy metadata remains queryable",
+                chunk_index=0,
+            )
+        ]
+    )
+    result = store.query("legacy", "metadata", 1)[0]
+    assert result.sheet is None
+    assert result.row_range is None
 
 
 @pytest.mark.asyncio

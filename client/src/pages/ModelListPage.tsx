@@ -10,6 +10,11 @@ import {
   type ModelFilterState,
 } from "../data/filterState";
 import {
+  deriveFileSurfaceSummary,
+  fetchFileCapabilities,
+  type FileCapabilitiesResponse,
+} from "../data/fileCapabilities";
+import {
   models,
   type InputModality,
   type Model,
@@ -175,6 +180,8 @@ export default function ModelListPage() {
     useState<ImageCatalogPayload | null>(null);
   const [generalCatalog, setGeneralCatalog] =
     useState<GeneralCatalogPayload | null>(null);
+  const [fileCapabilities, setFileCapabilities] =
+    useState<FileCapabilitiesResponse | null>(null);
   const [runtimeEnvironment, setRuntimeEnvironment] =
     useState<RuntimeEnvironmentSummary | null>(null);
 
@@ -285,8 +292,19 @@ export default function ModelListPage() {
         }
       });
 
+    void fetchFileCapabilities(controller.signal).then((payload) => {
+      if (!controller.signal.aborted) {
+        setFileCapabilities(payload);
+      }
+    });
+
     return () => controller.abort();
   }, []);
+
+  const fileSurfaceSummary = useMemo(
+    () => deriveFileSurfaceSummary(fileCapabilities),
+    [fileCapabilities],
+  );
 
   const confirmedVideoOperations = useMemo(() => {
     const result = new Map<string, ModelOperation[]>();
@@ -792,6 +810,7 @@ export default function ModelListPage() {
                       verificationVideoOperations={
                         verificationVideoOperations.get(model.id)
                       }
+                      fileSurfaceSummary={fileSurfaceSummary}
                       model={model}
                       imageCatalogStale={imageCatalog?.stale ?? false}
                       videoCatalogStale={videoCatalog?.stale ?? false}
@@ -825,6 +844,7 @@ export default function ModelListPage() {
                   verificationVideoOperations={
                     verificationVideoOperations.get(model.id)
                   }
+                  fileSurfaceSummary={fileSurfaceSummary}
                   key={model.id}
                   model={model}
                   imageCatalogStale={imageCatalog?.stale ?? false}
