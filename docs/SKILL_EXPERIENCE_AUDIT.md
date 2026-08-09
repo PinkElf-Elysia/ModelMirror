@@ -146,6 +146,8 @@ node scripts/audit-skill-experience.mjs
 
 资源化增强 PR 1 已建立 `resource-authoring-v2` 的不可变规划合同：固定 Creator 先提出必要澄清问题，再给出可编辑、可冻结的工作流与资源计划；简单 Skill 可以明确选择零附加资源。该阶段不生成文件，不写 Authoring Proposal，也不改变既有评测和安装门。`SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED` 默认关闭，独立预览验收时才显式开启；PR 2 完成资源构建与脚本实测、PR 3 完成工作台迁移后再成为新 Session 默认流程。
 
+资源化增强 PR 2 已补齐服务端构建合同：确认后的计划按依赖顺序逐项生成，单个资源可在服务端内部拆成最多三个 8 KiB 片段，完整组装、静态校验与脚本离线实测后才进入一次用户评审。`skill_authoring_v1` Sidecar 配置将 `inputs/` 与 `skills/` 设为只读，只允许 `work/`、`.tmp/` 写入及 `python`、`python3`、`node`、`rg` 命令；脚本 receipt 与内容 digest 绑定。所有资源确认后才生成 `SKILL.md`，通过资源闭环与 Creator 初稿完整度门后形成普通待审提案，仍不能绕过三例行为评测或独立安装确认。功能开关继续默认关闭，PR 3 再提供完整工作台和旧会话迁移。
+
 ### 4.4 外部市场
 
 SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验当前索引中的既有条目，不产生新目录、不做市场搜索、不自动同步外部条目。

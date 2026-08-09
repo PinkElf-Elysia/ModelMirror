@@ -22,7 +22,9 @@ DEFAULT_ALLOWED_COMMANDS = {"python", "python3", "node", "npm", "npx", "git", "r
 SKILL_EVALUATION_ALLOWED_COMMANDS = {"python", "python3", "node", "rg"}
 DEFAULT_PROFILE = "default"
 SKILL_EVALUATION_PROFILE = "skill_evaluation_v1"
-SUPPORTED_PROFILES = {DEFAULT_PROFILE, SKILL_EVALUATION_PROFILE}
+SKILL_AUTHORING_PROFILE = "skill_authoring_v1"
+PROTECTED_SKILL_PROFILES = {SKILL_EVALUATION_PROFILE, SKILL_AUTHORING_PROFILE}
+SUPPORTED_PROFILES = {DEFAULT_PROFILE, *PROTECTED_SKILL_PROFILES}
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
 MAX_MANIFEST_FILES = 500
@@ -63,46 +65,40 @@ class SandboxEngine:
                         "allowed_commands": sorted(self.allowed_commands),
                         "network_policy": "container_network_none_required",
                     },
-                    SKILL_EVALUATION_PROFILE: {
-                        "allowed_commands": sorted(SKILL_EVALUATION_ALLOWED_COMMANDS),
-                        "network_policy": "container_network_none_required",
-                        "read_only_roots": ["inputs", "skills"],
-                        "writable_roots": ["work", ".tmp"],
-                        "write_file_roots": ["work"],
-                        "provisioning": "capability_bound",
-                        "lifecycle_actions": [
-                            "ensure_workspace",
-                            "seed_file",
-                            "seal_workspace",
-                            "collect_work_manifest",
-                            "cleanup_workspace",
-                        ],
-                    },
+                    SKILL_EVALUATION_PROFILE: self._protected_profile_attestation(),
+                    SKILL_AUTHORING_PROFILE: self._protected_profile_attestation(),
                 },
             }
         profile = self._profile(request.get("profile"))
         workspace_id = self._workspace_id(request.get("workspace_id"))
-        if profile == SKILL_EVALUATION_PROFILE:
+        if profile in PROTECTED_SKILL_PROFILES:
             if action == "ensure_workspace":
-                return self._ensure_evaluation_workspace(workspace_id, request)
-            workspace = self._evaluation_workspace(workspace_id, request)
+                return self._ensure_protected_workspace(workspace_id, request, profile)
+            workspace = self._protected_workspace(workspace_id, request, profile)
             if action == "seed_file":
-                return self._idempotent(workspace, action, request, self._seed_evaluation_file)
+                return self._idempotent(
+                    workspace,
+                    action,
+                    request,
+                    lambda bound_workspace, bound_request: self._seed_protected_file(
+                        bound_workspace, bound_request, profile
+                    ),
+                )
             if action == "seal_workspace":
-                self._seal_evaluation_workspace(workspace)
+                self._seal_protected_workspace(workspace)
                 return {"ok": True, "workspace_id": workspace_id, "sealed": True}
             if action == "collect_work_manifest":
-                self._seal_evaluation_workspace(workspace)
+                self._seal_protected_workspace(workspace)
                 return self._collect_work_manifest(workspace)
             if action == "cleanup_workspace":
                 shutil.rmtree(workspace)
                 return {"ok": True, "workspace_id": workspace_id, "removed": True}
             if action == "publish_artifact":
                 raise SandboxEngineError(
-                    "Artifact publishing is unavailable in the Skill evaluation profile.",
+                    "Artifact publishing is unavailable in protected Skill profiles.",
                     code="profile_action_denied",
                 )
-            self._seal_evaluation_workspace(workspace)
+            self._seal_protected_workspace(workspace)
         else:
             workspace = self._ensure_workspace(workspace_id)
         if action == "ensure_workspace":
@@ -128,7 +124,7 @@ class SandboxEngine:
         marker = workspace / ".modelmirror" / "profile.json"
         if marker.exists():
             stored = self._read_profile_marker(marker)
-            if stored.get("profile") == SKILL_EVALUATION_PROFILE:
+            if stored.get("profile") in PROTECTED_SKILL_PROFILES:
                 raise SandboxEngineError(
                     "Workspace is bound to a different sandbox profile.",
                     code="sandbox_profile_mismatch",
@@ -137,21 +133,22 @@ class SandboxEngine:
             (workspace / name).mkdir(parents=True, exist_ok=True)
         return workspace
 
-    def _ensure_evaluation_workspace(
+    def _ensure_protected_workspace(
         self,
         workspace_id: str,
         request: dict[str, Any],
+        profile: str,
     ) -> dict[str, Any]:
         workspace = (self.root / workspace_id).resolve()
         if workspace.parent != self.root:
             raise SandboxEngineError("Unsafe workspace identifier.", code="unsafe_workspace")
         marker = workspace / ".modelmirror" / "profile.json"
         if marker.exists():
-            self._validate_evaluation_capability(workspace, request)
+            self._validate_protected_capability(workspace, request, profile)
             return {
                 "ok": True,
                 "workspace_id": workspace_id,
-                "profile": SKILL_EVALUATION_PROFILE,
+                "profile": profile,
                 "sealed": bool(self._read_profile_marker(marker).get("sealed")),
             }
         if workspace.exists() and any(workspace.iterdir()):
@@ -159,10 +156,15 @@ class SandboxEngine:
                 "Existing workspace cannot be rebound to the Skill evaluation profile.",
                 code="sandbox_profile_mismatch",
             )
+        skill_alias = (
+            "evaluation-skill"
+            if profile == SKILL_EVALUATION_PROFILE
+            else "authoring-resource"
+        )
         for name in (
             "inputs",
             "work",
-            "skills/evaluation-skill",
+            f"skills/{skill_alias}",
             ".modelmirror/operations",
             ".tmp",
         ):
@@ -171,7 +173,7 @@ class SandboxEngine:
         self._write_profile_marker(
             marker,
             {
-                "profile": SKILL_EVALUATION_PROFILE,
+                "profile": profile,
                 "capability_sha256": hashlib.sha256(capability.encode("utf-8")).hexdigest(),
                 "sealed": False,
             },
@@ -179,12 +181,14 @@ class SandboxEngine:
         return {
             "ok": True,
             "workspace_id": workspace_id,
-            "profile": SKILL_EVALUATION_PROFILE,
+            "profile": profile,
             "provisioning_capability": capability,
             "sealed": False,
         }
 
-    def _evaluation_workspace(self, workspace_id: str, request: dict[str, Any]) -> Path:
+    def _protected_workspace(
+        self, workspace_id: str, request: dict[str, Any], profile: str
+    ) -> Path:
         workspace = (self.root / workspace_id).resolve()
         if workspace.parent != self.root:
             raise SandboxEngineError("Unsafe workspace identifier.", code="unsafe_workspace")
@@ -193,13 +197,14 @@ class SandboxEngine:
                 "Skill evaluation workspace has not been initialized.",
                 code="workspace_not_found",
             )
-        self._validate_evaluation_capability(workspace, request)
+        self._validate_protected_capability(workspace, request, profile)
         return workspace
 
-    def _validate_evaluation_capability(
+    def _validate_protected_capability(
         self,
         workspace: Path,
         request: dict[str, Any],
+        profile: str,
     ) -> None:
         marker = workspace / ".modelmirror" / "profile.json"
         if not marker.exists():
@@ -208,7 +213,7 @@ class SandboxEngine:
                 code="sandbox_profile_mismatch",
             )
         stored = self._read_profile_marker(marker)
-        if stored.get("profile") != SKILL_EVALUATION_PROFILE:
+        if stored.get("profile") != profile:
             raise SandboxEngineError(
                 "Workspace is bound to a different sandbox profile.",
                 code="sandbox_profile_mismatch",
@@ -222,7 +227,7 @@ class SandboxEngine:
                 code="sandbox_profile_capability_invalid",
             )
 
-    def _seal_evaluation_workspace(self, workspace: Path) -> None:
+    def _seal_protected_workspace(self, workspace: Path) -> None:
         marker = workspace / ".modelmirror" / "profile.json"
         stored = self._read_profile_marker(marker)
         if stored.get("sealed") is True:
@@ -230,10 +235,11 @@ class SandboxEngine:
         stored["sealed"] = True
         self._write_profile_marker(marker, stored)
 
-    def _seed_evaluation_file(
+    def _seed_protected_file(
         self,
         workspace: Path,
         request: dict[str, Any],
+        profile: str,
     ) -> dict[str, Any]:
         marker = workspace / ".modelmirror" / "profile.json"
         if self._read_profile_marker(marker).get("sealed") is True:
@@ -243,12 +249,17 @@ class SandboxEngine:
             )
         target = self._safe_path(workspace, request.get("path"), for_write=True)
         relative = target.relative_to(workspace)
+        skill_alias = (
+            "evaluation-skill"
+            if profile == SKILL_EVALUATION_PROFILE
+            else "authoring-resource"
+        )
         if not (
             relative.parts[0] == "inputs"
-            or relative.parts[:2] == ("skills", "evaluation-skill")
+            or relative.parts[:2] == ("skills", skill_alias)
         ):
             raise SandboxEngineError(
-                "Evaluation seed files must be under inputs/ or skills/evaluation-skill/.",
+                "Protected Skill seed files must use the profile-bound inputs/ or skills/ root.",
                 code="seed_scope_denied",
             )
         content = self._request_content(request)
@@ -340,12 +351,12 @@ class SandboxEngine:
         target = self._safe_path(workspace, request.get("path"), for_write=True)
         relative = target.relative_to(workspace)
         profile = self._profile(request.get("profile"))
-        allowed_roots = {"work"} if profile == SKILL_EVALUATION_PROFILE else {"inputs", "work", "skills"}
+        allowed_roots = {"work"} if profile in PROTECTED_SKILL_PROFILES else {"inputs", "work", "skills"}
         if relative.parts[0] not in allowed_roots:
             raise SandboxEngineError(
                 (
                     "Files may only be written under work/ in the Skill evaluation profile."
-                    if profile == SKILL_EVALUATION_PROFILE
+                    if profile in PROTECTED_SKILL_PROFILES
                     else "Files may only be written under inputs/, work/, or skills/."
                 ),
                 code="write_scope_denied",
@@ -408,7 +419,7 @@ class SandboxEngine:
         profile = self._profile(request.get("profile"))
         profile_allowed_commands = (
             SKILL_EVALUATION_ALLOWED_COMMANDS
-            if profile == SKILL_EVALUATION_PROFILE
+            if profile in PROTECTED_SKILL_PROFILES
             else self.allowed_commands
         )
         if "/" in command or "\\" in command or command not in profile_allowed_commands:
@@ -433,7 +444,11 @@ class SandboxEngine:
                 *(
                     ["--skill-evaluation"]
                     if profile == SKILL_EVALUATION_PROFILE
-                    else []
+                    else (
+                        ["--skill-authoring"]
+                        if profile == SKILL_AUTHORING_PROFILE
+                        else []
+                    )
                 ),
                 "--",
                 *argv,
@@ -638,6 +653,24 @@ class SandboxEngine:
                 code="sandbox_profile_unsupported",
             )
         return profile
+
+    @staticmethod
+    def _protected_profile_attestation() -> dict[str, Any]:
+        return {
+            "allowed_commands": sorted(SKILL_EVALUATION_ALLOWED_COMMANDS),
+            "network_policy": "container_network_none_required",
+            "read_only_roots": ["inputs", "skills"],
+            "writable_roots": ["work", ".tmp"],
+            "write_file_roots": ["work"],
+            "provisioning": "capability_bound",
+            "lifecycle_actions": [
+                "ensure_workspace",
+                "seed_file",
+                "seal_workspace",
+                "collect_work_manifest",
+                "cleanup_workspace",
+            ],
+        }
 
     @staticmethod
     def _read_profile_marker(marker: Path) -> dict[str, Any]:
