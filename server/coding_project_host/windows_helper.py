@@ -2052,17 +2052,22 @@ def _guard_git_read_session(
 
                     if head is not None:
                         try:
-                            head_text = head.decode("ascii", errors="strict").strip()
+                            head_text = head.decode("utf-8", errors="strict").strip()
                         except UnicodeError as exc:
                             raise ProjectHostHelperError("git_encoding_not_supported") from exc
                         if head_text.startswith("ref: refs/heads/"):
                             relative = head_text.removeprefix("ref: ")
+                            branch = relative.removeprefix("refs/heads/")
                             if (
                                 not relative
                                 or "\\" in relative
                                 or any(part in {"", ".", ".."} for part in relative.split("/"))
                             ):
                                 raise ProjectHostHelperError("git_metadata_unsafe")
+                            try:
+                                validate_commit_branch(branch)
+                            except ValueError as exc:
+                                raise ProjectHostHelperError("git_metadata_unsafe") from exc
                             guard_leaf(
                                 "branch-ref",
                                 git_path.joinpath(*relative.split("/")),

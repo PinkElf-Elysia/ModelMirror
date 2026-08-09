@@ -55,16 +55,21 @@ def _git(path: Path, *arguments: str) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
-        text=True,
+        encoding="utf-8",
+        errors="strict",
     )
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
 
 
-def _repository(tmp_path: Path) -> Path:
+def _repository(
+    tmp_path: Path,
+    *,
+    branch: str = "feature/current-q7m4",
+) -> Path:
     project = tmp_path / "随机 项目 nebula-k8r3"
     project.mkdir()
-    _git(project, "init", "-b", "feature/current-q7m4")
+    _git(project, "init", "-b", branch)
     _git(project, "config", "core.autocrlf", "false")
     (project / "README.md").write_bytes(b"marker: q7m4\n")
     _git(project, "add", "README.md")
@@ -299,6 +304,36 @@ def test_git_inspection_accepts_remote_without_reading_or_returning_it(tmp_path:
     assert "path" not in encoded.casefold()
     assert "remote" not in encoded.casefold()
     assert "example.invalid" not in encoded
+
+
+def test_git_inspection_accepts_utf8_symbolic_head_branch(tmp_path: Path) -> None:
+    branch = "feature/中文分支-q7m4"
+    project = _repository(tmp_path, branch=branch)
+
+    inspected = inspect_git_project(project, b"k" * 32, enforce_windows=False)
+
+    assert inspected["branch"] == branch
+    assert inspected["head"] == _git(project, "rev-parse", "HEAD")
+
+
+def test_git_inspection_rejects_invalid_utf8_head_before_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _repository(tmp_path)
+    (project / ".git" / "HEAD").write_bytes(b"ref: refs/heads/feature/\xff\n")
+    monkeypatch.setattr(
+        windows_helper_module,
+        "_run_git",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Invalid HEAD encoding must be rejected before Git"
+        ),
+    )
+
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        inspect_git_project(project, b"k" * 32, enforce_windows=False)
+
+    assert rejected.value.code == "git_encoding_not_supported"
 
 
 @pytest.mark.parametrize("replacement", ["root", "git"])
