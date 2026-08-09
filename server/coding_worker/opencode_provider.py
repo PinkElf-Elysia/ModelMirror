@@ -105,6 +105,7 @@ class OpenCodeProvider(CodingAgentProvider):
         self._server_factory = server_factory or self._launch_server
         self._handles: dict[str, OpenCodeServerHandle] = {}
         self._requests: dict[str, ProviderOpenRequest] = {}
+        self._public_context: dict[str, list[str]] = {}
         self._broker_bindings: dict[str, tuple[str, str]] = {}
         self._lock = asyncio.Lock()
 
@@ -171,6 +172,7 @@ class OpenCodeProvider(CodingAgentProvider):
                 )
             self._handles[session_id] = handle
             self._requests[session_id] = request
+            self._public_context[session_id] = []
         return ProviderSession(
             session_id=session_id,
             task_id=request.task_id,
@@ -208,6 +210,13 @@ class OpenCodeProvider(CodingAgentProvider):
                 mapped = self._map_event(payload, session.session_id)
                 if mapped is None:
                     continue
+                if mapped.kind is ProviderEventKind.MESSAGE:
+                    text_part = mapped.data.get("text")
+                    if isinstance(text_part, str) and text_part:
+                        public = self._public_context.setdefault(session.session_id, [])
+                        public.append(text_part[:16_384])
+                        if len(public) > 64:
+                            del public[:-64]
                 yield mapped
                 if mapped.kind in {
                     ProviderEventKind.TURN_COMPLETED,
@@ -242,77 +251,39 @@ class OpenCodeProvider(CodingAgentProvider):
         return value is True
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
-        handle, request = self._require_session(session)
-        try:
-            session_response, messages_response = await asyncio.gather(
-                handle.client.get(
-                    self._url(f"/session/{quote(session.session_id)}", handle.workspace)
-                ),
-                handle.client.get(
-                    self._url(
-                        f"/session/{quote(session.session_id)}/message", handle.workspace
-                    )
-                ),
-            )
-            session_response.raise_for_status()
-            messages_response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise OpenCodeProviderError(
-                "OpenCode checkpoint failed.", code="provider_unavailable"
-            ) from exc
+        _handle, request = self._require_session(session)
+        public_text = "".join(self._public_context.get(session.session_id, ()))
         return ProviderCheckpoint(
             checkpoint_id=f"checkpoint_{secrets.token_hex(16)}",
             payload={
                 "engine": "opencode-1.18.9",
-                "session_id": session.session_id,
                 "task_id": request.task_id,
-                "session": session_response.json(),
-                "messages": messages_response.json(),
+                "public_output": public_text[-32_768:],
             },
         )
 
     async def restore(
         self, request: ProviderOpenRequest, checkpoint: ProviderCheckpoint
     ) -> ProviderSession:
-        session_id = checkpoint.payload.get("session_id")
         if (
             checkpoint.payload.get("engine") != "opencode-1.18.9"
             or checkpoint.payload.get("task_id") != request.task_id
-            or not isinstance(session_id, str)
-            or not session_id.startswith("ses")
+            or not isinstance(checkpoint.payload.get("public_output", ""), str)
         ):
             raise OpenCodeProviderError(
                 "OpenCode checkpoint binding is invalid.", code="checkpoint_invalid"
             )
-        route = self._require_route(request.model_route)
-        workspace = self._workspace_resolver(request.workspace_id).resolve()
-        handle = await self._server_factory(request, workspace, route)
-        try:
-            response = await handle.client.get(
-                self._url(f"/session/{quote(session_id)}", workspace)
-            )
-            response.raise_for_status()
-            payload = response.json()
-            if not isinstance(payload, dict) or payload.get("id") != session_id:
-                raise OpenCodeProviderError(
-                    "OpenCode checkpoint is unavailable.", code="checkpoint_unavailable"
-                )
-        except Exception:
-            await handle.close()
-            raise
-        async with self._lock:
-            self._handles[session_id] = handle
-            self._requests[session_id] = request
-        return ProviderSession(
-            session_id=session_id,
-            task_id=request.task_id,
-            provider_capabilities=await self.capabilities(),
-        )
+        # A provider process is never resurrected. Restore opens a fresh, pinned
+        # engine session; the control plane supplies the public checkpoint
+        # summary in the next message. Raw vendor frames and hidden reasoning
+        # are intentionally absent from the durable checkpoint.
+        return await self.open(request)
 
     async def close(self, session: ProviderSession) -> None:
         async with self._lock:
             handle = self._handles.pop(session.session_id, None)
             self._requests.pop(session.session_id, None)
+            self._public_context.pop(session.session_id, None)
         if handle is not None:
             await handle.close()
 

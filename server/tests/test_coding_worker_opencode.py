@@ -137,10 +137,18 @@ async def test_headless_adapter_maps_events_cancel_and_checkpoint_without_public
     ]
     assert await provider.cancel(session) is True
     checkpoint = await provider.checkpoint(session)
-    assert checkpoint.payload["session_id"] == "ses_test"
+    assert checkpoint.payload == {
+        "engine": "opencode-1.18.9",
+        "task_id": "task-01",
+        "public_output": "done",
+    }
     assert "http" not in checkpoint.payload and "port" not in checkpoint.payload
+    assert "session" not in checkpoint.payload and "messages" not in checkpoint.payload
     await provider.close(session)
-    assert closed == [True]
+    restored = await provider.restore(_request(), checkpoint)
+    assert restored.task_id == session.task_id
+    await provider.close(restored)
+    assert closed == [True, True]
 
 
 def test_provider_session_is_excluded_from_public_task_record() -> None:
