@@ -243,6 +243,95 @@ services:
       retries: 8
       start_period: 30s
 
+  mcp-browser-egress:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.browser
+    image: modelmirror-mcp-browser:wave7-v1
+    container_name: modelmirror-mcp-browser-egress
+    command: ["python", "-m", "sandbox_sidecar.browser_server", "egress"]
+    networks:
+      - mcp_browser_egress
+    environment:
+      MCP_BROWSER_EGRESS_SOCKET_PATH: /run/modelmirror-browser-egress/browser-egress.sock
+      MCP_BROWSER_ALLOW_SYNTHETIC_DNS: "false"
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_browser_egress_socket:/run/modelmirror-browser-egress
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-browser-egress/browser-egress.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  mcp-browser:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.browser
+    image: modelmirror-mcp-browser:wave7-v1
+    container_name: modelmirror-mcp-browser
+    command: ["python", "-m", "sandbox_sidecar.browser_server"]
+    network_mode: none
+    depends_on:
+      mcp-browser-egress:
+        condition: service_healthy
+    environment:
+      MCP_BROWSER_SOCKET_PATH: /run/modelmirror-browser-mcp/browser-mcp.sock
+      MCP_BROWSER_EGRESS_SOCKET_PATH: /run/modelmirror-browser-egress/browser-egress.sock
+      MCP_BROWSER_PROFILE_ROOT: /profiles
+      MCP_BROWSER_ARTIFACT_ROOT: /artifacts
+      MCP_BROWSER_MAX_SESSIONS: "1"
+      MCP_BROWSER_TRUSTED_CLIENT_UID: "0"
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./server/sandbox_sidecar/seccomp_profile.browser.json
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.5
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,uid=65532,gid=65532,mode=0700
+      - /profiles:rw,nosuid,nodev,noexec,size=256m,uid=65532,gid=65532,mode=0700
+      - /dev/shm:rw,nosuid,nodev,noexec,size=256m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_browser_socket:/run/modelmirror-browser-mcp
+      - mcp_browser_egress_socket:/run/modelmirror-browser-egress
+      - mcp_browser_artifact_staging:/artifacts
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-browser-mcp/browser-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+
   mcp-database:
     build:
       context: ./server/sandbox_sidecar
@@ -405,6 +494,8 @@ services:
         condition: service_healthy
       mcp-saas:
         condition: service_healthy
+      mcp-browser:
+        condition: service_healthy
       mcp-database:
         condition: service_healthy
       mcp-database-local:
@@ -457,6 +548,11 @@ services:
       MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
       MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
       MCP_SAAS_SOCKET_PATH: /run/modelmirror-saas-mcp/saas-mcp.sock
+      MCP_BROWSER_SOCKET_PATH: /run/modelmirror-browser-mcp/browser-mcp.sock
+      MCP_BROWSER_ARTIFACT_STAGING_ROOT: /app/mcp-browser-staging
+      MCP_BROWSER_TRUSTED_ARTIFACT_ROOT: /app/mcp/storage/browser-artifacts
+      MCP_CATALOG_ENABLE_CHROME_DEVTOOLS_MCP: ${MCP_CATALOG_ENABLE_CHROME_DEVTOOLS_MCP:-false}
+      MCP_CATALOG_ENABLE_PLAYWRIGHT_MCP: ${MCP_CATALOG_ENABLE_PLAYWRIGHT_MCP:-false}
       MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK: ${MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK:-false}
       MCP_CATALOG_ENABLE_AIRTABLE_MCP: ${MCP_CATALOG_ENABLE_AIRTABLE_MCP:-false}
       MCP_CATALOG_ENABLE_ASANA_MCP: ${MCP_CATALOG_ENABLE_ASANA_MCP:-false}
@@ -496,6 +592,8 @@ services:
       - mcp_files_socket:/run/modelmirror-files-mcp
       - mcp_token_socket:/run/modelmirror-token-mcp
       - mcp_saas_socket:/run/modelmirror-saas-mcp
+      - mcp_browser_socket:/run/modelmirror-browser-mcp
+      - mcp_browser_artifact_staging:/app/mcp-browser-staging
       - mcp_database_socket:/run/modelmirror-database-mcp
       - mcp_database_local_socket:/run/modelmirror-database-local-mcp
       - mcp_file_inputs:/app/mcp-file-inputs
@@ -659,6 +757,14 @@ volumes:
   mcp_files_socket:
   mcp_token_socket:
   mcp_saas_socket:
+  mcp_browser_socket:
+  mcp_browser_egress_socket:
+  mcp_browser_artifact_staging:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=67108864,uid=65532,gid=65532,mode=0700,nosuid,nodev,noexec
   mcp_database_socket:
   mcp_database_local_socket:
   mcp_file_inputs:
@@ -679,4 +785,6 @@ networks:
   mcp_database_egress:
     driver: bridge
   mcp_saas_egress:
+    driver: bridge
+  mcp_browser_egress:
     driver: bridge

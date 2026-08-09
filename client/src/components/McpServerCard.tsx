@@ -8,6 +8,7 @@ import McpCredentialPanel from "./McpCredentialPanel";
 import McpApprovalDialog, {
   type McpCatalogApprovalRequest,
 } from "./McpApprovalDialog";
+import McpBrowserPanel from "./McpBrowserPanel";
 import {
   mcpCatalogSources,
   mcpRequirementLabels,
@@ -33,7 +34,12 @@ interface JsonSchemaProperty {
   default?: unknown;
   items?: JsonSchemaProperty;
   properties?: Record<string, JsonSchemaProperty>;
-  "x-modelmirror-input"?: "workspace-file" | "workspace-directory" | "artifact-name";
+  "x-modelmirror-input"?:
+    | "workspace-file"
+    | "workspace-directory"
+    | "artifact-name"
+    | "browser-url"
+    | "browser-ref";
 }
 
 interface ToolSchema {
@@ -59,6 +65,12 @@ interface ToolCallResult {
   unknown_outcome?: boolean;
 }
 
+interface BrowserElementOption {
+  ref: string;
+  label: string;
+  role: string;
+}
+
 interface CatalogOperationError {
   code: "approval_required" | "provider_rate_limited" | "unknown_outcome" | string;
   message: string;
@@ -69,6 +81,7 @@ interface CatalogOperationError {
   idempotency_key?: string;
   retry_after_seconds?: number;
   target_preview?: McpCatalogApprovalRequest["target_preview"];
+  context_kind?: McpCatalogApprovalRequest["context_kind"];
 }
 
 interface ToolOperationNotice {
@@ -219,6 +232,37 @@ function contentToMarkdown(result: ToolCallResult | null) {
     .join("\n\n");
 }
 
+function browserElementsFromResult(result: ToolCallResult): BrowserElementOption[] | null {
+  const raw = result.raw;
+  const structured =
+    raw.structuredContent && typeof raw.structuredContent === "object"
+      ? raw.structuredContent as Record<string, unknown>
+      : raw.structured_content && typeof raw.structured_content === "object"
+        ? raw.structured_content as Record<string, unknown>
+        : null;
+  const elements = structured?.elements;
+  if (!Array.isArray(elements)) return null;
+  const seen = new Set<string>();
+  const options: BrowserElementOption[] = [];
+  for (const value of elements) {
+    if (!value || typeof value !== "object") continue;
+    const item = value as Record<string, unknown>;
+    const ref = typeof item.ref === "string" ? item.ref : "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(ref) || seen.has(ref)) continue;
+    seen.add(ref);
+    options.push({
+      ref,
+      label: typeof item.label === "string" && item.label.trim()
+        ? item.label.trim().slice(0, 120)
+        : "未命名元素",
+      role: typeof item.role === "string" && item.role.trim()
+        ? item.role.trim().slice(0, 48)
+        : "元素",
+    });
+  }
+  return options;
+}
+
 function isCatalogOperationError(value: unknown): value is CatalogOperationError {
   return Boolean(
     value &&
@@ -246,6 +290,7 @@ function approvalFromError(
     expires_at: detail.expires_at,
     idempotency_key: detail.idempotency_key,
     target_preview: detail.target_preview,
+    context_kind: detail.context_kind,
   };
 }
 
@@ -253,14 +298,14 @@ function noticeFromError(detail: CatalogOperationError): ToolOperationNotice | n
   if (detail.code === "provider_rate_limited") {
     return {
       kind: "rate-limited",
-      message: detail.message || "上游服务已限流。写入不会自动重试，请稍后重新预览。",
+      message: detail.message || "上游服务已限流。操作不会自动重试，请稍后重新预览。",
       retryAfterSeconds: detail.retry_after_seconds,
     };
   }
   if (detail.code === "unknown_outcome") {
     return {
       kind: "unknown-outcome",
-      message: detail.message || "写入结果未知，禁止自动重试。请先核对上游资源状态。",
+      message: detail.message || "操作结果未知，禁止自动重试。请先核对目标状态。",
       idempotencyKey: detail.idempotency_key,
     };
   }
@@ -271,21 +316,21 @@ function noticeFromResult(result: ToolCallResult): ToolOperationNotice | null {
   if (result.unknown_outcome) {
     return {
       kind: "unknown-outcome",
-      message: "写入结果未知，禁止自动重试。请先核对上游资源状态。",
+      message: "操作结果未知，禁止自动重试。请先核对目标状态。",
       idempotencyKey: result.idempotency_key,
     };
   }
   if (result.idempotent_replay) {
     return {
       kind: "idempotent-replay",
-      message: "检测到重复确认，本次复用了已有结果，没有再次写入。",
+      message: "检测到重复确认，本次复用了已有结果，没有再次执行。",
       idempotencyKey: result.idempotency_key,
     };
   }
   if (result.idempotency_key) {
     return {
       kind: "completed",
-      message: "本次写入已按幂等键完成；重复确认不会再次写入。",
+      message: "本次操作已按幂等键完成；重复确认不会再次执行。",
       idempotencyKey: result.idempotency_key,
     };
   }
@@ -295,6 +340,87 @@ function noticeFromResult(result: ToolCallResult): ToolOperationNotice | null {
 function shortIdempotencyKey(value?: string) {
   if (!value) return "";
   return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value;
+}
+
+const browserSensitiveQueryKeys = new Set([
+  "accesstoken",
+  "apikey",
+  "authorization",
+  "auth",
+  "bearer",
+  "code",
+  "credential",
+  "idtoken",
+  "jwt",
+  "key",
+  "keypairid",
+  "oauth",
+  "oauthtoken",
+  "password",
+  "passwd",
+  "refreshtoken",
+  "secret",
+  "session",
+  "sessionid",
+  "sig",
+  "signature",
+  "token",
+]);
+
+function browserQueryHasSensitiveKey(query: string) {
+  let decoded = query;
+  for (let index = 0; index < 2; index += 1) {
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      return true;
+    }
+  }
+  return decoded.split(/[&;?#]+/).some((component) => {
+    const rawKey = component.split("=", 1)[0] ?? "";
+    const key = rawKey.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return Boolean(
+      key &&
+        (browserSensitiveQueryKeys.has(key) ||
+          key.startsWith("oauth") ||
+          key.startsWith("xamz") ||
+          key.startsWith("xgoog") ||
+          key.endsWith("secret") ||
+          key.endsWith("signature") ||
+          key.endsWith("token")),
+    );
+  });
+}
+
+function validateBrowserUrl(value: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("浏览器目标必须是完整的公网 HTTP/HTTPS 地址");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("浏览器目标只允许 HTTP 或 HTTPS");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("浏览器目标不能包含用户名或密码");
+  }
+  if (parsed.port && parsed.port !== "80" && parsed.port !== "443") {
+    throw new Error("浏览器目标只允许 80 或 443 端口");
+  }
+  if (browserQueryHasSensitiveKey(parsed.search.slice(1))) {
+    throw new Error("浏览器导航 URL 不接受 Token、签名或其他敏感查询参数");
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    !hostname.includes(".") ||
+    hostname === "localhost" ||
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) ||
+    hostname.includes(":")
+  ) {
+    throw new Error("浏览器目标必须是完整公网域名；本机名、内部服务名和 IP 地址不可用");
+  }
+  return value;
 }
 
 export default function McpServerCard({
@@ -330,6 +456,8 @@ export default function McpServerCard({
   const [isInstallOpen, setIsInstallOpen] = useState(false);
   const [installState, setInstallState] = useState<InstallState>("checking");
   const [installError, setInstallError] = useState("");
+  const [browserRefreshKey, setBrowserRefreshKey] = useState(0);
+  const [browserRefOptions, setBrowserRefOptions] = useState<BrowserElementOption[]>([]);
   const ignoredRestoredSessionRef = useRef<string | null>(null);
 
   const availability = adapterStatus?.availability ?? project.availability;
@@ -340,6 +468,7 @@ export default function McpServerCard({
     adapterStatus?.required_capabilities ?? project.requiredCapabilities;
   const limitations = adapterStatus?.limitations ?? project.adaptationLimitations;
   const isStatefulSaas = wave === 6;
+  const isBrowserAdapter = wave === 7;
   const statefulSaasGateEnabled =
     !isStatefulSaas || adapterStatus?.stateful_saas_gate_enabled === true;
   const canConnect =
@@ -349,12 +478,14 @@ export default function McpServerCard({
     statefulSaasGateEnabled;
   const workspacePolicy = adapterStatus?.workspace_policy ?? null;
   const databasePolicy = adapterStatus?.database_policy ?? null;
+  const browserPolicy = adapterStatus?.browser_policy ?? null;
   const databasePreflight = adapterStatus?.preflight_status ?? "not-applicable";
   const needsCatalogConfiguration = Boolean(
     adapterStatus?.credential_fields.length || adapterStatus?.setting_fields.length,
   );
   const canStartConnection =
     canConnect &&
+    (!isBrowserAdapter || Boolean(browserPolicy)) &&
     (!workspacePolicy?.required || Boolean(boundWorkspace)) &&
     (!needsCatalogConfiguration || catalogConfigured);
   const canInstall = canConnect && project.installMode === "one-click";
@@ -436,7 +567,7 @@ export default function McpServerCard({
     setSessionId(restoredSession.session_id);
     setState("connected");
     setError("");
-    void fetchTools(restoredSession.session_id).catch((exc) => {
+    void fetchTools().catch((exc) => {
       if (ignoredRestoredSessionRef.current === restoredSession.session_id) return;
       setState("error");
       setError(exc instanceof Error ? exc.message : "无法恢复 MCP 会话");
@@ -468,6 +599,7 @@ export default function McpServerCard({
     setTools([]);
     setToolResults({});
     setToolNotices({});
+    setBrowserRefOptions([]);
     try {
       const response = await fetch(`/api/mcp/catalog/${project.id}/connect`, {
         method: "POST",
@@ -476,8 +608,9 @@ export default function McpServerCard({
       const data = (await response.json()) as { session_id: string };
       setSessionId(data.session_id);
 
-      await fetchTools(data.session_id);
+      await fetchTools();
       setState("connected");
+      setBrowserRefreshKey((current) => current + 1);
       onConnectionChange?.();
     } catch (exc) {
       setState("error");
@@ -485,26 +618,42 @@ export default function McpServerCard({
     }
   }
 
-  async function fetchTools(nextSessionId: string) {
-    const toolsResponse = await fetch(`/api/mcp/${nextSessionId}/tools`);
+  async function fetchTools() {
+    const toolsResponse = await fetch(`/api/mcp/catalog/${project.id}/tools`);
     if (!toolsResponse.ok) throw new Error(await readError(toolsResponse));
     const toolsData = (await toolsResponse.json()) as { tools: McpTool[] };
     setTools(toolsData.tools);
   }
 
   async function disconnect() {
+    setError("");
+    try {
+      const response = await fetch(`/api/mcp/catalog/${project.id}/session`, {
+        method: "DELETE",
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(await readError(response));
+      }
+    } catch (exc) {
+      setState("connected");
+      setError(
+        exc instanceof Error
+          ? `结束会话失败：${exc.message}。临时浏览器可能仍在运行，请再次结束。`
+          : "结束会话失败，临时浏览器可能仍在运行，请再次结束。",
+      );
+      return;
+    }
     ignoredRestoredSessionRef.current =
       sessionId ?? restoredSession?.session_id ?? null;
-    await fetch(`/api/mcp/catalog/${project.id}/session`, {
-      method: "DELETE",
-    }).catch(() => undefined);
     setSessionId(null);
     setTools([]);
     setToolResults({});
     setToolNotices({});
     setFormValues({});
+    setBrowserRefOptions([]);
     setError("");
     setState("idle");
+    setBrowserRefreshKey((current) => current + 1);
     onConnectionChange?.();
   }
 
@@ -547,7 +696,19 @@ export default function McpServerCard({
           ? boundWorkspace?.files[0]?.file_id ?? ""
           : defaultFieldValue(property));
       const coerced = coerceFieldValue(property, rawValue);
-      if (coerced !== undefined) args[key] = coerced;
+      if (property["x-modelmirror-input"] === "browser-url" && typeof coerced === "string") {
+        args[key] = validateBrowserUrl(coerced);
+      } else if (property["x-modelmirror-input"] === "browser-ref" && typeof coerced === "string") {
+        if (
+          !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(coerced) ||
+          !browserRefOptions.some((option) => option.ref === coerced)
+        ) {
+          throw new Error("页面元素引用已失效；请重新执行页面快照并从受控列表选择");
+        }
+        args[key] = coerced;
+      } else if (coerced !== undefined) {
+        args[key] = coerced;
+      }
     }
     return args;
   }
@@ -586,12 +747,18 @@ export default function McpServerCard({
             showApproval(approval, () => {
               setToolResults((current) => ({ ...current }));
               if (boundWorkspace) void refreshBoundWorkspace(boundWorkspace.workspace_id);
+              if (isBrowserAdapter) setBrowserRefreshKey((current) => current + 1);
             });
             return;
           }
           const notice = noticeFromError(detail);
           if (notice) {
             setToolNotices((current) => ({ ...current, [tool.name]: notice }));
+            if (isBrowserAdapter && notice.kind === "unknown-outcome") {
+              markBrowserSessionTainted(
+                "浏览器操作结果未知，临时会话已销毁。请先核对目标状态，再重新连接；不要重试旧操作。",
+              );
+            }
             return;
           }
         }
@@ -599,9 +766,27 @@ export default function McpServerCard({
       }
       const data = (await response.json()) as ToolCallResult;
       setToolResults((current) => ({ ...current, [tool.name]: data }));
+      if (isBrowserAdapter) {
+        const elements = browserElementsFromResult(data);
+        if (
+          adapterStatus?.tool_policies[tool.name]?.effect === "state-write" ||
+          adapterStatus?.tool_policies[tool.name]?.effect === "artifact-create"
+        ) {
+          setBrowserRefOptions([]);
+        } else if (elements !== null) {
+          setBrowserRefOptions(elements);
+        }
+      }
       const notice = noticeFromResult(data);
       if (notice) setToolNotices((current) => ({ ...current, [tool.name]: notice }));
+      if (isBrowserAdapter && notice?.kind === "unknown-outcome") {
+        markBrowserSessionTainted(
+          "浏览器操作结果未知，临时会话已销毁。请先核对目标状态，再重新连接；不要重试旧操作。",
+        );
+        return;
+      }
       if (boundWorkspace) await refreshBoundWorkspace(boundWorkspace.workspace_id);
+      if (isBrowserAdapter) setBrowserRefreshKey((current) => current + 1);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "工具执行失败");
     } finally {
@@ -617,9 +802,21 @@ export default function McpServerCard({
     setToolResults({});
     setToolNotices({});
     setFormValues({});
+    setBrowserRefOptions([]);
     setError("");
     setState("idle");
     onConnectionChange?.();
+  }
+
+  function markBrowserSessionTainted(message: string) {
+    ignoredRestoredSessionRef.current = sessionId ?? restoredSession?.session_id ?? null;
+    setSessionId(null);
+    setTools([]);
+    setFormValues({});
+    setBrowserRefOptions([]);
+    setBrowserRefreshKey((current) => current + 1);
+    setState("error");
+    setError(message);
   }
 
   function handleWorkspaceBound(workspace: McpWorkspace | null) {
@@ -656,6 +853,8 @@ export default function McpServerCard({
         if (typeof detail !== "string" && isCatalogOperationError(detail)) {
           const notice = noticeFromError(detail);
           if (notice && approvalToolRef.current) {
+            const unknownBrowserOutcome =
+              isBrowserAdapter && notice.kind === "unknown-outcome";
             setToolNotices((current) => ({
               ...current,
               [approvalToolRef.current as string]: notice,
@@ -663,6 +862,12 @@ export default function McpServerCard({
             setPendingApproval(null);
             approvalCallbackRef.current = null;
             approvalToolRef.current = null;
+            if (unknownBrowserOutcome) {
+              markBrowserSessionTainted(
+                "浏览器操作结果未知，临时会话已销毁。请先核对目标状态，再重新连接；不要重试旧操作。",
+              );
+              onConnectionChange?.();
+            }
             return;
           }
         }
@@ -672,9 +877,23 @@ export default function McpServerCard({
       if (approvalToolRef.current) {
         const toolName = approvalToolRef.current;
         setToolResults((current) => ({ ...current, [toolName]: data }));
+        if (isBrowserAdapter) {
+          setBrowserRefOptions([]);
+        }
         const notice = noticeFromResult(data);
         if (notice) setToolNotices((current) => ({ ...current, [toolName]: notice }));
+        if (isBrowserAdapter && notice?.kind === "unknown-outcome") {
+          markBrowserSessionTainted(
+            "浏览器操作结果未知，临时会话已销毁。请先核对目标状态，再重新连接；不要重试旧操作。",
+          );
+          setPendingApproval(null);
+          approvalCallbackRef.current = null;
+          approvalToolRef.current = null;
+          onConnectionChange?.();
+          return;
+        }
       }
+      if (isBrowserAdapter) setBrowserRefreshKey((current) => current + 1);
       setPendingApproval(null);
       approvalCallbackRef.current?.();
       approvalCallbackRef.current = null;
@@ -795,6 +1014,64 @@ export default function McpServerCard({
             type="text"
             value={value}
           />
+        </label>
+      );
+    }
+
+    if (property["x-modelmirror-input"] === "browser-url") {
+      return (
+        <label className="block rounded-lg border border-cyan-300/15 bg-cyan-300/[0.04] p-3" key={key}>
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-200">
+            {label}
+            {required ? <span className="text-hire-100">必填</span> : null}
+          </span>
+          <span className="mt-1 block text-xs leading-5 text-slate-400">
+            仅填写不含 Token、API Key 或签名参数的公网 HTTP/HTTPS 地址；只允许 80/443 端口，DNS 固定后连接，跨 origin 请求与重定向直接拒绝。
+          </span>
+          <input
+            autoCapitalize="none"
+            autoComplete="off"
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/50 focus-visible:ring-2 focus-visible:ring-cyan-300/30"
+            inputMode="url"
+            maxLength={2048}
+            onChange={(event) => updateField(tool.name, key, event.target.value.trim())}
+            placeholder="https://example.com/path"
+            spellCheck={false}
+            type="url"
+            value={value}
+          />
+        </label>
+      );
+    }
+
+    if (property["x-modelmirror-input"] === "browser-ref") {
+      const selectedValue = browserRefOptions.some((option) => option.ref === value)
+        ? value
+        : "";
+      return (
+        <label className="block rounded-lg border border-cyan-300/15 bg-cyan-300/[0.04] p-3" key={key}>
+          <span className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-200">
+            {label}
+            {required ? <span className="text-hire-100">必填</span> : null}
+          </span>
+          <span className="mt-1 block text-xs leading-5 text-slate-400">
+            只能选择当前会话最新页面快照返回的元素；页面操作后需重新执行快照。
+          </span>
+          <select
+            className="mt-2 min-h-11 w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 font-mono text-sm text-white outline-none transition focus:border-cyan-300/50 focus-visible:ring-2 focus-visible:ring-cyan-300/30"
+            disabled={browserRefOptions.length === 0}
+            onChange={(event) => updateField(tool.name, key, event.target.value)}
+            value={selectedValue}
+          >
+            <option value="">
+              {browserRefOptions.length === 0 ? "请先执行页面快照" : "选择页面元素"}
+            </option>
+            {browserRefOptions.map((option) => (
+              <option key={option.ref} value={option.ref}>
+                {option.role} · {option.label} · {option.ref}
+              </option>
+            ))}
+          </select>
         </label>
       );
     }
@@ -980,6 +1257,8 @@ export default function McpServerCard({
               ? project.id === "duckdb-mcp"
                 ? "无需 Token 或远程数据库凭据；只读取当前卡片中上传、封存并绑定的本地 DuckDB 文件。"
                 : "数据库连接按只读策略运行；连接字段与加密凭据均在当前卡片独立配置，不接受完整连接串。"
+            : wave === 7
+              ? "无需 Token、OAuth、桌面宿主或本机浏览器；连接会创建匿名临时会话，不支持外站登录流程，也不会继承或保存登录状态。"
             : "不需要 OAuth、Token、额外运行时或桌面宿主，可由当前模镜后端以本地 stdio 启动。"}
         </div>
       )}
@@ -1136,6 +1415,17 @@ export default function McpServerCard({
         </section>
       ) : null}
 
+      {wave === 7 ? (
+        <McpBrowserPanel
+          availability={availability}
+          connected={state === "connected" || adapterStatus?.connected === true}
+          policy={browserPolicy}
+          preflightStatus={databasePreflight}
+          projectId={project.id}
+          refreshKey={browserRefreshKey}
+        />
+      ) : null}
+
       {adapterStatus?.executable && adapterStatus.runtime_image ? (
         <div className="relative mt-3 rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] p-3 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1202,14 +1492,14 @@ export default function McpServerCard({
             type="button"
           >
             {state === "connecting"
-              ? "连接中..."
+              ? isBrowserAdapter ? "正在创建临时会话" : "连接中..."
               : state === "connected"
                 ? "传输已连接"
                 : workspacePolicy?.required && !boundWorkspace
                   ? "先绑定工作区"
                   : needsCatalogConfiguration && !catalogConfigured
                     ? "先保存连接配置"
-                  : "连接 Server"}
+                  : isBrowserAdapter ? "连接临时浏览器" : "连接 Server"}
           </button>
         ) : (
           <button
@@ -1236,7 +1526,7 @@ export default function McpServerCard({
             onClick={() => void disconnect()}
             type="button"
           >
-            断开连接
+            {isBrowserAdapter ? "结束临时会话" : "断开连接"}
           </button>
         ) : null}
         {canInstall ? (
@@ -1328,7 +1618,7 @@ export default function McpServerCard({
               const policyClosed = Boolean(
                 toolPolicy?.sensitive ||
                 toolPolicy?.terminal ||
-                (isStatefulSaas &&
+                ((isStatefulSaas || isBrowserAdapter) &&
                   (!toolPolicy ||
                     (toolPolicy.effect === "state-write" && !toolPolicy.requires_approval))),
               );
@@ -1347,7 +1637,7 @@ export default function McpServerCard({
                         ) : null}
                         {isApprovedWrite ? (
                           <span className="rounded-full border border-amber-300/25 bg-amber-300/[0.08] px-2 py-0.5 text-[11px] font-semibold text-amber-100">
-                            写入 · 需确认
+                            {isBrowserAdapter ? "页面操作 · 需确认" : "写入 · 需确认"}
                           </span>
                         ) : null}
                         {toolPolicy?.effect === "artifact-create" ? (
@@ -1373,7 +1663,7 @@ export default function McpServerCard({
                         : policyClosed
                           ? "工具已关闭"
                           : isApprovedWrite
-                            ? "预览并确认"
+                            ? isBrowserAdapter ? "预览浏览器操作" : "预览并确认"
                             : "执行"}
                     </button>
                   </div>
@@ -1409,12 +1699,12 @@ export default function McpServerCard({
                     >
                       <p className="font-semibold">
                         {notice.kind === "unknown-outcome"
-                          ? "结果未知 · 禁止自动重试"
+                          ? "操作结果未知 · 禁止自动重试"
                           : notice.kind === "rate-limited"
-                            ? "上游限流 · 写入未自动重试"
-                            : notice.kind === "idempotent-replay"
-                              ? "幂等重放 · 未重复写入"
-                              : "写入已完成"}
+                            ? "上游限流 · 操作未自动重试"
+                          : notice.kind === "idempotent-replay"
+                              ? `幂等重放 · ${isBrowserAdapter ? "未重复执行" : "未重复写入"}`
+                              : "操作已完成"}
                       </p>
                       <p className="mt-1 text-slate-300">{notice.message}</p>
                       {notice.retryAfterSeconds !== undefined ? (
@@ -1558,7 +1848,9 @@ export default function McpServerCard({
                   服务端受控适配器
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  安装命令、启动参数和工作目录由后端按项目 ID 固定管理；浏览器不会提交命令、URL、Header 或环境变量。
+                  {isBrowserAdapter
+                    ? "启动命令、浏览器参数、代理、CDP、Header 与环境变量均由后端固定；导航 URL 只作为受控工具参数提交，并经过公网目标、DNS 与单一 Origin 策略校验。"
+                    : "安装命令、启动参数和工作目录由后端按项目 ID 固定管理；浏览器不会提交命令、URL、Header 或环境变量。"}
                 </p>
               </section>
             ) : null}

@@ -83,7 +83,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **42 ready / 47 planned / 11 blocked**；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **44 ready / 43 planned / 13 blocked**；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
 
@@ -146,6 +146,19 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - 卡片内“解绑账号”会先阻止新调用并等待活动读取结束，再断开会话、撤销待审批并清除配置、预检与本地执行账本；可选择撤销该卡片的本地加密凭据。它不等于在 Airtable、Asana、GitLab 或 Notion 后台撤销 Token，用户仍需在服务商后台完成上游撤销。
 - `mcp-cn-commerce` 保持 `blocked`：八个平台、114 个工具、OAuth/商家授权、短期 Token 和订单/售后敏感数据尚未逐平台验收。`mem0-mcp` 保持 `blocked`：本地上游已归档，官方迁移到无固定版本的托管远程 MCP；OAuth、Schema 锁定和租户记忆作用域尚未完成。两项都不显示凭据、登录或连接入口。
 
+批次 7 的两个可用浏览器适配器通过固定 `browser_proxy.py` 接入彼此隔离的 `mcp-browser` 执行 sidecar 与 `mcp-browser-egress` 出口 sidecar：
+
+- `chrome-devtools-mcp` 锁定上游 1.6.0 与 Chrome for Testing 150.0.7871.24，`playwright-mcp` 锁定上游 0.0.79 与 Chromium 1237 / Chrome for Testing 152.0.7977.8。两个适配器使用各自固定的浏览器路径；sidecar 每次连接启动对应的真实上游 stdio MCP 与独立 Chromium/profile，先核对 `initialize`、完整工具名和规范化 `inputSchema` 摘要；外层网关只转发经过审核的导航、快照、元素交互与截图子集，运行时不下载包或浏览器。
+- 浏览器会话匿名且临时：每项最多一个页面、50 次动作、总时长 15 分钟、闲置 5 分钟；首版目录实例只运行一个浏览器会话。断开、超时、上游 EOF 或状态不确定时都会终止浏览器进程并删除 profile、Cookie、缓存和站点存储，不保存登录态。
+- 本批不采集账号凭据、不提供外站登录流程，也不继承或保存登录态。导航 URL 双层拒绝 Token、API Key、签名等敏感查询参数；URL 与动作后的页面检查还会拒绝常见登录、授权和回调路径，但 HTTPS 页面仍可能自行呈现无法由透明出口可靠识别的登录界面；用户不得在临时浏览器中输入账号、密码、OTP 或其他认证信息。
+- `mcp-browser` 使用 `network_mode: none`、1 GiB 内存、1.5 CPU 与 256 PIDs；该 PID 配额仅适用于浏览器执行 sidecar，其他 MCP sidecar 不随之放宽。Chromium 只能访问同容器的 loopback HTTP/CONNECT 代理；代理携带不传给上游进程的一次性会话能力，通过私有 Unix socket 请求独立联网的 `mcp-browser-egress`。执行端和出口端都会校验目标。生产出口不信任宿主机或 Docker Desktop 的 DNS 答案，而是只向固定数值地址 `1.1.1.1` / `1.0.0.1` 建立 TLS 1.2+ 连接，以 `cloudflare-dns.com` 做 SNI/证书校验并通过 JSON DoH 查询完整 A/AAAA 集合；随后再次执行公网地址门禁并固定连接到已验证地址。显式 synthetic DNS 只供随机隔离 fixture smoke 使用，生产 Compose 固定关闭。两端均拒绝 userinfo、IP 字面量、单标签主机、非 80/443 端口及私网、回环、链路本地、保留地址和 metadata，TLS 仍使用原 hostname。首版每个会话只允许一个已审批 origin，跨域请求与重定向 fail-closed；出口最多 12 个并发隧道、累计 64 MiB，并限制闲置与绝对时长，因此依赖第三方 CDN 的页面可能显示不完整。
+- 上游进程及 Chromium 后代继续受 Landlock 约束，只能读取锁定运行时并写当前 profile/截图暂存目录；`/run` 和兄弟路径不可见。为让 Chromium 自身的 user namespace sandbox 写入 `uid_map`、`gid_map` 与 `setgroups`，`/proc` 只额外开放 `WRITE_FILE`，不开放创建、删除、截断、目录写或 socket 权限；容器仍无 capabilities，敏感 procfs 路径继续由 Docker 掩蔽或只读挂载。
+- 执行 sidecar 与出口 sidecar 使用由出口进程生成的一次性配对密钥，每个容器生命周期只接纳一次目录会话。两端在 Docker 重启策略生效的 10 秒窗口之后（实现使用 11 秒裕量）才发布控制密钥或 MCP socket；会话结束或任一异常都会让两个 PID1 退出并由 `unless-stopped` 成对重建，不会复用旧配对、旧页面状态、旧元素 ref 或逃逸后代。
+- 单 origin 门禁覆盖锁定上游的正常 Chromium 流量与恶意网页。若锁定的上游或浏览器进程本身被完全攻陷，独立出口仍只连接经过校验的公网 IP，并继续执行端口、流量和时限门禁，但没有 TLS 终止能力，不能保证同一公网 IP 与证书下的其他虚拟主机绝对隔离；本批不把这一边界描述为浏览器 RCE 防护。
+- 导航、点击和填写属于 `state-write + requires_approval`。一次性审批绑定租户、所有者、项目、目录会话、浏览器 generation、页面 revision/digest、当前 origin、工具/Schema、冻结参数和配置版本；确认前页面或会话漂移即失效。此类调用永不自动重试，发送后超时或连接中断标记为 `unknown_outcome` 并污染、关闭当前会话。若 sidecar 以 `-32011` 明确证明 DNS 或目标 URL 在调用前被策略拒绝，则旧审批进入 `rejected` 终态但临时会话保留，用户修正目标后必须发起全新的审批；跨域跳转等可能发生在调用后的策略错误仍按未知结果 fail-closed。
+- 快照只产生网关签发的不透明元素 ref；点击与填写不接受 CSS、XPath 或任意文本定位器，并拒绝密码、OTP、支付和验证码字段。截图先写入上限 64 MiB 的临时共享区，后端以单一文件描述符校验 PNG、大小、链接数与摘要，再复制到仅服务端可见的可信产物目录并登记 24 小时索引；产物接口只返回不透明 ID，并允许用户下载或清理。异常临时项只按固定目录和命名规则清扫，畸形条目告警并 fail-closed，不做宽泛递归删除。网页上传、网页下载、剪贴板、Cookie/Storage 导入导出与持久化、任意脚本求值工具、CDP、扩展和本机文件全部关闭。网页自身在会话内产生的 Cookie、缓存和站点存储只存在于临时 profile，断开时一并删除。
+- `puppeteer-mcp` 因官方仓库归档、危险启动参数/脚本执行面及未修复安全报告保持 `blocked`。`selenium-mcp` 因发行物许可证元数据冲突、未锁定的 root 浏览器镜像及任意参数/路径/脚本/Cookie 能力保持 `blocked`。两项都不显示安装或连接入口。
+
 兼容层仍保留以下默认值：
 
 - 后端只接受 `list[str]` 形式的命令，不使用 shell。
@@ -197,7 +210,12 @@ npm view @example/mcp-server version
 | POST | `/api/mcp/catalog/{project_id}/connect` | 按项目 ID 建立受控会话；数据库项目须先通过目标、TLS、认证与只读预检 |
 | DELETE | `/api/mcp/catalog/{project_id}/session` | 断开该目录项目的会话 |
 | POST | `/api/mcp/catalog/{project_id}/unbind` | 解绑当前 SaaS 账号：断开会话、作废审批并清除作用域；可选择撤销本地卡片凭据，但不声称撤销上游 Token |
+| GET | `/api/mcp/catalog/{project_id}/tools` | 通过目录所有者隔离读取已审核工具；通用 session 工具接口不能读取目录会话 |
 | POST | `/api/mcp/catalog/{project_id}/tools/{tool_name}/call` | 经项目工具策略调用已连接工具 |
+| GET | `/api/mcp/catalog/{project_id}/browser-session` | 查看当前临时浏览器 generation、页面摘要、origin、动作额度、到期和污染状态 |
+| GET | `/api/mcp/catalog/{project_id}/browser-artifacts` | 列出当前项目的不透明浏览器截图产物，不返回容器或宿主路径 |
+| GET | `/api/mcp/catalog/{project_id}/browser-artifacts/{artifact_id}/download` | 下载绑定当前租户、所有者、项目与浏览器会话的截图产物 |
+| DELETE | `/api/mcp/catalog/{project_id}/browser-artifacts/{artifact_id}` | 清理绑定当前租户、所有者、项目与浏览器会话的截图产物 |
 | GET/POST | `/api/mcp/catalog/{project_id}/workspaces` | 列出或创建当前项目的受控工作区 |
 | POST | `/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/files` | 上传多文件、目录相对路径或安全 ZIP |
 | POST | `/api/mcp/catalog/{project_id}/workspaces/{workspace_id}/seal` | 封存输入并生成不可变 manifest 摘要 |
@@ -415,6 +433,16 @@ python -m pytest server/tests/test_mcp_integration.py -q
 python -m pytest server/tests/test_mcp_catalog.py server/tests/test_mcp_compute_adapters.py server/tests/test_mcp_file_workspaces.py server/tests/test_mcp_multisession.py -q
 ```
 
+批次 7 浏览器适配器还必须在实际 Compose 等价隔离边界中完成双 sidecar 验收。构建后先记录本地镜像 ID/摘要，再运行真实 UDS、浏览器与超时 smoke：
+
+```bash
+docker build -f server/sandbox_sidecar/Dockerfile.browser -t modelmirror-mcp-browser:wave7-v1 server/sandbox_sidecar
+docker image inspect modelmirror-mcp-browser:wave7-v1 --format '{{json .RepoDigests}} {{.Id}}'
+python server/sandbox_sidecar/smoke_browser_runtime.py --image modelmirror-mcp-browser:wave7-v1 --seccomp server/sandbox_sidecar/seccomp_profile.browser.json
+```
+
+成功结果必须包含 Chrome DevTools 与 Playwright 各两次导航、快照、元素交互和 PNG 登记，以及各一次真实 20 秒导航超时（`-32008 / unknown_outcome / retryable=false`）、browser/egress PID1 精确单次重启、运行目录/进程清理和最终 `cleanup=verified`。该 harness 只创建随机 `mm-wave7-runtime-smoke-*` 资源；任何失败或残留都返回非零，不能用容器健康检查代替。
+
 测试覆盖：
 
 - 成功启动本地 mock MCP Server。
@@ -444,6 +472,7 @@ python server/mcp/test_manager.py
 | `server/mcp/token_proxy.py` | 移除短期凭据环境并把批次 4 固定项目 ID 与配置单次传给私有 sidecar。 |
 | `server/mcp/database_proxy.py` | 移除短期数据库配置环境，按固定项目路由到批次 5 的远程或断网本地 Unix socket。 |
 | `server/mcp/saas_proxy.py` | 移除短期 SaaS 配置环境，把批次 6 固定项目与账号作用域单次传给私有 sidecar。 |
+| `server/mcp/browser_proxy.py` | 把批次 7 固定项目和服务端浏览器策略单次传给私有 sidecar，不接受客户端命令、CDP 地址、启动参数或路径。 |
 | `server/mcp/workspace.py` | 工作区、上传/ZIP 校验、封存 manifest、产物与保留期管理。 |
 | `server/sandbox_sidecar/compute_mcp.py` | 批次 1 的三个内置 Python MCP 工具契约。 |
 | `server/sandbox_sidecar/public_mcp.py` | 批次 2 的内置公网 MCP 兼容契约。 |
@@ -462,6 +491,9 @@ python server/mcp/test_manager.py
 | `server/sandbox_sidecar/saas_contracts.py` | 批次 6 的固定服务、作用域、凭据槽、工具 Schema、读写与幂等契约。 |
 | `server/sandbox_sidecar/saas_server.py` | 批次 6 的预检、限流、有界只读重试、写入未知结果与会话清理网关。 |
 | `server/sandbox_sidecar/Dockerfile.saas` | `modelmirror-mcp-saas:wave6-v1` 独立固定契约镜像。 |
+| `server/sandbox_sidecar/browser_contracts.py` | 批次 7 的上游版本、固定工具 Schema、会话额度、网络与浏览器能力契约。 |
+| `server/sandbox_sidecar/browser_server.py` | 批次 7 的真实上游进程、HTTP/CONNECT 出口代理、临时 profile、状态与产物清理网关。 |
+| `server/sandbox_sidecar/Dockerfile.browser` | `modelmirror-mcp-browser:wave7-v1` 锁定上游 MCP 与 Chromium 的独立镜像。 |
 | `server/toolsets/` | Toolset/凭据 Store、版本发布、Schema 漂移与固定版本 Provider。 |
 | `client/src/pages/ToolsetsPage.tsx` | MCP Toolset 创建、连接、工具配置、测试和发布管理页。 |
 | `server/tests/test_toolset_*.py` | Toolset Store、API、连接、固定版本与安全回归。 |
@@ -477,6 +509,9 @@ python server/mcp/test_manager.py
 | `server/tests/test_mcp_token_sidecar.py` | 批次 4 清单一致性、配置契约、Secret 传递、工具过滤和 URL 预检测试。 |
 | `server/tests/test_mcp_database_sidecar.py` | 批次 5 配置、租户凭据、TLS/只读预检、协议旁路、行数与超时测试。 |
 | `server/tests/test_mcp_saas_sidecar.py` | 批次 6 固定 Host、Schema、预检、审批、限流、幂等、未知写入结果与解绑测试。 |
+| `server/tests/test_mcp_browser_sidecar.py` | 批次 7 上游 Schema、DNS/SSRF、重定向、临时会话、ref 漂移、审批、未知结果和清理测试。 |
+| `server/tests/test_mcp_browser_runtime_smoke.py` | 批次 7 双 sidecar 编排、资源登记/精确清理、重启、真实超时和固定安全探针的 harness 单测。 |
+| `server/sandbox_sidecar/smoke_browser_runtime.py` | 在随机隔离 Docker 资源中执行两个浏览器适配器的真实交互、截图、超时、PID1 轮换与残留清理终端门禁。 |
 | `server/mcp/smoke_file_adapters.py` | 四个文件适配器初始化、发现、代表调用、重连、源文件不变和清理 smoke。 |
 | `client/src/components/McpServerCard.tsx` | 前端连接、工具表单、执行结果组件。 |
 | `client/src/components/McpWorkspacePanel.tsx` | 中文工作区上传、封存、绑定、容量/到期、产物下载和清理面板。 |

@@ -28,6 +28,40 @@ export type McpDatabasePreflightStatus =
   | "verified"
   | "failed";
 
+export interface McpBrowserPolicy {
+  engine: string;
+  contract_version: string;
+  tool_schema_sha256: string;
+  session_ttl_seconds: number;
+  idle_ttl_seconds: number;
+  max_pages: number;
+  max_actions: number;
+  max_concurrent_sessions: number;
+  max_tunnels_per_session: number;
+  max_egress_bytes_per_session: number;
+  egress_tunnel_idle_seconds: number;
+  egress_tunnel_ttl_seconds: number;
+  navigation_timeout_seconds: number;
+  call_timeout_seconds: number;
+  max_output_bytes: number;
+  max_artifact_bytes: number;
+  max_artifacts_per_project: number;
+  max_artifact_storage_bytes: number;
+  artifact_ttl_seconds: number;
+  allowed_schemes: string[];
+  allowed_ports: number[];
+  uploads: boolean;
+  downloads: boolean;
+  clipboard: boolean;
+  local_files: boolean;
+  cookies: boolean;
+  storage: boolean;
+  login_state: boolean;
+  evaluate: boolean;
+  cdp: boolean;
+  limitations: string[];
+}
+
 export interface McpDatabasePolicy {
   mode: "remote-read-only" | "local-file-read-only";
   engine: string;
@@ -123,6 +157,7 @@ export interface McpCatalogAdapterStatus {
   workspace_policy: McpWorkspacePolicy | null;
   database_policy: McpDatabasePolicy | null;
   saas_policy?: McpSaasPolicy | null;
+  browser_policy?: McpBrowserPolicy | null;
   stateful_saas_gate_enabled?: boolean;
   account_status?: McpSaasAccountStatus;
   preflight_status: McpDatabasePreflightStatus;
@@ -194,6 +229,8 @@ export const mcpCapabilityLabels: Record<string, string> = {
   "account-unbinding": "账号解绑",
   "ephemeral-browser": "临时浏览器会话",
   "browser-domain-policy": "浏览目标域策略",
+  "browser-session-approval": "浏览器操作逐次审批",
+  "browser-artifact-cleanup": "截图产物下载与清理",
   "ephemeral-code-sandbox": "一次性代码沙箱",
   "process-resource-limits": "进程资源限制",
   "cost-guardrails": "费用与资源护栏",
@@ -232,6 +269,13 @@ export const mcpIsolationLabels: Record<string, string> = {
     "封存数据库输入只读；不允许写入原文件或生成旁路产物",
   "allowlist:api.supabase.com,supabase.com": "仅允许 Supabase 官方 API 域名",
   "blocked:no-production-runtime": "已阻断：没有生产级运行时",
+  "browser-egress:validated-public-http-https":
+    "仅允许 DNS 固定后的公网 HTTP/HTTPS 目标（80/443 端口）；跨 origin 请求与重定向拒绝",
+  "browser-profile:ephemeral-no-login-state":
+    "临时匿名浏览器配置；不保存 Cookie、Storage 或登录状态",
+  "browser-artifacts:screenshot-only": "仅允许生成受控截图产物",
+  "blocked:unmaintained-browser-runtime": "已阻断：上游浏览器运行时已归档",
+  "blocked:license-runtime-contract": "已阻断：许可证与运行时契约尚未厘清",
 };
 
 export function formatMcpCapability(capability: string) {
@@ -366,8 +410,17 @@ const waveMetadata: Record<
   7: {
     connectionKind: "sandboxed-stdio",
     risk: "high",
-    requiredCapabilities: ["临时浏览器", "浏览域策略"],
-    limitations: ["等待临时浏览器、目标域及上传下载边界验证。"],
+    requiredCapabilities: [
+      "ephemeral-browser",
+      "browser-domain-policy",
+      "browser-session-approval",
+      "browser-artifact-cleanup",
+    ],
+    limitations: [
+      "每次连接使用临时匿名浏览器配置，仅允许访问 DNS 固定后的公网 HTTP/HTTPS 目标（80/443 端口）；导航 URL 拒绝 Token、API Key、签名等敏感查询参数，跨 origin 请求与重定向直接拒绝。",
+      "首版不提供账号凭据采集、外站登录流程或登录态保存；页面仍可能自行呈现登录界面，用户不得输入账号、密码、OTP 等认证信息。不提供网页上传/下载、剪贴板、本机文件、Cookie/Storage 导入导出与持久化、任意脚本求值或外部 CDP 工具；只允许生成受控截图产物。",
+      "单 origin 门禁覆盖锁定上游的正常浏览器流量与恶意网页；若浏览器或上游进程本身被完全攻陷，独立出口仍拒绝私网和 metadata 并执行流量上限，但不能保证同一公网 IP 与证书下的虚拟主机隔离。",
+    ],
   },
   8: {
     connectionKind: "sandboxed-stdio",
@@ -497,6 +550,33 @@ const waveSixBlockedDetails: Record<string, string[]> = {
 const waveSixSingleTenantLimitation =
   "当前仅支持部署时固定 tenant/owner 的单租户实例；多租户共享部署保持关闭。";
 
+const waveSevenReadyIds = new Set([
+  "chrome-devtools-mcp",
+  "playwright-mcp",
+]);
+
+const waveSevenReadyDetails: Record<string, string[]> = {
+  "chrome-devtools-mcp": [
+    "固定 Chrome DevTools MCP 1.6.0；只开放会话状态、受控导航、页面快照、点击、填写和截图产物。",
+    "性能分析、Lighthouse、堆快照、文件上传、键盘透传、任意脚本求值工具、扩展和外部 CDP 全部关闭。",
+  ],
+  "playwright-mcp": [
+    "固定 Playwright MCP 0.0.79；只开放会话状态、受控导航、结构化页面快照、点击、填写和截图产物，不接受浏览器启动参数或持久配置目录。",
+    "任意代码、文件上传、网页下载、Cookie/Storage 导入导出与持久化、PDF、视觉定位、网络路由、远程 CDP 和共享会话全部关闭。",
+  ],
+};
+
+const waveSevenBlockedDetails: Record<string, string[]> = {
+  "puppeteer-mcp": [
+    "上游官方参考实现已经归档，包含任意启动参数和页面脚本执行等高风险能力，无法锁定为持续维护的生产契约。",
+    "连接、安装和浏览器进程入口保持关闭；不会回退到归档包、任意 Puppeteer 启动参数或外部 CDP。",
+  ],
+  "selenium-mcp": [
+    "上游仓库与发布包的许可证声明不一致，容器、Node 版本和浏览器驱动契约也存在漂移，当前无法形成可复现镜像。",
+    "连接、安装和 WebDriver 入口保持关闭；待许可证、进程清理和工具白名单形成可审计契约后再评估。",
+  ],
+};
+
 function buildAdaptationPlan() {
   const records: Record<string, McpAdaptationRecord> = {};
   for (const projectId of localStdioIds) {
@@ -525,6 +605,10 @@ function buildAdaptationPlan() {
                 : "blocked"
             : wave === 6
               ? waveSixReadyIds.has(projectId)
+                ? "ready"
+                : "blocked"
+            : wave === 7
+              ? waveSevenReadyIds.has(projectId)
                 ? "ready"
                 : "blocked"
             : wave <= 4
@@ -590,6 +674,13 @@ function buildAdaptationPlan() {
               ? [
                   ...waveSixReadyDetails[projectId],
                   waveSixSingleTenantLimitation,
+                ]
+            : waveSevenBlockedDetails[projectId]
+              ? [...waveSevenBlockedDetails[projectId]]
+            : waveSevenReadyDetails[projectId]
+              ? [
+                  ...waveSevenReadyDetails[projectId],
+                  ...metadata.limitations,
                 ]
             : [...metadata.limitations],
       };
