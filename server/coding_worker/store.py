@@ -140,6 +140,19 @@ class CodingWorkerStore:
         with self._connect() as connection:
             return [self._task(row, connection) for row in connection.execute(query, params)]
 
+    def list_queued_tasks(self, *, limit: int = 100) -> list[TaskRecord]:
+        if not 1 <= limit <= 1000:
+            raise ValueError("invalid queued task limit")
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM worker_tasks WHERE state = ?
+                ORDER BY created_at, task_id LIMIT ?
+                """,
+                (TaskState.QUEUED.value, limit),
+            ).fetchall()
+            return [self._task(row, connection) for row in rows]
+
     def transition(
         self,
         task_id: str,

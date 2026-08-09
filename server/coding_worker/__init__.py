@@ -14,12 +14,15 @@ from .contracts import (
     WorkspaceSource,
 )
 from .provider import CodingAgentProvider, FakeCodingAgentProvider
+from .service import CodingWorkerService
 from .store import CodingWorkerStore
+from .workspace import WorkspaceBroker
 
 __all__ = [
     "AcceptanceContract",
     "CapabilityLease",
     "CodingAgentProvider",
+    "CodingWorkerService",
     "CodingWorkerStore",
     "ContextReference",
     "FakeCodingAgentProvider",
@@ -31,4 +34,5 @@ __all__ = [
     "TaskSpec",
     "TaskState",
     "WorkspaceSource",
+    "WorkspaceBroker",
 ]
