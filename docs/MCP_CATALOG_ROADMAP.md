@@ -15,11 +15,11 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-07，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0—5 已验收的 38 项保持不变；批次 6 的 Airtable、Asana、GitLab.com 与 Notion 已完成固定适配。中国电商经营 MCP 因八个平台的 OAuth/商家授权、短期 Token 与敏感订单数据边界尚未逐平台验收，Mem0 因本地上游归档并迁移到未锁定版本的托管远程 MCP，二者标记为 `blocked`。当前状态精确为 **42 ready / 47 planned / 11 blocked**。
+截至 2026-08-07，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 0—6 已验收的 42 项保持不变；批次 7 的 Chrome DevTools MCP 与 Playwright MCP 已完成固定浏览器适配，Puppeteer MCP 与 Selenium MCP 因上游维护、安全和许可证门槛标记为 `blocked`。当前状态精确为 **44 ready / 43 planned / 13 blocked**。
 
 ## 2. 当前边界与明确不实现
 
-批次 1–6 只增加固定适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar，批次 4 使用固定 Token 槽和只读出口 sidecar，批次 5 使用结构化数据库配置及相互隔离的远程/本地数据库 sidecar，批次 6 使用固定 SaaS 服务、账号作用域和资源级一次性审批 sidecar。六批都不扩大任意连接或任意执行能力：
+批次 1–7 只增加固定适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar，批次 4 使用固定 Token 槽和只读出口 sidecar，批次 5 使用结构化数据库配置及相互隔离的远程/本地数据库 sidecar，批次 6 使用固定 SaaS 服务、账号作用域和资源级一次性审批 sidecar，批次 7 使用真实锁定上游、临时 Chromium 和强制出口代理。七批都不扩大任意连接或任意执行能力：
 
 - 不接受用户指定的 Python 包、解释器、命令、工作目录或其他额外运行时。
 - 不实现 OAuth 回调、刷新或外站登录；批次 4—5 的卡片可把明文 Secret 单次提交到服务端加密库，但连接配置只接受不透明 `credential_id`，保存后不再返回或显示明文。
@@ -30,6 +30,7 @@
 - 批次 5 客户端只能提交清单声明的数据库类型、主机名、端口、库名、用户名、严格 TLS 模式或 Supabase `project_ref`；DBHub 首批仅支持 PostgreSQL、MySQL 与 MariaDB，SQL Server 保持关闭；不接受 DSN、数据库 URI、SSH 隧道、Header、环境变量名或任意连接参数。
 - 批次 6 只接受清单声明的 Personal Access Token / Internal Integration Token 与固定资源 ID；不接受服务 URL、任意 Host、Header、环境变量、OAuth 回调或外站登录。GitLab 首批只连接 `gitlab.com`，自建 GitLab 保持未开放。
 - 批次 6 的真实账号执行还需部署者显式设置单用户本地实例确认门禁；当前 API 没有逐请求认证主体传播，多用户共享部署不得开启。
+- 批次 7 不接受浏览器启动参数、CDP/远程端点、profile、代理、Header、Cookie、storage、上传/下载路径或本机文件。用户只提交待审批且不含 Token、API Key、签名等敏感查询参数的公网 URL，以及网关签发的不透明元素 ref；首版不采集账号凭据、不提供外站登录流程，也不继承或保存登录态。页面仍可能自行呈现无法由透明 HTTPS 出口可靠识别的登录界面，用户不得输入账号、密码、OTP 或其他认证信息。
 - 不接管 Blender、Zotero、Obsidian、JetBrains、Xcode、Ghidra 等桌面宿主。
 - 不提供用户自定义 MCP 连接。
 - 不提供 MCP Builder、可视化生成器或发布市场流程。
@@ -49,7 +50,7 @@
 数据层必须满足以下约束：
 
 1. 前端条目不得包含可执行 `command`、MCP URL、Header 或环境变量配置。
-2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1—6 的 35 项使用完整的逐工具策略。
+2. `ready` 后端适配器必须有固定命令或端点、独立功能开关和显式工具策略；现有 7 项以兼容策略保持行为不变，批次 1—7 的 37 项使用完整的逐工具策略。
 3. `planned` 后端适配器不得包含可执行命令或端点，环境开关不能绕过状态门禁。
 4. 前端不得保存真实 Secret，也不得在仓库内出现真实凭证。
 5. 上游清单只用于发现项目；能否连接必须按模镜运行边界重新核验。
@@ -84,7 +85,7 @@
 | 4 | AgentQL、Brave、Exa、Firecrawl、Perplexity、Tavily、Axiom、Figma Context、Google Maps、Grafana、Graphlit、Kagi、Pinecone、Shodan、Snyk、VirusTotal | 16 | **已完成门槛判定**：15 项通过加密凭据槽、固定出口域、只读工具和 Secret 泄漏测试；Snyk 因本地构建执行依赖第 8 批隔离而阻断 |
 | 5 | DBHub、PostgreSQL、MongoDB、ClickHouse、Cognee、Graphiti、Hindsight、Redis、SQLite、DuckDB、Supabase | 11 | **已完成门槛判定**：DBHub、MongoDB、ClickHouse、Redis、DuckDB、Supabase 通过结构化配置、租户凭据、协议级只读、预检与查询限制；PostgreSQL、SQLite 因归档实现受阻，三项状态化记忆转入第 5B 计划 |
 | 6 | Airtable、Asana、GitLab、中国电商经营、Notion、Mem0 | 6 | **已完成门槛判定**：Airtable、Asana、GitLab.com、Notion 通过固定作用域、真实预检、资源级审批、限流与解绑；中国电商与 Mem0 因授权/托管契约受阻 |
-| 7 | Chrome DevTools、Playwright、Puppeteer、Selenium | 4 | 临时浏览器、目标域、上传下载与会话清理边界 |
+| 7 | Chrome DevTools、Playwright、Puppeteer、Selenium | 4 | **已完成门槛判定**：Chrome DevTools 与 Playwright 通过真实上游 Schema、临时浏览器、固定出口、页面状态审批与清理测试；Puppeteer、Selenium 因归档安全风险与许可证/运行时边界受阻 |
 | 8 | MCP Run Python、MCP Python Interpreter | 2 | 一次性断网容器、无宿主挂载、无 Docker socket、进程资源限制 |
 | 9 | Apify、Bright Data、Browserbase、E2B、Stripe、Terraform、Aiven、Alpaca、AWS KB、ElevenLabs、MiniMax、S3、Kubernetes、Semgrep | 14 | 费用/资源上限、目标预览、终止性操作强制审批 |
 | 10 | Gmail、Atlassian、Google Calendar、Google Drive、Microsoft 365、OneDrive、Sentry、Azure、Box、Cloudflare、GitHub、Linear、Neon、Slack | 14 | PKCE、state、最小 scope、刷新、撤销与解绑 |
@@ -143,10 +144,21 @@
 - 当前目录服务仍是部署时固定 `tenant/owner` 的单例，因此真实 SaaS 能力除项目开关外还要求 `MCP_CATALOG_STATEFUL_SAAS_SINGLE_USER_ACK=true`；默认关闭，多用户部署继续视为发布阻断。
 - `mcp-cn-commerce` v0.1.5 覆盖八个平台和 114 个工具，各平台授权、域名、短期 Token 与订单/售后敏感数据无法作为单一契约验收，保持 `blocked`。Mem0 本地 v0.2.1 已归档，官方迁移到无固定版本的托管远程 MCP；在 OAuth、Schema 锁定和租户记忆作用域完成前保持 `blocked`。
 
+批次 7 的执行结论：
+
+- 独立 `modelmirror-mcp-browser:wave7-v1` 锁定 `chrome-devtools-mcp` 1.6.0 + Chrome for Testing 150.0.7871.24，以及 `@playwright/mcp` 0.0.79 + Chromium 1237 / Chrome for Testing 152.0.7977.8；两个适配器使用彼此独立的固定浏览器路径。每个目录连接启动真实上游 stdio MCP 与独立临时 profile；安全网关核对 `initialize`、工具名和规范化 `inputSchema`，每个适配器只公开五项经过审核的上游能力和一个网关状态工具，运行时不安装或更新依赖。
+- `mcp-browser` 执行容器使用 `network_mode: none`、非 root、只读根文件系统、移除 capabilities、`no-new-privileges`、1 GiB/1.5 CPU/256 PIDs，且无 Docker socket 或宿主目录；256 PID 配额只用于该浏览器执行容器。独立 `mcp-browser-egress` 仅持有公网网络和出口 Unix socket，不挂载 MCP socket、profile 或截图产物；上游 Chromium 无法直接访问它。两者均与既有 Runtime Browser 完全分离。每会话一页、最多 50 次动作、15 分钟总时长/5 分钟闲置，首版目录实例只运行一个浏览器会话；控制密钥和 MCP socket 只在 Docker 重启策略的 10 秒保护窗口之后（实现使用 11 秒裕量）开放，任何会话结束或异常都会终止两个 PID1、清除 profile，并由 `unless-stopped` 成对重建。
+- Landlock 只允许上游进程读取锁定运行时并写当前 profile/截图暂存目录，继续拒绝 `/run` 与兄弟路径。Chromium 创建自身 user namespace 时所需的 procfs 映射写入仅恢复 `WRITE_FILE`；不开放 procfs 创建、删除、截断、目录写或 socket 权限，容器仍无 capabilities，Docker 对敏感 procfs 的掩蔽与只读挂载保持不变。
+- Chromium 强制通过执行容器内的 loopback HTTP/CONNECT 代理，再以不传给上游的一次性会话能力访问出口 sidecar。只允许公网 HTTP/HTTPS 80/443；生产出口不使用宿主 DNS，而是通过固定数值地址的 Cloudflare JSON DoH（TLS 1.2+、SNI/证书名 `cloudflare-dns.com`）重新解析完整 A/AAAA 集合，再执行 SSRF 门禁，连接固定到已验证地址并保留目标 hostname/SNI。Synthetic DNS 只在随机隔离 fixture smoke 中显式开启，生产 Compose 固定为 false。IP 字面量、单标签主机、userinfo、私网/回环/链路本地/保留/metadata、混合 DNS 答案、跨 origin 请求与重定向均拒绝；每会话最多 12 个并发隧道和累计 64 MiB 流量，并限制隧道闲置与绝对时长。
+- 出口进程生成的一次性配对密钥只由两个 sidecar 父进程持有，不传给上游。任一 sidecar 单独重启后旧配对与旧会话均 fail-closed；运维恢复必须成对重启执行端与出口端，不恢复旧页面或元素 ref。
+- 单 origin 门禁覆盖锁定上游的正常 Chromium 流量与恶意网页。若锁定的上游或浏览器进程本身被完全攻陷，独立出口仍只连接经过校验的公网 IP，并继续执行端口、流量与时限门禁，但没有 TLS 终止能力，不能保证同一公网 IP 与证书下的其他虚拟主机绝对隔离；本批不把该边界描述为浏览器 RCE 防护。
+- 导航、点击和填写必须经过 `browser-session` 一次性审批。审批冻结目录会话、浏览器 generation、页面 revision/digest、origin、工具/Schema、参数和配置版本；确认时状态漂移即失效。交互调用不重试，歧义超时会标记 `unknown_outcome`、污染并关闭会话；sidecar 明确返回 `-32011` 且原因属于调用前 DNS/目标 URL 拒绝时，旧审批终止但会话保留，修正目标后必须重新审批，调用后风险原因仍不得降级为明确拒绝。截图先进入 64 MiB 临时共享卷，经后端单文件描述符校验后复制到仅服务端挂载的可信目录并持久登记 24 小时索引；可通过项目专属接口下载或清理。异常临时项仅按固定深度与已知命名清扫，畸形条目告警并 fail-closed。网页上传、网页下载、登录态保存、Cookie/Storage 导入导出与持久化、剪贴板、任意脚本求值工具、CDP、扩展与本机文件不进入本批。网页自身的 Cookie、缓存和站点存储只存在于临时 profile，断开时删除。
+- Chrome DevTools MCP 1.6.0 与 Playwright MCP 0.0.79 为 `ready`。官方 Puppeteer MCP 已归档且保留危险启动/脚本入口，Selenium MCP 0.2.3 存在 MIT/ISC 许可证元数据冲突、root/漂移镜像和任意参数/路径/脚本/Cookie 面，二者保持 `blocked`，不得通过功能开关绕过。
+
 ## 6. 验收、发布和回退
 
-- 每个项目必须通过初始化、工具发现、代表性调用、超时、重连、断开与清理测试；Schema 漂移视为阻断。
-- 安全测试按批次覆盖 Secret 泄漏、SSRF、重定向、路径越界、ZIP Slip、链接与压缩炸弹、跨项目/产物/租户越权、沙箱逃逸、TLS 降级、SQL 多语句及写入旁路、查询超时/行数、权限撤销、审批绕过、参数/配置/凭据漂移、限流、重试、幂等重放、未知写入结果、账号解绑和高风险操作默认关闭。
+- 每个项目必须通过初始化、工具发现、代表性调用、超时、重连、断开与清理测试；Schema 漂移视为阻断。浏览器条目还必须在双 sidecar 容器中走完 UDS 握手、受控导航、快照、元素交互、真实截图登记、断开与进程/profile/临时文件清理，单独的上游 `tools/list` 或容器健康检查不能作为 ready 证据。
+- 安全测试按批次覆盖 Secret 泄漏、SSRF、DNS 重绑定、跨域重定向、路径越界、ZIP Slip、链接与压缩炸弹、跨项目/产物/租户越权、浏览器 profile/进程清理、元素 ref 与页面 digest 漂移、沙箱逃逸、TLS 降级、SQL 多语句及写入旁路、查询超时/行数、权限撤销、审批绕过、参数/配置/凭据漂移、限流、重试、幂等重放、未知写入结果、账号解绑和高风险操作默认关闭。
 - 前端必须显示中文批次、状态、连接方式、风险、限制和门槛；后端未返回 `executable=true` 时按钮不可连接。
 - 每个项目有独立服务端开关。回退只关闭开关、断开会话并清理沙箱，不删除目录条目或凭据。
 - 运行日志只记录项目 ID、状态、耗时、错误类别和策略事件，不记录 Secret、完整参数或工具返回正文。
@@ -162,7 +174,7 @@
 
 主要风险是上游项目快速变化、条目说明过期，以及把“已收录”误解为“当前可安全运行”。前端必须持续使用明确的状态标签和禁用按钮表达边界。
 
-批次 0–4 不引入数据库迁移；批次 5 只把旧凭据 JSON 元数据显式迁移到 `local/local` 作用域，不接触外部数据库 schema 或数据。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭四个文件项目开关、撤销审批并停止 `mcp-files`；批次 4 回退时关闭 15 个 Token 项目的独立功能开关、断开目录会话并停止 `mcp-token`；批次 5 回退时关闭六个数据库项目开关、断开会话、停止远程和本地数据库 sidecar，并清理临时 DuckDB 工作区；批次 6 回退时关闭四个 SaaS 项目开关和全局单用户确认门禁、执行项目解绑并停止 `mcp-saas`。回退不自动删除外部 SaaS 数据，也不声称撤销服务商 Token；卡片专属加密凭据仅在用户选择撤销时删除。Airbnb、BibiGPT、Manim、Snyk、PostgreSQL、SQLite、Cognee、Graphiti、Hindsight、中国电商经营 MCP 与 Mem0 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容，但目录会话不能使用无项目策略的直接调用端点：
+批次 0–4 不引入数据库迁移；批次 5 只把旧凭据 JSON 元数据显式迁移到 `local/local` 作用域，不接触外部数据库 schema 或数据。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭四个文件项目开关、撤销审批并停止 `mcp-files`；批次 4 回退时关闭 15 个 Token 项目的独立功能开关、断开目录会话并停止 `mcp-token`；批次 5 回退时关闭六个数据库项目开关、断开会话、停止远程和本地数据库 sidecar，并清理临时 DuckDB 工作区；批次 6 回退时关闭四个 SaaS 项目开关和全局单用户确认门禁、执行项目解绑并停止 `mcp-saas`；批次 7 回退时关闭两个浏览器项目开关、作废待确认操作、断开会话并停止 `mcp-browser` 与 `mcp-browser-egress`，随后清理临时 profile 与截图产物。回退不自动删除外部 SaaS 数据，也不声称撤销服务商 Token；卡片专属加密凭据仅在用户选择撤销时删除。Airbnb、BibiGPT、Manim、Snyk、PostgreSQL、SQLite、Cognee、Graphiti、Hindsight、中国电商经营 MCP、Mem0、Puppeteer MCP 与 Selenium MCP 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容，但目录会话不能使用无项目策略的直接调用端点：
 
 - `server/mcp/catalog.py`
 - `server/mcp/sandbox_proxy.py`

@@ -25,6 +25,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol
+from urllib.parse import unquote, urlsplit
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -36,6 +37,7 @@ from mcp.types import CallToolResult, Tool
 try:
     from server.mcp.manager import (
         MCPClientManager,
+        MCPClientError,
         MCPInstaller,
         MCPSessionNotFoundError,
     )
@@ -52,7 +54,12 @@ try:
         MCPCatalogWorkspaceStore,
     )
 except ModuleNotFoundError:
-    from mcp.manager import MCPClientManager, MCPInstaller, MCPSessionNotFoundError
+    from mcp.manager import (
+        MCPClientError,
+        MCPClientManager,
+        MCPInstaller,
+        MCPSessionNotFoundError,
+    )
     from registry.tool_registry import ToolRegistry
     from mcp.workspace import (
         FILE_PROJECTS,
@@ -66,8 +73,120 @@ except ModuleNotFoundError:
         MCPCatalogWorkspaceStore,
     )
 
+try:
+    from server.mcp.browser_proxy import (
+        BROWSER_SCHEMA_SHA256,
+        CONTRACT_VERSION as BROWSER_CONTRACT_VERSION,
+        EXPECTED_LIMITS as BROWSER_LIMITS,
+    )
+except ModuleNotFoundError:
+    from mcp.browser_proxy import (
+        BROWSER_SCHEMA_SHA256,
+        CONTRACT_VERSION as BROWSER_CONTRACT_VERSION,
+        EXPECTED_LIMITS as BROWSER_LIMITS,
+    )
+
 
 AdapterAvailability = Literal["planned", "adapting", "ready", "blocked"]
+
+BROWSER_LOGIN_TOKENS = frozenset(
+    {
+        "auth",
+        "account",
+        "accounts",
+        "authorize",
+        "callback",
+        "consent",
+        "login",
+        "log-in",
+        "oauth",
+        "oauth2",
+        "oidc",
+        "saml",
+        "session",
+        "signin",
+        "sign-in",
+        "sso",
+    }
+)
+BROWSER_LOGIN_COMPONENT_BOUNDARIES = re.compile(r"[/&=?#]+")
+BROWSER_HOST_COMPONENT_BOUNDARIES = re.compile(r"[.]+")
+BROWSER_QUERY_COMPONENT_BOUNDARIES = re.compile(r"[&;?#]+")
+BROWSER_SENSITIVE_QUERY_KEYS = frozenset(
+    {
+        "accesstoken",
+        "apikey",
+        "authorization",
+        "auth",
+        "bearer",
+        "code",
+        "credential",
+        "idtoken",
+        "jwt",
+        "key",
+        "keypairid",
+        "oauth",
+        "oauthtoken",
+        "password",
+        "passwd",
+        "refreshtoken",
+        "secret",
+        "session",
+        "sessionid",
+        "sig",
+        "signature",
+        "token",
+    }
+)
+BROWSER_SENSITIVE_QUERY_PREFIXES = ("oauth", "xamz", "xgoog")
+
+
+def canonical_browser_login_tokens(
+    value: str, *, host: bool = False
+) -> frozenset[str]:
+    """Mirror the browser sidecar's ordinary and punctuation-folded tokens."""
+
+    boundaries = (
+        BROWSER_HOST_COMPONENT_BOUNDARIES
+        if host
+        else BROWSER_LOGIN_COMPONENT_BOUNDARIES
+    )
+    tokens: set[str] = set()
+    ordinary_sequence: list[str] = []
+    for component in boundaries.split(value.lower()):
+        ordinary = re.findall(r"[a-z0-9]+", component)
+        tokens.update(ordinary)
+        ordinary_sequence.extend(ordinary)
+        compact = "".join(ordinary)
+        if compact:
+            tokens.add(compact)
+    tokens.update(
+        left + right
+        for left, right in zip(ordinary_sequence, ordinary_sequence[1:])
+    )
+    return frozenset(tokens)
+
+
+def browser_query_has_sensitive_key(query: str) -> bool:
+    """Mirror the sidecar's bearer/signing query-key rejection."""
+
+    decoded = query
+    for _ in range(2):
+        decoded = unquote(decoded)
+    for component in BROWSER_QUERY_COMPONENT_BOUNDARIES.split(decoded):
+        raw_key = component.partition("=")[0]
+        key = "".join(re.findall(r"[a-z0-9]+", raw_key.lower()))
+        if not key:
+            continue
+        if (
+            key in BROWSER_SENSITIVE_QUERY_KEYS
+            or key.startswith(BROWSER_SENSITIVE_QUERY_PREFIXES)
+            or key.endswith(("secret", "signature", "token"))
+        ):
+            return True
+    return False
+
+
 AdapterConnectionKind = Literal[
     "local-stdio",
     "sandboxed-stdio",
@@ -79,7 +198,11 @@ AdapterPreparationKind = Literal["installer", "bundled"]
 CatalogToolEffect = Literal["read", "artifact-create", "state-write", "terminal"]
 CatalogSettingKind = Literal["text", "integer", "enum", "slug", "hostname"]
 CatalogDatabaseMode = Literal["remote-read-only", "local-file-read-only"]
-CatalogApprovalContextKind = Literal["workspace", "remote-resource"]
+CatalogApprovalContextKind = Literal[
+    "workspace",
+    "remote-resource",
+    "browser-session",
+]
 
 logger = logging.getLogger("modelmirror.mcp.catalog")
 
@@ -131,6 +254,72 @@ class CatalogProviderRejectedError(CatalogAdapterPolicyError):
         super().__init__(message)
         self.reason = normalized_reason
         self.idempotency_key = idempotency_key
+
+
+class CatalogBrowserPolicyRejectedError(CatalogAdapterPolicyError):
+    """Raised when the browser proves that no reviewed action was dispatched."""
+
+    def __init__(self, reason: str, idempotency_key: str) -> None:
+        normalized_reason = (
+            reason
+            if reason
+            in {
+                "dns_policy_rejected",
+                "target_policy_rejected",
+            }
+            else "browser_policy_rejected"
+        )
+        messages = {
+            "dns_policy_rejected": (
+                "目标域名未通过浏览器公网 DNS 安全校验，本次操作未执行；会话仍可继续。"
+            ),
+            "target_policy_rejected": (
+                "目标地址未通过浏览器安全策略，本次操作未执行；会话仍可继续。"
+            ),
+            "browser_policy_rejected": (
+                "浏览器安全策略已明确拒绝本次操作；会话仍可继续。"
+            ),
+        }
+        super().__init__(messages[normalized_reason])
+        self.reason = normalized_reason
+        self.idempotency_key = idempotency_key
+
+
+def _browser_policy_rejection_reason(exc: BaseException) -> str | None:
+    """Classify only reviewed, non-retryable browser JSON-RPC rejections."""
+
+    if not isinstance(exc, McpError):
+        return None
+    rpc_error = exc.error
+    rpc_data = rpc_error.data if isinstance(rpc_error.data, dict) else {}
+    if rpc_error.code != -32011 or rpc_data.get("retryable") is not False:
+        return None
+    raw_reason = str(rpc_data.get("reason") or "")
+    if raw_reason.startswith("browser_dns_") or raw_reason == "browser_private_dns_denied":
+        return "dns_policy_rejected"
+    if raw_reason in {
+        "browser_external_login_denied",
+        "browser_sensitive_query_denied",
+        "browser_url_scheme_denied",
+        "browser_url_host_denied",
+        "browser_url_port_denied",
+        "browser_url_credentials_denied",
+        "browser_url_fragment_denied",
+        "browser_literal_address_denied",
+    }:
+        return "target_policy_rejected"
+    # Other -32011 reasons can be emitted after an upstream action (for
+    # example a cross-origin redirect observed after navigation). They remain
+    # fail-closed and ambiguous rather than being mislabeled pre-dispatch.
+    return None
+
+
+class CatalogBrowserStateDriftError(CatalogAdapterPolicyError):
+    """Raised before dispatch when a frozen browser page is no longer current."""
+
+
+class CatalogBrowserSessionExpiredError(CatalogAdapterPolicyError):
+    """Raised when the ephemeral browser TTL has elapsed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +451,51 @@ class CatalogSaaSPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class CatalogBrowserPolicy:
+    """Public, non-secret guardrails for an ephemeral browser adapter."""
+
+    engine: str
+    contract_version: str
+    tool_schema_sha256: str
+    session_ttl_seconds: int = 15 * 60
+    idle_ttl_seconds: int = 5 * 60
+    max_pages: int = 1
+    max_actions: int = 50
+    max_concurrent_sessions: int = 1
+    max_tunnels_per_session: int = 12
+    max_egress_bytes_per_session: int = 64 * 1024 * 1024
+    egress_tunnel_idle_seconds: int = 30
+    egress_tunnel_ttl_seconds: int = 120
+    navigation_timeout_seconds: int = 20
+    call_timeout_seconds: int = 30
+    max_output_bytes: int = 256 * 1024
+    max_artifact_bytes: int = 32 * 1024 * 1024
+    max_artifacts_per_project: int = 50
+    max_artifact_storage_bytes: int = 256 * 1024 * 1024
+    artifact_ttl_seconds: int = 24 * 60 * 60
+    allowed_schemes: tuple[str, ...] = ("http", "https")
+    allowed_ports: tuple[int, ...] = (80, 443)
+    uploads: bool = False
+    downloads: bool = False
+    clipboard: bool = False
+    local_files: bool = False
+    cookies: bool = False
+    storage: bool = False
+    login_state: bool = False
+    evaluate: bool = False
+    cdp: bool = False
+    limitations: tuple[str, ...] = (
+        "仅允许经一次性确认的公网 HTTP/HTTPS 导航；每次 DNS 解析和重定向都重新校验。",
+        "浏览器会话临时化且仅允许单页；不保留 Cookie、存储、登录态或本机文件。",
+        "不采集账号凭据或提供外站登录流程；页面仍可能呈现登录界面，用户不得输入账号、密码或 OTP。",
+        "上传、下载、剪贴板、任意脚本求值和外部 CDP 均关闭。",
+    )
+
+    def to_public(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class CatalogAdapterManifest:
     project_id: str
     wave: int
@@ -288,6 +522,7 @@ class CatalogAdapterManifest:
     workspace_policy: CatalogWorkspacePolicy | None = None
     database_policy: CatalogDatabasePolicy | None = None
     saas_policy: CatalogSaaSPolicy | None = None
+    browser_policy: CatalogBrowserPolicy | None = None
     legacy_unrestricted_calls: bool = False
     enabled_by_default: bool = False
     operation_timeout: float = 30.0
@@ -387,6 +622,11 @@ class CatalogAdapterManifest:
                 if self.saas_policy is not None
                 else None
             ),
+            "browser_policy": (
+                self.browser_policy.to_public()
+                if self.browser_policy is not None
+                else None
+            ),
             "stateful_saas_gate_enabled": self.stateful_saas_gate_enabled,
         }
 
@@ -441,6 +681,10 @@ SAAS_SANDBOX_PROXY = (
     sys.executable,
     "-m",
     "mcp.saas_proxy",
+)
+BROWSER_SANDBOX_PROXY = (
+    sys.executable,
+    str(Path(__file__).resolve().with_name("browser_proxy.py")),
 )
 WAVE_ONE_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
     "calculator-mcp": (
@@ -1039,6 +1283,36 @@ WAVE_SIX_ADAPTERS: dict[str, WaveSixAdapterSpec] = {
             ),
         ),
         ("仅开放固定 Data Source；归档、删除、Schema 修改、任意搜索和跨作用域写入均关闭。",),
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class WaveSevenAdapterSpec:
+    adapter_version: str
+    engine: str
+    tool_schema_sha256: str
+    read_tools: tuple[str, ...]
+    artifact_tools: tuple[str, ...]
+    state_write_tools: tuple[str, ...]
+
+
+WAVE_SEVEN_ADAPTERS: dict[str, WaveSevenAdapterSpec] = {
+    "chrome-devtools-mcp": WaveSevenAdapterSpec(
+        "1.6.0-wave7-v1",
+        "chrome-devtools",
+        BROWSER_SCHEMA_SHA256["chrome-devtools-mcp"],
+        ("browser_session_status", "take_snapshot"),
+        ("take_screenshot",),
+        ("navigate_page", "click", "fill"),
+    ),
+    "playwright-mcp": WaveSevenAdapterSpec(
+        "0.0.79-wave7-v1",
+        "playwright",
+        BROWSER_SCHEMA_SHA256["playwright-mcp"],
+        ("browser_session_status", "browser_snapshot"),
+        ("browser_take_screenshot",),
+        ("browser_navigate", "browser_click", "browser_fill_form"),
     ),
 }
 
@@ -1729,6 +2003,124 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
         filesystem_policy="blocked:no-runtime",
     )
 
+    for project_id, spec in WAVE_SEVEN_ADAPTERS.items():
+        browser_policy = CatalogBrowserPolicy(
+            engine=spec.engine,
+            contract_version=BROWSER_CONTRACT_VERSION,
+            tool_schema_sha256=spec.tool_schema_sha256,
+        )
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=7,
+            availability="ready",
+            connection_kind="sandboxed-stdio",
+            risk="high",
+            required_capabilities=(
+                "ephemeral-browser",
+                "browser-domain-policy",
+                "browser-session-approval",
+                "browser-artifact-cleanup",
+            ),
+            limitations=(
+                *browser_policy.limitations,
+                "所有页面状态修改都冻结参数并一次性确认；超时或连接中断按结果未知处理并销毁会话。",
+                "单 Origin 锁定覆盖可信上游的正常 Chromium 与恶意网页流量；若浏览器或上游进程本身完全 RCE，独立出口仍拒绝私网与 metadata 并限流，但不保证同公网 IP/证书下的虚拟主机精确隔离；本批不做 TLS MITM 或每会话容器。",
+                "浏览器与出口使用一次性配对密钥；任一服务单独重启后不复用旧会话并保持失败关闭，需成对重启恢复；共享 staging 临时卷硬限制为 64 MiB。",
+                "Landlock 对 /proc 恢复 WRITE_FILE 类别供 Chromium user namespace 映射；这不是路径白名单，实际写入仍受非 root、无 capabilities、Docker procfs 掩蔽/只读挂载与 seccomp 约束。",
+            ),
+            adapter_version=spec.adapter_version,
+            runtime_image="modelmirror-mcp-browser:wave7-v1",
+            network_policy=(
+                "public-http-https-only,dns-pinning,redirect-revalidation,"
+                "private-metadata-blocked"
+            ),
+            filesystem_policy=(
+                "read-only-root,ephemeral-profile,server-generated-artifacts-only,"
+                "landlock-proc-write-file-with-docker-procfs-guards"
+            ),
+            resource_limits=(
+                ("browser_cpu", "1.5 cores"),
+                ("browser_memory", "1 GiB"),
+                ("browser_processes", "maximum 1 session / 256 PIDs"),
+                ("egress_cpu", "0.5 cores"),
+                ("egress_memory", "256 MiB"),
+                ("egress_processes", "64 PIDs"),
+                ("pages", "1 page per session"),
+                ("session_ttl", "15 minutes / 5 minutes idle"),
+                ("actions", "50 per session"),
+                ("navigation_timeout", "20 seconds"),
+                ("operation_timeout", "30 seconds"),
+                ("tool_output", "256 KiB"),
+                ("screenshot", "32 MiB"),
+            ),
+            server_command=(*BROWSER_SANDBOX_PROXY, project_id),
+            preparation_kind="bundled",
+            tool_policies={
+                **{
+                    name: CatalogToolPolicy(read_only=True, effect="read")
+                    for name in spec.read_tools
+                },
+                **{
+                    name: CatalogToolPolicy(
+                        read_only=False,
+                        effect="artifact-create",
+                    )
+                    for name in spec.artifact_tools
+                },
+                **{
+                    name: CatalogToolPolicy(
+                        read_only=False,
+                        requires_approval=True,
+                        effect="state-write",
+                    )
+                    for name in spec.state_write_tools
+                },
+            },
+            browser_policy=browser_policy,
+            enabled_by_default=False,
+            operation_timeout=30.0,
+            max_output_bytes=256 * 1024,
+        )
+
+    manifests["puppeteer-mcp"] = CatalogAdapterManifest(
+        project_id="puppeteer-mcp",
+        wave=7,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="critical",
+        required_capabilities=(
+            "maintained-upstream-contract",
+            "ephemeral-browser",
+            "browser-domain-policy",
+        ),
+        limitations=(
+            "官方仓库已经归档，现有实现允许危险启动参数、任意脚本求值和宽泛浏览器控制，无法满足持续安全维护门槛。",
+            "本条目保留目录与第 7 批编号，但不显示安装、连接、上传、登录或外部 CDP 入口。",
+        ),
+        adapter_version="blocked:archived-dangerous-runtime",
+        network_policy="blocked:unmaintained-browser-runtime",
+        filesystem_policy="blocked:no-runtime",
+    )
+    manifests["selenium-mcp"] = CatalogAdapterManifest(
+        project_id="selenium-mcp",
+        wave=7,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="critical",
+        required_capabilities=(
+            "license-contract-resolution",
+            "maintained-upstream-contract",
+            "ephemeral-browser",
+        ),
+        limitations=(
+            "上游 v0.2.3 的仓库与包许可证声明冲突，并暴露任意 Chrome 参数、脚本执行、Cookie 和宿主路径能力。",
+            "完成许可证核验、受控驱动封装和进程清理契约前，连接、Grid、VNC 和本机桥接入口全部关闭。",
+        ),
+        adapter_version="0.2.3-blocked:license-and-runtime-contract",
+        network_policy="blocked:no-production-runtime",
+        filesystem_policy="blocked:no-runtime",
+    )
+
     manifests["snyk-mcp"] = CatalogAdapterManifest(
         project_id="snyk-mcp",
         wave=4,
@@ -1831,6 +2223,29 @@ class CatalogAccountSnapshot:
     verified_at: float
 
 
+@dataclass(frozen=True, slots=True)
+class CatalogBrowserSnapshot:
+    status: Literal["active", "tainted", "disconnected"]
+    generation: str
+    page_revision: int
+    page_digest: str
+    current_origin: str
+    action_count: int
+    max_actions: int
+    expires_at: float
+    approved_hosts: tuple[str, ...] = ()
+
+    @property
+    def digest(self) -> str:
+        encoded = json.dumps(
+            asdict(self),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
 @dataclass(slots=True)
 class CatalogExecutionLedgerEntry:
     approval_id: str
@@ -1840,6 +2255,23 @@ class CatalogExecutionLedgerEntry:
     idempotency_key: str
     state: Literal["started", "completed", "unknown", "rejected"]
     result: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogBrowserArtifact:
+    artifact_id: str
+    tenant_id: str
+    owner_id: str
+    project_id: str
+    session_id: str
+    browser_generation: str
+    relative_path: str
+    name: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    created_at: float
+    expires_at: float
 
 
 @dataclass(slots=True)
@@ -1861,6 +2293,7 @@ class CatalogApproval:
     configuration_digest: str = ""
     credential_snapshot_digest: str = ""
     account_snapshot_digest: str = ""
+    browser_snapshot_digest: str = ""
     tool_schema_sha256: str = ""
     tool_policy_digest: str = ""
     idempotency_key: str = ""
@@ -1904,6 +2337,9 @@ class MCPCatalogService:
         credential_creator: Callable[..., tuple[Any, str]] | None = None,
         credential_revoker: Callable[[str], Any] | None = None,
         workspace_store: MCPCatalogWorkspaceStore | None = None,
+        browser_artifact_root: Path | None = None,
+        browser_artifact_staging_root: Path | None = None,
+        browser_artifact_index_path: Path | None = None,
         tenant_id: str = "local",
         owner_id: str = "local",
     ) -> None:
@@ -1917,6 +2353,36 @@ class MCPCatalogService:
         self.credential_creator = credential_creator
         self.credential_revoker = credential_revoker
         self.workspace_store = workspace_store
+        catalog_storage_root = Path(
+            os.getenv(
+                "MCP_CATALOG_STORAGE_DIR",
+                str(Path(__file__).resolve().parent / "storage"),
+            )
+        )
+        configured_browser_artifact_root = browser_artifact_root or Path(
+            os.getenv(
+                "MCP_BROWSER_TRUSTED_ARTIFACT_ROOT",
+                str(catalog_storage_root / "browser-artifacts"),
+            )
+        )
+        self.browser_artifact_root = configured_browser_artifact_root.resolve(
+            strict=False
+        )
+        configured_browser_staging_root = browser_artifact_staging_root or Path(
+            os.getenv(
+                "MCP_BROWSER_ARTIFACT_STAGING_ROOT",
+                str(Path(__file__).resolve().parent / "browser-artifact-staging"),
+            )
+        )
+        self.browser_artifact_staging_root = (
+            configured_browser_staging_root.resolve(strict=False)
+        )
+        configured_browser_index = browser_artifact_index_path or (
+            self.browser_artifact_root / "index.json"
+        )
+        self.browser_artifact_index_path = configured_browser_index.resolve(
+            strict=False
+        )
         self.tenant_id = str(tenant_id or "local")
         self.owner_id = str(owner_id or "local")
         self._sessions: dict[tuple[str, str, str], str] = {}
@@ -1932,6 +2398,19 @@ class MCPCatalogService:
         self._account_snapshots: dict[
             tuple[str, str, str], CatalogAccountSnapshot
         ] = {}
+        self._browser_snapshots: dict[
+            tuple[str, str, str], CatalogBrowserSnapshot
+        ] = {}
+        self._browser_elements: dict[
+            tuple[str, str, str], dict[str, dict[str, str]]
+        ] = {}
+        self._browser_disconnect_reasons: dict[
+            tuple[str, str, str], str
+        ] = {}
+        self._browser_artifacts: dict[
+            tuple[str, str, str], CatalogBrowserArtifact
+        ] = {}
+        self._load_browser_artifact_index()
         self._credential_verification: dict[tuple[str, str, str], str] = {}
         self._preflight_status: dict[tuple[str, str, str], str] = {}
         self._approvals: dict[tuple[str, str, str], CatalogApproval] = {}
@@ -1960,6 +2439,13 @@ class MCPCatalogService:
             self.tenant_id,
             self.owner_id,
             str(approval_id or "").strip(),
+        )
+
+    def _artifact_key(self, artifact_id: str) -> tuple[str, str, str]:
+        return (
+            self.tenant_id,
+            self.owner_id,
+            str(artifact_id or "").strip(),
         )
 
     def _session_owner(self, project_id: str) -> str:
@@ -2047,10 +2533,29 @@ class MCPCatalogService:
                     scope_key,
                     "unverified",
                 )
-            if manifest.database_policy is None and manifest.saas_policy is None:
+            browser_snapshot = self._browser_snapshots.get(scope_key)
+            item["browser_session_status"] = (
+                browser_snapshot.status
+                if manifest.browser_policy is not None and browser_snapshot is not None
+                else (
+                    "disconnected"
+                    if manifest.browser_policy is not None
+                    else "not-applicable"
+                )
+            )
+            if (
+                manifest.database_policy is None
+                and manifest.saas_policy is None
+                and manifest.browser_policy is None
+            ):
                 item["preflight_status"] = "not-applicable"
             elif manifest.availability == "blocked":
                 item["preflight_status"] = "blocked"
+            elif manifest.browser_policy is not None:
+                item["preflight_status"] = self._preflight_status.get(
+                    scope_key,
+                    "unverified",
+                )
             elif configuration is None:
                 item["preflight_status"] = (
                     "awaiting-workspace"
@@ -2234,9 +2739,14 @@ class MCPCatalogService:
         )
         self._credential_snapshots.pop(scope_key, None)
         self._account_snapshots.pop(scope_key, None)
+        self._browser_snapshots.pop(scope_key, None)
         if manifest.credential_policies:
             self._credential_verification[scope_key] = "unverified"
-        if manifest.database_policy is not None or manifest.saas_policy is not None:
+        if (
+            manifest.database_policy is not None
+            or manifest.saas_policy is not None
+            or manifest.browser_policy is not None
+        ):
             self._preflight_status[scope_key] = "unverified"
         self._revoke_approvals(manifest.project_id)
         return {
@@ -2278,9 +2788,42 @@ class MCPCatalogService:
                         existing,
                         session_owner=session_owner,
                     )
+                    if manifest.browser_policy is not None:
+                        schema_digest = self._tool_schema_digest(tools)
+                        if (
+                            {tool.name for tool in tools}
+                            != set(manifest.tool_policies)
+                            or schema_digest
+                            != manifest.browser_policy.tool_schema_sha256
+                        ):
+                            await self._taint_browser_session(manifest)
+                            raise CatalogAdapterPolicyError(
+                                "浏览器工具清单或输入 Schema 发生漂移，连接已阻断。"
+                            )
+                        snapshot = await self._refresh_browser_snapshot(
+                            manifest,
+                            session_id=existing,
+                        )
+                        if snapshot.status != "active":
+                            await self._taint_browser_session(manifest)
+                            raise CatalogAdapterPolicyError(
+                                "浏览器会话已经污染，请重新连接。"
+                            )
                     return self._connection_payload(manifest, existing, tools)
-                except MCPSessionNotFoundError:
-                    self._sessions.pop(scope_key, None)
+                except (
+                    MCPClientError,
+                    CatalogBrowserSessionExpiredError,
+                    EOFError,
+                    BrokenPipeError,
+                    OSError,
+                ):
+                    if manifest.browser_policy is not None:
+                        await self._forget_browser_session(
+                            manifest,
+                            reason="expired",
+                        )
+                    else:
+                        self._sessions.pop(scope_key, None)
 
             if manifest.transport != "stdio" or not manifest.server_command:
                 raise CatalogAdapterUnavailableError(
@@ -2371,6 +2914,27 @@ class MCPCatalogService:
                     environment[handshake_name] = base64.urlsafe_b64encode(
                         handshake_payload
                     ).decode("ascii")
+                if manifest.browser_policy is not None:
+                    browser_handshake = json.dumps(
+                        {
+                            "project_id": manifest.project_id,
+                            "contract_version": manifest.browser_policy.contract_version,
+                            "tool_schema_sha256": (
+                                manifest.browser_policy.tool_schema_sha256
+                            ),
+                            "limits": BROWSER_LIMITS,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                    if len(browser_handshake) > 64 * 1024:
+                        raise CatalogAdapterPolicyError(
+                            "浏览器内部握手超过安全上限。"
+                        )
+                    environment["MCP_BROWSER_HANDSHAKE_B64"] = (
+                        base64.urlsafe_b64encode(browser_handshake).decode("ascii")
+                    )
                 profile: dict[str, Any] = {
                     "transport": "stdio",
                     "server_command": list(manifest.server_command),
@@ -2379,6 +2943,7 @@ class MCPCatalogService:
                         0
                         if manifest.credential_policies
                         or manifest.database_policy is not None
+                        or manifest.browser_policy is not None
                         else 1
                     ),
                     "operation_timeout": manifest.operation_timeout,
@@ -2387,7 +2952,11 @@ class MCPCatalogService:
                 if environment:
                     profile["environment"] = environment
                 session_id = await self.manager.connect_profile(**profile)
-                if manifest.credential_policies or manifest.database_policy is not None:
+                if (
+                    manifest.credential_policies
+                    or manifest.database_policy is not None
+                    or manifest.browser_policy is not None
+                ):
                     await self.manager.scrub_session_environment(
                         session_id,
                         session_owner=session_owner,
@@ -2398,7 +2967,11 @@ class MCPCatalogService:
                     session_owner=session_owner,
                 )
             try:
-                if manifest.database_policy is not None or manifest.saas_policy is not None:
+                if (
+                    manifest.database_policy is not None
+                    or manifest.saas_policy is not None
+                    or manifest.browser_policy is not None
+                ):
                     self._preflight_status[scope_key] = "verifying"
                 tools = await self.manager.list_tools(
                     session_id,
@@ -2411,7 +2984,11 @@ class MCPCatalogService:
                         tools=tools,
                     )
             except Exception:
-                if manifest.database_policy is not None or manifest.saas_policy is not None:
+                if (
+                    manifest.database_policy is not None
+                    or manifest.saas_policy is not None
+                    or manifest.browser_policy is not None
+                ):
                     self._preflight_status[scope_key] = "failed"
                 await self.manager.disconnect(
                     session_id,
@@ -2454,6 +3031,44 @@ class MCPCatalogService:
                     tool_schema_sha256=schema_digest,
                     verified_at=time.time(),
                 )
+            browser_snapshot: CatalogBrowserSnapshot | None = None
+            if manifest.browser_policy is not None:
+                schema_digest = self._tool_schema_digest(tools)
+                expected_tools = set(manifest.tool_policies)
+                if (
+                    {tool.name for tool in tools} != expected_tools
+                    or schema_digest
+                    != manifest.browser_policy.tool_schema_sha256
+                ):
+                    await self.manager.disconnect(
+                        session_id,
+                        session_owner=session_owner,
+                    )
+                    self._preflight_status[scope_key] = "failed"
+                    raise CatalogAdapterPolicyError(
+                        "浏览器工具清单或输入 Schema 发生漂移，连接已阻断。"
+                    )
+                try:
+                    browser_snapshot = await self._refresh_browser_snapshot(
+                        manifest,
+                        session_id=session_id,
+                    )
+                except Exception:
+                    await self.manager.disconnect(
+                        session_id,
+                        session_owner=session_owner,
+                    )
+                    self._preflight_status[scope_key] = "failed"
+                    raise
+                if browser_snapshot.status != "active":
+                    await self.manager.disconnect(
+                        session_id,
+                        session_owner=session_owner,
+                    )
+                    self._preflight_status[scope_key] = "failed"
+                    raise CatalogAdapterPolicyError(
+                        "浏览器会话初始化后即处于污染状态，连接已阻断。"
+                    )
             if scope_key in self._unbinding_scopes:
                 await self.manager.disconnect(
                     session_id,
@@ -2466,11 +3081,17 @@ class MCPCatalogService:
             # Publish catalog ownership only after all provider preflight and
             # fixed tools/inputSchema checks have succeeded.
             self._sessions[scope_key] = session_id
+            if manifest.browser_policy is not None:
+                self._browser_disconnect_reasons.pop(scope_key, None)
             if manifest.credential_policies:
                 self._credential_snapshots[scope_key] = snapshots
             if account_snapshot is not None:
                 self._account_snapshots[scope_key] = account_snapshot
-            if manifest.database_policy is not None or manifest.saas_policy is not None:
+            if (
+                manifest.database_policy is not None
+                or manifest.saas_policy is not None
+                or manifest.browser_policy is not None
+            ):
                 self._preflight_status[scope_key] = "verified"
                 if manifest.credential_policies:
                     # Database and stateful SaaS children complete an
@@ -2496,26 +3117,110 @@ class MCPCatalogService:
             raise MCPSessionNotFoundError(
                 f"MCP catalog session not found: {manifest.project_id}"
             )
+        disconnected = False
         try:
             await self.manager.disconnect(
                 session_id,
                 session_owner=self._session_owner(manifest.project_id),
             )
+            disconnected = True
+        except Exception:
+            if manifest.browser_policy is not None:
+                self._preflight_status[scope_key] = "failed"
+                self._browser_disconnect_reasons[scope_key] = "disconnect-failed"
+                self._browser_elements.pop(scope_key, None)
+                self._revoke_approvals(manifest.project_id)
+            raise
         finally:
-            await self.registry.unregister_session(session_id)
-            async with self._lock:
-                if self._sessions.get(scope_key) == session_id:
-                    self._sessions.pop(scope_key, None)
-                    self._credential_snapshots.pop(scope_key, None)
-                    self._account_snapshots.pop(scope_key, None)
-                    if (
-                        manifest.database_policy is not None
-                        or manifest.saas_policy is not None
-                    ):
-                        self._preflight_status[scope_key] = "unverified"
+            if disconnected or manifest.browser_policy is None:
+                await self.registry.unregister_session(session_id)
+                async with self._lock:
+                    if self._sessions.get(scope_key) == session_id:
+                        self._sessions.pop(scope_key, None)
+                        self._credential_snapshots.pop(scope_key, None)
+                        self._account_snapshots.pop(scope_key, None)
+                        browser_snapshot = self._browser_snapshots.get(scope_key)
+                        if browser_snapshot is not None:
+                            self._browser_snapshots[scope_key] = CatalogBrowserSnapshot(
+                                **{**asdict(browser_snapshot), "status": "disconnected"}
+                            )
+                            self._browser_disconnect_reasons[scope_key] = (
+                                "user-disconnected"
+                            )
+                        self._browser_elements.pop(scope_key, None)
+                        if (
+                            manifest.database_policy is not None
+                            or manifest.saas_policy is not None
+                            or manifest.browser_policy is not None
+                        ):
+                            self._preflight_status[scope_key] = "unverified"
         self._revoke_approvals(manifest.project_id)
         logger.info("MCP catalog disconnect project=%s", manifest.project_id)
         return {"ok": True, "project_id": manifest.project_id}
+
+    async def _taint_browser_session(
+        self,
+        manifest: CatalogAdapterManifest,
+    ) -> None:
+        """Fail closed after an ambiguous browser state change."""
+
+        if manifest.browser_policy is None:
+            return
+        scope_key = self._scope_key(manifest.project_id)
+        snapshot = self._browser_snapshots.get(scope_key)
+        if snapshot is not None and snapshot.status != "tainted":
+            self._browser_snapshots[scope_key] = CatalogBrowserSnapshot(
+                **{**asdict(snapshot), "status": "tainted"}
+            )
+        self._preflight_status[scope_key] = "failed"
+        self._browser_disconnect_reasons[scope_key] = "tainted"
+        self._browser_elements.pop(scope_key, None)
+        self._revoke_approvals(manifest.project_id)
+        session_id = self._sessions.pop(scope_key, None)
+        if session_id is None:
+            return
+        try:
+            await self.manager.disconnect(
+                session_id,
+                session_owner=self._session_owner(manifest.project_id),
+            )
+        except Exception as exc:
+            logger.warning(
+                "MCP catalog browser teardown failed project=%s",
+                manifest.project_id,
+            )
+        finally:
+            await self.registry.unregister_session(session_id)
+
+    async def _forget_browser_session(
+        self,
+        manifest: CatalogAdapterManifest,
+        *,
+        reason: str,
+    ) -> None:
+        if manifest.browser_policy is None:
+            return
+        scope_key = self._scope_key(manifest.project_id)
+        session_id = self._sessions.pop(scope_key, None)
+        snapshot = self._browser_snapshots.get(scope_key)
+        if snapshot is not None:
+            self._browser_snapshots[scope_key] = CatalogBrowserSnapshot(
+                **{**asdict(snapshot), "status": "disconnected"}
+            )
+        self._browser_disconnect_reasons[scope_key] = reason
+        self._browser_elements.pop(scope_key, None)
+        self._preflight_status[scope_key] = "unverified"
+        self._revoke_approvals(manifest.project_id)
+        if session_id is None:
+            return
+        try:
+            await self.manager.disconnect(
+                session_id,
+                session_owner=self._session_owner(manifest.project_id),
+            )
+        except Exception:
+            pass
+        await self.registry.unregister_session(session_id)
 
     async def disconnect(self, project_id: str) -> dict[str, Any]:
         manifest = self.get_manifest(project_id)
@@ -2549,6 +3254,13 @@ class MCPCatalogService:
         session_id = self._sessions.get(scope_key)
         if session_id is None:
             raise CatalogAdapterUnavailableError("请先连接该 MCP 适配器。")
+        if (
+            manifest.browser_policy is not None
+            and self._preflight_status.get(scope_key) != "verified"
+        ):
+            raise CatalogAdapterPolicyError(
+                "浏览器会话状态尚未验证；请刷新会话状态或重新连接。"
+            )
         await self._ensure_credentials_fresh(manifest.project_id)
 
         if not manifest.legacy_unrestricted_calls:
@@ -2561,11 +3273,44 @@ class MCPCatalogService:
                 raise CatalogAdapterPolicyError(
                     "第 5 批数据库适配器仅允许已审计的只读工具。"
                 )
+            if manifest.browser_policy is not None and {
+                "generation",
+                "page_revision",
+                "page_digest",
+            } & set(arguments):
+                raise CatalogAdapterPolicyError(
+                    "浏览器会话代次与页面摘要由服务端绑定，客户端不能提交。"
+                )
             if policy.sensitive or policy.terminal or policy.effect == "terminal":
                 raise CatalogAdapterPolicyError(
                     "该工具属于敏感或终止性操作，当前批次不允许执行。"
                 )
             if policy.requires_approval:
+                if manifest.browser_policy is not None:
+                    try:
+                        browser_snapshot = await self._refresh_browser_snapshot(
+                            manifest,
+                            session_id=session_id,
+                        )
+                    except (
+                        MCPClientError,
+                        CatalogBrowserSessionExpiredError,
+                        EOFError,
+                        BrokenPipeError,
+                        OSError,
+                    ) as exc:
+                        await self._forget_browser_session(
+                            manifest,
+                            reason="expired",
+                        )
+                        raise CatalogAdapterPolicyError(
+                            "浏览器临时会话已经过期，请重新连接。"
+                        ) from exc
+                    if browser_snapshot.status != "active":
+                        await self._taint_browser_session(manifest)
+                        raise CatalogAdapterPolicyError(
+                            "浏览器会话已经污染，请重新连接后再操作。"
+                        )
                 raise CatalogApprovalRequiredError(
                     self._create_approval(
                         manifest,
@@ -2598,6 +3343,12 @@ class MCPCatalogService:
                 )
             approval = self._approvals.get(approval_key)
             ledger = self._execution_ledger.get(approval_key)
+            if ledger is not None and (
+                ledger.tenant_id != self.tenant_id
+                or ledger.owner_id != self.owner_id
+                or ledger.project_id != manifest.project_id
+            ):
+                ledger = None
             if approval is None and ledger is not None:
                 if ledger.state == "completed" and ledger.result is not None:
                     replay = json.loads(json.dumps(ledger.result, ensure_ascii=False))
@@ -2627,7 +3378,7 @@ class MCPCatalogService:
                 )
                 if workspace.manifest_sha256 != approval.workspace_manifest_sha256:
                     raise CatalogAdapterPolicyError("工作区内容已经变化，请重新发起操作。")
-            else:
+            elif approval.context_kind == "remote-resource":
                 await self._ensure_credentials_fresh(manifest.project_id)
                 configuration_snapshot = self._configuration_snapshots.get(scope_key)
                 account_snapshot = self._account_snapshots.get(scope_key)
@@ -2650,6 +3401,39 @@ class MCPCatalogService:
                     raise CatalogAdapterPolicyError(
                         "账号、配置、凭据或工具策略已经变化，请重新发起操作。"
                     )
+            elif approval.context_kind == "browser-session":
+                current_session_id = self._sessions.get(scope_key)
+                if not current_session_id or current_session_id != approval.session_id:
+                    self._approvals.pop(approval_key, None)
+                    raise CatalogAdapterPolicyError(
+                        "浏览器会话已经变化，请重新发起操作。"
+                    )
+                try:
+                    browser_snapshot = await self._refresh_browser_snapshot(
+                        manifest,
+                        session_id=current_session_id,
+                    )
+                except Exception:
+                    self._approvals.pop(approval_key, None)
+                    await self._taint_browser_session(manifest)
+                    raise
+                policy = manifest.tool_policies.get(approval.tool_name)
+                if (
+                    browser_snapshot.status != "active"
+                    or browser_snapshot.digest != approval.browser_snapshot_digest
+                    or manifest.browser_policy is None
+                    or manifest.browser_policy.tool_schema_sha256
+                    != approval.tool_schema_sha256
+                    or policy is None
+                    or self._tool_policy_digest(policy) != approval.tool_policy_digest
+                ):
+                    self._approvals.pop(approval_key, None)
+                    raise CatalogAdapterPolicyError(
+                        "浏览器页面、会话或工具策略已经变化，请重新发起操作。"
+                    )
+            else:
+                self._approvals.pop(approval_key, None)
+                raise CatalogAdapterPolicyError("一次性确认上下文无效。")
             session_id = self._sessions.get(scope_key)
             if (
                 approval.tool_name != "__delete_workspace__"
@@ -2658,7 +3442,7 @@ class MCPCatalogService:
                 raise CatalogAdapterPolicyError("MCP 会话已经变化，请重新发起操作。")
             approval.used = True
             self._approvals.pop(approval_key, None)
-            if approval.context_kind == "remote-resource":
+            if approval.context_kind in {"remote-resource", "browser-session"}:
                 ledger = CatalogExecutionLedgerEntry(
                     approval_id=approval.approval_id,
                     tenant_id=self.tenant_id,
@@ -2686,7 +3470,7 @@ class MCPCatalogService:
                 "workspace_id": approval.workspace_id,
             }
         assert session_id is not None
-        if approval.context_kind != "remote-resource":
+        if approval.context_kind == "workspace":
             return await self._execute_tool(
                 manifest,
                 session_id=session_id,
@@ -2694,6 +3478,41 @@ class MCPCatalogService:
                 arguments=approval.arguments,
             )
         assert ledger is not None
+        if approval.context_kind == "browser-session":
+            try:
+                result = await self._execute_tool(
+                    manifest,
+                    session_id=session_id,
+                    tool_name=approval.tool_name,
+                    arguments=approval.arguments,
+                    expected_browser_snapshot_digest=(
+                        approval.browser_snapshot_digest
+                    ),
+                )
+            except CatalogBrowserStateDriftError:
+                ledger.state = "rejected"
+                raise
+            except Exception as exc:
+                rejection_reason = _browser_policy_rejection_reason(exc)
+                if rejection_reason is not None:
+                    ledger.state = "rejected"
+                    raise CatalogBrowserPolicyRejectedError(
+                        rejection_reason,
+                        approval.idempotency_key,
+                    ) from exc
+                ledger.state = "unknown"
+                await self._taint_browser_session(manifest)
+                raise CatalogUnknownOutcomeError(approval.idempotency_key) from exc
+            if result.get("is_error"):
+                ledger.state = "unknown"
+                await self._taint_browser_session(manifest)
+                raise CatalogUnknownOutcomeError(approval.idempotency_key)
+            result["idempotency_key"] = approval.idempotency_key
+            result["idempotent_replay"] = False
+            result["unknown_outcome"] = False
+            ledger.state = "completed"
+            ledger.result = json.loads(json.dumps(result, ensure_ascii=False))
+            return result
         execution_arguments = dict(approval.arguments)
         execution_arguments["__modelmirror_idempotency_key"] = approval.idempotency_key
         try:
@@ -2773,16 +3592,20 @@ class MCPCatalogService:
         session_id: str,
         tool_name: str,
         arguments: dict[str, Any],
+        expected_browser_snapshot_digest: str = "",
     ) -> dict[str, Any]:
 
         scope_key = self._scope_key(manifest.project_id)
         started_at = time.monotonic()
         tool_policy = manifest.tool_policies.get(tool_name)
         retry_on_failure = not (
-            manifest.saas_policy is not None
-            and tool_policy is not None
-            and tool_policy.effect == "state-write"
+            manifest.browser_policy is not None
+            or (
+                tool_policy is not None
+                and tool_policy.effect in {"state-write", "terminal"}
+            )
         )
+
         try:
             call_lock = self._call_locks.setdefault(scope_key, asyncio.Lock())
             async with call_lock:
@@ -2790,6 +3613,23 @@ class MCPCatalogService:
                     raise CatalogAdapterPolicyError(
                         "账号解绑或凭据撤销正在进行，当前不能调用工具。"
                     )
+                if expected_browser_snapshot_digest:
+                    if manifest.browser_policy is None:
+                        raise CatalogBrowserStateDriftError(
+                            "浏览器审批上下文不存在。"
+                        )
+                    current_snapshot = await self._refresh_browser_snapshot(
+                        manifest,
+                        session_id=session_id,
+                    )
+                    if (
+                        current_snapshot.status != "active"
+                        or current_snapshot.digest
+                        != expected_browser_snapshot_digest
+                    ):
+                        raise CatalogBrowserStateDriftError(
+                            "浏览器页面状态已经变化，请重新发起操作。"
+                        )
                 if retry_on_failure:
                     result = await self.manager.call_tool(
                         session_id,
@@ -2805,11 +3645,27 @@ class MCPCatalogService:
                         retry_on_failure=False,
                         session_owner=self._session_owner(manifest.project_id),
                     )
-        except Exception:
+        except Exception as exc:
+            browser_rejection = _browser_policy_rejection_reason(exc)
             if manifest.credential_policies and manifest.saas_policy is None:
                 self._credential_verification[scope_key] = "verification-failed"
             if manifest.database_policy is not None:
                 self._preflight_status[scope_key] = "failed"
+            if manifest.browser_policy is not None:
+                if browser_rejection is None:
+                    self._preflight_status[scope_key] = "failed"
+                    if (
+                        tool_policy is not None
+                        and tool_policy.effect != "read"
+                        and not isinstance(exc, CatalogBrowserStateDriftError)
+                    ):
+                        await self._taint_browser_session(manifest)
+                else:
+                    # JSON-RPC -32011 + retryable=false is a definitive
+                    # pre-dispatch policy rejection. Preserve the one-shot
+                    # browser session so the user can correct the target and
+                    # request a fresh approval; never replay the old approval.
+                    self._preflight_status[scope_key] = "verified"
             raise
         logger.info(
             "MCP catalog call project=%s tool=%s duration_ms=%d",
@@ -2821,6 +3677,64 @@ class MCPCatalogService:
             result,
             max_output_bytes=manifest.max_output_bytes,
         )
+        if manifest.browser_policy is not None:
+            if (
+                payload["is_error"]
+                and tool_policy is not None
+                and tool_policy.effect != "read"
+            ):
+                await self._taint_browser_session(manifest)
+            else:
+                try:
+                    snapshot = await self._refresh_browser_snapshot(
+                        manifest,
+                        session_id=session_id,
+                    )
+                except Exception:
+                    self._preflight_status[scope_key] = "failed"
+                    if (
+                        tool_policy is not None
+                        and tool_policy.effect != "read"
+                    ):
+                        await self._taint_browser_session(manifest)
+                    raise
+                if snapshot.status == "tainted":
+                    await self._taint_browser_session(manifest)
+                    if (
+                        tool_policy is not None
+                        and tool_policy.effect != "read"
+                    ):
+                        raise CatalogAdapterPolicyError(
+                            "浏览器操作后会话状态未知，已销毁临时浏览器。"
+                        )
+                else:
+                    if tool_policy is not None and tool_policy.effect != "read":
+                        self._browser_elements.pop(scope_key, None)
+                    if tool_name in {"take_snapshot", "browser_snapshot"}:
+                        self._store_browser_elements(
+                            manifest,
+                            payload,
+                            snapshot,
+                        )
+                    if (
+                        tool_policy is not None
+                        and tool_policy.effect == "artifact-create"
+                        and not payload["is_error"]
+                    ):
+                        try:
+                            payload["artifacts"] = [
+                                self._register_browser_artifact(
+                                    manifest,
+                                    session_id=session_id,
+                                    payload=payload,
+                                    snapshot=snapshot,
+                                )
+                            ]
+                        except Exception:
+                            self._preflight_status[scope_key] = "failed"
+                            await self._taint_browser_session(manifest)
+                            raise
+                    self._preflight_status[scope_key] = "verified"
         if manifest.credential_policies and manifest.saas_policy is None:
             self._credential_verification[scope_key] = (
                 "verification-failed" if payload["is_error"] else "verified"
@@ -2852,6 +3766,579 @@ class MCPCatalogService:
             ]
         return payload
 
+    def _store_browser_elements(
+        self,
+        manifest: CatalogAdapterManifest,
+        payload: dict[str, Any],
+        snapshot: CatalogBrowserSnapshot,
+    ) -> None:
+        raw = payload.get("raw")
+        structured = None
+        if isinstance(raw, dict):
+            structured = raw.get("structuredContent") or raw.get(
+                "structured_content"
+            )
+        if not isinstance(structured, dict):
+            raise CatalogAdapterPolicyError(
+                "浏览器快照缺少受控元素预览，工具契约已阻断。"
+            )
+        elements = structured.get("elements")
+        if not isinstance(elements, list) or len(elements) > 100:
+            raise CatalogAdapterPolicyError(
+                "浏览器快照元素列表不符合固定契约。"
+            )
+        safe: dict[str, dict[str, str]] = {}
+        sensitive = re.compile(
+            r"password|passcode|secret|token|api[ _-]?key|credit|cvv|cvc|"
+            r"otp|login|sign[ -]?in|oauth|密码|口令|令牌|密钥|验证码|信用卡|登录",
+            re.IGNORECASE,
+        )
+        for item in elements:
+            if not isinstance(item, dict):
+                raise CatalogAdapterPolicyError("浏览器快照元素项无效。")
+            ref = str(item.get("ref") or "").strip()
+            role = " ".join(str(item.get("role") or "element").split())
+            label = " ".join(str(item.get("label") or "").split())
+            page_digest = str(item.get("page_digest") or "").strip().lower()
+            if (
+                re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", ref)
+                is None
+                or not role
+                or not label
+                or len(role) > 48
+                or len(label) > 120
+                or page_digest != snapshot.page_digest
+                or any(ord(character) < 32 for character in role + label)
+                or ref in safe
+            ):
+                raise CatalogAdapterPolicyError("浏览器快照元素项违反固定契约。")
+            if sensitive.search(f"{role} {label}"):
+                continue
+            safe[ref] = {
+                "role": role,
+                "label": label,
+                "page_digest": page_digest,
+            }
+        if len(
+            json.dumps(
+                safe,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ) > 32 * 1024:
+            raise CatalogAdapterPolicyError(
+                "浏览器快照元素摘要超过固定大小上限。"
+            )
+        self._browser_elements[self._scope_key(manifest.project_id)] = safe
+
+    def _register_browser_artifact(
+        self,
+        manifest: CatalogAdapterManifest,
+        *,
+        session_id: str,
+        payload: dict[str, Any],
+        snapshot: CatalogBrowserSnapshot,
+    ) -> dict[str, Any]:
+        policy = manifest.browser_policy
+        if policy is None:
+            raise CatalogAdapterPolicyError("浏览器产物策略不存在。")
+        raw = payload.get("raw")
+        structured = None
+        structured_key = ""
+        if isinstance(raw, dict):
+            if isinstance(raw.get("structuredContent"), dict):
+                structured = raw["structuredContent"]
+                structured_key = "structuredContent"
+            elif isinstance(raw.get("structured_content"), dict):
+                structured = raw["structured_content"]
+                structured_key = "structured_content"
+        if not isinstance(structured, dict):
+            raise CatalogAdapterPolicyError("浏览器截图缺少结构化产物信息。")
+        internal_id = str(structured.get("artifact_id") or "").strip()
+        relative_path = str(structured.get("relative_path") or "").strip()
+        sha256 = str(structured.get("sha256") or "").strip().lower()
+        mime_type = str(structured.get("mime") or "").strip().lower()
+        try:
+            size_bytes = int(structured.get("size"))
+        except (TypeError, ValueError) as exc:
+            raise CatalogAdapterPolicyError("浏览器截图大小无效。") from exc
+        if (
+            re.fullmatch(r"browser_[0-9a-f]{32}", internal_id) is None
+            or re.fullmatch(
+                r"[0-9a-f]{32}/registered/browser_[0-9a-f]{32}\.png",
+                relative_path,
+            )
+            is None
+            or not relative_path.endswith(f"/{internal_id}.png")
+            or re.fullmatch(r"[0-9a-f]{64}", sha256) is None
+            or mime_type != "image/png"
+            or size_bytes < 1
+            or size_bytes > policy.max_artifact_bytes
+        ):
+            raise CatalogAdapterPolicyError("浏览器截图产物违反固定契约。")
+        staging_root = self.browser_artifact_staging_root.resolve(strict=False)
+        candidate = staging_root.joinpath(*relative_path.split("/"))
+        cursor = staging_root
+        for component in relative_path.split("/"):
+            cursor = cursor / component
+            if cursor.is_symlink():
+                raise CatalogAdapterPolicyError(
+                    "浏览器截图产物路径包含符号链接。"
+                )
+        try:
+            resolved = candidate.resolve(strict=True)
+            resolved.relative_to(staging_root)
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            raise CatalogAdapterPolicyError("浏览器截图产物不存在或越界。") from exc
+        if (
+            candidate.is_symlink()
+            or candidate.parent.is_symlink()
+            or not resolved.is_file()
+        ):
+            raise CatalogAdapterPolicyError("浏览器截图产物类型不安全。")
+        stat = resolved.stat()
+        if stat.st_size != size_bytes or stat.st_nlink != 1:
+            raise CatalogAdapterPolicyError("浏览器截图产物大小校验失败。")
+        self._cleanup_expired_browser_artifacts()
+        existing = [
+            item
+            for key, item in self._browser_artifacts.items()
+            if key[:2] == (self.tenant_id, self.owner_id)
+            and item.project_id == manifest.project_id
+        ]
+        if (
+            len(existing) >= policy.max_artifacts_per_project
+            or sum(item.size_bytes for item in existing) + size_bytes
+            > policy.max_artifact_storage_bytes
+        ):
+            try:
+                resolved.unlink()
+            except OSError:
+                pass
+            raise CatalogAdapterPolicyError(
+                "浏览器截图产物已达到每项目 50 张或 256 MiB 配额。"
+            )
+        now = time.time()
+        public_id = f"mcpbart_{uuid.uuid4().hex}"
+        trusted_relative_path = f"files/{public_id}.png"
+        trusted_root = self.browser_artifact_root.resolve(strict=False)
+        trusted_files = trusted_root / "files"
+        trusted_files.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            trusted_files.chmod(0o700)
+        except OSError:
+            pass
+        trusted_path = trusted_files / f"{public_id}.png"
+        temporary_path = trusted_files / f".{public_id}.{uuid.uuid4().hex}.tmp"
+        target_descriptor = os.open(
+            temporary_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        source_descriptor = -1
+        try:
+            source_descriptor = os.open(
+                resolved,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            digest = hashlib.sha256()
+            copied = 0
+            magic = b""
+            with os.fdopen(target_descriptor, "wb") as target, os.fdopen(
+                source_descriptor,
+                "rb",
+            ) as source:
+                target_descriptor = -1
+                source_descriptor = -1
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    if not magic:
+                        magic = chunk[:8]
+                    copied += len(chunk)
+                    digest.update(chunk)
+                    target.write(chunk)
+                source_stat = os.fstat(source.fileno())
+                target.flush()
+                os.fsync(target.fileno())
+            if (
+                magic != b"\x89PNG\r\n\x1a\n"
+                or copied != size_bytes
+                or source_stat.st_size != size_bytes
+                or source_stat.st_nlink != 1
+                or digest.hexdigest() != sha256
+            ):
+                raise CatalogAdapterPolicyError(
+                    "浏览器截图在隔离复制期间发生变化或校验失败。"
+                )
+            os.replace(temporary_path, trusted_path)
+            trusted_path.chmod(0o600)
+            trusted_stat = trusted_path.stat()
+            trusted_digest = hashlib.sha256()
+            with trusted_path.open("rb") as trusted:
+                trusted_magic = trusted.read(8)
+                trusted.seek(0)
+                for chunk in iter(lambda: trusted.read(1024 * 1024), b""):
+                    trusted_digest.update(chunk)
+            if (
+                trusted_magic != b"\x89PNG\r\n\x1a\n"
+                or trusted_stat.st_size != size_bytes
+                or trusted_stat.st_nlink != 1
+                or trusted_digest.hexdigest() != sha256
+            ):
+                raise CatalogAdapterPolicyError(
+                    "浏览器截图可信副本复核失败。"
+                )
+        except Exception as exc:
+            if target_descriptor >= 0:
+                try:
+                    os.close(target_descriptor)
+                except OSError:
+                    pass
+            if source_descriptor >= 0:
+                try:
+                    os.close(source_descriptor)
+                except OSError:
+                    pass
+            try:
+                temporary_path.unlink(missing_ok=True)
+                trusted_path.unlink(missing_ok=True)
+                resolved.unlink(missing_ok=True)
+            except OSError:
+                pass
+            if isinstance(exc, CatalogAdapterPolicyError):
+                raise
+            raise CatalogAdapterPolicyError(
+                "浏览器截图无法导入服务端可信存储。"
+            ) from exc
+        try:
+            resolved.unlink()
+        except OSError:
+            pass
+        artifact = CatalogBrowserArtifact(
+            artifact_id=public_id,
+            tenant_id=self.tenant_id,
+            owner_id=self.owner_id,
+            project_id=manifest.project_id,
+            session_id=session_id,
+            browser_generation=snapshot.generation,
+            relative_path=trusted_relative_path,
+            name=f"browser-screenshot-{public_id[-8:]}.png",
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            sha256=sha256,
+            created_at=now,
+            expires_at=now + policy.artifact_ttl_seconds,
+        )
+        self._browser_artifacts[self._artifact_key(public_id)] = artifact
+        try:
+            self._persist_browser_artifact_index()
+        except Exception:
+            self._browser_artifacts.pop(self._artifact_key(public_id), None)
+            trusted_path.unlink(missing_ok=True)
+            raise
+        public = self._public_browser_artifact(artifact)
+        assert isinstance(raw, dict)
+        raw[structured_key] = {
+            key: public[key]
+            for key in (
+                "artifact_id",
+                "name",
+                "mime_type",
+                "size_bytes",
+                "sha256",
+                "created_at",
+                "expires_at",
+                "download_url",
+            )
+        }
+        return public
+
+    def list_browser_artifacts(self, project_id: str) -> dict[str, Any]:
+        manifest = self.get_manifest(project_id)
+        if manifest.browser_policy is None:
+            raise CatalogAdapterPolicyError("该目录条目不支持浏览器产物。")
+        self._cleanup_expired_browser_artifacts()
+        items = [
+            self._public_browser_artifact(item)
+            for key, item in self._browser_artifacts.items()
+            if key[:2] == (self.tenant_id, self.owner_id)
+            and item.project_id == manifest.project_id
+        ]
+        items.sort(key=lambda item: item["created_at"], reverse=True)
+        return {
+            "project_id": manifest.project_id,
+            "items": items,
+            "total": len(items),
+        }
+
+    def browser_artifact_download(
+        self,
+        project_id: str,
+        artifact_id: str,
+    ) -> tuple[CatalogBrowserArtifact, Path]:
+        manifest = self.get_manifest(project_id)
+        if manifest.browser_policy is None:
+            raise CatalogAdapterPolicyError("该目录条目不支持浏览器产物。")
+        self._cleanup_expired_browser_artifacts()
+        artifact = self._browser_artifacts.get(self._artifact_key(artifact_id))
+        if artifact is None or artifact.project_id != manifest.project_id:
+            raise CatalogAdapterNotFoundError("浏览器产物不存在或已经过期。")
+        return artifact, self._browser_artifact_path(artifact)
+
+    def delete_browser_artifact(
+        self,
+        project_id: str,
+        artifact_id: str,
+    ) -> dict[str, Any]:
+        manifest = self.get_manifest(project_id)
+        if manifest.browser_policy is None:
+            raise CatalogAdapterPolicyError("该目录条目不支持浏览器产物。")
+        key = self._artifact_key(artifact_id)
+        artifact = self._browser_artifacts.get(key)
+        if artifact is None or artifact.project_id != manifest.project_id:
+            raise CatalogAdapterNotFoundError("浏览器产物不存在或已经过期。")
+        self._delete_browser_artifact_file(artifact)
+        self._browser_artifacts.pop(key, None)
+        self._persist_browser_artifact_index()
+        return {
+            "ok": True,
+            "project_id": manifest.project_id,
+            "artifact_id": artifact.artifact_id,
+        }
+
+    def _cleanup_expired_browser_artifacts(self) -> None:
+        now = time.time()
+        changed = False
+        for key, artifact in list(self._browser_artifacts.items()):
+            if key[:2] != (self.tenant_id, self.owner_id):
+                continue
+            if artifact.expires_at <= now:
+                self._delete_browser_artifact_file(artifact)
+                self._browser_artifacts.pop(key, None)
+                changed = True
+        if changed:
+            self._persist_browser_artifact_index()
+
+    def _browser_artifact_path(self, artifact: CatalogBrowserArtifact) -> Path:
+        root = self.browser_artifact_root.resolve(strict=False)
+        candidate = root.joinpath(*artifact.relative_path.split("/"))
+        try:
+            resolved = candidate.resolve(strict=True)
+            resolved.relative_to(root)
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+            raise CatalogAdapterNotFoundError(
+                "浏览器产物不存在或已经过期。"
+            ) from exc
+        stat = resolved.stat()
+        if (
+            candidate.is_symlink()
+            or candidate.parent.is_symlink()
+            or not resolved.is_file()
+            or stat.st_nlink != 1
+        ):
+            raise CatalogAdapterPolicyError("浏览器产物路径不安全。")
+        if stat.st_size != artifact.size_bytes:
+            raise CatalogAdapterPolicyError("浏览器产物已经变化，下载已阻断。")
+        digest = hashlib.sha256()
+        with resolved.open("rb") as handle:
+            if handle.read(8) != b"\x89PNG\r\n\x1a\n":
+                raise CatalogAdapterPolicyError("浏览器产物 PNG 签名无效。")
+            handle.seek(0)
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != artifact.sha256:
+            raise CatalogAdapterPolicyError("浏览器产物摘要已经变化，下载已阻断。")
+        return resolved
+
+    def _delete_browser_artifact_file(
+        self,
+        artifact: CatalogBrowserArtifact,
+    ) -> None:
+        try:
+            path = self._browser_artifact_path(artifact)
+        except (CatalogAdapterNotFoundError, CatalogAdapterPolicyError):
+            return
+        try:
+            path.unlink(missing_ok=True)
+            path.parent.rmdir()
+        except OSError:
+            pass
+
+    @staticmethod
+    def _public_browser_artifact(
+        artifact: CatalogBrowserArtifact,
+    ) -> dict[str, Any]:
+        return {
+            "artifact_id": artifact.artifact_id,
+            "name": artifact.name,
+            "mime_type": artifact.mime_type,
+            "size_bytes": artifact.size_bytes,
+            "sha256": artifact.sha256,
+            "created_at": artifact.created_at,
+            "expires_at": artifact.expires_at,
+            "download_url": (
+                f"/api/mcp/catalog/{artifact.project_id}/browser-artifacts/"
+                f"{artifact.artifact_id}/download"
+            ),
+        }
+
+    def _load_browser_artifact_index(self) -> None:
+        path = self.browser_artifact_index_path
+        if not path.exists():
+            self._scavenge_browser_artifact_orphans()
+            return
+        if path.is_symlink() or not path.is_file():
+            raise CatalogAdapterPolicyError("浏览器产物索引路径不安全。")
+        stat = path.stat()
+        if stat.st_nlink != 1 or stat.st_size > 1024 * 1024:
+            raise CatalogAdapterPolicyError("浏览器产物索引违反固定上限。")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise CatalogAdapterPolicyError("浏览器产物索引损坏。") from exc
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"version", "items"}
+            or payload.get("version") != 1
+            or not isinstance(payload.get("items"), list)
+            or len(payload["items"]) > 2_000
+        ):
+            raise CatalogAdapterPolicyError("浏览器产物索引 Schema 无效。")
+        loaded: dict[tuple[str, str, str], CatalogBrowserArtifact] = {}
+        expected_keys = set(CatalogBrowserArtifact.__dataclass_fields__)
+        now = time.time()
+        changed = False
+        for raw in payload["items"]:
+            if not isinstance(raw, dict) or set(raw) != expected_keys:
+                raise CatalogAdapterPolicyError("浏览器产物索引记录无效。")
+            try:
+                artifact = CatalogBrowserArtifact(**raw)
+            except TypeError as exc:
+                raise CatalogAdapterPolicyError("浏览器产物索引记录无效。") from exc
+            if (
+                re.fullmatch(r"mcpbart_[0-9a-f]{32}", artifact.artifact_id)
+                is None
+                or not artifact.tenant_id
+                or len(artifact.tenant_id) > 120
+                or not artifact.owner_id
+                or len(artifact.owner_id) > 120
+                or artifact.project_id not in self.manifests
+                or self.manifests[artifact.project_id].browser_policy is None
+                or re.fullmatch(
+                    r"files/mcpbart_[0-9a-f]{32}\.png",
+                    artifact.relative_path,
+                )
+                is None
+                or artifact.relative_path
+                != f"files/{artifact.artifact_id}.png"
+                or artifact.mime_type != "image/png"
+                or artifact.size_bytes < 1
+                or artifact.size_bytes > 32 * 1024 * 1024
+                or re.fullmatch(r"[0-9a-f]{64}", artifact.sha256) is None
+                or not math.isfinite(artifact.created_at)
+                or not math.isfinite(artifact.expires_at)
+                or artifact.expires_at <= artifact.created_at
+            ):
+                raise CatalogAdapterPolicyError("浏览器产物索引记录违反安全契约。")
+            key = (artifact.tenant_id, artifact.owner_id, artifact.artifact_id)
+            if key in loaded:
+                raise CatalogAdapterPolicyError("浏览器产物索引包含重复记录。")
+            if artifact.expires_at <= now:
+                self._delete_browser_artifact_file(artifact)
+                changed = True
+                continue
+            self._browser_artifact_path(artifact)
+            loaded[key] = artifact
+        self._browser_artifacts = loaded
+        if self._scavenge_browser_artifact_orphans():
+            changed = True
+        if changed:
+            self._persist_browser_artifact_index()
+
+    def _persist_browser_artifact_index(self) -> None:
+        path = self.browser_artifact_index_path
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            path.parent.chmod(0o700)
+        except OSError:
+            pass
+        payload = json.dumps(
+            {
+                "version": 1,
+                "items": [
+                    asdict(item)
+                    for _, item in sorted(
+                        self._browser_artifacts.items(),
+                        key=lambda pair: pair[0],
+                    )
+                ],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(payload) > 1024 * 1024:
+            raise CatalogAdapterPolicyError("浏览器产物索引超过固定上限。")
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            path.chmod(0o600)
+        except Exception:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+
+    def _scavenge_browser_artifact_orphans(self) -> bool:
+        changed = False
+        referenced = {
+            item.relative_path for item in self._browser_artifacts.values()
+        }
+        trusted_files = self.browser_artifact_root / "files"
+        if trusted_files.is_dir() and not trusted_files.is_symlink():
+            for candidate in trusted_files.iterdir():
+                if candidate.name.startswith(".") and candidate.name.endswith(".tmp"):
+                    try:
+                        candidate.unlink()
+                        changed = True
+                    except OSError:
+                        pass
+                    continue
+                relative = f"files/{candidate.name}"
+                if (
+                    re.fullmatch(r"mcpbart_[0-9a-f]{32}\.png", candidate.name)
+                    and relative not in referenced
+                ):
+                    try:
+                        candidate.unlink()
+                        changed = True
+                    except OSError:
+                        pass
+        staging = self.browser_artifact_staging_root
+        if staging.is_dir() and not staging.is_symlink():
+            for candidate in staging.glob("*/registered/browser_*.png"):
+                relative = candidate.relative_to(staging).as_posix()
+                if re.fullmatch(
+                    r"[0-9a-f]{32}/registered/browser_[0-9a-f]{32}\.png",
+                    relative,
+                ):
+                    try:
+                        candidate.unlink()
+                        changed = True
+                    except OSError:
+                        pass
+        return changed
+
     def _create_approval(
         self,
         manifest: CatalogAdapterManifest,
@@ -2874,6 +4361,7 @@ class MCPCatalogService:
         configuration_digest = ""
         credential_snapshot_digest = ""
         account_snapshot_digest = ""
+        browser_snapshot_digest = ""
         tool_schema_sha256 = ""
         target_preview: dict[str, Any] = {}
         if bound_workspace_id:
@@ -2910,6 +4398,22 @@ class MCPCatalogService:
                 frozen_arguments,
             )
             summary = str(target_preview["impact"])
+        elif manifest.browser_policy is not None:
+            browser_snapshot = self._browser_snapshots.get(scope_key)
+            if browser_snapshot is None or browser_snapshot.status != "active":
+                raise CatalogAdapterPolicyError(
+                    "浏览器会话尚未完成预检或已经污染，请重新连接。"
+                )
+            context_kind = "browser-session"
+            browser_snapshot_digest = browser_snapshot.digest
+            tool_schema_sha256 = manifest.browser_policy.tool_schema_sha256
+            target_preview = self._browser_target_preview(
+                manifest,
+                tool_name,
+                frozen_arguments,
+                browser_snapshot,
+            )
+            summary = str(target_preview["impact"])
         else:
             raise CatalogAdapterPolicyError("该操作缺少有效的受控审批上下文。")
         policy = manifest.tool_policies.get(tool_name)
@@ -2933,6 +4437,7 @@ class MCPCatalogService:
             configuration_digest=configuration_digest,
             credential_snapshot_digest=credential_snapshot_digest,
             account_snapshot_digest=account_snapshot_digest,
+            browser_snapshot_digest=browser_snapshot_digest,
             tool_schema_sha256=tool_schema_sha256,
             tool_policy_digest=self._tool_policy_digest(policy),
             idempotency_key=f"mcpidem_{uuid.uuid4().hex}",
@@ -2941,13 +4446,159 @@ class MCPCatalogService:
         self._approvals[self._approval_key(approval.approval_id)] = approval
         return {
             "code": "approval_required",
-            "message": "该操作会修改持久状态；参数和账号上下文已由服务端冻结，请确认后执行。",
+            "message": (
+                "该浏览器操作会修改临时页面状态；参数和页面版本已由服务端冻结，请确认后执行一次。"
+                if context_kind == "browser-session"
+                else "该操作会修改持久状态；参数和账号上下文已由服务端冻结，请确认后执行。"
+            ),
             "approval_id": approval.approval_id,
+            "context_kind": approval.context_kind,
             "summary": approval.summary,
             "argument_digest": approval.argument_digest,
             "idempotency_key": approval.idempotency_key,
             "target_preview": approval.target_preview or None,
             "expires_at": approval.expires_at,
+        }
+
+    def _browser_target_preview(
+        self,
+        manifest: CatalogAdapterManifest,
+        tool_name: str,
+        arguments: dict[str, Any],
+        snapshot: CatalogBrowserSnapshot,
+    ) -> dict[str, Any]:
+        action_labels = {
+            "navigate_page": "导航 Chrome DevTools 页面",
+            "click": "点击 Chrome DevTools 页面元素",
+            "fill": "填写 Chrome DevTools 页面字段",
+            "browser_navigate": "导航 Playwright 页面",
+            "browser_click": "点击 Playwright 页面元素",
+            "browser_fill_form": "填写 Playwright 页面字段",
+        }
+        target_origin = snapshot.current_origin
+        target_path = ""
+        raw_url = arguments.get("url")
+        if isinstance(raw_url, str) and raw_url:
+            parsed = urlsplit(raw_url)
+            if (
+                len(raw_url) > 16_384
+                or parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.fragment
+            ):
+                raise CatalogAdapterPolicyError(
+                    "浏览器导航 URL 不符合受控公网策略。"
+                )
+            host = parsed.hostname.encode("idna").decode("ascii").lower()
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                pass
+            else:
+                raise CatalogAdapterPolicyError(
+                    "浏览器导航 URL 不能使用 IP 字面量。"
+                )
+            if "." not in host or host.endswith(
+                (".internal", ".local", ".localhost", ".home.arpa")
+            ):
+                raise CatalogAdapterPolicyError(
+                    "浏览器导航目标不是允许的公网主机名。"
+                )
+            try:
+                port = parsed.port
+            except ValueError as exc:
+                raise CatalogAdapterPolicyError(
+                    "浏览器导航 URL 端口无效。"
+                ) from exc
+            effective_port = port or (80 if parsed.scheme == "http" else 443)
+            if (parsed.scheme, effective_port) not in {
+                ("http", 80),
+                ("https", 443),
+            }:
+                raise CatalogAdapterPolicyError(
+                    "浏览器导航端口必须与 HTTP/HTTPS 默认端口严格匹配。"
+                )
+            if browser_query_has_sensitive_key(parsed.query):
+                raise CatalogAdapterPolicyError(
+                    "浏览器导航 URL 不接受 Token、签名或其他敏感查询参数。"
+                )
+            decoded_target = f"{parsed.path}?{parsed.query}"
+            for _ in range(2):
+                decoded_target = unquote(decoded_target)
+            target_tokens = canonical_browser_login_tokens(decoded_target)
+            host_tokens = canonical_browser_login_tokens(host, host=True)
+            if (
+                target_tokens & BROWSER_LOGIN_TOKENS
+                or host_tokens & BROWSER_LOGIN_TOKENS
+            ):
+                raise CatalogAdapterPolicyError(
+                    "浏览器登录或外站认证路径不在本批开放范围。"
+                )
+            target_origin = f"{parsed.scheme}://{host}"
+            segments = [
+                re.sub(r"[^A-Za-z0-9._~-]", "·", segment)[:32]
+                for segment in parsed.path.split("/")
+                if segment
+            ][:3]
+            if segments:
+                target_path = "/" + "/".join(segments)
+        target_label = (
+            f"{target_origin}{target_path}"
+            if target_origin
+            else "尚未导航的临时页面"
+        )
+        changes: list[dict[str, str]] = []
+        if isinstance(raw_url, str) and raw_url:
+            changes.append({"field": "目标 Origin", "summary": target_label})
+        element_refs: list[str] = []
+        if isinstance(arguments.get("ref"), str):
+            element_refs.append(str(arguments["ref"]))
+        fields = arguments.get("fields")
+        if isinstance(fields, list):
+            element_refs.extend(
+                str(item.get("ref") or "")
+                for item in fields
+                if isinstance(item, dict)
+            )
+        elements = self._browser_elements.get(
+            self._scope_key(manifest.project_id),
+            {},
+        )
+        for ref in element_refs:
+            element = elements.get(ref)
+            if (
+                element is None
+                or element.get("page_digest") != snapshot.page_digest
+            ):
+                raise CatalogAdapterPolicyError(
+                    "页面元素引用不属于当前受控快照，请重新获取快照。"
+                )
+            changes.append(
+                {
+                    "field": element["role"],
+                    "summary": element["label"],
+                }
+            )
+        if tool_name in {"fill", "browser_fill_form"}:
+            count = len(fields) if isinstance(fields, list) else 1
+            changes.append({"field": "填写内容", "summary": f"{count} 个受控字段（内容不展示）"})
+        action_label = action_labels.get(tool_name, f"执行 {tool_name}")
+        return {
+            "action_label": action_label,
+            "resource": {
+                "type": "临时浏览器页面",
+                "label": target_label,
+                "id_suffix": snapshot.page_digest[-8:],
+            },
+            "changes": changes,
+            "content": None,
+            "impact": (
+                f"将在“{target_label}”执行{action_label}；页面状态可能变化，"
+                "仅执行一次且不会自动重试。"
+            ),
+            "destructive": False,
         }
 
     @staticmethod
@@ -3319,6 +4970,8 @@ class MCPCatalogService:
             for key in tenant_keys:
                 self._credential_snapshots.pop(key, None)
                 self._account_snapshots.pop(key, None)
+                self._browser_snapshots.pop(key, None)
+                self._browser_elements.pop(key, None)
                 self._preflight_status.pop(key, None)
         for project_id, session_id in sessions:
             try:
@@ -3557,6 +5210,8 @@ class MCPCatalogService:
                     self._sessions.pop(scope_key, None)
                     self._credential_snapshots.pop(scope_key, None)
                     self._account_snapshots.pop(scope_key, None)
+                    self._browser_snapshots.pop(scope_key, None)
+                    self._browser_elements.pop(scope_key, None)
                     self._preflight_status[scope_key] = "unverified"
 
     @staticmethod
@@ -3691,6 +5346,245 @@ class MCPCatalogService:
                 return scope_key[2]
         return None
 
+    async def list_tools(self, project_id: str) -> dict[str, Any]:
+        """List tools through the catalog owner boundary, never the generic route."""
+
+        manifest = self._require_executable(project_id)
+        scope_key = self._scope_key(manifest.project_id)
+        session_id = self._sessions.get(scope_key)
+        if session_id is None:
+            raise MCPSessionNotFoundError(manifest.project_id)
+        tools = await self.manager.list_tools(
+            session_id,
+            session_owner=self._session_owner(manifest.project_id),
+        )
+        names_match = {tool.name for tool in tools} == set(manifest.tool_policies)
+        browser_schema_matches = (
+            manifest.browser_policy is None
+            or self._tool_schema_digest(tools)
+            == manifest.browser_policy.tool_schema_sha256
+        )
+        if (
+            not manifest.legacy_unrestricted_calls
+            and (not names_match or not browser_schema_matches)
+        ):
+            if manifest.browser_policy is not None:
+                await self._taint_browser_session(manifest)
+            raise CatalogAdapterPolicyError(
+                "目录工具清单与固定适配器策略不一致，工具发现已阻断。"
+            )
+        return {
+            "project_id": manifest.project_id,
+            "tools": [
+                tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+                for tool in tools
+            ],
+        }
+
+    async def browser_session_status(self, project_id: str) -> dict[str, Any]:
+        manifest = self.get_manifest(project_id)
+        if manifest.browser_policy is None:
+            raise CatalogAdapterPolicyError("该目录条目不是受控浏览器适配器。")
+        scope_key = self._scope_key(manifest.project_id)
+        session_id = self._sessions.get(scope_key)
+        if session_id is None:
+            snapshot = self._browser_snapshots.get(scope_key)
+            if snapshot is None or snapshot.status != "tainted":
+                payload = self._browser_session_payload(None)
+            else:
+                payload = self._browser_session_payload(snapshot)
+            payload["reason"] = self._browser_disconnect_reasons.get(scope_key)
+            return payload
+        try:
+            snapshot = await self._refresh_browser_snapshot(
+                manifest,
+                session_id=session_id,
+            )
+        except (MCPClientError, EOFError, BrokenPipeError, OSError) as exc:
+            await self._forget_browser_session(manifest, reason="expired")
+            payload = self._browser_session_payload(None)
+            payload["reason"] = "expired"
+            return payload
+        except CatalogBrowserSessionExpiredError:
+            await self._forget_browser_session(manifest, reason="expired")
+            payload = self._browser_session_payload(None)
+            payload["reason"] = "expired"
+            return payload
+        except CatalogAdapterPolicyError:
+            await self._taint_browser_session(manifest)
+            raise
+        if snapshot.status == "active":
+            self._preflight_status[scope_key] = "verified"
+            self._browser_disconnect_reasons.pop(scope_key, None)
+        payload = self._browser_session_payload(snapshot)
+        payload["reason"] = None
+        return payload
+
+    async def _refresh_browser_snapshot(
+        self,
+        manifest: CatalogAdapterManifest,
+        *,
+        session_id: str,
+    ) -> CatalogBrowserSnapshot:
+        policy = manifest.browser_policy
+        if policy is None:
+            raise CatalogAdapterPolicyError("浏览器会话策略不存在。")
+        result = await self.manager.call_tool(
+            session_id,
+            "browser_session_status",
+            {},
+            retry_on_failure=False,
+            session_owner=self._session_owner(manifest.project_id),
+        )
+        payload = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if bool(payload.get("isError") or payload.get("is_error")):
+            raise CatalogAdapterPolicyError("浏览器会话状态预检失败。")
+        structured = payload.get("structuredContent") or payload.get(
+            "structured_content"
+        )
+        if not isinstance(structured, dict):
+            for item in payload.get("content") or []:
+                if not isinstance(item, dict) or item.get("type") != "text":
+                    continue
+                try:
+                    candidate = json.loads(str(item.get("text") or ""))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if isinstance(candidate, dict):
+                    structured = candidate
+                    break
+        if not isinstance(structured, dict):
+            raise CatalogAdapterPolicyError("浏览器会话状态缺少结构化结果。")
+        try:
+            generation = str(structured["generation"]).strip().lower()
+            page_revision = int(structured["page_revision"])
+            page_digest = str(structured["page_digest"])
+            current_origin = self._normalize_browser_origin(
+                str(structured.get("current_origin") or "")
+            )
+            action_count = int(structured["action_count"])
+            max_actions = int(structured["max_actions"])
+            expires_at = float(structured["expires_at"])
+            tainted = structured.get("tainted")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CatalogAdapterPolicyError("浏览器会话状态 Schema 无效。") from exc
+        if (
+            isinstance(tainted, bool) is False
+            or re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+                r"[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                generation,
+            )
+            is None
+            or page_revision < 0
+            or re.fullmatch(r"[0-9a-f]{64}", page_digest) is None
+            or action_count < 0
+            or max_actions != policy.max_actions
+            or action_count > max_actions
+            or not math.isfinite(expires_at)
+        ):
+            raise CatalogAdapterPolicyError("浏览器会话状态违反固定安全契约。")
+        if expires_at <= time.time():
+            raise CatalogBrowserSessionExpiredError(
+                "浏览器临时会话已经过期，请重新连接。"
+            )
+        previous = self._browser_snapshots.get(
+            self._scope_key(manifest.project_id)
+        )
+        approved_hosts = set(
+            previous.approved_hosts
+            if previous is not None and previous.generation == generation
+            else ()
+        )
+        if current_origin:
+            host = str(urlsplit(current_origin).hostname or "").lower()
+            if host:
+                approved_hosts.add(host)
+        snapshot = CatalogBrowserSnapshot(
+            status="tainted" if tainted else "active",
+            generation=generation,
+            page_revision=page_revision,
+            page_digest=page_digest,
+            current_origin=current_origin,
+            action_count=action_count,
+            max_actions=max_actions,
+            expires_at=expires_at,
+            approved_hosts=tuple(sorted(approved_hosts)),
+        )
+        scope_key = self._scope_key(manifest.project_id)
+        if previous is not None and (
+            previous.generation != snapshot.generation
+            or previous.page_revision != snapshot.page_revision
+            or previous.page_digest != snapshot.page_digest
+        ):
+            self._browser_elements.pop(scope_key, None)
+        self._browser_snapshots[scope_key] = snapshot
+        if snapshot.status == "tainted":
+            self._browser_elements.pop(scope_key, None)
+            self._preflight_status[scope_key] = "failed"
+        return snapshot
+
+    @staticmethod
+    def _normalize_browser_origin(value: str) -> str:
+        if not value:
+            return ""
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise CatalogAdapterPolicyError("浏览器会话返回了无效 Origin。")
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise CatalogAdapterPolicyError("浏览器会话返回了无效 Origin 端口。") from exc
+        if port is not None and port not in {80, 443}:
+            raise CatalogAdapterPolicyError("浏览器会话 Origin 端口不在允许范围。")
+        host = parsed.hostname.encode("idna").decode("ascii").lower()
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            raise CatalogAdapterPolicyError(
+                "浏览器会话 Origin 不能使用 IP 字面量。"
+            )
+        if "." not in host or host.endswith(
+            (".internal", ".local", ".localhost", ".home.arpa")
+        ):
+            raise CatalogAdapterPolicyError(
+                "浏览器会话 Origin 不是允许的公网主机名。"
+            )
+        default_port = 80 if parsed.scheme == "http" else 443
+        suffix = f":{port}" if port is not None and port != default_port else ""
+        return f"{parsed.scheme}://{host}{suffix}"
+
+    @staticmethod
+    def _browser_session_payload(
+        snapshot: CatalogBrowserSnapshot | None,
+    ) -> dict[str, Any]:
+        if snapshot is None:
+            return {
+                "status": "disconnected",
+                "generation": "",
+                "page_revision": 0,
+                "page_digest": "",
+                "current_origin": "",
+                "action_count": 0,
+                "max_actions": 50,
+                "expires_at": 0.0,
+                "approved_hosts": [],
+            }
+        return {
+            **asdict(snapshot),
+            "approved_hosts": list(snapshot.approved_hosts),
+        }
+
     def _connection_payload(
         self,
         manifest: CatalogAdapterManifest,
@@ -3714,8 +5608,21 @@ class MCPCatalogService:
                     self._scope_key(manifest.project_id),
                     "unverified",
                 )
-                if manifest.database_policy is not None or manifest.saas_policy is not None
+                if (
+                    manifest.database_policy is not None
+                    or manifest.saas_policy is not None
+                    or manifest.browser_policy is not None
+                )
                 else "not-applicable"
+            ),
+            "browser_session": (
+                self._browser_session_payload(
+                    self._browser_snapshots.get(
+                        self._scope_key(manifest.project_id)
+                    )
+                )
+                if manifest.browser_policy is not None
+                else None
             ),
         }
 
@@ -3811,6 +5718,16 @@ def _raise_http_error(exc: Exception) -> None:
                     if exc.reason == "rate_limited"
                     else "provider_rejected"
                 ),
+                "message": str(exc),
+                "idempotency_key": exc.idempotency_key,
+            },
+        ) from exc
+    if isinstance(exc, CatalogBrowserPolicyRejectedError):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "browser_policy_rejected",
+                "reason": exc.reason,
                 "message": str(exc),
                 "idempotency_key": exc.idempotency_key,
             },
@@ -3924,6 +5841,75 @@ async def connect_catalog_adapter(project_id: str) -> dict[str, Any]:
 async def disconnect_catalog_adapter(project_id: str) -> dict[str, Any]:
     try:
         return await get_mcp_catalog_service().disconnect(project_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.get("/api/mcp/catalog/{project_id}/tools")
+async def list_catalog_tools(project_id: str) -> dict[str, Any]:
+    try:
+        return await get_mcp_catalog_service().list_tools(project_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.get("/api/mcp/catalog/{project_id}/browser-session")
+async def get_catalog_browser_session(project_id: str) -> dict[str, Any]:
+    try:
+        return await get_mcp_catalog_service().browser_session_status(project_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.get("/api/mcp/catalog/{project_id}/browser-artifacts")
+async def list_catalog_browser_artifacts(project_id: str) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().list_browser_artifacts(project_id)
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.get(
+    "/api/mcp/catalog/{project_id}/browser-artifacts/{artifact_id}/download"
+)
+async def download_catalog_browser_artifact(
+    project_id: str,
+    artifact_id: str,
+) -> FileResponse:
+    try:
+        artifact, path = get_mcp_catalog_service().browser_artifact_download(
+            project_id,
+            artifact_id,
+        )
+        return FileResponse(
+            path,
+            media_type=artifact.mime_type,
+            filename=artifact.name,
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as exc:
+        _raise_http_error(exc)
+        raise
+
+
+@router.delete("/api/mcp/catalog/{project_id}/browser-artifacts/{artifact_id}")
+async def delete_catalog_browser_artifact(
+    project_id: str,
+    artifact_id: str,
+) -> dict[str, Any]:
+    try:
+        return get_mcp_catalog_service().delete_browser_artifact(
+            project_id,
+            artifact_id,
+        )
     except Exception as exc:
         _raise_http_error(exc)
         raise

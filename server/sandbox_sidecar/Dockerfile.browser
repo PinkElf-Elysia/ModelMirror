@@ -1,0 +1,77 @@
+FROM mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d AS browser-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PUPPETEER_SKIP_DOWNLOAD=1 \
+    MCP_BROWSER_SOCKET_PATH=/run/modelmirror-browser-mcp/browser-mcp.sock \
+    MCP_BROWSER_EGRESS_SOCKET_PATH=/run/modelmirror-browser-egress/browser-egress.sock \
+    MCP_BROWSER_PROFILE_ROOT=/profiles \
+    MCP_BROWSER_ARTIFACT_ROOT=/artifacts \
+    MCP_BROWSER_UPSTREAM_ROOT=/opt/browser-upstream \
+    MCP_BROWSER_CDP_CHROMIUM_PATH=/opt/modelmirror-browsers/cdp/chrome/linux-150.0.7871.24/chrome-linux64/chrome \
+    MCP_BROWSER_PLAYWRIGHT_CHROMIUM_PATH=/opt/modelmirror-browsers/playwright/chromium-1237/chrome-linux64/chrome \
+    MCP_BROWSER_MAX_SESSIONS=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3-minimal ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python \
+    && groupadd --gid 65532 sandbox \
+    && useradd --uid 65532 --gid 65532 --home-dir /profiles --no-create-home sandbox \
+    && mkdir -p /opt/modelmirror/sandbox_sidecar /opt/browser-upstream \
+        /opt/modelmirror-browsers/cdp /opt/modelmirror-browsers/playwright \
+        /profiles /artifacts /run/modelmirror-browser-mcp \
+        /run/modelmirror-browser-egress /etc/chromium/policies/managed \
+        /etc/opt/chrome/policies/managed \
+    && chown -R sandbox:sandbox /profiles /artifacts \
+        /run/modelmirror-browser-mcp /run/modelmirror-browser-egress
+
+WORKDIR /opt/browser-upstream
+COPY browser_requirements.lock ./package-lock.json
+RUN node -e "const fs=require('fs');const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));fs.writeFileSync('package.json',JSON.stringify(lock.packages[''],null,2)+'\n')" \
+    && npm ci --include=dev --ignore-scripts --no-audit --no-fund \
+    && node -e "const c=require('./node_modules/chrome-devtools-mcp/package.json').version;const p=require('./node_modules/@playwright/mcp/package.json').version;const b=require('./node_modules/@puppeteer/browsers/package.json').version;if(c!=='1.6.0'||p!=='0.0.79'||b!=='3.0.6'){throw new Error('locked browser package version mismatch')}"
+
+RUN ./node_modules/.bin/browsers install \
+        chrome@150.0.7871.24 --path /opt/modelmirror-browsers/cdp \
+    && env -u PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD \
+        PLAYWRIGHT_BROWSERS_PATH=/opt/modelmirror-browsers/playwright \
+        ./node_modules/.bin/playwright install chromium \
+    && npm prune --omit=dev --ignore-scripts --no-audit --no-fund \
+    && test ! -e ./node_modules/@puppeteer/browsers \
+    && test ! -e ./node_modules/.bin/browsers \
+    && npm cache clean --force
+
+RUN cdp_version="$("$MCP_BROWSER_CDP_CHROMIUM_PATH" --version | sed 's/[[:space:]]*$//')" \
+    && playwright_version="$("$MCP_BROWSER_PLAYWRIGHT_CHROMIUM_PATH" --version | sed 's/[[:space:]]*$//')" \
+    && printf '%s\n' "$cdp_version" "$playwright_version" \
+    && test -x "$MCP_BROWSER_CDP_CHROMIUM_PATH" \
+    && test -x "$MCP_BROWSER_PLAYWRIGHT_CHROMIUM_PATH" \
+    && test "$cdp_version" = \
+        "Google Chrome for Testing 150.0.7871.24" \
+    && test "$playwright_version" = \
+        "Google Chrome for Testing 152.0.7977.8" \
+    && rm -rf /opt/modelmirror-browsers/playwright/ffmpeg-1011 \
+        /opt/modelmirror-browsers/playwright/chromium_headless_shell-1237
+
+# Browser policy is defense in depth for capabilities that are not exposed by
+# the gateway.  The network-less execution container and separated egress
+# socket remain the actual SSRF boundary.
+RUN node -e "const fs=require('fs');const p={BrowserNetworkTimeQueriesEnabled:false,EncryptedClientHelloEnabled:false,DownloadRestrictions:3,DefaultNotificationsSetting:2,DefaultGeolocationSetting:2,DefaultWebUsbGuardSetting:2,DefaultSerialGuardSetting:2,DefaultBluetoothGuardSetting:2,URLBlocklist:['ws://*/*','wss://*/*','file://*/*','ftp://*/*','data:*','blob:*','chrome-extension://*/*']};for(const d of ['/etc/chromium/policies/managed','/etc/opt/chrome/policies/managed'])fs.writeFileSync(d+'/modelmirror-browser.json',JSON.stringify(p))"
+
+WORKDIR /opt/modelmirror
+COPY __init__.py engine.py browser_contracts.py browser_mcp.py browser_server.py smoke_browser_adapters.py ./sandbox_sidecar/
+COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-browser/THIRD_PARTY_NOTICES.md
+
+USER 65532:65532
+
+FROM browser-runtime AS browser-release
+# BuildKit cannot inherit the service's locked custom seccomp profile.  Keep
+# package identity, initialize/tools/list, schema and argv checks here.  Each
+# claimed adapter session runs its real upstream preflight, and the release
+# gate runs a fresh-pair full smoke under the actual runtime seccomp boundary.
+RUN python -m sandbox_sidecar.smoke_browser_adapters --contract-only
+
+CMD ["python", "-m", "sandbox_sidecar.browser_server"]

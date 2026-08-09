@@ -29,6 +29,7 @@ export interface McpCatalogApprovalRequest {
   expires_at: number | string;
   idempotency_key?: string;
   target_preview?: McpApprovalTargetPreview;
+  context_kind?: "workspace" | "remote-resource" | "browser-session" | string;
 }
 
 interface McpApprovalDialogProps {
@@ -78,6 +79,10 @@ export default function McpApprovalDialog({
     : 0;
   const expired = secondsLeft <= 0;
   const preview = approval.target_preview;
+  const isBrowserApproval =
+    approval.context_kind === "browser-session" ||
+    preview?.resource.type === "browser-session" ||
+    preview?.resource.type === "browser-domain";
   const confirmationBlocked = expired || preview?.destructive === true;
 
   useEffect(() => {
@@ -157,7 +162,9 @@ export default function McpApprovalDialog({
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-amber-100">一次性写入审批</p>
+            <p className="text-sm font-semibold text-amber-100">
+              {isBrowserApproval ? "一次性浏览器操作审批" : "一次性写入审批"}
+            </p>
             <h2 className="mt-2 text-xl font-semibold text-white" id={titleId}>
               {preview?.action_label ?? "确认本次受控操作"}
             </h2>
@@ -171,7 +178,9 @@ export default function McpApprovalDialog({
           {preview ? (
             <>
               <section className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
-                <p className="text-xs font-semibold text-slate-400">目标资源</p>
+                <p className="text-xs font-semibold text-slate-400">
+                  {isBrowserApproval ? "目标域与会话" : "目标资源"}
+                </p>
                 <p className="mt-2 text-sm font-semibold text-white">{preview.resource.label}</p>
                 <p className="mt-1 text-xs text-slate-400">
                   {preview.resource.type} · 标识尾号 {preview.resource.id_suffix || "未提供"}
@@ -179,7 +188,9 @@ export default function McpApprovalDialog({
               </section>
 
               <section className="rounded-lg border border-white/10 bg-white/[0.045] p-4">
-                <p className="text-xs font-semibold text-slate-400">本次变更摘要</p>
+                <p className="text-xs font-semibold text-slate-400">
+                  {isBrowserApproval ? "本次动作摘要" : "本次变更摘要"}
+                </p>
                 {preview.changes.length > 0 ? (
                   <dl className="mt-2 space-y-2">
                     {preview.changes.map((change, index) => (
@@ -203,7 +214,11 @@ export default function McpApprovalDialog({
                 <p className="text-xs font-semibold text-amber-100">影响范围</p>
                 <p className="mt-2 text-sm leading-6 text-slate-200">{preview.impact}</p>
                 <p className={`mt-2 text-xs font-semibold ${preview.destructive ? "text-rose-200" : "text-emerald-200"}`}>
-                  {preview.destructive ? "终止性操作已被前端阻断" : "非终止性写入 · 仅执行一次"}
+                  {preview.destructive
+                    ? "终止性操作已被前端阻断"
+                    : isBrowserApproval
+                      ? "受控页面操作 · 仅执行一次"
+                      : "非终止性写入 · 仅执行一次"}
                 </p>
               </section>
             </>
@@ -214,8 +229,12 @@ export default function McpApprovalDialog({
           )}
         </div>
 
-        <div className="mt-3 rounded-lg bg-black/15 p-3 text-[11px] leading-5 text-slate-500">
-          <p>确认绑定当前项目、会话、工具和冻结参数，只能使用一次；页面不会展示原始参数或正文。</p>
+        <div className="mt-3 rounded-lg bg-black/15 p-3 text-[11px] leading-5 text-slate-400">
+          <p>
+            {isBrowserApproval
+              ? "确认绑定当前项目、浏览器会话、可访问性快照、目标域、工具和冻结参数，只能使用一次；导航、重连或可检测的快照漂移会使审批失效。元素角色与名称来自目标页，不能证明网站真实性；页面脚本仍可能在摘要不变时改变行为，确认前请核对 Origin 和最新截图，勿在不可信页面执行会产生现实后果的操作。"
+              : "确认绑定当前项目、会话、工具和冻结参数，只能使用一次；页面不会展示原始参数或正文。"}
+          </p>
           {approval.idempotency_key ? (
             <p className="mt-1 font-mono">幂等键：{shorten(approval.idempotency_key)}</p>
           ) : null}
@@ -232,7 +251,7 @@ export default function McpApprovalDialog({
 
         <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
-            className="min-h-11 rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] disabled:opacity-50"
+            className="min-h-11 rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 disabled:opacity-50"
             disabled={busy}
             onClick={() => void onCancel()}
             ref={cancelButtonRef}
@@ -241,12 +260,17 @@ export default function McpApprovalDialog({
             取消本次操作
           </button>
           <button
-            className="min-h-11 rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-45"
+            aria-busy={busy}
+            className="min-h-11 rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-45"
             disabled={busy || confirmationBlocked}
             onClick={() => void onConfirm()}
             type="button"
           >
-            {busy ? "正在确认…" : "确认写入一次"}
+            {busy
+              ? "正在确认…"
+              : isBrowserApproval
+                ? "确认执行一次"
+                : "确认写入一次"}
           </button>
         </div>
       </div>

@@ -120,3 +120,42 @@ The Chinese commerce bundle and archived Mem0 local MCP server are not present
 in the image.  Their OAuth/account-lifecycle and remotely versioned contract
 requirements remain blocked.  The SaaS image's only direct Python runtime
 dependency beyond CPython is the pinned MCP Python SDK 1.27.2 (MIT).
+
+The `modelmirror-mcp-browser:wave7-v1` image runs the following real, pinned
+upstream MCP packages behind ModelMirror's fixed Unix-socket policy gateway.
+Neither package is downloaded or updated at runtime:
+
+- Chrome DevTools MCP 1.6.0
+  (`https://github.com/ChromeDevTools/chrome-devtools-mcp`): Apache-2.0.
+- Playwright MCP 0.0.79
+  (`https://github.com/microsoft/playwright-mcp`): Apache-2.0.
+
+Playwright MCP 0.0.79 pins Playwright and Playwright Core
+1.63.0-alpha-2026-08-05 (Apache-2.0). Its locked Chromium revision 1237
+(Chrome for Testing 152.0.7977.8) is installed only while the image is built.
+Chrome DevTools MCP 1.6.0 bundles Puppeteer Core 25.3.0 and is paired with its
+locked Chrome for Testing 150.0.7871.24. The two adapters use separate fixed
+browser paths; neither can select the other adapter's browser or download a
+replacement at runtime. Chromium and Chrome for Testing retain their upstream
+BSD-style and component-specific license notices. The build-only downloader is
+`@puppeteer/browsers` 3.0.6 (Apache-2.0). The npm integrity values and complete
+direct dependency graph used by `npm ci` are recorded in
+`browser_requirements.lock`; installed package license/source metadata remains
+under `/opt/browser-upstream/node_modules`.
+
+The browser service also vendors the Moby seccomp default profile from
+`moby/profiles` tag `seccomp/v0.2.3` (Apache-2.0). The vendored profile
+retains the upstream default-deny policy and adds only `clone`, `setns`,
+`unshare`, and `chroot`. The first three syscalls are required by the non-root
+Chromium user-namespace sandbox; `chroot` is used only after Chromium has
+entered its self-created user namespace to contract the process into an empty
+root. The outer container has no `CAP_SYS_CHROOT` or any other capability, and
+no other seccomp rule is relaxed. The browser-specific copy also removes the
+modern-kernel legacy unconditional allow for `ptrace`, `process_vm_readv`, and
+`process_vm_writev` so same-UID processes cannot inspect one another; only the
+upstream `CAP_SYS_PTRACE`-conditioned rule remains, and `cap_drop: ALL` keeps it
+inactive. The original source is `seccomp/default.json` in that tagged release.
+
+Puppeteer MCP and Selenium MCP are not installed or executed in Wave 7. Their
+catalog entries remain blocked until an independently verified sandbox and
+upstream schema contract are available.

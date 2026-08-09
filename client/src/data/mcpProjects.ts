@@ -127,17 +127,18 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/microsoft/playwright-mcp",
     category: "浏览器与网页",
     description:
-      "把浏览器自动化、测试和网页数据抽取能力交给 AI，适合前端验证和网页操作。",
+      "在一次性匿名 Chromium 会话中读取页面快照、访问公网网页并执行受控点击与填写，适合前端验收和公开页面检查。",
     readmeSummary:
-      "微软官方实现，使用结构化可访问性快照驱动浏览器，主打快速、轻量和确定性的工具调用。",
+      "固定微软 Playwright MCP 0.0.79，并由模镜裁剪为会话状态、受控导航、结构化快照、点击、填写和截图产物。",
     stars: 33615,
     language: "TypeScript",
-    verifiedAt: "2026-08-02",
+    verifiedAt: "2026-08-07",
     installMode: "one-click",
     installCommand:
       '{\n  "mcpServers": {\n    "playwright": {\n      "command": "npx",\n      "args": ["@playwright/mcp@latest"]\n    }\n  }\n}',
-    installNote: "官方 README 提供的标准 MCP 客户端配置，适合支持 stdio MCP 的宿主。",
-    tags: ["微软官方", "浏览器自动化", "网页测试"],
+    installNote: "模镜使用预装、锁定版本的浏览器 sidecar，不在连接时下载上游代码或浏览器。",
+    tags: ["微软官方", "临时浏览器", "结构化快照"],
+    usageExamples: ["检查公开页面的结构和关键文案", "在逐次确认后完成导航、点击或表单填写并留存截图"],
   },
   {
     id: "chrome-devtools-mcp",
@@ -146,18 +147,19 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/ChromeDevTools/chrome-devtools-mcp",
     category: "浏览器与网页",
     description:
-      "让 AI 直接使用 Chrome DevTools，检查 DOM、网络请求、控制台、性能轨迹和 Lighthouse 结果。",
+      "在一次性匿名 Chrome 会话中检查页面结构，并执行受控导航、点击、填写与截图。",
     readmeSummary:
-      "Google Chrome 官方项目，基于 Puppeteer 驱动 Chrome，兼顾浏览器自动化、调试和性能分析。",
+      "固定 Chrome DevTools MCP 1.6.0；本批仅开放页面读取、受控交互和截图，性能、任意脚本及外部 CDP 均关闭。",
     stars: 42000,
     language: "TypeScript",
-    verifiedAt: "2026-08-02",
+    verifiedAt: "2026-08-07",
     installMode: "one-click",
     installCommand:
       '{\n  "mcpServers": {\n    "chrome-devtools": {\n      "command": "npx",\n      "args": ["-y", "chrome-devtools-mcp@latest", "--headless"]\n    }\n  }\n}',
     installNote:
-      "模镜使用 headless 模式启动。后端运行环境仍需提供兼容版本的 Chrome 或 Chrome for Testing。",
-    tags: ["Google 官方", "Chrome 调试", "性能分析"],
+      "模镜使用预装、锁定版本的 Chrome for Testing 和独立 sidecar，不连接宿主浏览器或复用登录状态。",
+    tags: ["Chrome 官方", "临时浏览器", "页面结构"],
+    usageExamples: ["核对公开页面结构和关键文案", "在逐次确认后导航并生成可下载截图"],
   },
   {
     id: "opentabs",
@@ -713,12 +715,12 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoName: "modelcontextprotocol/servers-archived",
     repoUrl: "https://github.com/modelcontextprotocol/servers-archived/tree/main/src/puppeteer",
     category: "浏览器与网页",
-    description: "通过 Puppeteer 控制浏览器页面、截图和执行网页脚本。",
-    readmeSummary: "MCP 早期官方参考实现，现归档保留，适合了解浏览器工具的基础形态。",
+    description: "归档的 Puppeteer MCP 参考实现，包含浏览器控制、截图和页面脚本执行能力。",
+    readmeSummary: "上游已经归档且包含任意启动参数与脚本执行入口，本批不启动运行时、不提供连接或替代入口。",
     language: "TypeScript",
     tags: ["官方归档", "Puppeteer", "浏览器控制"],
     requirements: ["external-runtime", "system-permission"],
-    usageExamples: ["截取页面关键区域", "验证网页交互是否正常"],
+    usageExamples: ["仅查看归档项目资料", "等待有持续维护的固定工具契约后重新评估"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
   }),
   plannedMcp({
@@ -727,12 +729,12 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoName: "angiejones/mcp-selenium",
     repoUrl: "https://github.com/angiejones/mcp-selenium",
     category: "浏览器与网页",
-    description: "使用 Selenium 驱动浏览器完成页面操作和自动化测试。",
-    readmeSummary: "社区 Selenium MCP 实现，适合已有 WebDriver 测试资产的团队。",
+    description: "社区 Selenium MCP 实现，可通过 WebDriver 执行页面操作和自动化测试。",
+    readmeSummary: "许可证、容器和驱动契约尚未形成一致的可复现版本，本批不启动 WebDriver 或提供连接入口。",
     language: "Python",
     tags: ["Selenium", "WebDriver", "自动化测试"],
     requirements: ["external-runtime", "system-permission"],
-    usageExamples: ["复用 Selenium 场景执行验收", "跨浏览器检查表单流程"],
+    usageExamples: ["仅查看社区项目资料", "等待许可证与运行时契约厘清后重新评估"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
   }),
   plannedMcp({
@@ -1723,6 +1725,7 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
   const isDatabaseSandbox = isBundledSandbox && adaptation.wave === 5;
   const isDatabaseFileSandbox = isDatabaseSandbox && seed.id === "duckdb-mcp";
   const isStatefulSaas = isReady && adaptation.wave === 6;
+  const isBrowserSandbox = isBundledSandbox && adaptation.wave === 7;
   const requirements: McpRequirement[] = isCredentialSandbox
     ? ["token"]
     : isDatabaseSandbox
@@ -1751,6 +1754,8 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
         ? "内置数据库适配器由服务端固定部署，不接受 DSN、URI、命令或宿主路径。"
         : isStatefulSaas
           ? "内置有状态 SaaS 适配器由服务端固定部署，不接受任意 URL、Header、命令或环境变量。"
+        : isBrowserSandbox
+          ? "内置浏览器适配器由服务端固定部署，不接受浏览器命令、启动参数、代理、CDP 地址或宿主路径。"
         : isBundledSandbox
           ? "内置隔离适配器由服务端固定部署，无需安装命令。"
         : "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
@@ -1771,7 +1776,9 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
           ? "在当前卡片加密保存 Personal Access Token 并填写项目 ID；首批主机固定为 gitlab.com，写入先预览目标再逐次确认。"
           : seed.id === "notion-mcp-server"
             ? "在当前卡片加密保存 Integration Token，并填写已显式共享给该 Integration 的 Data Source ID；写入仅限该范围内的新建页面与页面属性更新。"
-          : "在当前卡片加密保存账号凭据并填写服务端声明的资源 ID；连接预检通过后，写入先预览目标再逐次确认。"
+           : "在当前卡片加密保存账号凭据并填写服务端声明的资源 ID；连接预检通过后，写入先预览目标再逐次确认。"
+      : isBrowserSandbox
+        ? "连接会创建临时匿名 Chromium 配置；只允许 DNS 固定后的公网 HTTP/HTTPS 目标（80/443 端口），跨 origin 请求与重定向拒绝，首版仅生成截图产物。"
       : isBundledSandbox
         ? "适配器随断网 Python 沙箱镜像固定部署；浏览器不会提交命令、目录或环境变量。"
       : seed.installNote,
@@ -1812,6 +1819,13 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
               : "填写服务端提供的账号与资源 ID 字段；当前没有资源发现接口，因此只显示受控 ID 输入，不虚构选择器。",
             "确认单租户边界并保存配置，然后连接并等待账号预检通过。只读工具可直接执行，写入工具必须查看目标与影响摘要后一次性确认。",
             "出现限流或结果未知时不要重复点击；先核对上游状态。解绑可只断开账号，也可同时撤销模镜内的加密凭据。",
+          ]
+      : isBrowserSandbox
+        ? [
+            "点击“连接 Server”创建一次性匿名浏览器会话；会话最多 15 分钟，闲置 5 分钟自动结束，单页最多执行 50 次操作。",
+            "导航只接受公网 HTTP/HTTPS 地址和 80/443 端口；URL 查询参数不得携带 Token、API Key、签名或其他凭据，DNS 固定后连接，跨 origin 请求与重定向直接拒绝。",
+            "页面状态修改必须查看目标域和动作影响摘要后确认执行一次；本批不采集账号凭据、不提供外站登录流程或保存登录态。页面仍可能自行呈现登录界面，请勿输入账号、密码、OTP 等认证信息；同时不提供网页上传/下载、剪贴板、本机文件、Cookie/Storage 导入导出与持久化、任意脚本求值或 CDP 工具。",
+            "截图进入卡片内的临时产物列表，可下载或清理；断开连接会终止浏览器进程并删除临时配置。",
           ]
       : seed.configGuide ??
         (isLocalStdio

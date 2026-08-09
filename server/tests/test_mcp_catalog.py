@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
+import os
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -26,6 +28,7 @@ from server.mcp.catalog import (
     WAVE_FOUR_ADAPTERS,
     WAVE_FIVE_ADAPTERS,
     WAVE_SIX_ADAPTERS,
+    WAVE_SEVEN_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
@@ -36,6 +39,14 @@ from server.mcp.catalog import (
     MCPCatalogService,
 )
 from server.sandbox_sidecar.saas_contracts import SAAS_SCHEMA_SHA256
+from server.sandbox_sidecar.browser_contracts import (
+    BROWSER_ADAPTERS,
+    BROWSER_SCHEMA_SHA256,
+    CONTRACT_VERSION as BROWSER_CONTRACT_VERSION,
+    LOGIN_PATH_SEGMENTS,
+    canonical_browser_login_tokens as sidecar_browser_login_tokens,
+    browser_query_has_sensitive_key as sidecar_browser_query_has_sensitive_key,
+)
 from server.toolsets.credentials import CredentialStore
 
 
@@ -54,10 +65,14 @@ class FakeManager:
         self.scrubbed: list[str] = []
         self.call_is_error = False
         self.call_error: Exception | None = None
+        self.tool_errors: dict[str, Exception] = {}
+        self.tool_results: dict[str, Any] = {}
         self.call_gate: asyncio.Event | None = None
+        self.call_gates: dict[str, asyncio.Event] = {}
         self.connect_gate: asyncio.Event | None = None
         self.connect_started = asyncio.Event()
         self.disconnect_gate: asyncio.Event | None = None
+        self.disconnect_error: Exception | None = None
         self.disconnect_started = asyncio.Event()
         self.tools: list[Tool] = [Tool(name="echo", description="Echo", inputSchema={})]
 
@@ -119,10 +134,17 @@ class FakeManager:
             raise catalog.MCPSessionNotFoundError(session_id)
         self.calls.append((session_id, tool_name, dict(arguments)))
         self.retry_on_failure.append(retry_on_failure)
-        if self.call_gate is not None:
+        tool_gate = self.call_gates.get(tool_name)
+        if tool_gate is not None:
+            await tool_gate.wait()
+        elif self.call_gate is not None:
             await self.call_gate.wait()
+        if tool_name in self.tool_errors:
+            raise self.tool_errors[tool_name]
         if self.call_error is not None:
             raise self.call_error
+        if tool_name in self.tool_results:
+            return self.tool_results[tool_name]
         return CallToolResult(
             content=[TextContent(type="text", text=str(arguments.get("value", "ok")))],
             isError=self.call_is_error,
@@ -142,6 +164,8 @@ class FakeManager:
         self.disconnect_started.set()
         if self.disconnect_gate is not None:
             await self.disconnect_gate.wait()
+        if self.disconnect_error is not None:
+            raise self.disconnect_error
         self.sessions.remove(session_id)
         self.session_owners.pop(session_id, None)
         self.disconnected.append(session_id)
@@ -193,8 +217,56 @@ class FakeRegistry:
         self.unregistered.append(session_id)
 
 
+class FakeToolResult:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+
+    def model_dump(self, **_: Any) -> dict[str, Any]:
+        return json.loads(json.dumps(self.payload, ensure_ascii=False))
+
+
+def browser_tools(project_id: str) -> list[Tool]:
+    contract = BROWSER_ADAPTERS[project_id]
+    return [
+        Tool(
+            name=name,
+            description=tool.description,
+            inputSchema=tool.input_schema,
+        )
+        for name, tool in contract.tools.items()
+    ]
+
+
+def browser_status_result(
+    *,
+    generation: str = "12345678-1234-4234-9234-123456789abc",
+    page_revision: int = 1,
+    page_digest: str = "a" * 64,
+    current_origin: str = "https://example.com",
+    action_count: int = 1,
+    tainted: bool = False,
+) -> FakeToolResult:
+    return FakeToolResult(
+        {
+            "content": [],
+            "isError": False,
+            "structuredContent": {
+                "generation": generation,
+                "page_revision": page_revision,
+                "page_digest": page_digest,
+                "current_origin": current_origin,
+                "action_count": action_count,
+                "max_actions": 50,
+                "tainted": tainted,
+                "expires_at": 4_102_444_800.0,
+            },
+        }
+    )
+
+
 def make_service(
     manifests: dict[str, CatalogAdapterManifest] | None = None,
+    **service_kwargs: Any,
 ) -> tuple[MCPCatalogService, FakeManager, FakeInstaller, FakeRegistry]:
     manager = FakeManager()
     installer = FakeInstaller()
@@ -232,6 +304,7 @@ def make_service(
         manifests=manifests,
         credential_validator=credential_validator,
         credential_resolver=lambda credential_id: f"secret-for-{credential_id}",
+        **service_kwargs,
     )
     return service, manager, installer, registry
 
@@ -260,18 +333,22 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
         "duckdb-mcp",
         "supabase-mcp",
     }
+    assert set(WAVE_SEVEN_ADAPTERS) == {
+        "chrome-devtools-mcp",
+        "playwright-mcp",
+    }
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 42
+    ) == 44
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 47
+    ) == 43
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 11
+    ) == 13
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -315,13 +392,988 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["chrome-devtools-mcp"]
+    manifest = CATALOG_ADAPTERS["mcp-run-python"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
     assert manifest.executable is False
     assert not manifest.server_command
     assert not manifest.endpoint
+
+
+def test_wave_seven_manifest_freezes_ready_blocked_and_public_policy() -> None:
+    for project_id, engine in {
+        "chrome-devtools-mcp": "chrome-devtools",
+        "playwright-mcp": "playwright",
+    }.items():
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.availability == "ready"
+        assert manifest.enabled_by_default is False
+        assert manifest.runtime_image == "modelmirror-mcp-browser:wave7-v1"
+        assert manifest.server_command[-1] == project_id
+        assert manifest.browser_policy is not None
+        assert manifest.browser_policy.engine == engine
+        assert manifest.browser_policy.contract_version == BROWSER_CONTRACT_VERSION
+        assert (
+            manifest.browser_policy.tool_schema_sha256
+            == BROWSER_SCHEMA_SHA256[project_id]
+        )
+        assert manifest.browser_policy.max_pages == 1
+        assert manifest.browser_policy.max_actions == 50
+        assert manifest.browser_policy.max_concurrent_sessions == 1
+        resource_limits = dict(manifest.resource_limits)
+        assert resource_limits["browser_cpu"] == "1.5 cores"
+        assert resource_limits["browser_memory"] == "1 GiB"
+        assert resource_limits["browser_processes"] == "maximum 1 session / 256 PIDs"
+        assert resource_limits["egress_cpu"] == "0.5 cores"
+        assert resource_limits["egress_memory"] == "256 MiB"
+        assert resource_limits["egress_processes"] == "64 PIDs"
+        assert manifest.browser_policy.max_tunnels_per_session == 12
+        assert manifest.browser_policy.max_egress_bytes_per_session == 64 * 1024 * 1024
+        assert manifest.browser_policy.max_artifacts_per_project == 50
+        assert manifest.browser_policy.max_artifact_storage_bytes == 256 * 1024 * 1024
+        assert manifest.browser_policy.uploads is False
+        assert manifest.browser_policy.downloads is False
+        assert manifest.browser_policy.cookies is False
+        assert manifest.browser_policy.evaluate is False
+        assert manifest.workspace_policy is None
+        assert "landlock-proc-write-file-with-docker-procfs-guards" in (
+            manifest.filesystem_policy
+        )
+        assert any("/proc" in item and "WRITE_FILE" in item for item in manifest.limitations)
+        assert manifest.required_capabilities == (
+            "ephemeral-browser",
+            "browser-domain-policy",
+            "browser-session-approval",
+            "browser-artifact-cleanup",
+        )
+        public = manifest.to_public()
+        assert public["browser_policy"]["allowed_schemes"] == ("http", "https")
+        assert public["browser_policy"]["allowed_ports"] == (80, 443)
+        assert "server_command" not in public
+
+    assert CATALOG_ADAPTERS["puppeteer-mcp"].availability == "blocked"
+    assert CATALOG_ADAPTERS["selenium-mcp"].availability == "blocked"
+    assert CATALOG_ADAPTERS["puppeteer-mcp"].server_command == ()
+    assert CATALOG_ADAPTERS["selenium-mcp"].server_command == ()
+
+
+def test_wave_seven_compose_isolates_browser_and_egress_services() -> None:
+    source = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    browser_block = source[
+        source.index("  mcp-browser:\n") : source.index("  mcp-database:\n")
+    ]
+    egress_block = source[
+        source.index("  mcp-browser-egress:\n") : source.index("  mcp-browser:\n")
+    ]
+    assert "network_mode: none" in browser_block
+    assert "pids_limit: 256" in browser_block
+    assert "mem_limit: 1g" in browser_block
+    assert "cpus: 1.5" in browser_block
+    assert "cap_drop:\n      - ALL" in browser_block
+    assert "no-new-privileges:true" in browser_block
+    assert "seccomp=./server/sandbox_sidecar/seccomp_profile.browser.json" in browser_block
+    assert 'user: "65532:65532"' in browser_block
+    assert (
+        "/tmp:rw,nosuid,nodev,noexec,size=128m,uid=65532,gid=65532,mode=0700"
+        in browser_block
+    )
+    assert (
+        "/profiles:rw,nosuid,nodev,noexec,size=256m,uid=65532,gid=65532,mode=0700"
+        in browser_block
+    )
+    assert (
+        "/dev/shm:rw,nosuid,nodev,noexec,size=256m,uid=65532,gid=65532,mode=0700"
+        in browser_block
+    )
+    assert "mcp_browser_egress_socket" in browser_block
+    assert "mcp_browser_artifact_staging:/artifacts" in browser_block
+    assert "mcp_browser_socket" not in egress_block
+    assert "mcp_browser_artifact_staging" not in egress_block
+    assert "mcp_browser_egress" in egress_block
+    assert "pids_limit: 64" in egress_block
+    assert "mem_limit: 256m" in egress_block
+    assert "cpus: 0.5" in egress_block
+    assert "cap_drop:\n      - ALL" in egress_block
+    assert "no-new-privileges:true" in egress_block
+    assert (
+        "/tmp:rw,nosuid,nodev,noexec,size=32m,uid=65532,gid=65532,mode=0700"
+        in egress_block
+    )
+    assert 'MCP_BROWSER_ALLOW_SYNTHETIC_DNS: "false"' in egress_block
+    assert "${MCP_BROWSER_ALLOW_SYNTHETIC_DNS" not in egress_block
+    assert "MCP_CATALOG_ENABLE_CHROME_DEVTOOLS_MCP:-false" in source
+    assert "MCP_CATALOG_ENABLE_PLAYWRIGHT_MCP:-false" in source
+    assert "o: size=67108864" in source
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_connect_uses_exact_handshake_preflight_and_catalog_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "chrome-devtools-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+
+    connected = await service.connect(project_id)
+
+    assert connected["preflight_status"] == "verified"
+    assert connected["browser_session"]["status"] == "active"
+    profile = manager.profiles[-1]
+    assert profile["reconnect_attempts"] == 0
+    assert profile["session_owner"] == "catalog:local:local:chrome-devtools-mcp"
+    assert manager.scrubbed == [connected["session_id"]]
+    encoded = profile["environment"]["MCP_BROWSER_HANDSHAKE_B64"]
+    handshake = json.loads(base64.urlsafe_b64decode(encoded).decode("utf-8"))
+    assert set(handshake) == {
+        "project_id",
+        "contract_version",
+        "tool_schema_sha256",
+        "limits",
+    }
+    assert handshake["project_id"] == project_id
+    assert handshake["contract_version"] == BROWSER_CONTRACT_VERSION
+    assert handshake["tool_schema_sha256"] == BROWSER_SCHEMA_SHA256[project_id]
+    assert handshake["limits"]["max_actions"] == 50
+    assert handshake["limits"]["max_sessions"] == 1
+    assert handshake["limits"]["max_tunnels_per_session"] == 12
+
+    discovered = await service.list_tools(project_id)
+    assert {item["name"] for item in discovered["tools"]} == set(
+        manifest.tool_policies
+    )
+    with pytest.raises(catalog.MCPSessionNotFoundError):
+        await manager.list_tools(connected["session_id"])
+
+    previous = catalog._catalog_service
+    catalog.configure_mcp_catalog(service)
+    app = FastAPI()
+    app.include_router(catalog.router)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            response = await client.get(
+                f"/api/mcp/catalog/{project_id}/tools"
+            )
+            assert response.status_code == 200
+            assert len(response.json()["tools"]) == 6
+            status = await client.get(
+                f"/api/mcp/catalog/{project_id}/browser-session"
+            )
+            assert status.status_code == 200
+            assert status.json()["current_origin"] == "https://example.com"
+    finally:
+        catalog._catalog_service = previous
+
+    drifted_tools = browser_tools(project_id)
+    first = drifted_tools[0]
+    drifted_tools[0] = Tool(
+        name=first.name,
+        description=first.description,
+        inputSchema={"type": "object", "properties": {"drift": {"type": "string"}}},
+    )
+    manager.tools = drifted_tools
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="策略不一致"):
+        await service.list_tools(project_id)
+    assert service._scope_key(project_id) not in service._sessions
+    assert (await service.browser_session_status(project_id))["status"] == "tainted"
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_approval_freezes_snapshot_and_element_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "playwright-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    manager.tool_results["browser_snapshot"] = FakeToolResult(
+        {
+            "content": [{"type": "text", "text": "受控快照"}],
+            "isError": False,
+            "structuredContent": {
+                "elements": [
+                    {
+                        "ref": "button.submit",
+                        "role": "button",
+                        "label": "提交表单",
+                        "page_digest": "a" * 64,
+                    }
+                ]
+            },
+        }
+    )
+    await service.connect(project_id)
+    await service.call_tool(project_id, "browser_snapshot", {})
+    snapshot_index = next(
+        index
+        for index, call in enumerate(manager.calls)
+        if call[1] == "browser_snapshot"
+    )
+    assert manager.retry_on_failure[snapshot_index] is False
+
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+        await service.call_tool(
+            project_id,
+            "browser_click",
+            {"ref": "button.submit"},
+        )
+    approval = captured.value.payload
+    assert approval["context_kind"] == "browser-session"
+    assert approval["target_preview"]["resource"]["label"] == "https://example.com"
+    assert approval["target_preview"]["changes"] == [
+        {"field": "button", "summary": "提交表单"}
+    ]
+
+    result = await service.confirm_approval(project_id, approval["approval_id"])
+    assert result["unknown_outcome"] is False
+    click_calls = [call for call in manager.calls if call[1] == "browser_click"]
+    assert click_calls == [
+        (service._sessions[service._scope_key(project_id)], "browser_click", {"ref": "button.submit"})
+    ]
+    assert manager.retry_on_failure[manager.calls.index(click_calls[0])] is False
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_navigation_preflight_rejects_private_and_login_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert catalog.BROWSER_LOGIN_TOKENS == LOGIN_PATH_SEGMENTS
+    project_id = "chrome-devtools-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    await service.connect(project_id)
+
+    for target in (
+        "http://127.0.0.1/private",
+        "https://example.com/login",
+        "https://example.com/%6cogin",
+        "https://example.com/%256cogin",
+        "https://example.com/sign-in",
+        "https://example.com/sign_in",
+        "https://example.com/log-in",
+        "https://example.com/log_in",
+        "https://example.com/sign/in",
+        "https://example.com/user-sign-in",
+        "https://example.com/%73ign%2Din",
+        "https://example.com/%2573ign%252Din",
+        "https://example.com/log%255Fin",
+        "https://sign-in.example.com/",
+        "https://sign.in.example.com/",
+        "https://example.com/?action=login",
+        "https://accounts.example.com/",
+        "https://example.com/session/new",
+        "https://example.com/consent",
+        "https://example.com/saml/callback",
+        "https://example.com/oidc",
+        "http://example.com:443/public",
+        "https://example.com:80/public",
+        "https://user:password@example.com/",
+        "https://example.com/path#secret",
+        "https://example.com/public?token=secret",
+        "https://example.com/public?access_token=secret",
+        "https://example.com/public?api%255fkey=secret",
+        "https://example.com/public?X-Amz-Signature=secret",
+        "https://example.com/public?x-goog-credential=secret",
+        "https://example.com/public?sig=secret",
+        (
+            "https://example.com/public?redirect="
+            "https%253A%252F%252Fa.example%252F%253Foauth_token%253Dsecret"
+        ),
+    ):
+        with pytest.raises(catalog.CatalogAdapterPolicyError, match="浏览器"):
+            await service.call_tool(project_id, "navigate_page", {"url": target})
+
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+        await service.call_tool(
+            project_id,
+            "navigate_page",
+            {"url": "https://example.com/public/report?page=2&sort=recent"},
+        )
+    preview = captured.value.payload["target_preview"]
+    serialized = json.dumps(preview, ensure_ascii=False)
+    assert preview["resource"]["label"] == "https://example.com/public/report"
+    assert "page" not in serialized
+    assert "sort" not in serialized
+    assert not [call for call in manager.calls if call[1] == "navigate_page"]
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_definite_dns_policy_rejection_keeps_session_reusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "playwright-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    connected = await service.connect(project_id)
+
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+        await service.call_tool(
+            project_id,
+            "browser_navigate",
+            {"url": "https://example.com/"},
+        )
+    approval = captured.value.payload
+    manager.tool_errors["browser_navigate"] = McpError(
+        ErrorData(
+            code=-32011,
+            message="Browser policy denied",
+            data={
+                "reason": "browser_dns_mixed_or_synthetic_denied",
+                "retryable": False,
+            },
+        )
+    )
+
+    with pytest.raises(catalog.CatalogBrowserPolicyRejectedError) as rejected:
+        await service.confirm_approval(project_id, approval["approval_id"])
+
+    assert rejected.value.reason == "dns_policy_rejected"
+    ledger = service._execution_ledger[
+        service._approval_key(approval["approval_id"])
+    ]
+    assert ledger.state == "rejected"
+    scope_key = service._scope_key(project_id)
+    assert service._sessions[scope_key] == connected["session_id"]
+    assert service._preflight_status[scope_key] == "verified"
+    assert manager.disconnected == []
+    with pytest.raises(HTTPException) as response:
+        catalog._raise_http_error(rejected.value)
+    assert response.value.status_code == 409
+    assert response.value.detail == {
+        "code": "browser_policy_rejected",
+        "reason": "dns_policy_rejected",
+        "message": str(rejected.value),
+        "idempotency_key": approval["idempotency_key"],
+    }
+
+    manager.tool_errors.pop("browser_navigate")
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as retry_request:
+        await service.call_tool(
+            project_id,
+            "browser_navigate",
+            {"url": "https://example.com/"},
+        )
+    result = await service.confirm_approval(
+        project_id,
+        retry_request.value.payload["approval_id"],
+    )
+    assert result["unknown_outcome"] is False
+    assert service._sessions[scope_key] == connected["session_id"]
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_post_dispatch_policy_error_remains_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "playwright-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    await service.connect(project_id)
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+        await service.call_tool(
+            project_id,
+            "browser_navigate",
+            {"url": "https://example.com/"},
+        )
+    manager.tool_errors["browser_navigate"] = McpError(
+        ErrorData(
+            code=-32011,
+            message="Browser policy denied",
+            data={"reason": "browser_cross_origin_denied", "retryable": False},
+        )
+    )
+
+    with pytest.raises(CatalogUnknownOutcomeError):
+        await service.confirm_approval(
+            project_id,
+            captured.value.payload["approval_id"],
+        )
+    assert service._scope_key(project_id) not in service._sessions
+
+
+def test_wave_seven_login_token_canonicalization_matches_sidecar() -> None:
+    samples = (
+        ("/sign-in", False),
+        ("/sign_in", False),
+        ("/log-in", False),
+        ("/log_in", False),
+        ("/sign/in", False),
+        ("/user-sign-in", False),
+        ("/?action=sign-in", False),
+        ("sign-in.example.com", True),
+        ("sign.in.example.com", True),
+        ("authors.example.com", True),
+    )
+    for value, host in samples:
+        assert catalog.canonical_browser_login_tokens(
+            value, host=host
+        ) == sidecar_browser_login_tokens(value, host=host)
+
+
+def test_wave_seven_sensitive_query_canonicalization_matches_sidecar() -> None:
+    samples = (
+        "page=2&sort=recent",
+        "token=secret",
+        "access_token=secret",
+        "%2561pi%255Fkey=secret",
+        "X-Amz-Signature=secret",
+        "x-goog-credential=secret",
+        "sig=secret",
+        (
+            "redirect=https%253A%252F%252Fa.example%252Fcallback"
+            "%253Foauth_token%253Dsecret"
+        ),
+    )
+    for query in samples:
+        assert catalog.browser_query_has_sensitive_key(
+            query
+        ) == sidecar_browser_query_has_sensitive_key(query)
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_screenshot_timeout_taints_and_disconnects_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "chrome-devtools-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, registry = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    connected = await service.connect(project_id)
+    manager.tool_errors["take_screenshot"] = catalog.MCPClientError(
+        "screenshot timeout"
+    )
+
+    with pytest.raises(catalog.MCPClientError, match="screenshot timeout"):
+        await service.call_tool(project_id, "take_screenshot", {})
+
+    scope_key = service._scope_key(project_id)
+    screenshot_index = next(
+        index
+        for index, call in enumerate(manager.calls)
+        if call[1] == "take_screenshot"
+    )
+    assert manager.retry_on_failure[screenshot_index] is False
+    assert scope_key not in service._sessions
+    assert connected["session_id"] in manager.disconnected
+    assert connected["session_id"] in registry.unregistered
+    assert service._preflight_status[scope_key] == "failed"
+    assert (await service.browser_session_status(project_id))["status"] == "tainted"
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_screenshot_registry_download_and_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_id = "chrome-devtools-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    staging_root = (tmp_path / "staging").resolve()
+    trusted_root = (tmp_path / "trusted").resolve()
+    index_path = trusted_root / "index.json"
+    service, manager, _, _ = make_service(
+        browser_artifact_staging_root=staging_root,
+        browser_artifact_root=trusted_root,
+        browser_artifact_index_path=index_path,
+    )
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    content = b"\x89PNG\r\n\x1a\ncontrolled-screenshot"
+    session_dir = "1" * 32
+    internal_id = "browser_" + "2" * 32
+    artifact_dir = staging_root / session_dir / "registered"
+    artifact_dir.mkdir(parents=True)
+    artifact_path = artifact_dir / f"{internal_id}.png"
+    artifact_path.write_bytes(content)
+    manager.tool_results["take_screenshot"] = FakeToolResult(
+        {
+            "content": [{"type": "text", "text": "截图已生成"}],
+            "isError": False,
+            "structuredContent": {
+                "artifact_id": internal_id,
+                "relative_path": f"{session_dir}/registered/{internal_id}.png",
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size": len(content),
+                "mime": "image/png",
+            },
+        }
+    )
+    await service.connect(project_id)
+    service._browser_elements[service._scope_key(project_id)] = {
+        "old-ref": {
+            "role": "button",
+            "label": "旧按钮",
+            "page_digest": "a" * 64,
+        }
+    }
+
+    result = await service.call_tool(project_id, "take_screenshot", {})
+
+    assert artifact_path.exists() is False
+    assert artifact_dir.is_dir()
+    assert artifact_dir.parent.is_dir()
+    assert manager.retry_on_failure[
+        next(index for index, call in enumerate(manager.calls) if call[1] == "take_screenshot")
+    ] is False
+    serialized = json.dumps(result, ensure_ascii=False)
+    assert f"{session_dir}/registered/{internal_id}.png" not in serialized
+    assert internal_id not in serialized
+    public = result["artifacts"][0]
+    assert public["artifact_id"].startswith("mcpbart_")
+    assert public["download_url"].endswith(
+        f"/{public['artifact_id']}/download"
+    )
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="不属于当前受控快照"):
+        await service.call_tool(project_id, "click", {"ref": "old-ref"})
+    await service.disconnect(project_id)
+    reloaded, _, _, _ = make_service(
+        browser_artifact_staging_root=staging_root,
+        browser_artifact_root=trusted_root,
+        browser_artifact_index_path=index_path,
+    )
+    listed = reloaded.list_browser_artifacts(project_id)
+    assert listed["total"] == 1
+    _, trusted_path = reloaded.browser_artifact_download(
+        project_id,
+        public["artifact_id"],
+    )
+    trusted_path.write_bytes(content[:-1] + b"X")
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="摘要已经变化"):
+        reloaded.browser_artifact_download(project_id, public["artifact_id"])
+    trusted_path.write_bytes(content)
+
+    previous = catalog._catalog_service
+    catalog.configure_mcp_catalog(reloaded)
+    app = FastAPI()
+    app.include_router(catalog.router)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            download = await client.get(public["download_url"])
+            assert download.status_code == 200
+            assert download.content == content
+            assert download.headers["cache-control"] == "no-store"
+            assert download.headers["x-content-type-options"] == "nosniff"
+            deleted = await client.delete(
+                f"/api/mcp/catalog/{project_id}/browser-artifacts/"
+                f"{public['artifact_id']}"
+            )
+            assert deleted.status_code == 200
+    finally:
+        catalog._catalog_service = previous
+    assert not artifact_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_concurrent_approvals_recheck_inside_call_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "chrome-devtools-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    await service.connect(project_id)
+    service._browser_elements[service._scope_key(project_id)] = {
+        "submit": {
+            "role": "button",
+            "label": "提交",
+            "page_digest": "a" * 64,
+        }
+    }
+
+    approvals: list[dict[str, Any]] = []
+    for _ in range(2):
+        with pytest.raises(catalog.CatalogApprovalRequiredError) as captured:
+            await service.call_tool(project_id, "click", {"ref": "submit"})
+        approvals.append(captured.value.payload)
+
+    click_gate = asyncio.Event()
+    manager.call_gates["click"] = click_gate
+    first = asyncio.create_task(
+        service.confirm_approval(project_id, approvals[0]["approval_id"])
+    )
+    for _ in range(100):
+        if any(call[1] == "click" for call in manager.calls):
+            break
+        await asyncio.sleep(0)
+    second = asyncio.create_task(
+        service.confirm_approval(project_id, approvals[1]["approval_id"])
+    )
+    await asyncio.sleep(0)
+    manager.tool_results["browser_session_status"] = browser_status_result(
+        page_revision=2,
+        page_digest="b" * 64,
+        action_count=2,
+    )
+    click_gate.set()
+
+    assert (await first)["unknown_outcome"] is False
+    with pytest.raises(catalog.CatalogBrowserStateDriftError, match="已经变化"):
+        await second
+    assert len([call for call in manager.calls if call[1] == "click"]) == 1
+    assert (await service.browser_session_status(project_id))["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_rejects_hardlinked_screenshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_id = "playwright-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    staging_root = tmp_path / "staging"
+    trusted_root = tmp_path / "trusted"
+    service, manager, _, _ = make_service(
+        browser_artifact_staging_root=staging_root,
+        browser_artifact_root=trusted_root,
+        browser_artifact_index_path=trusted_root / "index.json",
+    )
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    content = b"\x89PNG\r\n\x1a\nhardlink"
+    session_dir = "5" * 32
+    internal_id = "browser_" + "6" * 32
+    registered = staging_root / session_dir / "registered"
+    registered.mkdir(parents=True)
+    source = registered / f"{internal_id}.png"
+    source.write_bytes(content)
+    os.link(source, registered / "second-link.png")
+    manager.tool_results["browser_take_screenshot"] = FakeToolResult(
+        {
+            "content": [],
+            "isError": False,
+            "structuredContent": {
+                "artifact_id": internal_id,
+                "relative_path": f"{session_dir}/registered/{internal_id}.png",
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size": len(content),
+                "mime": "image/png",
+            },
+        }
+    )
+    await service.connect(project_id)
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="大小校验失败"):
+        await service.call_tool(project_id, "browser_take_screenshot", {})
+    assert not (trusted_root / "files").exists()
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_browser_artifact_quota_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_id = "chrome-devtools-mcp"
+    original = CATALOG_ADAPTERS[project_id]
+    assert original.browser_policy is not None
+    limited = replace(
+        original,
+        browser_policy=replace(
+            original.browser_policy,
+            max_artifacts_per_project=0,
+        ),
+    )
+    manifests = dict(CATALOG_ADAPTERS)
+    manifests[project_id] = limited
+    monkeypatch.setenv(limited.feature_flag, "true")
+    staging_root = tmp_path / "staging"
+    trusted_root = tmp_path / "trusted"
+    service, manager, _, _ = make_service(
+        manifests,
+        browser_artifact_staging_root=staging_root,
+        browser_artifact_root=trusted_root,
+        browser_artifact_index_path=trusted_root / "index.json",
+    )
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    content = b"\x89PNG\r\n\x1a\nquota"
+    session_dir = "7" * 32
+    internal_id = "browser_" + "8" * 32
+    source = staging_root / session_dir / "registered" / f"{internal_id}.png"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(content)
+    manager.tool_results["take_screenshot"] = FakeToolResult(
+        {
+            "content": [],
+            "isError": False,
+            "structuredContent": {
+                "artifact_id": internal_id,
+                "relative_path": f"{session_dir}/registered/{internal_id}.png",
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size": len(content),
+                "mime": "image/png",
+            },
+        }
+    )
+    await service.connect(project_id)
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="配额"):
+        await service.call_tool(project_id, "take_screenshot", {})
+    assert not source.exists()
+    assert service.list_browser_artifacts(project_id)["total"] == 0
+
+
+def test_wave_seven_artifact_restart_prunes_expired_and_strict_orphans(
+    tmp_path: Path,
+) -> None:
+    trusted_root = tmp_path / "trusted"
+    trusted_files = trusted_root / "files"
+    staging_root = tmp_path / "staging"
+    trusted_files.mkdir(parents=True)
+    content = b"\x89PNG\r\n\x1a\nexpired"
+    expired_id = "mcpbart_" + "a" * 32
+    expired_path = trusted_files / f"{expired_id}.png"
+    expired_path.write_bytes(content)
+    orphan_id = "mcpbart_" + "b" * 32
+    orphan_path = trusted_files / f"{orphan_id}.png"
+    orphan_path.write_bytes(content)
+    staging_id = "browser_" + "c" * 32
+    staging_path = (
+        staging_root
+        / ("d" * 32)
+        / "registered"
+        / f"{staging_id}.png"
+    )
+    staging_path.parent.mkdir(parents=True)
+    staging_path.write_bytes(content)
+    index_path = trusted_root / "index.json"
+    now = 1_700_000_000.0
+    index_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "items": [
+                    {
+                        "artifact_id": expired_id,
+                        "tenant_id": "local",
+                        "owner_id": "local",
+                        "project_id": "chrome-devtools-mcp",
+                        "session_id": "session-old",
+                        "browser_generation": "12345678-1234-4234-9234-123456789abc",
+                        "relative_path": f"files/{expired_id}.png",
+                        "name": "browser-screenshot-expired.png",
+                        "mime_type": "image/png",
+                        "size_bytes": len(content),
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "created_at": now - 100,
+                        "expires_at": now - 1,
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    service, _, _, _ = make_service(
+        browser_artifact_staging_root=staging_root,
+        browser_artifact_root=trusted_root,
+        browser_artifact_index_path=index_path,
+    )
+
+    assert service.list_browser_artifacts("chrome-devtools-mcp")["total"] == 0
+    assert not expired_path.exists()
+    assert not orphan_path.exists()
+    assert not staging_path.exists()
+    assert json.loads(index_path.read_text(encoding="utf-8"))["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_rejects_snapshot_drift_and_taints_ambiguous_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "chrome-devtools-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    await service.connect(project_id)
+    service._browser_elements[service._scope_key(project_id)] = {
+        "submit": {
+            "role": "button",
+            "label": "提交",
+            "page_digest": "a" * 64,
+        }
+    }
+
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as drifted_error:
+        await service.call_tool(project_id, "click", {"ref": "submit"})
+    manager.tool_results["browser_session_status"] = browser_status_result(
+        page_revision=2,
+        page_digest="b" * 64,
+        action_count=2,
+    )
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="已经变化"):
+        await service.confirm_approval(
+            project_id,
+            drifted_error.value.payload["approval_id"],
+        )
+    assert not [call for call in manager.calls if call[1] == "click"]
+
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    await service.browser_session_status(project_id)
+    service._browser_elements[service._scope_key(project_id)] = {
+        "submit": {
+            "role": "button",
+            "label": "提交",
+            "page_digest": "a" * 64,
+        }
+    }
+    with pytest.raises(catalog.CatalogApprovalRequiredError) as unknown_error:
+        await service.call_tool(project_id, "click", {"ref": "submit"})
+    manager.tool_errors["click"] = TimeoutError("ambiguous")
+    with pytest.raises(CatalogUnknownOutcomeError):
+        await service.confirm_approval(
+            project_id,
+            unknown_error.value.payload["approval_id"],
+        )
+    status = await service.browser_session_status(project_id)
+    assert status["status"] == "tainted"
+    assert service._scope_key(project_id) not in service._sessions
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_expired_sidecar_session_is_forgotten_and_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "playwright-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, registry = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    first = await service.connect(project_id)
+    manager.tool_errors["browser_session_status"] = catalog.MCPClientError(
+        "MCP session is not running."
+    )
+
+    expired = await service.browser_session_status(project_id)
+
+    assert expired["status"] == "disconnected"
+    assert expired["reason"] == "expired"
+    assert service._scope_key(project_id) not in service._sessions
+    assert first["session_id"] in registry.unregistered
+    manager.tool_errors.pop("browser_session_status")
+    manager.tool_results["browser_session_status"] = browser_status_result(
+        generation="87654321-4321-4321-8321-cba987654321",
+        current_origin="https://next.example.com",
+    )
+    second = await service.connect(project_id)
+    assert second["session_id"] != first["session_id"]
+    assert second["preflight_status"] == "verified"
+    assert second["browser_session"]["approved_hosts"] == ["next.example.com"]
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_malformed_status_taints_and_forgets_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "playwright-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, registry = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    connected = await service.connect(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result(
+        generation="not-a-uuid",
+    )
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="安全契约"):
+        await service.browser_session_status(project_id)
+
+    scope_key = service._scope_key(project_id)
+    assert scope_key not in service._sessions
+    assert service._preflight_status[scope_key] == "failed"
+    assert connected["session_id"] in manager.disconnected
+    assert connected["session_id"] in registry.unregistered
+
+
+@pytest.mark.asyncio
+async def test_wave_seven_disconnect_failure_keeps_session_but_blocks_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "chrome-devtools-mcp"
+    manifest = CATALOG_ADAPTERS[project_id]
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    service, manager, _, _ = make_service()
+    manager.tools = browser_tools(project_id)
+    manager.tool_results["browser_session_status"] = browser_status_result()
+    connected = await service.connect(project_id)
+    manager.disconnect_error = catalog.MCPClientError("disconnect failed")
+
+    with pytest.raises(catalog.MCPClientError, match="disconnect failed"):
+        await service.disconnect(project_id)
+
+    scope_key = service._scope_key(project_id)
+    assert service._sessions[scope_key] == connected["session_id"]
+    status_item = next(
+        item
+        for item in service.list_adapters()["adapters"]
+        if item["project_id"] == project_id
+    )
+    assert status_item["connected"] is True
+    assert status_item["preflight_status"] == "failed"
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="尚未验证"):
+        await service.call_tool(project_id, "take_snapshot", {})
+
+    manager.disconnect_error = None
+    assert (await service.browser_session_status(project_id))["status"] == "active"
+    assert (await service.disconnect(project_id))["ok"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ledger_state", ["completed", "unknown"])
+async def test_approval_ledger_replay_is_project_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+    ledger_state: str,
+) -> None:
+    source_project = "chrome-devtools-mcp"
+    target_project = "playwright-mcp"
+    monkeypatch.setenv(CATALOG_ADAPTERS[target_project].feature_flag, "true")
+    service, _, _, _ = make_service()
+    approval_id = "mcpauth_" + "9" * 32
+    service._execution_ledger[service._approval_key(approval_id)] = (
+        catalog.CatalogExecutionLedgerEntry(
+            approval_id=approval_id,
+            tenant_id=service.tenant_id,
+            owner_id=service.owner_id,
+            project_id=source_project,
+            idempotency_key="mcpidem_" + "a" * 32,
+            state=ledger_state,
+            result={"content": [], "is_error": False}
+            if ledger_state == "completed"
+            else None,
+        )
+    )
+
+    with pytest.raises(catalog.CatalogAdapterPolicyError, match="不存在"):
+        await service.confirm_approval(target_project, approval_id)
 
 
 @pytest.mark.asyncio
@@ -340,9 +1392,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 42
-            assert payload["planned"] == 47
-            assert payload["blocked"] == 11
+            assert payload["ready"] == 44
+            assert payload["planned"] == 43
+            assert payload["blocked"] == 13
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
