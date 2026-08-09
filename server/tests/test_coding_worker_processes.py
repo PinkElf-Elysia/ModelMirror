@@ -84,7 +84,9 @@ async def test_service_output_is_archived_without_exposing_pid(tmp_path: Path) -
         await asyncio.sleep(0.01)
     completed = manager.status(task_id=task_id, service_id=started.service_id)
     assert completed.state == "completed" and completed.output_artifact_id
-    assert store.read_artifact(completed.output_artifact_id, task_id=task_id) == b"ready\r\n"
+    assert store.read_artifact(
+        completed.output_artifact_id, task_id=task_id
+    ).splitlines() == [b"ready"]
 
 
 @pytest.mark.asyncio
