@@ -83,7 +83,8 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **45 ready / 27 planned / 28 blocked**；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **45 ready / 14 planned / 41 blocked**；批次 10 的 14 项继续 planned，批次 11 的 13 项已完成门槛判定并全部 blocked。planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 第一阶段的完整状态表、已交付边界与阶段二准入条件见 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
 
@@ -172,6 +173,14 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - 运行时不接收 Token、账号或配置字段，不挂载宿主目录和 Docker socket；容器为 UID/GID 65532、只读根文件系统、`cap_drop: ALL`、`no-new-privileges`、512 MiB/1 CPU/64 PIDs，tmpfs 工作区不持久化。固定主机为 `registry.terraform.io`、禁止重定向、DNS 后固定连接地址并校验 TLS hostname；Docker Desktop 合成 DNS 仅作为固定主机的传输兼容，不形成任意 URL 输入。
 - HCP Terraform、Terraform Enterprise、私有 Registry、plan、apply、destroy、run、workspace、本地状态/变量/配置和资源变更工具均不在清单；目录连接零重试且连接后立即擦除内部握手环境。
 - Apify、Aiven、Bright Data、Browserbase、E2B、Stripe、Alpaca、AWS KB、ElevenLabs、MiniMax、S3 Tables、Kubernetes 与 Semgrep 均为 `blocked`，没有凭据、命令、端点或工具入口。
+
+批次 11 的 13 个桌面/宿主条目全部保持 `blocked`，本批不新增桌面代理或运行时：
+
+- 当前服务端没有通用桌面桥。可发布的本机连接必须先绑定可信用户会话、宿主实例与版本、应用/项目范围、工具 Schema、逐动作同意和撤销状态；不能把任意 localhost、LAN 主机、宿主路径或 Docker Socket 暴露为目录配置。
+- 小红书与 OpenTabs 继承真实浏览器账号或登录态并包含发布/动态插件工具；Ableton、Blender、Binary Ninja、Ghidra 与 JetBrains 通过宿主插件和本地端口修改真实项目、场景、二进制或 IDE 状态。现有浏览器和 sidecar 沙箱都不能代替宿主侧授权。
+- ChatCrystal 会导入本机编码对话，MCPVault 直接读写 Obsidian Vault，Zotero 同时读取全文并支持云端写入；当前没有受信任的本机目录 grant、内容脱敏和只读工具冻结。
+- Docker MCP Gateway 是动态容器/Server/Secret/OAuth 控制面，模镜继续禁止 Docker Socket；Mobile MCP 和 XcodeBuildMCP 可安装应用、控制设备、构建/测试/调试并执行 UI 输入，没有测试专用设备或 macOS 主机证明时不能连接。
+- 13 项均公开 `blocked + executable=false`，没有 `runtime_image`、`server_command`、`endpoint`、配置/凭据字段或工具策略。批次 10 仍暂缓到多租户主体边界完善后，不在本批分支中改变状态。
 
 兼容层仍保留以下默认值：
 
