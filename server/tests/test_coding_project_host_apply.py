@@ -49,10 +49,15 @@ def _git(root: Path, *arguments: str) -> str:
     return completed.stdout.decode("utf-8", errors="strict").strip()
 
 
-def _repository(tmp_path: Path, files: dict[str, bytes]) -> tuple[Path, str, str]:
+def _repository(
+    tmp_path: Path,
+    files: dict[str, bytes],
+    *,
+    branch: str = "feature/local-k8m2",
+) -> tuple[Path, str, str]:
     root = tmp_path / "实验项目 aurora_n4p7"
     root.mkdir()
-    _git(root, "init", "-b", "feature/local-k8m2")
+    _git(root, "init", "-b", branch)
     _git(root, "config", "user.name", "Acceptance User")
     _git(root, "config", "user.email", "acceptance@example.invalid")
     _git(root, "config", "core.autocrlf", "false")
@@ -62,7 +67,7 @@ def _repository(tmp_path: Path, files: dict[str, bytes]) -> tuple[Path, str, str
         target.write_bytes(content)
     _git(root, "add", "--all")
     _git(root, "commit", "-m", "baseline")
-    return root, "feature/local-k8m2", _git(root, "rev-parse", "HEAD")
+    return root, branch, _git(root, "rev-parse", "HEAD")
 
 
 def _directory_link(link: Path, target: Path) -> None:
@@ -126,6 +131,29 @@ def _engine(
         mutation_hook=hook,
         enforce_windows=False,
     )
+
+
+def test_apply_accepts_utf8_symbolic_head_branch(tmp_path: Path) -> None:
+    root, branch, head = _repository(
+        tmp_path,
+        {"marker.txt": b"old\n"},
+        branch="feature/中文分支-k8m2",
+    )
+    patch, paths = _patch(("marker.txt", b"old\n", b"new\n"))
+
+    receipt = _engine(tmp_path, root).apply(
+        operation_id="apply_v13_unicode_branch_k8m2",
+        revision=3,
+        branch=branch,
+        expected_head=head,
+        snapshot_fingerprint=FINGERPRINT,
+        patch=patch,
+        paths=paths,
+    )
+
+    assert receipt.apply_id == "apply_v13_unicode_branch_k8m2"
+    assert _git(root, "symbolic-ref", "--short", "HEAD") == branch
+    assert (root / "marker.txt").read_bytes() == b"new\n"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX fail-closed contract")

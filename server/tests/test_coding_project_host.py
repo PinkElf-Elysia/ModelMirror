@@ -692,13 +692,23 @@ def test_host_commit_dynamic_unicode_branch_remote_idempotency_and_undo(
         and "--no-create-reflog" in command
         for command in observed
     )
+    operation_environments = [
+        environment for environment in observed_environments if "GIT_DIR" in environment
+    ]
+    assert operation_environments
     assert all(
         environment["GIT_DIR"] == str(root / ".git")
         and environment["GIT_WORK_TREE"] == str(root)
         and environment["GIT_COMMON_DIR"] == str(root / ".git")
         and environment["GIT_NO_LAZY_FETCH"] == "1"
+        and environment["GIT_NO_REPLACE_OBJECTS"] == "1"
         and "GIT_OBJECT_DIRECTORY" in environment
         and "GIT_ALTERNATE_OBJECT_DIRECTORIES" in environment
+        for environment in operation_environments
+    )
+    assert all(
+        environment["GIT_NO_LAZY_FETCH"] == "1"
+        and environment["GIT_NO_REPLACE_OBJECTS"] == "1"
         for environment in observed_environments
     )
 

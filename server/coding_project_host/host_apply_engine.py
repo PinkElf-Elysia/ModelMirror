@@ -1015,7 +1015,10 @@ class HostGitApplyEngine:
                 )
                 assert config_record is not None and head_record is not None
                 try:
-                    head = head_record[0].decode("ascii", errors="strict").strip()
+                    # Git stores a symbolic HEAD as UTF-8 ref bytes. Valid
+                    # branch names may contain non-ASCII characters, while an
+                    # invalid byte sequence must still fail closed.
+                    head = head_record[0].decode("utf-8", errors="strict").strip()
                 except UnicodeError as exc:
                     raise HostApplyError("git_encoding_not_supported") from exc
                 if head.startswith("ref: refs/heads/"):
