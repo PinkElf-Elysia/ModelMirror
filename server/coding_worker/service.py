@@ -273,6 +273,7 @@ class CodingWorkerService:
                 budget=task.spec.budget,
             )
             resume_phase: str | None = None
+            resume_context: dict[str, object] | None = None
             completed_turns = 0
             checkpoint = self.store.latest_checkpoint(task_id)
             if checkpoint is not None:
@@ -293,6 +294,11 @@ class CodingWorkerService:
                     )
                     resume_phase = str(checkpoint.payload["phase"])
                     completed_turns = int(checkpoint.payload["completed_turns"])
+                    raw_context = checkpoint.payload.get("context_summary")
+                    if raw_context is not None:
+                        if not isinstance(raw_context, dict):
+                            raise TypeError("context summary is invalid")
+                        resume_context = raw_context
                 except (KeyError, TypeError, ValueError) as exc:
                     raise WorkerConflictError(
                         "Checkpoint payload is invalid.", code="checkpoint_invalid"
@@ -318,6 +324,7 @@ class CodingWorkerService:
                 task,
                 session,
                 resume_phase=resume_phase,
+                resume_context=resume_context,
                 completed_turns=completed_turns,
             )
         except TimeoutError:
@@ -356,6 +363,7 @@ class CodingWorkerService:
         session: ProviderSession,
         *,
         resume_phase: str | None,
+        resume_context: dict[str, object] | None,
         completed_turns: int,
     ) -> None:
         task_id = task.task_id
@@ -366,7 +374,7 @@ class CodingWorkerService:
                 feedback = await self._evaluate_acceptance(task, turns)
                 if feedback is None:
                     return
-                message = feedback
+                message = self._restored_context_message(resume_context, feedback)
             while True:
                 turns += 1
                 turn_completed = False
@@ -406,6 +414,13 @@ class CodingWorkerService:
                             "phase": "testing",
                             "completed_turns": turns,
                             "provider": provider_checkpoint.model_dump(mode="json"),
+                            "context_summary": self._context_summary(
+                                task_id,
+                                tree_hash=tree_hash,
+                                public_output=str(
+                                    provider_checkpoint.payload.get("public_output", "")
+                                ),
+                            ),
                         },
                     )
                 except Exception:
@@ -420,6 +435,65 @@ class CodingWorkerService:
                 if feedback is None:
                     return
                 message = feedback
+
+    def _context_summary(
+        self, task_id: str, *, tree_hash: str, public_output: str
+    ) -> dict[str, object]:
+        task = self.store.get_task(task_id)
+        latest: dict[str, WorkerEvidence] = {}
+        for item in self.store.list_evidence(task_id, current_tree_hash=tree_hash):
+            latest[item.check_id] = item
+        failures = [
+            {
+                "check_id": item.check_id,
+                "evidence_id": item.evidence_id,
+                "artifact_id": item.artifact_id,
+                "exit_code": item.exit_code,
+            }
+            for item in latest.values()
+            if item.status is EvidenceStatus.FAILED
+        ]
+        return {
+            "version": 1,
+            "objective": task.spec.objective,
+            "required_checks": [
+                item.check_id for item in task.spec.acceptance.required_checks
+            ],
+            "required_artifacts": [
+                item.artifact_id for item in task.spec.acceptance.required_artifacts
+            ],
+            "state": task.state.value,
+            "workspace_tree_hash": tree_hash,
+            "failure_evidence": failures,
+            "public_output": public_output[-16_384:],
+            "next_step": "run_required_acceptance",
+        }
+
+    @staticmethod
+    def _restored_context_message(
+        summary: dict[str, object] | None, feedback: str
+    ) -> str:
+        if summary is None:
+            return feedback
+        objective = summary.get("objective")
+        checks = summary.get("required_checks")
+        if not isinstance(objective, str) or not isinstance(checks, list) or not all(
+            isinstance(item, str) for item in checks
+        ):
+            raise WorkerConflictError(
+                "Checkpoint context is invalid.", code="checkpoint_invalid"
+            )
+        public_output = summary.get("public_output")
+        prior = public_output if isinstance(public_output, str) else ""
+        text = (
+            "Restored public task context. Hidden reasoning and raw provider frames were "
+            "not persisted.\n"
+            f"Objective: {objective}\n"
+            f"Required checks: {', '.join(checks)}\n"
+        )
+        if prior:
+            text += f"Last public provider output:\n{prior}\n"
+        return (text + feedback)[:32_768]
 
     async def _evaluate_acceptance(self, task: TaskRecord, turns: int) -> str | None:
         task_id = task.task_id

@@ -281,6 +281,13 @@ async def test_failed_acceptance_is_repaired_and_retested_before_completion(
     assert "Check pytest failed" in provider.messages[1]
     statuses = [item.status.value for item in service.store.list_evidence(task.task_id)]
     assert statuses[-1] == "passed"
+    checkpoint = service.store.latest_checkpoint(task.task_id)
+    assert checkpoint is not None
+    summary = checkpoint.payload["context_summary"]
+    assert summary["objective"] == "Complete repair"
+    assert summary["required_checks"] == ["pytest"]
+    assert summary["next_step"] == "run_required_acceptance"
+    assert "private" not in checkpoint.payload["provider"]
     await service.shutdown()
 
 
