@@ -15,6 +15,7 @@ from .creator_evaluation import (
     SkillEvaluationValidationError,
 )
 from .creator_evaluation_service import SkillCreatorEvaluationService
+from .creator_resource_service import SkillCreatorResourcePlanningService
 from .creator_service import SkillCreatorService
 from .creator_store import (
     CREATOR_ASSISTANT_AGENT_ID,
@@ -42,6 +43,7 @@ except ModuleNotFoundError:
 router = APIRouter(prefix="/api/skills/creator", tags=["skill-creator"])
 _service: SkillCreatorService | None = None
 _evaluation_service: SkillCreatorEvaluationService | None = None
+_resource_planning_service: SkillCreatorResourcePlanningService | None = None
 
 
 class CreatorSessionCreateRequest(BaseModel):
@@ -87,6 +89,40 @@ class CreatorGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     expected_session_revision: int = Field(ge=1)
+
+
+class CreatorResourcePlanGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_session_revision: int = Field(ge=1)
+    expected_plan_revision: int | None = Field(default=None, ge=1)
+    expected_plan_digest: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
+class CreatorResourcePlanWriteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: str = Field(min_length=1, max_length=200)
+    expected_session_revision: int = Field(ge=1)
+    expected_plan_revision: int = Field(ge=1)
+    expected_plan_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
+class CreatorResourcePlanAnswersRequest(CreatorResourcePlanWriteRequest):
+    answers: dict[str, str] = Field(max_length=5)
+
+
+class CreatorResourcePlanPatchRequest(CreatorResourcePlanWriteRequest):
+    skill_name: str | None = Field(default=None, min_length=1, max_length=64)
+    skill_description: str | None = Field(default=None, min_length=1, max_length=1_024)
+    workflow_steps: list[dict[str, Any]] | None = Field(default=None, max_length=10)
+    output_contract: list[str] | None = Field(default=None, max_length=20)
+    failure_modes: list[str] | None = Field(default=None, max_length=20)
+    resources: list[dict[str, Any]] | None = Field(default=None, max_length=20)
 
 
 class CreatorBlankDraftRequest(BaseModel):
@@ -188,6 +224,13 @@ def configure_skill_creator_evaluation(
     _evaluation_service = service
 
 
+def configure_skill_creator_resource_planning(
+    service: SkillCreatorResourcePlanningService | None,
+) -> None:
+    global _resource_planning_service
+    _resource_planning_service = service
+
+
 def get_skill_creator_service() -> SkillCreatorService:
     if _service is None:
         raise SkillCreatorValidationError(
@@ -205,6 +248,17 @@ def get_skill_creator_evaluation_service() -> SkillCreatorEvaluationService:
             code="skill_creator_evaluation_unavailable",
         )
     return _evaluation_service
+
+
+def get_skill_creator_resource_planning_service() -> SkillCreatorResourcePlanningService:
+    get_skill_creator_service()
+    if _resource_planning_service is None:
+        raise SkillCreatorValidationError(
+            "Skill Creator resource authoring is unavailable.",
+            code="skill_creator_resource_authoring_disabled",
+        )
+    _resource_planning_service.require_enabled()
+    return _resource_planning_service
 
 
 def _api_error(exc: Exception) -> HTTPException:
@@ -251,7 +305,10 @@ def _api_error(exc: Exception) -> HTTPException:
         code = exc.code
     elif isinstance(exc, SkillCreatorValidationError):
         code = exc.code
-        status = 404 if code == "skill_creator_disabled" else 400
+        status = 404 if code in {
+            "skill_creator_disabled",
+            "skill_creator_resource_authoring_disabled",
+        } else 400
         if code == "model_gateway_unconfigured":
             status = 503
         elif code == "skill_creator_source_unavailable":
@@ -260,6 +317,8 @@ def _api_error(exc: Exception) -> HTTPException:
             "skill_creator_generation_failed",
             "skill_creator_generation_invalid",
             "skill_creator_tool_not_called",
+            "skill_creator_resource_planner_failed",
+            "skill_creator_resource_planner_invalid",
         }:
             status = 502
         elif code == "skill_creator_proposal_binding_invalid":
@@ -308,6 +367,18 @@ def _session_response(
             if _evaluation_service is not None and evaluation_run is not None
             else None
         ),
+        "resource_plan": (
+            _resource_planning_service.serialize_projection(
+                _resource_planning_service.plan_store.current_for_session(
+                    session.session_id
+                ),
+                session=session,
+                draft=draft,
+            )
+            if _resource_planning_service is not None
+            and _resource_planning_service.enabled
+            else None
+        ),
     }
     return response
 
@@ -324,6 +395,9 @@ async def get_creator_status():
             "quality_gate": "not_evaluated",
             "evaluation_available": False,
             "evaluation_version": None,
+            "resource_authoring_enabled": False,
+            "resource_authoring_version": None,
+            "resource_planner_available": False,
         }
     status = _service.status()
     status["evaluation_available"] = _evaluation_service is not None
@@ -332,6 +406,15 @@ async def get_creator_status():
     )
     status["quality_gate"] = (
         "evaluation_required" if _evaluation_service is not None else "not_evaluated"
+    )
+    status.update(
+        _resource_planning_service.status()
+        if _resource_planning_service is not None
+        else {
+            "resource_authoring_enabled": False,
+            "resource_authoring_version": None,
+            "resource_planner_available": False,
+        }
     )
     return status
 
@@ -467,6 +550,134 @@ async def put_creator_evidence(session_id: str, payload: CreatorEvidenceRequest)
             candidate_ids=payload.candidate_ids,
         )
         return _session_response(service, session)
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/resource-plan/generate")
+async def generate_creator_resource_plan(
+    session_id: str, payload: CreatorResourcePlanGenerateRequest
+):
+    try:
+        if (payload.expected_plan_revision is None) != (
+            payload.expected_plan_digest is None
+        ):
+            raise SkillCreatorValidationError(
+                "Expected resource plan revision and digest must be provided together.",
+                code="skill_creator_resource_plan_invalid",
+            )
+        planning = get_skill_creator_resource_planning_service()
+        plan = await planning.generate(
+            session_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=(
+                payload.expected_plan_digest.lower()
+                if payload.expected_plan_digest
+                else None
+            ),
+        )
+        service = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(service.get_session, session_id)
+        response = _session_response(service, session, draft)
+        response["resource_plan"] = planning.serialize_projection(
+            plan, session=session, draft=draft
+        )
+        return response
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.put("/sessions/{session_id}/resource-plan/answers")
+async def answer_creator_resource_plan(
+    session_id: str, payload: CreatorResourcePlanAnswersRequest
+):
+    try:
+        planning = get_skill_creator_resource_planning_service()
+        plan = await asyncio.to_thread(
+            planning.save_answers,
+            session_id,
+            plan_id=payload.plan_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            answers=payload.answers,
+        )
+        service = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(service.get_session, session_id)
+        response = _session_response(service, session, draft)
+        response["resource_plan"] = planning.serialize_projection(
+            plan, session=session, draft=draft
+        )
+        return response
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.patch("/sessions/{session_id}/resource-plan")
+async def patch_creator_resource_plan(
+    session_id: str, payload: CreatorResourcePlanPatchRequest
+):
+    try:
+        planning = get_skill_creator_resource_planning_service()
+        changes = {
+            name: getattr(payload, name)
+            for name in (
+                "skill_name",
+                "skill_description",
+                "workflow_steps",
+                "output_contract",
+                "failure_modes",
+                "resources",
+            )
+            if name in payload.model_fields_set
+        }
+        if not changes:
+            raise SkillCreatorValidationError(
+                "Resource plan patch contains no changes.",
+                code="skill_creator_resource_plan_invalid",
+            )
+        plan = await asyncio.to_thread(
+            planning.patch,
+            session_id,
+            plan_id=payload.plan_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+            changes=changes,
+        )
+        service = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(service.get_session, session_id)
+        response = _session_response(service, session, draft)
+        response["resource_plan"] = planning.serialize_projection(
+            plan, session=session, draft=draft
+        )
+        return response
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/resource-plan/confirm")
+async def confirm_creator_resource_plan(
+    session_id: str, payload: CreatorResourcePlanWriteRequest
+):
+    try:
+        planning = get_skill_creator_resource_planning_service()
+        plan = await asyncio.to_thread(
+            planning.confirm,
+            session_id,
+            plan_id=payload.plan_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+        )
+        service = get_skill_creator_service()
+        session, draft = await asyncio.to_thread(service.get_session, session_id)
+        response = _session_response(service, session, draft)
+        response["resource_plan"] = planning.serialize_projection(
+            plan, session=session, draft=draft
+        )
+        return response
     except (SkillCreatorError, SkillDraftError) as exc:
         raise _api_error(exc) from exc
 

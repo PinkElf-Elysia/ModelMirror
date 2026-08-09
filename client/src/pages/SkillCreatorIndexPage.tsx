@@ -183,7 +183,9 @@ export default function SkillCreatorIndexPage() {
                   把可复用的做法写成 Skill
                 </h1>
                 <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300 sm:text-base">
-                  先明确用途和触发条件，再确认素材、审阅文件。模型只能提交类型化提案，批准后仍只是待评测草稿。
+                  {status.resource_authoring_enabled
+                    ? "先明确用途和触发条件，再确认素材、冻结资源计划。规划阶段不会生成文件或提案。"
+                    : "先明确用途和触发条件，再确认素材、审阅文件。模型只能提交类型化提案，批准后仍只是待评测草稿。"}
                 </p>
               </div>
               <div className="rounded-lg border border-white/10 bg-surface-900/80 p-4">
@@ -255,7 +257,9 @@ export default function SkillCreatorIndexPage() {
               <ol className="mt-5 space-y-4 text-sm">
                 {[
                   ["定义用途", "写清触发场景、正向示例和近似反例。"],
-                  ["确认素材", "逐项选择脱敏后的运行证据，也可从零开始。"],
+                  status.resource_authoring_enabled
+                    ? ["素材与资源计划", "确认来源，必要时回答澄清问题，再冻结脚本、参考资料和模板计划。"]
+                    : ["确认素材", "逐项选择脱敏后的运行证据，也可从零开始。"],
                   ["编辑草稿", "检查 SKILL.md 和 UTF-8 文本资源。"],
                   ["设计测试", "为当前摘要准备恰好 3 个真实用例。"],
                   ["对照评审", "隔离比较 Baseline 与使用 Skill 的结果。"],

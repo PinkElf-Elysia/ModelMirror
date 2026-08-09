@@ -320,6 +320,60 @@ export interface SkillCreatorProposal {
   updated_at?: number;
 }
 
+export type SkillResourcePlanState =
+  | "needs_input"
+  | "needs_regeneration"
+  | "ready"
+  | "confirmed";
+
+export interface SkillResourcePlanStep {
+  step_id: string;
+  instruction: string;
+}
+
+export interface SkillResourcePlanQuestion {
+  question_id: string;
+  question: string;
+  reason: string;
+}
+
+export interface SkillResourcePlanItem {
+  resource_id: string;
+  spec_digest: string;
+  kind: "script" | "reference" | "asset";
+  action: "keep" | "create" | "update" | "delete";
+  generation_cost: "low" | "medium" | "high";
+  path: string;
+  purpose: string;
+  source_ids: string[];
+  used_by_steps: string[];
+  depends_on: string[];
+  acceptance_checks: string[];
+}
+
+export interface SkillResourcePlan {
+  plan_id: string;
+  session_id: string;
+  revision: number;
+  digest: string;
+  state: SkillResourcePlanState;
+  session_revision: number;
+  draft_id?: string | null;
+  draft_revision?: number | null;
+  draft_digest?: string | null;
+  skill_name: string;
+  skill_description: string;
+  workflow_steps: SkillResourcePlanStep[];
+  output_contract: string[];
+  failure_modes: string[];
+  resources: SkillResourcePlanItem[];
+  clarifications: SkillResourcePlanQuestion[];
+  clarification_answers: Record<string, string>;
+  stale?: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface SkillCreatorSession {
   session_id: string;
   session_revision: number;
@@ -365,6 +419,7 @@ export interface SkillCreatorSession {
   source_message_id?: string | null;
   proposal?: SkillCreatorProposal | null;
   draft?: SkillCreatorDraft | null;
+  resource_plan?: SkillResourcePlan | null;
   created_at: number;
   updated_at: number;
 }
@@ -377,6 +432,9 @@ export interface SkillCreatorStatus {
   supported_sources: SkillCreatorSourceKind[];
   disabled_reason?: string | null;
   model_unavailable_reason?: string | null;
+  resource_authoring_enabled?: boolean;
+  resource_authoring_version?: string | null;
+  resource_planner_available?: boolean;
 }
 
 export interface SkillCreatorListResponse {
@@ -466,6 +524,7 @@ function unwrapSession(
         cases?: SkillEvaluationCase[];
         cases_revision?: number;
         evaluation_run?: SkillEvaluationRun | null;
+        resource_plan?: SkillResourcePlan | null;
       },
 ): SkillCreatorSession {
   if (!("session" in payload)) return payload;
@@ -476,6 +535,7 @@ function unwrapSession(
     evaluation_cases: payload.cases ?? payload.session.evaluation_cases,
     cases_revision: payload.cases_revision ?? payload.session.cases_revision,
     evaluation_run: payload.evaluation_run ?? payload.session.evaluation_run,
+    resource_plan: payload.resource_plan ?? payload.session.resource_plan,
   };
 }
 
@@ -773,6 +833,84 @@ export async function selectSkillCreatorEvidence(
       preview_fingerprint: preview.preview_fingerprint,
       candidate_ids: candidateIds,
     }),
+  ));
+}
+
+export async function generateSkillCreatorResourcePlan(session: SkillCreatorSession) {
+  const plan = session.resource_plan;
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    resource_plan?: SkillResourcePlan | null;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/resource-plan/generate`,
+    jsonRequest("POST", {
+      expected_session_revision: session.session_revision,
+      expected_plan_revision: plan?.revision ?? null,
+      expected_plan_digest: plan?.digest ?? null,
+    }),
+  ));
+}
+
+function resourcePlanWritePayload(session: SkillCreatorSession, plan: SkillResourcePlan) {
+  return {
+    plan_id: plan.plan_id,
+    expected_session_revision: session.session_revision,
+    expected_plan_revision: plan.revision,
+    expected_plan_digest: plan.digest,
+  };
+}
+
+export async function answerSkillCreatorResourcePlan(
+  session: SkillCreatorSession,
+  answers: Record<string, string>,
+) {
+  const plan = session.resource_plan;
+  if (!plan) throw new Error("Resource plan is unavailable.");
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    resource_plan?: SkillResourcePlan | null;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/resource-plan/answers`,
+    jsonRequest("PUT", { ...resourcePlanWritePayload(session, plan), answers }),
+  ));
+}
+
+export async function patchSkillCreatorResourcePlan(
+  session: SkillCreatorSession,
+  changes: Partial<Pick<SkillResourcePlan,
+    "skill_name" | "skill_description" | "workflow_steps" |
+    "output_contract" | "failure_modes" | "resources">>,
+) {
+  const plan = session.resource_plan;
+  if (!plan) throw new Error("Resource plan is unavailable.");
+  const pathById = new Map(plan.resources.map((item) => [item.resource_id, item.path]));
+  const normalized = changes.resources
+    ? {
+        ...changes,
+        resources: changes.resources.map((item) => ({
+          ...item,
+          depends_on: item.depends_on.map((value) => pathById.get(value) ?? value),
+        })),
+      }
+    : changes;
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    resource_plan?: SkillResourcePlan | null;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/resource-plan`,
+    jsonRequest("PATCH", { ...resourcePlanWritePayload(session, plan), ...normalized }),
+  ));
+}
+
+export async function confirmSkillCreatorResourcePlan(session: SkillCreatorSession) {
+  const plan = session.resource_plan;
+  if (!plan) throw new Error("Resource plan is unavailable.");
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    resource_plan?: SkillResourcePlan | null;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/resource-plan/confirm`,
+    jsonRequest("POST", resourcePlanWritePayload(session, plan)),
   ));
 }
 
