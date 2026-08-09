@@ -19,6 +19,8 @@ from .contracts import (
     TaskState,
     TERMINAL_STATES,
     WorkerApproval,
+    WorkerArtifact,
+    WorkerEvidence,
 )
 from .service import CodingWorkerService
 from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
@@ -226,6 +228,64 @@ async def decide_task_approval(
                 expected_state=TaskState.WAITING_APPROVAL,
             )
         return decided
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/evidence", response_model=dict[str, list[WorkerEvidence]]
+)
+async def task_evidence(task_id: str) -> dict[str, list[WorkerEvidence]]:
+    service = get_coding_worker_service()
+    try:
+        task = service.store.get_task(task_id)
+        tree_hash = (
+            service.workspace_broker.current_tree_hash(task.workspace_id)
+            if task.workspace_id is not None
+            else None
+        )
+        return {
+            "evidence": service.store.list_evidence(
+                task_id, current_tree_hash=tree_hash
+            )
+        }
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/artifacts", response_model=dict[str, list[WorkerArtifact]]
+)
+async def task_artifacts(task_id: str) -> dict[str, list[WorkerArtifact]]:
+    try:
+        return {"artifacts": get_coding_worker_service().store.list_artifacts(task_id)}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/artifacts/{artifact_id}")
+async def task_artifact(task_id: str, artifact_id: str) -> Response:
+    service = get_coding_worker_service()
+    try:
+        artifact = next(
+            (
+                item
+                for item in service.store.list_artifacts(task_id)
+                if item.artifact_id == artifact_id
+            ),
+            None,
+        )
+        if artifact is None:
+            raise WorkerNotFoundError("Artifact was not found.", code="artifact_not_found")
+        content = service.store.read_artifact(artifact_id, task_id=task_id)
+        return Response(
+            content,
+            media_type=artifact.media_type,
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{artifact_id}.bin"',
+            },
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 

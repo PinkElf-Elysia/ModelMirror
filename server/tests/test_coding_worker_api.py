@@ -163,3 +163,50 @@ def test_approval_endpoints_are_task_bound_and_single_decision(tmp_path: Path) -
             json={"approval_id": approval.approval_id, "decision": "reject"},
         )
         assert replay.status_code == 409
+
+
+def test_evidence_and_artifact_download_are_opaque_and_task_bound(
+    tmp_path: Path,
+) -> None:
+    client, service = _client(tmp_path)
+    with client:
+        first = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        second = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("api-task-02")
+        ).json()
+        task_id = first["task_id"]
+        asyncio.run(service.wait_for(task_id, lambda item: item.state.value == "blocked"))
+        workspace_id = service.store.get_task(task_id).workspace_id
+        tree_hash = service.workspace_broker.current_tree_hash(workspace_id)
+        artifact = service.store.create_artifact(
+            task_id=task_id,
+            media_type="text/plain; charset=utf-8",
+            content=b"2 passed in 0.10s\n",
+            metadata={"check_id": "pytest", "workspace_tree_hash": tree_hash},
+        )
+        evidence = service.store.record_evidence(
+            task_id=task_id,
+            check_id="pytest",
+            operation_id="api-evidence-operation",
+            workspace_tree_hash=tree_hash,
+            exit_code=0,
+            artifact_id=artifact.artifact_id,
+        )
+
+        listed = client.get(f"/api/coding-worker/v1/tasks/{task_id}/evidence")
+        assert listed.status_code == 200
+        assert listed.json()["evidence"][0]["evidence_id"] == evidence.evidence_id
+        artifacts = client.get(f"/api/coding-worker/v1/tasks/{task_id}/artifacts")
+        assert artifacts.status_code == 200
+        assert artifacts.json()["artifacts"][0]["artifact_id"] == artifact.artifact_id
+        download = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/artifacts/{artifact.artifact_id}"
+        )
+        assert download.status_code == 200
+        assert download.content == b"2 passed in 0.10s\n"
+        assert download.headers["cache-control"] == "no-store"
+        assert "C:" not in download.headers["content-disposition"]
+        foreign = client.get(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/artifacts/{artifact.artifact_id}"
+        )
+        assert foreign.status_code == 404
