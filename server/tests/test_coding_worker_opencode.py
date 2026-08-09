@@ -5,14 +5,27 @@ from pathlib import Path
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
 
-from server.coding_worker.contracts import TaskBudget
+from server.coding_worker.broker_rpc import BrokerRPCServer
+from server.coding_worker.contracts import (
+    AcceptanceCheck,
+    AcceptanceContract,
+    Origin,
+    TaskBudget,
+    TaskSpec,
+    TaskState,
+    WorkspaceSource,
+)
 from server.coding_worker.opencode_provider import (
     DIRECT_TOOL_NAMES,
     OpenCodeProvider,
     OpenCodeRoute,
     OpenCodeServerHandle,
 )
+from server.coding_worker.store import CodingWorkerStore
+from server.coding_worker.tool_broker import ToolBroker
+from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 from server.coding_worker.provider import ProviderEventKind, ProviderOpenRequest
 
 
@@ -184,3 +197,48 @@ def test_raw_permission_frame_never_enters_provider_neutral_event() -> None:
     assert event is not None
     assert event.kind is ProviderEventKind.APPROVAL_REQUIRED
     assert event.data == {"capability": "provider_permission"}
+
+
+@pytest.mark.asyncio
+async def test_provider_gives_mcp_only_a_revocable_task_broker_binding(
+    tmp_path: Path,
+) -> None:
+    source = WorkspaceSource(kind="manifest", source_id="broker", revision="h0")
+    workspace_broker = WorkspaceBroker(
+        tmp_path / "workspace-broker",
+        {"manifest": InMemoryWorkspaceSourceAdapter({("broker", "h0"): {"a.py": b""}})},
+        id_key=b"o" * 32,
+    )
+    prepared = await workspace_broker.prepare(source)
+    store = CodingWorkerStore(tmp_path / "store", master_key=Fernet.generate_key())
+    spec = TaskSpec(
+        client_task_id="broker-binding",
+        origin=Origin(module="tests", object_id="broker-binding"),
+        objective="inspect",
+        workspace_source=source,
+        acceptance=AcceptanceContract(
+            contract_id="contract",
+            required_checks=(
+                AcceptanceCheck(check_id="check", label="check", kind="command"),
+            ),
+        ),
+        model_route="coding/default",
+    )
+    task = store.create_task(spec)
+    store.transition(task.task_id, TaskState.PREPARING)
+    store.transition(task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id)
+    rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace_broker))
+    await rpc.start_tcp_for_tests()
+    provider = OpenCodeProvider(
+        workspace_resolver=lambda _workspace_id: workspace,
+        runtime_root=tmp_path / "runtime",
+        routes={"coding/default": _route()},
+        broker_rpc=rpc,
+    )
+    environment, revoke = provider._broker_environment(task.task_id)
+    assert environment["CODING_WORKER_TASK_ID"] == task.task_id
+    assert "coding_worker.broker_mcp" in " ".join(provider._tool_broker_command or ())
+    assert "CODING_WORKER_ROUTE_KEY" not in environment
+    revoke()
+    assert task.task_id not in rpc._tokens
+    await rpc.close()

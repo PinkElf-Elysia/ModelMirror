@@ -16,6 +16,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import Field
 
+from .broker_rpc import BrokerRPCServer
 from .contracts import PolicyProfile, StrictModel
 from .provider import (
     CodingAgentProvider,
@@ -88,13 +89,19 @@ class OpenCodeProvider(CodingAgentProvider):
         routes: Mapping[str, OpenCodeRoute],
         executable: str = "/usr/local/bin/opencode",
         tool_broker_command: tuple[str, ...] | None = None,
+        broker_rpc: BrokerRPCServer | None = None,
         server_factory: ServerFactory | None = None,
     ) -> None:
         self._workspace_resolver = workspace_resolver
         self._runtime_root = Path(runtime_root)
         self._routes = dict(routes)
         self._executable = executable
-        self._tool_broker_command = tool_broker_command
+        self._broker_rpc = broker_rpc
+        self._tool_broker_command = tool_broker_command or (
+            ("python", "-m", "coding_worker.broker_mcp")
+            if broker_rpc is not None
+            else None
+        )
         self._server_factory = server_factory or self._launch_server
         self._handles: dict[str, OpenCodeServerHandle] = {}
         self._requests: dict[str, ProviderOpenRequest] = {}
@@ -353,6 +360,7 @@ class OpenCodeProvider(CodingAgentProvider):
         home.mkdir(exist_ok=True)
         password = secrets.token_urlsafe(32)
         port = _unused_loopback_port()
+        broker_environment, revoke_broker = self._broker_environment(request.task_id)
         environment = {
             "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
             "HOME": str(home),
@@ -373,20 +381,25 @@ class OpenCodeProvider(CodingAgentProvider):
             "CODING_WORKER_ROUTE_KEY": route.api_key,
             "NO_PROXY": "127.0.0.1,localhost,new-api",
             "no_proxy": "127.0.0.1,localhost,new-api",
+            **broker_environment,
         }
-        process = await asyncio.create_subprocess_exec(
-            self._executable,
-            "serve",
-            "--hostname",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            cwd=workspace,
-            env=environment,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                self._executable,
+                "serve",
+                "--hostname",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                cwd=workspace,
+                env=environment,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except Exception:
+            revoke_broker()
+            raise
         auth = base64.b64encode(f"opencode:{password}".encode()).decode("ascii")
         client = httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{port}",
@@ -406,11 +419,13 @@ class OpenCodeProvider(CodingAgentProvider):
         except Exception:
             await client.aclose()
             await _stop_process(process)
+            revoke_broker()
             raise
 
         async def close() -> None:
             await client.aclose()
             await _stop_process(process)
+            revoke_broker()
 
         return OpenCodeServerHandle(
             task_id=request.task_id,
@@ -419,6 +434,29 @@ class OpenCodeProvider(CodingAgentProvider):
             client=client,
             close_callback=close,
         )
+
+    def _broker_environment(self, task_id: str) -> tuple[dict[str, str], Callable[[], None]]:
+        if self._broker_rpc is None:
+            return {}, lambda: None
+        endpoint = self._broker_rpc.endpoint
+        if endpoint is None:
+            raise OpenCodeProviderError(
+                "Tool Broker RPC is unavailable.", code="tool_broker_unavailable"
+            )
+        token = self._broker_rpc.register_task(task_id)
+        revoked = False
+
+        def revoke() -> None:
+            nonlocal revoked
+            if not revoked:
+                self._broker_rpc.revoke_task(task_id)
+                revoked = True
+
+        return {
+            "CODING_WORKER_BROKER_ENDPOINT": endpoint,
+            "CODING_WORKER_BROKER_TOKEN": token,
+            "CODING_WORKER_TASK_ID": task_id,
+        }, revoke
 
     def _require_route(self, route_id: str) -> OpenCodeRoute:
         route = self._routes.get(route_id)
