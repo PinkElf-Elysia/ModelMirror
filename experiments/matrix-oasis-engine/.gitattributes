@@ -25,3 +25,6 @@
 *.webm binary
 *.webp binary
 *.zip binary
+
+# Preserve the approved upstream bytes and its fixture whitespace exactly.
+apps/runtime-godot/addons/gdUnit4/** -text -whitespace

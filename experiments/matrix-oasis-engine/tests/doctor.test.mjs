@@ -12,7 +12,7 @@ const readyRound = {
   node: "24.18.0",
   npm: "11.16.0",
   git: "2.50.1",
-  godot: null,
+  godot: "4.6.3",
 };
 
 const moduleRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -27,14 +27,14 @@ function runDoctor(args) {
   });
 }
 
-test("R2 remains ready with a truthful Godot warning", () => {
-  const report = buildDoctorReport(readyRound);
+test("R4 blocks when the required Godot tool is missing", () => {
+  const report = buildDoctorReport({ ...readyRound, godot: null });
   const godot = report.checks.find((check) => check.id === "godot");
 
-  assert.equal(report.overallStatus, "ready_with_warnings");
-  assert.equal(doctorExitCode(report), 0);
-  assert.equal(godot.requiredForRound, false);
-  assert.equal(godot.status, "warning");
+  assert.equal(report.overallStatus, "blocked");
+  assert.equal(doctorExitCode(report), 1);
+  assert.equal(godot.requiredForRound, true);
+  assert.equal(godot.status, "blocked");
   assert.equal(godot.detectedVersion, null);
 });
 
@@ -46,10 +46,13 @@ test("required active-round tool mismatch blocks the report", () => {
   assert.equal(report.checks.find((check) => check.id === "node").status, "blocked");
 });
 
-test("strict Godot mode fails until the future tool is ready", () => {
-  const missing = buildDoctorReport(readyRound, { strictGodot: true });
+test("R4 accepts only the exact Godot 4.6.3 patch line", () => {
+  const missing = buildDoctorReport(
+    { ...readyRound, godot: "4.6.2" },
+    { strictGodot: true },
+  );
   const ready = buildDoctorReport(
-    { ...readyRound, godot: "4.6.1" },
+    { ...readyRound, godot: "4.6.3.stable.official" },
     { strictGodot: true },
   );
 
@@ -61,7 +64,7 @@ test("strict Godot mode fails until the future tool is ready", () => {
 
 test("version extraction emits version only", () => {
   assert.equal(extractVersion("git version 2.50.1.windows.1"), "2.50.1");
-  assert.equal(extractVersion("Godot Engine v4.6.stable.official"), "4.6");
+  assert.equal(extractVersion("Godot Engine v4.6.3.stable.official"), "4.6.3");
   assert.equal(extractVersion("not installed"), null);
 });
 

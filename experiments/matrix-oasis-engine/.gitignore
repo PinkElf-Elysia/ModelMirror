@@ -8,6 +8,10 @@ coverage/
 **/.vite/
 .godot/
 **/.godot/
+test-reports/
+**/test-reports/
+movie-captures/
+**/movie-captures/
 exports/
 **/exports/
 *.log

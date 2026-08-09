@@ -27,7 +27,13 @@ const EXECUTABLE_EXTENSIONS = new Set([
 const EXECUTABLE_NAMES = new Set([".npmrc", ".nvmrc"]);
 const TEXT_EXTENSIONS = new Set([
   ...EXECUTABLE_EXTENSIONS,
+  ".cfg",
+  ".gd",
+  ".gdshader",
+  ".godot",
   ".md",
+  ".tscn",
+  ".tres",
   ".toml",
   ".txt",
   ".yaml",
@@ -145,7 +151,7 @@ const STATIC_SECRET_PATTERNS = [
 ];
 const ASSIGNED_SECRET = /\b(?:OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|GITHUB_TOKEN|NPM_TOKEN|_authToken|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s#;,]+))/gi;
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 3],
+  [["schemaVersion"], 4],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -155,7 +161,9 @@ const REQUIRED_POLICY_VALUES = [
   [["parentIntegration"], "none"],
   [["allowedParentInteractions"], []],
   [["networkPolicy", "creatorSource"], "none"],
+  [["networkPolicy", "godotFirstPartySource"], "none"],
   [["networkPolicy", "verificationScripts"], "loopback-only"],
+  [["networkPolicy", "mcpQualification"], "loopback-disposable-only"],
   [
     ["forbiddenParentRoots"],
     ["client", "server", ".github", "docker-compose.yml", "Dockerfile", "node_modules"],
@@ -183,14 +191,24 @@ const REQUIRED_POLICY_VALUES = [
   [["toolchain", "requiredForActiveRound", "node"], "24.x"],
   [["toolchain", "requiredForActiveRound", "npm"], "11.x"],
   [["toolchain", "requiredForActiveRound", "git"], "available"],
-  [["toolchain", "optionalForFutureRounds", "godot"], "4.6.x"],
+  [["toolchain", "requiredForActiveRound", "godot"], "4.6.3"],
   [
     ["generatedPaths"],
-    ["node_modules", "dist", "coverage", ".vite", ".godot", "exports", "logs"],
+    [
+      "node_modules",
+      "dist",
+      "coverage",
+      ".vite",
+      ".godot",
+      "exports",
+      "logs",
+      "test-reports",
+      "movie-captures",
+    ],
   ],
   [
     ["forbiddenTrackedFileNames"],
-    [".env", ".env.local", ".env.development", ".env.production", "project.godot"],
+    [".env", ".env.local", ".env.development", ".env.production"],
   ],
   [
     ["forbiddenTrackedExtensions"],
@@ -200,18 +218,13 @@ const REQUIRED_POLICY_VALUES = [
       ".key",
       ".p12",
       ".pfx",
-      ".gd",
-      ".gdshader",
       ".pck",
-      ".tscn",
       ".scn",
-      ".tres",
       ".res",
       ".gdextension",
       ".gdnlib",
       ".gdns",
       ".import",
-      ".uid",
       ".exe",
       ".dll",
       ".so",
@@ -219,24 +232,28 @@ const REQUIRED_POLICY_VALUES = [
       ".bin",
     ],
   ],
-  [["artifactRestrictions", "godotArtifactsForbidden"], true],
-  [["artifactRestrictions", "forbiddenDirectoryNames"], ["addons"]],
-  [["artifactRestrictions", "forbiddenGodotFileNames"], ["project.godot"]],
+  [["artifactRestrictions", "godotArtifactsForbidden"], false],
+  [["artifactRestrictions", "allowedGodotRoot"], "apps/runtime-godot"],
+  [
+    ["artifactRestrictions", "allowedAddonRoots"],
+    ["apps/runtime-godot/addons/gdUnit4"],
+  ],
+  [["artifactRestrictions", "allowedGodotFileNames"], ["project.godot"]],
+  [
+    ["artifactRestrictions", "allowedFirstPartyGodotExtensions"],
+    [".gd", ".gdshader", ".tscn", ".tres", ".uid"],
+  ],
+  [["artifactRestrictions", "restrictedAddonDirectoryName"], "addons"],
   [
     ["artifactRestrictions", "forbiddenGodotExtensions"],
     [
-      ".gd",
-      ".gdshader",
       ".pck",
-      ".tscn",
       ".scn",
-      ".tres",
       ".res",
       ".gdextension",
       ".gdnlib",
       ".gdns",
       ".import",
-      ".uid",
     ],
   ],
   [
@@ -244,6 +261,12 @@ const REQUIRED_POLICY_VALUES = [
     [".exe", ".dll", ".so", ".dylib", ".bin"],
   ],
   [["artifactRestrictions", "rotatedLogsForbidden"], true],
+  [["thirdPartyPolicy", "vendorManifest"], "third-party/gdunit4.lock.json"],
+  [
+    ["thirdPartyPolicy", "allowedVendoredRoots"],
+    ["apps/runtime-godot/addons/gdUnit4"],
+  ],
+  [["thirdPartyPolicy", "modificationsRequireHumanApproval"], true],
   [["licensePolicy", "moduleLicense"], "UNLICENSED"],
   [
     ["licensePolicy", "allowedDependencyLicenses"],
@@ -1162,7 +1185,18 @@ function isRotatedLogName(name) {
   return /\.log(?:[.-][A-Za-z0-9_-]+)+(?:\.gz)?$/i.test(name);
 }
 
-function isForbiddenFileName(name, policy) {
+function matchesPathOrDescendant(candidate, expectedRoot) {
+  return candidate === expectedRoot || candidate.startsWith(`${expectedRoot}/`);
+}
+
+function isAllowedAddonPath(relative, policy) {
+  return policy.artifactRestrictions.allowedAddonRoots.some((allowedRoot) =>
+    matchesPathOrDescendant(relative, allowedRoot)
+  );
+}
+
+function isForbiddenFile(relative, policy) {
+  const name = path.posix.basename(relative);
   if (policy.forbiddenTrackedFileNames.includes(name)) {
     return true;
   }
@@ -1172,21 +1206,39 @@ function isForbiddenFileName(name, policy) {
   if (isRotatedLogName(name)) {
     return true;
   }
-  return policy.forbiddenTrackedExtensions.some((extension) =>
+  if (isAllowedAddonPath(relative, policy)) {
+    return classifyForbiddenArtifact(relative, name, policy) !== null;
+  }
+  if (policy.forbiddenTrackedExtensions.some((extension) =>
     name.toLowerCase().endsWith(extension.toLowerCase()),
-  );
+  )) {
+    return true;
+  }
+  return classifyForbiddenArtifact(relative, name, policy) !== null;
 }
 
-function classifyForbiddenArtifact(name, policy) {
+function classifyForbiddenArtifact(relative, name, policy) {
   const extension = path.extname(name).toLowerCase();
-  if (
-    policy.artifactRestrictions.forbiddenGodotFileNames.includes(name) ||
-    policy.artifactRestrictions.forbiddenGodotExtensions.includes(extension)
-  ) {
-    return "godot-artifact-forbidden";
-  }
   if (policy.artifactRestrictions.forbiddenBinaryExtensions.includes(extension)) {
     return "binary-artifact-forbidden";
+  }
+  if (isAllowedAddonPath(relative, policy)) {
+    return null;
+  }
+  const inGodotRoot = matchesPathOrDescendant(
+    relative,
+    policy.artifactRestrictions.allowedGodotRoot,
+  );
+  if (policy.artifactRestrictions.allowedGodotFileNames.includes(name)) {
+    return relative === `${policy.artifactRestrictions.allowedGodotRoot}/${name}`
+      ? null
+      : "godot-artifact-forbidden";
+  }
+  if (policy.artifactRestrictions.allowedFirstPartyGodotExtensions.includes(extension)) {
+    return inGodotRoot ? null : "godot-artifact-forbidden";
+  }
+  if (policy.artifactRestrictions.forbiddenGodotExtensions.includes(extension)) {
+    return "godot-artifact-forbidden";
   }
   if (policy.artifactRestrictions.rotatedLogsForbidden && isRotatedLogName(name)) {
     return "rotated-log-forbidden";
@@ -1196,9 +1248,8 @@ function classifyForbiddenArtifact(name, policy) {
 
 async function discoverModuleFiles(moduleRoot, policy, violations) {
   const generated = new Set(policy.generatedPaths);
-  const forbiddenDirectories = new Set(
-    policy.artifactRestrictions.forbiddenDirectoryNames,
-  );
+  const godotRoot = policy.artifactRestrictions.allowedGodotRoot;
+  const addonsRoot = `${godotRoot}/${policy.artifactRestrictions.restrictedAddonDirectoryName}`;
   const rootReal = await fs.realpath(moduleRoot);
   const files = [];
 
@@ -1235,12 +1286,21 @@ async function discoverModuleFiles(moduleRoot, policy, violations) {
       }
 
       if (stats.isDirectory()) {
-        if (forbiddenDirectories.has(entry.name)) {
+        const isRestrictedAddonDirectory =
+          entry.name === policy.artifactRestrictions.restrictedAddonDirectoryName &&
+          relative !== addonsRoot;
+        const isUnknownAddonChild =
+          relative.startsWith(`${addonsRoot}/`) &&
+          !policy.artifactRestrictions.allowedAddonRoots.some((allowedRoot) =>
+            matchesPathOrDescendant(relative, allowedRoot) ||
+            matchesPathOrDescendant(allowedRoot, relative)
+          );
+        if (isRestrictedAddonDirectory || isUnknownAddonChild) {
           addViolation(
             violations,
             "godot-addon-directory-forbidden",
             relative,
-            "Godot addon directories are forbidden by the active-round boundary.",
+            "Only the exact approved Godot addon root is allowed.",
           );
           continue;
         }
@@ -1251,6 +1311,17 @@ async function discoverModuleFiles(moduleRoot, policy, violations) {
       }
 
       if (stats.isFile()) {
+        if (
+          relative.startsWith(`${addonsRoot}/`) &&
+          !isAllowedAddonPath(relative, policy)
+        ) {
+          addViolation(
+            violations,
+            "godot-addon-path-forbidden",
+            relative,
+            "Files under addons must belong to the exact approved vendor root.",
+          );
+        }
         files.push(absolute);
       }
     }
@@ -1329,7 +1400,7 @@ export async function auditBoundary({ moduleRoot, policy, trackedFiles }) {
         "Generated paths must not be tracked by Git.",
       );
     }
-    if (isForbiddenFileName(path.posix.basename(normalized), policy)) {
+    if (isForbiddenFile(normalized, policy)) {
       addViolation(
         violations,
         "tracked-sensitive-file",
@@ -1342,7 +1413,7 @@ export async function auditBoundary({ moduleRoot, policy, trackedFiles }) {
   for (const absolute of discoveredFiles) {
     const relative = relativePath(resolvedRoot, absolute);
     const basename = path.basename(absolute);
-    if (isForbiddenFileName(basename, policy)) {
+    if (isForbiddenFile(relative, policy)) {
       addViolation(
         violations,
         "forbidden-file",
@@ -1350,7 +1421,7 @@ export async function auditBoundary({ moduleRoot, policy, trackedFiles }) {
         "Sensitive, Godot, binary, and log files are forbidden in the module tree.",
       );
     }
-    const forbiddenArtifact = classifyForbiddenArtifact(basename, policy);
+    const forbiddenArtifact = classifyForbiddenArtifact(relative, basename, policy);
     if (forbiddenArtifact) {
       addViolation(
         violations,
@@ -1358,6 +1429,10 @@ export async function auditBoundary({ moduleRoot, policy, trackedFiles }) {
         relative,
         "This artifact type is explicitly forbidden by the active-round boundary.",
       );
+    }
+
+    if (isAllowedAddonPath(relative, policy)) {
+      continue;
     }
 
     const bytes = await fs.readFile(absolute);

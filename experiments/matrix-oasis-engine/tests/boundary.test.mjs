@@ -152,6 +152,42 @@ test("a valid isolated fixture passes", async () => {
       '<script type="module" src="/src/main.tsx"></script>\n',
       "utf8",
     );
+    await fs.mkdir(path.join(root, "apps", "runtime-godot", "scenes"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "project.godot"),
+      '[application]\nconfig/name="Fixture"\n',
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "bootstrap.gd"),
+      "extends Node\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "bootstrap.gd.uid"),
+      "uid://fixtureidentity\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "scenes", "bootstrap.tscn"),
+      "[gd_scene format=3]\n",
+      "utf8",
+    );
+    await fs.mkdir(
+      path.join(root, "apps", "runtime-godot", "addons", "gdUnit4"),
+      { recursive: true },
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "addons", "gdUnit4", "plugin.gd"),
+      "@tool\nextends EditorPlugin\n",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "addons", "gdUnit4", "fixture.scn"),
+      Buffer.from([0x47, 0x44, 0x53, 0x43]),
+    );
 
     const internalLink = path.join(root, "linked-shared");
     await fs.symlink(
@@ -790,24 +826,41 @@ const negativeCases = [
     },
   },
   {
-    name: "Godot project file forbidden in the active round",
+    name: "Godot project file outside the approved root",
     expectedRule: "godot-artifact-forbidden",
     setup: async ({ root }) => {
       await fs.writeFile(path.join(root, "project.godot"), "[application]\n", "utf8");
     },
   },
   {
-    name: "Godot script forbidden in the active round",
+    name: "Godot script outside the approved root",
     expectedRule: "godot-artifact-forbidden",
     setup: async ({ root }) => {
       await fs.writeFile(path.join(root, "player.gd"), "extends Node\n", "utf8");
     },
   },
   {
-    name: "Godot addons directory forbidden in the active round",
+    name: "Godot source identity outside the approved root",
+    expectedRule: "godot-artifact-forbidden",
+    setup: async ({ root }) => {
+      await fs.writeFile(path.join(root, "player.gd.uid"), "uid://fixtureidentity\n", "utf8");
+    },
+  },
+  {
+    name: "Godot addons directory outside the approved root",
     expectedRule: "godot-addon-directory-forbidden",
     setup: async ({ root }) => {
       await fs.mkdir(path.join(root, "addons", "fixture"), { recursive: true });
+    },
+  },
+  {
+    name: "unapproved addon beside GdUnit4",
+    expectedRule: "godot-addon-directory-forbidden",
+    setup: async ({ root }) => {
+      await fs.mkdir(
+        path.join(root, "apps", "runtime-godot", "addons", "unknown-addon"),
+        { recursive: true },
+      );
     },
   },
   {

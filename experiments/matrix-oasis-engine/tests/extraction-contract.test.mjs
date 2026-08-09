@@ -127,6 +127,39 @@ test("extraction script preserves history and verifies a clean standalone root",
     /\["status", "--porcelain=v1", "-z", "--untracked-files=all"\]/,
     "dirty-scope inspection must use NUL-delimited porcelain output",
   );
+  assert.match(
+    source,
+    /command === "git"[\s\S]*?\["-c", "core\.longpaths=true", \.\.\.args\]/,
+    "every extraction Git subprocess must enable long paths without global configuration",
+  );
+});
+
+test("the approved vendor bytes match the Git index before extraction", async () => {
+  const repositoryRoot = runGit(moduleRoot, ["rev-parse", "--show-toplevel"]).trim();
+  const relativeModuleRoot = path.relative(repositoryRoot, moduleRoot).replaceAll("\\", "/");
+  const vendorPath = [
+    "apps",
+    "runtime-godot",
+    "addons",
+    "gdUnit4",
+    "test",
+    "core",
+    "resources",
+    "scenes",
+    "SceneWithEmbeddedScript.tscn",
+  ].join("/");
+  const repositoryPath = relativeModuleRoot
+    ? `${relativeModuleRoot}/${vendorPath}`
+    : vendorPath;
+  const indexedObject = runGit(repositoryRoot, ["rev-parse", `:${repositoryPath}`]).trim();
+  const worktreeObject = runGit(repositoryRoot, [
+    "hash-object",
+    "--no-filters",
+    "--",
+    repositoryPath,
+  ]).trim();
+
+  assert.equal(worktreeObject, indexedObject);
 });
 
 test("standalone checkout carries the module attributes and preserves source bytes", async (t) => {

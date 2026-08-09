@@ -59,7 +59,14 @@ Ajv 8.20.0 的传递依赖已按模块 lockfile 盘点：
 
 该例外只适用于上述精确包与版本，不扩展 CC-BY-4.0 的通用准入范围。若分发依赖材料，必须保留上游归因与许可证通知；版本变化后需要重新盘点并审批。
 
-模块根版本标识为 `0.3.0-r3`；R3 contracts、Validator、Compiler、Runtime Simulator 与 parity harness workspace 均为 `0.1.0-r3`；Creator 为 `0.3.0-r3`，参考模拟器保持 `0.1.0-r2`，冻结的 Authoring 合同与验证器保持 `0.1.0-r1`。全部 workspace 均为 private/UNLICENSED，不代表发布版本。
+## R4 Godot 工具与第三方源码
+
+- Godot Engine `4.6.3-stable`：MIT，官方 Windows 标准版二进制只放仓外，并以官方 `SHA512-SUMS.txt` 核验；不进入 npm lockfile 或 Git。
+- GdUnit4 `v6.2.0` / commit `d18770221c2df4a3c991a42fdce7907df40eea75`：MIT，dev-only 原样 vendoring；来源、归档哈希和目录树哈希由 `third-party/gdunit4.lock.json` 固定。
+- GdUnit4 tag 源归档 SHA-256 为 `74e00f49e245b9b0c1599d1359d0ea88d1a867d05d7e5b12fa982bc4ca312a1a`；599 文件原样 addon 的 `matrix-oasis.vendor-tree/1` SHA-256 为 `4b1904e747517348cc05134d45b91e7244c92923fb4b6823e700fa4f255664ab`。
+- `@satelliteoflove/godot-mcp@4.1.0` 与 `@ryanmazzolini/minimal-godot-mcp@0.1.6` 仅在仓外一次性副本资格验证，不加入 package.json、lockfile 或正式工程。
+
+模块根版本标识为 `0.4.0-r4`；R3 contracts、Validator、Compiler、Runtime Simulator 与 parity harness workspace 均保持 `0.1.0-r3`；Creator 保持 `0.3.0-r3`，参考模拟器保持 `0.1.0-r2`，Authoring 合同与验证器保持 `0.1.0-r1`。全部 workspace 均为 private/UNLICENSED。GdUnit4 若需要任何补丁或版本切换，必须先取得人工审批。
 
 ## 变更流程
 

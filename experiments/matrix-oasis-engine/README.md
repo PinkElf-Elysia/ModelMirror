@@ -1,46 +1,25 @@
 # 矩阵绿洲 AI 原生 3D 游戏引擎（实验模块）
 
-这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.5 已把这条链路接入独立 Creator：候选 Pack 只有在编译、双侧创建与每步可观察结果一致时才会原子替换当前会话。
+这是模镜仓库中的可拆分独立实验模块。R1–R3 已建立 Authoring Pack、确定性参考模拟器、Compiler、Runtime Pack/Receipt、独立 Runtime Simulator 与 parity Creator；R4 将这些能力完整冻结，只新增 Godot 4.6.3 工程和验证底座。
 
-## R3 当前状态
+## R4 当前状态
 
-- R3.1 已切换活动轮次、固定基线与正向范围策略。
-- R3.2 新增浏览器兼容的 Runtime Pack/Receipt 合同、canonical-json/1 与严格 Validator；Receipt 为必需完整性输入，但不是签名或信任证明。
-- R3.2a 兼容冻结 R1 的完整字符串准入范围：孤立 UTF-16 代理项以确定性 ASCII 转义保留，不改 R1，也不做替换字符修复。
-- R3.3 新增浏览器兼容的确定性 Compiler；CLI 只在模块内读取 JSON，并以同目录暂存、独占写入、回读自校验和单次目录 rename 发布固定 Pack/Receipt 文件对。
-- R3.4 新增独立 Runtime Simulator 与 parity harness；Runtime 快照以索引执行并绑定 source/artifact 双哈希，harness 只从冻结 R2 包根调用黑盒 oracle，差异失败关闭。
-- R3.5 将 Creator 升级为双执行锁步实验台；内置或本地 Pack 均通过 parity harness 准备，重置和单步操作按引用 CAS 原子提交，并可由用户明确点击下载规范 Runtime Pack 与 Receipt。
-- 固定基线为 `380c747e62193855c724a947d99a84070ca623ff`。
-- R1 contracts、Validator/CLI、examples，R2 Simulator/语义测试以及 R0-R2 历史 ADR/验收记录字节冻结。
-- schema v3 对既有 app/docs/scripts/tests 使用精确文件白名单，只对五个批准的新 R3 package 使用目录前缀。
-- Creator 保留 R0 隔离标识与 R2 参考语义标识，并新增 R3 parity 标识；仍不接父路由、网络、存储或文件系统 API。
-- 样例仅用于测试、差分和可视化验收，不是最终成品物料。
+- 固定基线：`df4a4b53e1f03f81fbf5a041065dc1443158c472`。
+- 模块版本：`0.4.0-r4`，private/UNLICENSED。
+- Godot：标准版 4.6.3 + GDScript，仓外通过 `GODOT_BIN` 提供。
+- Godot 工程根：`apps/runtime-godot/`；只允许最小 Bootstrap、内建 primitive、测试和精确 GdUnit4 addon。
+- R4.5 已完成 Godot/GdUnit、父 client、固定帧、供应链和独立拆分收口；minimal MCP 仅获“后续只读候选”，satellite MCP 因 headless 编辑器桥接未就绪而延后，二者均未接入正式工程。
+- schema v4 正向 allowlist 冻结 R1–R3，并拒绝未批准的 Godot 路径、addon、生成物和二进制。
+- R4 不实现 Runtime Pack 桥接、玩法、控制器、Marble、3D 资产、AI、MCP 接入、父项目接入或部署。
 
-R3 不包含 Godot、3D、AI、NPC、RAG、MCP、父项目接入、共享栈、部署或发布。
-
-## 实施方向
+## 目标数据流
 
 ```text
-Authoring Game Pack 0.1.0
-→ R1 Validator
-→ R3 Compiler
-→ Immutable Runtime Pack 0.1.0 + Receipt
-→ Independent Runtime Simulator
-↔ R2 Reference Simulator（black-box oracle）
-→ Creator parity lab
+R1–R3 数据合同与模拟语义（冻结）
+→ R4 Godot 4.6.3 独立工程
+→ headless import / GdUnit4 / smoke
+→ 仓外固定帧人工证据
 ```
-
-R3.5 已完成 Compiler、合同、Validator、CLI、独立 Runtime Simulator、parity harness 与 Creator 锁步实验台。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。下载按钮只导出当前内存中的规范 Artifact 文本，不自动保存、不修改 Pack，也不把 Receipt 描述成签名。
-
-## 独立性约束
-
-- 父项目交互为 `none`，白名单为空。
-- 不依赖父仓源码、配置、环境变量、数据库、Docker、路由、资产或依赖目录。
-- 模块拥有独立 manifest、lockfile、测试、诊断与拆分脚本。
-- Creator 无网络访问；验证脚本只可访问 loopback。
-- 所有包均为 `private`、`UNLICENSED`，不发布 npm 包。
-
-机器规则见 [`module-boundary.json`](./module-boundary.json)，架构和范围见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) 与 [`docs/BOUNDARIES.md`](./docs/BOUNDARIES.md)。
 
 ## 独立验证
 
@@ -50,44 +29,19 @@ R3.5 已完成 Compiler、合同、Validator、CLI、独立 Runtime Simulator、
 npm.cmd ci --no-audit --no-fund
 npm.cmd prefix
 npm.cmd ls --all
-npm.cmd run check:boundary
-npm.cmd run check:round-scope
-npm.cmd run verify:compiler
-npm.cmd run verify:runtime-simulator
-npm.cmd run verify:parity
-npm.cmd test
+npm.cmd run doctor:godot
+npm.cmd run verify:godot
 npm.cmd run verify
 npm.cmd run verify:extraction
+npm.cmd run check:parent-scope -- --base df4a4b53e1f03f81fbf5a041065dc1443158c472
 ```
 
-模块内编译与回验命令：
+拆分脚本对自身创建的 Git 子进程启用 `core.longpaths=true`，不读取或改写用户的全局 Git 配置，以保证 Windows 上可检出 GdUnit4 的深层上游测试资源。
+
+固定帧人工证据使用：
 
 ```powershell
-npm.cmd run --silent compile:pack -- examples/mechanics-conformance.authoring-game-pack.json --output mechanics-r3 --json
-npm.cmd run --silent validate:runtime-pack -- exports/mechanics-r3/runtime-game-pack.json exports/mechanics-r3/runtime-game-pack-receipt.json --json
+npm.cmd run capture:godot -- --output C:\tmp\matrix-oasis-r4-capture
 ```
 
-编译输入上限为 1 MiB；输出 slug 只接受安全的小写 ASCII。发布目录固定为忽略跟踪的 `exports/<slug>/`，已存在目标绝不覆盖。Runtime Pack 输入上限为 16 MiB，Receipt 上限为 16 KiB。两条 CLI 的 JSON 模式均输出单行静态、安全结果；退出码 0/1/2 分别表示成功、内容拒绝和参数/文件系统/内部故障。
-
-仅在父仓 R3 worktree 中执行固定父范围保护：
-
-```powershell
-npm.cmd run check:parent-scope -- --base 380c747e62193855c724a947d99a84070ca623ff
-```
-
-`check:round-scope` 检查 committed、staged、unstaged 与 untracked 路径，冻结路径优先、未知路径失败关闭。standalone 拆分仓只在模块就是仓库根时返回 `not_applicable`。
-
-Godot 4.6.x 仍是未来可选诊断；缺失时普通 doctor 只给出 warning，严格检查会如实失败：
-
-```powershell
-npm.cmd run doctor:godot
-```
-
-## 拆分与回退
-
-- 使用 `git subtree split --prefix=experiments/matrix-oasis-engine` 保留历史并独立验证。
-- R3 各批可逆序 `git revert`；整体回退 R3 PR 后回到完整 R2。
-- 没有父路由、API、数据库、共享容器或运行数据需要恢复。
-- 未经用户明确要求，不删除并行分支或 worktree。
-
-任何父仓修改必须先填写 [`docs/PARENT_CHANGE_REQUEST_TEMPLATE.md`](./docs/PARENT_CHANGE_REQUEST_TEMPLATE.md) 并取得人工批准；任何共享栈重建必须另行确认时间窗口和共享基线。
+任何父仓修改或共享栈重建都必须另行人工批准。各批可逆序 `git revert`；没有数据库、服务、路由或运行数据需要恢复。
