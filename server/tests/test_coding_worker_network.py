@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import pytest
+
+from server.coding_worker.contracts import CapabilityLease
+from server.coding_worker.network_policy import EgressPolicy, NetworkPolicyError
+
+
+def _lease(scope: dict[str, object], *, expires_at: float = 200.0) -> CapabilityLease:
+    return CapabilityLease(
+        lease_id="lease_network",
+        task_id="task_network",
+        capability="network",
+        scope=scope,
+        issued_at=100.0,
+        expires_at=expires_at,
+    )
+
+
+def test_network_is_default_deny_and_scope_is_deployment_allowlisted() -> None:
+    disabled = EgressPolicy(allowed_domains={"registry.npmjs.org"})
+    with pytest.raises(NetworkPolicyError) as denied:
+        disabled.approval_scope(domains=["registry.npmjs.org"], purpose="npm-install")
+    assert denied.value.code == "network_disabled"
+
+    policy = EgressPolicy(enabled=True, allowed_domains={"registry.npmjs.org"})
+    assert policy.approval_scope(
+        domains=["REGISTRY.NPMJS.ORG."], purpose="npm-install"
+    ) == {"domains": ["registry.npmjs.org"], "purpose": "npm-install"}
+    with pytest.raises(NetworkPolicyError) as outside:
+        policy.approval_scope(domains=["example.com"], purpose="npm-install")
+    assert outside.value.code == "network_domain_not_allowed"
+
+
+@pytest.mark.parametrize(
+    "domain",
+    ["127.0.0.1", "::1", "localhost", "metadata.internal", "service.local"],
+)
+def test_ip_literals_and_local_names_are_rejected(domain: str) -> None:
+    with pytest.raises(NetworkPolicyError):
+        EgressPolicy(enabled=True, allowed_domains={domain})
+
+
+def test_https_destination_is_bound_to_task_purpose_dns_and_ttl() -> None:
+    policy = EgressPolicy(
+        enabled=True,
+        allowed_domains={"registry.npmjs.org", "cdn.example.com"},
+        clock=lambda: 150.0,
+    )
+    scope = policy.approval_scope(
+        domains=["registry.npmjs.org"], purpose="npm-install"
+    )
+    lease = _lease(scope)
+    assert (
+        policy.authorize(
+            url="https://registry.npmjs.org/package",
+            lease=lease,
+            purpose="npm-install",
+            resolved_addresses=["104.16.24.34"],
+        )
+        == "registry.npmjs.org"
+    )
+    with pytest.raises(NetworkPolicyError) as private:
+        policy.authorize(
+            url="https://registry.npmjs.org/package",
+            lease=lease,
+            purpose="npm-install",
+            resolved_addresses=["10.0.0.8"],
+        )
+    assert private.value.code == "network_private_address_denied"
+    with pytest.raises(NetworkPolicyError) as expired:
+        policy.authorize(
+            url="https://registry.npmjs.org/package",
+            lease=_lease(scope, expires_at=149.0),
+            purpose="npm-install",
+            resolved_addresses=["104.16.24.34"],
+        )
+    assert expired.value.code == "network_lease_invalid"
+
+
+def test_redirect_must_remain_inside_the_exact_lease_domain() -> None:
+    policy = EgressPolicy(
+        enabled=True,
+        allowed_domains={"registry.npmjs.org", "cdn.example.com"},
+        clock=lambda: 150.0,
+    )
+    lease = _lease(
+        policy.approval_scope(
+            domains=["registry.npmjs.org"], purpose="dependency-download"
+        )
+    )
+    with pytest.raises(NetworkPolicyError) as redirect:
+        policy.authorize(
+            url="https://cdn.example.com/package.tgz",
+            lease=lease,
+            purpose="dependency-download",
+            resolved_addresses=["93.184.216.34"],
+        )
+    assert redirect.value.code == "network_domain_not_allowed"
+
+
+def test_credentials_non_https_and_nonstandard_ports_are_rejected() -> None:
+    policy = EgressPolicy(
+        enabled=True, allowed_domains={"registry.npmjs.org"}, clock=lambda: 150.0
+    )
+    lease = _lease(
+        policy.approval_scope(domains=["registry.npmjs.org"], purpose="install")
+    )
+    for url in (
+        "http://registry.npmjs.org/a",
+        "https://user:secret@registry.npmjs.org/a",
+        "https://registry.npmjs.org:8443/a",
+    ):
+        with pytest.raises(NetworkPolicyError) as denied:
+            policy.authorize(
+                url=url,
+                lease=lease,
+                purpose="install",
+                resolved_addresses=["104.16.24.34"],
+            )
+        assert denied.value.code == "network_url_not_allowed"
