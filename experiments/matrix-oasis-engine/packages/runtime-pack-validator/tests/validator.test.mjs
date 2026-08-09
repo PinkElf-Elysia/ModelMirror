@@ -849,19 +849,95 @@ test("rejects equivalent Unicode escapes and non-canonical zero spellings", asyn
   }
 });
 
-test("reports an ill-formed UTF-16 JSON string as non-canonical input", async () => {
+test("isolates raw and uppercase lone surrogates from canonical escaped text", async () => {
   const { runtimeText } = await makeDocuments();
-  const illFormedText = runtimeText.replace(
+  const replacementCharacter = String.fromCodePoint(0xfffd);
+  const replacementCanonicalText = runtimeText.replace(
     '"Validator fixture"',
-    '"\\ud800"',
+    JSON.stringify(replacementCharacter),
   );
-  const receipt = await makeReceipt(illFormedText);
+  const replacementReceipt = await makeReceipt(replacementCanonicalText);
+  const replacementReport = await validateRuntimeGamePackJson(
+    replacementCanonicalText,
+    canonicalizeJsonValue(replacementReceipt),
+  );
+  assert.deepEqual(replacementReport, {
+    reportVersion: 1,
+    valid: true,
+    diagnostics: [],
+  });
 
-  const report = await validateRuntimeGamePackJson(
-    illFormedText,
-    canonicalizeJsonValue(receipt),
-  );
-  assert.deepEqual(codes(report), ["RUNTIME_PACK_JSON_NON_CANONICAL"]);
+  const cases = [
+    { label: "high", codeUnit: 0xd800 },
+    { label: "low", codeUnit: 0xdfff },
+  ];
+  for (const { label, codeUnit } of cases) {
+    const loneCodeUnit = String.fromCharCode(codeUnit);
+    const lowercaseEscape = `\\u${codeUnit.toString(16)}`;
+    const uppercaseEscape = `\\u${codeUnit.toString(16).toUpperCase()}`;
+    const rawText = runtimeText.replace(
+      '"Validator fixture"',
+      `"${loneCodeUnit}"`,
+    );
+    const escapedCanonicalText = runtimeText.replace(
+      '"Validator fixture"',
+      `"${lowercaseEscape}"`,
+    );
+    const uppercaseEscapeText = runtimeText.replace(
+      '"Validator fixture"',
+      `"${uppercaseEscape}"`,
+    );
+
+    const rawBytes = new TextEncoder().encode(rawText);
+    const replacementBytes = new TextEncoder().encode(
+      replacementCanonicalText,
+    );
+    assert.deepEqual(rawBytes, replacementBytes, label);
+    assert.equal(await sha256(rawText), await sha256(replacementCanonicalText));
+
+    const rawReceipt = await makeReceipt(rawText);
+    assert.equal(
+      rawReceipt.artifact.sha256,
+      replacementReceipt.artifact.sha256,
+      label,
+    );
+    assert.deepEqual(
+      codes(
+        await validateRuntimeGamePackJson(
+          rawText,
+          canonicalizeJsonValue(rawReceipt),
+        ),
+      ),
+      ["RUNTIME_PACK_JSON_NON_CANONICAL"],
+      `${label} raw`,
+    );
+
+    const escapedReceipt = await makeReceipt(escapedCanonicalText);
+    assert.notEqual(
+      escapedReceipt.artifact.sha256,
+      replacementReceipt.artifact.sha256,
+      label,
+    );
+    assert.deepEqual(
+      await validateRuntimeGamePackJson(
+        escapedCanonicalText,
+        canonicalizeJsonValue(escapedReceipt),
+      ),
+      { reportVersion: 1, valid: true, diagnostics: [] },
+      `${label} lowercase escape`,
+    );
+
+    assert.deepEqual(
+      codes(
+        await validateRuntimeGamePackJson(
+          uppercaseEscapeText,
+          canonicalizeJsonValue(await makeReceipt(uppercaseEscapeText)),
+        ),
+      ),
+      ["RUNTIME_PACK_JSON_NON_CANONICAL"],
+      `${label} uppercase escape`,
+    );
+  }
 });
 
 test("checks UTF-8 artifact byte length and SHA-256", async () => {

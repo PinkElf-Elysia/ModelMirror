@@ -45,6 +45,9 @@ reports and never throw.
   before schema evaluation as defense in depth.
 - Both documents must already use `matrix-oasis.canonical-json/1` bytes: UTF-8,
   no BOM, no insignificant whitespace, and no trailing newline.
+- Paired UTF-16 surrogates remain their Unicode scalar value. Unpaired high or
+  low surrogates are canonical only as lowercase `\uXXXX` ASCII escapes; raw
+  unpaired code units are rejected as non-canonical, never replaced by U+FFFD.
 - The receipt proves byte-level consistency only. It is not a signature,
   provenance attestation, or trust decision.
 - The validator does not compile Authoring Game Packs and does not execute game

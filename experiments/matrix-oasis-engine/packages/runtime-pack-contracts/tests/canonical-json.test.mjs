@@ -72,12 +72,73 @@ test("rejects values outside the JSON data model", () => {
   assertInvalid([undefined]);
 });
 
-test("rejects non-well-formed UTF-16 in values and keys", () => {
-  for (const value of ["\ud800", "\udfff", `ok${"\ud800"}`]) {
-    assertInvalid(value);
+test("escapes lone UTF-16 surrogates in values and embedded positions", () => {
+  const cases = [
+    ["\ud800", '"\\ud800"'],
+    ["\udabc", '"\\udabc"'],
+    ["\udfff", '"\\udfff"'],
+    [`before${"\ud800"}middle${"\udfff"}after`, '"before\\ud800middle\\udfffafter"'],
+    [`${"\udfff"}${"\ud800"}`, '"\\udfff\\ud800"'],
+  ];
+  for (const [value, expected] of cases) {
+    assert.equal(canonicalizeJsonValue(value), expected);
   }
-  assertInvalid({ ["\ud800"]: true });
-  assert.equal(canonicalizeJsonValue("😀"), '"😀"');
+});
+
+test("preserves every valid surrogate-pair boundary as a real scalar", () => {
+  const cases = [
+    [0xd800, 0xdc00, 0x10000],
+    [0xd800, 0xdfff, 0x103ff],
+    [0xdbff, 0xdc00, 0x10fc00],
+    [0xdbff, 0xdfff, 0x10ffff],
+  ];
+  for (const [high, low, codePoint] of cases) {
+    const pair = String.fromCharCode(high, low);
+    const scalar = String.fromCodePoint(codePoint);
+    assert.equal(pair, scalar);
+    assert.equal(canonicalizeJsonValue(pair), JSON.stringify(scalar));
+    assert.equal(canonicalizeJsonValue(pair).includes("\\u"), false);
+  }
+});
+
+test("keeps lone, replacement, and literal-escape keys collision-free", () => {
+  const loneHighKey = String.fromCharCode(0xd800);
+  const replacementKey = String.fromCodePoint(0xfffd);
+  const literalEscapeKey = String.raw`\ud800`;
+  const canonicalText = canonicalizeJsonValue({
+    [loneHighKey]: "lone",
+    [replacementKey]: "replacement",
+    [literalEscapeKey]: "literal-escape",
+  });
+  const parsed = JSON.parse(canonicalText);
+
+  assert.equal(Object.getPrototypeOf(parsed), Object.prototype);
+  assert.equal(Object.keys(parsed).length, 3);
+  assert.equal(Object.hasOwn(parsed, loneHighKey), true);
+  assert.equal(Object.hasOwn(parsed, replacementKey), true);
+  assert.equal(Object.hasOwn(parsed, literalEscapeKey), true);
+  assert.equal(parsed[loneHighKey], "lone");
+  assert.equal(parsed[replacementKey], "replacement");
+  assert.equal(parsed[literalEscapeKey], "literal-escape");
+  assert.equal(Object.hasOwn(Object.prototype, loneHighKey), false);
+  assert.equal(Object.hasOwn(Object.prototype, literalEscapeKey), false);
+});
+
+test("keeps lone surrogates distinct from U+FFFD deterministically", () => {
+  const replacementCharacter = String.fromCodePoint(0xfffd);
+  const loneHigh = canonicalizeJsonValue("\ud800");
+  const loneLow = canonicalizeJsonValue("\udfff");
+  const replacement = canonicalizeJsonValue(replacementCharacter);
+
+  assert.equal(replacement, JSON.stringify(replacementCharacter));
+  assert.notEqual(loneHigh, replacement);
+  assert.notEqual(loneLow, replacement);
+  assert.notEqual(loneHigh, loneLow);
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    assert.equal(canonicalizeJsonValue("\ud800"), loneHigh);
+    assert.equal(canonicalizeJsonValue("\udfff"), loneLow);
+    assert.equal(canonicalizeJsonValue(replacementCharacter), replacement);
+  }
 });
 
 test("never invokes getters or toJSON", () => {

@@ -51,13 +51,15 @@ entities / variables / cues / nodes / endings
 
 - 对象键以 JavaScript UTF-16 code unit 比较排序，不使用 `localeCompare`。
 - 数组严格保序。
-- 只接受 `null`、boolean、well-formed UTF-16 string、安全整数、稠密数组与普通 record。
+- 只接受 `null`、boolean、UTF-16 string、安全整数、稠密数组与普通 record；配对代理项保留真实 Unicode，孤立高、低代理项规范化为小写 `\uXXXX` ASCII 转义，不替换为 `U+FFFD`。
 - `-0` 输出为 `0`；不接受小数、NaN、Infinity、unsafe integer、BigInt、undefined、函数或 symbol。
 - 使用 ECMAScript JSON 字符串转义；不做 NFC/NFD 或其他 Unicode normalization。
 - UTF-8、无 BOM、无缩进、无多余空白、无尾随换行。
 - 最大值深度为 256；循环、accessor、隐藏字段、symbol key、自定义原型和稀疏数组拒绝。
 
 序列化器通过 property descriptor 捕获普通对象，不读取 getter 或调用 `toJSON`。JavaScript 无法可靠识别所有透明 Proxy；实现不承诺拒绝所有 Proxy，但 trap 异常只会变成静态 `CANONICAL_JSON_INTERNAL_ERROR`，不会回显底层异常。
+
+孤立代理项的 ASCII 转义保留原始 UTF-16 代码单元，并使其规范字节与真实 `U+FFFD` 明确不同。这是 R3.2a 对冻结 R1 字符串准入范围的兼容修正；既有合法 canonical bytes 完全不变，因此不修改 R1 Validator、Runtime Pack Schema 或格式版本。
 
 ## Receipt 与完整性
 

@@ -61,26 +61,7 @@ function invalidValue() {
   throw new CanonicalJsonValueError();
 }
 
-function hasWellFormedUtf16(value) {
-  for (let index = 0; index < value.length; index += 1) {
-    const codeUnit = value.charCodeAt(index);
-    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-      const following = value.charCodeAt(index + 1);
-      if (!(following >= 0xdc00 && following <= 0xdfff)) {
-        return false;
-      }
-      index += 1;
-    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-      return false;
-    }
-  }
-  return true;
-}
-
 function quoteString(value) {
-  if (!hasWellFormedUtf16(value)) {
-    invalidValue();
-  }
   const encoded = JSON.stringify(value);
   if (typeof encoded !== "string") {
     throw new CanonicalJsonOperationalError();
