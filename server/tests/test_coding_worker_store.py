@@ -107,6 +107,28 @@ def test_pin_retention_cleanup_and_immediate_delete(tmp_path: Path) -> None:
     assert store.delete_task(pinned.task_id) is True
 
 
+def test_checkpoint_is_encrypted_tree_bound_and_survives_restart(tmp_path: Path) -> None:
+    key = Fernet.generate_key()
+    root = tmp_path / "worker"
+    store = CodingWorkerStore(root, master_key=key)
+    task = store.create_task(_spec(client_task_id="checkpoint"))
+    checkpoint = store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash="a" * 64,
+        payload={
+            "phase": "testing",
+            "provider": {"checkpoint_id": "private-provider-session"},
+        },
+    )
+    assert b"private-provider-session" not in store.database_path.read_bytes()
+
+    restarted = CodingWorkerStore(root, master_key=key)
+    loaded = restarted.latest_checkpoint(task.task_id)
+    assert loaded == checkpoint
+    assert loaded is not None and loaded.workspace_tree_hash == "a" * 64
+    assert loaded.payload["phase"] == "testing"
+
+
 def test_existing_database_without_key_fails_closed(tmp_path: Path) -> None:
     root = tmp_path / "worker"
     store = CodingWorkerStore(root, master_key=Fernet.generate_key())

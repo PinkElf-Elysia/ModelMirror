@@ -26,6 +26,7 @@ from .contracts import (
     WorkerEvidence,
     WorkerArtifact,
     WorkerApproval,
+    WorkerCheckpoint,
     WorkerMessage,
     WorkerOperation,
     require_transition,
@@ -710,6 +711,63 @@ class CodingWorkerStore:
             raise WorkerNotFoundError("Artifact was not found.", code="artifact_not_found")
         return self._artifact(row)
 
+    def create_checkpoint(
+        self,
+        *,
+        task_id: str,
+        workspace_tree_hash: str,
+        payload: dict[str, Any],
+    ) -> WorkerCheckpoint:
+        now = self._now()
+        checkpoint = WorkerCheckpoint(
+            checkpoint_id=f"checkpoint_{uuid.uuid4().hex}",
+            task_id=task_id,
+            workspace_tree_hash=workspace_tree_hash,
+            payload=payload,
+            created_at=now,
+        )
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            connection.execute(
+                """
+                INSERT INTO worker_checkpoints (
+                    checkpoint_id, task_id, workspace_tree_hash,
+                    payload_ciphertext, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    checkpoint.checkpoint_id,
+                    task_id,
+                    workspace_tree_hash,
+                    self._codec.encrypt(payload),
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="checkpoint_created",
+                payload={
+                    "checkpoint_id": checkpoint.checkpoint_id,
+                    "workspace_tree_hash": workspace_tree_hash,
+                },
+                created_at=now,
+            )
+        return checkpoint
+
+    def latest_checkpoint(self, task_id: str) -> WorkerCheckpoint | None:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            row = connection.execute(
+                """
+                SELECT * FROM worker_checkpoints
+                WHERE task_id = ? ORDER BY created_at DESC, checkpoint_id DESC LIMIT 1
+                """,
+                (task_id,),
+            ).fetchone()
+        return self._checkpoint(row) if row is not None else None
+
     def list_artifacts(self, task_id: str) -> list[WorkerArtifact]:
         with self._connect() as connection:
             self._require_task_row(connection, task_id)
@@ -1011,6 +1069,16 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_evidence_task
                     ON worker_evidence(task_id, check_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_checkpoints (
+                    checkpoint_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    workspace_tree_hash TEXT NOT NULL,
+                    payload_ciphertext TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_checkpoints_task
+                    ON worker_checkpoints(task_id, created_at);
                 """
             )
 
@@ -1129,6 +1197,20 @@ class CodingWorkerStore:
         except (WorkerCryptoError, ValueError) as exc:
             raise WorkerStoreError(
                 "Worker artifact data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    def _checkpoint(self, row: sqlite3.Row) -> WorkerCheckpoint:
+        try:
+            return WorkerCheckpoint(
+                checkpoint_id=str(row["checkpoint_id"]),
+                task_id=str(row["task_id"]),
+                workspace_tree_hash=str(row["workspace_tree_hash"]),
+                payload=self._decrypt_dict(row["payload_ciphertext"]),
+                created_at=float(row["created_at"]),
+            )
+        except (WorkerCryptoError, ValueError) as exc:
+            raise WorkerStoreError(
+                "Worker checkpoint data is corrupt.", code="worker_data_corrupt"
             ) from exc
 
     @staticmethod
