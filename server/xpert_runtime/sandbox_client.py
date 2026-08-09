@@ -17,6 +17,9 @@ class SandboxClientProtocol(Protocol):
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         ...
 
+    async def health(self, *, required_profile: str | None = None) -> dict[str, Any]:
+        ...
+
 
 class SandboxSidecarClient:
     """Tiny JSON-line client for the private Unix socket sidecar protocol."""
@@ -59,6 +62,11 @@ class SandboxSidecarClient:
             writer.close()
             await writer.wait_closed()
 
+    async def health(self, *, required_profile: str | None = None) -> dict[str, Any]:
+        response = await self.request({"action": "health"})
+        _require_profile(response, required_profile)
+        return response
+
 
 class LocalSandboxClient:
     """Test adapter that invokes a SandboxEngine without a Docker sidecar."""
@@ -73,3 +81,20 @@ class LocalSandboxClient:
             raise SandboxClientError(
                 str(exc), code=str(getattr(exc, "code", "sandbox_operation_failed"))
             ) from exc
+
+    async def health(self, *, required_profile: str | None = None) -> dict[str, Any]:
+        response = await self.request({"action": "health"})
+        _require_profile(response, required_profile)
+        return response
+
+
+def _require_profile(response: dict[str, Any], required_profile: str | None) -> None:
+    profile = str(required_profile or "").strip()
+    if not profile:
+        return
+    profiles = response.get("profiles")
+    if not isinstance(profiles, dict) or not isinstance(profiles.get(profile), dict):
+        raise SandboxClientError(
+            f"Sandbox sidecar does not support the required profile: {profile}.",
+            code="sandbox_profile_unsupported",
+        )
