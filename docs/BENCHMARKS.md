@@ -230,14 +230,37 @@ Citation 只聚合有答案样例；无答案样例单独报告 `no_result_accur
 `false_positive_rate`。标准 Pack 建议 Gate 为 Recall@5 0.70、Citation Coverage 0.70、
 No-result Accuracy 0.80，但不会自动推广候选索引。
 
+### 8.1 知识库定向 Gold 生成
+
+`XPERT-RAG-BENCHMARK-GENERATOR-04` 为一个明确的 `ready / active` 知识版本生成业务相关
+评测草稿。它与标准 Pack 的分工不同：标准 Pack 回归检索引擎，定向 Gold 才用于判断某个
+具体知识库及其候选索引是否满足真实内容范围。
+
+- Target 固定 `kb_id + pipeline_version_id`、文档 hash、Processor/Chunk/Retrieval Profile
+  和 source block checksum；活动指针变化不会改写运行目标。
+- 服务端按文档和块分层抽样，最多向用户选择的生成模型发送 40 个、每个 1,200 字符且总计
+  48,000 字符的证据单元。Job 只保存证据 ID、hash 和引用映射。
+- Blueprint 固定题型、语言、难度、Gold evidence 和逐块 query marker。模型只生成问题、
+  精确 anchor quote 和公开理由；问题必须包含每个 Gold block 的至少一个固定 marker，
+  否则按“无针对性的通用问题”拒绝。
+- Gold 由服务端映射为 `match_mode=source_block`，生成时 chunk ID 只作诊断。模型不能生成、
+  替换或扩展 document/chunk/source-block ID。
+- 自动校准只运行固定索引的真实检索并标记 Rank 1、Rank 2–5、Rank 6–10 和 Top-10 miss；
+  它不会按当前 Top-K 改写 Gold。过易、漏召回或无答案误召回达到阈值时产生 warning。
+- `calibrated` 可发布；`warning` 需要显式确认；`pending / failed / stale` 阻断发布。生成的
+  无答案题必须逐题人工确认，编辑后立即 stale 并需要重新校准。
+
+入口位于 `/rag/:kbId/evaluation`。预检和任务 API 复用 `/api/benchmarks/generations/*` 与
+`/api/benchmarks/calibrations/*`；可信管理侧可按需读取每条 Gold 的最多 2,000 字符受限证据。
+生成仍只创建 `KnowledgeEvaluationStore` 草稿，不会重建、激活或推广知识索引。
+
 ## 9. 安全与后续边界
 
 - Pack 内容与 checksum 随仓库版本发布，不在运行时联网更新。
 - 标准核心 Benchmark 不执行真实副作用、HITL、Browser、Sandbox 写入或外部实时数据。
 - 目录实例化不运行 Xpert、不批准 Proposal，也不修改线上资源。
-- 后续定向生成默认创建待审核草稿，并必须完成同 revision 的受限校准后才可发布。
-- 下一轮唯一知识评测主线锁定为 `XPERT-RAG-BENCHMARK-GENERATOR-04`：针对具体知识库与
-  固定索引版本生成、校准和人工审核 Gold；在该闭环完成前不扩张新的通用 RAG Pack。
+- 定向生成默认创建待审核草稿，并必须完成同 revision 的受限校准后才可发布。
+- 标准 RAG Pack 与知识库定向 Gold 的职责已经分离；后续不再扩张新的通用 RAG Pack。
 - RAG Benchmark 使用 `KnowledgeEvaluationStore`，不会复制到 Xpert Dataset Store；目录 API
   不返回语料正文、内部锚点短语、chunk 全文、embedding 或物理路径。
 - General Agent Workspace 最终只接目录和运行摘要，不替换 Penguin Benchmark Runtime。
@@ -247,7 +270,7 @@ No-result Accuracy 0.80，但不会自动推广候选索引。
 ```bash
 python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_benchmark_generator.py -q
 python -m pytest server/tests/test_xpert_evaluations.py -q
-python -m pytest server/tests/test_rag_benchmark_standard.py server/tests/test_rag_evaluation.py -q
+python -m pytest server/tests/test_rag_benchmark_generator.py server/tests/test_rag_benchmark_standard.py server/tests/test_rag_evaluation.py -q
 cd client
 npm.cmd run build
 ```

@@ -15451,6 +15451,7 @@ configure_benchmarks(
     rag_service=get_rag_service(),
     rag_pipeline_executor=get_pipeline_executor(),
     rag_evaluation_store=get_rag_evaluation_store(),
+    rag_evaluation_executor=get_evaluation_executor(),
     toolset_store=toolset_store,
     generator_runner=run_benchmark_generator_model,
 )

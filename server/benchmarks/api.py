@@ -9,9 +9,15 @@ try:
 except ModuleNotFoundError:
     from evaluations.store import EvaluationStateError, XpertEvaluationStore
 
+try:
+    from server.rag.evaluation import EvaluationSetNotFoundError as KnowledgeEvaluationSetNotFoundError
+except ModuleNotFoundError:
+    from rag.evaluation import EvaluationSetNotFoundError as KnowledgeEvaluationSetNotFoundError
+
 from .catalog import BenchmarkCatalog, BenchmarkCatalogError, BenchmarkPackNotFoundError
 from .executor import BenchmarkJobExecutor, GeneratorRunner
 from .knowledge_executor import KnowledgeBenchmarkProvisioner
+from .knowledge_generation import KnowledgeBenchmarkGenerationService
 from .models import (
     BenchmarkCalibrationRequest,
     BenchmarkGenerationPreflightRequest,
@@ -27,6 +33,7 @@ _catalog: BenchmarkCatalog | None = None
 _evaluation_store: XpertEvaluationStore | None = None
 _job_store: BenchmarkJobStore | None = None
 _service: BenchmarkGenerationService | None = None
+_knowledge_service: KnowledgeBenchmarkGenerationService | None = None
 _executor: BenchmarkJobExecutor | None = None
 
 
@@ -43,14 +50,16 @@ def configure_benchmarks(
     rag_service: Any | None = None,
     rag_pipeline_executor: Any | None = None,
     rag_evaluation_store: Any | None = None,
+    rag_evaluation_executor: Any | None = None,
     toolset_store: Any | None = None,
     generator_runner: GeneratorRunner | None = None,
 ) -> BenchmarkCatalog:
-    global _catalog, _evaluation_store, _job_store, _service, _executor
+    global _catalog, _evaluation_store, _job_store, _service, _knowledge_service, _executor
     _catalog = BenchmarkCatalog()
     _evaluation_store = evaluation_store
     _job_store = None
     _service = None
+    _knowledge_service = None
     _executor = None
     if all(
         value is not None
@@ -88,6 +97,14 @@ def configure_benchmarks(
             and rag_evaluation_store is not None
             else None
         )
+        _knowledge_service = (
+            KnowledgeBenchmarkGenerationService(
+                rag_service=rag_service,
+                evaluation_store=rag_evaluation_store,
+            )
+            if rag_service is not None and rag_evaluation_store is not None
+            else None
+        )
         _executor = BenchmarkJobExecutor(
             _job_store,
             service=_service,
@@ -96,6 +113,9 @@ def configure_benchmarks(
             evaluation_service=evaluation_service,
             evaluation_executor=evaluation_executor,
             knowledge_provisioner=knowledge_provisioner,
+            knowledge_service=_knowledge_service,
+            rag_evaluation_store=rag_evaluation_store,
+            rag_evaluation_executor=rag_evaluation_executor,
         )
     return _catalog
 
@@ -124,6 +144,12 @@ def get_benchmark_generation_service() -> BenchmarkGenerationService:
     return _service
 
 
+def get_knowledge_benchmark_generation_service() -> KnowledgeBenchmarkGenerationService:
+    if _knowledge_service is None:
+        raise RuntimeError("Knowledge Benchmark generator is not configured.")
+    return _knowledge_service
+
+
 def get_benchmark_job_executor() -> BenchmarkJobExecutor:
     if _executor is None:
         raise RuntimeError("Benchmark generator is not configured.")
@@ -135,6 +161,14 @@ async def get_capabilities() -> dict[str, Any]:
     payload = get_benchmark_catalog().capabilities()
     if _service is not None:
         payload["generator"] = _service.capabilities()
+    if _knowledge_service is not None:
+        payload["knowledge_generator"] = {
+            "target_kind": "knowledge_version",
+            "case_count": {"default": 12, "min": 6, "max": 30},
+            "no_result_count": {"default": 0, "max": 5, "max_ratio": 0.2},
+            "max_evidence_units": 40,
+            "max_evidence_chars": 48_000,
+        }
     return payload
 
 
@@ -218,6 +252,13 @@ async def preflight_generation(
     payload: BenchmarkGenerationPreflightRequest,
 ) -> dict[str, Any]:
     try:
+        if payload.target.kind == "knowledge_version":
+            return await _to_thread(
+                get_knowledge_benchmark_generation_service().preflight,
+                target_reference=payload.target.model_dump(mode="json"),
+                requested_coverage=payload.coverage,
+                locales=payload.locales,
+            )
         return await _to_thread(
             get_benchmark_generation_service().preflight,
             target_reference=payload.target.model_dump(mode="json"),
@@ -258,6 +299,7 @@ async def create_generation(payload: BenchmarkGenerationRequest) -> dict[str, An
         BenchmarkGenerationPreflightRequest(
             target=payload.target,
             coverage=payload.coverage,
+            locales=payload.locales,
             conversation_selections=payload.conversation_selections,
         )
     )
@@ -299,6 +341,51 @@ async def cancel_generation(job_id: str) -> dict[str, Any]:
 @router.post("/calibrations")
 async def create_calibration(payload: BenchmarkCalibrationRequest) -> dict[str, Any]:
     try:
+        knowledge_target = (
+            payload.target.model_dump(mode="json")
+            if payload.target is not None and payload.target.kind == "knowledge_version"
+            else None
+        )
+        knowledge_dataset = None
+        if knowledge_target is not None or payload.target is None:
+            try:
+                knowledge_dataset = await _to_thread(
+                    get_knowledge_benchmark_generation_service().evaluation_store.get_set,
+                    payload.dataset_id,
+                )
+            except (KnowledgeEvaluationSetNotFoundError, RuntimeError):
+                knowledge_dataset = None
+        if (
+            knowledge_dataset is not None
+            and str(knowledge_dataset.get("origin") or "manual") == "generated"
+        ):
+            dataset = knowledge_dataset
+            knowledge_target = knowledge_target or dict(
+                (dataset.get("provenance") or {}).get("target_reference") or {}
+            )
+            if str(knowledge_target.get("kind") or "") != "knowledge_version":
+                raise EvaluationStateError("Generated knowledge dataset has no fixed target.")
+            if int(dataset.get("revision") or 0) != payload.dataset_revision:
+                raise EvaluationStateError("Dataset changed. Reload before calibration.")
+            preflight = await _to_thread(
+                get_knowledge_benchmark_generation_service().preflight,
+                target_reference=knowledge_target,
+                requested_coverage=[],
+            )
+            if not preflight.get("valid"):
+                raise EvaluationStateError("Knowledge calibration target failed preflight.")
+            item = await _to_thread(
+                get_benchmark_job_store().create_job,
+                kind="calibration",
+                request={
+                    "dataset_id": payload.dataset_id,
+                    "dataset_revision": payload.dataset_revision,
+                    "target": knowledge_target,
+                    "calibration_runtime": "knowledge",
+                },
+            )
+            get_benchmark_job_executor().wake()
+            return _sanitize_job(item)
         dataset = await _to_thread(
             _require_evaluation_store().require_dataset, payload.dataset_id
         )
