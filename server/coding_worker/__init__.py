@@ -16,6 +16,7 @@ from .contracts import (
 from .provider import CodingAgentProvider, FakeCodingAgentProvider
 from .evidence import HarnessRunner
 from .network_policy import EgressPolicy, NetworkPolicyError
+from .process_manager import BackgroundProcessManager, ManagedProcess, ProcessManagerError
 from .opencode_provider import OpenCodeProvider
 from .service import CodingWorkerService
 from .store import CodingWorkerStore
@@ -32,6 +33,9 @@ __all__ = [
     "HarnessRunner",
     "EgressPolicy",
     "NetworkPolicyError",
+    "BackgroundProcessManager",
+    "ManagedProcess",
+    "ProcessManagerError",
     "ToolBroker",
     "ToolBrokerError",
     "ToolResult",
