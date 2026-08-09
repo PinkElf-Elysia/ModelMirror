@@ -13,6 +13,9 @@ services:
       CODING_WORKER_MAX_ACTIVE_TASKS: ${CODING_WORKER_MAX_ACTIVE_TASKS:-2}
       CODING_WORKER_RETENTION_SECONDS: ${CODING_WORKER_RETENTION_SECONDS:-604800}
       CODING_WORKER_NETWORK_ENABLED: ${CODING_WORKER_NETWORK_ENABLED:-false}
+      CODING_WORKER_NETWORK_DOMAINS: ${CODING_WORKER_NETWORK_DOMAINS:-registry.npmjs.org}
+      CODING_WORKER_EGRESS_PROXY_URL: http://coding-worker-egress:8080
+      CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}
     volumes:
       - coding_worker_state:/var/lib/modelmirror/coding-worker
       - coding_worker_slot_a:/worker-slots/slot-a
@@ -81,6 +84,34 @@ services:
       - coding_worker_provider_b:/run/modelmirror-coding
       - coding_worker_broker:/run/modelmirror-coding-broker:ro
 
+  coding-worker-egress:
+    profiles:
+      - coding-worker-network
+    image: modelmirror-coding-worker-v14:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    container_name: modelmirror-coding-worker-egress
+    command: ["python", "-m", "coding_worker.egress_proxy"]
+    networks:
+      - coding_internal
+      - coding_worker_egress
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}
+      CODING_WORKER_NETWORK_DOMAINS: ${CODING_WORKER_NETWORK_DOMAINS:-registry.npmjs.org}
+    restart: unless-stopped
+
 volumes:
   coding_worker_state:
   coding_worker_slot_a:
@@ -88,3 +119,7 @@ volumes:
   coding_worker_provider_a:
   coding_worker_provider_b:
   coding_worker_broker:
+
+networks:
+  coding_worker_egress:
+    driver: bridge

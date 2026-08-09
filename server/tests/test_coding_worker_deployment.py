@@ -15,6 +15,9 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     assert "/var/run/docker.sock" not in compose
     assert ".ssh" not in compose
     assert "network_mode: host" not in compose
-    assert compose.count('user: "65532:65532"') == 1  # slot B inherits slot A
+    assert compose.count('user: "65532:65532"') == 2  # slot B inherits slot A
     assert ":/worker-data" in compose
     assert ":/run/modelmirror-coding-broker:ro" in compose
+    assert "coding-worker-network" in compose
+    assert 'command: ["python", "-m", "coding_worker.egress_proxy"]' in compose
+    assert "CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}" in compose

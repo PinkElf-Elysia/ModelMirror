@@ -38,6 +38,7 @@ class CodingWorkerRuntime:
         network_enabled: bool = False,
         network_domains: tuple[str, ...] = (),
         egress_proxy_url: str | None = None,
+        network_grant_key: bytes | str | None = None,
         sidecar_uid: int = 65532,
         sidecar_gid: int = 65532,
     ) -> None:
@@ -65,7 +66,9 @@ class CodingWorkerRuntime:
             workspace_broker=self.workspace_broker,
             frozen_checks=frozen_checks,
             egress_policy=EgressPolicy(
-                enabled=network_enabled, allowed_domains=network_domains
+                enabled=network_enabled,
+                allowed_domains=network_domains,
+                grant_key=network_grant_key,
             ),
             egress_proxy_url=egress_proxy_url,
         )
@@ -219,4 +222,5 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         network_enabled=network_enabled,
         network_domains=domains,
         egress_proxy_url=os.getenv("CODING_WORKER_EGRESS_PROXY_URL") or None,
+        network_grant_key=os.getenv("CODING_WORKER_EGRESS_GRANT_KEY") or None,
     )
