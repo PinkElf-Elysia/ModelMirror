@@ -465,7 +465,7 @@ class OpenCodeProvider(CodingAgentProvider):
         if event_type in {"permission.asked", "permission.updated"}:
             return ProviderEvent(
                 kind=ProviderEventKind.APPROVAL_REQUIRED,
-                data={"request": properties},
+                data={"capability": "provider_permission"},
             )
         if event_type in {"session.idle", "session.completed"}:
             return ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)

@@ -166,3 +166,21 @@ def test_provider_session_is_excluded_from_public_task_record() -> None:
     )
     assert record.provider_session_id == "ses_private"
     assert "provider_session_id" not in record.model_dump(mode="json")
+
+
+def test_raw_permission_frame_never_enters_provider_neutral_event() -> None:
+    event = OpenCodeProvider._map_event(
+        {
+            "type": "permission.asked",
+            "properties": {
+                "sessionID": "ses_test",
+                "path": "C:/private/project",
+                "port": 47123,
+                "vendorRequest": {"tool": "bash"},
+            },
+        },
+        "ses_test",
+    )
+    assert event is not None
+    assert event.kind is ProviderEventKind.APPROVAL_REQUIRED
+    assert event.data == {"capability": "provider_permission"}
