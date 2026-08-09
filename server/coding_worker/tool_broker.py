@@ -11,11 +11,13 @@ import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import Field
 
 from .contracts import CapabilityName, OperationState, PolicyProfile, StrictModel, TaskState
 from .process_manager import BackgroundProcessManager, ProcessManagerError
+from .network_policy import EgressPolicy, NetworkPolicyError
 from .store import CodingWorkerStore, WorkerConflictError
 from .workspace import WorkspaceBroker, WorkspaceError
 
@@ -79,6 +81,8 @@ class ToolBroker:
         workspace_broker: WorkspaceBroker,
         frozen_checks: Mapping[str, FrozenCheck] | None = None,
         process_manager: BackgroundProcessManager | None = None,
+        egress_policy: EgressPolicy | None = None,
+        egress_proxy_url: str | None = None,
         max_output_bytes: int = MAX_TOOL_OUTPUT_BYTES,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
@@ -87,6 +91,8 @@ class ToolBroker:
         self.workspace_broker = workspace_broker
         self.frozen_checks = dict(frozen_checks or {})
         self.process_manager = process_manager
+        self.egress_policy = egress_policy
+        self.egress_proxy_url = self._validate_proxy_url(egress_proxy_url)
         self.max_output_bytes = max_output_bytes
 
     async def execute(
@@ -97,6 +103,7 @@ class ToolBroker:
         tool_name: str,
         arguments: Mapping[str, Any],
         lease_id: str | None = None,
+        network_lease_id: str | None = None,
     ) -> ToolResult:
         if SAFE_TOOL_NAME.fullmatch(tool_name) is None:
             raise ToolBrokerError("Tool name is invalid.", code="tool_not_allowed")
@@ -136,6 +143,7 @@ class ToolBroker:
                 task_id,
                 operation_id,
                 request,
+                network_lease_id,
             )
             self.store.transition_operation(
                 operation_id,
@@ -162,6 +170,7 @@ class ToolBroker:
             WorkerConflictError,
             WorkspaceError,
             ProcessManagerError,
+            NetworkPolicyError,
             OSError,
             asyncio.TimeoutError,
         ) as exc:
@@ -247,6 +256,7 @@ class ToolBroker:
         task_id: str,
         operation_id: str,
         request: dict[str, Any],
+        network_lease_id: str | None,
     ) -> None:
         readonly = {"list_files", "read_file", "search_text", "diff", "service_status"}
         if tool_name in readonly:
@@ -266,8 +276,21 @@ class ToolBroker:
             capability = "command"
         elif tool_name == "start_service":
             capability = "service"
+        elif tool_name == "install_dependencies":
+            if profile is not PolicyProfile.DEVELOP_NETWORKED:
+                raise ToolBrokerError(
+                    "Dependency installation requires networked development policy.",
+                    code="approval_required",
+                )
+            capability = "dependency_install"
         else:
             raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
+        network_scope: dict[str, object] | None = None
+        if tool_name == "install_dependencies":
+            policy = self._require_egress_policy()
+            network_scope = policy.approval_scope(
+                domains=("registry.npmjs.org",), purpose="dependency-install"
+            )
         if lease_id is None:
             self.store.create_approval(
                 task_id=task_id,
@@ -275,6 +298,17 @@ class ToolBroker:
                 capability=capability,
                 request=request["arguments"],
             )
+        if network_scope is not None and network_lease_id is None:
+            network_operation_id = "network_" + hashlib.sha256(
+                operation_id.encode("utf-8")
+            ).hexdigest()[:32]
+            self.store.create_approval(
+                task_id=task_id,
+                operation_id=network_operation_id,
+                capability="network",
+                request=network_scope,
+            )
+        if lease_id is None or (network_scope is not None and network_lease_id is None):
             task = self.store.get_task(task_id)
             if task.state is TaskState.RUNNING:
                 self.store.transition(task_id, TaskState.WAITING_APPROVAL)
@@ -282,6 +316,15 @@ class ToolBroker:
         lease = self.store.consume_lease(lease_id, task_id=task_id, capability=capability)
         if lease.scope != request["arguments"]:
             raise ToolBrokerError("Approval does not match the request.", code="lease_scope_mismatch")
+        if network_scope is not None:
+            network_lease = self.store.consume_lease(
+                str(network_lease_id), task_id=task_id, capability="network"
+            )
+            self._require_egress_policy().validate_lease_scope(
+                lease=network_lease,
+                domains=("registry.npmjs.org",),
+                purpose="dependency-install",
+            )
 
     async def _dispatch(
         self,
@@ -399,12 +442,52 @@ class ToolBroker:
                 service_id=str(arguments.get("service_id", "")),
             )
             return record.model_dump(mode="json")
+        if tool_name == "install_dependencies":
+            if arguments != {"manager": "npm", "action": "ci"}:
+                raise ToolBrokerError(
+                    "Only frozen npm lockfile installation is supported.",
+                    code="dependency_plan_invalid",
+                )
+            if self.egress_proxy_url is None:
+                raise ToolBrokerError("Egress proxy is unavailable.", code="network_disabled")
+            result = await self._run_process(
+                workspace_id,
+                ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"),
+                1800,
+                environment_overrides={
+                    "HTTPS_PROXY": self.egress_proxy_url,
+                    "HTTP_PROXY": self.egress_proxy_url,
+                    "NO_PROXY": "",
+                    "npm_config_registry": "https://registry.npmjs.org/",
+                    "npm_config_ignore_scripts": "true",
+                    "npm_config_audit": "false",
+                    "npm_config_fund": "false",
+                },
+            )
+            source = {
+                "manager": "npm",
+                "action": "ci",
+                "registry_domains": ["registry.npmjs.org"],
+                "exit_code": result["exit_code"],
+            }
+            artifact = self.store.create_artifact(
+                task_id=task_id,
+                media_type="application/json",
+                content=json.dumps(source, sort_keys=True, separators=(",", ":")).encode(),
+                metadata={"kind": "dependency_source"},
+            )
+            return {**result, "source_artifact_id": artifact.artifact_id}
         raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
 
     def _require_process_manager(self) -> BackgroundProcessManager:
         if self.process_manager is None:
             raise ToolBrokerError("Service manager is unavailable.", code="service_unavailable")
         return self.process_manager
+
+    def _require_egress_policy(self) -> EgressPolicy:
+        if self.egress_policy is None:
+            raise NetworkPolicyError("Worker network access is disabled.", code="network_disabled")
+        return self.egress_policy
 
     def _write_file(self, workspace_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
         path = str(arguments.get("path", ""))
@@ -455,6 +538,7 @@ class ToolBroker:
         *,
         trusted: bool = False,
         isolated: bool = False,
+        environment_overrides: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         normalized = self._validate_argv(argv, trusted=trusted)
         repository = self.workspace_broker.repository_path(workspace_id)
@@ -475,10 +559,12 @@ class ToolBroker:
                     ignore=shutil.ignore_patterns(".git"),
                 )
                 execution_repository = execution_root
+            environment = self._safe_environment(execution_repository)
+            environment.update(environment_overrides or {})
             process = await asyncio.create_subprocess_exec(
                 *normalized,
                 cwd=execution_repository,
-                env=self._safe_environment(execution_repository),
+                env=environment,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -587,6 +673,23 @@ class ToolBroker:
             environment["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", "C:\\Windows")
         Path(environment["HOME"]).mkdir(exist_ok=True)
         return environment
+
+    @staticmethod
+    def _validate_proxy_url(value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("egress proxy URL is invalid")
+        return value.rstrip("/")
 
     @staticmethod
     def _intent_sha256(tool_name: str, request: dict[str, Any]) -> str:

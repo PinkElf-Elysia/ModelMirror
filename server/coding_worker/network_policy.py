@@ -100,6 +100,24 @@ class EgressPolicy:
                 )
         return host
 
+    def validate_lease_scope(
+        self,
+        *,
+        lease: CapabilityLease,
+        domains: Iterable[str],
+        purpose: str,
+    ) -> None:
+        expected = self.approval_scope(domains=domains, purpose=purpose)
+        if (
+            lease.capability != "network"
+            or lease.expires_at <= self._clock()
+            or lease.scope != expected
+        ):
+            raise NetworkPolicyError(
+                "Network lease does not match the requested purpose.",
+                code="network_lease_invalid",
+            )
+
     def _require_enabled(self) -> None:
         if not self.enabled:
             raise NetworkPolicyError("Worker network access is disabled.", code="network_disabled")

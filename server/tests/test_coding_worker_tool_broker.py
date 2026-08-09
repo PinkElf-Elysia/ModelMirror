@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from unittest.mock import AsyncMock
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from server.coding_worker.contracts import (
 )
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.process_manager import BackgroundProcessManager
+from server.coding_worker.network_policy import EgressPolicy
 from server.coding_worker.tool_broker import FrozenCheck, ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
@@ -330,3 +332,65 @@ async def test_background_service_requires_exact_lease_and_remains_task_owned(
     )
     assert stopped.data["reason"] == "user_interrupted"
     await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_dependency_install_requires_both_exact_leases_and_records_source(
+    tmp_path: Path,
+) -> None:
+    broker, store, task_id, _ = await _broker(
+        tmp_path, profile=PolicyProfile.DEVELOP_NETWORKED
+    )
+    broker.egress_policy = EgressPolicy(
+        enabled=True, allowed_domains={"registry.npmjs.org"}
+    )
+    broker.egress_proxy_url = "http://worker-egress:8080"
+    broker._run_process = AsyncMock(
+        return_value={"argv": ["npm", "ci"], "exit_code": 0, "output": "installed"}
+    )
+    arguments = {"manager": "npm", "action": "ci"}
+    with pytest.raises(ToolBrokerError) as approval_required:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="dependency-install",
+            tool_name="install_dependencies",
+            arguments=arguments,
+        )
+    assert approval_required.value.code == "approval_required"
+    approvals = store.list_approvals(task_id)
+    assert {item.capability for item in approvals} == {"dependency_install", "network"}
+    decided = {
+        item.capability: store.decide_approval(item.approval_id, approved=True).lease
+        for item in approvals
+    }
+    store.transition(task_id, TaskState.RUNNING)
+    result = await broker.execute(
+        task_id=task_id,
+        operation_id="dependency-install",
+        tool_name="install_dependencies",
+        arguments=arguments,
+        lease_id=decided["dependency_install"].lease_id,
+        network_lease_id=decided["network"].lease_id,
+    )
+    assert result.data["exit_code"] == 0
+    source = store.read_artifact(result.data["source_artifact_id"], task_id=task_id)
+    assert b"registry.npmjs.org" in source and b"worker-egress" not in source
+    call = broker._run_process.await_args
+    assert call.kwargs["environment_overrides"]["HTTPS_PROXY"] == "http://worker-egress:8080"
+
+
+@pytest.mark.asyncio
+async def test_dependency_install_is_disabled_without_global_egress_policy(
+    tmp_path: Path,
+) -> None:
+    broker, _, task_id, _ = await _broker(
+        tmp_path, profile=PolicyProfile.DEVELOP_NETWORKED
+    )
+    with pytest.raises(ToolBrokerError) as disabled:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="dependency-disabled",
+            tool_name="install_dependencies",
+            arguments={"manager": "npm", "action": "ci"},
+        )
+    assert disabled.value.code == "network_disabled"
