@@ -120,6 +120,7 @@ try:
     from server.skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
+        configure_skill_creator_resource_planning,
         router as skill_creator_router,
     )
     from server.skills.creator_runtime import (
@@ -127,6 +128,14 @@ try:
         CreatorWorkflowInvocation,
         TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
+    )
+    from server.skills.creator_resource_plan import SkillResourcePlanStore
+    from server.skills.creator_resource_runtime import (
+        ResourcePlannerWorkflowInvocation,
+        WorkflowCreatorResourcePlanner,
+    )
+    from server.skills.creator_resource_service import (
+        SkillCreatorResourcePlanningService,
     )
     from server.skills.creator_evaluation import (
         SkillEvaluationError,
@@ -163,6 +172,7 @@ except ModuleNotFoundError:
     from skills.creator_api import (
         configure_skill_creator,
         configure_skill_creator_evaluation,
+        configure_skill_creator_resource_planning,
         router as skill_creator_router,
     )
     from skills.creator_runtime import (
@@ -171,6 +181,12 @@ except ModuleNotFoundError:
         TrustedCreatorSourceProvider,
         WorkflowCreatorGenerationExecutor,
     )
+    from skills.creator_resource_plan import SkillResourcePlanStore
+    from skills.creator_resource_runtime import (
+        ResourcePlannerWorkflowInvocation,
+        WorkflowCreatorResourcePlanner,
+    )
+    from skills.creator_resource_service import SkillCreatorResourcePlanningService
     from skills.creator_evaluation import (
         SkillEvaluationError,
         SkillEvaluationExecutor,
@@ -797,6 +813,8 @@ WORKFLOW_AGENT_STRATEGY_V2_ENABLED = (
 WORKFLOW_AGENT_MAX_ITERATIONS_DEFAULT = 5
 WORKFLOW_AGENT_MAX_TOKENS = 1024
 SKILL_CREATOR_AGENT_MAX_TOKENS = 12_288
+SKILL_CREATOR_RESOURCE_PLANNER_MAX_TOKENS = 8_192
+SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE = 0.1
 SKILL_EVALUATION_AGENT_MAX_TOKENS = 4_096
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
 
@@ -818,6 +836,9 @@ def workflow_agent_token_budget(runtime_metadata: dict[str, Any] | None) -> int:
     """Return larger budgets only for server-owned Creator workflows."""
 
     if is_trusted_skill_creator_runtime(runtime_metadata):
+        metadata = dict(runtime_metadata or {})
+        if metadata.get("creator_phase") == "resource_plan":
+            return SKILL_CREATOR_RESOURCE_PLANNER_MAX_TOKENS
         return SKILL_CREATOR_AGENT_MAX_TOKENS
     metadata = dict(runtime_metadata or {})
     if is_trusted_skill_evaluation_metadata(metadata):
@@ -1081,6 +1102,13 @@ skill_creator_service = SkillCreatorService(
     authoring_service,
     source_provider=skill_creator_source_provider,
 )
+skill_creator_resource_plan_store = SkillResourcePlanStore(
+    storage_dir=AGENT_TASK_STORAGE_DIR or None
+)
+skill_creator_resource_planning_service = SkillCreatorResourcePlanningService(
+    skill_creator_service,
+    skill_creator_resource_plan_store,
+)
 workflow_xpert_authoring_provider = AuthoringToolsetProvider(
     authoring_service, "xpert"
 )
@@ -1089,6 +1117,7 @@ workflow_skill_creator_provider = AuthoringToolsetProvider(
 )
 configure_runtime_authoring(authoring_service)
 configure_skill_creator(skill_creator_service)
+configure_skill_creator_resource_planning(skill_creator_resource_planning_service)
 runtime_capabilities.register(
     "mcp_tools",
     workflow_mcp_provider,
@@ -10222,9 +10251,16 @@ async def _run_workflow_response(
                         actual_model_successful_responses = 0
                         actual_model_missing_count = 0
                         evaluation_token_usage: dict[str, int] = {}
-                        agent_temperature = skill_evaluation_model_temperature(
-                            run_context,
-                            default=0.7,
+                        agent_temperature = (
+                            SKILL_CREATOR_RESOURCE_PLANNER_TEMPERATURE
+                            if (
+                                is_trusted_skill_creator_runtime(run_context)
+                                and run_context.get("creator_phase") == "resource_plan"
+                            )
+                            else skill_evaluation_model_temperature(
+                                run_context,
+                                default=0.7,
+                            )
                         )
 
                         def observe_actual_model(reported_model_id: str) -> None:
@@ -10569,6 +10605,9 @@ async def _run_workflow_response(
                                     and not skills_enabled
                                     and not browser_enabled
                                 ):
+                                    direct_agent_max_tokens = workflow_agent_token_budget(
+                                        task_state.get("runtime_metadata")
+                                    )
                                     direct_messages = base_agent_messages(
                                         role_prompt,
                                         task_input,
@@ -10577,7 +10616,7 @@ async def _run_workflow_response(
                                         output = await buffered_agent_model_text(
                                             attempt_model_id,
                                             direct_messages,
-                                            WORKFLOW_AGENT_MAX_TOKENS,
+                                            direct_agent_max_tokens,
                                         )
                                     else:
                                         prepared_request = await agent_pipeline.before_model(
@@ -10586,7 +10625,7 @@ async def _run_workflow_response(
                                                 messages=direct_messages,
                                                 params={
                                                     "temperature": agent_temperature,
-                                                    "max_tokens": WORKFLOW_AGENT_MAX_TOKENS,
+                                                    "max_tokens": direct_agent_max_tokens,
                                                     "stream": True,
                                                 },
                                             ),
@@ -10597,6 +10636,16 @@ async def _run_workflow_response(
                                             for message in prepared_request.messages
                                         ]
                                         if (
+                                            direct_agent_max_tokens
+                                            != WORKFLOW_AGENT_MAX_TOKENS
+                                        ):
+                                            model_stream = stream_workflow_llm_messages(
+                                                prepared_request.model_id,
+                                                prepared_messages,
+                                                temperature=agent_temperature,
+                                                max_tokens=direct_agent_max_tokens,
+                                            )
+                                        elif (
                                             len(prepared_messages) == 2
                                             and prepared_messages[0].role == "system"
                                             and prepared_messages[1].role == "user"
@@ -10613,7 +10662,7 @@ async def _run_workflow_response(
                                                 prepared_request.model_id,
                                                 prepared_messages,
                                                 temperature=agent_temperature,
-                                                max_tokens=WORKFLOW_AGENT_MAX_TOKENS,
+                                                max_tokens=direct_agent_max_tokens,
                                             )
                                         async for delta in model_stream:
                                             output += delta
@@ -12751,6 +12800,47 @@ skill_creator_generation_executor = WorkflowCreatorGenerationExecutor(
     runner=run_skill_creator_generation,
 )
 configure_creator_generation_executor(skill_creator_generation_executor)
+
+
+async def run_skill_creator_resource_planning(
+    invocation: ResourcePlannerWorkflowInvocation,
+) -> str:
+    payload = WorkflowRunRequest.model_validate(
+        {
+            "workflow": invocation.workflow,
+            "inputs": invocation.inputs,
+        }
+    )
+    session_id = str(
+        invocation.runtime_metadata.get("creator_session_id") or ""
+    ).strip()
+    response = await _run_workflow_response(
+        payload,
+        None,
+        runtime_run_type="workflow",
+        runtime_source_id=session_id,
+        runtime_metadata=dict(invocation.runtime_metadata),
+    )
+    final_event = await consume_workflow_stream(response)
+    if final_event.get("event") in {
+        "runtime_approval_pending",
+        "client_tool_waiting",
+    }:
+        raise RuntimeError(
+            "The dedicated Skill Creator resource planner cannot pause for tools."
+        )
+    output = str(final_event.get("final_output") or "").strip()
+    if not output:
+        raise RuntimeError("The Skill Creator resource planner returned no plan.")
+    return output
+
+
+skill_creator_resource_planner = WorkflowCreatorResourcePlanner(
+    model_id=TEXT_FALLBACK_MODEL,
+    model_available=lambda: bool(get_llm_gateway_config()[0]),
+    runner=run_skill_creator_resource_planning,
+)
+skill_creator_resource_planning_service.planner = skill_creator_resource_planner
 
 
 async def execute_external_xpert_resource(
