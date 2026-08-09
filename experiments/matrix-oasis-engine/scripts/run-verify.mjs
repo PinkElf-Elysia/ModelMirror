@@ -10,6 +10,7 @@ const steps = [
   ["doctor", ["run", "doctor"]],
   ["round-scope", ["run", "check:round-scope"]],
   ["boundary", ["run", "check:boundary"]],
+  ["godot-foundation", ["run", "verify:godot"]],
   ["pack-examples", ["run", "validate:examples"]],
   ["runtime-pack", ["run", "verify:runtime-pack"]],
   ["compiler", ["run", "verify:compiler"]],

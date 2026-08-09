@@ -1,0 +1,52 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/bootstrap.gd" id="1_bootstrap"]
+
+[sub_resource type="Environment" id="Environment_foundation"]
+background_mode = 1
+background_color = Color(0.025, 0.035, 0.055, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.42, 0.5, 0.68, 1)
+ambient_light_energy = 0.65
+
+[sub_resource type="StandardMaterial3D" id="Material_ground"]
+albedo_color = Color(0.12, 0.15, 0.2, 1)
+roughness = 0.92
+
+[sub_resource type="BoxMesh" id="Mesh_ground"]
+material = SubResource("Material_ground")
+size = Vector3(6, 0.18, 6)
+
+[sub_resource type="StandardMaterial3D" id="Material_marker"]
+albedo_color = Color(0.2, 0.68, 0.58, 1)
+metallic = 0.18
+roughness = 0.42
+
+[sub_resource type="BoxMesh" id="Mesh_marker"]
+material = SubResource("Material_marker")
+size = Vector3(1.1, 1.1, 1.1)
+
+[node name="MatrixOasisR4Foundation" type="Node3D"]
+script = ExtResource("1_bootstrap")
+
+[node name="FoundationEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_foundation")
+
+[node name="FoundationGround" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.09, 0)
+mesh = SubResource("Mesh_ground")
+
+[node name="FoundationMarker" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.55, 0)
+mesh = SubResource("Mesh_marker")
+
+[node name="FoundationLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-48, -28, 0)
+light_color = Color(0.82, 0.9, 1, 1)
+light_energy = 1.4
+shadow_enabled = true
+
+[node name="FoundationCamera" type="Camera3D" parent="."]
+position = Vector3(4.2, 3.2, 5.2)
+current = true
+fov = 48.0

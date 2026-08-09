@@ -1,0 +1,23 @@
+; Engine configuration file.
+; R4 foundation only: no gameplay, assets, network, or Runtime Pack bridge.
+
+config_version=5
+
+[application]
+
+config/name="Matrix Oasis R4 Foundation"
+run/main_scene="res://scenes/bootstrap.tscn"
+
+[display]
+
+window/size/viewport_width=960
+window/size/viewport_height=540
+window/size/window_width_override=960
+window/size/window_height_override=540
+window/stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
+renderer/rendering_method.mobile="mobile"
+environment/defaults/default_clear_color=Color(0.025, 0.035, 0.055, 1)

@@ -225,7 +225,6 @@ const REQUIRED_POLICY_VALUES = [
       ".gdnlib",
       ".gdns",
       ".import",
-      ".uid",
       ".exe",
       ".dll",
       ".so",
@@ -242,7 +241,7 @@ const REQUIRED_POLICY_VALUES = [
   [["artifactRestrictions", "allowedGodotFileNames"], ["project.godot"]],
   [
     ["artifactRestrictions", "allowedFirstPartyGodotExtensions"],
-    [".gd", ".gdshader", ".tscn", ".tres"],
+    [".gd", ".gdshader", ".tscn", ".tres", ".uid"],
   ],
   [["artifactRestrictions", "restrictedAddonDirectoryName"], "addons"],
   [
@@ -255,7 +254,6 @@ const REQUIRED_POLICY_VALUES = [
       ".gdnlib",
       ".gdns",
       ".import",
-      ".uid",
     ],
   ],
   [

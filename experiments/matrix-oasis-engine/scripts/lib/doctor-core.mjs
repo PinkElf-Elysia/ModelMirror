@@ -18,10 +18,10 @@ const TOOL_REQUIREMENTS = {
     remediation: "Install Git and make the executable available on PATH.",
   },
   godot: {
-    requiredForRound: false,
-    requirement: "4.6.x",
-    supported: (version) => /^4\.6(?:\.|$)/.test(version ?? ""),
-    remediation: "For a later round, provide Godot 4.6.x through GODOT_BIN or PATH outside the repository.",
+    requiredForRound: true,
+    requirement: "4.6.3",
+    supported: (version) => /^4\.6\.3(?:\.|$)/.test(version ?? ""),
+    remediation: "Provide the verified Godot 4.6.3 standard executable through GODOT_BIN outside the repository.",
   },
 };
 

@@ -163,7 +163,6 @@
     ".gdnlib",
     ".gdns",
     ".import",
-    ".uid",
     ".exe",
     ".dll",
     ".so",
@@ -183,7 +182,8 @@
       ".gd",
       ".gdshader",
       ".tscn",
-      ".tres"
+      ".tres",
+      ".uid"
     ],
     "restrictedAddonDirectoryName": "addons",
     "forbiddenGodotExtensions": [
@@ -193,8 +193,7 @@
       ".gdextension",
       ".gdnlib",
       ".gdns",
-      ".import",
-      ".uid"
+      ".import"
     ],
     "forbiddenBinaryExtensions": [
       ".exe",

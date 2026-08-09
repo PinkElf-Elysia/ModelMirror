@@ -166,6 +166,11 @@ test("a valid isolated fixture passes", async () => {
       "utf8",
     );
     await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "bootstrap.gd.uid"),
+      "uid://fixtureidentity\n",
+      "utf8",
+    );
+    await fs.writeFile(
       path.join(root, "apps", "runtime-godot", "scenes", "bootstrap.tscn"),
       "[gd_scene format=3]\n",
       "utf8",
@@ -828,6 +833,13 @@ const negativeCases = [
     expectedRule: "godot-artifact-forbidden",
     setup: async ({ root }) => {
       await fs.writeFile(path.join(root, "player.gd"), "extends Node\n", "utf8");
+    },
+  },
+  {
+    name: "Godot source identity outside the approved root",
+    expectedRule: "godot-artifact-forbidden",
+    setup: async ({ root }) => {
+      await fs.writeFile(path.join(root, "player.gd.uid"), "uid://fixtureidentity\n", "utf8");
     },
   },
   {

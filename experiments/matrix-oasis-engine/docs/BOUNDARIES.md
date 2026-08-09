@@ -5,7 +5,8 @@
 - 只修改 `experiments/matrix-oasis-engine/**`。
 - R1–R3 Creator、examples、packages、历史 ADR/验收与语义测试全部冻结。
 - 新 Godot 内容只允许在 `apps/runtime-godot/**`；第三方记录只允许在 `third-party/**`。
-- `project.godot` 只能位于 Godot 根；第一方 `.gd/.gdshader/.tscn/.tres` 只能位于该工程。
+- `project.godot` 只能位于 Godot 根；第一方 `.gd/.gdshader/.tscn/.tres/.uid` 只能位于该工程。
+- Godot 4.6 为 GDScript 生成的 `.gd.uid` 是稳定源码身份 sidecar，随对应脚本跟踪；工程外同扩展文件仍拒绝。
 - 唯一 addon 根是 `apps/runtime-godot/addons/gdUnit4/**`；其他 addon 路径失败关闭。
 
 ## 工具与供应链

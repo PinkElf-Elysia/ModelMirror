@@ -8,6 +8,7 @@
 - 模块版本：`0.4.0-r4`，private/UNLICENSED。
 - Godot：标准版 4.6.3 + GDScript，仓外通过 `GODOT_BIN` 提供。
 - Godot 工程根：`apps/runtime-godot/`；只允许最小 Bootstrap、内建 primitive、测试和精确 GdUnit4 addon。
+- R4.2 已完成严格 4.6.3 doctor、headless editor import 与 smoke；GdUnit、供应链锁和图形捕获仍在后续批次。
 - schema v4 正向 allowlist 冻结 R1–R3，并拒绝未批准的 Godot 路径、addon、生成物和二进制。
 - R4 不实现 Runtime Pack 桥接、玩法、控制器、Marble、3D 资产、AI、MCP 接入、父项目接入或部署。
 
