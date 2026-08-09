@@ -68,6 +68,25 @@ def test_feature_flag_is_default_deny(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.post("/api/coding-worker/v1/tasks", json=_payload()).status_code == 404
 
 
+def test_enabled_runtime_fails_closed_when_sidecar_tokens_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V14_ENABLED", "true")
+    monkeypatch.delenv("CODING_WORKER_SLOT_A_TOKEN", raising=False)
+    monkeypatch.delenv("CODING_WORKER_SLOT_B_TOKEN", raising=False)
+    configure_coding_worker_for_tests(None, enabled=None)
+    app = FastAPI()
+    app.include_router(router)
+    with TestClient(app) as client:
+        status = client.get("/api/coding-worker/v1").json()
+        assert status["enabled"] is True
+        assert status["available"] is False
+        assert status["reason"] == "coding_worker_config_invalid"
+        unavailable = client.post("/api/coding-worker/v1/tasks", json=_payload())
+        assert unavailable.status_code == 503
+        assert unavailable.json()["detail"]["reason"] == "coding_worker_config_invalid"
+
+
 def test_create_is_idempotent_and_server_owns_origin(tmp_path: Path) -> None:
     client, _service = _client(tmp_path)
     with client:

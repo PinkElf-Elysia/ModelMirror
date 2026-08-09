@@ -23,6 +23,7 @@ from .contracts import (
     WorkerEvidence,
 )
 from .service import CodingWorkerService
+from .runtime import CodingWorkerRuntime, build_runtime_from_environment
 from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
 from .workspace import WorkspaceError
 
@@ -39,14 +40,32 @@ class ApprovalDecisionRequest(StrictModel):
 
 _service: CodingWorkerService | None = None
 _enabled_override: bool | None = None
+_runtime: CodingWorkerRuntime | None = None
+_startup_error: str | None = None
 _CONSOLE_ORIGIN = Origin(module="worker-console", object_id="local-user")
 
 
 @asynccontextmanager
 async def _lifespan(_app: object) -> AsyncIterator[None]:
-    yield
-    if _service is not None:
-        await _service.shutdown()
+    global _service, _runtime, _startup_error
+    if is_coding_worker_enabled() and _service is None:
+        try:
+            _runtime = build_runtime_from_environment()
+            _service = await _runtime.start()
+            _startup_error = None
+        except Exception as exc:
+            _startup_error = getattr(
+                exc, "code", "coding_worker_provider_unavailable"
+            )
+    try:
+        yield
+    finally:
+        if _runtime is not None:
+            await _runtime.close()
+            _runtime = None
+            _service = None
+        elif _service is not None:
+            await _service.shutdown()
 
 
 router = APIRouter(
@@ -70,9 +89,10 @@ def is_coding_worker_enabled() -> bool:
 def configure_coding_worker_for_tests(
     service: CodingWorkerService | None, *, enabled: bool | None = None
 ) -> None:
-    global _service, _enabled_override
+    global _service, _enabled_override, _startup_error
     _service = service
     _enabled_override = enabled
+    _startup_error = None
 
 
 def get_coding_worker_service() -> CodingWorkerService:
@@ -82,7 +102,8 @@ def get_coding_worker_service() -> CodingWorkerService:
             status_code=503,
             detail={
                 "code": "coding_worker_provider_unavailable",
-                "message": "The V14 Worker provider is not configured yet.",
+                "message": "The V14 Worker provider is unavailable.",
+                "reason": _startup_error,
             },
         )
     return _service
@@ -128,6 +149,7 @@ async def coding_worker_status() -> dict[str, Any]:
             _service.store.retention_seconds if _service is not None else 604800
         ),
         "network_enabled": False,
+        "reason": _startup_error,
     }
 
 
