@@ -26,6 +26,7 @@ class _Service:
     started_at: float
     expires_at: float
     output: bytearray
+    preview_port: int | None = None
     state: str = "running"
     exit_code: int | None = None
     reason: str | None = None
@@ -105,9 +106,14 @@ class SidecarExecutor:
         workspace_id: str,
         argv: Sequence[str],
         ttl_seconds: int,
+        preview_port: int | None = None,
     ) -> dict[str, object]:
         if not 1 <= ttl_seconds <= 3600:
             raise SidecarExecutionError("Service TTL is invalid.", code="service_ttl_invalid")
+        if preview_port is not None and not 1024 <= preview_port <= 65535:
+            raise SidecarExecutionError(
+                "Preview port is invalid.", code="service_preview_invalid"
+            )
         async with self._lock:
             active = sum(
                 service.task_id == task_id and service.state == "running"
@@ -134,6 +140,7 @@ class SidecarExecutor:
                 started_at=now,
                 expires_at=now + ttl_seconds,
                 output=bytearray(),
+                preview_port=preview_port,
             )
             self._services[service.service_id] = service
             service.monitor = asyncio.create_task(self._monitor(service, ttl_seconds))
@@ -246,6 +253,7 @@ class SidecarExecutor:
             "expires_at": service.expires_at,
             "exit_code": service.exit_code,
             "reason": service.reason,
+            "preview_port": service.preview_port,
         }
         if include_output and service.state != "running":
             result["output"] = bytes(service.output).decode("utf-8", errors="replace")

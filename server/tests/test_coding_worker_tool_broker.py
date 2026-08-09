@@ -174,6 +174,7 @@ async def test_sidecar_executor_owns_commands_and_background_services(
         workspace_id="workspace_one",
         argv=(sys.executable, "-c", "print('sidecar-service')"),
         ttl_seconds=10,
+        preview_port=4173,
     )
     for _ in range(100):
         status = executor.service_status(
@@ -184,6 +185,7 @@ async def test_sidecar_executor_owns_commands_and_background_services(
         await asyncio.sleep(0.01)
     assert status["state"] == "completed"
     assert str(status["output"]).strip() == "sidecar-service"
+    assert status["preview_port"] == 4173
 
 
 @pytest.mark.asyncio

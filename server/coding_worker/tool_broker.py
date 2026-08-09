@@ -76,7 +76,7 @@ class ToolResult(StrictModel):
 
 class ToolExecutor(Protocol):
     async def run_process(self, *, task_id: str, workspace_id: str, argv: Sequence[str], timeout_seconds: int, isolated: bool, environment_overrides: Mapping[str, str] | None = None) -> dict[str, Any]: ...
-    async def start_service(self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int) -> dict[str, Any]: ...
+    async def start_service(self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int, preview_port: int | None = None) -> dict[str, Any]: ...
     async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
     async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]: ...
     async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
@@ -442,20 +442,36 @@ class ToolBroker:
         if tool_name == "start_service":
             argv = arguments.get("argv")
             ttl = arguments.get("ttl_seconds", 900)
+            preview_port = arguments.get("preview_port")
             if (
                 not isinstance(argv, list)
                 or not all(isinstance(item, str) for item in argv)
                 or isinstance(ttl, bool)
                 or not isinstance(ttl, int)
+                or (
+                    preview_port is not None
+                    and (
+                        isinstance(preview_port, bool)
+                        or not isinstance(preview_port, int)
+                        or not 1024 <= preview_port <= 65535
+                    )
+                )
             ):
                 raise ToolBrokerError("Service input is invalid.", code="tool_input_invalid")
             if self.executor is not None:
-                return await self.executor.start_service(
+                result = await self.executor.start_service(
                     task_id=task_id,
                     workspace_id=workspace_id,
                     argv=self._validate_argv(argv),
                     ttl_seconds=ttl,
+                    preview_port=preview_port,
                 )
+                if preview_port is not None:
+                    result["preview_url"] = (
+                        f"/api/coding-worker/v1/tasks/{task_id}/services/"
+                        f"{result['service_id']}/preview/"
+                    )
+                return result
             record = await self._require_process_manager().start(
                 task_id=task_id,
                 workspace_id=workspace_id,

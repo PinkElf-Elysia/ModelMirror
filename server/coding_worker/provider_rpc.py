@@ -163,6 +163,11 @@ class ProviderRPCServer:
                 workspace_id=str(request.payload.get("workspace_id", "")),
                 argv=tuple(request.payload.get("argv", ())),
                 ttl_seconds=int(request.payload.get("ttl_seconds", 0)),
+                preview_port=(
+                    int(request.payload["preview_port"])
+                    if request.payload.get("preview_port") is not None
+                    else None
+                ),
             )
         if request.action == "service_status":
             self._require_active(str(request.payload.get("task_id", "")))
@@ -420,12 +425,24 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         )
 
     async def start_service(
-        self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        argv: Sequence[str],
+        ttl_seconds: int,
+        preview_port: int | None = None,
     ) -> dict[str, Any]:
         return await self._workspace_call(
             workspace_id,
             "start_service",
-            {"task_id": task_id, "workspace_id": workspace_id, "argv": list(argv), "ttl_seconds": ttl_seconds},
+            {
+                "task_id": task_id,
+                "workspace_id": workspace_id,
+                "argv": list(argv),
+                "ttl_seconds": ttl_seconds,
+                "preview_port": preview_port,
+            },
         )
 
     async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]:

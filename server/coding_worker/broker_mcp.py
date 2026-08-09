@@ -109,11 +109,16 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         argv: list[str],
         lease_id: str,
         ttl_seconds: int = 900,
+        preview_port: int | None = None,
     ) -> dict[str, Any]:
         """Start one approved task-owned background service."""
         return await call(
             "start_service",
-            {"argv": argv, "ttl_seconds": ttl_seconds},
+            {
+                "argv": argv,
+                "ttl_seconds": ttl_seconds,
+                "preview_port": preview_port,
+            },
             operation_id=operation_id,
             lease_id=lease_id,
         )
