@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import math
 import sqlite3
 import threading
@@ -12,6 +14,7 @@ from typing import Any
 from .contracts import (
     ApprovalStatus,
     CapabilityName,
+    EvidenceStatus,
     CapabilityLease,
     OperationState,
     TERMINAL_STATES,
@@ -20,6 +23,8 @@ from .contracts import (
     TaskSpec,
     TaskState,
     WorkerEvent,
+    WorkerEvidence,
+    WorkerArtifact,
     WorkerApproval,
     WorkerMessage,
     WorkerOperation,
@@ -651,6 +656,183 @@ class CodingWorkerStore:
                 )
         return len(rows)
 
+    def create_artifact(
+        self,
+        *,
+        task_id: str,
+        media_type: str,
+        content: bytes,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkerArtifact:
+        if not media_type or len(media_type) > 120:
+            raise ValueError("artifact media type is invalid")
+        if len(content) > 16 * 1024 * 1024:
+            raise ValueError("artifact is too large")
+        now = self._now()
+        artifact_id = f"artifact_{uuid.uuid4().hex}"
+        digest = hashlib.sha256(content).hexdigest()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            connection.execute(
+                """
+                INSERT INTO worker_artifacts (
+                    artifact_id, task_id, media_type, sha256, size,
+                    metadata_ciphertext, content_ciphertext, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    artifact_id,
+                    task_id,
+                    media_type,
+                    digest,
+                    len(content),
+                    self._codec.encrypt(metadata or {}),
+                    self._codec.encrypt({"base64": base64.b64encode(content).decode("ascii")}),
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="artifact_created",
+                payload={"artifact_id": artifact_id, "media_type": media_type},
+                created_at=now,
+            )
+        return self.get_artifact(artifact_id)
+
+    def get_artifact(self, artifact_id: str) -> WorkerArtifact:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_artifacts WHERE artifact_id = ?", (artifact_id,)
+            ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError("Artifact was not found.", code="artifact_not_found")
+        return self._artifact(row)
+
+    def list_artifacts(self, task_id: str) -> list[WorkerArtifact]:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                "SELECT * FROM worker_artifacts WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+        return [self._artifact(row) for row in rows]
+
+    def read_artifact(self, artifact_id: str, *, task_id: str) -> bytes:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_artifacts WHERE artifact_id = ? AND task_id = ?",
+                (artifact_id, task_id),
+            ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError("Artifact was not found.", code="artifact_not_found")
+        try:
+            value = self._decrypt_dict(row["content_ciphertext"])
+            content = base64.b64decode(str(value["base64"]), validate=True)
+        except (KeyError, ValueError, WorkerCryptoError) as exc:
+            raise WorkerStoreError(
+                "Worker artifact data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+        if (
+            len(content) != int(row["size"])
+            or hashlib.sha256(content).hexdigest() != str(row["sha256"])
+        ):
+            raise WorkerStoreError(
+                "Worker artifact data is corrupt.", code="worker_data_corrupt"
+            )
+        return content
+
+    def record_evidence(
+        self,
+        *,
+        task_id: str,
+        check_id: str,
+        operation_id: str,
+        workspace_tree_hash: str,
+        exit_code: int,
+        artifact_id: str,
+    ) -> WorkerEvidence:
+        now = self._now()
+        evidence_id = f"evidence_{uuid.uuid4().hex}"
+        status = EvidenceStatus.PASSED if exit_code == 0 else EvidenceStatus.FAILED
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            task = self._task(self._require_task_row(connection, task_id), connection)
+            if check_id not in {item.check_id for item in task.spec.acceptance.required_checks}:
+                raise WorkerConflictError(
+                    "Evidence check is not in the acceptance contract.",
+                    code="acceptance_check_unknown",
+                )
+            artifact = connection.execute(
+                "SELECT task_id FROM worker_artifacts WHERE artifact_id = ?", (artifact_id,)
+            ).fetchone()
+            if artifact is None or str(artifact["task_id"]) != task_id:
+                raise WorkerConflictError(
+                    "Evidence artifact is not bound to this task.",
+                    code="artifact_binding_conflict",
+                )
+            connection.execute(
+                """
+                INSERT INTO worker_evidence (
+                    evidence_id, task_id, check_id, operation_id,
+                    workspace_tree_hash, status, exit_code, artifact_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    evidence_id,
+                    task_id,
+                    check_id,
+                    operation_id,
+                    workspace_tree_hash,
+                    status.value,
+                    exit_code,
+                    artifact_id,
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="evidence_recorded",
+                payload={
+                    "evidence_id": evidence_id,
+                    "check_id": check_id,
+                    "status": status.value,
+                    "workspace_tree_hash": workspace_tree_hash,
+                },
+                created_at=now,
+            )
+        return self.get_evidence(evidence_id)
+
+    def get_evidence(self, evidence_id: str) -> WorkerEvidence:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_evidence WHERE evidence_id = ?", (evidence_id,)
+            ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError("Evidence was not found.", code="evidence_not_found")
+        return self._evidence(row)
+
+    def list_evidence(
+        self, task_id: str, *, current_tree_hash: str | None = None
+    ) -> list[WorkerEvidence]:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                "SELECT * FROM worker_evidence WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+        evidence = [self._evidence(row) for row in rows]
+        if current_tree_hash is None:
+            return evidence
+        return [
+            item.model_copy(update={"status": EvidenceStatus.INVALIDATED})
+            if item.workspace_tree_hash != current_tree_hash
+            else item
+            for item in evidence
+        ]
+
     def delete_task(self, task_id: str) -> bool:
         with self._lock, self._connect() as connection:
             row = self._require_task_row(connection, task_id)
@@ -801,6 +983,34 @@ class CodingWorkerStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_worker_operations_task
                     ON worker_operations(task_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    metadata_ciphertext TEXT NOT NULL,
+                    content_ciphertext TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_artifacts_task
+                    ON worker_artifacts(task_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_evidence (
+                    evidence_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    check_id TEXT NOT NULL,
+                    operation_id TEXT NOT NULL,
+                    workspace_tree_hash TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    exit_code INTEGER NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE,
+                    FOREIGN KEY(artifact_id) REFERENCES worker_artifacts(artifact_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_evidence_task
+                    ON worker_evidence(task_id, check_id, created_at);
                 """
             )
 
@@ -903,6 +1113,41 @@ class CodingWorkerStore:
         except (WorkerCryptoError, ValueError) as exc:
             raise WorkerStoreError(
                 "Worker operation data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    def _artifact(self, row: sqlite3.Row) -> WorkerArtifact:
+        try:
+            return WorkerArtifact(
+                artifact_id=str(row["artifact_id"]),
+                task_id=str(row["task_id"]),
+                media_type=str(row["media_type"]),
+                sha256=str(row["sha256"]),
+                size=int(row["size"]),
+                metadata=self._decrypt_dict(row["metadata_ciphertext"]),
+                created_at=float(row["created_at"]),
+            )
+        except (WorkerCryptoError, ValueError) as exc:
+            raise WorkerStoreError(
+                "Worker artifact data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    @staticmethod
+    def _evidence(row: sqlite3.Row) -> WorkerEvidence:
+        try:
+            return WorkerEvidence(
+                evidence_id=str(row["evidence_id"]),
+                task_id=str(row["task_id"]),
+                check_id=str(row["check_id"]),
+                operation_id=str(row["operation_id"]),
+                workspace_tree_hash=str(row["workspace_tree_hash"]),
+                status=EvidenceStatus(row["status"]),
+                exit_code=int(row["exit_code"]),
+                artifact_id=str(row["artifact_id"]),
+                created_at=float(row["created_at"]),
+            )
+        except ValueError as exc:
+            raise WorkerStoreError(
+                "Worker evidence data is corrupt.", code="worker_data_corrupt"
             ) from exc
 
     @staticmethod

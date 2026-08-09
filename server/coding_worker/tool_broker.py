@@ -5,7 +5,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
+import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -325,7 +327,11 @@ class ToolBroker:
             if check is None:
                 raise ToolBrokerError("Check is not registered.", code="check_not_found")
             return await self._run_process(
-                workspace_id, check.argv, check.timeout_seconds, trusted=True
+                workspace_id,
+                check.argv,
+                check.timeout_seconds,
+                trusted=True,
+                isolated=True,
             )
         if tool_name == "run_command":
             argv = arguments.get("argv")
@@ -385,30 +391,55 @@ class ToolBroker:
         timeout_seconds: int,
         *,
         trusted: bool = False,
+        isolated: bool = False,
     ) -> dict[str, Any]:
         normalized = self._validate_argv(argv, trusted=trusted)
         repository = self.workspace_broker.repository_path(workspace_id)
-        process = await asyncio.create_subprocess_exec(
-            *normalized,
-            cwd=repository,
-            env=self._safe_environment(repository),
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        execution_root: Path | None = None
+        execution_repository = repository
         try:
-            output, _ = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            raise ToolBrokerError("Command timed out.", code="command_timeout")
-        if len(output) > self.max_output_bytes:
-            raise ToolBrokerError("Command output is too large.", code="tool_output_too_large")
-        return {
-            "argv": list(normalized),
-            "exit_code": int(process.returncode or 0),
-            "output": output.decode("utf-8", errors="replace"),
-        }
+            if isolated:
+                self.workspace_broker.tree(workspace_id)
+                execution_root = (
+                    self.workspace_broker.root
+                    / "harness-runs"
+                    / f"run_{uuid.uuid4().hex}"
+                )
+                execution_root.parent.mkdir(exist_ok=True)
+                shutil.copytree(
+                    repository,
+                    execution_root,
+                    ignore=shutil.ignore_patterns(".git"),
+                )
+                execution_repository = execution_root
+            process = await asyncio.create_subprocess_exec(
+                *normalized,
+                cwd=execution_repository,
+                env=self._safe_environment(execution_repository),
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                output, _ = await asyncio.wait_for(
+                    process.communicate(), timeout=timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                raise ToolBrokerError("Command timed out.", code="command_timeout")
+            if len(output) > self.max_output_bytes:
+                raise ToolBrokerError(
+                    "Command output is too large.", code="tool_output_too_large"
+                )
+            return {
+                "argv": list(normalized),
+                "exit_code": int(process.returncode or 0),
+                "output": output.decode("utf-8", errors="replace"),
+            }
+        finally:
+            if execution_root is not None:
+                self.workspace_broker._remove_tree(execution_root)
 
     def _target(self, workspace_id: str, value: str, *, create_parents: bool = False) -> Path:
         path = PurePosixPath(value)

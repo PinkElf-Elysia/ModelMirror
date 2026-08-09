@@ -351,6 +351,24 @@ class WorkerArtifact(StrictModel):
     created_at: float
 
 
+class EvidenceStatus(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+    INVALIDATED = "invalidated"
+
+
+class WorkerEvidence(StrictModel):
+    evidence_id: str
+    task_id: str
+    check_id: str
+    operation_id: str
+    workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    status: EvidenceStatus
+    exit_code: int
+    artifact_id: str
+    created_at: float
+
+
 class OperationState(StrEnum):
     PREPARED = "prepared"
     RUNNING = "running"
