@@ -16,6 +16,7 @@ from server.coding_worker.contracts import (
     PolicyProfile,
     TaskBudget,
     TaskCreateRequest,
+    TaskSpec,
     TaskState,
     WorkspaceSource,
 )
@@ -23,6 +24,8 @@ from server.coding_worker.evidence import HarnessRunner
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     ProviderEvent,
+    ProviderCheckpoint,
+    ProviderOpenRequest,
     ProviderSession,
 )
 from server.coding_worker.service import CodingWorkerService
@@ -73,6 +76,26 @@ class _RepairingProvider(FakeCodingAgentProvider):
             await self.repair()
         async for event in super().message(session, text):
             yield event
+
+
+class _RestoreTrackingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.restore_count = 0
+        self.message_count = 0
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.message_count += 1
+        async for event in super().message(session, text):
+            yield event
+
+    async def restore(
+        self, request: ProviderOpenRequest, checkpoint: ProviderCheckpoint
+    ) -> ProviderSession:
+        self.restore_count += 1
+        return await super().restore(request, checkpoint)
 
 
 def _service_with_harness(
@@ -223,4 +246,95 @@ async def test_required_check_failure_exhausts_turn_budget_without_completion(
     assert limited.reason == "turn_budget_exhausted"
     assert limited.state is not TaskState.COMPLETED
     assert len(service.store.list_evidence(task.task_id)) == 2
+    await service.shutdown()
+
+
+async def _checkpointed_task(
+    service: CodingWorkerService,
+    broker: ToolBroker,
+    *,
+    mutate_after_checkpoint: bool,
+) -> str:
+    request = _request("restore").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    prepared = await service.workspace_broker.prepare(request.workspace_source)
+    task = service.store.create_task(
+        TaskSpec(**request.model_dump(), origin=Origin(module="test", object_id="restore"))
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    service.store.transition(
+        task.task_id, TaskState.RUNNING, workspace_id=prepared.workspace_id
+    )
+    content = "print('checkpoint')\n"
+    await broker.execute(
+        task_id=task.task_id,
+        operation_id="checkpoint-write",
+        tool_name="write_file",
+        arguments={
+            "path": "main.py",
+            "content": content,
+            "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+        },
+    )
+    tree_hash = service.workspace_broker.current_tree_hash(prepared.workspace_id)
+    provider_checkpoint = ProviderCheckpoint(
+        checkpoint_id="checkpoint_provider",
+        payload={"private_context": "resume-only"},
+    )
+    service.store.create_checkpoint(
+        task_id=task.task_id,
+        workspace_tree_hash=tree_hash,
+        payload={
+            "phase": "testing",
+            "completed_turns": 1,
+            "provider": provider_checkpoint.model_dump(mode="json"),
+        },
+    )
+    if mutate_after_checkpoint:
+        changed = "print('changed after checkpoint')\n"
+        await broker.execute(
+            task_id=task.task_id,
+            operation_id="post-checkpoint-write",
+            tool_name="write_file",
+            arguments={
+                "path": "main.py",
+                "content": changed,
+                "content_sha256": hashlib.sha256(changed.encode()).hexdigest(),
+            },
+        )
+    service.store.transition(task.task_id, TaskState.INTERRUPTED)
+    return task.task_id
+
+
+@pytest.mark.asyncio
+async def test_explicit_resume_restores_exact_checkpoint_and_runs_acceptance_first(
+    tmp_path: Path,
+) -> None:
+    provider = _RestoreTrackingProvider()
+    service, broker = _service_with_harness(tmp_path, provider)
+    task_id = await _checkpointed_task(
+        service, broker, mutate_after_checkpoint=False
+    )
+    await service.resume(task_id)
+    completed = await service.wait_for(
+        task_id, lambda item: item.state is TaskState.COMPLETED
+    )
+    assert completed.reason is None
+    assert provider.restore_count == 1
+    assert provider.message_count == 0
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_resume_rejects_workspace_changed_after_checkpoint(tmp_path: Path) -> None:
+    provider = _RestoreTrackingProvider()
+    service, broker = _service_with_harness(tmp_path, provider)
+    task_id = await _checkpointed_task(service, broker, mutate_after_checkpoint=True)
+    await service.resume(task_id)
+    blocked = await service.wait_for(
+        task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+    assert blocked.reason == "checkpoint_workspace_changed"
+    assert provider.restore_count == 0
     await service.shutdown()

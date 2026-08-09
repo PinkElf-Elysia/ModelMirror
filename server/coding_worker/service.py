@@ -17,6 +17,7 @@ from .contracts import (
 from .evidence import HarnessRunner
 from .provider import (
     CodingAgentProvider,
+    ProviderCheckpoint,
     ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
@@ -221,7 +222,38 @@ class CodingWorkerService:
                 policy_profile=task.spec.policy_profile,
                 budget=task.spec.budget,
             )
-            session = await self.provider.open(request)
+            resume_phase: str | None = None
+            completed_turns = 0
+            checkpoint = self.store.latest_checkpoint(task_id)
+            if checkpoint is not None:
+                current_tree_hash = self.workspace_broker.current_tree_hash(
+                    workspace.workspace_id
+                )
+                if checkpoint.workspace_tree_hash != current_tree_hash:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BLOCKED,
+                        reason="checkpoint_workspace_changed",
+                        expected_state=TaskState.PREPARING,
+                    )
+                    return
+                try:
+                    provider_checkpoint = ProviderCheckpoint.model_validate(
+                        checkpoint.payload["provider"]
+                    )
+                    resume_phase = str(checkpoint.payload["phase"])
+                    completed_turns = int(checkpoint.payload["completed_turns"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise WorkerConflictError(
+                        "Checkpoint payload is invalid.", code="checkpoint_invalid"
+                    ) from exc
+                if resume_phase != "testing" or completed_turns < 1:
+                    raise WorkerConflictError(
+                        "Checkpoint phase is invalid.", code="checkpoint_invalid"
+                    )
+                session = await self.provider.restore(request, provider_checkpoint)
+            else:
+                session = await self.provider.open(request)
             self._sessions[task_id] = session
             self.store.transition(
                 task_id,
@@ -232,7 +264,12 @@ class CodingWorkerService:
             )
             if not self.store.list_messages(task_id):
                 self.store.append_message(task_id, role="user", content=task.spec.objective)
-            await self._drive_session(task, session)
+            await self._drive_session(
+                task,
+                session,
+                resume_phase=resume_phase,
+                completed_turns=completed_turns,
+            )
         except TimeoutError:
             current = self.store.get_task(task_id)
             if current.state not in TERMINAL_STATES:
@@ -263,11 +300,23 @@ class CodingWorkerService:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
 
-    async def _drive_session(self, task: TaskRecord, session: ProviderSession) -> None:
+    async def _drive_session(
+        self,
+        task: TaskRecord,
+        session: ProviderSession,
+        *,
+        resume_phase: str | None,
+        completed_turns: int,
+    ) -> None:
         task_id = task.task_id
         message = task.spec.objective
-        turns = 0
+        turns = completed_turns
         async with asyncio.timeout(task.spec.budget.max_seconds):
+            if resume_phase == "testing":
+                feedback = await self._evaluate_acceptance(task, turns)
+                if feedback is None:
+                    return
+                message = feedback
             while True:
                 turns += 1
                 turn_completed = False
@@ -295,67 +344,96 @@ class CodingWorkerService:
                             task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
                         )
                     return
-
-                self.store.transition(
-                    task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
-                )
-                if self.harness_runner is None:
-                    self.store.transition(
-                        task_id,
-                        TaskState.BLOCKED,
-                        reason="acceptance_runner_pending",
-                        expected_state=TaskState.TESTING,
-                    )
-                    return
                 try:
-                    evidence = await self.harness_runner.run_required_checks(task_id)
-                except ToolBrokerError as exc:
+                    provider_checkpoint = await self.provider.checkpoint(session)
+                    tree_hash = self.workspace_broker.current_tree_hash(
+                        self.store.get_task(task_id).workspace_id or ""
+                    )
+                    self.store.create_checkpoint(
+                        task_id=task_id,
+                        workspace_tree_hash=tree_hash,
+                        payload={
+                            "phase": "testing",
+                            "completed_turns": turns,
+                            "provider": provider_checkpoint.model_dump(mode="json"),
+                        },
+                    )
+                except Exception:
                     self.store.transition(
                         task_id,
                         TaskState.BLOCKED,
-                        reason=exc.code,
-                        expected_state=TaskState.TESTING,
+                        reason="checkpoint_failed",
+                        expected_state=TaskState.RUNNING,
                     )
                     return
-                self.store.append_event(
-                    task_id,
-                    "acceptance_evaluated",
+                feedback = await self._evaluate_acceptance(task, turns)
+                if feedback is None:
+                    return
+                message = feedback
+
+    async def _evaluate_acceptance(self, task: TaskRecord, turns: int) -> str | None:
+        task_id = task.task_id
+        self.store.transition(
+            task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
+        )
+        if self.harness_runner is None:
+            self.store.transition(
+                task_id,
+                TaskState.BLOCKED,
+                reason="acceptance_runner_pending",
+                expected_state=TaskState.TESTING,
+            )
+            return None
+        try:
+            evidence = await self.harness_runner.run_required_checks(task_id)
+        except ToolBrokerError as exc:
+            self.store.transition(
+                task_id,
+                TaskState.BLOCKED,
+                reason=exc.code,
+                expected_state=TaskState.TESTING,
+            )
+            return None
+        self.store.append_event(
+            task_id,
+            "acceptance_evaluated",
+            {
+                "turn": turns,
+                "evidence": [
                     {
-                        "turn": turns,
-                        "evidence": [
-                            {
-                                "check_id": item.check_id,
-                                "status": item.status.value,
-                                "artifact_id": item.artifact_id,
-                            }
-                            for item in evidence
-                        ],
-                    },
-                )
-                if self.harness_runner.acceptance_satisfied(task_id):
-                    self.store.transition(
-                        task_id,
-                        TaskState.COMPLETED,
-                        expected_state=TaskState.TESTING,
-                    )
-                    return
-                if turns >= task.spec.budget.max_turns:
-                    self.store.transition(
-                        task_id,
-                        TaskState.BUDGET_LIMITED,
-                        reason="turn_budget_exhausted",
-                        expected_state=TaskState.TESTING,
-                    )
-                    return
-                message = self._acceptance_feedback(task_id, evidence)
-                self.store.append_message(task_id, role="system", content=message)
-                self.store.append_event(task_id, "acceptance_retry", {"turn": turns + 1})
-                self.store.transition(
-                    task_id,
-                    TaskState.RUNNING,
-                    reason="acceptance_failed",
-                    expected_state=TaskState.TESTING,
-                )
+                        "check_id": item.check_id,
+                        "status": item.status.value,
+                        "artifact_id": item.artifact_id,
+                    }
+                    for item in evidence
+                ],
+            },
+        )
+        if self.harness_runner.acceptance_satisfied(task_id):
+            self.store.transition(
+                task_id,
+                TaskState.COMPLETED,
+                expected_state=TaskState.TESTING,
+            )
+            return None
+        if turns >= task.spec.budget.max_turns:
+            self.store.transition(
+                task_id,
+                TaskState.BUDGET_LIMITED,
+                reason="turn_budget_exhausted",
+                expected_state=TaskState.TESTING,
+            )
+            return None
+        message = self._acceptance_feedback(task_id, evidence)
+        self.store.append_message(task_id, role="system", content=message)
+        self.store.append_event(task_id, "acceptance_retry", {"turn": turns + 1})
+        self.store.transition(
+            task_id,
+            TaskState.RUNNING,
+            reason="acceptance_failed",
+            expected_state=TaskState.TESTING,
+        )
+        return message
 
     def _acceptance_feedback(
         self, task_id: str, evidence: tuple[WorkerEvidence, ...]
