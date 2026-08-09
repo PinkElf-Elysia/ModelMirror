@@ -26,3 +26,9 @@ V14 不在宿主仓库原地执行，不开放 Git remote/push、自动 PR、任
 ## 回退
 
 关闭 `CODING_WORKER_V14_ENABLED` 后，新任务继续走 legacy；不得删除 Worker Store、Workspace、Coding Recovery 或 Agent Workspace 数据。已有活动 legacy 会话不迁移。
+
+## PR A 当前接口
+
+`/api/coding-worker/v1` 默认关闭。Kernel 阶段提供任务幂等创建、状态、SSE 事件补发、消息、暂停/继续/取消/pin，以及用 opaque `entry_id` 读取的 Workspace tree、文本预览与 Diff。`origin` 始终由 Server 写入；模型路由必须命中 `CODING_WORKER_MODEL_ROUTES`。
+
+PR A 使用 Fake Provider 验证状态机，模型停止后只进入 `testing` 并以 `acceptance_runner_pending` 阻断，绝不伪造完成。OpenCode、Tool Broker、Harness Runner 和 legacy 转发在后续顺序 PR 接入；未配置真实 Provider 时即使误开开关，API 也返回 503，而不会回退到未隔离执行。
