@@ -24,6 +24,9 @@
 - GdUnit4 不套用第一方能力扫描，改由 vendor integrity 约束。
 - MCP 只在仓外一次性副本上使用 loopback、无凭据验证；正式工程不包含 MCP addon、配置或运行依赖。
 - 固定帧捕获必须输出到仓外临时目录，不能写入模块或父仓。
+- `check:godot-boundary` 只扫描第一方 `.gd`；GdUnit4 由 `verify:vendor` 单独约束，避免把上游测试能力误当作第一方功能。
+- `verify:godot` 的固定顺序为严格 doctor → vendor integrity → 第一方 Godot boundary → disposable import → GdUnit → headless smoke。
+- `capture:godot` 和 `qualify:godot-mcp` 均要求 `C:\tmp` 下尚不存在的新输出目录，且永不纳入自动 `verify` 或正式运行依赖。
 
 ## 自动范围门与回退
 

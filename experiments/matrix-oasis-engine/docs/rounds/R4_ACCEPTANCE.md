@@ -1,6 +1,6 @@
 # R4 验收记录
 
-状态：R4.3 已验证，等待本地提交；尚未达到人工验收门。
+状态：R4.4 已验证，等待本地提交；尚未达到人工验收门。
 
 固定 `R4_BASE_SHA`：`df4a4b53e1f03f81fbf5a041065dc1443158c472`
 
@@ -10,8 +10,8 @@
 | --- | --- | --- |
 | R4.1 治理与冻结迁移 | 已完成 | `6370008` |
 | R4.2 Godot 工具链与最小工程 | 已完成 | `70b2504` |
-| R4.3 GdUnit4 与来源护栏 | 已验证 | 本批提交，SHA 在 R4.4 记录 |
-| R4.4 自动验证、MCP 资格与固定帧 | 未开始 | — |
+| R4.3 GdUnit4 与来源护栏 | 已完成 | `d611904` |
+| R4.4 自动验证、MCP 资格与固定帧 | 已验证 | 本批提交，SHA 在 R4.5 记录 |
 | R4.5 拆分与证据收口 | 未开始 | — |
 
 ## R4.1 证据
@@ -70,6 +70,21 @@
 - `npm.cmd run verify`：12/12 steps；完整 375/375 Node tests、Godot/GdUnit、R1–R3、Creator 247 modules build 与 HTTP 200 smoke 全部通过。
 
 R4.3 不新增 npm registry 依赖、不改 lockfile、不加入导出模板或平台二进制。若回退本批提交，将移除 vendored addon、来源锁、GdUnit 测试和供应链 harness；R4.2 最小工程仍可独立 import/smoke。
+
+## R4.4 证据
+
+本批新增第一方 GDScript 能力门、固定帧 Movie Maker harness 与仓外 MCP 资格脚本。正式 Godot 工程只增加 capture 参数和既有 GdUnit 测试内的合同断言；未加入网络、MCP addon/config、Runtime Pack、玩法或资产。
+
+已执行并通过：
+
+- `npm.cmd run check:godot-boundary`：`GODOT_BOUNDARY_OK checked=2`；12 个定向测试覆盖正式源码正向与网络、Socket、进程、环境变量、绝对路径、动态加载和文件写入负例。GdUnit4 不参与第一方扫描，继续由 vendor hash 控制。
+- `npm.cmd run verify:godot`：严格 doctor → vendor integrity → 第一方 boundary → disposable import → 4 个 GdUnit → headless smoke 全链退出 0。
+- `npm.cmd run capture:godot -- --output C:\tmp\matrix-oasis-r4-capture-r44`：Forward+、960×540、30 FPS、12 张 PNG 全部有效；单帧 11,847 bytes，SHA-256 `6c54ab454a3cd2a0c3db8bc923ced157c8a1ab49eeec73f1d070c11993409bc6`。已目视确认中性 primitive、地面、光照与相机；不做跨 GPU 像素 golden。
+- `npm.cmd run qualify:godot-mcp -- --output C:\tmp\matrix-oasis-r4-mcp-r44e`：两项固定 npm integrity、MIT、stdio 握手、工具枚举、进程退出和测试前后源树哈希通过，树哈希前后均为 `425c112fb7a35db1e134189dc32f7dcbeda8b60ac17204a8920479af1fa0014a`。minimal `0.1.6` 的 4 工具与真实 LSP 扫描通过，记为后续只读候选；satellite `4.1.0` 的 12 个只读工具通过但 headless 编辑器项目观察未就绪，明确延后。
+- `npm.cmd test`：390/390；`npm.cmd run verify`：12/12 steps，Godot/GdUnit、R1–R3、Creator 247 modules build 与 HTTP 200 smoke 全部通过。
+- `npm.cmd run check:round-scope`：`ROUND_SCOPE_OK checked=651 changed=641`；`check:parent-scope` 同为 651/641；`npm.cmd run check:boundary`：`BOUNDARY_OK checked=761 tracked=761`。
+
+图形帧、MCP 安装树、一次性项目和详细 JSON 报告全部位于仓外；自动 `verify` 不依赖 GPU 或 MCP 网络安装。回退本批提交只移除 R4.4 checker、capture/qualification harness 和相关文档，保留 R4.3 的可验证 Godot/GdUnit 工程。
 
 ## 最终仓外标识
 

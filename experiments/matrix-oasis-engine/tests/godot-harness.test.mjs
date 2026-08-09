@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,19 @@ import {
   extractGodotVersion,
   resolveGodotBinary,
 } from "../scripts/lib/godot-core.mjs";
+import {
+  CAPTURE_FRAME_COUNT,
+  CAPTURE_HEIGHT,
+  CAPTURE_WIDTH,
+  parseCaptureArguments,
+  readPngDimensions,
+  validateCaptureOutput,
+} from "../scripts/capture-godot.mjs";
+import {
+  parseQualificationArguments,
+  sanitizedMcpEnvironment,
+  validateQualificationOutput,
+} from "../scripts/qualify-godot-mcp.mjs";
 
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -111,4 +125,49 @@ test("Godot verification uses a disposable project instead of mutating the vendo
   assert.match(harness, /matrix-oasis-godot-project-/);
   assert.match(harness, /fs\.cpSync\(sourceProjectRoot, projectRoot/);
   assert.match(harness, /path\.basename\(source\) !== "\.godot"/);
+});
+
+test("capture arguments require a new absolute child of the temporary root", (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "matrix-oasis-capture-contract-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const output = path.join(root, "frames");
+  assert.equal(parseCaptureArguments(["--output", output]), output);
+  assert.equal(validateCaptureOutput(output, { temporaryRoot: root }), output);
+  fs.mkdirSync(output);
+  assert.throws(
+    () => validateCaptureOutput(output, { temporaryRoot: root }),
+    (error) => error instanceof GodotHarnessError && error.code === "GODOT_CAPTURE_OUTPUT_INVALID",
+  );
+  assert.throws(
+    () => parseCaptureArguments(["--output", "relative"]),
+    (error) => error instanceof GodotHarnessError && error.code === "GODOT_CAPTURE_OUTPUT_INVALID",
+  );
+});
+
+test("capture contract fixes PNG dimensions and twelve frames", () => {
+  const png = Buffer.alloc(24);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png, 0);
+  png.write("IHDR", 12, "ascii");
+  png.writeUInt32BE(CAPTURE_WIDTH, 16);
+  png.writeUInt32BE(CAPTURE_HEIGHT, 20);
+  assert.deepEqual(readPngDimensions(png), { width: 960, height: 540 });
+  assert.equal(CAPTURE_FRAME_COUNT, 12);
+  assert.throws(
+    () => readPngDimensions(Buffer.from("not-png")),
+    (error) => error instanceof GodotHarnessError && error.code === "GODOT_CAPTURE_PNG_INVALID",
+  );
+});
+
+test("MCP qualification requires a new external output and strips credentials", (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "matrix-oasis-mcp-contract-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const output = path.join(root, "qualification");
+  assert.equal(parseQualificationArguments(["--output", output]), output);
+  assert.equal(validateQualificationOutput(output, { temporaryRoot: root }), output);
+  const secretName = ["API", "KEY"].join("_");
+  const environment = sanitizedMcpEnvironment({ Path: "fixture", TEMP: root, [secretName]: "sentinel" });
+  assert.equal(environment.Path, "fixture");
+  assert.equal(environment.TEMP, root);
+  assert.equal(Reflect.has(environment, secretName), false);
+  assert.equal(JSON.stringify(environment).includes("sentinel"), false);
 });

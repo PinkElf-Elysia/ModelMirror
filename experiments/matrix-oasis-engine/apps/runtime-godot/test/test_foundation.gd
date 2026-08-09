@@ -33,6 +33,9 @@ func test_bootstrap_contract_exposes_marker_and_smoke_flag() -> void:
 	assert_str(bootstrap_script.READINESS_MARKER).is_equal(READINESS_MARKER)
 	assert_bool(bootstrap_script.is_smoke_requested(PackedStringArray(["--matrix-oasis-smoke"]))).is_true()
 	assert_bool(bootstrap_script.is_smoke_requested(PackedStringArray())).is_false()
+	assert_bool(bootstrap_script.is_capture_requested(PackedStringArray(["--matrix-oasis-capture"]))).is_true()
+	assert_bool(bootstrap_script.is_capture_requested(PackedStringArray())).is_false()
+	assert_int(bootstrap_script.CAPTURE_FRAME_COUNT).is_equal(12)
 
 
 func test_bootstrap_dependencies_stay_inside_the_project() -> void:
