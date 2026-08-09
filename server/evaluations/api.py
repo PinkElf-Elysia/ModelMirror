@@ -103,6 +103,7 @@ async def get_capabilities() -> dict[str, Any]:
             "contains",
             "json_schema",
             "citation_hit",
+            "tool_call_match",
             "rubric_judge",
         ],
         "dataset_limits": {"max_cases": 500, "max_cases_per_run": 100},
@@ -230,11 +231,25 @@ async def publish_dataset(
     payload: DatasetPublishRequest,
 ) -> dict[str, Any]:
     try:
+        dataset = await _to_thread(_require_store().require_dataset, dataset_id)
+        if str(dataset.get("origin") or "manual") == "generated":
+            try:
+                from server.benchmarks import get_benchmark_generation_service
+            except ModuleNotFoundError:
+                from benchmarks import get_benchmark_generation_service
+
+            await _to_thread(
+                get_benchmark_generation_service().assert_dataset_target_fresh,
+                dataset,
+            )
         return await _to_thread(
             _require_store().publish_dataset,
             dataset_id,
             revision=payload.revision,
             release_notes=payload.release_notes,
+            acknowledge_calibration_warnings=(
+                payload.acknowledge_calibration_warnings
+            ),
         )
     except EvaluationConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

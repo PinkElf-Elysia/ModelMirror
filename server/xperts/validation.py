@@ -3,10 +3,18 @@ from __future__ import annotations
 from .models import XpertDefinition, XpertValidationResult
 
 try:
-    from server.workflow_native.schemas import ValidationIssue
+    from server.workflow_native.schemas import (
+        NativeWorkflowDefinition,
+        ValidateWorkflowResponse,
+        ValidationIssue,
+    )
     from server.workflow_native.validate import validate_workflow_graph
 except ModuleNotFoundError:
-    from workflow_native.schemas import ValidationIssue
+    from workflow_native.schemas import (
+        NativeWorkflowDefinition,
+        ValidateWorkflowResponse,
+        ValidationIssue,
+    )
     from workflow_native.validate import validate_workflow_graph
 
 
@@ -15,9 +23,14 @@ def _node_kind(node) -> str:
     return str(value or node.type or "")
 
 
-def validate_xpert_definition(xpert: XpertDefinition) -> XpertValidationResult:
-    base = validate_workflow_graph(xpert.draft.workflow)
-    history_variable = xpert.draft.history_variable
+def validate_xpert_workflow_graph(
+    workflow: NativeWorkflowDefinition,
+    *,
+    history_variable: str,
+) -> ValidateWorkflowResponse:
+    """Validate a workflow while honoring Xpert's injected history variable."""
+
+    base = validate_workflow_graph(workflow)
     history_reference = f"variable '{history_variable}'"
     issues = [
         issue
@@ -27,6 +40,20 @@ def validate_xpert_definition(xpert: XpertDefinition) -> XpertValidationResult:
             and history_reference in issue.message
         )
     ]
+    return base.model_copy(
+        update={
+            "valid": not any(issue.severity == "error" for issue in issues),
+            "issues": issues,
+        }
+    )
+
+
+def validate_xpert_definition(xpert: XpertDefinition) -> XpertValidationResult:
+    base = validate_xpert_workflow_graph(
+        xpert.draft.workflow,
+        history_variable=xpert.draft.history_variable,
+    )
+    issues = list(base.issues)
     nodes = xpert.draft.workflow.nodes
     input_nodes = [node for node in nodes if _node_kind(node) == "input"]
     output_nodes = [node for node in nodes if _node_kind(node) == "output"]

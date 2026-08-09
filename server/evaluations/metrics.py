@@ -16,6 +16,7 @@ async def evaluate_case_metrics(
     case: dict[str, Any],
     output: str,
     citations: dict[str, list[str]],
+    tool_calls: list[str] | None = None,
     judge: JudgeCallback | None = None,
     judge_model_id: str | None = None,
 ) -> dict[str, Any]:
@@ -96,6 +97,32 @@ async def evaluate_case_metrics(
             )
         )
 
+    required_tools = _string_list(expected.get("required_tools"))
+    forbidden_tools = _string_list(expected.get("forbidden_tools"))
+    expected_order = _string_list(expected.get("tool_order"))
+    if required_tools or forbidden_tools or expected_order:
+        actual_tools = [str(item) for item in list(tool_calls or []) if str(item)]
+        required_hits = sum(item in actual_tools for item in required_tools)
+        forbidden_hits = sum(item in actual_tools for item in forbidden_tools)
+        order_ok = _is_subsequence(expected_order, actual_tools)
+        checks = len(required_tools) + len(forbidden_tools) + (1 if expected_order else 0)
+        passed_checks = (
+            required_hits
+            + (len(forbidden_tools) - forbidden_hits)
+            + (1 if expected_order and order_ok else 0)
+        )
+        metrics.append(
+            _metric(
+                "tool_call_match",
+                passed_checks / checks if checks else 0.0,
+                (
+                    f"required={required_hits}/{len(required_tools)}, "
+                    f"forbidden_hits={forbidden_hits}, "
+                    f"order={'matched' if order_ok else 'mismatched'}"
+                ),
+                weights,
+            )
+        )
     rubric = expected.get("rubric")
     if isinstance(rubric, str) and rubric.strip():
         if judge is None or not judge_model_id:
@@ -246,6 +273,22 @@ def _normalize(value: str) -> str:
 
 def _string_set(value: Any) -> set[str]:
     return {str(item).strip() for item in list(value or []) if str(item).strip()}
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item).strip() for item in list(value or []) if str(item).strip()]
+
+
+def _is_subsequence(expected: list[str], actual: list[str]) -> bool:
+    if not expected:
+        return True
+    position = 0
+    for item in actual:
+        if item == expected[position]:
+            position += 1
+            if position == len(expected):
+                return True
+    return False
 
 
 def _percentile(values: list[float], quantile: float) -> float:

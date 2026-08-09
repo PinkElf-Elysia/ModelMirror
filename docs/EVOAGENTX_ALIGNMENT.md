@@ -189,14 +189,24 @@ Evaluator 不批准 Proposal、不写 Xpert 草稿、不发布版本。完整契
 - Dataset 已兼容 origin、catalog provenance、coverage 和 calibration 状态。
 - `/agents/evaluations` 已增加标准基准、我的评测集和运行报告视图。
 
+### `EVOAGENTX-BENCHMARK-GENERATOR-02`：已实现
+
+- 已支持 Xpert 草稿、发布版本、固定 Proposal 与 Prompt Profile + 固定宿主版本。
+- 已按真实目标能力生成指令、结构输出、多轮、工具路由、知识引用与命令覆盖矩阵。
+- 已实现一次生成、一次 JSON 修复、显式会话样例、重复/泄漏和未知资源校验。
+- 已增加确定性 `tool_call_match`，只捕获工具名和稳定顺序。
+- 已复用 Evaluator 固定快照完成自动校准；校准不会修改 Gold。
+- 已实现生成 Job 重启恢复，以及 pending/warning/failed/stale 发布门禁。
+- Studio、Meta Planner、Prompt 与 Evolution 已提供一键生成入口。
+
 ### 当前路线：Benchmark 闭环
 
 Meta Planner、Evaluator、Prompt Evolution 和 Structure Evolution 已形成第一阶段闭环，
-但缺少可重复标准数据与针对性生成。当前按以下独立轮次补齐后再做收益审计：
+Xpert 标准数据与针对性生成也已补齐。当前按以下独立轮次完成 RAG 和兼容性收口：
 
 1. 已完成标准 Xpert Benchmark 目录。
-2. 下一轮实现 Xpert/Prompt/Profile/结构目标的一键生成与受限校准。
-3. 随后实现标准 RAG Pack 与版本化 Gold 引用。
+2. 已完成 Xpert/Prompt/Profile/结构目标的一键生成与受限校准。
+3. 下一轮实现标准 RAG Pack 与版本化 Gold 引用。
 4. 再实现知识库定向 Benchmark 生成。
 5. 最后只对 General Agent Workspace 做目录和运行摘要适配，不替换 Penguin Runtime。
 

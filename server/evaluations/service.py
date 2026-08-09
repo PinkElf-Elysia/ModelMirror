@@ -8,16 +8,16 @@ from typing import Any, Callable
 
 try:
     from server.workflow_native.schemas import NativeWorkflowDefinition
-    from server.workflow_native.validate import validate_workflow_graph
     from server.xperts.models import (
         XpertDefinition,
         XpertDraft,
         XpertVersion,
     )
+    from server.xperts.validation import validate_xpert_workflow_graph
 except ModuleNotFoundError:
     from workflow_native.schemas import NativeWorkflowDefinition
-    from workflow_native.validate import validate_workflow_graph
     from xperts.models import XpertDefinition, XpertDraft, XpertVersion
+    from xperts.validation import validate_xpert_workflow_graph
 
 from .store import (
     EvaluationConflictError,
@@ -166,7 +166,10 @@ class XpertEvaluationService:
             workflow,
             recursion_path=(*recursion_path, xpert.id),
         )
-        validation = validate_workflow_graph(workflow)
+        validation = validate_xpert_workflow_graph(
+            workflow,
+            history_variable=version.history_variable,
+        )
         issues.extend(
             {
                 "code": issue.code,
@@ -305,7 +308,10 @@ class XpertEvaluationService:
             workflow,
             recursion_path=(xpert.id,),
         )
-        graph_validation = validate_workflow_graph(workflow)
+        graph_validation = validate_xpert_workflow_graph(
+            workflow,
+            history_variable=xpert.draft.history_variable,
+        )
         issues.extend(
             {
                 "code": issue.code,

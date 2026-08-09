@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 import httpx
 import pytest_asyncio
@@ -8,6 +10,9 @@ import server.main as main_module
 from server.main import (
     ChatMessage,
     app,
+    collect_chat_completion_text,
+    completion_json_result_from_payload,
+    completion_json_text_from_payload,
     parse_upstream_error,
     sse_delta_text,
     stream_chat_text,
@@ -135,6 +140,181 @@ async def test_sse_text_stream_passthrough(monkeypatch: pytest.MonkeyPatch) -> N
     ]
 
     assert "".join(chunks) == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_collected_completion_forwards_json_response_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status_code = 200
+        content = b""
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"ok":true}'}}]}
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb) -> None:
+            return None
+
+        async def post(self, _url, *, headers, json):
+            captured["headers"] = headers
+            captured["payload"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        main_module, "get_llm_gateway_config", lambda: ("http://mock", "key")
+    )
+    monkeypatch.setattr(main_module.httpx, "AsyncClient", FakeClient)
+
+    result = await collect_chat_completion_text(
+        "mock-model",
+        [ChatMessage(role="user", content="return JSON")],
+        response_format={"type": "json_object"},
+        reasoning={"effort": "low"},
+    )
+
+    assert result == '{"ok":true}'
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert captured["payload"]["reasoning"] == {"effort": "low"}
+
+
+def test_json_completion_recovers_object_without_exposing_reasoning() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "reasoning_content": (
+                        "private analysis that must never be returned\n"
+                        '{"dataset":{"name":"safe","cases":[]}}\n'
+                        "more private analysis"
+                    ),
+                }
+            }
+        ]
+    }
+
+    recovered = completion_json_text_from_payload(payload)
+
+    assert json.loads(recovered) == {"dataset": {"name": "safe", "cases": []}}
+    assert "private analysis" not in recovered
+
+
+def test_json_completion_does_not_return_unstructured_reasoning() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "reasoning": "private analysis without a JSON object",
+                }
+            }
+        ]
+    }
+
+    assert completion_json_text_from_payload(payload) == ""
+
+
+def test_json_completion_selects_required_dataset_after_schema_example() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "reasoning_content": (
+                        '{"type":"object","properties":{"answer":{"type":"string"}}}\n'
+                        "then the final contract follows\n"
+                        '{"dataset":{"name":"professional","cases":[]}}'
+                    ),
+                }
+            }
+        ]
+    }
+
+    recovered = completion_json_text_from_payload(
+        payload,
+        required_top_level_key="dataset",
+    )
+
+    assert json.loads(recovered) == {
+        "dataset": {"name": "professional", "cases": []}
+    }
+
+
+def test_json_completion_rejects_reasoning_schema_without_required_dataset() -> None:
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": "",
+                    "reasoning_content": '{"type":"object","properties":{}}',
+                }
+            }
+        ]
+    }
+
+    assert (
+        completion_json_text_from_payload(
+            payload,
+            required_top_level_key="dataset",
+        )
+        == ""
+    )
+
+
+def test_json_completion_reports_safe_finish_usage_and_contract_diagnostics() -> None:
+    payload = {
+        "choices": [
+            {
+                "finish_reason": "length",
+                "message": {
+                    "content": "",
+                    "reasoning_content": (
+                        "private analysis\n"
+                        '{"type":"object"}\n'
+                        '{"dataset":{"name":"safe","cases":[]}}'
+                    ),
+                },
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 120,
+            "completion_tokens": 80,
+            "total_tokens": 200,
+            "cost": 99,
+        },
+    }
+
+    recovered, diagnostics = completion_json_result_from_payload(
+        payload,
+        required_top_level_key="dataset",
+    )
+
+    assert json.loads(recovered)["dataset"]["name"] == "safe"
+    assert diagnostics == {
+        "finish_reason": "length",
+        "content_chars": 0,
+        "reasoning_chars": len(payload["choices"][0]["message"]["reasoning_content"]),
+        "reasoning_present": True,
+        "selected_source": "reasoning",
+        "contract_found": True,
+        "candidate_top_level_keys": ["dataset", "type"],
+        "usage": {
+            "prompt_tokens": 120,
+            "completion_tokens": 80,
+            "total_tokens": 200,
+        },
+    }
+    assert "private analysis" not in json.dumps(diagnostics)
 
 
 @pytest.mark.asyncio

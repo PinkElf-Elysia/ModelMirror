@@ -970,16 +970,23 @@ function RunDetail({
                 <h3 className="text-sm font-semibold text-white">待审批 Proposal 已创建</h3>
                 <p className="mt-1 text-xs text-slate-400">{run.proposal_id} · 审批后只更新草稿，不自动发布。</p>
               </div>
-              <Link
-                className="rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-slate-950"
-                to={
-                  run.target.kind === "xpert"
-                    ? `/agents/meta-agent?proposal_id=${run.proposal_id}`
-                    : `/prompts?profile_id=${run.target.target_id}&proposal_id=${run.proposal_id}`
-                }
-              >
-                进入审批
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                {run.target.kind === "xpert" ? (
+                  <Link className="rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100" to={`/agents/evaluations?target_kind=proposal&proposal_id=${run.proposal_id}`}>
+                    生成评测集
+                  </Link>
+                ) : null}
+                <Link
+                  className="rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-slate-950"
+                  to={
+                    run.target.kind === "xpert"
+                      ? `/agents/meta-agent?proposal_id=${run.proposal_id}`
+                      : `/prompts?profile_id=${run.target.target_id}&proposal_id=${run.proposal_id}`
+                  }
+                >
+                  进入审批
+                </Link>
+              </div>
             </section>
           ) : null}
           {run.error ? <div className="border border-rose-300/25 bg-rose-300/10 p-3 text-xs text-rose-100">{run.error}</div> : null}

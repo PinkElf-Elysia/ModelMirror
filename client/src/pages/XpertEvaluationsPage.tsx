@@ -15,10 +15,12 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Sparkles,
   Square,
   XCircle,
 } from "lucide-react";
 import BenchmarkCatalogPanel from "../components/evaluations/BenchmarkCatalogPanel";
+import BenchmarkGeneratorPanel from "../components/evaluations/BenchmarkGeneratorPanel";
 import PageContainer from "../components/PageContainer";
 import { models } from "../data/models";
 import { listXpertVersions, listXperts } from "../utils/xpertApi";
@@ -39,6 +41,9 @@ interface EvaluationCase {
     chunk_ids?: string[];
     document_names?: string[];
     rubric?: string;
+    required_tools?: string[];
+    forbidden_tools?: string[];
+    tool_order?: string[];
   };
   weights?: Record<string, number>;
 }
@@ -57,6 +62,17 @@ interface DatasetSummary {
     pack_id?: string;
     version?: number;
     checksum?: string;
+  };
+  provenance?: Record<string, unknown>;
+  coverage?: Record<string, unknown>;
+  calibration?: {
+    status?: "pending" | "calibrated" | "warning" | "failed" | "stale" | string;
+    dataset_revision?: number;
+    baseline_score?: number;
+    generic_counterfactual_score?: number | null;
+    targeting_advantage?: number | null;
+    warnings?: string[];
+    job_id?: string;
   };
   updated_at: number;
 }
@@ -167,7 +183,7 @@ interface AuthoringProposalSummary {
   status: string;
 }
 
-type EvaluationWorkspaceView = "catalog" | "datasets" | "reports";
+type EvaluationWorkspaceView = "catalog" | "generator" | "datasets" | "reports";
 
 const defaultCases: EvaluationCase[] = [
   {
@@ -250,8 +266,9 @@ export default function XpertEvaluationsPage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [calibrationJobId, setCalibrationJobId] = useState("");
   const [workspaceView, setWorkspaceView] = useState<EvaluationWorkspaceView>(
-    runId ? "reports" : "catalog",
+    runId ? "reports" : searchParams.get("target_kind") ? "generator" : "catalog",
   );
 
   const selectedItem = useMemo(
@@ -364,6 +381,13 @@ export default function XpertEvaluationsPage() {
     setNotice(`${item.name} 已加入工作区，并固定发布为 v${item.published_version}。`);
   }
 
+  async function openGeneratedDataset(datasetId: string) {
+    await loadWorkspace();
+    await selectDataset(datasetId);
+    setWorkspaceView("datasets");
+    setNotice("生成的评测集草稿已打开。请先审阅用例和校准结果，再决定是否发布。");
+  }
+
   async function loadRun(id: string, silent = false) {
     if (!silent) setBusy("run");
     try {
@@ -428,15 +452,47 @@ export default function XpertEvaluationsPage() {
     setBusy("dataset-publish");
     setError("");
     try {
+      let acknowledgeCalibrationWarnings = false;
+      if (dataset.origin === "generated" && dataset.calibration?.status === "warning") {
+        acknowledgeCalibrationWarnings = window.confirm(
+          "该生成数据集的校准包含警告。确认已人工审阅这些警告并继续发布吗？",
+        );
+        if (!acknowledgeCalibrationWarnings) return;
+      }
       const published = await requestJson<DatasetVersion>(
         `/api/xpert-evaluations/datasets/${dataset.dataset_id}/publish`,
-        jsonInit("POST", { revision: dataset.revision, release_notes: "Evaluation dataset snapshot" }),
+        jsonInit("POST", {
+          revision: dataset.revision,
+          release_notes: "Evaluation dataset snapshot",
+          acknowledge_calibration_warnings: acknowledgeCalibrationWarnings,
+        }),
       );
       await selectDataset(dataset.dataset_id);
       setDatasetVersion(published.version);
       setNotice(`数据集 v${published.version} 已发布，后续草稿修改不会影响该版本。`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "数据集发布失败。");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function recalibrateDataset() {
+    if (!dataset) return;
+    setBusy("dataset-calibrate");
+    setError("");
+    try {
+      const job = await requestJson<{ job_id: string }>(
+        "/api/benchmarks/calibrations",
+        jsonInit("POST", {
+          dataset_id: dataset.dataset_id,
+          dataset_revision: dataset.revision,
+        }),
+      );
+      setCalibrationJobId(job.job_id);
+      setNotice("校准任务已创建；完成后刷新评测集即可查看结果。");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "校准任务创建失败。");
     } finally {
       setBusy("");
     }
@@ -590,6 +646,7 @@ export default function XpertEvaluationsPage() {
       <nav aria-label="评测工作台视图" className="mb-5 flex flex-wrap gap-1 border-b border-white/10" role="tablist">
         {([
           ["catalog", "标准基准", BookOpenCheck],
+          ["generator", "针对性生成", Sparkles],
           ["datasets", "我的评测集", Database],
           ["reports", "运行报告", BarChart3],
         ] as const).map(([view, label, Icon]) => (
@@ -613,6 +670,8 @@ export default function XpertEvaluationsPage() {
 
       {workspaceView === "catalog" ? (
         <BenchmarkCatalogPanel onInstantiated={openInstantiatedDataset} />
+      ) : workspaceView === "generator" ? (
+        <BenchmarkGeneratorPanel onDatasetReady={openGeneratedDataset} />
       ) : workspaceView === "reports" ? (
         <section className="grid min-w-0 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
           <aside className="min-w-0 border-r border-white/10 pr-5">
@@ -677,6 +736,7 @@ export default function XpertEvaluationsPage() {
                   <span className="truncate text-sm font-semibold text-slate-100">{item.name}</span>
                   <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-slate-500">
                     {item.origin === "catalog" ? <span className="text-cyan-200">标准</span> : null}
+                    {item.origin === "generated" ? <span className="text-violet-200">生成</span> : null}
                     r{item.revision}
                   </span>
                 </div>
@@ -711,6 +771,20 @@ export default function XpertEvaluationsPage() {
               <div>
                 <h2 className="text-base font-semibold text-white">{dataset?.name ?? "选择评测集"}</h2>
                 <p className="mt-1 text-xs text-slate-500">草稿 revision 与发布版本相互隔离。</p>
+                {dataset?.origin === "generated" ? (
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    校准：<span className="font-semibold text-slate-200">{dataset.calibration?.status ?? "pending"}</span>
+                    {dataset.calibration?.baseline_score == null
+                      ? ""
+                      : ` · 专业 ${(dataset.calibration.baseline_score * 100).toFixed(1)}%`}
+                    {dataset.calibration?.generic_counterfactual_score == null
+                      ? ""
+                      : ` · 通用 ${(dataset.calibration.generic_counterfactual_score * 100).toFixed(1)}%`}
+                    {dataset.calibration?.targeting_advantage == null
+                      ? ""
+                      : ` · 优势 ${(dataset.calibration.targeting_advantage * 100).toFixed(1)} pp`}
+                  </p>
+                ) : null}
               </div>
               {dataset ? (
                 <div className="flex gap-2">
@@ -724,6 +798,11 @@ export default function XpertEvaluationsPage() {
                   <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200" disabled={Boolean(busy)} onClick={() => void saveCases()} type="button">
                     <Save className="h-3.5 w-3.5" />保存草稿
                   </button>
+                  {dataset.origin === "generated" ? (
+                    <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void recalibrateDataset()} type="button">
+                      <Beaker className="h-3.5 w-3.5" />重新校准
+                    </button>
+                  ) : null}
                   <button className="inline-flex items-center gap-2 rounded-md bg-cyan-300 px-3 py-2 text-xs font-semibold text-ink-950 disabled:opacity-50" disabled={!dataset.case_count || Boolean(busy)} onClick={() => void publishDataset()} type="button">
                     <CheckCircle2 className="h-3.5 w-3.5" />发布版本
                   </button>
@@ -734,6 +813,17 @@ export default function XpertEvaluationsPage() {
 
           {dataset ? (
             <>
+              {dataset.origin === "generated" && dataset.calibration?.warnings?.length ? (
+                <div className="flex items-start gap-2 rounded-md border border-amber-300/25 bg-amber-300/10 p-3 text-xs leading-5 text-amber-100">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{dataset.calibration.warnings.join("；")}</span>
+                </div>
+              ) : null}
+              {calibrationJobId ? (
+                <p className="rounded-md border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 font-mono text-[11px] text-cyan-100">
+                  calibration job: {calibrationJobId}
+                </p>
+              ) : null}
               <textarea className="min-h-[380px] w-full resize-y rounded-md border border-white/10 bg-ink-950/70 p-4 font-mono text-xs leading-6 text-slate-200 outline-none focus:border-cyan-300/40" onChange={(event) => setCasesText(event.target.value)} spellCheck={false} value={casesText} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-xs font-semibold text-slate-300">

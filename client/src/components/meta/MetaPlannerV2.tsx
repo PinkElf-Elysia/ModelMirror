@@ -780,6 +780,17 @@ export default function MetaPlannerV2() {
                   </label>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
+                      className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-300/15"
+                      onClick={() =>
+                        navigate(
+                          `/agents/evaluations?target_kind=proposal&proposal_id=${proposal.proposal_id}`,
+                        )
+                      }
+                      type="button"
+                    >
+                      生成评测集
+                    </button>
+                    <button
                       className="rounded-md border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-300/15"
                       onClick={() =>
                         navigate(
