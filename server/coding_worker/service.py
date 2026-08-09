@@ -23,7 +23,7 @@ from .provider import (
     ProviderSession,
 )
 from .store import CodingWorkerStore, WorkerConflictError
-from .tool_broker import ToolBrokerError
+from .tool_broker import ToolBroker, ToolBrokerError
 from .workspace import WorkspaceBroker, WorkspaceError
 
 
@@ -38,6 +38,7 @@ class CodingWorkerService:
         provider: CodingAgentProvider,
         harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
+        tool_broker: ToolBroker | None = None,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
             raise ValueError("active task capacity is outside the allowed range")
@@ -46,6 +47,7 @@ class CodingWorkerService:
         self.provider = provider
         self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
+        self.tool_broker = tool_broker
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}

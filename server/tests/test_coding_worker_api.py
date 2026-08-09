@@ -4,11 +4,14 @@ import asyncio
 from pathlib import Path
 
 import pytest
+import httpx
+from unittest.mock import AsyncMock
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.coding_worker.api import configure_coding_worker_for_tests, router
+import server.coding_worker.api as worker_api
 from server.coding_worker.provider import FakeCodingAgentProvider
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore
@@ -229,3 +232,40 @@ def test_evidence_and_artifact_download_are_opaque_and_task_bound(
             f"/api/coding-worker/v1/tasks/{second['task_id']}/artifacts/{artifact.artifact_id}"
         )
         assert foreign.status_code == 404
+
+
+def test_preview_proxy_uses_only_task_slot_and_registered_port(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, service = _client(tmp_path)
+    executor = AsyncMock()
+    service.tool_broker = AsyncMock()
+    service.tool_broker.executor = executor
+    with client:
+        task = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        task_id = task["task_id"]
+        asyncio.run(
+            service.wait_for(task_id, lambda item: item.workspace_id is not None)
+        )
+        executor.service_status.return_value = {
+            "service_id": "service_" + "a" * 32,
+            "task_id": task_id,
+            "state": "running",
+            "preview_port": 4173,
+        }
+        seen: list[str] = []
+
+        async def fetch(url: str) -> httpx.Response:
+            seen.append(url)
+            return httpx.Response(200, content=b"<h1>preview</h1>", headers={"content-type": "text/html"})
+
+        monkeypatch.setattr(worker_api, "_fetch_preview", fetch)
+        response = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/services/"
+            f"service_{'a' * 32}/preview/app?mode=test"
+        )
+        assert response.status_code == 200
+        assert response.content == b"<h1>preview</h1>"
+        assert seen == ["http://coding-worker-default:4173/app?mode=test"]
+        assert response.headers["cache-control"] == "no-store"
+        assert "sandbox" in response.headers["content-security-policy"]

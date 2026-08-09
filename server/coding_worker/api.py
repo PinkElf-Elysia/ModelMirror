@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import PurePosixPath
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
+import httpx
 from pydantic import Field
 
 from .contracts import (
@@ -412,6 +414,89 @@ async def workspace_diff(task_id: str) -> Response:
         )
     except Exception as exc:
         _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/services/{service_id}/preview/{preview_path:path}")
+async def service_preview(
+    task_id: str,
+    service_id: str,
+    preview_path: str,
+    request: Request,
+) -> Response:
+    service, task = _task_workspace(task_id)
+    try:
+        if service.tool_broker is None or service.tool_broker.executor is None:
+            raise WorkerConflictError(
+                "Preview service is unavailable.", code="preview_unavailable"
+            )
+        path = PurePosixPath(preview_path or ".")
+        if "\\" in preview_path or any(part == ".." for part in path.parts):
+            raise WorkerConflictError(
+                "Preview path is invalid.", code="preview_path_invalid"
+            )
+        result = await service.tool_broker.executor.service_status(
+            task_id=task_id,
+            workspace_id=task.workspace_id,
+            service_id=service_id,
+        )
+        port = result.get("preview_port")
+        if result.get("state") != "running" or isinstance(port, bool) or not isinstance(port, int):
+            raise WorkerConflictError(
+                "Preview service is not running.", code="preview_unavailable"
+            )
+        slot_id = service.workspace_broker.workspace_slot(task.workspace_id)
+        host = os.getenv(
+            f"CODING_WORKER_{slot_id.replace('-', '_').upper()}_PREVIEW_HOST",
+            f"coding-worker-{slot_id}",
+        )
+        query = request.url.query
+        upstream = await _fetch_preview(
+            f"http://{host}:{port}/{preview_path}" + (f"?{query}" if query else "")
+        )
+        if 300 <= upstream.status_code < 400:
+            raise WorkerConflictError(
+                "Preview redirects are not allowed.", code="preview_redirect_denied"
+            )
+        return Response(
+            upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type", "application/octet-stream"),
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Security-Policy": "sandbox allow-scripts allow-forms; default-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+async def _fetch_preview(url: str) -> httpx.Response:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(15.0, connect=3.0),
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
+        request = client.build_request("GET", url)
+        response = await client.send(request, stream=True)
+        try:
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.aiter_bytes(64 * 1024):
+                size += len(chunk)
+                if size > 4 * 1024 * 1024:
+                    raise WorkerConflictError(
+                        "Preview response is too large.",
+                        code="preview_response_too_large",
+                    )
+                chunks.append(chunk)
+            return httpx.Response(
+                response.status_code,
+                headers=response.headers,
+                content=b"".join(chunks),
+            )
+        finally:
+            await response.aclose()
 
 
 def _task_workspace(task_id: str) -> tuple[CodingWorkerService, TaskRecord]:

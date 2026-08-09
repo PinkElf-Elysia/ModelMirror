@@ -127,7 +127,14 @@ class SidecarExecutor:
             process = await asyncio.create_subprocess_exec(
                 *argv,
                 cwd=self._workspace_resolver(workspace_id),
-                env=self._environment(self._workspace_resolver(workspace_id)),
+                env=self._environment(
+                    self._workspace_resolver(workspace_id),
+                    (
+                        {"HOST": "0.0.0.0", "PORT": str(preview_port)}
+                        if preview_port is not None
+                        else None
+                    ),
+                ),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,

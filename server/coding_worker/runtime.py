@@ -91,6 +91,7 @@ class CodingWorkerRuntime:
             provider=self.provider,
             harness_runner=self.harness,
             max_active_tasks=max_active_tasks,
+            tool_broker=self.tool_broker,
         )
         self.broker_socket_path = broker_socket_path
         self.sidecar_gid = sidecar_gid
