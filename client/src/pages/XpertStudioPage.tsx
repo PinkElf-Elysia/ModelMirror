@@ -286,6 +286,9 @@ export default function XpertStudioPage() {
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
+            <Link className="rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-300/20" to={`/agents/evaluations?target_kind=xpert_draft&xpert_id=${xpert.id}`}>
+              生成评测集
+            </Link>
             <Link className="rounded-full border border-violet-300/25 bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100 transition hover:bg-violet-300/20" to={`/agents/evolution?xpert_id=${xpert.id}`}>
               优化 Prompt
             </Link>

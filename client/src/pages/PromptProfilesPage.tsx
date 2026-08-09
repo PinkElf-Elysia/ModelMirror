@@ -220,6 +220,7 @@ export default function PromptProfilesPage() {
               ) : <p className="text-xs text-slate-500">发布后会在这里保留固定模板与命令别名。</p>}
             </div>
             <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
+              <Link className="rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100" to={`/agents/evaluations?target_kind=prompt_profile&prompt_profile_id=${draft.id}`}>生成评测集</Link>
               <Link className="rounded-md border border-violet-300/25 bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100" to={`/agents/evolution?prompt_profile_id=${draft.id}`}>优化模板</Link>
               <button className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white" disabled={Boolean(busy)} onClick={() => void saveProfile()} type="button">保存草稿</button>
               <button className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-white" disabled={Boolean(busy)} onClick={() => void action("validate")} type="button">校验</button>

@@ -10,6 +10,7 @@ MetricKind = Literal[
     "contains",
     "json_schema",
     "citation_hit",
+    "tool_call_match",
     "rubric_judge",
 ]
 
@@ -26,7 +27,44 @@ class EvaluationExpectation(BaseModel):
     citation_ids: list[str] = Field(default_factory=list, max_length=50)
     chunk_ids: list[str] = Field(default_factory=list, max_length=50)
     document_names: list[str] = Field(default_factory=list, max_length=50)
+    required_tools: list[str] = Field(default_factory=list, max_length=30)
+    forbidden_tools: list[str] = Field(default_factory=list, max_length=30)
+    tool_order: list[str] = Field(default_factory=list, max_length=30)
     rubric: str | None = Field(default=None, max_length=4_000)
+
+
+class EvaluationProfessionalEvidence(BaseModel):
+    sufficient: bool = False
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    exact_focus_matches: list[str] = Field(default_factory=list, max_length=8)
+    input_markers: list[str] = Field(default_factory=list, max_length=12)
+    support_markers: list[str] = Field(default_factory=list, max_length=12)
+    anchor_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class EvaluationCaseTargeting(BaseModel):
+    blueprint_id: str = Field(default="", max_length=120)
+    difficulty: Literal["basic", "edge", "adversarial"]
+    target_refs: list[str] = Field(min_length=1, max_length=5)
+    capability_matrix: list[str] = Field(default_factory=list, max_length=3)
+    focus_terms: list[str] = Field(default_factory=list, max_length=8)
+    pressure_types: list[
+        Literal[
+            "ambiguity",
+            "conflicting_context",
+            "missing_evidence",
+            "competing_constraints",
+            "schema_boundary",
+            "tool_decoy",
+            "cross_turn_override",
+            "domain_exception",
+        ]
+    ] = Field(default_factory=list, max_length=4)
+    rationale: str = Field(min_length=8, max_length=1_000)
+    challenge: str = Field(default="", max_length=500)
+    discriminator: str = Field(default="", max_length=500)
+    professional_evidence: EvaluationProfessionalEvidence | None = None
+    normalization_notes: list[str] = Field(default_factory=list, max_length=8)
 
 
 class EvaluationCaseInput(BaseModel):
@@ -37,6 +75,7 @@ class EvaluationCaseInput(BaseModel):
     tags: list[str] = Field(default_factory=list, max_length=20)
     expected: EvaluationExpectation = Field(default_factory=EvaluationExpectation)
     weights: dict[MetricKind, float] = Field(default_factory=dict)
+    targeting: EvaluationCaseTargeting | None = None
 
     @model_validator(mode="after")
     def normalize_weights(self) -> "EvaluationCaseInput":
@@ -67,6 +106,7 @@ class DatasetCasesRequest(BaseModel):
 class DatasetPublishRequest(BaseModel):
     revision: int = Field(ge=1)
     release_notes: str = Field(default="", max_length=2_000)
+    acknowledge_calibration_warnings: bool = False
 
 
 class ConversationImportSelection(BaseModel):

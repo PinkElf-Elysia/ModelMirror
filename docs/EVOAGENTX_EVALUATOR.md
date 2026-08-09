@@ -1,6 +1,6 @@
 # EvoAgentX Xpert Evaluator
 
-最后更新日期：2026-08-07
+最后更新日期：2026-08-08
 
 ## 1. 定位
 
@@ -42,6 +42,7 @@ Evaluator 只评价固定快照。它不会批准 Authoring Proposal、修改 Xp
 - 必须包含的文本。
 - JSON Schema。
 - Citation ID、chunk ID 或文档名。
+- 必需工具、禁止工具和稳定工具调用顺序。
 - LLM Judge rubric。
 - 指标权重。
 
@@ -58,6 +59,34 @@ Evaluator 只评价固定快照。它不会批准 Authoring Proposal、修改 Xp
 Dataset，并自动发布与 Pack 完全一致的 v1。Dataset 的 `origin`、`catalog_ref`、
 `provenance`、`coverage` 和 `calibration` 会固定到不可变版本；旧数据读取时默认为
 `origin=manual`。完整契约见 [BENCHMARKS.md](./BENCHMARKS.md)。
+
+### 2.2 针对性 Benchmark 生成
+
+`EVOAGENTX-BENCHMARK-GENERATOR-02` 为 Xpert 草稿、发布版本、固定 Proposal 和
+Prompt Profile + 固定宿主版本生成待审核 Dataset 草稿。生成任务固定目标 checksum、
+模型、覆盖矩阵、seed 和显式选择的用户会话样例；最多执行一次生成和一次 JSON 修复。
+服务端持有 locale、覆盖、难度、资源 ID、工具必选/禁用集合与 JSON Schema，模型只补专业
+题面、历史和必要文本 Gold，避免回显大段服务端契约造成截断或授权漂移。
+目标 Prompt、会话契约、Schema 和安全资源会被编译为可校验 `target_anchors`，并从中
+提取有限专业 `focus_terms`。每条用例必须记录锚点引用、1–3 项能力矩阵、专业词、压力
+类型、针对性理由、区分证据和难度；服务端要求输入包含精确 focus term，或至少两个来自
+引用锚点的专业标记。工具、文档和命令别名仍须精确匹配。管理页逐例展示这些证据与校准
+分数，因此“针对目标”不再只依赖数据集名称或模型自述。
+
+多能力目标至少 60% 用例必须形成复合矩阵，并在可行时覆盖至少三种不同组合；edge 和
+adversarial 还必须分别携带一个和两个可验证压力类型。目标 Prompt 若没有专业内容会在
+预检中收到警告，避免把基础通用题包装成专业评测。
+
+生成后自动复用 Evaluator 内部固定快照入口执行一次受限校准。校准同时运行专业目标与
+同模型通用对照：通用对照保留工作流骨架和输出契约，但移除领域 Prompt、Prompt Command
+与资源绑定。报告包含两者分数及针对性优势，默认优势低于 `0.10` 时产生 warning。校准
+不会重写 Gold，只报告评分契约可执行性、重复、泄漏、难度和反事实区分度。生成数据集只有在相同 revision
+达到 `calibrated`，或用户显式确认 `warning` 后才能发布；目标或用例漂移会转为
+`stale`。完整契约见 [BENCHMARKS.md](./BENCHMARKS.md)。
+
+生成失败诊断仅保留结束原因、响应字符数、契约存在性、候选顶层键名和 token 统计；不保存
+reasoning 正文。可恢复的空内容、契约缺失和截断解析错误复用同一个单次修复预算。Benchmark
+生成和修复固定使用低 reasoning effort，为最终 JSON 保留 completion 预算。
 
 ## 3. 固定快照
 
@@ -156,6 +185,12 @@ GET       /api/benchmarks/capabilities
 GET       /api/benchmarks/catalog
 GET       /api/benchmarks/catalog/{pack_id}
 POST      /api/benchmarks/catalog/{pack_id}/instantiate
+POST      /api/benchmarks/generations/preflight
+GET/POST  /api/benchmarks/generations
+GET       /api/benchmarks/generations/{job_id}
+POST      /api/benchmarks/generations/{job_id}/cancel
+POST      /api/benchmarks/calibrations
+GET       /api/benchmarks/calibrations/{job_id}
 ```
 
 列表只返回摘要。可信管理面的 detail 会移除 workflow、Prompt、完整 Tool 配置和
@@ -167,9 +202,9 @@ POST      /api/benchmarks/catalog/{pack_id}/instantiate
 - `/agents/evaluations/:runId`
 
 Meta Planner V2 候选提供“评测候选”入口，并固定当前 Proposal revision。
-Xpert Studio 的已发布版本提供“版本回归评测”入口。工作台按“标准基准 / 我的评测集 /
-运行报告”组织，支持目录实例化、数据集编辑/导入、发布、基线与候选选择、模型策略、
-预算、预检、运行、取消和报告查看。
+Xpert Studio 的已发布版本提供“版本回归评测”入口。工作台按“标准基准 / 针对性生成 /
+我的评测集 / 运行报告”组织，支持目录实例化、目标分析、生成与校准、数据集编辑/导入、
+发布、基线与候选选择、模型策略、预算、预检、运行、取消和报告查看。
 
 ## 9. 安全边界
 
@@ -185,7 +220,7 @@ Xpert Studio 的已发布版本提供“版本回归评测”入口。工作台�
 
 ```bash
 python -m pytest server/tests/test_xpert_evaluations.py -q
-python -m pytest server/tests/test_benchmark_catalog.py -q
+python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_benchmark_generator.py -q
 python -m pytest server/tests/test_meta_agent.py server/tests/test_xpert_publish.py -q
 cd client
 npm.cmd run build

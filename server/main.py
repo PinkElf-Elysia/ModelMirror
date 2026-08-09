@@ -92,11 +92,18 @@ except ModuleNotFoundError:
 
 try:
     from server.benchmarks import (
+        BenchmarkGeneratorOutput,
         configure_benchmarks,
+        get_benchmark_job_executor,
         router as benchmarks_router,
     )
 except ModuleNotFoundError:
-    from benchmarks import configure_benchmarks, router as benchmarks_router
+    from benchmarks import (
+        BenchmarkGeneratorOutput,
+        configure_benchmarks,
+        get_benchmark_job_executor,
+        router as benchmarks_router,
+    )
 
 try:
     from server.evolutions import (
@@ -2575,6 +2582,126 @@ def completion_text_from_payload(payload: dict[str, Any]) -> str:
     return ""
 
 
+def completion_json_text_from_payload(
+    payload: dict[str, Any],
+    *,
+    required_top_level_key: str | None = None,
+) -> str:
+    """Recover only a JSON object from provider-specific reasoning fields.
+
+    Some OpenAI-compatible reasoning models return an empty ``content`` while
+    placing the requested JSON object in a reasoning field. This adapter is
+    intentionally opt-in and returns only the parsed JSON slice, never the
+    surrounding reasoning text.
+    """
+
+    text, _ = completion_json_result_from_payload(
+        payload,
+        required_top_level_key=required_top_level_key,
+    )
+    return text
+
+
+def completion_json_result_from_payload(
+    payload: dict[str, Any],
+    *,
+    required_top_level_key: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Return JSON text plus safe provider diagnostics without reasoning text."""
+
+    diagnostics: dict[str, Any] = {
+        "finish_reason": None,
+        "content_chars": 0,
+        "reasoning_chars": 0,
+        "reasoning_present": False,
+        "selected_source": "none",
+        "contract_found": False,
+        "candidate_top_level_keys": [],
+        "usage": {},
+    }
+    text = completion_text_from_payload(payload)
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return "", diagnostics
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        return "", diagnostics
+    finish_reason = first_choice.get("finish_reason")
+    if isinstance(finish_reason, str) and finish_reason.strip():
+        diagnostics["finish_reason"] = finish_reason[:80]
+    message = first_choice.get("message")
+    if not isinstance(message, dict):
+        return "", diagnostics
+
+    diagnostics["content_chars"] = len(text)
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        diagnostics["usage"] = {
+            key: int(usage[key])
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if isinstance(usage.get(key), int)
+        }
+
+    candidates: list[tuple[str, str]] = []
+    for field in ("reasoning_content", "reasoning"):
+        value = message.get(field)
+        if isinstance(value, str) and value.strip():
+            candidates.append(("reasoning", value))
+    details = message.get("reasoning_details")
+    if isinstance(details, list):
+        for detail in details:
+            if not isinstance(detail, dict):
+                continue
+            for field in ("text", "content", "reasoning"):
+                value = detail.get(field)
+                if isinstance(value, str) and value.strip():
+                    candidates.append(("reasoning", value))
+
+    diagnostics["reasoning_chars"] = sum(len(value) for _, value in candidates)
+    diagnostics["reasoning_present"] = bool(candidates)
+
+    decoder = json.JSONDecoder()
+    detected_keys: set[str] = set()
+    selected_reasoning = ""
+    for source, candidate in [*candidates, ("content", text)]:
+        for match in re.finditer(r"\{", candidate):
+            try:
+                value, end = decoder.raw_decode(candidate[match.start() :])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(value, dict):
+                continue
+            detected_keys.update(str(key)[:80] for key in value.keys())
+            if not required_top_level_key or required_top_level_key in value:
+                diagnostics["contract_found"] = True
+                if source == "reasoning" and not selected_reasoning:
+                    selected_reasoning = candidate[match.start() : match.start() + end]
+                break
+    diagnostics["candidate_top_level_keys"] = sorted(detected_keys)[:20]
+    if selected_reasoning:
+        diagnostics["selected_source"] = "reasoning"
+        return selected_reasoning, diagnostics
+    # Preserve ordinary content for the caller's normal validation/repair path.
+    # Provider-specific reasoning remains hidden unless it contains the exact
+    # requested top-level contract.
+    if text.strip():
+        diagnostics["selected_source"] = "content"
+        return text, diagnostics
+    return "", diagnostics
+
+
+class ChatCompletionContentError(RuntimeError):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        diagnostics: dict[str, Any],
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.diagnostics = diagnostics
+
+
 def chat_sse_delta(text: str) -> bytes:
     payload = json.dumps(
         {"choices": [{"delta": {"content": text}}]},
@@ -2664,6 +2791,11 @@ async def collect_chat_completion_text(
     gateway_key: str | None = None,
     actual_model_observer: Callable[[str], None] | None = None,
     usage_observer: Callable[[dict[str, int]], None] | None = None,
+    response_format: dict[str, Any] | None = None,
+    reasoning: dict[str, Any] | None = None,
+    allow_json_reasoning_fallback: bool = False,
+    json_required_top_level_key: str | None = None,
+    completion_diagnostics: dict[str, Any] | None = None,
 ) -> str:
     if gateway_url is not None:
         url = gateway_url
@@ -2692,12 +2824,18 @@ async def collect_chat_completion_text(
         ChatMessage.model_validate(message)
         for message in optimization.messages
     ]
+    extra: dict[str, Any] = {}
+    if response_format:
+        extra["response_format"] = response_format
+    if reasoning:
+        extra["reasoning"] = reasoning
     request_payload = build_chat_payload_from_messages(
         model_id,
         prepared_messages,
         stream=False,
         temperature=temperature,
         max_tokens=max_tokens,
+        extra=extra or None,
     )
 
     async with execution_operation("model_call"), httpx.AsyncClient(
@@ -2720,8 +2858,32 @@ async def collect_chat_completion_text(
             if isinstance(raw_reported_model, str)
             else ""
         )
-        text = completion_text_from_payload(data)
+        if allow_json_reasoning_fallback:
+            text, diagnostics = completion_json_result_from_payload(
+                data,
+                required_top_level_key=json_required_top_level_key,
+            )
+            if completion_diagnostics is not None:
+                completion_diagnostics.update(diagnostics)
+        else:
+            text = completion_text_from_payload(data)
         if not text.strip():
+            if allow_json_reasoning_fallback:
+                error_code = (
+                    "empty_content"
+                    if not diagnostics["content_chars"]
+                    and not diagnostics["reasoning_chars"]
+                    else "contract_missing"
+                )
+                raise ChatCompletionContentError(
+                    error_code,
+                    (
+                        "Generator returned no content."
+                        if error_code == "empty_content"
+                        else "Generator response did not contain the required JSON contract."
+                    ),
+                    diagnostics,
+                )
             raise RuntimeError("模型没有返回可用内容。")
         if actual_model_observer is not None:
             actual_model_observer(reported_model)
@@ -14852,6 +15014,34 @@ def evaluation_citation_summary(value: Any) -> dict[str, list[str]]:
     }
 
 
+async def evaluation_tool_call_summary(runtime_run_id: str) -> list[str]:
+    """Return only dispatched tool names in stable checkpoint order."""
+    if not runtime_run_id:
+        return []
+    pending = [runtime_run_id]
+    visited: set[str] = set()
+    checkpoints: list[Any] = []
+    while pending and len(visited) < 200:
+        current = pending.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        try:
+            checkpoints.extend(await run_registry.list_checkpoints(current, limit=500))
+        except KeyError:
+            pass
+        children = await run_registry.list_runs(parent_run_id=current, limit=200)
+        pending.extend(child.run_id for child in children if child.run_id not in visited)
+    checkpoints.sort(key=lambda item: (float(item.created_at), str(item.checkpoint_id)))
+    return [
+        str(item.metadata.get("tool_name"))[:300]
+        for item in checkpoints
+        if item.event_type
+        in {"workflow_agent.tool_call", "workflow_agent.tool_call_failed"}
+        and str(item.metadata.get("tool_name") or "").strip()
+    ][:100]
+
+
 async def run_xpert_evaluation_target(
     target: dict[str, Any],
     case: dict[str, Any],
@@ -14975,6 +15165,7 @@ async def run_xpert_evaluation_target(
     return {
         "output": output,
         "citations": evaluation_citation_summary(citation_value),
+        "tool_calls": await evaluation_tool_call_summary(runtime_run_id),
         "usage": usage,
         "runtime_run_id": runtime_run_id or None,
     }
@@ -15212,7 +15403,53 @@ configure_xpert_evaluations(
     judge_runner=run_xpert_evaluation_judge,
     run_registry=run_registry,
 )
-configure_benchmarks(get_xpert_evaluation_store())
+
+
+async def run_benchmark_generator_model(
+    model_id: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    max_tokens: int,
+) -> BenchmarkGeneratorOutput:
+    diagnostics: dict[str, Any] = {}
+    try:
+        text = await collect_chat_completion_text(
+            model_id,
+            [
+                ChatMessage(role="system", content=system_prompt),
+                ChatMessage(role="user", content=user_prompt),
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            reasoning={"effort": "low"},
+            allow_json_reasoning_fallback=True,
+            json_required_top_level_key="dataset",
+            completion_diagnostics=diagnostics,
+        )
+    except ChatCompletionContentError as exc:
+        return BenchmarkGeneratorOutput(
+            diagnostics=exc.diagnostics,
+            error_code=exc.code,
+            error_message=str(exc),
+        )
+    return BenchmarkGeneratorOutput(text=text, diagnostics=diagnostics)
+
+
+configure_benchmarks(
+    get_xpert_evaluation_store(),
+    storage_dir=AGENT_TASK_STORAGE_DIR or None,
+    evaluation_service=get_xpert_evaluation_service(),
+    evaluation_executor=get_xpert_evaluation_executor(),
+    xpert_store=get_xpert_store(),
+    proposal_store=authoring_proposal_store,
+    prompt_store=get_prompt_profile_store(),
+    context_store=xpert_context_store,
+    rag_service=get_rag_service(),
+    toolset_store=toolset_store,
+    generator_runner=run_benchmark_generator_model,
+)
 
 
 async def run_xpert_evolution_optimizer(
@@ -15261,6 +15498,7 @@ async def start_mcp_ttl_cleanup() -> None:
     get_evaluation_executor().start()
     get_xpert_evaluation_executor().start()
     start_skill_creator_evaluation_runtime()
+    get_benchmark_job_executor().start()
     get_xpert_evolution_executor().start()
     get_handoff_executor().start()
     get_goal_coordinator().start()
@@ -15273,6 +15511,7 @@ async def start_mcp_ttl_cleanup() -> None:
 async def shutdown_mcp_sessions() -> None:
     await get_pipeline_executor().stop()
     await get_evaluation_executor().stop()
+    await get_benchmark_job_executor().stop()
     await get_xpert_evolution_executor().stop()
     await get_xpert_evaluation_executor().stop()
     await skill_evaluation_executor.stop()

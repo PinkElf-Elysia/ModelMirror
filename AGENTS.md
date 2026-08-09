@@ -17,7 +17,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 本文件是模镜仓库内 AI Agent、人类开发者和自动化任务的项目级操作说明。任何代码生成、重构、测试、提交和发布都必须优先遵守本文档。
 
-最后更新日期：2026-08-07
+最后更新日期：2026-08-08
 维护人：模镜团队
 
 ## 1. 项目边界
@@ -375,8 +375,45 @@ npm.cmd run build
 - 旧 Dataset 缺少元数据时必须按 `origin=manual` 兼容读取，不得要求破坏性离线迁移。
 - 后续定向生成必须固定目标 revision/version、能力摘要、模型、资源版本和 Dataset revision；
   生成结果只能进入待审核草稿，不得批准 Proposal、修改线上 Xpert 或自动发布。
+- 定向生成只允许一次生成和一次 JSON 修复。生成任务必须保存安全 Job 状态；重启后应
+  复用相同 generation job 已落盘的数据集，不能重复创建草稿。
+- 固定目标必须编译为安全 `target_anchors` 和有限专业 `focus_terms`。每条模型生成用例必须
+  引用真实锚点、声明 1–3 项能力矩阵，并由服务端证明输入包含精确专业词或至少两个锚点专业
+  标记，同时说明针对性理由、压力点
+  与通用底模区分证据，并标记 `basic / edge / adversarial`。不得接受无法关联目标 Prompt、
+  契约或资源的通用常识题，也不得允许模型发明锚点外专业词。
+- Benchmark 解析器只能确定性规范化 targeting 派生元数据，并必须写入可见的
+  `normalization_notes`；严禁在规范化中改写题目、历史、Gold、JSON Schema、工具期望或难度。
+  找不到真实 anchor、合法能力或足够题面专业证据时必须 fail-closed。工具名、知识文档名和
+  Prompt Command 别名必须保持精确匹配，不能被语义近似放宽。
+- 定向生成必须先由服务端生成逐题 Blueprint，固定能力矩阵、难度、真实资源锚点和压力类型；
+  模型不得决定或扩大授权范围。结构输出、多轮、工具、知识引用和 Prompt Command 必须分别
+  具有可机器验证的 Schema、历史、固定工具名、固定文档名和 `/alias` 证据。
+- Blueprint 固定的 locale、coverage、target refs、工具必选/禁用集合、知识文档和 JSON Schema
+  必须由服务端注入；不要要求模型重复回传这些字段。模型输出只承担题面、历史、解释字段及
+  不依赖固定资源的文本 Gold。
+- Toolset、Knowledge 和 Prompt Command 能力只有在固定版本可解析出安全工具名、文档名或命令
+  别名时才可进入生成覆盖；缺少可验证 Gold 来源时不得让模型猜测 ID 或名称。
+- 用例数不少于 6 时，edge 与 adversarial 各不得少于 25%，basic 不得超过 30%，且每个
+  用户选择的覆盖项至少出现一次。选择两个以上能力时，至少 60% 用例必须组合多个能力，
+  每项能力须出现在组合题中，并在可行时形成至少三种组合。针对性证据和固定基线逐例分数
+  必须在管理 UI 可检查。
+- 会话样例只能由用户显式选择；传给生成器的能力快照不得包含附件正文、长期记忆、
+  私有工具输出、凭据或物理路径。`tool_call_match` 只能保存工具名和稳定顺序，禁止保存
+  参数或结果。
 - 校准只能验证评分契约、重复、泄漏、难度和基线表现，不得使用当前回答或 Top-K 结果
-  改写预先固定的 Gold。
+  改写预先固定的 Gold。针对性校准必须同时执行同模型通用对照：保留工作流骨架与输出契约，
+  移除领域 Prompt、命令和资源绑定；默认专业目标至少领先 `0.10`，否则产生 warning。
+- JSON 生成器兼容推理模型时，只能从 provider-specific reasoning 字段提取一个可解析 JSON
+  对象，不得返回、持久化或记录外围推理文本；普通聊天不得启用该兼容路径。
+- 生成失败必须先依据安全诊断区分空响应、契约缺失和截断：仅允许持久化 `finish_reason`、
+  content/reasoning 字符数、契约存在性、候选顶层键名和标准 token usage。不得保存 reasoning
+  正文，也不得以增加重试次数或无依据提高 token 上限代替根因修复；可恢复错误只消费既有的
+  一次 JSON 修复机会。
+- Benchmark 生成与修复调用使用低 reasoning effort，为结构化正文保留 completion 预算；
+  不得把该设置扩散到普通聊天、Evaluator 或其他模型调用路径。
+- 生成 Dataset 仅在同 revision 校准为 `calibrated` 后可发布；`warning` 必须由用户显式
+  确认，`pending / failed / stale` 必须阻断。编辑用例或目标 checksum 漂移后必须重新校准。
 - Benchmark API、报告和 checkpoint 不得保存完整 Prompt、知识正文、工具参数/结果、隐藏
   推理、路径、凭据或未选择的会话内容。
 - `server/Dockerfile` 必须复制 `benchmarks/`。每轮在完成非 Docker 验证后停止，等待用户
@@ -384,7 +421,7 @@ npm.cmd run build
 - 修改 Benchmark Catalog 或 Dataset 元数据时至少运行：
 
 ```bash
-python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_xpert_evaluations.py -q
+python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_benchmark_generator.py server/tests/test_xpert_evaluations.py -q
 cd client
 npm.cmd run build
 ```

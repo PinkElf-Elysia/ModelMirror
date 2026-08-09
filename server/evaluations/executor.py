@@ -158,6 +158,11 @@ class XpertEvaluationExecutor:
                         case=case,
                         output=output,
                         citations=dict(result.get("citations") or {}),
+                        tool_calls=[
+                            str(item)
+                            for item in list(result.get("tool_calls") or [])
+                            if str(item)
+                        ],
                         judge=self.judge_runner,
                         judge_model_id=run.get("config", {}).get("judge_model_id"),
                     )
@@ -165,6 +170,11 @@ class XpertEvaluationExecutor:
                         "status": "completed",
                         "output": output,
                         "citations": dict(result.get("citations") or {}),
+                        "tool_calls": [
+                            str(item)
+                            for item in list(result.get("tool_calls") or [])[:100]
+                            if str(item)
+                        ],
                         "usage": dict(result.get("usage") or {}),
                         "latency_ms": round(
                             (time.perf_counter() - started) * 1000, 3

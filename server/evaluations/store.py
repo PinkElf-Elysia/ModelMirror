@@ -145,6 +145,54 @@ class XpertEvaluationStore:
             self._save_unlocked()
         return self.dataset_payload(dataset, include_cases=True)
 
+    def create_generated_dataset(
+        self,
+        *,
+        name: str,
+        description: str,
+        cases: list[dict[str, Any]],
+        provenance: dict[str, Any],
+        coverage: dict[str, Any],
+        calibration: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        normalized = [self.normalize_case(item) for item in cases]
+        if not normalized:
+            raise EvaluationStateError("Generated dataset must contain at least one case.")
+        if len(normalized) > self.MAX_DATASET_CASES:
+            raise EvaluationStateError("A dataset may contain at most 500 cases.")
+        case_ids = [str(item["case_id"]) for item in normalized]
+        if len(case_ids) != len(set(case_ids)):
+            raise EvaluationStateError("Generated case ids must be unique.")
+        now = time.time()
+        dataset = {
+            "dataset_id": f"xeval_dataset_{uuid.uuid4().hex}",
+            "name": self._required(name, "name", 160),
+            "description": str(description or "").strip()[:2_000],
+            "status": "draft",
+            "revision": 1,
+            "published_version": None,
+            "cases": copy.deepcopy(normalized),
+            "versions": [],
+            "origin": "generated",
+            "catalog_ref": {},
+            "provenance": copy.deepcopy(provenance),
+            "coverage": copy.deepcopy(coverage),
+            "calibration": copy.deepcopy(
+                calibration
+                or {
+                    "status": "pending",
+                    "dataset_revision": 1,
+                    "updated_at": now,
+                }
+            ),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._lock:
+            self._data["datasets"][dataset["dataset_id"]] = dataset
+            self._save_unlocked()
+        return self.dataset_payload(dataset, include_cases=True)
+
     def list_datasets(self, *, status: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
             items = list(self._data["datasets"].values())
@@ -206,7 +254,12 @@ class XpertEvaluationStore:
                 raise EvaluationStateError("A dataset may contain at most 500 cases.")
             item["cases"] = list(by_id.values())
             calibration = dict(item.get("calibration") or {})
-            if calibration.get("status") == "calibrated":
+            if calibration.get("status") in {
+                "pending",
+                "calibrated",
+                "warning",
+                "failed",
+            }:
                 calibration.update(
                     {
                         "status": "stale",
@@ -219,18 +272,57 @@ class XpertEvaluationStore:
             self._save_unlocked()
             return copy.deepcopy(item)
 
+    def set_dataset_calibration(
+        self,
+        dataset_id: str,
+        *,
+        revision: int,
+        calibration: dict[str, Any],
+    ) -> dict[str, Any]:
+        status = str(calibration.get("status") or "")
+        if status not in {"pending", "calibrated", "warning", "failed", "stale"}:
+            raise EvaluationStateError("Invalid calibration status.")
+        with self._lock:
+            item = self._dataset_unlocked(dataset_id)
+            self._check_revision(item, revision)
+            payload = copy.deepcopy(calibration)
+            payload["status"] = status
+            payload["dataset_revision"] = revision
+            payload["updated_at"] = time.time()
+            item["calibration"] = payload
+            item["updated_at"] = payload["updated_at"]
+            self._save_unlocked()
+            return self.dataset_payload(item, include_cases=True)
+
     def publish_dataset(
         self,
         dataset_id: str,
         *,
         revision: int,
         release_notes: str = "",
+        acknowledge_calibration_warnings: bool = False,
     ) -> dict[str, Any]:
         with self._lock:
             item = self._dataset_unlocked(dataset_id)
             self._check_revision(item, revision)
             if not item.get("cases"):
                 raise EvaluationStateError("Dataset must contain at least one case.")
+            if str(item.get("origin") or "manual") == "generated":
+                calibration = dict(item.get("calibration") or {})
+                calibration_status = str(calibration.get("status") or "pending")
+                if int(calibration.get("dataset_revision") or 0) != int(revision):
+                    raise EvaluationStateError(
+                        "Generated dataset calibration is stale for this revision."
+                    )
+                if calibration_status == "warning":
+                    if not acknowledge_calibration_warnings:
+                        raise EvaluationStateError(
+                            "Calibration warnings must be acknowledged before publishing."
+                        )
+                elif calibration_status != "calibrated":
+                    raise EvaluationStateError(
+                        "Generated dataset must complete calibration before publishing."
+                    )
             version_number = len(item.get("versions") or []) + 1
             cases = copy.deepcopy(item["cases"])
             version = {
@@ -510,7 +602,7 @@ class XpertEvaluationStore:
             content = content[:remaining]
             total_history += len(content)
             messages.append({"role": role, "content": content})
-        return {
+        normalized = {
             "case_id": case_id[:120],
             "name": str(case.get("name") or message[:80]).strip()[:160],
             "message": message[:20_000],
@@ -523,6 +615,9 @@ class XpertEvaluationStore:
             "expected": copy.deepcopy(case.get("expected") or {}),
             "weights": copy.deepcopy(case.get("weights") or {}),
         }
+        if isinstance(case.get("targeting"), dict):
+            normalized["targeting"] = copy.deepcopy(case["targeting"])
+        return normalized
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
