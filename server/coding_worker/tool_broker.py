@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import Field
 
-from .contracts import CapabilityName, OperationState, PolicyProfile, StrictModel
+from .contracts import CapabilityName, OperationState, PolicyProfile, StrictModel, TaskState
 from .store import CodingWorkerStore, WorkerConflictError
 from .workspace import WorkspaceBroker, WorkspaceError
 
@@ -100,7 +100,6 @@ class ToolBroker:
             raise ToolBrokerError("Task workspace is unavailable.", code="workspace_unavailable")
         request = {
             "arguments": self._json_object(arguments),
-            "lease_id": lease_id,
             "workspace_id": task.workspace_id,
         }
         intent_sha256 = self._intent_sha256(tool_name, request)
@@ -125,7 +124,14 @@ class ToolBroker:
                 "Tool operation cannot be replayed.", code="operation_not_replayable"
             )
         try:
-            self._authorize(task.spec.policy_profile, tool_name, lease_id, task_id, request)
+            self._authorize(
+                task.spec.policy_profile,
+                tool_name,
+                lease_id,
+                task_id,
+                operation_id,
+                request,
+            )
             self.store.transition_operation(
                 operation_id,
                 OperationState.RUNNING,
@@ -152,7 +158,15 @@ class ToolBroker:
             asyncio.TimeoutError,
         ) as exc:
             current = self.store.get_operation(operation_id)
-            if current.state in {OperationState.PREPARED, OperationState.RUNNING}:
+            awaiting_approval = (
+                isinstance(exc, ToolBrokerError)
+                and exc.code == "approval_required"
+                and current.state is OperationState.PREPARED
+            )
+            if not awaiting_approval and current.state in {
+                OperationState.PREPARED,
+                OperationState.RUNNING,
+            }:
                 self.store.transition_operation(
                     operation_id,
                     OperationState.FAILED,
@@ -223,6 +237,7 @@ class ToolBroker:
         tool_name: str,
         lease_id: str | None,
         task_id: str,
+        operation_id: str,
         request: dict[str, Any],
     ) -> None:
         readonly = {"list_files", "read_file", "search_text", "diff"}
@@ -238,6 +253,15 @@ class ToolBroker:
         else:
             raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
         if lease_id is None:
+            self.store.create_approval(
+                task_id=task_id,
+                operation_id=operation_id,
+                capability=capability,
+                request=request["arguments"],
+            )
+            task = self.store.get_task(task_id)
+            if task.state is TaskState.RUNNING:
+                self.store.transition(task_id, TaskState.WAITING_APPROVAL)
             raise ToolBrokerError("Tool requires approval.", code="approval_required")
         lease = self.store.consume_lease(lease_id, task_id=task_id, capability=capability)
         requested_argv = request["arguments"].get("argv")

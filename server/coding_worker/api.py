@@ -5,13 +5,21 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
-from .contracts import Origin, StrictModel, TaskCreateRequest, TaskRecord, TERMINAL_STATES
+from .contracts import (
+    Origin,
+    StrictModel,
+    TaskCreateRequest,
+    TaskRecord,
+    TaskState,
+    TERMINAL_STATES,
+    WorkerApproval,
+)
 from .service import CodingWorkerService
 from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
 from .workspace import WorkspaceError
@@ -19,6 +27,12 @@ from .workspace import WorkspaceError
 
 class TaskMessageRequest(StrictModel):
     message: str = Field(min_length=1, max_length=1_048_576)
+
+
+class ApprovalDecisionRequest(StrictModel):
+    approval_id: str = Field(pattern=r"^approval_[a-f0-9]{32}$")
+    decision: Literal["approve_once", "approve_task", "reject"]
+    ttl_seconds: int = Field(default=900, ge=30, le=3600)
 
 
 _service: CodingWorkerService | None = None
@@ -177,6 +191,41 @@ async def task_events(
 async def append_task_message(task_id: str, payload: TaskMessageRequest) -> TaskRecord:
     try:
         return await get_coding_worker_service().append_message(task_id, payload.message)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/approvals", response_model=dict[str, list[WorkerApproval]])
+async def task_approvals(task_id: str) -> dict[str, list[WorkerApproval]]:
+    try:
+        return {"approvals": get_coding_worker_service().store.list_approvals(task_id)}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/approvals", response_model=WorkerApproval)
+async def decide_task_approval(
+    task_id: str, payload: ApprovalDecisionRequest
+) -> WorkerApproval:
+    service = get_coding_worker_service()
+    try:
+        approval = service.store.get_approval(payload.approval_id)
+        if approval.task_id != task_id:
+            raise WorkerNotFoundError("Approval was not found.", code="approval_not_found")
+        decided = service.store.decide_approval(
+            payload.approval_id,
+            approved=payload.decision != "reject",
+            task_scope=payload.decision == "approve_task",
+            ttl_seconds=payload.ttl_seconds,
+        )
+        task = service.store.get_task(task_id)
+        if task.state is TaskState.WAITING_APPROVAL:
+            service.store.transition(
+                task_id,
+                TaskState.RUNNING,
+                expected_state=TaskState.WAITING_APPROVAL,
+            )
+        return decided
     except Exception as exc:
         _raise_worker_error(exc)
 

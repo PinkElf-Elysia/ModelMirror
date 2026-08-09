@@ -204,10 +204,39 @@ async def test_unknown_write_reconciles_but_command_never_replays(tmp_path: Path
         operation_id="unknown-command",
         tool_name="run_command",
         intent_sha256="f" * 64,
-        request={"arguments": {"argv": ["python", "-V"]}, "lease_id": "lease", "workspace_id": store.get_task(task_id).workspace_id},
+        request={"arguments": {"argv": ["python", "-V"]}, "workspace_id": store.get_task(task_id).workspace_id},
     )
     store.transition_operation(command.operation_id, OperationState.RUNNING)
     store.mark_inflight_operations_unknown()
     with pytest.raises(ToolBrokerError) as unknown:
         broker.reconcile(command.operation_id)
     assert unknown.value.code == "operation_result_unknown"
+
+
+@pytest.mark.asyncio
+async def test_missing_command_lease_creates_one_approval_and_same_operation_resumes(
+    tmp_path: Path,
+) -> None:
+    broker, store, task_id, _ = await _broker(tmp_path)
+    argv = ["python", "-c", "print('approved')"]
+    with pytest.raises(ToolBrokerError) as pending:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="approval-command",
+            tool_name="run_command",
+            arguments={"argv": argv},
+        )
+    assert pending.value.code == "approval_required"
+    approvals = store.list_approvals(task_id)
+    assert len(approvals) == 1
+    decided = store.decide_approval(approvals[0].approval_id, approved=True)
+    assert decided.lease is not None
+    store.transition(task_id, TaskState.RUNNING)
+    result = await broker.execute(
+        task_id=task_id,
+        operation_id="approval-command",
+        tool_name="run_command",
+        arguments={"argv": argv},
+        lease_id=decided.lease.lease_id,
+    )
+    assert result.data["output"].strip() == "approved"

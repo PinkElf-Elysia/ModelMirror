@@ -127,3 +127,39 @@ def test_pin_unpin_and_delete_keep_active_task_safe(tmp_path: Path) -> None:
         assert client.delete(f"/api/coding-worker/v1/tasks/{task_id}").status_code == 409
         assert client.post(f"/api/coding-worker/v1/tasks/{task_id}/cancel").status_code == 200
         assert client.delete(f"/api/coding-worker/v1/tasks/{task_id}").status_code == 204
+
+
+def test_approval_endpoints_are_task_bound_and_single_decision(tmp_path: Path) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    with client:
+        first = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        second = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("api-task-02")
+        ).json()
+        approval = service.store.create_approval(
+            task_id=first["task_id"],
+            operation_id="api-approval-operation",
+            capability="command",
+            request={"argv": ["python", "-m", "pytest"]},
+        )
+        listed = client.get(
+            f"/api/coding-worker/v1/tasks/{first['task_id']}/approvals"
+        )
+        assert listed.status_code == 200
+        assert listed.json()["approvals"][0]["approval_id"] == approval.approval_id
+        foreign = client.post(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "approve_once"},
+        )
+        assert foreign.status_code == 404
+        decided = client.post(
+            f"/api/coding-worker/v1/tasks/{first['task_id']}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "approve_once"},
+        )
+        assert decided.status_code == 200
+        assert decided.json()["lease"]["operation_limit"] == 1
+        replay = client.post(
+            f"/api/coding-worker/v1/tasks/{first['task_id']}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "reject"},
+        )
+        assert replay.status_code == 409
