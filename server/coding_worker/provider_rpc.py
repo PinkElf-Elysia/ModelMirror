@@ -20,7 +20,7 @@ from .provider import (
     ProviderOpenRequest,
     ProviderSession,
 )
-from .executor import SidecarExecutor
+from .executor import ExecutorSidecarClientPool, SidecarExecutor
 
 
 MAX_PROVIDER_RPC_BYTES = 8 * 1024 * 1024
@@ -283,6 +283,7 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         tokens: Mapping[str, str],
         workspace_slot_resolver: Callable[[str], str],
         broker_rpc: BrokerRPCServer,
+        executor_pool: ExecutorSidecarClientPool | None = None,
     ) -> None:
         if set(endpoints) != set(tokens) or not endpoints:
             raise ValueError("provider sidecar bindings are incomplete")
@@ -290,7 +291,8 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         self._tokens = dict(tokens)
         self._workspace_slot_resolver = workspace_slot_resolver
         self._broker_rpc = broker_rpc
-        self._sessions: dict[str, tuple[str, str]] = {}
+        self._executor_pool = executor_pool
+        self._sessions: dict[str, tuple[str, str, str]] = {}
 
     async def capabilities(self) -> ProviderCapabilities:
         values = [
@@ -324,6 +326,14 @@ class ProviderSidecarClientPool(CodingAgentProvider):
                 "Provider slot is unavailable.", code="provider_unavailable"
             )
         broker_token = self._broker_rpc.register_task(request.task_id)
+        if self._executor_pool is not None:
+            try:
+                await self._executor_pool.bind_task(
+                    request.task_id, request.workspace_id
+                )
+            except Exception:
+                self._broker_rpc.revoke_task(request.task_id)
+                raise
         payload: dict[str, Any] = {
             "request": request.model_dump(mode="json"),
             "broker_endpoint": broker_endpoint,
@@ -339,13 +349,22 @@ class ProviderSidecarClientPool(CodingAgentProvider):
             )
         except Exception:
             self._broker_rpc.revoke_task(request.task_id)
+            if self._executor_pool is not None:
+                with contextlib.suppress(Exception):
+                    await self._executor_pool.close_task(
+                        request.task_id, request.workspace_id
+                    )
             raise
         if session.task_id != request.task_id:
             self._broker_rpc.revoke_task(request.task_id)
             raise ProviderRPCError(
                 "Provider session binding is invalid.", code="provider_invalid_response"
             )
-        self._sessions[session.session_id] = (slot_id, session.task_id)
+        self._sessions[session.session_id] = (
+            slot_id,
+            session.task_id,
+            request.workspace_id,
+        )
         return session
 
     async def message(
@@ -399,6 +418,9 @@ class ProviderSidecarClientPool(CodingAgentProvider):
                 slot_id, "close", {"session": session.model_dump(mode="json")}
             )
         finally:
+            if self._executor_pool is not None:
+                with contextlib.suppress(Exception):
+                    await self._executor_pool.close_task(session.task_id, binding[2])
             self._broker_rpc.revoke_task(session.task_id)
 
     async def run_process(
@@ -411,6 +433,15 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         isolated: bool,
         environment_overrides: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
+        if self._executor_pool is not None:
+            return await self._executor_pool.run_process(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                argv=argv,
+                timeout_seconds=timeout_seconds,
+                isolated=isolated,
+                environment_overrides=environment_overrides,
+            )
         return await self._workspace_call(
             workspace_id,
             "execute_process",
@@ -433,6 +464,14 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         ttl_seconds: int,
         preview_port: int | None = None,
     ) -> dict[str, Any]:
+        if self._executor_pool is not None:
+            return await self._executor_pool.start_service(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                argv=argv,
+                ttl_seconds=ttl_seconds,
+                preview_port=preview_port,
+            )
         return await self._workspace_call(
             workspace_id,
             "start_service",
@@ -446,12 +485,18 @@ class ProviderSidecarClientPool(CodingAgentProvider):
         )
 
     async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]:
+        if self._executor_pool is not None:
+            return await self._executor_pool.service_status(task_id=task_id, workspace_id=workspace_id, service_id=service_id)
         return await self._workspace_call(workspace_id, "service_status", {"task_id": task_id, "service_id": service_id})
 
     async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]:
+        if self._executor_pool is not None:
+            return await self._executor_pool.service_input(task_id=task_id, workspace_id=workspace_id, service_id=service_id, data=data)
         return await self._workspace_call(workspace_id, "service_input", {"task_id": task_id, "service_id": service_id, "data": data})
 
     async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]:
+        if self._executor_pool is not None:
+            return await self._executor_pool.stop_service(task_id=task_id, workspace_id=workspace_id, service_id=service_id)
         return await self._workspace_call(workspace_id, "stop_service", {"task_id": task_id, "service_id": service_id})
 
     async def _workspace_call(self, workspace_id: str, action: str, payload: dict[str, Any]) -> dict[str, Any]:

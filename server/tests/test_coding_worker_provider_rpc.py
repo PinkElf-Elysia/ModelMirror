@@ -173,3 +173,60 @@ async def test_credential_free_executor_requires_exact_task_workspace_binding(
     assert foreign.value.code == "executor_binding_invalid"
     await pool.close_task("task_one", "workspace_one")
     await server.close()
+
+
+@pytest.mark.asyncio
+async def test_provider_pool_binds_and_closes_separate_executor(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(tmp_path / "workspace", {}, id_key=b"z" * 32)
+    broker_rpc = BrokerRPCServer(ToolBroker(store=store, workspace_broker=workspace))
+    await broker_rpc.start_tcp_for_tests()
+    provider_server = ProviderRPCServer(FakeCodingAgentProvider(), token="p" * 48)
+    provider_endpoint = await provider_server.start_tcp_for_tests()
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    executor_server = ExecutorRPCServer(
+        SidecarExecutor(lambda _workspace_id: repository, runtime_root=tmp_path / "run"),
+        token="x" * 48,
+    )
+    executor_endpoint = await executor_server.start_tcp_for_tests()
+    executor_pool = ExecutorSidecarClientPool(
+        endpoints={"slot-a": executor_endpoint},
+        tokens={"slot-a": "x" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+    )
+    pool = ProviderSidecarClientPool(
+        endpoints={"slot-a": provider_endpoint},
+        tokens={"slot-a": "p" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+        broker_rpc=broker_rpc,
+        executor_pool=executor_pool,
+    )
+    from server.tests.test_coding_worker_service import _request as task_request
+    from server.coding_worker.contracts import Origin, TaskSpec
+
+    task_id = store.create_task(
+        TaskSpec(**task_request("split-slot").model_dump(), origin=Origin(module="test", object_id="split"))
+    ).task_id
+    session = await pool.open(_request(task_id, "workspace_split"))
+    result = await pool.run_process(
+        task_id=task_id,
+        workspace_id="workspace_split",
+        argv=("python", "-c", "print('executor-only')"),
+        timeout_seconds=10,
+        isolated=False,
+    )
+    assert result["exit_code"] == 0
+    await pool.close(session)
+    with pytest.raises(ExecutorRPCError) as closed:
+        await executor_pool.run_process(
+            task_id=task_id,
+            workspace_id="workspace_split",
+            argv=("python", "-c", "print('no')"),
+            timeout_seconds=10,
+            isolated=False,
+        )
+    assert closed.value.code == "executor_binding_invalid"
+    await provider_server.close()
+    await executor_server.close()
+    await broker_rpc.close()

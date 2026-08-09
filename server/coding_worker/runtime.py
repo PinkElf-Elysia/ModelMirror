@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .broker_rpc import BrokerRPCServer
 from .evidence import HarnessRunner
+from .executor import ExecutorSidecarClientPool
 from .network_policy import EgressPolicy
 from .provider_rpc import ProviderSidecarClientPool
 from .service import CodingWorkerService
@@ -32,6 +33,8 @@ class CodingWorkerRuntime:
         frozen_checks: Mapping[str, FrozenCheck],
         provider_endpoints: Mapping[str, str],
         provider_tokens: Mapping[str, str],
+        executor_endpoints: Mapping[str, str] | None = None,
+        executor_tokens: Mapping[str, str] | None = None,
         broker_socket_path: Path | None,
         retention_seconds: int = DEFAULT_RETENTION_SECONDS,
         max_active_tasks: int = 2,
@@ -73,11 +76,29 @@ class CodingWorkerRuntime:
             egress_proxy_url=egress_proxy_url,
         )
         self.broker_rpc = BrokerRPCServer(self.tool_broker)
+        executor_pool = None
+        if executor_endpoints is not None or executor_tokens is not None:
+            if (
+                executor_endpoints is None
+                or executor_tokens is None
+                or set(slot_roots) != set(executor_endpoints)
+                or set(slot_roots) != set(executor_tokens)
+            ):
+                raise CodingWorkerRuntimeError(
+                    "Worker executor configuration is incomplete.",
+                    code="coding_worker_config_invalid",
+                )
+            executor_pool = ExecutorSidecarClientPool(
+                endpoints=executor_endpoints,
+                tokens=executor_tokens,
+                workspace_slot_resolver=self.workspace_broker.workspace_slot,
+            )
         self.provider = ProviderSidecarClientPool(
             endpoints=provider_endpoints,
             tokens=provider_tokens,
             workspace_slot_resolver=self.workspace_broker.workspace_slot,
             broker_rpc=self.broker_rpc,
+            executor_pool=executor_pool,
         )
         self.tool_broker.executor = self.provider
         self.harness = HarnessRunner(
@@ -188,7 +209,21 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         "slot-a": os.getenv("CODING_WORKER_SLOT_A_TOKEN", ""),
         "slot-b": os.getenv("CODING_WORKER_SLOT_B_TOKEN", ""),
     }
-    if any(len(value) < 32 for value in tokens.values()):
+    executor_endpoints = {
+        "slot-a": os.getenv(
+            "CODING_WORKER_EXECUTOR_A_ENDPOINT",
+            "unix:/run/modelmirror-coding-executor-a/executor.sock",
+        ),
+        "slot-b": os.getenv(
+            "CODING_WORKER_EXECUTOR_B_ENDPOINT",
+            "unix:/run/modelmirror-coding-executor-b/executor.sock",
+        ),
+    }
+    executor_tokens = {
+        "slot-a": os.getenv("CODING_WORKER_EXECUTOR_A_TOKEN", ""),
+        "slot-b": os.getenv("CODING_WORKER_EXECUTOR_B_TOKEN", ""),
+    }
+    if any(len(value) < 32 for value in (*tokens.values(), *executor_tokens.values())):
         raise CodingWorkerRuntimeError(
             "Worker sidecar tokens are missing.",
             code="coding_worker_config_invalid",
@@ -208,6 +243,8 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         frozen_checks=_FROZEN_CHECKS,
         provider_endpoints=endpoints,
         provider_tokens=tokens,
+        executor_endpoints=executor_endpoints,
+        executor_tokens=executor_tokens,
         broker_socket_path=Path(
             os.getenv(
                 "CODING_WORKER_BROKER_SOCKET",
