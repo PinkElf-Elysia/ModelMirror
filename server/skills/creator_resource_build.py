@@ -572,6 +572,83 @@ class SkillResourceBuildStore:
             values["updated_at"] = time.time()
             return self._publish_unlocked(self._decode(values, verify_digest=False))
 
+    def record_generation_error(
+        self,
+        build_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+        target_id: str,
+        code: str,
+        message: str,
+    ) -> SkillResourceBuild:
+        """Persist a model-contract failure and consume the one internal repair."""
+
+        with self._lock:
+            current = self._require_match_unlocked(
+                build_id,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if current.state != "generating":
+                raise SkillCreatorConflictError("Resource build is not generating content.")
+            values = asdict(current)
+            issue_path = "SKILL.md"
+            if current.phase == "resources":
+                issue_path = self._resource_dict(values, target_id)["path"]
+            issue = self._issues(
+                [
+                    {
+                        "code": str(
+                            code or "skill_creator_resource_builder_invalid"
+                        )[:120],
+                        "message": str(
+                            message
+                            or "Generated resource did not satisfy the frozen contract."
+                        )[:500],
+                        "path": issue_path,
+                        "severity": "error",
+                    }
+                ]
+            )
+            if current.phase == "resources":
+                if target_id != current.current_resource_id:
+                    raise SkillCreatorConflictError("Generated resource target changed.")
+                resource = self._resource_dict(values, target_id)
+                resource["validation_issues"] = issue
+                if int(resource["repair_count"]) < 1:
+                    resource["repair_count"] = int(resource["repair_count"]) + 1
+                    resource["attempt"] = int(resource["attempt"]) + 1
+                    resource["chunks"] = []
+                    resource["content"] = None
+                    resource["content_digest"] = None
+                    resource["script_tests"] = []
+                    resource["script_receipt"] = None
+                    resource["state"] = "planned"
+                    values["state"] = "planned"
+                    values["current_resource_id"] = None
+                else:
+                    resource["state"] = "failed"
+                    values["state"] = "failed"
+            elif current.phase == "skill_markdown":
+                if target_id != "SKILL.md":
+                    raise SkillCreatorConflictError("Generated SKILL.md target changed.")
+                values["skill_validation_issues"] = issue
+                if int(values["skill_repair_count"]) < 1:
+                    values["skill_repair_count"] = int(values["skill_repair_count"]) + 1
+                    values["skill_attempt"] = int(values["skill_attempt"]) + 1
+                    values["skill_chunks"] = []
+                    values["skill_markdown"] = None
+                    values["skill_markdown_digest"] = None
+                    values["state"] = "planned"
+                else:
+                    values["state"] = "failed"
+            else:
+                raise SkillCreatorConflictError("The resource build is already finalized.")
+            values["revision"] = current.revision + 1
+            values["updated_at"] = time.time()
+            return self._publish_unlocked(self._decode(values, verify_digest=False))
+
     def review_resource(
         self,
         build_id: str,
@@ -1017,7 +1094,13 @@ class SkillResourceBuildStore:
             if not _IDENTIFIER_RE.fullmatch(test_id) or test_id in seen:
                 raise SkillCreatorValidationError("Script test IDs must be unique identifiers.")
             seen.add(test_id)
-            args = [str(item) for item in list(raw.get("args") or [])]
+            raw_args = raw.get("args", [])
+            if not isinstance(raw_args, list):
+                raise SkillCreatorValidationError(
+                    "Script test args must be a JSON array of strings.",
+                    code="skill_creator_script_test_contract_invalid",
+                )
+            args = [str(item) for item in raw_args]
             if len(args) > 16 or any(not item or len(item) > 500 or "\x00" in item or "\n" in item for item in args):
                 raise SkillCreatorValidationError("Script test arguments are invalid.")
             for argument_index, argument in enumerate(args):
@@ -1026,12 +1109,15 @@ class SkillResourceBuildStore:
                     content=argument,
                 )
             fixtures: list[ResourceScriptFixture] = []
-            raw_fixtures = raw.get("fixtures") or []
+            raw_fixtures = raw.get("fixtures", [])
             if (
                 not isinstance(raw_fixtures, list)
                 or len(raw_fixtures) > MAX_SCRIPT_FIXTURES_PER_TEST
             ):
-                raise SkillCreatorValidationError("Script test fixture count is invalid.")
+                raise SkillCreatorValidationError(
+                    "Script test fixtures must be a JSON array with at most eight objects.",
+                    code="skill_creator_script_test_contract_invalid",
+                )
             fixture_paths: set[str] = set()
             for fixture in raw_fixtures:
                 if not isinstance(fixture, Mapping):
@@ -1052,11 +1138,29 @@ class SkillResourceBuildStore:
                     raise SkillCreatorValidationError("Script test fixtures exceed 64 KiB in total.")
                 self._reject_credentials(path=path, content=content)
                 fixtures.append(ResourceScriptFixture(path=path, content=content))
-            expected_exit_code = int(raw.get("expected_exit_code", 0))
+            try:
+                expected_exit_code = int(raw.get("expected_exit_code", 0))
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise SkillCreatorValidationError(
+                    "Script test expected_exit_code must be an integer.",
+                    code="skill_creator_script_test_contract_invalid",
+                ) from exc
             if not -255 <= expected_exit_code <= 255:
                 raise SkillCreatorValidationError("Script test exit code is invalid.")
-            stdout_contains = self._text_list(raw.get("stdout_contains") or [], 10, 500)
-            stderr_contains = self._text_list(raw.get("stderr_contains") or [], 10, 500)
+            raw_stdout_contains = raw.get("stdout_contains", [])
+            raw_stderr_contains = raw.get("stderr_contains", [])
+            if not isinstance(raw_stdout_contains, list):
+                raise SkillCreatorValidationError(
+                    "Script test stdout_contains must be a JSON array of strings.",
+                    code="skill_creator_script_test_contract_invalid",
+                )
+            if not isinstance(raw_stderr_contains, list):
+                raise SkillCreatorValidationError(
+                    "Script test stderr_contains must be a JSON array of strings.",
+                    code="skill_creator_script_test_contract_invalid",
+                )
+            stdout_contains = self._text_list(raw_stdout_contains, 10, 500)
+            stderr_contains = self._text_list(raw_stderr_contains, 10, 500)
             for stream_name, expected_values in (
                 ("stdout", stdout_contains),
                 ("stderr", stderr_contains),

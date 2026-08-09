@@ -317,7 +317,7 @@ def test_script_test_fixture_count_is_bounded(tmp_path: Path) -> None:
     store = SkillResourceBuildStore(tmp_path / "build")
     build = store.create(plan=plan)
 
-    with pytest.raises(SkillCreatorValidationError, match="fixture count"):
+    with pytest.raises(SkillCreatorValidationError, match="at most eight"):
         _append_complete(
             store,
             build,
@@ -337,6 +337,112 @@ def test_script_test_fixture_count_is_bounded(tmp_path: Path) -> None:
                 }
             ],
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value", "message"),
+    [
+        ("args", "../inputs/case.txt", "args must be a JSON array"),
+        ("fixtures", {}, "fixtures must be a JSON array"),
+        ("stdout_contains", "timeline", "stdout_contains must be a JSON array"),
+        ("stderr_contains", "warning", "stderr_contains must be a JSON array"),
+    ],
+)
+def test_script_test_list_fields_reject_scalar_strings(
+    tmp_path: Path, field: str, invalid_value: str, message: str
+) -> None:
+    script_resource = {**_complex_resources()[1], "depends_on": []}
+    plan = _confirmed_plan(tmp_path, resources=[script_resource])
+    store = SkillResourceBuildStore(tmp_path / field)
+    build = store.create(plan=plan)
+    test_case = {
+        "test_id": "strict_shape",
+        "args": [],
+        "fixtures": [],
+        "expected_exit_code": 0,
+        "stdout_contains": [],
+        "stderr_contains": [],
+    }
+    test_case[field] = invalid_value
+
+    with pytest.raises(SkillCreatorValidationError, match=message) as caught:
+        _append_complete(
+            store,
+            build,
+            target_id=build.resources[0].resource_id,
+            content="import sys\nprint('usage: normalize')\nraise SystemExit(0)\n",
+            script_tests=[test_case],
+        )
+    assert caught.value.code == "skill_creator_script_test_contract_invalid"
+
+
+def test_script_test_exit_code_rejects_non_integer_values(tmp_path: Path) -> None:
+    script_resource = {**_complex_resources()[1], "depends_on": []}
+    plan = _confirmed_plan(tmp_path, resources=[script_resource])
+    store = SkillResourceBuildStore(tmp_path / "exit-code")
+    build = store.create(plan=plan)
+
+    with pytest.raises(SkillCreatorValidationError, match="must be an integer") as caught:
+        _append_complete(
+            store,
+            build,
+            target_id=build.resources[0].resource_id,
+            content="import sys\nprint('usage: normalize')\nraise SystemExit(0)\n",
+            script_tests=[
+                {
+                    "test_id": "invalid_exit",
+                    "args": [],
+                    "fixtures": [],
+                    "expected_exit_code": "not-an-integer",
+                    "stdout_contains": [],
+                    "stderr_contains": [],
+                }
+            ],
+        )
+    assert caught.value.code == "skill_creator_script_test_contract_invalid"
+
+
+def test_generation_contract_error_consumes_the_single_internal_repair(
+    tmp_path: Path,
+) -> None:
+    script_resource = {**_complex_resources()[1], "depends_on": []}
+    plan = _confirmed_plan(tmp_path, resources=[script_resource])
+    store = SkillResourceBuildStore(tmp_path / "build")
+    build = store.create(plan=plan)
+    resource_id = build.resources[0].resource_id
+
+    first = store.claim_next(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+    )
+    repaired = store.record_generation_error(
+        first.build_id,
+        expected_revision=first.revision,
+        expected_digest=first.digest,
+        target_id=resource_id,
+        code="skill_creator_invalid",
+        message="Script test fixture count is invalid.",
+    )
+    assert repaired.state == "planned"
+    assert repaired.resources[0].repair_count == 1
+    assert repaired.resources[0].attempt == 2
+
+    second = store.claim_next(
+        repaired.build_id,
+        expected_revision=repaired.revision,
+        expected_digest=repaired.digest,
+    )
+    failed = store.record_generation_error(
+        second.build_id,
+        expected_revision=second.revision,
+        expected_digest=second.digest,
+        target_id=resource_id,
+        code="skill_creator_invalid",
+        message="Script test fixture count is invalid.",
+    )
+    assert failed.state == "failed"
+    assert failed.resources[0].state == "failed"
 
 
 def test_recovery_restarts_only_unconfirmed_resource(tmp_path: Path) -> None:

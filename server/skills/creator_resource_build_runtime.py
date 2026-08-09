@@ -132,6 +132,7 @@ def build_resource_builder_invocation(
             "resource_bytes_max": 24 * 1024,
             "skill_markdown_bytes_max": 20 * 1024,
             "script_test_count": [1, 3],
+            "script_fixture_count_per_test_max": 8,
             "script_languages": ["python", "javascript"],
             "assets_utf8_text_only": True,
         },
@@ -442,7 +443,8 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
         "only that target. Do not invent domain facts: use accepted sources, state assumptions, "
         "or implement a conservative fail-closed behavior. Continue existing_segments without "
         "repeating them. One JSON result only. Each segment is at most 8 KiB. Set complete=false "
-        "when more content is necessary."
+        "when more content is necessary. Honor target feedback. If validation_issues are present, "
+        "correct each issue instead of repeating the rejected result."
     )
     if target_id == "SKILL.md":
         specifics = (
@@ -460,8 +462,10 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
             " Write a deterministic Python or JavaScript CLI with explicit arguments, stable "
             "UTF-8 output, conservative validation, and non-zero failure exit. On the final "
             "segment include one to three offline script_tests in the required JSON field. "
-            "Fixture paths are rooted under inputs/; arguments run from work/, so refer to a "
-            "fixture as ../inputs/<path>."
+            "Each test uses fixtures as a JSON array of at most eight objects shaped exactly "
+            "{\"path\":\"case.txt\",\"content\":\"UTF-8 text\"}. Fixture paths are rooted "
+            "under inputs/; arguments run from work/, so refer to a fixture as "
+            "../inputs/<path>."
         )
     else:
         specifics = " Write a reusable UTF-8 template or boilerplate. Make placeholders and copy/render instructions explicit; do not use the asset as a knowledge reference."
@@ -469,8 +473,12 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
         f' Return exactly {{"resource_build_version":"{RESOURCE_BUILD_VERSION}",'
         f'"target_id":{json.dumps(target_id)},"segment_index":<current integer>,'
         '"content":"segment text","complete":true|false,"script_tests":[]}. '
-        "Only a completed script may populate script_tests with test_id, args, fixtures, "
-        "expected_exit_code, stdout_contains, and stderr_contains."
+        "Only a completed script may populate script_tests. Every test must use this exact "
+        'shape: {"test_id":"case_1","args":["../inputs/case.txt"],'
+        '"fixtures":[{"path":"case.txt","content":"UTF-8 text"}],'
+        '"expected_exit_code":0,"stdout_contains":["expected text"],'
+        '"stderr_contains":[]}. args, fixtures, stdout_contains, and stderr_contains are always '
+        "JSON arrays, including when empty."
     )
     return common + specifics + schema
 

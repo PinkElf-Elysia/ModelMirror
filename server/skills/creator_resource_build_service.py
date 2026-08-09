@@ -162,18 +162,48 @@ class SkillCreatorResourceBuildService:
                 raise SkillCreatorValidationError("Resource builder status is unavailable.", code="skill_creator_resource_builder_failed") from exc
             if not available or builder is None:
                 raise SkillCreatorValidationError("The Skill Creator model gateway is not configured.", code="model_gateway_unconfigured")
-            current = self.build_store.claim_next(build_id, expected_revision=expected_revision, expected_digest=expected_digest)
-            # One API action assembles the complete target. Segmentation remains internal.
+            current = self.build_store.claim_next(
+                build_id,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            validated = await self._generate_and_validate(current, builder=builder)
+            # Static/test failures get exactly one server-controlled regeneration.
+            if validated.state in {"planned", "revision_requested"}:
+                repaired = self.build_store.claim_next(
+                    build_id,
+                    expected_revision=validated.revision,
+                    expected_digest=validated.digest,
+                )
+                validated = await self._generate_and_validate(repaired, builder=builder)
+            return validated
+
+    async def _generate_and_validate(
+        self, current: SkillResourceBuild, *, builder: ResourceBuilderExecutor
+    ) -> SkillResourceBuild:
+        """Assemble one frozen target and turn contract errors into one repair."""
+
+        target_id, _ = self._segment_target(current)
+        try:
             for _ in range(3):
                 target_id, segment_index = self._segment_target(current)
                 try:
-                    segment = await builder.generate(ResourceBuildGenerationRequest(build=current, target_id=target_id, segment_index=segment_index))
+                    segment = await builder.generate(
+                        ResourceBuildGenerationRequest(
+                            build=current,
+                            target_id=target_id,
+                            segment_index=segment_index,
+                        )
+                    )
                 except (SkillCreatorConflictError, SkillCreatorValidationError):
                     raise
                 except Exception as exc:
-                    raise SkillCreatorValidationError("The Skill Creator resource builder failed.", code="skill_creator_resource_builder_failed") from exc
+                    raise SkillCreatorValidationError(
+                        "The Skill Creator resource builder failed.",
+                        code="skill_creator_resource_builder_failed",
+                    ) from exc
                 current = self.build_store.append_segment(
-                    build_id,
+                    current.build_id,
                     expected_revision=current.revision,
                     expected_digest=current.digest,
                     target_id=segment.target_id,
@@ -183,36 +213,27 @@ class SkillCreatorResourceBuildService:
                     script_tests=segment.script_tests,
                 )
                 if segment.complete:
-                    break
-            else:
-                raise SkillCreatorValidationError("The generated target exceeded the three-segment limit.", code="skill_creator_resource_segment_limit")
-            validated = await self._validate_current(current)
-            # Static/test failures get exactly one server-controlled regeneration.
-            if validated.state in {"planned", "revision_requested"}:
-                repaired = self.build_store.claim_next(
-                    build_id,
-                    expected_revision=validated.revision,
-                    expected_digest=validated.digest,
-                )
-                for _ in range(3):
-                    target_id, segment_index = self._segment_target(repaired)
-                    segment = await builder.generate(ResourceBuildGenerationRequest(build=repaired, target_id=target_id, segment_index=segment_index))
-                    repaired = self.build_store.append_segment(
-                        build_id,
-                        expected_revision=repaired.revision,
-                        expected_digest=repaired.digest,
-                        target_id=segment.target_id,
-                        segment_index=segment.segment_index,
-                        content=segment.content,
-                        complete=segment.complete,
-                        script_tests=segment.script_tests,
-                    )
-                    if segment.complete:
-                        break
-                else:
-                    raise SkillCreatorValidationError("The repaired target exceeded the three-segment limit.", code="skill_creator_resource_segment_limit")
-                validated = await self._validate_current(repaired)
-            return validated
+                    return await self._validate_current(current)
+            raise SkillCreatorValidationError(
+                "The generated target exceeded the three-segment limit.",
+                code="skill_creator_resource_segment_limit",
+            )
+        except SkillCreatorValidationError as exc:
+            if exc.code in {
+                "model_gateway_unconfigured",
+                "skill_creator_resource_builder_failed",
+                "skill_creator_sandbox_unavailable",
+                "skill_creator_sandbox_profile_invalid",
+            }:
+                raise
+            return self.build_store.record_generation_error(
+                current.build_id,
+                expected_revision=current.revision,
+                expected_digest=current.digest,
+                target_id=target_id,
+                code=exc.code,
+                message=str(exc),
+            )
 
     def review_resource(
         self,

@@ -356,6 +356,143 @@ class _ScriptRunner:
         )
 
 
+class _InvalidFirstScriptBuilder(_Builder):
+    def __init__(self) -> None:
+        self.script_calls = 0
+
+    async def generate(
+        self, request: ResourceBuildGenerationRequest
+    ) -> ResourceBuildSegment:
+        item = next(
+            (item for item in request.build.resources if item.resource_id == request.target_id),
+            None,
+        )
+        if item is not None and item.kind == "script":
+            self.script_calls += 1
+            if self.script_calls == 1:
+                segment = await super().generate(request)
+                invalid = [dict(segment.script_tests[0])]
+                invalid[0]["fixtures"] = [
+                    {"path": f"case-{index}.txt", "content": str(index)}
+                    for index in range(9)
+                ]
+                return replace(segment, script_tests=invalid)
+        return await super().generate(request)
+
+
+def test_service_repairs_a_generated_script_contract_once(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime"
+    plan_store = SkillResourcePlanStore(runtime)
+    plan = _plan(
+        plan_store,
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "path": "scripts/normalize.py",
+                "purpose": "Normalize timeline values deterministically.",
+                "source_ids": ["positive_example:0"],
+                "used_by_steps": ["normalize"],
+                "depends_on": [],
+                "acceptance_checks": ["Returns non-zero for missing input."],
+            }
+        ],
+    )
+    draft_store = WorkspaceSkillDraftStore(runtime)
+    authoring = AuthoringService(
+        AuthoringProposalStore(runtime),
+        XpertStore(tmp_path / "xperts"),
+        draft_store,
+        local_console_actor_id="console-test",
+    )
+    session = SkillCreatorSession(
+        session_id=plan.session_id,
+        session_revision=1,
+        intent="Create an evidence-bound incident review.",
+        positive_examples=["Review the 09:02 outage timeline."],
+        near_miss_examples=["Rewrite this paragraph."],
+        expected_output="Return six stable Markdown sections.",
+        success_criteria=["Preserve times and never invent a cause."],
+        evidence_confirmed=True,
+        state="editing_draft",
+    )
+    creator = SimpleNamespace(
+        authoring_service=authoring,
+        get_session=lambda _id: (session, None),
+        require_enabled=lambda: None,
+    )
+    planning = SimpleNamespace(plan_store=plan_store, require_enabled=lambda: None)
+    builder = _InvalidFirstScriptBuilder()
+    service = SkillCreatorResourceBuildService(
+        creator,
+        planning,
+        SkillResourceBuildStore(runtime),
+        builder=builder,
+        script_runner=_ScriptRunner(),
+        enabled=True,
+    )
+    build = asyncio.run(
+        service.start(
+            session.session_id,
+            plan_id=plan.plan_id,
+            expected_session_revision=1,
+            expected_plan_revision=plan.revision,
+            expected_plan_digest=plan.digest,
+        )
+    )
+    generated = asyncio.run(
+        service.next(
+            build.build_id,
+            expected_session_revision=1,
+            expected_revision=build.revision,
+            expected_digest=build.digest,
+        )
+    )
+    assert generated.state == "awaiting_review"
+    assert generated.resources[0].repair_count == 1
+    assert generated.resources[0].attempt == 2
+    assert builder.script_calls == 2
+
+
+def test_script_prompt_freezes_fixture_shape_and_limit(tmp_path: Path) -> None:
+    plan = _plan(
+        SkillResourcePlanStore(tmp_path),
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "path": "scripts/normalize.py",
+                "purpose": "Normalize the timeline.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["normalize"],
+                "depends_on": [],
+                "acceptance_checks": ["Rejects invalid input."],
+            }
+        ],
+    )
+    store = SkillResourceBuildStore(tmp_path / "build")
+    build = store.create(plan=plan)
+    claimed = store.claim_next(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+    )
+    resource_id = claimed.current_resource_id
+    assert resource_id
+    invocation = build_resource_builder_invocation(
+        ResourceBuildGenerationRequest(
+            build=claimed, target_id=resource_id, segment_index=0
+        ),
+        model_id="provider/model",
+    )
+    context = json.loads(invocation.inputs["creator_request"])
+    assert context["generation_limits"]["script_fixture_count_per_test_max"] == 8
+    role_prompt = invocation.workflow["nodes"][1]["data"]["rolePrompt"]
+    assert '"path":"case.txt","content":"UTF-8 text"' in role_prompt
+    assert '"stdout_contains":["expected text"]' in role_prompt
+    assert "are always JSON arrays" in role_prompt
+
+
 def test_complex_build_reaches_valid_standard_proposal(tmp_path: Path) -> None:
     runtime = tmp_path / "runtime"
     plan_store = SkillResourcePlanStore(runtime)
