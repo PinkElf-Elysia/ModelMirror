@@ -4,10 +4,12 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import subprocess
 import tarfile
 import threading
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -47,6 +49,7 @@ class HostSnapshotResult:
     file_count: int
     total_bytes: int
     hidden_files: int
+    archive_identity: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +66,11 @@ def create_host_snapshot_archive(
     name: str,
     branch: str,
     head: str,
+    identity_provider: Callable[[Path], str] | None = None,
+    identity_cleanup: Callable[[Path, str], None] | None = None,
 ) -> HostSnapshotResult:
+    if identity_cleanup is not None and identity_provider is None:
+        raise ValueError("identity_cleanup requires identity_provider")
     _validate_identity(project_id, name, branch, head)
     project_path = Path(project_path).resolve(strict=True)
     destination = Path(destination)
@@ -89,21 +96,48 @@ def create_host_snapshot_archive(
     fingerprint = hashlib.sha256()
     total_bytes = 0
     temporary = destination.with_name(f".{destination.name}.building")
-    temporary.unlink(missing_ok=True)
-    process = subprocess.Popen(
-        build_safe_git_command(project_path, ("cat-file", "--batch")),
-        cwd=project_path,
-        env=build_safe_git_environment(),
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+    except OSError as exc:
+        raise HostSnapshotError("snapshot_archive_publish_failed") from exc
+    building_identity: str | None = None
+    try:
+        building_identity = (
+            identity_provider(temporary) if identity_provider is not None else None
+        )
+        process = subprocess.Popen(
+            build_safe_git_command(project_path, ("cat-file", "--batch")),
+            cwd=project_path,
+            env=build_safe_git_environment(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except BaseException:
+        os.close(descriptor)
+        if building_identity is not None and identity_cleanup is not None:
+            with contextlib.suppress(Exception):
+                identity_cleanup(temporary, building_identity)
+        elif identity_provider is None:
+            temporary.unlink(missing_ok=True)
+        raise
     timeout = threading.Timer(60.0, process.kill)
     timeout.daemon = True
     timeout.start()
     assert process.stdin is not None and process.stdout is not None
     try:
-        with tarfile.open(temporary, mode="w:gz", format=tarfile.PAX_FORMAT) as archive:
+        with os.fdopen(descriptor, "wb") as output, tarfile.open(
+            fileobj=output,
+            mode="w:gz",
+            format=tarfile.PAX_FORMAT,
+        ) as archive:
             for item in visible:
                 process.stdin.write(item.object_id.encode("ascii") + b"\n")
                 process.stdin.flush()
@@ -161,9 +195,18 @@ def create_host_snapshot_archive(
             raise HostSnapshotError("snapshot_git_failed")
         if temporary.stat().st_size > MAX_HOST_ARCHIVE_BYTES:
             raise HostSnapshotError("snapshot_archive_too_large")
-        temporary.replace(destination)
+        archive_identity = _publish_archive_no_replace(
+            temporary,
+            destination,
+            identity_provider=identity_provider,
+            expected_identity=building_identity,
+        )
     except BaseException:
-        temporary.unlink(missing_ok=True)
+        if building_identity is not None and identity_cleanup is not None:
+            with contextlib.suppress(Exception):
+                identity_cleanup(temporary, building_identity)
+        elif identity_provider is None:
+            temporary.unlink(missing_ok=True)
         with contextlib.suppress(Exception):
             process.kill()
         with contextlib.suppress(Exception):
@@ -180,7 +223,33 @@ def create_host_snapshot_archive(
         file_count=len(visible),
         total_bytes=total_bytes,
         hidden_files=hidden_files,
+        archive_identity=archive_identity,
     )
+
+
+def _publish_archive_no_replace(
+    temporary: Path,
+    destination: Path,
+    *,
+    identity_provider: Callable[[Path], str] | None,
+    expected_identity: str | None,
+) -> str | None:
+    """Publish one exact archive object without overwriting another name."""
+
+    identity = expected_identity
+    if identity_provider is not None and identity_provider(temporary) != identity:
+        raise HostSnapshotError("snapshot_archive_publish_failed")
+    try:
+        # Both names are in the same private transfer directory. A hard-link
+        # publication is atomic and fails if an unknown destination exists;
+        # after the building name is removed the archive again has one link.
+        os.link(temporary, destination, follow_symlinks=False)
+    except (FileExistsError, OSError) as exc:
+        raise HostSnapshotError("snapshot_archive_publish_failed") from exc
+    temporary.unlink()
+    if identity_provider is not None and identity_provider(destination) != identity:
+        raise HostSnapshotError("snapshot_archive_publish_failed")
+    return identity
 
 
 def extract_host_snapshot_archive(

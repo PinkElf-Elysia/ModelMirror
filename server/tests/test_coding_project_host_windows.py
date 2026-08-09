@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 import server.coding_project_host.windows_helper as windows_helper_module
+import server.coding_runtime.host_snapshot as host_snapshot_module
 
 from server.coding_runtime.applier_client import _receipt_to_payload
 from server.coding_runtime.apply_models import ApplyFileReceipt, ApplyReceipt
@@ -599,8 +600,12 @@ def test_registry_snapshot_holds_config_guard_across_archive(
             blocked_writes.append(True)
         else:
             pytest.fail("Config write must be blocked while snapshot cat-file is running")
-        Path(_args[1]).write_bytes(b"guarded-archive")
-        return SimpleNamespace(project_id=inspected["project_id"])
+        destination = Path(_args[1])
+        destination.write_bytes(b"guarded-archive")
+        return SimpleNamespace(
+            project_id=inspected["project_id"],
+            archive_identity=windows_helper_module.file_identity(destination),
+        )
 
     monkeypatch.setattr(
         windows_helper_module,
@@ -615,6 +620,57 @@ def test_registry_snapshot_holds_config_guard_across_archive(
     assert result.project_id == inspected["project_id"]
     assert archive_identity
     assert blocked_writes == [True]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows snapshot identity gate")
+def test_snapshot_never_uploads_or_deletes_post_publish_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _repository(tmp_path)
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    inspected = inspect_git_project(project, registry.device_secret)
+    registry.remember_project(inspected)
+    archive = tmp_path / "snapshot.tar.gz"
+    replacement = b"manual replacement must survive\n"
+    replacement_identity: str | None = None
+    real_publish = host_snapshot_module._publish_archive_no_replace
+
+    def publish_then_replace(*args, **kwargs):
+        nonlocal replacement_identity
+        identity = real_publish(*args, **kwargs)
+        destination = Path(args[1])
+        destination.unlink()
+        destination.write_bytes(replacement)
+        replacement_identity = windows_helper_module.file_identity(destination)
+        return identity
+
+    monkeypatch.setattr(
+        host_snapshot_module,
+        "_publish_archive_no_replace",
+        publish_then_replace,
+    )
+    _result, owned_identity = registry.create_snapshot(
+        inspected["project_id"],
+        archive,
+    )
+    transport = ProjectHostTransport(
+        registry,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=lambda: None,
+    )
+    monkeypatch.setattr(
+        transport,
+        "_upload_snapshot",
+        lambda *_args, **_kwargs: pytest.fail("Replacement must never be uploaded"),
+    )
+
+    with pytest.raises(ProjectHostHelperError):
+        transport._upload_snapshot_exact("a" * 32, archive, owned_identity)
+
+    assert archive.read_bytes() == replacement
+    assert windows_helper_module.file_identity(archive) == replacement_identity
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows helper safety gate")

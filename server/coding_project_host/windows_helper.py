@@ -420,8 +420,13 @@ class ProjectHostRegistry:
                     name=inspected["name"],
                     branch=str(expected_branch or inspected["branch"]),
                     head=str(expected_head or inspected["head"]),
+                    identity_provider=file_identity,
+                    identity_cleanup=_remove_regular_identity,
                 )
-                archive_identity = file_identity(destination)
+                archive_identity = result.archive_identity
+                if _FILE_IDENTITY_PATTERN.fullmatch(str(archive_identity or "")) is None:
+                    raise ProjectHostHelperError("snapshot_failed")
+                assert archive_identity is not None
                 rechecked = (
                     _inspect_git_project_for_recovery_guarded(
                         resolved,

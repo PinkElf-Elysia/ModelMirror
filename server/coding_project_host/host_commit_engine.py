@@ -55,7 +55,8 @@ _IDENTITY = re.compile(r"^[a-f0-9]+-[a-f0-9]+$")
 _DANGEROUS_CONFIG = (
     r"^(include|include[Ii]f|filter|credential|diff|url)(\.|$)"
     r"|^remote\..*\.(promisor|partial[Cc]lone[Ff]ilter)$"
-    r"|^(core\.worktree|extensions\.(worktree[Cc]onfig|partial[Cc]lone))$"
+    r"|^(core\.(worktree|excludes[Ff]ile)|"
+    r"extensions\.(worktree[Cc]onfig|partial[Cc]lone|ref[Ss]torage))$"
 )
 _PERSISTED_CONFLICT_CODES = frozenset(
     {
@@ -72,6 +73,7 @@ _PERSISTED_CONFLICT_CODES = frozenset(
     }
 )
 MAX_GIT_NAMESPACE_ENTRIES = 500_000
+MAX_GIT_CONFIG_BYTES = 2 * 1024 * 1024
 MAX_PRIVATE_OBJECTS = 10_000
 MAX_PRIVATE_OBJECT_BYTES = 8 * 1024 * 1024
 MAX_PRIVATE_OBJECT_CONTENT_BYTES = 64 * 1024 * 1024
@@ -273,10 +275,58 @@ class HostGitCommitEngine:
         if self.enforce_windows and os.name != "nt":
             raise HostCommitError("windows_required")
         try:
-            with _project_process_lock(self.root), self._lock:
+            with _project_process_lock(
+                self.root,
+                preflight=self._guard_repository_preflight,
+            ), self._lock:
                 yield
         except HostApplyError as exc:
             raise HostCommitError(exc.code) from exc
+
+    @contextlib.contextmanager
+    def _guard_repository_preflight(self):
+        """Bind safe Git configuration before creating operation artifacts."""
+
+        self._validate_repository_layout()
+        config = self.git / "config"
+        namespaces = [self.git / "objects", self.git / "refs"]
+        if _path_entry_exists(self.git / "info"):
+            namespaces.append(self.git / "info")
+        try:
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(_guard_directories(tuple(namespaces)))
+                directories = tuple(
+                    dict.fromkeys(
+                        directory
+                        for namespace in namespaces
+                        for directory in _safe_git_namespace(namespace)
+                    )
+                )
+                stack.enter_context(_guard_directories(directories))
+                current = _read_regular_with_identity(config)
+                if current is None:
+                    raise HostCommitError("repository_unsafe")
+                content, identity = current
+                if len(content) > MAX_GIT_CONFIG_BYTES:
+                    raise HostCommitError("repository_config_unsafe")
+                stack.enter_context(
+                    _guard_exact_regular_object(
+                        config,
+                        content,
+                        expected_identity=identity,
+                    )
+                )
+                self._assert_repository_redirections_absent()
+                self._assert_no_dangerous_config_file(config)
+                yield
+                self._validate_repository_layout()
+                self._assert_repository_redirections_absent()
+                for namespace in namespaces:
+                    _safe_git_namespace(namespace)
+        except HostCommitError:
+            raise
+        except (HostApplyError, HostFileTransactionError, OSError) as exc:
+            raise HostCommitError("repository_unsafe") from exc
 
     @contextlib.contextmanager
     def _git_write_guards(
@@ -292,6 +342,7 @@ class HostGitCommitEngine:
                 self.git / "objects",
                 self.git / "refs",
                 self.git / "logs",
+                self.git / "info",
             ):
                 if namespace.exists():
                     directories.extend(_safe_git_namespace(namespace))
@@ -1594,9 +1645,6 @@ class HostGitCommitEngine:
             raise HostCommitError("project_path_invalid")
         if _is_link_or_reparse(self.git) or not self.git.is_dir():
             raise HostCommitError("repository_unsafe")
-        self._assert_repository_redirections_absent()
-        if _path_entry_exists(self.git / "refs" / "replace"):
-            raise HostCommitError("repository_unsafe")
         required_directories = (
             self.git / "objects",
             self.git / "refs",
@@ -1610,7 +1658,15 @@ class HostGitCommitEngine:
             self.git / "logs" / "refs",
             self.git / "logs" / "refs" / "heads",
         ):
-            if directory.exists() and (
+            if _path_entry_exists(directory) and (
+                not directory.is_dir() or _is_link_or_reparse(directory)
+            ):
+                raise HostCommitError("repository_unsafe")
+        for directory in (
+            self.git / "objects" / "info",
+            self.git / "info",
+        ):
+            if _path_entry_exists(directory) and (
                 not directory.is_dir() or _is_link_or_reparse(directory)
             ):
                 raise HostCommitError("repository_unsafe")
@@ -1621,10 +1677,11 @@ class HostGitCommitEngine:
         if _is_link_or_reparse(index) or index.exists() and not index.is_file():
             raise HostCommitError("repository_unsafe")
         packed_refs = self.git / "packed-refs"
-        if packed_refs.exists() and (
+        if _path_entry_exists(packed_refs) and (
             not packed_refs.is_file() or _is_link_or_reparse(packed_refs)
         ):
             raise HostCommitError("repository_unsafe")
+        self._assert_repository_redirections_absent()
 
     def _assert_no_dangerous_config(self) -> None:
         result = self._git(
@@ -1640,11 +1697,49 @@ class HostGitCommitEngine:
         if result.returncode == 0:
             raise HostCommitError("repository_config_unsafe")
 
+    def _assert_no_dangerous_config_file(self, config: Path) -> None:
+        try:
+            with tempfile.TemporaryDirectory(prefix="modelmirror-git-config-") as safe_cwd:
+                result = subprocess.run(
+                    build_safe_git_command(
+                        self.root,
+                        (
+                            "config",
+                            "--file",
+                            str(config),
+                            "--no-includes",
+                            "--name-only",
+                            "--get-regexp",
+                            _DANGEROUS_CONFIG,
+                        ),
+                    ),
+                    cwd=safe_cwd,
+                    env=build_safe_git_environment(),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=GIT_TIMEOUT_SECONDS,
+                    creationflags=(
+                        getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                        if os.name == "nt"
+                        else 0
+                    ),
+                )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise HostCommitError("repository_unsafe") from exc
+        if result.returncode == 0:
+            raise HostCommitError("repository_config_unsafe")
+        if result.returncode != 1:
+            raise HostCommitError("repository_unsafe")
+
     def _assert_repository_redirections_absent(self) -> None:
         for path in (
             self.git / "commondir",
             self.git / "objects" / "info" / "alternates",
             self.git / "objects" / "info" / "http-alternates",
+            self.git / "refs" / "replace",
+            self.git / "info" / "grafts",
         ):
             if _path_entry_exists(path):
                 raise HostCommitError("repository_unsafe")

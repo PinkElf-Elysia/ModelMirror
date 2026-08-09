@@ -2283,3 +2283,86 @@ def test_host_commit_rejects_replace_refs_and_disables_replace_objects(
         )
 
     assert rejected.value.code == "repository_unsafe"
+
+
+@pytest.mark.parametrize("action", ["commit", "undo", "reconcile"])
+@pytest.mark.parametrize(
+    "unsafe_kind",
+    ["extensions.refStorage", "core.excludesFile", "info-grafts"],
+)
+def test_host_commit_rejects_unsafe_metadata_before_operation_artifacts(
+    tmp_path: Path,
+    action: str,
+    unsafe_kind: str,
+) -> None:
+    root, head, journal, apply_receipt = _host_commit_applied(tmp_path)
+    branch = "feature/local-k8m2"
+    committed: CommitReceipt | None = None
+    if action == "undo":
+        committed = HostGitCommitEngine(
+            root,
+            HOST_COMMIT_PROJECT_ID,
+            journal,
+            enforce_windows=False,
+        ).commit(
+            operation_id="commit_before_unsafe_undo_0123",
+            apply_receipt=apply_receipt,
+            branch=branch,
+            expected_head=head,
+            message="feature: prepare guarded undo",
+        )
+
+    if unsafe_kind == "info-grafts":
+        (root / ".git" / "info" / "grafts").write_text(
+            head + "\n",
+            encoding="ascii",
+        )
+    else:
+        value = "reftable" if unsafe_kind == "extensions.refStorage" else "../outside-ignore"
+        _host_commit_git(root, "config", unsafe_kind, value)
+
+    branch_ref = root / ".git" / "refs" / "heads" / Path(branch)
+    ref_before = branch_ref.read_bytes()
+    transaction_root = root / ".git" / "modelmirror-transactions"
+    artifacts_before = tuple(
+        sorted(path.relative_to(transaction_root).as_posix() for path in transaction_root.rglob("*"))
+    )
+    operation_id = f"{action}_unsafe_metadata_{unsafe_kind.replace('.', '_').replace('-', '_')}_01"
+
+    with pytest.raises(HostCommitError) as rejected:
+        engine = HostGitCommitEngine(
+            root,
+            HOST_COMMIT_PROJECT_ID,
+            journal,
+            enforce_windows=False,
+        )
+        if action == "commit":
+            engine.commit(
+                operation_id=operation_id,
+                apply_receipt=apply_receipt,
+                branch=branch,
+                expected_head=head,
+                message="feature: reject unsafe metadata",
+            )
+        elif action == "undo":
+            assert committed is not None
+            engine.undo(
+                operation_id=operation_id,
+                apply_receipt=apply_receipt,
+                commit_receipt=committed,
+                branch=branch,
+            )
+        else:
+            engine.reconcile(operation_id)
+
+    expected_code = (
+        "repository_unsafe"
+        if unsafe_kind == "info-grafts"
+        else "repository_config_unsafe"
+    )
+    assert rejected.value.code == expected_code
+    assert journal.get(operation_id) is None
+    assert branch_ref.read_bytes() == ref_before
+    assert tuple(
+        sorted(path.relative_to(transaction_root).as_posix() for path in transaction_root.rglob("*"))
+    ) == artifacts_before
