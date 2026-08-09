@@ -17,6 +17,12 @@ from server.coding_worker.provider_rpc import (
     ProviderRPCServer,
     ProviderSidecarClientPool,
 )
+from server.coding_worker.executor import (
+    ExecutorRPCError,
+    ExecutorRPCServer,
+    ExecutorSidecarClientPool,
+    SidecarExecutor,
+)
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.tool_broker import ToolBroker
 from server.coding_worker.workspace import WorkspaceBroker
@@ -116,3 +122,54 @@ async def test_provider_sidecar_rejects_wrong_token_and_second_active_task(
     await pool.close(first)
     await server.close()
     await broker_rpc.close()
+
+
+@pytest.mark.asyncio
+async def test_credential_free_executor_requires_exact_task_workspace_binding(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "slots" / "workspaces" / "workspace_one" / "repo"
+    repository.mkdir(parents=True)
+    (repository / "main.py").write_text("print('isolated')\n")
+    executor = SidecarExecutor(
+        lambda workspace_id: repository if workspace_id == "workspace_one" else tmp_path / "missing",
+        runtime_root=tmp_path / "runtime",
+    )
+    server = ExecutorRPCServer(executor, token="e" * 48)
+    endpoint = await server.start_tcp_for_tests()
+    pool = ExecutorSidecarClientPool(
+        endpoints={"slot-a": endpoint},
+        tokens={"slot-a": "e" * 48},
+        workspace_slot_resolver=lambda _workspace_id: "slot-a",
+    )
+    with pytest.raises(ExecutorRPCError) as unbound:
+        await pool.run_process(
+            task_id="task_one",
+            workspace_id="workspace_one",
+            argv=("python", "main.py"),
+            timeout_seconds=10,
+            isolated=False,
+        )
+    assert unbound.value.code == "executor_binding_invalid"
+    await pool.bind_task("task_one", "workspace_one")
+    result = await pool.run_process(
+        task_id="task_one",
+        workspace_id="workspace_one",
+        argv=("python", "main.py"),
+        timeout_seconds=10,
+        isolated=False,
+    )
+    assert result["exit_code"] == 0 and str(result["output"]).splitlines() == [
+        "isolated"
+    ]
+    with pytest.raises(ExecutorRPCError) as foreign:
+        await pool.run_process(
+            task_id="task_two",
+            workspace_id="workspace_one",
+            argv=("python", "main.py"),
+            timeout_seconds=10,
+            isolated=False,
+        )
+    assert foreign.value.code == "executor_binding_invalid"
+    await pool.close_task("task_one", "workspace_one")
+    await server.close()

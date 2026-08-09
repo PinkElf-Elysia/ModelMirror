@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
+import secrets
 import shutil
 import signal
 import time
@@ -10,12 +12,22 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from .contracts import SAFE_ID
+
+
+MAX_EXECUTOR_RPC_BYTES = 8 * 1024 * 1024
 
 
 class SidecarExecutionError(RuntimeError):
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class ExecutorRPCError(SidecarExecutionError):
+    pass
 
 
 @dataclass(slots=True)
@@ -299,3 +311,210 @@ class SidecarExecutor:
         }
         environment.update(overrides or {})
         return environment
+
+
+class ExecutorRPCServer:
+    """Credential-free command host for one fixed workspace slot."""
+
+    def __init__(self, executor: SidecarExecutor, *, token: str) -> None:
+        if len(token) < 32:
+            raise ValueError("executor RPC token is too short")
+        self.executor = executor
+        self._token = token
+        self._server: asyncio.AbstractServer | None = None
+        self.endpoint: str | None = None
+        self._task_id: str | None = None
+        self._workspace_id: str | None = None
+
+    async def start_unix(self, socket_path: Path) -> str:
+        socket_path = Path(socket_path)
+        socket_path.parent.mkdir(parents=True, exist_ok=True)
+        socket_path.unlink(missing_ok=True)
+        self._server = await asyncio.start_unix_server(
+            self._handle, path=str(socket_path), limit=MAX_EXECUTOR_RPC_BYTES
+        )
+        socket_path.chmod(0o660)
+        self.endpoint = f"unix:{socket_path}"
+        return self.endpoint
+
+    async def start_tcp_for_tests(self) -> str:
+        self._server = await asyncio.start_server(
+            self._handle, "127.0.0.1", 0, limit=MAX_EXECUTOR_RPC_BYTES
+        )
+        address = self._server.sockets[0].getsockname()
+        self.endpoint = f"tcp:127.0.0.1:{address[1]}"
+        return self.endpoint
+
+    async def close(self) -> None:
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+        if self._task_id is not None:
+            await self.executor.stop_task(self._task_id)
+        self._server = None
+        self.endpoint = None
+        self._task_id = None
+        self._workspace_id = None
+
+    async def _handle(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        try:
+            raw = await reader.readline()
+            if not raw or len(raw) > MAX_EXECUTOR_RPC_BYTES or not raw.endswith(b"\n"):
+                raise ExecutorRPCError("Executor request is invalid.", code="executor_request_invalid")
+            value = json.loads(raw)
+            token = value.get("token") if isinstance(value, dict) else None
+            action = value.get("action") if isinstance(value, dict) else None
+            payload = value.get("payload") if isinstance(value, dict) else None
+            if not isinstance(token, str) or not secrets.compare_digest(token, self._token):
+                raise ExecutorRPCError("Executor authentication failed.", code="executor_unauthorized")
+            if not isinstance(action, str) or not isinstance(payload, dict):
+                raise ExecutorRPCError("Executor request is invalid.", code="executor_request_invalid")
+            result = await self._dispatch(action, payload)
+            response = {"ok": True, "result": result}
+        except Exception as exc:
+            response = {
+                "ok": False,
+                "error": {
+                    "code": getattr(exc, "code", "executor_failed"),
+                    "message": str(exc)
+                    if isinstance(exc, (ExecutorRPCError, SidecarExecutionError, ValueError))
+                    else "Executor request failed.",
+                },
+            }
+        encoded = json.dumps(response, separators=(",", ":")).encode() + b"\n"
+        writer.write(encoded)
+        await writer.drain()
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+
+    async def _dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(payload.get("task_id", ""))
+        workspace_id = str(payload.get("workspace_id", ""))
+        if action == "bind_task":
+            if SAFE_ID.fullmatch(task_id) is None or SAFE_ID.fullmatch(workspace_id) is None:
+                raise ExecutorRPCError("Executor binding is invalid.", code="executor_binding_invalid")
+            if self._task_id not in {None, task_id} or self._workspace_id not in {
+                None,
+                workspace_id,
+            }:
+                raise ExecutorRPCError("Executor slot is busy.", code="executor_slot_busy")
+            self.executor._workspace_resolver(workspace_id)
+            self._task_id, self._workspace_id = task_id, workspace_id
+            return {"bound": True}
+        if action == "close_task":
+            self._require_binding(task_id, workspace_id)
+            await self.executor.stop_task(task_id)
+            self._task_id = self._workspace_id = None
+            return {"closed": True}
+        self._require_binding(task_id, workspace_id)
+        if action == "execute_process":
+            return await self.executor.run_process(
+                workspace_id=workspace_id,
+                argv=tuple(payload.get("argv", ())),
+                timeout_seconds=int(payload.get("timeout_seconds", 0)),
+                isolated=payload.get("isolated") is True,
+                environment_overrides=payload.get("environment_overrides"),
+            )
+        if action == "start_service":
+            return await self.executor.start_service(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                argv=tuple(payload.get("argv", ())),
+                ttl_seconds=int(payload.get("ttl_seconds", 0)),
+                preview_port=(
+                    int(payload["preview_port"])
+                    if payload.get("preview_port") is not None
+                    else None
+                ),
+            )
+        if action == "service_status":
+            return self.executor.service_status(
+                task_id=task_id, service_id=str(payload.get("service_id", ""))
+            )
+        if action == "service_input":
+            await self.executor.service_input(
+                task_id=task_id,
+                service_id=str(payload.get("service_id", "")),
+                data=str(payload.get("data", "")),
+            )
+            return {"accepted": True}
+        if action == "stop_service":
+            return await self.executor.stop_service(
+                task_id=task_id, service_id=str(payload.get("service_id", ""))
+            )
+        raise ExecutorRPCError("Executor action is invalid.", code="executor_request_invalid")
+
+    def _require_binding(self, task_id: str, workspace_id: str) -> None:
+        if self._task_id != task_id or self._workspace_id != workspace_id:
+            raise ExecutorRPCError("Executor task is not bound.", code="executor_binding_invalid")
+
+
+class ExecutorSidecarClientPool:
+    """Routes task commands to the credential-free executor for a fixed slot."""
+
+    def __init__(
+        self,
+        *,
+        endpoints: Mapping[str, str],
+        tokens: Mapping[str, str],
+        workspace_slot_resolver: Callable[[str], str],
+    ) -> None:
+        if set(endpoints) != set(tokens) or not endpoints:
+            raise ValueError("executor sidecar bindings are incomplete")
+        self._endpoints = dict(endpoints)
+        self._tokens = dict(tokens)
+        self._workspace_slot_resolver = workspace_slot_resolver
+
+    async def bind_task(self, task_id: str, workspace_id: str) -> None:
+        await self._workspace_call(workspace_id, "bind_task", {"task_id": task_id, "workspace_id": workspace_id})
+
+    async def close_task(self, task_id: str, workspace_id: str) -> None:
+        await self._workspace_call(workspace_id, "close_task", {"task_id": task_id, "workspace_id": workspace_id})
+
+    async def run_process(self, *, task_id: str, workspace_id: str, argv: Sequence[str], timeout_seconds: int, isolated: bool, environment_overrides: Mapping[str, str] | None = None) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "execute_process", {"task_id": task_id, "workspace_id": workspace_id, "argv": list(argv), "timeout_seconds": timeout_seconds, "isolated": isolated, "environment_overrides": dict(environment_overrides or {})})
+
+    async def start_service(self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int, preview_port: int | None = None) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "start_service", {"task_id": task_id, "workspace_id": workspace_id, "argv": list(argv), "ttl_seconds": ttl_seconds, "preview_port": preview_port})
+
+    async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "service_status", {"task_id": task_id, "workspace_id": workspace_id, "service_id": service_id})
+
+    async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "service_input", {"task_id": task_id, "workspace_id": workspace_id, "service_id": service_id, "data": data})
+
+    async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]:
+        return await self._workspace_call(workspace_id, "stop_service", {"task_id": task_id, "workspace_id": workspace_id, "service_id": service_id})
+
+    async def _workspace_call(self, workspace_id: str, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        slot_id = self._workspace_slot_resolver(workspace_id)
+        endpoint = self._endpoints.get(slot_id)
+        token = self._tokens.get(slot_id)
+        if endpoint is None or token is None:
+            raise ExecutorRPCError("Executor slot is unavailable.", code="executor_unavailable")
+        if endpoint.startswith("unix:"):
+            reader, writer = await asyncio.open_unix_connection(endpoint[5:])
+        elif endpoint.startswith("tcp:127.0.0.1:"):
+            reader, writer = await asyncio.open_connection("127.0.0.1", int(endpoint.rsplit(":", 1)[1]))
+        else:
+            raise ExecutorRPCError("Executor endpoint is invalid.", code="executor_unavailable")
+        try:
+            request = json.dumps({"token": token, "action": action, "payload": payload}, separators=(",", ":")).encode() + b"\n"
+            writer.write(request)
+            await writer.drain()
+            raw = await reader.readline()
+            value = json.loads(raw)
+            if not isinstance(value, dict) or value.get("ok") is not True:
+                error = value.get("error", {}) if isinstance(value, dict) else {}
+                raise ExecutorRPCError(str(error.get("message", "Executor request failed.")), code=str(error.get("code", "executor_failed")))
+            result = value.get("result")
+            if not isinstance(result, dict):
+                raise ExecutorRPCError("Executor response is invalid.", code="executor_invalid_response")
+            return result
+        finally:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()

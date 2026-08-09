@@ -4,12 +4,13 @@ import asyncio
 import contextlib
 import os
 import signal
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from .contracts import SAFE_ID
 from .opencode_provider import OpenCodeProvider, OpenCodeRoute
 from .provider_rpc import ProviderRPCServer
-from .executor import SidecarExecutor
+from .executor import ExecutorRPCServer, SidecarExecutor
 
 
 def _required_environment(name: str) -> str:
@@ -50,6 +51,16 @@ async def run() -> None:
     runtime_root = Path(
         os.getenv("CODING_WORKER_RUNTIME_ROOT", "/worker-runtime")
     ).resolve()
+    if os.getenv("CODING_WORKER_MODE", "provider").strip() == "executor":
+        executor = SidecarExecutor(
+            _workspace_resolver(workspace_root), runtime_root=runtime_root
+        )
+        executor_server = ExecutorRPCServer(
+            executor, token=_required_environment("CODING_WORKER_EXECUTOR_TOKEN")
+        )
+        await executor_server.start_unix(socket_path)
+        await _wait_for_stop(executor_server.close)
+        return
     route_id = os.getenv("CODING_WORKER_ROUTE_ID", "coding/default").strip()
     route = OpenCodeRoute(
         route_id=route_id,
@@ -63,17 +74,17 @@ async def run() -> None:
         routes={route_id: route},
         tool_broker_command=("python", "-m", "coding_worker.broker_mcp"),
     )
-    executor = SidecarExecutor(
-        _workspace_resolver(workspace_root), runtime_root=runtime_root
-    )
     server = ProviderRPCServer(
         provider,
         token=_required_environment("CODING_WORKER_SIDECAR_TOKEN"),
         bind_broker=provider.bind_broker,
         unbind_broker=provider.unbind_broker,
-        executor=executor,
     )
     await server.start_unix(socket_path)
+    await _wait_for_stop(server.close)
+
+
+async def _wait_for_stop(close: Callable[[], Awaitable[None]]) -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signal_name in (signal.SIGINT, signal.SIGTERM):
@@ -82,7 +93,7 @@ async def run() -> None:
     try:
         await stop.wait()
     finally:
-        await server.close()
+        await close()
 
 
 def main() -> None:
