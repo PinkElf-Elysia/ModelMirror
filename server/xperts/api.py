@@ -37,6 +37,8 @@ from .store import (
 from .validation import validate_xpert_definition
 
 try:
+    from server.file_assets.contracts import FileInputKind, FilePurpose
+    from server.file_assets.registry import get_file_format_registry
     from server.rag.api import get_rag_service
     from server.plugins.registry import get_plugin_store
     from server.prompts import get_prompt_profile_store
@@ -44,6 +46,8 @@ try:
     from server.skills.api import get_skill_manager
     from server.workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
 except ModuleNotFoundError:
+    from file_assets.contracts import FileInputKind, FilePurpose
+    from file_assets.registry import get_file_format_registry
     from rag.api import get_rag_service
     from plugins.registry import get_plugin_store
     from prompts import get_prompt_profile_store
@@ -664,7 +668,12 @@ def preview_xpert_for_publish(
                 message="Select a transcription model before enabling speech-to-text.",
             )
         )
-    supported_file_extensions = {".txt", ".md", ".markdown", ".pdf"}
+    supported_file_extensions = set(
+        get_file_format_registry().extensions_for(
+            FilePurpose.AGENT,
+            FileInputKind.DOCUMENT,
+        )
+    )
     configured_extensions = {
         (
             value.strip().lower()
@@ -1096,7 +1105,10 @@ async def list_xpert_conversation_files(
         _raise_context_error(exc)
 
 
-@router.delete("/{xpert_id}/conversations/{conversation_id}/files/{asset_id}")
+@router.delete(
+    "/{xpert_id}/conversations/{conversation_id}/files/{asset_id}",
+    deprecated=True,
+)
 async def archive_xpert_conversation_file(
     xpert_id: str,
     conversation_id: str,
@@ -1112,6 +1124,31 @@ async def archive_xpert_conversation_file(
             asset_id,
         )
         return store.file_payload(item)
+    except XpertContextError as exc:
+        _raise_context_error(exc)
+
+
+@router.delete(
+    "/{xpert_id}/conversations/{conversation_id}/files/{asset_id}/purge"
+)
+async def purge_xpert_conversation_file(
+    xpert_id: str,
+    conversation_id: str,
+    asset_id: str,
+) -> dict:
+    await _ensure_xpert_exists(xpert_id)
+    try:
+        store = get_xpert_context_store()
+        item = await asyncio.to_thread(
+            store.purge_file,
+            xpert_id,
+            conversation_id,
+            asset_id,
+        )
+        return {
+            "asset_id": item.asset_id,
+            "deleted": True,
+        }
     except XpertContextError as exc:
         _raise_context_error(exc)
 

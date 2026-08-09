@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import { useModelPreference } from "../context/ModelPreferenceContext";
+import type { FileSurfaceSummary } from "../data/fileCapabilities";
 import { type Model, type ModelOperation } from "../data/models";
 import {
   getRecruitmentTag,
@@ -24,6 +25,7 @@ interface ModelCardProps {
   audioCatalogStale?: boolean;
   imageCatalogStale?: boolean;
   videoCatalogStale?: boolean;
+  fileSurfaceSummary?: FileSurfaceSummary;
 }
 
 export interface AudioCapabilityStatus {
@@ -40,6 +42,44 @@ export interface AudioCapabilityStatus {
   reason: string | null;
   pricePerGenerationUsd: number | null;
   fixedDurationSeconds: number | null;
+}
+
+export function deriveDocumentInputPresentation(
+  fileSurfaceSummary: FileSurfaceSummary | undefined,
+  canChat: boolean,
+  canUseInRag: boolean,
+) {
+  if (!fileSurfaceSummary?.registryAvailable) {
+    return {
+      label: "文件输入 · 入口状态待确认",
+      reason: "暂时无法读取文件能力清单，本卡不会开放未经确认的文件入口。",
+    };
+  }
+
+  if (canUseInRag && fileSurfaceSummary.ragFormats.length > 0) {
+    return {
+      label: "文件处理 · 资料库可用",
+      reason: "文件会先由资料库按已登记格式处理，再进入向量检索或重排。",
+    };
+  }
+
+  if (
+    canChat &&
+    fileSurfaceSummary.chatDocumentDeclared &&
+    fileSurfaceSummary.chatDocumentFormats.length > 0
+  ) {
+    return {
+      label: "文件输入 · Chat 可用（提取后发送）",
+      reason:
+        "可在聊天中上传已登记的文档格式；发送前会提取内容并由你预览确认。",
+    };
+  }
+
+  return {
+    label: "文件输入 · 当前入口未开放",
+    reason:
+      "模型目录声明了文件能力，但当前连接或文件入口尚未满足调用条件。",
+  };
 }
 
 const tagStyles: Record<string, string> = {
@@ -103,6 +143,7 @@ function formatContextLength(contextLength: number) {
 
 const operationLabels: Record<ModelOperation, string> = {
   chat: "对话面试",
+  analyze_document: "文档理解",
   analyze_image: "图片识别",
   generate_image: "图片生成/编辑",
   transcribe: "音频转文字",
@@ -129,6 +170,7 @@ const ModelCard = memo(function ModelCard({
   audioCatalogStale = false,
   imageCatalogStale = false,
   videoCatalogStale = false,
+  fileSurfaceSummary,
 }: ModelCardProps) {
   const { preferredModelId, setPreferredModelId } = useModelPreference();
   const isFree = model.pricing_status === "free";
@@ -159,6 +201,15 @@ const ModelCard = memo(function ModelCard({
     generalInvocationAllowed &&
     model.interaction_status === "ready" &&
     model.ui_entrypoint === "rag";
+  const declaresDocumentInput =
+    model.operations.includes("analyze_document");
+  const documentInputPresentation = deriveDocumentInputPresentation(
+    fileSurfaceSummary,
+    canChat,
+    canUseInRag,
+  );
+  const documentInputStatusLabel = documentInputPresentation.label;
+  const documentInputStatusReason = documentInputPresentation.reason;
   const canAnalyzeAudio =
     confirmedAudioOperations.includes("analyze_audio");
   const canSynthesizeSpeech =
@@ -456,6 +507,11 @@ const ModelCard = memo(function ModelCard({
                     setPreferredModelId(model.id);
                   }
                 }}
+                title={
+                  declaresDocumentInput
+                    ? documentInputStatusReason
+                    : undefined
+                }
                 to={primaryChatPath}
               >
                 {isTranscriptionModel
@@ -559,6 +615,14 @@ const ModelCard = memo(function ModelCard({
             {audioCatalogStale ? " · 缓存目录" : ""}
           </span>
         ))}
+        {declaresDocumentInput ? (
+          <span
+            className="rounded-full border border-violet-300/25 bg-violet-300/[0.08] px-2.5 py-1 text-xs font-medium text-violet-100"
+            title={documentInputStatusReason}
+          >
+            {documentInputStatusLabel}
+          </span>
+        ) : null}
         {canManuallyVerifyVideo ? (
           <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100">
             视频生成 · 待人工验收

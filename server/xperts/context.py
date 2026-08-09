@@ -4,12 +4,14 @@ import json
 import mimetypes
 import os
 import re
+import stat
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 try:
     from server.rag.document_parser import DocumentParseError, parse_document, supported_extensions
@@ -186,6 +188,7 @@ class XpertContextStore:
         self._memories: dict[str, XpertMemoryRecord] = {}
         self._candidates: dict[str, MemoryWriteCandidate] = {}
         self._tool_memories: dict[str, XpertToolMemoryRecord] = {}
+        self._active_file_claims: dict[str, int] = {}
         self._load()
 
     def create_conversation(self, xpert_id: str, *, title: str = "") -> XpertConversation:
@@ -508,8 +511,110 @@ class XpertContextStore:
             self._persist_unlocked()
             return asset
 
+    @contextmanager
+    def claim_file(
+        self,
+        xpert_id: str,
+        conversation_id: str | None,
+        asset_id: str,
+        *,
+        include_archived: bool = False,
+    ) -> Iterator[XpertFileAsset]:
+        with self._lock:
+            asset = self.get_file(
+                xpert_id,
+                asset_id,
+                conversation_id=conversation_id,
+                include_archived=include_archived,
+            )
+            self._active_file_claims[asset_id] = (
+                self._active_file_claims.get(asset_id, 0) + 1
+            )
+        try:
+            yield asset
+        finally:
+            with self._lock:
+                remaining = self._active_file_claims.get(asset_id, 1) - 1
+                if remaining > 0:
+                    self._active_file_claims[asset_id] = remaining
+                else:
+                    self._active_file_claims.pop(asset_id, None)
+
+    def purge_file(
+        self,
+        xpert_id: str,
+        conversation_id: str,
+        asset_id: str,
+    ) -> XpertFileAsset:
+        """Permanently remove one conversation attachment and its extracted text.
+
+        Both the Xpert and conversation are checked before any storage mutation. File
+        bytes are retained in memory until metadata persistence succeeds. Any unlink
+        or persistence failure restores the prior live files and leaves the request
+        retriable instead of producing deleted metadata plus an orphaned blob.
+        """
+
+        with self._lock:
+            conversation = self._require_conversation_unlocked(xpert_id, conversation_id)
+            asset = self.get_file(
+                xpert_id,
+                asset_id,
+                conversation_id=conversation_id,
+                include_archived=True,
+            )
+            if self._active_file_claims.get(asset_id, 0) > 0:
+                raise XpertContextConflictError(
+                    "Xpert file asset is in use by an active run."
+                )
+            live_paths = [
+                self._resolve_file_path(asset.storage_key),
+                self._resolve_file_path(asset.text_key),
+            ]
+            backups: list[tuple[Path, bytes]] = []
+            try:
+                for live_path in live_paths:
+                    if live_path.exists():
+                        backups.append((live_path, live_path.read_bytes()))
+            except OSError as exc:
+                raise XpertContextError("Failed to read Xpert file before deletion.") from exc
+
+            removed: list[tuple[Path, bytes]] = []
+            try:
+                for live_path, content in backups:
+                    self._unlink_file_path(live_path)
+                    removed.append((live_path, content))
+            except OSError as exc:
+                self._restore_file_backups(removed)
+                raise XpertContextError("Failed to delete Xpert file content.") from exc
+
+            previous_ids = list(conversation.file_asset_ids)
+            previous_updated_at = conversation.updated_at
+            self._assets.pop(asset_id, None)
+            conversation.file_asset_ids = [
+                item for item in conversation.file_asset_ids if item != asset_id
+            ]
+            conversation.updated_at = time.time()
+            try:
+                self._persist_unlocked()
+            except Exception as exc:
+                self._assets[asset_id] = asset
+                conversation.file_asset_ids = previous_ids
+                conversation.updated_at = previous_updated_at
+                self._restore_file_backups(backups)
+                raise XpertContextError("Failed to persist Xpert file deletion.") from exc
+            return asset
+
     def read_file_text(self, asset: XpertFileAsset) -> str:
-        path = self.files_dir / asset.text_key
+        with self.claim_file(
+            asset.xpert_id,
+            asset.conversation_id,
+            asset.asset_id,
+            include_archived=True,
+        ) as claimed:
+            return self._read_file_text_unclaimed(claimed)
+
+    def _read_file_text_unclaimed(self, asset: XpertFileAsset) -> str:
+        path = self._resolve_file_path(asset.text_key)
         try:
             return path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -518,10 +623,16 @@ class XpertContextStore:
     def read_file_bytes(self, asset: XpertFileAsset) -> bytes:
         """Read the original attachment for explicit Sandbox staging."""
 
-        path = (self.files_dir / asset.storage_key).resolve(strict=False)
-        root = self.files_dir.resolve()
-        if root not in path.parents or path.is_symlink():
-            raise XpertContextError("Xpert file asset path is unsafe.")
+        with self.claim_file(
+            asset.xpert_id,
+            asset.conversation_id,
+            asset.asset_id,
+            include_archived=True,
+        ) as claimed:
+            return self._read_file_bytes_unclaimed(claimed)
+
+    def _read_file_bytes_unclaimed(self, asset: XpertFileAsset) -> bytes:
+        path = self._resolve_file_path(asset.storage_key)
         try:
             return path.read_bytes()
         except OSError as exc:
@@ -544,28 +655,28 @@ class XpertContextStore:
         selected: list[XpertFileAsset] = []
         used = 0
         for asset_id in unique_ids:
-            asset = self.get_file(
-                xpert_id,
-                asset_id,
-                conversation_id=conversation_id,
-                include_archived=include_archived,
-            )
             remaining = total_chars - used
             if remaining <= 0:
                 break
-            text = self.read_file_text(asset)
-            excerpt = text[: min(per_file_chars, remaining)]
-            truncated = len(excerpt) < len(text)
-            header = (
-                f"[File: {asset.filename}; asset_id={asset.asset_id}; "
-                f"artifact_id={asset.artifact_id}; truncated={str(truncated).lower()}]"
-            )
-            section = f"{header}\n{excerpt}"
-            if len(section) > remaining:
-                section = section[:remaining]
-            sections.append(section)
-            selected.append(asset)
-            used += len(section)
+            with self.claim_file(
+                xpert_id,
+                conversation_id,
+                asset_id,
+                include_archived=include_archived,
+            ) as asset:
+                text = self._read_file_text_unclaimed(asset)
+                excerpt = text[: min(per_file_chars, remaining)]
+                truncated = len(excerpt) < len(text)
+                header = (
+                    f"[File: {asset.filename}; asset_id={asset.asset_id}; "
+                    f"artifact_id={asset.artifact_id}; truncated={str(truncated).lower()}]"
+                )
+                section = f"{header}\n{excerpt}"
+                if len(section) > remaining:
+                    section = section[:remaining]
+                sections.append(section)
+                selected.append(asset)
+                used += len(section)
         return "\n\n".join(sections), selected
 
     def create_memory(
@@ -1376,6 +1487,52 @@ class XpertContextStore:
             encoding="utf-8",
         )
         os.replace(temporary, self.snapshot_path)
+
+    def _resolve_file_path(self, storage_key: str) -> Path:
+        raw_key = str(storage_key or "")
+        relative = Path(raw_key)
+        if (
+            not raw_key.strip()
+            or "\\" in raw_key
+            or relative.is_absolute()
+            or relative.drive
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            raise XpertContextError("Xpert file asset path is unsafe.")
+        unresolved_root = Path(os.path.abspath(self.files_dir))
+        unresolved = unresolved_root / relative
+        for component in [*reversed(unresolved.parents), unresolved]:
+            if self._is_symlink_or_reparse(component):
+                raise XpertContextError("Xpert file asset path is unsafe.")
+        root = unresolved_root.resolve(strict=False)
+        path = unresolved.resolve(strict=False)
+        if root not in path.parents:
+            raise XpertContextError("Xpert file asset path is unsafe.")
+        return path
+
+    @staticmethod
+    def _is_symlink_or_reparse(path: Path) -> bool:
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            return False
+        attributes = int(getattr(metadata, "st_file_attributes", 0) or 0)
+        reparse_flag = int(getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0) or 0)
+        return stat.S_ISLNK(metadata.st_mode) or bool(attributes & reparse_flag)
+
+    @staticmethod
+    def _unlink_file_path(path: Path) -> None:
+        path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _restore_file_backups(backups: list[tuple[Path, bytes]]) -> None:
+        for path, content in backups:
+            temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.restoring")
+            try:
+                temporary.write_bytes(content)
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     @staticmethod
     def _required_text(value: str, field_name: str, max_length: int) -> str:

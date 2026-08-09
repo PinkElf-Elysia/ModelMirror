@@ -1,16 +1,83 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException
+from starlette.requests import Request
+from starlette.responses import Response as StarletteResponse
+from starlette.types import Message
 
 from .models import DataXImportJob, IndicatorProposal
-from .service import DataXService
+from .service import MAX_SOURCE_BYTES, DataXService
 from .store import DataXConflictError, DataXNotFoundError, DataXValidationError
+from .store import DataXUploadValidationError
 
 
-router = APIRouter(prefix="/api/datax", tags=["datax"])
+MAX_DATAX_MULTIPART_OVERHEAD_BYTES = 1 * 1024 * 1024
+MAX_DATAX_UPLOAD_REQUEST_BYTES = (
+    MAX_SOURCE_BYTES + MAX_DATAX_MULTIPART_OVERHEAD_BYTES
+)
+
+
+class DataXUploadSizeLimitRoute(APIRoute):
+    """Bound source multipart bytes before Starlette fills its spool file."""
+
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Awaitable[StarletteResponse]]:
+        original_handler = super().get_route_handler()
+        is_upload_route = (
+            self.path.rstrip("/")
+            == "/api/datax/projects/{project_id}/sources"
+            and bool(self.methods and "POST" in self.methods)
+        )
+
+        async def limited_route_handler(request: Request) -> StarletteResponse:
+            if not is_upload_route:
+                return await original_handler(request)
+
+            declared_length = _content_length(request)
+            if (
+                declared_length is not None
+                and declared_length > MAX_DATAX_UPLOAD_REQUEST_BYTES
+            ):
+                raise _request_too_large()
+
+            received_bytes = 0
+            request_limit_exceeded = False
+            upstream_receive = request.receive
+
+            async def limited_receive() -> Message:
+                nonlocal received_bytes, request_limit_exceeded
+                message = await upstream_receive()
+                if message["type"] == "http.request":
+                    received_bytes += len(message.get("body", b""))
+                    if received_bytes > MAX_DATAX_UPLOAD_REQUEST_BYTES:
+                        request_limit_exceeded = True
+                        raise MultiPartException("datax_request_too_large")
+                return message
+
+            limited_request = Request(request.scope, receive=limited_receive)
+            try:
+                return await original_handler(limited_request)
+            except StarletteHTTPException:
+                if request_limit_exceeded:
+                    raise _request_too_large()
+                raise
+
+        return limited_route_handler
+
+
+router = APIRouter(
+    prefix="/api/datax",
+    tags=["datax"],
+    route_class=DataXUploadSizeLimitRoute,
+)
 _service: DataXService | None = None
 
 
@@ -30,9 +97,50 @@ def _error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, DataXConflictError):
         return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, DataXUploadValidationError):
+        return HTTPException(
+            status_code=exc.status_code,
+            detail=str(exc),
+            headers={"X-ModelMirror-Error-Code": exc.error_code},
+        )
     if isinstance(exc, (DataXValidationError, ValueError, TypeError)):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail="Data X operation failed.")
+
+
+def _content_length(request: Request) -> int | None:
+    values = [
+        value.strip()
+        for key, value in request.scope.get("headers", ())
+        if key.lower() == b"content-length"
+    ]
+    if not values:
+        return None
+    if len(values) != 1:
+        raise _invalid_content_length()
+    try:
+        parsed = int(values[0])
+    except (TypeError, ValueError) as exc:
+        raise _invalid_content_length() from exc
+    if parsed < 0:
+        raise _invalid_content_length()
+    return parsed
+
+
+def _invalid_content_length() -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail="上传请求的 Content-Length 无效。",
+        headers={"X-ModelMirror-Error-Code": "invalid_content_length"},
+    )
+
+
+def _request_too_large() -> HTTPException:
+    return HTTPException(
+        status_code=413,
+        detail="上传请求超过 Data X 单文件 50 MiB 加协议开销的安全上限。",
+        headers={"X-ModelMirror-Error-Code": "file_request_too_large"},
+    )
 
 
 class ProjectCreateRequest(BaseModel):
@@ -174,7 +282,10 @@ async def upload_source(
         content = await file.read(50 * 1024 * 1024 + 1)
         service = get_datax_service()
         job = service.create_import_job(
-            project_id, file_name=file.filename or "source", content=content
+            project_id,
+            file_name=file.filename or "source",
+            content=content,
+            media_type=file.content_type,
         )
         if job.status == "pending":
             background_tasks.add_task(service.run_import_job, job.job_id)
@@ -187,6 +298,15 @@ async def upload_source(
 async def get_import_job(job_id: str):
     try:
         return get_datax_service().get_import_job(job_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/projects/{project_id}/import-jobs")
+async def list_import_jobs(project_id: str):
+    try:
+        items = get_datax_service().list_import_jobs(project_id)
+        return {"items": items, "total": len(items)}
     except Exception as exc:
         raise _error(exc) from exc
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import csv
 import hashlib
+import io
 import json
 import math
 import re
@@ -12,6 +13,15 @@ from datetime import date, datetime
 from itertools import chain
 from pathlib import Path
 from typing import Any, Iterable
+
+try:
+    from server.file_assets.contracts import FileInputKind, FilePurpose
+    from server.file_assets.registry import get_file_format_registry
+    from server.file_assets.validation import FileUploadValidator, FileValidationError
+except ModuleNotFoundError:
+    from file_assets.contracts import FileInputKind, FilePurpose
+    from file_assets.registry import get_file_format_registry
+    from file_assets.validation import FileUploadValidator, FileValidationError
 
 from .models import (
     DataSourceSnapshot,
@@ -31,14 +41,36 @@ from .store import (
     DataXConflictError,
     DataXNotFoundError,
     DataXStore,
+    DataXUploadValidationError,
     DataXValidationError,
 )
 
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
 MAX_SOURCE_ROWS = 1_000_000
+MAX_SOURCE_COLUMNS = 200
 MAX_QUERY_ROWS = 500
-ALLOWED_SOURCE_SUFFIXES = {".csv": "csv", ".xlsx": "xlsx", ".parquet": "parquet"}
+
+
+def _datax_source_suffixes() -> dict[str, str]:
+    registry = get_file_format_registry()
+    result: dict[str, str] = {}
+    for extension in registry.extensions_for(
+        FilePurpose.DATAX,
+        FileInputKind.DATA_SOURCE,
+    ):
+        file_format = registry.by_extension(
+            FilePurpose.DATAX,
+            FileInputKind.DATA_SOURCE,
+            extension,
+        )
+        if file_format is None:
+            raise RuntimeError(f"Missing Data X format for extension: {extension}")
+        result[extension] = file_format.format_id
+    return result
+
+
+ALLOWED_SOURCE_SUFFIXES = _datax_source_suffixes()
 ALLOWED_FORMULA_NODES = (
     ast.Expression,
     ast.BinOp,
@@ -59,6 +91,10 @@ class DataXService:
     def __init__(self, store: DataXStore) -> None:
         self.store = store
         self._import_lock = threading.RLock()
+        self._file_validator = FileUploadValidator(
+            max_parquet_rows=MAX_SOURCE_ROWS,
+            max_parquet_columns=MAX_SOURCE_COLUMNS,
+        )
 
     # Projects and immutable source snapshots
     def create_project(self, *, name: str, description: str = "") -> DataXProject:
@@ -111,23 +147,49 @@ class DataXService:
         updated = DataXProject.model_validate(values)
         return self.store.replace("projects", updated, "project_id")  # type: ignore[return-value]
 
-    def import_source(self, project_id: str, *, file_name: str, content: bytes) -> DataXImportJob:
-        job = self.create_import_job(project_id, file_name=file_name, content=content)
+    def import_source(
+        self,
+        project_id: str,
+        *,
+        file_name: str,
+        content: bytes,
+        media_type: str | None = None,
+    ) -> DataXImportJob:
+        job = self.create_import_job(
+            project_id,
+            file_name=file_name,
+            content=content,
+            media_type=media_type,
+        )
         return self.run_import_job(job.job_id)
 
     def create_import_job(
-        self, project_id: str, *, file_name: str, content: bytes
+        self,
+        project_id: str,
+        *,
+        file_name: str,
+        content: bytes,
+        media_type: str | None = None,
     ) -> DataXImportJob:
         self.get_project(project_id)
         if len(content) > MAX_SOURCE_BYTES:
-            raise DataXValidationError("Data source exceeds the 50 MB limit.")
+            raise DataXUploadValidationError(
+                "file_too_large",
+                413,
+                "数据源超过 50 MiB 上限，请拆分后再上传。",
+            )
         safe_name = Path(file_name).name
         if safe_name != file_name or not safe_name:
-            raise DataXValidationError("Invalid source file name.")
+            raise DataXUploadValidationError(
+                "invalid_filename", 422, "文件名无效，请重新选择文件。"
+            )
         suffix = Path(safe_name).suffix.lower()
-        file_type = ALLOWED_SOURCE_SUFFIXES.get(suffix)
-        if file_type is None:
-            raise DataXValidationError("Only CSV, XLSX, and Parquet files are supported.")
+        file_type = self._validate_source_upload(
+            safe_name=safe_name,
+            suffix=suffix,
+            content=content,
+            media_type=media_type,
+        )
         digest = hashlib.sha256(content).hexdigest()
         existing = next(
             (
@@ -172,11 +234,87 @@ class DataXService:
             created_at=now,
             updated_at=now,
         )
-        self.store.insert("sources", source, "source_id")
-        self.store.insert("import_jobs", job, "job_id")
         path = self.store.source_file_path(project_id, digest, suffix)
-        self.store.write_source(path, content)
+        created_blob = self.store.write_source(path, content)
+        source_inserted = False
+        job_inserted = False
+        try:
+            self.store.insert("sources", source, "source_id")
+            source_inserted = True
+            self.store.insert("import_jobs", job, "job_id")
+            job_inserted = True
+        except Exception:
+            if job_inserted:
+                self.store.delete("import_jobs", job.job_id)
+            if source_inserted:
+                self.store.delete("sources", source.source_id)
+            if created_blob:
+                self.store.delete_source_file(path)
+            raise
         return job
+
+    def _validate_source_upload(
+        self,
+        *,
+        safe_name: str,
+        suffix: str,
+        content: bytes,
+        media_type: str | None,
+    ) -> str:
+        file_type = ALLOWED_SOURCE_SUFFIXES.get(suffix)
+        if file_type is None:
+            raise DataXUploadValidationError(
+                "unsupported_file_format",
+                415,
+                "Data X 仅支持 CSV、XLSX 和 Parquet 数据源。",
+            )
+        if not content:
+            raise DataXUploadValidationError(
+                "empty_file", 422, "文件为空，请选择包含内容的数据源。"
+            )
+
+        # CSV keeps Data X's one-million-row boundary. The shared semantic
+        # preview validator intentionally has a lower 100k-row ceiling, so only
+        # binary formats use its deep structure checks here.
+        if file_type == "csv":
+            file_format = get_file_format_registry().by_extension(
+                FilePurpose.DATAX,
+                FileInputKind.DATA_SOURCE,
+                suffix,
+            )
+            declared = str(media_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+            declared = declared or "application/octet-stream"
+            allowed = set(file_format.media_types if file_format is not None else ())
+            if declared != "application/octet-stream" and declared not in allowed:
+                raise DataXUploadValidationError(
+                    "mime_type_mismatch",
+                    415,
+                    "文件类型与 CSV 扩展名不一致，请重新导出后上传。",
+                )
+            if b"\x00" in content:
+                raise DataXUploadValidationError(
+                    "binary_content_not_allowed",
+                    415,
+                    "CSV 中检测到二进制内容，请重新导出为 UTF-8 CSV。",
+                )
+            _validate_datax_csv_shape(content)
+            return file_type
+
+        try:
+            validated = self._file_validator.validate_stream(
+                io.BytesIO(content),
+                purpose=FilePurpose.DATAX,
+                input_kind=FileInputKind.DATA_SOURCE,
+                filename=safe_name,
+                declared_media_type=media_type,
+            )
+        except FileValidationError as exc:
+            raise DataXUploadValidationError(
+                exc.error_code, exc.status_code, exc.message
+            ) from exc
+        if validated.format_id == "xlsx":
+            _validate_datax_xlsx_loadable(content)
+        return validated.format_id
 
     def run_import_job(self, job_id: str, *, recover_stale_process: bool = False) -> DataXImportJob:
         with self._import_lock:
@@ -229,6 +367,7 @@ class DataXService:
             )
             self.store.replace("sources", source, "source_id")
             self.store.replace("import_jobs", job, "job_id")
+            self._cleanup_failed_source_content(source)
             return job
         completed_at = self.store.now()
         self.store.replace("sources", source, "source_id")
@@ -258,8 +397,36 @@ class DataXService:
             key=lambda item: (item.created_at, item.source_id),
         )
 
+    def list_import_jobs(self, project_id: str) -> list[DataXImportJob]:
+        self.get_project(project_id)
+        return sorted(
+            [
+                item
+                for item in self.store.list("import_jobs", DataXImportJob)
+                if item.project_id == project_id
+            ],
+            key=lambda item: (-item.created_at, item.job_id),
+        )
+
     def get_import_job(self, job_id: str) -> DataXImportJob:
         return self.store.require("import_jobs", job_id, DataXImportJob)
+
+    def _cleanup_failed_source_content(self, source: DataSourceSnapshot) -> None:
+        retained = any(
+            item.source_id != source.source_id
+            and item.project_id == source.project_id
+            and item.content_sha256 == source.content_sha256
+            and item.status in {"pending", "processing", "ready"}
+            for item in self.store.list("sources", DataSourceSnapshot)
+        )
+        if retained:
+            return
+        suffix = "." + source.file_type
+        self.store.delete_source_file(
+            self.store.source_file_path(
+                source.project_id, source.content_sha256, suffix
+            )
+        )
 
     def _load_snapshot(self, source: DataSourceSnapshot) -> DataSourceSnapshot:
         import duckdb
@@ -270,6 +437,7 @@ class DataXService:
             raise DataXValidationError("Source snapshot content is missing.")
         connection = duckdb.connect(str(self.store.project_db_path(source.project_id)))
         temp_table = f"tmp_{source.table_name}"
+        source_metadata: dict[str, Any] = {}
         try:
             connection.execute("BEGIN TRANSACTION")
             connection.execute(f"DROP TABLE IF EXISTS {_quote_ident(temp_table)}")
@@ -284,7 +452,7 @@ class DataXService:
                     [str(path)],
                 )
             else:
-                self._load_xlsx(connection, temp_table, path)
+                source_metadata = self._load_xlsx(connection, temp_table, path)
             row_count = int(
                 connection.execute(f"SELECT COUNT(*) FROM {_quote_ident(temp_table)}").fetchone()[0]
             )
@@ -293,7 +461,13 @@ class DataXService:
             columns = connection.execute(f"DESCRIBE {_quote_ident(temp_table)}").fetchall()
             if not columns:
                 raise DataXValidationError("Data source has no columns.")
+            if len(columns) > MAX_SOURCE_COLUMNS:
+                raise DataXValidationError(
+                    "Data source exceeds the 200 column limit."
+                )
             profile = self._profile_table(connection, temp_table, columns, row_count)
+            if source_metadata:
+                profile["source"] = source_metadata
             connection.execute(f"DROP TABLE IF EXISTS {_quote_ident(source.table_name)}")
             connection.execute(
                 f"ALTER TABLE {_quote_ident(temp_table)} RENAME TO {_quote_ident(source.table_name)}"
@@ -315,17 +489,49 @@ class DataXService:
             }
         )
 
-    def _load_xlsx(self, connection: Any, table_name: str, path: Path) -> None:
+    def _load_xlsx(
+        self, connection: Any, table_name: str, path: Path
+    ) -> dict[str, Any]:
         from openpyxl import load_workbook
 
-        workbook = load_workbook(filename=path, read_only=True, data_only=True)
+        workbook = load_workbook(
+            filename=path,
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
         try:
-            sheet = workbook.active
-            iterator = sheet.iter_rows(values_only=True)
+            formula_workbook = load_workbook(
+                filename=path,
+                read_only=True,
+                data_only=False,
+                keep_links=False,
+            )
+        except Exception:
+            workbook.close()
+            raise
+        try:
+            sheet = _select_visible_xlsx_sheet(workbook)
+            formula_sheet = formula_workbook[sheet.title]
+            uncached_formula_columns = _xlsx_uncached_formula_columns(
+                sheet,
+                formula_sheet,
+            )
+            formula_stats = {
+                "cached_formula_count": 0,
+                "formula_text_fallback_count": 0,
+            }
+            iterator = _xlsx_rows_with_formula_fallback(
+                sheet, formula_sheet, stats=formula_stats
+            )
             first = next(iterator, None)
             if not first:
                 raise DataXValidationError("XLSX source is empty.")
             headers = _unique_headers(first)
+            if len(headers) > MAX_SOURCE_COLUMNS:
+                raise DataXValidationError(
+                    "XLSX source exceeds the 200 column limit."
+                )
             sample_rows: list[tuple[Any, ...]] = []
             for _ in range(2000):
                 row = next(iterator, None)
@@ -338,6 +544,9 @@ class DataXService:
                 )
                 for index in range(len(headers))
             ]
+            for index in uncached_formula_columns:
+                if index < len(column_types):
+                    column_types[index] = "VARCHAR"
             connection.execute(
                 f"CREATE TABLE {_quote_ident(table_name)} ({', '.join(f'{_quote_ident(name)} {column_type}' for name, column_type in zip(headers, column_types))})"
             )
@@ -365,8 +574,35 @@ class DataXService:
                 connection.executemany(
                     f"INSERT INTO {_quote_ident(table_name)} VALUES ({placeholders})", batch
                 )
+            hidden_sheets = [
+                item.title
+                for item in workbook.worksheets
+                if item.sheet_state != "visible"
+            ]
+            ignored_visible_sheets = [
+                item.title
+                for item in workbook.worksheets
+                if item.sheet_state == "visible" and item.title != sheet.title
+            ]
+            warnings: list[str] = []
+            if hidden_sheets:
+                warnings.append("hidden_worksheets_ignored")
+            if ignored_visible_sheets:
+                warnings.append("additional_visible_worksheets_ignored")
+            if formula_stats["formula_text_fallback_count"]:
+                warnings.append("formula_cache_missing_preserved_as_text")
+            return {
+                "selected_sheet": sheet.title,
+                "hidden_sheets_ignored": hidden_sheets,
+                "visible_sheets_ignored": ignored_visible_sheets,
+                **formula_stats,
+                "formula_execution": False,
+                "external_links": False,
+                "warnings": warnings,
+            }
         finally:
             workbook.close()
+            formula_workbook.close()
 
     def _profile_table(
         self, connection: Any, table_name: str, columns: list[Any], row_count: int
@@ -1128,6 +1364,7 @@ class DataXService:
             "limits": {
                 "source_bytes": MAX_SOURCE_BYTES,
                 "source_rows": MAX_SOURCE_ROWS,
+                "source_columns": MAX_SOURCE_COLUMNS,
                 "query_rows": MAX_QUERY_ROWS,
                 "query_timeout_seconds": 10,
             },
@@ -1210,6 +1447,164 @@ def _xlsx_value(value: Any, column_type: str) -> Any:
             return datetime.combine(value, datetime.min.time())
         return value
     return str(value)
+
+
+def _xlsx_rows_with_formula_fallback(
+    cached_sheet: Any,
+    formula_sheet: Any,
+    *,
+    stats: dict[str, int] | None = None,
+):
+    """Prefer cached values while preserving formula text when no cache exists."""
+
+    cached_rows = cached_sheet.iter_rows(values_only=True)
+    formula_rows = formula_sheet.iter_rows(values_only=True)
+    for cached, formulas in zip(cached_rows, formula_rows):
+        width = max(len(cached), len(formulas))
+        values: list[Any] = []
+        for index in range(width):
+            cached_value = cached[index] if index < len(cached) else None
+            formula_value = formulas[index] if index < len(formulas) else None
+            is_formula = isinstance(formula_value, str) and formula_value.startswith("=")
+            if (
+                cached_value is None
+                and is_formula
+            ):
+                if stats is not None:
+                    stats["formula_text_fallback_count"] = (
+                        stats.get("formula_text_fallback_count", 0) + 1
+                    )
+                values.append(formula_value)
+            else:
+                if is_formula and cached_value is not None and stats is not None:
+                    stats["cached_formula_count"] = (
+                        stats.get("cached_formula_count", 0) + 1
+                    )
+                values.append(cached_value)
+        yield tuple(values)
+
+
+def _xlsx_uncached_formula_columns(
+    cached_sheet: Any,
+    formula_sheet: Any,
+) -> set[int]:
+    """Find columns that may need formula text before fixing DuckDB types."""
+
+    result: set[int] = set()
+    cached_rows = cached_sheet.iter_rows(values_only=True)
+    formula_rows = formula_sheet.iter_rows(values_only=True)
+    for cached, formulas in zip(cached_rows, formula_rows):
+        width = max(len(cached), len(formulas))
+        for index in range(width):
+            cached_value = cached[index] if index < len(cached) else None
+            formula_value = formulas[index] if index < len(formulas) else None
+            if (
+                cached_value is None
+                and isinstance(formula_value, str)
+                and formula_value.startswith("=")
+            ):
+                result.add(index)
+    return result
+
+
+def _validate_datax_csv_shape(content: bytes) -> None:
+    """Preflight Data X CSV limits before DuckDB can materialise the source."""
+
+    stream = io.TextIOWrapper(
+        io.BytesIO(content),
+        encoding="utf-8-sig",
+        errors="strict",
+        newline="",
+    )
+    try:
+        reader = csv.reader(stream, strict=True)
+        header = next(reader, None)
+        if header is None:
+            raise DataXUploadValidationError(
+                "empty_file", 422, "文件为空，请选择包含内容的数据源。"
+            )
+        if len(header) > MAX_SOURCE_COLUMNS:
+            raise DataXUploadValidationError(
+                "csv_column_limit_exceeded",
+                422,
+                f"CSV 超过 {MAX_SOURCE_COLUMNS} 列上限，请拆分或精简后上传。",
+            )
+        row_count = 0
+        for row in reader:
+            if len(row) > MAX_SOURCE_COLUMNS:
+                raise DataXUploadValidationError(
+                    "csv_column_limit_exceeded",
+                    422,
+                    f"CSV 超过 {MAX_SOURCE_COLUMNS} 列上限，请拆分或精简后上传。",
+                )
+            row_count += 1
+            if row_count > MAX_SOURCE_ROWS:
+                raise DataXUploadValidationError(
+                    "csv_row_limit_exceeded",
+                    422,
+                    f"CSV 超过 {MAX_SOURCE_ROWS:,} 行上限，请拆分后上传。",
+                )
+    except UnicodeDecodeError as exc:
+        raise DataXUploadValidationError(
+            "invalid_text_encoding",
+            422,
+            "CSV 不是有效的 UTF-8 文本，请重新导出后上传。",
+        ) from exc
+    except csv.Error as exc:
+        raise DataXUploadValidationError(
+            "invalid_csv",
+            422,
+            "CSV 结构无效，请检查引号、分隔符或重新导出后上传。",
+        ) from exc
+    finally:
+        stream.close()
+
+
+def _select_visible_xlsx_sheet(workbook: Any) -> Any:
+    worksheets = list(workbook.worksheets)
+    active_sheet = workbook.active
+    if active_sheet in worksheets and active_sheet.sheet_state == "visible":
+        return active_sheet
+    visible = next(
+        (item for item in worksheets if item.sheet_state == "visible"),
+        None,
+    )
+    if visible is None:
+        raise DataXValidationError("XLSX source has no visible worksheets.")
+    return visible
+
+
+def _validate_datax_xlsx_loadable(content: bytes) -> None:
+    """Reject broken workbook relationships before source/job persistence."""
+
+    from openpyxl import load_workbook
+
+    workbook = None
+    try:
+        workbook = load_workbook(
+            filename=io.BytesIO(content),
+            read_only=True,
+            data_only=False,
+            keep_links=False,
+        )
+        sheet = _select_visible_xlsx_sheet(workbook)
+        # Read one row so read-only worksheet XML is opened before persistence.
+        next(sheet.iter_rows(values_only=True), None)
+    except DataXValidationError as exc:
+        raise DataXUploadValidationError(
+            "invalid_xlsx",
+            422,
+            "XLSX 工作表结构无效或没有可见工作表，请重新导出后上传。",
+        ) from exc
+    except Exception as exc:
+        raise DataXUploadValidationError(
+            "invalid_xlsx",
+            422,
+            "XLSX 已损坏或工作表结构无效，请重新导出后上传。",
+        ) from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
 
 
 def _json_value(value: Any) -> Any:
@@ -1328,6 +1723,12 @@ def _lexical_score(query: list[str], candidate: list[str]) -> float:
 
 
 def _safe_error(exc: Exception) -> str:
-    message = " ".join(str(exc).split())[:500]
-    message = re.sub(r"(?i)(api[_-]?key|token|secret)\s*[:=]\s*\S+", r"\1=[redacted]", message)
-    return message or exc.__class__.__name__
+    if isinstance(exc, DataXValidationError):
+        message = " ".join(str(exc).split())[:500]
+        message = re.sub(
+            r"(?i)(api[_-]?key|token|secret)\s*[:=]\s*\S+",
+            r"\1=[redacted]",
+            message,
+        )
+        return message or "数据源未通过安全校验。"
+    return "数据源解析失败，请检查文件结构、行列限制或重新导出后再试。"

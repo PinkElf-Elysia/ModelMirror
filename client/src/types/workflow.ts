@@ -72,6 +72,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   topK?: string;
   scoreThreshold?: string;
   top_k?: string;
+  assetIdVariable?: string;
+  /** One-release read-only compatibility for previously saved path graphs. */
   sourcePathVariable?: string;
   categories?: string;
   defaultCategory?: string;

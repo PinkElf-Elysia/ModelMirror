@@ -23,6 +23,7 @@ MAX_REQUEST_BYTES = 16 * 1024
 MAX_MCP_MESSAGE_BYTES = 16 * 1024 * 1024
 MAX_SESSIONS = max(1, min(int(os.getenv("MCP_FILES_MAX_SESSIONS", "4")), 8))
 SEMAPHORE = asyncio.Semaphore(MAX_SESSIONS)
+OFFICE_PARSER_SEMAPHORE = asyncio.Semaphore(1)
 
 
 async def _pump(source: asyncio.StreamReader, destination: asyncio.StreamWriter) -> None:
@@ -54,7 +55,12 @@ async def _stdio(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, req
     if input_root.parent != INPUT_ROOT.resolve() or not input_root.is_dir():
         raise SandboxEngineError("MCP file workspace is unavailable.", code="workspace_unavailable")
 
-    async with SEMAPHORE:
+    semaphore = (
+        OFFICE_PARSER_SEMAPHORE
+        if adapter_id == "office-parser-mcp"
+        else SEMAPHORE
+    )
+    async with semaphore:
         (OUTPUT_ROOT / workspace_id).mkdir(parents=True, exist_ok=True)
         (MEMORY_ROOT / workspace_id).mkdir(parents=True, exist_ok=True)
         temp_root = Path(tempfile.mkdtemp(prefix=f"mcp-files-{workspace_id[-8:]}-"))
@@ -142,7 +148,14 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             await _stdio(reader, writer, request); return
         if action != "health":
             raise SandboxEngineError("File sidecar action denied.", code="action_denied")
-        response = {"ok": True, "mcp_file_adapters": sorted(BUILDERS), "mcp_file_max_sessions": MAX_SESSIONS, "network": "none", "mcp_message_limit_bytes": MAX_MCP_MESSAGE_BYTES}
+        response = {
+            "ok": True,
+            "mcp_file_adapters": sorted(BUILDERS),
+            "mcp_file_max_sessions": MAX_SESSIONS,
+            "office_parser_max_sessions": 1,
+            "network": "none",
+            "mcp_message_limit_bytes": MAX_MCP_MESSAGE_BYTES,
+        }
     except SandboxEngineError as exc:
         response = {"ok": False, "error": str(exc), "code": exc.code}
     except Exception as exc:

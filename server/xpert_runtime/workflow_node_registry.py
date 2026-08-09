@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -169,6 +170,13 @@ class WorkflowNodeRegistry:
 def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
     """Register classic workflow palette metadata without changing execution."""
 
+    workflow_file_assets_enabled = (
+        os.getenv("WORKFLOW_FILE_ASSETS_ENABLED", "false").strip().lower()
+        in {"1", "true", "yes", "on"}
+        and os.getenv("FILE_ASSET_STORE_MODE", "legacy").strip().lower()
+        in {"shadow", "native"}
+    )
+
     registry.set_tabs(
         [
             WorkflowPaletteTab(id="workflow", label="工作流"),
@@ -286,9 +294,21 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     kind="document_extractor",
                     icon="DOC",
                     title="文档提取器",
-                    description="从受限本地路径提取文本，供后续节点使用。",
+                    description="从当前工作流作用域的文件资产提取文本。",
                     category="transform",
                     tags=["document", "file"],
+                    enabled=workflow_file_assets_enabled,
+                    metadata=(
+                        {}
+                        if workflow_file_assets_enabled
+                        else {
+                            "status_reason": "Workflow 文件资产变量当前未启用。"
+                        }
+                    ),
+                    planner_default_data={
+                        "assetIdVariable": "document_asset_id",
+                        "outputVariable": "document_text",
+                    },
                 ),
                 WorkflowPaletteItem(
                     kind="llm",

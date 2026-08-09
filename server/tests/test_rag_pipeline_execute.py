@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import httpx
 import pytest
 import pytest_asyncio
+from openpyxl import Workbook
 
 from server.main import app
 from server.rag.api import (
@@ -56,6 +58,17 @@ async def upload_text(client: httpx.AsyncClient, kb_id: str, filename: str, text
     )
     assert response.status_code == 200, response.text
     return str(response.json()["id"])
+
+
+def _pipeline_xlsx_bytes() -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "销售数据"
+    sheet.append(["城市", "数量"])
+    sheet.append(["上海", 42])
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 async def execute_current_draft(
@@ -216,6 +229,60 @@ async def test_candidate_version_requires_manual_activation_and_supports_rollbac
         "knowledge_pipeline.version_ready",
         "knowledge_pipeline.version_activated",
     }
+
+
+@pytest.mark.asyncio
+async def test_xlsx_pipeline_keeps_sources_in_vector_and_fulltext_indexes(
+    pipeline_runtime,
+) -> None:
+    client, service, executor, _, _ = pipeline_runtime
+    kb_id = await create_kb(client, "xlsx pipeline sources")
+    upload = await client.post(
+        f"/api/rag/knowledge_bases/{kb_id}/documents",
+        files={
+            "file": (
+                "销售.xlsx",
+                _pipeline_xlsx_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert upload.status_code == 200, upload.text
+    document_id = str(upload.json()["id"])
+    completed = await execute_current_draft(
+        client,
+        executor,
+        kb_id,
+        source_document_ids=[document_id],
+    )
+    version_id = str(completed["candidate_version_id"])
+    version = service.get_pipeline_version(version_id)
+
+    lexical = service.lexical_store.query(version["namespace"], "上海", 10)
+    indexed = next(item for item in lexical if "上海" in item.text)
+    assert indexed.sheet == "销售数据"
+    assert indexed.row_range == "A1:B2"
+    vector = service.vector_store.get_chunk(version["namespace"], indexed.chunk_id)
+    assert vector is not None
+    assert vector.sheet == "销售数据"
+    assert vector.row_range == "A1:B2"
+
+    query = await client.post(
+        f"/api/rag/pipeline/versions/{version_id}/query",
+        json={
+            "question": "上海的数量是多少？",
+            "top_k": 10,
+            "retrieval": {"mode": "fulltext"},
+        },
+    )
+    assert query.status_code == 200, query.text
+    source = next(
+        item
+        for item in query.json()["sources"]
+        if "上海" in item["matched_text"]
+    )
+    assert source["sheet"] == "销售数据"
+    assert source["row_range"] == "A1:B2"
 
 
 @pytest.mark.asyncio

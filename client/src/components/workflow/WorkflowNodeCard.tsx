@@ -232,7 +232,9 @@ function outputName(data: WorkflowNode["data"]) {
     return `${data.queryVariable ?? "query"} top ${data.top_k ?? "4"} -> ${data.outputVariable ?? "citation_anchors_json"}`;
   }
   if (data.kind === "document_extractor") {
-    return `${data.sourcePathVariable ?? "path"} -> ${data.outputVariable ?? "document_text"}`;
+    const sourceVariable = data.assetIdVariable ?? data.sourcePathVariable;
+    const sourceKind = data.assetIdVariable ? "asset" : "legacy path";
+    return `${sourceKind}: ${sourceVariable ?? "未配置"} -> ${data.outputVariable ?? "document_text"}`;
   }
   if (data.kind === "human_intervention") {
     return `等待输入 -> ${data.outputVariable ?? "human_input"}`;

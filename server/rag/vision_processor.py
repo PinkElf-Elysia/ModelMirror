@@ -15,10 +15,22 @@ from typing import Any
 
 import httpx
 
+try:
+    from server.file_assets.contracts import FileInputKind, FilePurpose
+    from server.file_assets.registry import get_file_format_registry
+except ModuleNotFoundError:
+    from file_assets.contracts import FileInputKind, FilePurpose
+    from file_assets.registry import get_file_format_registry
+
 from .document_processor import DocumentBlock
 
 
-SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+SUPPORTED_IMAGE_EXTENSIONS = set(
+    get_file_format_registry().extensions_for(
+        FilePurpose.RAG,
+        FileInputKind.IMAGE,
+    )
+)
 SUPPORTED_VISION_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS | {".pdf"}
 MAX_IMAGE_PIXELS = 40_000_000
 DEFAULT_MAX_IMAGE_EDGE = 2048

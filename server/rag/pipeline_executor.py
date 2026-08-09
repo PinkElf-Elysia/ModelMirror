@@ -9,6 +9,7 @@ from .embedder import EmbeddingClient
 from .lexical_store import LexicalChunk
 from .rag_service import RagService
 from .splitter import ParentChildTextSplitter, TextSplitter
+from .source_metadata import normalize_heading_path
 from .vector_store import VectorChunk
 
 
@@ -188,41 +189,90 @@ class KnowledgePipelineExecutor:
                         metadata={"candidate_version_id": version["version_id"]},
                     )
         except PipelineJobCancelled:
-            self.service.vector_store.delete_knowledge_base(namespace)
-            self.service.lexical_store.delete_namespace(namespace)
+            cleanup_complete = self._discard_pipeline_candidate(job_id, namespace)
+            if not cleanup_complete:
+                self.service.fail_pipeline_job(
+                    job_id,
+                    "Deletion-invalidated pipeline cleanup is pending.",
+                )
             await self._checkpoint(
                 job_id,
-                event_type="knowledge_pipeline.cancelled",
-                title="Knowledge pipeline cancelled",
-                summary="The candidate index was discarded; the active version was unchanged.",
-                severity="warning",
+                event_type=(
+                    "knowledge_pipeline.cancelled"
+                    if cleanup_complete
+                    else "knowledge_pipeline.cleanup_pending"
+                ),
+                title=(
+                    "Knowledge pipeline cancelled"
+                    if cleanup_complete
+                    else "Knowledge pipeline cleanup pending"
+                ),
+                summary=(
+                    "The candidate index was discarded; the active version was unchanged."
+                    if cleanup_complete
+                    else "The active version is unchanged; cleanup must be retried."
+                ),
+                severity="warning" if cleanup_complete else "error",
             )
             if self.run_registry is not None:
                 run_id = str(self.service.get_pipeline_job(job_id).get("run_id") or "")
                 if run_id:
                     await self.run_registry.update_run(
                         run_id,
-                        status="cancelled",
-                        error="Cancelled by user.",
+                        status="cancelled" if cleanup_complete else "failed",
+                        error=(
+                            "Cancelled by user."
+                            if cleanup_complete
+                            else "Deletion-invalidated pipeline cleanup is pending."
+                        ),
                     )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.exception("Knowledge pipeline job failed job_id=%s", job_id)
-            self.service.vector_store.delete_knowledge_base(namespace)
-            self.service.lexical_store.delete_namespace(namespace)
             self.service.fail_pipeline_job(job_id, str(exc))
+            cleanup_complete = self._discard_pipeline_candidate(job_id, namespace)
+            if not cleanup_complete:
+                self.service.fail_pipeline_job(
+                    job_id,
+                    "Deletion-invalidated pipeline cleanup is pending.",
+                )
             await self._checkpoint(
                 job_id,
                 event_type="knowledge_pipeline.failed",
                 title="Knowledge pipeline failed",
-                summary=str(exc),
+                summary=(
+                    str(exc)
+                    if cleanup_complete
+                    else "Deletion-invalidated pipeline cleanup is pending."
+                ),
                 severity="error",
             )
             if self.run_registry is not None:
                 run_id = str(self.service.get_pipeline_job(job_id).get("run_id") or "")
                 if run_id:
-                    await self.run_registry.update_run(run_id, status="failed", error=str(exc))
+                    await self.run_registry.update_run(
+                        run_id,
+                        status="failed",
+                        error=(
+                            str(exc)
+                            if cleanup_complete
+                            else "Deletion-invalidated pipeline cleanup is pending."
+                        ),
+                    )
+
+    def _discard_pipeline_candidate(self, job_id: str, namespace: str) -> bool:
+        try:
+            self.service.vector_store.delete_knowledge_base(namespace)
+            self.service.lexical_store.delete_namespace(namespace)
+            self.service.cleanup_invalidated_pipeline_job(job_id)
+        except Exception:
+            logger.warning(
+                "Knowledge pipeline cleanup remains pending job_id=%s",
+                job_id,
+            )
+            return False
+        return True
 
     async def _stage(
         self,
@@ -242,6 +292,9 @@ class KnowledgePipelineExecutor:
             metadata={"stage": stage_id},
         )
         result = await operation(job_id, *args)
+        if self.service.pipeline_job_cancel_requested(job_id):
+            self.service.cancel_running_pipeline_job(job_id)
+            raise PipelineJobCancelled("Knowledge pipeline job was cancelled.")
         count = len(result) if isinstance(result, (list, tuple)) else None
         self.service.complete_pipeline_job_stage(job_id, stage_id, item_count=count)
         await self._checkpoint(
@@ -390,6 +443,29 @@ class KnowledgePipelineExecutor:
                         for block in source_blocks
                         if block.get("page_number") is not None
                     }
+                    slides = {
+                        int(block.get("metadata", {}).get("slide"))
+                        for block in source_blocks
+                        if isinstance(block.get("metadata"), dict)
+                        and block.get("metadata", {}).get("slide") is not None
+                    }
+                    heading_paths = {
+                        heading_path
+                        for block in source_blocks
+                        if (heading_path := normalize_heading_path(block.get("heading_path")))
+                    }
+                    sheets = {
+                        str(block.get("metadata", {}).get("sheet"))
+                        for block in source_blocks
+                        if isinstance(block.get("metadata"), dict)
+                        and block.get("metadata", {}).get("sheet")
+                    }
+                    row_ranges = {
+                        str(block.get("metadata", {}).get("row_range"))
+                        for block in source_blocks
+                        if isinstance(block.get("metadata"), dict)
+                        and block.get("metadata", {}).get("row_range")
+                    }
                     visual_kinds = {
                         str(block.get("kind") or "")
                         for block in source_blocks
@@ -410,6 +486,16 @@ class KnowledgePipelineExecutor:
                                 f"{source_id}_{generated.get('item_id', index)}"
                             ),
                             "page_number": next(iter(page_numbers)) if len(page_numbers) == 1 else None,
+                            "slide": next(iter(slides)) if len(slides) == 1 else None,
+                            "heading_path": (
+                                next(iter(heading_paths))
+                                if len(heading_paths) == 1
+                                else ()
+                            ),
+                            "sheet": next(iter(sheets)) if len(sheets) == 1 else None,
+                            "row_range": (
+                                next(iter(row_ranges)) if len(row_ranges) == 1 else None
+                            ),
                             "visual_kind": next(iter(visual_kinds)) if len(visual_kinds) == 1 else None,
                             "source_block_id": (
                                 str(source_blocks[0].get("block_id"))
@@ -428,11 +514,14 @@ class KnowledgePipelineExecutor:
                 block_text = str(block.get("text") or "").strip()
                 if not block_text:
                     continue
-                heading_path = [
-                    str(item).strip()
-                    for item in block.get("heading_path", [])
-                    if str(item).strip()
-                ]
+                heading_path = list(
+                    normalize_heading_path(block.get("heading_path"))
+                )
+                block_metadata = (
+                    block.get("metadata")
+                    if isinstance(block.get("metadata"), dict)
+                    else {}
+                )
                 for segment in splitter.split_segments(block_text):
                     index = per_source_counts.get(source_id, 0)
                     per_source_counts[source_id] = index + 1
@@ -464,6 +553,10 @@ class KnowledgePipelineExecutor:
                             ),
                             "parent_chunk_id": parent_id,
                             "page_number": block.get("page_number"),
+                            "slide": block_metadata.get("slide"),
+                            "heading_path": tuple(heading_path),
+                            "sheet": block_metadata.get("sheet"),
+                            "row_range": block_metadata.get("row_range"),
                             "visual_kind": (
                                 str(block.get("kind"))
                                 if str(block.get("kind") or "").startswith(("image_", "visual_"))
@@ -525,6 +618,10 @@ class KnowledgePipelineExecutor:
                 "start_char": int(item.get("start_char", 0)),
                 "end_char": int(item.get("end_char", 0)),
                 "page_number": item.get("page_number"),
+                "slide": item.get("slide"),
+                "heading_path": normalize_heading_path(item.get("heading_path")),
+                "sheet": item.get("sheet"),
+                "row_range": item.get("row_range"),
                 "visual_kind": item.get("visual_kind"),
                 "source_block_id": item.get("source_block_id"),
             }

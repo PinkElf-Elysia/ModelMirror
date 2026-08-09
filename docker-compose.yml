@@ -426,6 +426,10 @@ services:
       MODEL_ROUTER_TENANT_ID: ${MODEL_ROUTER_TENANT_ID:-local}
       MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE: ${MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE:-false}
       MODEL_ROUTER_STORAGE_DIR: /app/model_router/storage
+      FILE_ASSET_STORE_MODE: ${FILE_ASSET_STORE_MODE:-legacy}
+      FILE_ASSET_STORAGE_DIR: /app/file_assets/storage
+      CHAT_FILE_INPUT_ENABLED: ${CHAT_FILE_INPUT_ENABLED:-false}
+      WORKFLOW_FILE_ASSETS_ENABLED: ${WORKFLOW_FILE_ASSETS_ENABLED:-false}
       WORLD_PROVIDER: ${WORLD_PROVIDER:-mock}
       WORLD_LABS_API_KEY: ${WORLD_LABS_API_KEY:-}
       WORLD_STORAGE_DIR: /app/world/storage/world_records.json
@@ -483,6 +487,7 @@ services:
       - ${MODELMIRROR_DATA_ROOT:-.}/server/datax/storage:/app/datax/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/toolsets/storage:/app/toolsets/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/model_router/storage:/app/model_router/storage
+      - ${MODELMIRROR_DATA_ROOT:-.}/server/file_assets/storage:/app/file_assets/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/world/storage:/app/world/storage
       - ${MODELMIRROR_DATA_ROOT:-.}/server/mcp/storage:/app/mcp/storage
       - sandbox_socket:/run/modelmirror-sandbox

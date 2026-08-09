@@ -16,6 +16,7 @@ ModelOperation = Literal[
     "generate_audio",
     "analyze_audio",
     "analyze_video",
+    "analyze_document",
     "generate_video",
     "embed",
     "rerank",

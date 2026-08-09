@@ -28,6 +28,7 @@ export type OutputModality =
   | "rerank";
 export type ModelOperation =
   | "chat"
+  | "analyze_document"
   | "analyze_image"
   | "generate_image"
   | "transcribe"
@@ -18150,6 +18151,7 @@ function inferOperations(raw: RawCatalogModel): ModelOperation[] {
   const outputs = new Set(raw.output_modalities);
 
   if (inputs.has("image") && outputs.has("text")) operations.add("analyze_image");
+  if (inputs.has("file") && outputs.has("text")) operations.add("analyze_document");
   if (
     outputs.has("image") &&
     raw.id !== "openrouter/auto" &&
@@ -18185,6 +18187,7 @@ function primaryOperation(operations: ModelOperation[]): ModelOperation {
     "embed",
     "rerank",
     "chat",
+    "analyze_document",
     "analyze_image",
     "analyze_audio",
     "analyze_video",

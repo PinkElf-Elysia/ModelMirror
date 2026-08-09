@@ -1,3 +1,9 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  extensionsForPurpose,
+  fetchFileCapabilities,
+  type FileCapabilitiesResponse,
+} from "../../data/fileCapabilities";
 import { models } from "../../data/models";
 import { type XpertFeatureConfig } from "../../types/xpert";
 
@@ -57,6 +63,53 @@ function ModelSelect({
 }
 
 export default function XpertFeatureSettings({ onChange, value }: Props) {
+  const [fileCapabilities, setFileCapabilities] =
+    useState<FileCapabilitiesResponse | null>(null);
+  const [fileCapabilitiesLoaded, setFileCapabilitiesLoaded] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchFileCapabilities(controller.signal).then((payload) => {
+      if (!controller.signal.aborted) {
+        setFileCapabilities(payload);
+        setFileCapabilitiesLoaded(true);
+      }
+    });
+    return () => controller.abort();
+  }, []);
+
+  const allowedAgentExtensions = useMemo(
+    () =>
+      fileCapabilities
+        ? extensionsForPurpose(fileCapabilities, "agent", "document")
+        : [],
+    [fileCapabilities],
+  );
+  const selectedAgentExtensions = useMemo(
+    () =>
+      new Set(
+        value.file_upload.allowed_extensions.map((extension) => {
+          const normalized = extension.trim().toLowerCase();
+          return normalized.startsWith(".") ? normalized : `.${normalized}`;
+        }),
+      ),
+    [value.file_upload.allowed_extensions],
+  );
+  const unsupportedAgentExtensions = useMemo(
+    () =>
+      Array.from(selectedAgentExtensions).filter(
+        (extension) => !allowedAgentExtensions.includes(extension),
+      ),
+    [allowedAgentExtensions, selectedAgentExtensions],
+  );
+  const selectedAllowedAgentExtensions = useMemo(
+    () =>
+      allowedAgentExtensions.filter((extension) =>
+        selectedAgentExtensions.has(extension),
+      ),
+    [allowedAgentExtensions, selectedAgentExtensions],
+  );
+
   const patch = <K extends keyof XpertFeatureConfig>(
     key: K,
     next: Partial<XpertFeatureConfig[K]>,
@@ -212,16 +265,78 @@ export default function XpertFeatureSettings({ onChange, value }: Props) {
                 value={value.file_upload.max_files_per_run}
               />
             </label>
-            <label className="text-[11px] text-slate-400">
-              允许扩展名
-              <input
-                className="mt-1 h-9 w-full rounded-md border border-white/10 bg-ink-950 px-2 text-xs text-white"
-                onChange={(event) => patch("file_upload", {
-                  allowed_extensions: event.target.value.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean),
-                })}
-                value={value.file_upload.allowed_extensions.join(", ")}
-              />
-            </label>
+            <fieldset className="rounded-md border border-white/10 bg-ink-950/55 p-3">
+              <legend className="px-1 text-[11px] font-semibold text-slate-300">
+                允许格式
+              </legend>
+              {allowedAgentExtensions.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {allowedAgentExtensions.map((extension) => {
+                    const checked = selectedAgentExtensions.has(extension);
+                    const cannotRemoveLast =
+                      checked && selectedAllowedAgentExtensions.length === 1;
+                    return (
+                      <label
+                        className="flex cursor-pointer items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.035] px-2 py-1.5 text-xs text-slate-200"
+                        key={extension}
+                      >
+                        <input
+                          checked={checked}
+                          disabled={cannotRemoveLast}
+                          onChange={(event) => {
+                            const next = new Set(selectedAgentExtensions);
+                            if (event.target.checked) next.add(extension);
+                            else next.delete(extension);
+                            patch("file_upload", {
+                              allowed_extensions: [
+                                ...allowedAgentExtensions.filter((item) =>
+                                  next.has(item),
+                                ),
+                                ...unsupportedAgentExtensions,
+                              ],
+                            });
+                          }}
+                          type="checkbox"
+                        />
+                        {extension}
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs leading-5 text-amber-100">
+                  {fileCapabilitiesLoaded
+                    ? "当前没有已确认可用的智能体文件格式，原配置已保留。"
+                    : "正在读取文件能力清单…"}
+                </p>
+              )}
+              <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                选项来自后端文件能力清单；发布时仍会再次校验。
+              </p>
+              {unsupportedAgentExtensions.length ? (
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-amber-300/20 bg-amber-300/[0.06] px-2 py-1.5 text-[11px] text-amber-100">
+                  <span>
+                    旧配置含未登记格式：{unsupportedAgentExtensions.join("、")}
+                  </span>
+                  {allowedAgentExtensions.length ? (
+                    <button
+                      className="shrink-0 rounded border border-amber-200/25 px-2 py-1 font-semibold hover:bg-amber-200/10"
+                      onClick={() =>
+                        patch("file_upload", {
+                          allowed_extensions:
+                            selectedAllowedAgentExtensions.length > 0
+                              ? selectedAllowedAgentExtensions
+                              : allowedAgentExtensions,
+                        })
+                      }
+                      type="button"
+                    >
+                      移除未登记项
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </fieldset>
           </div>
         </details>
 

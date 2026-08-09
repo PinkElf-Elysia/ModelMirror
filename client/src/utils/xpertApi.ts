@@ -233,13 +233,13 @@ export function listXpertFiles(
   );
 }
 
-export function archiveXpertFile(
+export function deleteXpertFile(
   xpertId: string,
   conversationId: string,
   assetId: string,
 ) {
-  return requestJson<XpertFileAsset>(
-    `/api/xperts/${xpertId}/conversations/${conversationId}/files/${assetId}`,
+  return requestJson<{ asset_id: string; deleted: true }>(
+    `/api/xperts/${xpertId}/conversations/${conversationId}/files/${assetId}/purge`,
     { method: "DELETE" },
   );
 }

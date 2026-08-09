@@ -630,11 +630,58 @@ def validate_node_configuration(
             )
 
     if kind == "document_extractor":
-        if not str(data.get("sourcePathVariable") or "").strip():
+        asset_id_variable = str(data.get("assetIdVariable") or "").strip()
+        legacy_path_variable = str(data.get("sourcePathVariable") or "").strip()
+        if asset_id_variable and legacy_path_variable:
             issues.append(
                 ValidationIssue(
-                    code="missing_document_extractor_source_path",
-                    message="Document extractor needs data.sourcePathVariable.",
+                    code="ambiguous_document_extractor_source",
+                    message=(
+                        "Document extractor cannot combine assetIdVariable with the "
+                        "legacy sourcePathVariable."
+                    ),
+                    node_id=node.id,
+                )
+            )
+        elif asset_id_variable:
+            if not is_variable_name(asset_id_variable):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_document_extractor_asset_id_variable",
+                        message=(
+                            "Document extractor assetIdVariable must be an identifier."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+        elif legacy_path_variable:
+            if not is_variable_name(legacy_path_variable):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_document_extractor_source_path_variable",
+                        message=(
+                            "Legacy document extractor sourcePathVariable must be an "
+                            "identifier."
+                        ),
+                        node_id=node.id,
+                    )
+                )
+            issues.append(
+                ValidationIssue(
+                    code="legacy_document_extractor_source_path_read_only",
+                    message=(
+                        "Legacy path-based document extractors are read-only compatible; "
+                        "new nodes must use data.assetIdVariable."
+                    ),
+                    severity="warning",
+                    node_id=node.id,
+                )
+            )
+        else:
+            issues.append(
+                ValidationIssue(
+                    code="missing_document_extractor_asset_id_variable",
+                    message="Document extractor needs data.assetIdVariable.",
                     node_id=node.id,
                 )
             )
@@ -2353,12 +2400,22 @@ def validate_variable_references(
             )
 
     if kind == "document_extractor":
-        source_path_variable = str(data.get("sourcePathVariable") or "").strip()
-        if source_path_variable and source_path_variable not in available_variables:
+        asset_id_variable = str(data.get("assetIdVariable") or "").strip()
+        legacy_path_variable = str(data.get("sourcePathVariable") or "").strip()
+        # assetIdVariable is an explicit run input supplied by the Workflow file
+        # selector. Legacy path variables still have to originate upstream.
+        if (
+            not asset_id_variable
+            and legacy_path_variable
+            and legacy_path_variable not in available_variables
+        ):
             issues.append(
                 ValidationIssue(
                     code="missing_document_extractor_source_path_reference",
-                    message=f"Document extractor references undefined variable '{source_path_variable}'.",
+                    message=(
+                        "Document extractor references undefined variable "
+                        f"'{legacy_path_variable}'."
+                    ),
                     node_id=node.id,
                 )
             )

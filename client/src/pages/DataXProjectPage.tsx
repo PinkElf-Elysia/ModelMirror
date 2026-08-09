@@ -1,25 +1,46 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageContainer from "../components/PageContainer";
+import XlsxDestinationChooser, {
+  isXlsxFile,
+} from "../components/XlsxDestinationChooser";
+import {
+  extensionsForPurpose,
+  fetchFileCapabilities,
+  type FileCapabilitiesResponse,
+} from "../data/fileCapabilities";
 import type { DataXImportJob, DataXIndicator, DataXModel, DataXProjectDetail, DataXResult, DataXSource } from "../types/datax";
 
 type Tab = "sources" | "models" | "indicators" | "analysis";
+
+export function hasRunningImportJobs(jobs: DataXImportJob[]) {
+  return jobs.some((job) => ["pending", "processing"].includes(job.status));
+}
+
+export function xlsxSheetNotices(source: DataXSource) {
+  if (source.file_type !== "xlsx" || source.status !== "ready") return [];
+  const metadata = source.profile.source;
+  const selectedSheet = metadata?.selected_sheet?.trim();
+  if (!selectedSheet) return [];
+  const visibleIgnored = metadata?.visible_sheets_ignored ?? [];
+  const hiddenIgnored = metadata?.hidden_sheets_ignored ?? [];
+  return [
+    `已导入工作表：${selectedSheet}`,
+    ...(visibleIgnored.length
+      ? [`未导入其他可见工作表：${visibleIgnored.join("、")}`]
+      : []),
+    ...(hiddenIgnored.length
+      ? [`已忽略隐藏工作表：${hiddenIgnored.join("、")}`]
+      : []),
+  ];
+}
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(String(payload.detail || `请求失败：${response.status}`));
   return payload as T;
-}
-
-async function waitForImport(job: DataXImportJob): Promise<DataXImportJob> {
-  let current = job;
-  for (let attempt = 0; attempt < 120 && ["pending", "processing"].includes(current.status); attempt += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 500));
-    current = await requestJson<DataXImportJob>(`/api/datax/import-jobs/${job.job_id}`);
-  }
-  return current;
 }
 
 function safeName(value: string, fallback: string) {
@@ -31,6 +52,24 @@ function fieldRole(dataType: string, name: string): "dimension" | "time" | "meas
   if (/DATE|TIME/i.test(dataType) || /date|time|日期|时间/i.test(name)) return "time";
   if (/INT|DOUBLE|FLOAT|DECIMAL|NUMERIC/i.test(dataType)) return "measure";
   return "dimension";
+}
+
+function validateSourceFile(
+  file: File,
+  supportedExtensions: string[],
+  maxFileBytes: number,
+) {
+  if (!supportedExtensions.length || maxFileBytes <= 0) {
+    return "文件能力清单暂不可用，请刷新页面后重试。";
+  }
+  const lowerName = file.name.toLowerCase();
+  if (!supportedExtensions.some((extension) => lowerName.endsWith(extension))) {
+    return `仅支持 ${supportedExtensions.join(" / ")} 数据源。`;
+  }
+  if (file.size > maxFileBytes) {
+    return `文件过大，请选择 ${(maxFileBytes / 1024 / 1024).toLocaleString("zh-CN")} MB 以内的数据源。`;
+  }
+  return "";
 }
 
 function StatusPill({ value }: { value: string }) {
@@ -59,6 +98,38 @@ export default function DataXProjectPage() {
   const [queryDimension, setQueryDimension] = useState("");
   const [queryView, setQueryView] = useState<DataXResult["view"]>("table");
   const [result, setResult] = useState<DataXResult | null>(null);
+  const [fileCapabilities, setFileCapabilities] =
+    useState<FileCapabilitiesResponse | null>(null);
+  const [fileCapabilitiesLoaded, setFileCapabilitiesLoaded] = useState(false);
+  const [importJobs, setImportJobs] = useState<DataXImportJob[]>([]);
+
+  const dataxExtensions = useMemo(
+    () =>
+      fileCapabilities
+        ? extensionsForPurpose(fileCapabilities, "datax", "data_source")
+        : [],
+    [fileCapabilities],
+  );
+  const dataxMaxFileBytes = useMemo(() => {
+    const limits = (fileCapabilities?.capabilities ?? [])
+      .filter(
+        (capability) =>
+          capability.purpose === "datax" &&
+          capability.input_kind === "data_source" &&
+          capability.interaction_status === "ready",
+      )
+      .map((capability) => capability.max_bytes_per_file);
+    return limits.length ? Math.min(...limits) : 0;
+  }, [fileCapabilities]);
+  const dataxUploadAvailable =
+    fileCapabilitiesLoaded &&
+    dataxExtensions.length > 0 &&
+    dataxMaxFileBytes > 0;
+  const dataxFormatHint = dataxUploadAvailable
+    ? `Data X 用于计算、指标和数据分析。支持 ${dataxExtensions.join(" / ")}，单文件不超过 ${(dataxMaxFileBytes / 1024 / 1024).toLocaleString("zh-CN")} MB。XLSX 当前只读取活动可见工作表，其他可见及隐藏工作表不会进入本次快照。重复内容按 SHA-256 复用。`
+    : fileCapabilitiesLoaded
+      ? "文件能力清单暂不可用，已暂停数据源选择。请刷新页面后重试。"
+      : "正在读取文件能力清单…";
 
   async function load() {
     try {
@@ -76,33 +147,83 @@ export default function DataXProjectPage() {
     }
   }
 
-  useEffect(() => { void load(); }, [projectId]);
+  async function loadImportJobs() {
+    try {
+      const payload = await requestJson<{ items: DataXImportJob[]; total: number }>(
+        `/api/datax/projects/${projectId}/import-jobs`,
+      );
+      setImportJobs(payload.items);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "导入任务状态加载失败，请刷新后重试。",
+      );
+    }
+  }
+
+  function refreshProject() {
+    return Promise.all([load(), loadImportJobs()]);
+  }
+
+  useEffect(() => { void refreshProject(); }, [projectId]);
+
+  const hasActiveImportJob = hasRunningImportJobs(importJobs);
+
+  useEffect(() => {
+    if (!hasActiveImportJob) return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshProject();
+    };
+    const timer = window.setInterval(refreshWhenVisible, 2_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [hasActiveImportJob, projectId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchFileCapabilities(controller.signal).then((payload) => {
+      if (!controller.signal.aborted) {
+        setFileCapabilities(payload);
+        setFileCapabilitiesLoaded(true);
+      }
+    });
+    return () => controller.abort();
+  }, []);
 
   const selectedIndicatorModel = detail?.models.find((item) => item.model_id === indicatorModelId);
   const selectedQueryIndicator = detail?.indicators.find((item) => item.code === queryIndicator);
   const queryModel = detail?.models.find((item) => item.model_id === selectedQueryIndicator?.model_id);
   const publishedIndicators = detail?.indicators.filter((item) => item.status === "published") || [];
 
-  async function uploadSource(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const input = event.currentTarget.elements.namedItem("source") as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
+  async function uploadSource(file: File) {
+    const validationError = validateSourceFile(
+      file,
+      dataxExtensions,
+      dataxMaxFileBytes,
+    );
+    if (validationError) {
+      setError(validationError);
+      return false;
+    }
     setBusy("upload");
     try {
       const body = new FormData();
       body.append("file", file);
       const job = await requestJson<DataXImportJob>(`/api/datax/projects/${projectId}/sources`, { method: "POST", body });
-      input.value = "";
+      setImportJobs((current) => [
+        job,
+        ...current.filter((item) => item.job_id !== job.job_id),
+      ]);
       setNotice("数据源快照已进入导入队列。");
       await load();
-      const completed = await waitForImport(job);
-      if (completed.status === "failed") throw new Error(completed.error || "数据源导入失败");
-      if (completed.status !== "ready") throw new Error("数据源导入仍在后台处理中，请稍后刷新");
-      setNotice("数据源快照已导入并完成字段画像。");
-      await load();
+      return true;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "导入失败");
+      return false;
     } finally { setBusy(""); }
   }
 
@@ -222,7 +343,7 @@ export default function DataXProjectPage() {
             </div>
             <div className="flex items-center gap-2">
               <Link className="rounded-md border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/5" to={`/datax/${projectId}/inbox`}>提案 Inbox</Link>
-              <button className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-slate-200" onClick={() => void load()} type="button">刷新数据</button>
+              <button className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-slate-200" onClick={() => void refreshProject()} type="button">刷新数据</button>
             </div>
           </div>
           <nav className="mt-5 flex gap-1 overflow-x-auto" aria-label="Data X 项目导航">
@@ -233,7 +354,7 @@ export default function DataXProjectPage() {
         {error && <div className="mt-4 rounded-md bg-rose-500/10 px-3 py-2 text-sm text-rose-200" role="alert">{error}</div>}
         {notice && <div className="mt-4 flex items-center justify-between rounded-md bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100"><span>{notice}</span><button className="text-xs font-semibold" onClick={() => setNotice("")} type="button">关闭</button></div>}
 
-        {tab === "sources" && <SourcesTab busy={busy} detail={detail} onUpload={uploadSource} />}
+        {tab === "sources" && <SourcesTab busy={busy} detail={detail} formatHint={dataxFormatHint} importJobs={importJobs} onUpload={uploadSource} supportedExtensions={dataxExtensions} uploadAvailable={dataxUploadAvailable} />}
         {tab === "models" && <ModelsTab busy={busy} detail={detail} modelName={modelName} modelSourceId={modelSourceId} onCreate={createModel} setModelName={setModelName} setModelSourceId={setModelSourceId} />}
         {tab === "indicators" && <IndicatorsTab aggregation={aggregation} busy={busy} detail={detail} indicatorCode={indicatorCode} indicatorModelId={indicatorModelId} indicatorName={indicatorName} indicatorType={indicatorType} measureField={measureField} onCreate={createIndicator} onPublish={publish} formula={formula} selectedModel={selectedIndicatorModel} setAggregation={setAggregation} setFormula={setFormula} setIndicatorCode={setIndicatorCode} setIndicatorModelId={setIndicatorModelId} setIndicatorName={setIndicatorName} setIndicatorType={setIndicatorType} setMeasureField={setMeasureField} />}
         {tab === "analysis" && <AnalysisTab busy={busy} dimension={queryDimension} indicator={queryIndicator} model={queryModel} onRun={runQuery} published={publishedIndicators} result={result} setDimension={setQueryDimension} setIndicator={setQueryIndicator} setView={setQueryView} view={queryView} />}
@@ -246,16 +367,36 @@ function SectionHeading({ title, description }: { title: string; description: st
   return <div><h2 className="text-sm font-semibold text-white">{title}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{description}</p></div>;
 }
 
-function SourcesTab({ detail, busy, onUpload }: { detail: DataXProjectDetail; busy: string; onUpload: (event: FormEvent<HTMLFormElement>) => void }) {
+function SourcesTab({ detail, busy, formatHint, importJobs, onUpload, supportedExtensions, uploadAvailable }: { detail: DataXProjectDetail; busy: string; formatHint: string; importJobs: DataXImportJob[]; onUpload: (file: File) => Promise<boolean>; supportedExtensions: string[]; uploadAvailable: boolean }) {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function clearSelection(returnFocus = false) {
+    setSelectedFile(null);
+    if (inputRef.current) inputRef.current.value = "";
+    if (returnFocus) {
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }
+
+  async function uploadSelected() {
+    if (!selectedFile) return;
+    const file = selectedFile;
+    if (await onUpload(file)) clearSelection(false);
+  }
+
   return <div className="mt-6 grid gap-6 xl:grid-cols-[310px_minmax(0,1fr)]">
-    <form className="self-start border-t border-white/10 pt-4" onSubmit={onUpload}>
-      <SectionHeading title="导入不可变快照" description="单文件 50 MB，最多 100 万行。重复内容按 SHA-256 复用。" />
-      <input accept=".csv,.xlsx,.parquet" className="mt-4 block w-full rounded-md border border-white/10 bg-white/[0.035] px-3 py-2 text-xs text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-white file:px-2 file:py-1 file:text-xs file:font-semibold file:text-slate-950" name="source" required type="file" />
-      <button className="mt-3 w-full rounded-md bg-cyan-300 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50" disabled={busy === "upload"} type="submit">{busy === "upload" ? "导入中..." : "导入数据源"}</button>
+    <div className="self-start">
+    <form className="border-t border-white/10 pt-4" onSubmit={(event) => { event.preventDefault(); if (!selectedFile || isXlsxFile(selectedFile)) return; void uploadSelected(); }}>
+      <SectionHeading title="导入不可变快照" description={formatHint} />
+      <input accept={supportedExtensions.join(",")} className="mt-4 block w-full rounded-md border border-white/10 bg-white/[0.035] px-3 py-2 text-xs text-slate-300 disabled:cursor-not-allowed disabled:opacity-50 file:mr-3 file:rounded file:border-0 file:bg-white file:px-2 file:py-1 file:text-xs file:font-semibold file:text-slate-950" disabled={!uploadAvailable || busy === "upload"} name="source" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} ref={inputRef} required type="file" />
+      {selectedFile && isXlsxFile(selectedFile) ? <XlsxDestinationChooser className="mt-3" currentDestination="datax" disabled={busy === "upload"} fileName={selectedFile.name} onCancel={() => clearSelection(true)} onNavigate={() => clearSelection(false)} onUseCurrent={() => void uploadSelected()} /> : <button className="mt-3 w-full rounded-md bg-cyan-300 px-3 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50" disabled={!uploadAvailable || busy === "upload" || !selectedFile} type="submit">{busy === "upload" ? "导入中..." : uploadAvailable ? "导入数据源" : "暂不可用"}</button>}
     </form>
+    {importJobs.length > 0 ? <section aria-label="最近导入任务" className="mt-5 border-t border-white/10 pt-4"><div className="flex items-center justify-between gap-3"><h3 className="text-xs font-semibold text-slate-200">最近导入任务</h3><span className="text-[11px] text-slate-500">刷新后仍会保留状态</span></div><div className="mt-2 space-y-2">{importJobs.slice(0, 5).map((job) => { const source = detail.sources.find((item) => item.source_id === job.source_id); return <div className="border-b border-white/5 pb-2 text-xs" key={job.job_id}><div className="flex items-center justify-between gap-3"><span className="min-w-0 truncate font-medium text-slate-300">{source?.file_name || "已清理的失败导入"}</span><StatusPill value={job.status} /></div><p className={`mt-1 leading-5 ${job.status === "failed" ? "text-rose-200" : "text-slate-500"}`}>{job.status === "failed" ? job.error || "导入失败，请检查文件后重试。" : `更新于 ${new Date(job.updated_at * 1000).toLocaleString("zh-CN")}`}</p></div>; })}</div></section> : null}
+    </div>
     <div className="overflow-x-auto border-y border-white/10">
       <table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-white/[0.03] text-slate-400"><tr><th className="px-3 py-2.5">文件</th><th className="px-3 py-2.5">格式</th><th className="px-3 py-2.5">状态</th><th className="px-3 py-2.5 text-right">行</th><th className="px-3 py-2.5 text-right">字段</th><th className="px-3 py-2.5">更新时间</th></tr></thead>
-      <tbody className="divide-y divide-white/10">{detail.sources.map((source) => <tr key={source.source_id} className="text-slate-300"><td className="px-3 py-3"><div className="font-semibold text-white">{source.file_name}</div><div className="mt-1 text-[11px] text-slate-500">{(source.byte_size / 1024 / 1024).toFixed(2)} MB{source.error ? ` · ${source.error}` : ""}</div></td><td className="px-3 py-3 uppercase text-slate-400">{source.file_type}</td><td className="px-3 py-3"><StatusPill value={source.status} /></td><td className="px-3 py-3 text-right tabular-nums">{source.row_count.toLocaleString()}</td><td className="px-3 py-3 text-right tabular-nums">{source.column_count}</td><td className="px-3 py-3 text-slate-500">{new Date(source.updated_at * 1000).toLocaleString("zh-CN")}</td></tr>)}</tbody></table>
+      <tbody className="divide-y divide-white/10">{detail.sources.map((source) => { const sheetNotices = xlsxSheetNotices(source); return <tr key={source.source_id} className="text-slate-300"><td className="px-3 py-3"><div className="font-semibold text-white">{source.file_name}</div><div className="mt-1 text-[11px] text-slate-500">{(source.byte_size / 1024 / 1024).toFixed(2)} MB{source.error ? ` · ${source.error}` : ""}</div>{sheetNotices.length ? <div className="mt-2 space-y-1 text-[11px] leading-4 text-slate-400">{sheetNotices.map((notice) => <p key={notice}>{notice}</p>)}</div> : null}</td><td className="px-3 py-3 uppercase text-slate-400">{source.file_type}</td><td className="px-3 py-3"><StatusPill value={source.status} /></td><td className="px-3 py-3 text-right tabular-nums">{source.row_count.toLocaleString()}</td><td className="px-3 py-3 text-right tabular-nums">{source.column_count}</td><td className="px-3 py-3 text-slate-500">{new Date(source.updated_at * 1000).toLocaleString("zh-CN")}</td></tr>; })}</tbody></table>
       {!detail.sources.length && <div className="py-16 text-center text-sm text-slate-500">导入第一个 CSV、XLSX 或 Parquet 快照。</div>}
     </div>
   </div>;

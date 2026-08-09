@@ -1,6 +1,14 @@
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import XlsxDestinationChooser, {
+  isXlsxFile,
+} from "../components/XlsxDestinationChooser";
+import {
+  extensionsForPurpose,
+  fetchFileCapabilities,
+  type FileCapabilitiesResponse,
+} from "../data/fileCapabilities";
 import {
   DEFAULT_EMBEDDING_MODEL_ID,
   embeddingModelOptions,
@@ -13,6 +21,8 @@ interface KnowledgeBase {
   document_count: number;
   created_at: number;
   updated_at: number;
+  deletion_status?: "active" | "deleting" | "cleanup_pending" | "failed";
+  deletion_error_code?: string | null;
 }
 
 interface KnowledgeBaseListResponse {
@@ -28,11 +38,26 @@ interface RagDocument {
   content_type?: string;
   ingestion_status?: string;
   visual_candidate?: boolean;
+  warnings: string[];
   created_at: number;
 }
 
 interface DocumentListResponse {
   documents: RagDocument[];
+}
+
+interface PendingDocumentDeletion {
+  document_id: string;
+  filename: string;
+  status: "deleting" | "cleanup_pending" | "failed";
+  error_code: string | null;
+  requested_at: number;
+}
+
+interface PendingDocumentDeletionListResponse {
+  tenant_id: "local";
+  knowledge_base_id: string;
+  deletions: PendingDocumentDeletion[];
 }
 
 interface PipelineAsset {
@@ -166,7 +191,7 @@ interface ProcessorPreview {
   block_counts: Record<string, number>;
   generated_count: number;
   warnings: string[];
-  blocks: Array<{ block_id: string; kind: string; text: string; page_number?: number | null; truncated?: boolean }>;
+  blocks: Array<{ block_id: string; kind: string; text: string; page_number?: number | null; truncated?: boolean; metadata?: Record<string, unknown> }>;
   generated_items: Array<{ item_id: string; item_type: string; index_text: string; context_text: string; truncated?: boolean }>;
 }
 
@@ -286,20 +311,194 @@ interface PipelineVersionQueryResponse {
     parent_chunk_id?: string | null;
     parent_lifted?: boolean;
     chunk_type?: string;
+    page_number?: number | null;
+    slide?: number | null;
+    sheet?: string | null;
+    row_range?: string | null;
+    heading_path?: string[] | null;
   }>;
 }
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
-const SUPPORTED_EXTENSIONS = [
-  ".txt",
-  ".md",
-  ".markdown",
-  ".pdf",
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".webp",
-];
+export function formatRagSourceLocation(metadata?: Record<string, unknown>) {
+  const locations: string[] = [];
+  const sheet = typeof metadata?.sheet === "string" ? metadata.sheet.trim() : "";
+  const rowRange =
+    typeof metadata?.row_range === "string" ? metadata.row_range.trim() : "";
+  const slide =
+    typeof metadata?.slide === "number" &&
+    Number.isInteger(metadata.slide) &&
+    metadata.slide > 0
+      ? metadata.slide
+      : null;
+  const page =
+    typeof metadata?.page_number === "number" &&
+    Number.isInteger(metadata.page_number) &&
+    metadata.page_number > 0
+      ? metadata.page_number
+      : null;
+  const headingPath = Array.isArray(metadata?.heading_path)
+    ? metadata.heading_path
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+
+  if (sheet) {
+    locations.push(
+      rowRange ? `工作表「${sheet}」· ${rowRange}` : `工作表「${sheet}」`,
+    );
+  } else if (rowRange) {
+    locations.push(`范围 ${rowRange}`);
+  }
+  if (slide) locations.push(`第 ${slide} 张幻灯片`);
+  if (page) locations.push(`第 ${page} 页`);
+  if (headingPath.length > 0) {
+    locations.push(`章节：${headingPath.join(" / ")}`);
+  }
+  return locations.join(" · ");
+}
+
+export function formatRagSheetLocation(metadata?: Record<string, unknown>) {
+  return formatRagSourceLocation(metadata);
+}
+
+export function formatPipelineSourceLocation(source: {
+  page_number?: number | null;
+  slide?: number | null;
+  sheet?: string | null;
+  row_range?: string | null;
+  heading_path?: string[] | null;
+}) {
+  return formatRagSourceLocation({
+    page_number: source.page_number,
+    slide: source.slide,
+    sheet: source.sheet,
+    row_range: source.row_range,
+    heading_path: source.heading_path,
+  });
+}
+
+export function isRagFileSelectionDisabled({
+  capabilityReady,
+  isUploading,
+  hasPendingXlsx,
+}: {
+  capabilityReady: boolean;
+  isUploading: boolean;
+  hasPendingXlsx: boolean;
+}) {
+  return !capabilityReady || isUploading || hasPendingXlsx;
+}
+
+interface RagDocumentWarningSummary {
+  items: string[];
+  hiddenCount: number;
+}
+
+type RagUploadStatus =
+  | "queued"
+  | "uploading"
+  | "succeeded"
+  | "failed"
+  | "cancel_requested"
+  | "cancelled";
+
+interface RagUploadQueueItem {
+  id: string;
+  knowledgeBaseId: string;
+  file: File;
+  status: RagUploadStatus;
+  error: string;
+  chunkCount: number | null;
+}
+
+export function ragUploadStatusLabel(status: RagUploadStatus) {
+  if (status === "queued") return "等待上传";
+  if (status === "uploading") return "正在入库";
+  if (status === "succeeded") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "cancel_requested") return "已请求取消，请刷新确认";
+  return "已取消";
+}
+
+const EMPTY_DOCUMENT_WARNING_SUMMARY: RagDocumentWarningSummary = {
+  items: [],
+  hiddenCount: 0,
+};
+const MAX_VISIBLE_DOCUMENT_WARNINGS = 3;
+const MAX_VISIBLE_DOCUMENT_WARNING_CHARACTERS = 180;
+
+function isOfficeDocumentPayload(document: {
+  filename?: unknown;
+  content_type?: unknown;
+}) {
+  const filename =
+    typeof document.filename === "string" ? document.filename.trim().toLowerCase() : "";
+  const contentType =
+    typeof document.content_type === "string"
+      ? document.content_type.trim().toLowerCase()
+      : "";
+  return (
+    filename.endsWith(".docx") ||
+    filename.endsWith(".pptx") ||
+    contentType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    contentType ===
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+}
+
+function localizeOfficeWarning(
+  warning: string,
+  document: { filename?: unknown; content_type?: unknown },
+) {
+  if (/no vision model was called/i.test(warning) && /images?/i.test(warning)) {
+    const filename =
+      typeof document.filename === "string" ? document.filename.trim().toLowerCase() : "";
+    const contentType =
+      typeof document.content_type === "string"
+        ? document.content_type.trim().toLowerCase()
+        : "";
+    const isPresentation =
+      filename.endsWith(".pptx") ||
+      contentType ===
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    return isPresentation
+      ? "幻灯片内图片仅以占位符保留，本次未调用视觉模型。"
+      : "文档内图片仅以占位符保留，本次未调用视觉模型。";
+  }
+  if (/tracked revisions? (?:were )?detected/i.test(warning)) {
+    return "检测到修订记录，插入、删除或移动的修订内容可能未完整提取。";
+  }
+  return warning;
+}
+
+export function getRagOfficeWarningSummary(document: {
+  filename?: unknown;
+  content_type?: unknown;
+  warnings?: unknown;
+}): RagDocumentWarningSummary {
+  if (!isOfficeDocumentPayload(document) || !Array.isArray(document.warnings)) {
+    return EMPTY_DOCUMENT_WARNING_SUMMARY;
+  }
+
+  const warnings = document.warnings
+    .filter((warning): warning is string => typeof warning === "string")
+    .map((warning) => warning.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .map((warning) => localizeOfficeWarning(warning, document))
+    .map((warning) =>
+      warning.length > MAX_VISIBLE_DOCUMENT_WARNING_CHARACTERS
+        ? `${warning.slice(0, MAX_VISIBLE_DOCUMENT_WARNING_CHARACTERS - 1).trimEnd()}…`
+        : warning,
+    )
+    .filter((warning, index, values) => values.indexOf(warning) === index);
+
+  return {
+    items: warnings.slice(0, MAX_VISIBLE_DOCUMENT_WARNINGS),
+    hiddenCount: Math.max(0, warnings.length - MAX_VISIBLE_DOCUMENT_WARNINGS),
+  };
+}
 
 function separatorLabel(value: unknown) {
   if (value === "\n\n") return "\\n\\n";
@@ -451,25 +650,49 @@ function formatConfigValue(value: unknown) {
   return String(value);
 }
 
-async function readError(response: Response) {
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export async function readError(response: Response) {
+  const fallback = `请求失败：${response.status}`;
   try {
-    const data = (await response.json()) as { detail?: string; error?: string };
-    return data.detail ?? data.error ?? `请求失败：${response.status}`;
+    const payload: unknown = await response.json();
+    if (!isUnknownRecord(payload)) return fallback;
+
+    const detail = payload.detail;
+    if (
+      isUnknownRecord(detail) &&
+      typeof detail.message === "string"
+    ) {
+      return detail.message;
+    }
+    if (typeof detail === "string") return detail;
+    if (typeof payload.error === "string") return payload.error;
+    if (typeof payload.message === "string") return payload.message;
+    return fallback;
   } catch {
-    return `请求失败：${response.status}`;
+    return fallback;
   }
 }
 
-function validateFile(file: File) {
+function validateFile(
+  file: File,
+  supportedExtensions: string[],
+  maxFileBytes: number,
+) {
+  if (!supportedExtensions.length || maxFileBytes <= 0) {
+    return "文件能力清单暂不可用，请刷新页面后重试。";
+  }
   const lowerName = file.name.toLowerCase();
-  const isSupported = SUPPORTED_EXTENSIONS.some((extension) =>
+  const isSupported = supportedExtensions.some((extension) =>
     lowerName.endsWith(extension),
   );
   if (!isSupported) {
-    return "仅支持 TXT、Markdown、PDF、PNG、JPEG 和 WebP 文件。";
+    return `仅支持 ${supportedExtensions.join(" / ")} 文件。`;
   }
-  if (file.size > MAX_FILE_BYTES) {
-    return "文件过大，请上传 10MB 以内的文档。";
+  if (file.size > maxFileBytes) {
+    return `文件过大，请上传 ${(maxFileBytes / 1024 / 1024).toLocaleString("zh-CN")} MB 以内的文档。`;
   }
   return "";
 }
@@ -485,9 +708,18 @@ export default function RagPage() {
   const [isLoadingDocs, setIsLoadingDocs] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<RagUploadQueueItem[]>([]);
+  const [pendingDeletionRetries, setPendingDeletionRetries] = useState<
+    PendingDocumentDeletion[]
+  >([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [fileCapabilities, setFileCapabilities] =
+    useState<FileCapabilitiesResponse | null>(null);
+  const [fileCapabilitiesLoaded, setFileCapabilitiesLoaded] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [uploadWarningSummary, setUploadWarningSummary] =
+    useState<RagDocumentWarningSummary>(EMPTY_DOCUMENT_WARNING_SUMMARY);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newKbName, setNewKbName] = useState("");
   const [isPipelineOpen, setIsPipelineOpen] = useState(Boolean(requestedKbId || requestedJobId));
@@ -548,9 +780,57 @@ export default function RagPage() {
   const [previewingVersionId, setPreviewingVersionId] = useState("");
   const [activatingVersionId, setActivatingVersionId] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadButtonRef = useRef<HTMLButtonElement>(null);
+  const createKnowledgeBaseButtonRef = useRef<HTMLButtonElement>(null);
+  const knowledgeBaseCleanupButtonRefs = useRef(
+    new Map<string, HTMLButtonElement>(),
+  );
+  const uploadControllersRef = useRef(new Map<string, AbortController>());
+  const cancelledUploadIdsRef = useRef(new Set<string>());
+  const uploadSequenceRef = useRef(0);
+  const uploadGenerationRef = useRef(0);
+  const pendingDeletionGenerationRef = useRef(0);
+  const uploadQueueRunningRef = useRef(false);
+  const [pendingXlsxFile, setPendingXlsxFile] = useState<File | null>(null);
+
+  const ragExtensions = useMemo(
+    () =>
+      fileCapabilities
+        ? extensionsForPurpose(fileCapabilities, "rag")
+        : [],
+    [fileCapabilities],
+  );
+  const ragMaxFileBytes = useMemo(() => {
+    const limits = (fileCapabilities?.capabilities ?? [])
+      .filter(
+        (capability) =>
+          capability.purpose === "rag" &&
+          capability.interaction_status === "ready",
+      )
+      .map((capability) => capability.max_bytes_per_file);
+    return limits.length ? Math.min(...limits) : 0;
+  }, [fileCapabilities]);
+  const ragUploadAvailable =
+    fileCapabilitiesLoaded && ragExtensions.length > 0 && ragMaxFileBytes > 0;
+  const ragFileSelectionDisabled = isRagFileSelectionDisabled({
+    capabilityReady: ragUploadAvailable,
+    isUploading,
+    hasPendingXlsx: Boolean(pendingXlsxFile),
+  });
+  const ragAccept = ragExtensions.join(",");
+  const ragFormatHint = ragUploadAvailable
+    ? `支持 ${ragExtensions.join(" / ")}，单文件不超过 ${(ragMaxFileBytes / 1024 / 1024).toLocaleString("zh-CN")} MB。图片和扫描 PDF 需在知识流水线中完成视觉理解后再激活索引。`
+    : fileCapabilitiesLoaded
+      ? "文件能力清单暂不可用，已暂停选择与拖放。请刷新页面后重试。"
+      : "正在读取文件能力清单…";
 
   const selectedKnowledgeBase = useMemo(
-    () => knowledgeBases.find((item) => item.id === selectedKbId) ?? null,
+    () =>
+      knowledgeBases.find(
+        (item) =>
+          item.id === selectedKbId &&
+          (item.deletion_status ?? "active") === "active",
+      ) ?? null,
     [knowledgeBases, selectedKbId],
   );
 
@@ -599,6 +879,36 @@ export default function RagPage() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    void fetchFileCapabilities(controller.signal).then((payload) => {
+      if (!controller.signal.aborted) {
+        setFileCapabilities(payload);
+        setFileCapabilitiesLoaded(true);
+      }
+    });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    uploadGenerationRef.current += 1;
+    pendingDeletionGenerationRef.current += 1;
+    uploadControllersRef.current.forEach((controller) => controller.abort());
+    uploadControllersRef.current.clear();
+    cancelledUploadIdsRef.current.clear();
+    setUploadQueue([]);
+    setPendingDeletionRetries([]);
+    setPendingXlsxFile(null);
+  }, [selectedKbId]);
+
+  useEffect(
+    () => () => {
+      uploadControllersRef.current.forEach((controller) => controller.abort());
+      uploadControllersRef.current.clear();
+    },
+    [],
+  );
+
+  useEffect(() => {
     if (!selectedKbId) {
       setDocuments([]);
       setPipelineAssets([]);
@@ -617,6 +927,7 @@ export default function RagPage() {
       return;
     }
     void loadDocuments(selectedKbId);
+    void loadPendingDocumentDeletions(selectedKbId);
     if (isPipelineOpen) void loadPipeline(selectedKbId);
   }, [isPipelineOpen, selectedKbId]);
 
@@ -636,12 +947,18 @@ export default function RagPage() {
       if (!response.ok) throw new Error(await readError(response));
       const data = (await response.json()) as KnowledgeBaseListResponse;
       setKnowledgeBases(data.knowledge_bases);
+      const activeKnowledgeBases = data.knowledge_bases.filter(
+        (item) => (item.deletion_status ?? "active") === "active",
+      );
       const preferredId =
-        nextSelectedId || requestedKbId || selectedKbId || data.knowledge_bases[0]?.id || "";
-      if (preferredId && data.knowledge_bases.some((item) => item.id === preferredId)) {
+        nextSelectedId || requestedKbId || selectedKbId || activeKnowledgeBases[0]?.id || "";
+      if (
+        preferredId &&
+        activeKnowledgeBases.some((item) => item.id === preferredId)
+      ) {
         setSelectedKbId(preferredId);
       } else {
-        setSelectedKbId(data.knowledge_bases[0]?.id ?? "");
+        setSelectedKbId(activeKnowledgeBases[0]?.id ?? "");
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "知识库列表加载失败。");
@@ -695,6 +1012,28 @@ export default function RagPage() {
       setError(loadError instanceof Error ? loadError.message : "文档列表加载失败。");
     } finally {
       setIsLoadingDocs(false);
+    }
+  }
+
+  async function loadPendingDocumentDeletions(kbId: string) {
+    const generation = pendingDeletionGenerationRef.current;
+    try {
+      const response = await fetch(
+        `/api/rag/knowledge_bases/${kbId}/pending-deletions`,
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      const data = (await response.json()) as PendingDocumentDeletionListResponse;
+      if (data.tenant_id !== "local" || data.knowledge_base_id !== kbId) {
+        throw new Error("待清理文档列表的作用域不匹配，请刷新后重试。");
+      }
+      if (generation !== pendingDeletionGenerationRef.current) return;
+      setPendingDeletionRetries(data.deletions);
+    } catch (loadError) {
+      if (generation !== pendingDeletionGenerationRef.current) return;
+      setPendingDeletionRetries([]);
+      setError(
+        loadError instanceof Error ? loadError.message : "待清理文档列表加载失败。",
+      );
     }
   }
 
@@ -1005,6 +1344,7 @@ export default function RagPage() {
     setIsCreating(true);
     setError("");
     setNotice("");
+    setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
     try {
       const response = await fetch("/api/rag/knowledge_bases", {
         method: "POST",
@@ -1025,52 +1365,275 @@ export default function RagPage() {
   }
 
   async function deleteKnowledgeBase(kb: KnowledgeBase) {
-    if (!window.confirm(`确认删除知识库「${kb.name}」及其中所有文档吗？`)) return;
+    const cleanupPending = (kb.deletion_status ?? "active") !== "active";
+    const confirmation = cleanupPending
+      ? `继续重试彻底清理知识库「${kb.name}」吗？该资料库已经隔离，清理完成前无法恢复使用。`
+      : `彻底删除知识库「${kb.name}」及其中全部文档和文件资产吗？此操作不可撤销。仍被其他模块引用的共享资产会保留。`;
+    if (!window.confirm(confirmation)) return;
 
     setError("");
     setNotice("");
+    setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
     try {
       const response = await fetch(`/api/rag/knowledge_bases/${kb.id}`, {
         method: "DELETE",
       });
+      if (response.status === 409) {
+        await loadKnowledgeBases();
+        setNotice(
+          `知识库「${kb.name}」已隔离，仍有文件或派生物等待清理。请稍后重试彻底清理。`,
+        );
+        window.requestAnimationFrame(() =>
+          knowledgeBaseCleanupButtonRefs.current.get(kb.id)?.focus(),
+        );
+        return;
+      }
       if (!response.ok) throw new Error(await readError(response));
       setNotice(`知识库「${kb.name}」已删除。`);
+      if (selectedKbId === kb.id) setSelectedKbId("");
       await loadKnowledgeBases();
+      window.requestAnimationFrame(() => createKnowledgeBaseButtonRef.current?.focus());
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "删除知识库失败。");
     }
   }
 
+  async function uploadFileRequest(
+    file: File,
+    knowledgeBaseId: string,
+    signal?: AbortSignal,
+  ) {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch(
+      `/api/rag/knowledge_bases/${knowledgeBaseId}/documents`,
+      {
+        method: "POST",
+        body: form,
+        signal,
+      },
+    );
+    if (!response.ok) throw new Error(await readError(response));
+    return (await response.json()) as RagDocument;
+  }
+
+  async function refreshAfterUploads(knowledgeBaseId: string) {
+    await Promise.all([
+      loadDocuments(knowledgeBaseId),
+      loadPendingDocumentDeletions(knowledgeBaseId),
+      loadKnowledgeBases(knowledgeBaseId),
+    ]);
+    if (isPipelineOpen) await loadPipeline(knowledgeBaseId);
+  }
+
   async function uploadFile(file: File) {
-    if (!selectedKbId || isUploading) return;
-    const validationError = validateFile(file);
+    if (!selectedKbId || isUploading) return false;
+    const validationError = validateFile(file, ragExtensions, ragMaxFileBytes);
     if (validationError) {
       setError(validationError);
-      return;
+      return false;
     }
 
     setIsUploading(true);
     setError("");
     setNotice("");
+    setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const response = await fetch(
-        `/api/rag/knowledge_bases/${selectedKbId}/documents`,
-        {
-          method: "POST",
-          body: form,
-        },
-      );
-      if (!response.ok) throw new Error(await readError(response));
-      const uploaded = (await response.json()) as RagDocument;
+      const uploaded = await uploadFileRequest(file, selectedKbId);
       setNotice(`文档「${uploaded.filename}」已入库，切成 ${uploaded.chunk_count} 个片段。`);
-      await Promise.all([loadDocuments(selectedKbId), loadKnowledgeBases(selectedKbId)]);
-      if (isPipelineOpen) await loadPipeline(selectedKbId);
+      setUploadWarningSummary(getRagOfficeWarningSummary(uploaded));
+      await refreshAfterUploads(selectedKbId);
+      return true;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "上传文档失败。");
+      return false;
     } finally {
       setIsUploading(false);
+    }
+  }
+
+  async function runUploadQueue(items: RagUploadQueueItem[]) {
+    if (!items.length || isUploading || uploadQueueRunningRef.current) return;
+    uploadQueueRunningRef.current = true;
+    const uploadGeneration = uploadGenerationRef.current;
+    const knowledgeBaseId = items[0].knowledgeBaseId;
+    setIsUploading(true);
+    setError("");
+    setNotice("");
+    setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
+    let succeeded = 0;
+    let failed = 0;
+    let cancelRequested = 0;
+    const warnings: string[] = [];
+    try {
+      for (const item of items) {
+        if (
+          uploadGeneration !== uploadGenerationRef.current ||
+          cancelledUploadIdsRef.current.has(item.id)
+        ) {
+          setUploadQueue((current) =>
+            current.map((candidate) =>
+              candidate.id === item.id
+                ? { ...candidate, status: "cancelled", error: "" }
+                : candidate,
+            ),
+          );
+          continue;
+        }
+        const controller = new AbortController();
+        uploadControllersRef.current.set(item.id, controller);
+        setUploadQueue((current) =>
+          current.map((candidate) =>
+            candidate.id === item.id
+              ? { ...candidate, status: "uploading", error: "" }
+              : candidate,
+          ),
+        );
+        try {
+          const uploaded = await uploadFileRequest(
+            item.file,
+            item.knowledgeBaseId,
+            controller.signal,
+          );
+          succeeded += 1;
+          warnings.push(...getRagOfficeWarningSummary(uploaded).items);
+          setUploadQueue((current) =>
+            current.map((candidate) =>
+              candidate.id === item.id
+                ? {
+                    ...candidate,
+                    status: "succeeded",
+                    error: "",
+                    chunkCount: uploaded.chunk_count,
+                  }
+                : candidate,
+            ),
+          );
+        } catch (uploadError) {
+          if (controller.signal.aborted) {
+            cancelRequested += 1;
+            setUploadQueue((current) =>
+              current.map((candidate) =>
+                candidate.id === item.id
+                  ? {
+                      ...candidate,
+                      status: "cancel_requested",
+                      error: "浏览器已请求取消，但服务端可能已接收文件；请刷新文档清单确认最终结果。",
+                    }
+                  : candidate,
+              ),
+            );
+          } else {
+            failed += 1;
+            const message =
+              uploadError instanceof Error ? uploadError.message : "上传文档失败。";
+            setUploadQueue((current) =>
+              current.map((candidate) =>
+                candidate.id === item.id
+                  ? { ...candidate, status: "failed", error: message }
+                  : candidate,
+              ),
+            );
+          }
+        } finally {
+          uploadControllersRef.current.delete(item.id);
+        }
+      }
+      if (succeeded > 0 || cancelRequested > 0) {
+        await refreshAfterUploads(knowledgeBaseId);
+      }
+      setNotice(
+        cancelRequested > 0
+          ? `已请求取消 ${cancelRequested} 个上传并自动刷新文档清单；服务端可能仍在处理，请稍后再次刷新确认。`
+          : succeeded > 0
+            ? `批量入库完成：${succeeded} 个成功${failed ? `，${failed} 个失败` : ""}。`
+          : "",
+      );
+      if (warnings.length > 0) {
+        const uniqueWarnings = [...new Set(warnings)];
+        setUploadWarningSummary({
+          items: uniqueWarnings.slice(0, 3),
+          hiddenCount: Math.max(0, uniqueWarnings.length - 3),
+        });
+      }
+    } finally {
+      uploadQueueRunningRef.current = false;
+      setIsUploading(false);
+    }
+  }
+
+  function enqueueUploadFiles(files: File[]) {
+    if (!selectedKbId || isUploading || files.length === 0) return;
+    setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
+    setError("");
+    if (files.length === 1 && isXlsxFile(files[0])) {
+      const validationError = validateFile(files[0], ragExtensions, ragMaxFileBytes);
+      if (validationError) {
+        setError(validationError);
+      } else {
+        setPendingXlsxFile(files[0]);
+      }
+      return;
+    }
+
+    const created = files.map((file) => {
+      const validationError = validateFile(file, ragExtensions, ragMaxFileBytes);
+      const requiresXlsxChoice = isXlsxFile(file);
+      uploadSequenceRef.current += 1;
+      return {
+        id: `rag-upload-${Date.now()}-${uploadSequenceRef.current}`,
+        knowledgeBaseId: selectedKbId,
+        file,
+        status:
+          validationError || requiresXlsxChoice
+            ? ("failed" as const)
+            : ("queued" as const),
+        error:
+          validationError ||
+          (requiresXlsxChoice
+            ? "XLSX 需要逐个确认“加入资料库”用途，请单独选择该文件。"
+            : ""),
+        chunkCount: null,
+      };
+    });
+    setUploadQueue((current) => [...current, ...created]);
+    const runnable = created.filter((item) => item.status === "queued");
+    void runUploadQueue(runnable);
+  }
+
+  function cancelQueuedUpload(item: RagUploadQueueItem) {
+    cancelledUploadIdsRef.current.add(item.id);
+    uploadControllersRef.current.get(item.id)?.abort();
+    setUploadQueue((current) =>
+      current.map((candidate) =>
+        candidate.id === item.id
+          ? item.status === "uploading"
+            ? {
+                ...candidate,
+                status: "cancel_requested",
+                error: "浏览器已请求取消，但服务端可能已接收文件；请刷新文档清单确认最终结果。",
+              }
+            : { ...candidate, status: "cancelled", error: "文件尚未发送。" }
+          : candidate,
+      ),
+    );
+  }
+
+  function retryQueuedUpload(item: RagUploadQueueItem) {
+    if (isUploading || item.knowledgeBaseId !== selectedKbId) return;
+    cancelledUploadIdsRef.current.delete(item.id);
+    const queued = { ...item, status: "queued" as const, error: "", chunkCount: null };
+    setUploadQueue((current) =>
+      current.map((candidate) => (candidate.id === item.id ? queued : candidate)),
+    );
+    void runUploadQueue([queued]);
+  }
+
+  function clearPendingXlsxFile(returnFocus = false) {
+    setPendingXlsxFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (returnFocus) {
+      window.requestAnimationFrame(() => uploadButtonRef.current?.focus());
     }
   }
 
@@ -1079,24 +1642,77 @@ export default function RagPage() {
 
     setError("");
     setNotice("");
+    setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
     try {
       const response = await fetch(`/api/rag/documents/${document.id}`, {
         method: "DELETE",
       });
+      if (response.status === 409) {
+        const message = await readError(response);
+        setPendingDeletionRetries((current) => [
+          ...current.filter((item) => item.document_id !== document.id),
+          {
+            document_id: document.id,
+            filename: document.filename,
+            status: "cleanup_pending",
+            error_code: "rag_document_cleanup_pending",
+            requested_at: Date.now() / 1000,
+          },
+        ]);
+        setNotice(
+          `文档「${document.filename}」已从检索隔离，但派生物清理尚未完成。${message}`,
+        );
+        await refreshAfterUploads(selectedKbId);
+        return;
+      }
       if (!response.ok) throw new Error(await readError(response));
+      setPendingDeletionRetries((current) =>
+        current.filter((item) => item.document_id !== document.id),
+      );
       setNotice(`文档「${document.filename}」已删除。`);
-      await Promise.all([loadDocuments(selectedKbId), loadKnowledgeBases(selectedKbId)]);
-      if (isPipelineOpen) await loadPipeline(selectedKbId);
+      await refreshAfterUploads(selectedKbId);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "删除文档失败。");
+    }
+  }
+
+  async function retryDocumentCleanup(document: PendingDocumentDeletion) {
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/rag/documents/${document.document_id}`, {
+        method: "DELETE",
+      });
+      if (response.status === 409) {
+        setNotice(
+          `文档「${document.filename}」仍保持检索隔离，清理尚未完成，请稍后再次重试。`,
+        );
+        await refreshAfterUploads(selectedKbId);
+        return;
+      }
+      if (!response.ok) throw new Error(await readError(response));
+      setPendingDeletionRetries((current) =>
+        current.filter((item) => item.document_id !== document.document_id),
+      );
+      setNotice(`文档「${document.filename}」的原件、索引和派生物已清理完成。`);
+      await refreshAfterUploads(selectedKbId);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "重试清理失败。");
     }
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDragging(false);
-    const file = event.dataTransfer.files[0];
-    if (file) void uploadFile(file);
+    if (pendingXlsxFile) {
+      setError("请先选择当前 XLSX 的用途，或取消后再选择其他文件。");
+      return;
+    }
+    if (!ragUploadAvailable) {
+      setError("文件能力清单暂不可用，暂时无法拖放文件。请刷新页面后重试。");
+      return;
+    }
+    enqueueUploadFiles(Array.from(event.dataTransfer.files));
   }
 
   return (
@@ -1110,7 +1726,7 @@ export default function RagPage() {
             本地 RAG 已接管资料库：上传文档后自动解析、切块、向量化，面试间可以直接引用。
           </p>
           <div className="mt-4 rounded-lg border border-hire-300/20 bg-hire-300/10 p-3 text-xs leading-5 text-hire-50">
-            支持 TXT、Markdown、PDF 和常见图片，单文件上限 10MB。
+            {ragFormatHint}
           </div>
         </div>
       }
@@ -1129,6 +1745,7 @@ export default function RagPage() {
           <button
             className="rounded-full bg-hire-300 px-5 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_24px_rgba(251,191,36,0.25)] transition hover:bg-hire-200 active:scale-[0.98]"
             onClick={() => setShowCreateModal(true)}
+            ref={createKnowledgeBaseButtonRef}
             type="button"
           >
             新建知识库
@@ -1138,13 +1755,35 @@ export default function RagPage() {
 
       {(error || notice) ? (
         <div
+          aria-live={error ? "assertive" : "polite"}
           className={`mb-5 rounded-lg border px-4 py-3 text-sm ${
             error
               ? "border-rose-300/25 bg-rose-400/10 text-rose-100"
               : "border-emerald-300/25 bg-emerald-400/10 text-emerald-100"
           }`}
+          role={error ? "alert" : "status"}
         >
           {error || notice}
+        </div>
+      ) : null}
+
+      {!error && uploadWarningSummary.items.length > 0 ? (
+        <div
+          aria-live="polite"
+          className="-mt-3 mb-5 rounded-lg bg-amber-300/10 px-4 py-3 text-xs leading-5 text-amber-100"
+          role="status"
+        >
+          <p className="font-semibold">Office 解析提示</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {uploadWarningSummary.items.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+          {uploadWarningSummary.hiddenCount > 0 ? (
+            <p className="mt-1 text-amber-200/80">
+              另有 {uploadWarningSummary.hiddenCount} 项解析提示未展开。
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -1154,7 +1793,16 @@ export default function RagPage() {
             <div>
               <h2 className="text-lg font-semibold text-white">资料库列表</h2>
               <p className="mt-1 text-xs text-slate-400">
-                {knowledgeBases.length} 个资料库正在待命
+                {
+                  knowledgeBases.filter(
+                    (item) => (item.deletion_status ?? "active") === "active",
+                  ).length
+                } 个资料库可用
+                {knowledgeBases.some(
+                  (item) => (item.deletion_status ?? "active") !== "active",
+                )
+                  ? "，另有清理任务"
+                  : ""}
               </p>
             </div>
             <button
@@ -1176,41 +1824,74 @@ export default function RagPage() {
                 资料库展台还空着。先新建一个知识库，再上传你的文档。
               </div>
             ) : (
-              knowledgeBases.map((kb) => (
-                <article
-                  className={`rounded-lg border p-4 transition ${
-                    kb.id === selectedKbId
-                      ? "border-hire-300/50 bg-hire-300/10 shadow-[0_0_28px_rgba(251,191,36,0.16)]"
-                      : "border-white/10 bg-white/[0.045] hover:border-hire-300/25 hover:bg-white/[0.07]"
-                  }`}
-                  key={kb.id}
-                >
-                  <button
-                    className="block w-full text-left"
-                    onClick={() => setSelectedKbId(kb.id)}
-                    type="button"
+              knowledgeBases.map((kb) => {
+                const cleanupPending =
+                  (kb.deletion_status ?? "active") !== "active";
+                return (
+                  <article
+                    className={`rounded-lg border p-4 transition ${
+                      cleanupPending
+                        ? "border-amber-300/30 bg-amber-300/10"
+                        : kb.id === selectedKbId
+                          ? "border-hire-300/50 bg-hire-300/10 shadow-[0_0_28px_rgba(251,191,36,0.16)]"
+                          : "border-white/10 bg-white/[0.045] hover:border-hire-300/25 hover:bg-white/[0.07]"
+                    }`}
+                    key={kb.id}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="font-semibold text-white">{kb.name}</h3>
-                        <p className="mt-1 text-xs text-slate-400">
-                          {kb.document_count} 份文档 · 更新于 {formatDate(kb.updated_at)}
-                        </p>
+                    {cleanupPending ? (
+                      <div aria-label={`${kb.name} 已隔离，等待彻底清理`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold text-white">{kb.name}</h3>
+                            <p className="mt-1 text-xs leading-5 text-amber-100">
+                              已从检索与上传入口隔离，仍有文件或派生物等待清理。
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-amber-200/15 px-2 py-1 text-[11px] font-semibold text-amber-100">
+                            清理待完成
+                          </span>
+                        </div>
                       </div>
-                      <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[11px] font-semibold text-slate-300">
-                        打开
-                      </span>
-                    </div>
-                  </button>
-                  <button
-                    className="mt-3 text-xs font-semibold text-rose-200 transition hover:text-rose-100"
-                    onClick={() => void deleteKnowledgeBase(kb)}
-                    type="button"
-                  >
-                    删除资料库
-                  </button>
-                </article>
-              ))
+                    ) : (
+                      <button
+                        className="block min-h-11 w-full text-left"
+                        onClick={() => setSelectedKbId(kb.id)}
+                        type="button"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold text-white">{kb.name}</h3>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {kb.document_count} 份文档 · 更新于 {formatDate(kb.updated_at)}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[11px] font-semibold text-slate-300">
+                            打开
+                          </span>
+                        </div>
+                      </button>
+                    )}
+                    <button
+                      className={`mt-3 min-h-11 rounded-full px-3 text-xs font-semibold transition ${
+                        cleanupPending
+                          ? "border border-amber-200/30 text-amber-50 hover:bg-amber-200/10"
+                          : "text-rose-200 hover:bg-rose-200/10 hover:text-rose-100"
+                      }`}
+                      onClick={() => void deleteKnowledgeBase(kb)}
+                      ref={(element) => {
+                        if (element) {
+                          knowledgeBaseCleanupButtonRefs.current.set(kb.id, element);
+                        } else {
+                          knowledgeBaseCleanupButtonRefs.current.delete(kb.id);
+                        }
+                      }}
+                      type="button"
+                    >
+                      {cleanupPending ? "重试彻底清理" : "彻底删除资料库"}
+                    </button>
+                  </article>
+                );
+              })
             )}
           </div>
         </section>
@@ -1249,8 +1930,10 @@ export default function RagPage() {
                     检索质量评估
                   </Link>
                   <button
-                    className="rounded-lg border border-hire-300/30 bg-hire-300/10 px-4 py-2 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/20"
+                    className="rounded-lg border border-hire-300/30 bg-hire-300/10 px-4 py-2 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={ragFileSelectionDisabled}
                     onClick={() => fileInputRef.current?.click()}
+                    ref={uploadButtonRef}
                     type="button"
                   >
                     上传文档
@@ -1259,18 +1942,37 @@ export default function RagPage() {
               </div>
 
               <input
-                accept=".txt,.md,.markdown,.pdf,.png,.jpg,.jpeg,.webp,text/plain,text/markdown,application/pdf,image/png,image/jpeg,image/webp"
+                accept={ragAccept}
                 className="hidden"
+                disabled={ragFileSelectionDisabled}
+                multiple
                 onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void uploadFile(file);
+                  enqueueUploadFiles(Array.from(event.target.files ?? []));
                   event.target.value = "";
                 }}
                 ref={fileInputRef}
                 type="file"
               />
 
+              {pendingXlsxFile ? (
+                <XlsxDestinationChooser
+                  className="mt-5"
+                  currentDestination="rag"
+                  disabled={isUploading}
+                  fileName={pendingXlsxFile.name}
+                  onCancel={() => clearPendingXlsxFile(true)}
+                  onNavigate={() => clearPendingXlsxFile(false)}
+                  onUseCurrent={() => {
+                    const file = pendingXlsxFile;
+                    void uploadFile(file).then((uploaded) => {
+                      if (uploaded) clearPendingXlsxFile(false);
+                    });
+                  }}
+                />
+              ) : null}
+
               <div
+                aria-disabled={ragFileSelectionDisabled}
                 className={`mt-5 rounded-lg border border-dashed p-6 text-center transition ${
                   isDragging
                     ? "border-hire-300/70 bg-hire-300/10"
@@ -1279,25 +1981,110 @@ export default function RagPage() {
                 onDragLeave={() => setIsDragging(false)}
                 onDragOver={(event) => {
                   event.preventDefault();
-                  setIsDragging(true);
+                  if (!ragFileSelectionDisabled) setIsDragging(true);
                 }}
                 onDrop={handleDrop}
               >
                 <p className="text-sm font-semibold text-white">
-                  {isUploading ? "正在入库并生成索引..." : "拖拽文档到这里，或点击上传"}
+                  {isUploading ? "正在按队列入库..." : "拖拽一批文档到这里，或点击上传"}
                 </p>
                 <p className="mt-2 text-xs text-slate-400">
-                  支持 .txt / .md / .pdf / .png / .jpg / .webp。图片和扫描 PDF 需在知识流水线中完成视觉理解后再激活索引。
+                  {ragFormatHint}
                 </p>
                 <button
                   className="mt-4 rounded-full bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={isUploading}
+                  disabled={ragFileSelectionDisabled}
                   onClick={() => fileInputRef.current?.click()}
                   type="button"
                 >
-                  {isUploading ? "处理中" : "选择文件"}
+                  {isUploading
+                    ? "处理中"
+                    : ragUploadAvailable
+                      ? "选择文件（可多选）"
+                      : "暂不可用"}
                 </button>
               </div>
+
+              {uploadQueue.length > 0 ? (
+                <section
+                  aria-label="上传队列"
+                  className="mt-4 overflow-hidden rounded-lg border border-white/10 bg-white/[0.025]"
+                >
+                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">批量上传队列</h3>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
+                        文件逐个入库；浏览器取消不保证服务端停止，系统会刷新文档清单确认结果。
+                      </p>
+                    </div>
+                    <button
+                      className="text-xs font-semibold text-slate-400 transition hover:text-white disabled:opacity-40"
+                      disabled={isUploading}
+                      onClick={() =>
+                        setUploadQueue((current) =>
+                          current.filter(
+                            (item) =>
+                              item.status === "queued" || item.status === "uploading",
+                          ),
+                        )
+                      }
+                      type="button"
+                    >
+                      清除已结束
+                    </button>
+                  </div>
+                  <div className="divide-y divide-white/10">
+                    {uploadQueue.map((item) => {
+                      const canRetry =
+                        (item.status === "failed" || item.status === "cancelled") &&
+                        !isXlsxFile(item.file) &&
+                        !validateFile(item.file, ragExtensions, ragMaxFileBytes);
+                      return (
+                        <article
+                          className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                          key={item.id}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-slate-100">
+                              {item.file.name}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-slate-400">
+                              {formatFileSize(item.file.size)} · {ragUploadStatusLabel(item.status)}
+                              {item.chunkCount != null ? ` · ${item.chunkCount} 个片段` : ""}
+                            </p>
+                            {item.error ? (
+                              <p className="mt-1 text-xs text-rose-200" role="alert">
+                                {item.error}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {item.status === "queued" || item.status === "uploading" ? (
+                              <button
+                                className="rounded-full border border-slate-300/20 px-3 py-1 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.08]"
+                                onClick={() => cancelQueuedUpload(item)}
+                                type="button"
+                              >
+                                取消此文件
+                              </button>
+                            ) : null}
+                            {canRetry ? (
+                              <button
+                                className="rounded-full border border-hire-300/25 bg-hire-300/10 px-3 py-1 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/20 disabled:opacity-40"
+                                disabled={isUploading}
+                                onClick={() => retryQueuedUpload(item)}
+                                type="button"
+                              >
+                                重试
+                              </button>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
 
               <section className="mt-5 overflow-hidden rounded-lg border border-white/10 bg-white/[0.035]">
                 <button
@@ -1577,7 +2364,7 @@ export default function RagPage() {
                                   <div className="max-h-64 space-y-2 overflow-y-auto p-3">
                                     {(processorPreview.generated_items.length > 0
                                       ? processorPreview.generated_items.map((item) => ({ id: item.item_id, kind: item.item_type, text: item.index_text, detail: item.context_text }))
-                                      : processorPreview.blocks.map((block) => ({ id: block.block_id, kind: block.page_number ? `${block.kind} · p${block.page_number}` : block.kind, text: block.text, detail: "" }))
+                                      : processorPreview.blocks.map((block) => { const location = formatRagSourceLocation({ ...block.metadata, page_number: block.page_number }); return { id: block.block_id, kind: location ? `${block.kind} · ${location}` : block.kind, text: block.text, detail: "" }; })
                                     ).map((item) => (
                                       <div className="border-b border-white/10 pb-2 last:border-0 last:pb-0" key={item.id}>
                                         <span className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">{item.kind}</span>
@@ -2069,10 +2856,11 @@ export default function RagPage() {
                                   </div>
                                 ) : null}
                                 <div className="mt-3 space-y-2">
-                                  {pipelinePreview.sources.map((source, index) => (
+                                  {pipelinePreview.sources.map((source, index) => { const location = formatPipelineSourceLocation(source); return (
                                     <div className="border-t border-white/10 pt-2" key={`${source.chunk_id}-${index}`}>
                                       <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                                         <span className="font-semibold text-slate-200">{source.document_name}</span>
+                                        {location ? <span className="rounded border border-sky-300/20 px-1.5 py-0.5 text-sky-100">{location}</span> : null}
                                         {source.vector_score != null ? <span className="rounded border border-white/10 px-1.5 py-0.5 text-slate-400">vector {source.vector_score.toFixed(3)}</span> : null}
                                         {source.fulltext_score != null ? <span className="rounded border border-white/10 px-1.5 py-0.5 text-slate-400">fts {source.fulltext_score.toFixed(3)}</span> : null}
                                         {source.fused_score != null ? <span className="rounded border border-sky-300/20 px-1.5 py-0.5 text-sky-100">fused {source.fused_score.toFixed(3)}</span> : null}
@@ -2081,7 +2869,7 @@ export default function RagPage() {
                                       </div>
                                       <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-slate-400">{source.matched_text || source.text}</p>
                                     </div>
-                                  ))}
+                                  ); })}
                                 </div>
                               </div>
                             ) : null}
@@ -2174,12 +2962,45 @@ export default function RagPage() {
                   <h3 className="text-lg font-semibold text-white">文档清单</h3>
                   <button
                     className="text-xs font-semibold text-slate-300 transition hover:text-white"
-                    onClick={() => void loadDocuments(selectedKbId)}
+                    onClick={() =>
+                      void Promise.all([
+                        loadDocuments(selectedKbId),
+                        loadPendingDocumentDeletions(selectedKbId),
+                      ])
+                    }
                     type="button"
                   >
                     刷新文档
                   </button>
                 </div>
+
+                {pendingDeletionRetries.length > 0 ? (
+                  <section
+                    aria-label="待重试的文档清理"
+                    className="mt-3 rounded-lg border border-amber-300/25 bg-amber-300/10 p-3"
+                  >
+                    <p className="text-xs font-semibold text-amber-100">
+                      以下文档已从所有检索入口隔离，但本地派生物仍需重试清理：
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {pendingDeletionRetries.map((document) => (
+                        <div
+                          className="flex flex-wrap items-center justify-between gap-2"
+                          key={document.document_id}
+                        >
+                          <span className="text-xs text-amber-50">{document.filename}</span>
+                          <button
+                            className="rounded-full border border-amber-200/30 px-3 py-1 text-xs font-semibold text-amber-50 transition hover:bg-amber-200/10"
+                            onClick={() => void retryDocumentCleanup(document)}
+                            type="button"
+                          >
+                            重试彻底清理
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
 
                 <div className="mt-3 overflow-hidden rounded-lg border border-white/10">
                   {isLoadingDocs ? (
@@ -2192,41 +3013,62 @@ export default function RagPage() {
                     </div>
                   ) : (
                     <div className="divide-y divide-white/10">
-                      {documents.map((document) => (
-                        <article
-                          className="grid gap-3 bg-white/[0.035] p-4 transition hover:bg-white/[0.055] md:grid-cols-[minmax(0,1fr)_auto]"
-                          key={document.id}
-                        >
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h4 className="font-semibold text-white">{document.filename}</h4>
-                              {activeDocumentChunkCounts.has(document.id) ? (
-                                <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
-                                  已加入当前索引
-                                </span>
-                              ) : document.ingestion_status === "pipeline_required" ? (
-                                <span className="rounded-full border border-violet-300/25 bg-violet-300/10 px-2 py-0.5 text-[10px] font-semibold text-violet-100">
-                                  等待流水线处理
-                                </span>
+                      {documents.map((document) => {
+                        const warningSummary = getRagOfficeWarningSummary(document);
+                        return (
+                          <article
+                            className="grid gap-3 bg-white/[0.035] p-4 transition hover:bg-white/[0.055] md:grid-cols-[minmax(0,1fr)_auto]"
+                            key={document.id}
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="font-semibold text-white">{document.filename}</h4>
+                                {activeDocumentChunkCounts.has(document.id) ? (
+                                  <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-100">
+                                    已加入当前索引
+                                  </span>
+                                ) : document.ingestion_status === "pipeline_required" ? (
+                                  <span className="rounded-full border border-violet-300/25 bg-violet-300/10 px-2 py-0.5 text-[10px] font-semibold text-violet-100">
+                                    等待流水线处理
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 text-xs text-slate-400">
+                                {activeDocumentChunkCounts.has(document.id)
+                                  ? `当前索引 ${activeDocumentChunkCounts.get(document.id)} 个片段`
+                                  : `${document.chunk_count} 个片段`}{" "}
+                                · {formatFileSize(document.size)} ·{" "}
+                                {formatDate(document.created_at)}
+                              </p>
+                              {warningSummary.items.length > 0 ? (
+                                <div
+                                  className="mt-2 max-w-3xl rounded-md bg-amber-300/10 px-3 py-2 text-[11px] leading-5 text-amber-100"
+                                  role="note"
+                                >
+                                  <p className="font-semibold">Office 解析提示</p>
+                                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4">
+                                    {warningSummary.items.map((warning) => (
+                                      <li key={warning}>{warning}</li>
+                                    ))}
+                                  </ul>
+                                  {warningSummary.hiddenCount > 0 ? (
+                                    <p className="mt-0.5 text-amber-200/80">
+                                      另有 {warningSummary.hiddenCount} 项提示未展开。
+                                    </p>
+                                  ) : null}
+                                </div>
                               ) : null}
                             </div>
-                            <p className="mt-1 text-xs text-slate-400">
-                              {activeDocumentChunkCounts.has(document.id)
-                                ? `当前索引 ${activeDocumentChunkCounts.get(document.id)} 个片段`
-                                : `${document.chunk_count} 个片段`}{" "}
-                              · {formatFileSize(document.size)} ·{" "}
-                              {formatDate(document.created_at)}
-                            </p>
-                          </div>
-                          <button
-                            className="w-fit rounded-full border border-rose-300/20 bg-rose-300/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/20"
-                            onClick={() => void deleteDocument(document)}
-                            type="button"
-                          >
-                            删除
-                          </button>
-                        </article>
-                      ))}
+                            <button
+                              className="w-fit rounded-full border border-rose-300/20 bg-rose-300/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/20"
+                              onClick={() => void deleteDocument(document)}
+                              type="button"
+                            >
+                              删除
+                            </button>
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

@@ -62,6 +62,7 @@ server/evolutions/storage/
 server/datax/storage/
 server/toolsets/storage/
 server/model_router/storage/
+server/file_assets/storage/
 server/mcp/installed/
 server/mcp/storage/
 server/mcp/sandboxes/*

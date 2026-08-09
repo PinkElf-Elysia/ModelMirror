@@ -155,8 +155,12 @@ export const workflowPaletteSections: WorkflowPaletteSection[] = [
         kind: "document_extractor",
         icon: "□",
         title: "文档提取器",
-        description: "从受限本地路径提取文本，供后续节点使用。",
+        description: "从当前工作流作用域的文件资产提取文本。",
         tags: ["document", "file"],
+        enabled: false,
+        metadata: {
+          status_reason: "节点能力无法确认，已按默认关闭处理。",
+        },
       },
       {
         kind: "llm",

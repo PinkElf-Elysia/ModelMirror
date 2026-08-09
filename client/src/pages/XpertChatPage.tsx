@@ -23,9 +23,9 @@ import {
 } from "../types/xpert";
 import { createGoal } from "../utils/goalApi";
 import {
-  archiveXpertFile,
   createXpertConversation,
   createXpertMemory,
+  deleteXpertFile,
   getXpertAudioCapabilities,
   getXpert,
   getXpertConversation,
@@ -65,6 +65,63 @@ interface XpertRunEvent {
   sequence?: number;
   suggestions?: string[];
   conversation_title?: string;
+}
+
+export function selectedXpertFilesAfterConversationRestore(
+  _files: XpertFileAsset[],
+): string[] {
+  return [];
+}
+
+export function selectedXpertFilesAfterRefresh(
+  current: string[],
+  files: XpertFileAsset[],
+): string[] {
+  const availableIds = new Set(files.map((file) => file.asset_id));
+  return current.filter((assetId) => availableIds.has(assetId));
+}
+
+export function consumeSelectedXpertFiles(
+  fileUploadEnabled: boolean,
+  selectedFileIds: string[],
+): { fileAssetIdsForRun: string[]; nextSelectedFileIds: string[] } {
+  return {
+    fileAssetIdsForRun: fileUploadEnabled ? [...selectedFileIds] : [],
+    nextSelectedFileIds: [],
+  };
+}
+
+export function isCurrentXpertConversationRequest(
+  requestToken: number,
+  currentToken: number,
+  requestConversationId: string,
+  currentConversationId: string,
+): boolean {
+  return requestToken === currentToken
+    && requestConversationId === currentConversationId;
+}
+
+export function xpertFilesAfterPermanentDelete(
+  files: XpertFileAsset[],
+  assetId: string,
+): XpertFileAsset[] {
+  return files.filter((file) => file.asset_id !== assetId);
+}
+
+export function xpertConversationNavigationLocked(
+  contextLoading: boolean,
+  running: boolean,
+  uploading: boolean,
+  deletingFileId: string,
+): boolean {
+  return contextLoading || running || uploading || Boolean(deletingFileId);
+}
+
+export function xpertMessageInputLocked(
+  contextLoading: boolean,
+  running: boolean,
+): boolean {
+  return contextLoading || running;
 }
 
 interface RuntimeRunSummary {
@@ -214,6 +271,7 @@ export default function XpertChatPage() {
   const [todoBusy, setTodoBusy] = useState(false);
   const [contextLoading, setContextLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deletingFileId, setDeletingFileId] = useState("");
   const [showContext, setShowContext] = useState(false);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [knowledgeTargetId, setKnowledgeTargetId] = useState("");
@@ -224,6 +282,15 @@ export default function XpertChatPage() {
   const [speakingMessageId, setSpeakingMessageId] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const conversationIdRef = useRef("");
+  const conversationRequestTokenRef = useRef(0);
+  const conversationNavigationLocked = xpertConversationNavigationLocked(
+    contextLoading,
+    running,
+    uploading,
+    deletingFileId,
+  );
+  const messageInputLocked = xpertMessageInputLocked(contextLoading, running);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,7 +347,7 @@ export default function XpertChatPage() {
         if (!active) active = await createXpertConversation(xpert.id);
         if (cancelled) return;
         setConversations(active ? [active, ...payload.items.filter((item) => item.conversation_id !== active.conversation_id)] : payload.items);
-        await selectConversation(active.conversation_id, xpert.id, cancelled);
+        await selectConversation(active.conversation_id, xpert.id);
       })
       .catch((caught) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "\u4f1a\u8bdd\u52a0\u8f7d\u5931\u8d25");
@@ -290,6 +357,7 @@ export default function XpertChatPage() {
       });
     return () => {
       cancelled = true;
+      conversationRequestTokenRef.current += 1;
     };
   }, [xpert?.id]);
 
@@ -348,46 +416,84 @@ export default function XpertChatPage() {
   async function selectConversation(
     nextConversationId: string,
     selectedXpertId = xpert?.id,
-    cancelled = false,
   ) {
     if (!selectedXpertId || !nextConversationId) return;
-    const [conversation, filePayload, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
-      getXpertConversation(selectedXpertId, nextConversationId),
-      listXpertFiles(selectedXpertId, nextConversationId),
-      listXpertMemories(selectedXpertId, nextConversationId),
-      listXpertMemoryCandidates(selectedXpertId, nextConversationId),
-      listConversationTodos(selectedXpertId, nextConversationId),
-      listToolMemories(selectedXpertId, nextConversationId),
-    ]);
-    if (cancelled) return;
+    const requestToken = conversationRequestTokenRef.current + 1;
+    conversationRequestTokenRef.current = requestToken;
+    conversationIdRef.current = nextConversationId;
     setConversationId(nextConversationId);
-    setMessages(conversation.messages ?? []);
-    setSummaryRevision(conversation.summary_revision ?? 0);
-    setFiles(filePayload.items);
-    setSelectedFileIds(
-      filePayload.items.slice(0, maxFilesPerRun).map((item) => item.asset_id),
-    );
-    setMemories(memoryPayload.items);
-    setMemoryCandidates(candidatePayload.items);
-    setTodos(todoItems);
-    setToolMemories(toolMemoryPayload.items);
+    setMessages([]);
+    setInput("");
+    setFiles([]);
+    setSelectedFileIds([]);
+    setContextLoading(true);
+    setError("");
+    try {
+      const [conversation, filePayload, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
+        getXpertConversation(selectedXpertId, nextConversationId),
+        listXpertFiles(selectedXpertId, nextConversationId),
+        listXpertMemories(selectedXpertId, nextConversationId),
+        listXpertMemoryCandidates(selectedXpertId, nextConversationId),
+        listConversationTodos(selectedXpertId, nextConversationId),
+        listToolMemories(selectedXpertId, nextConversationId),
+      ]);
+      if (!isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        nextConversationId,
+        conversationIdRef.current,
+      )) return;
+      setMessages(conversation.messages ?? []);
+      setSummaryRevision(conversation.summary_revision ?? 0);
+      setFiles(filePayload.items);
+      setSelectedFileIds(selectedXpertFilesAfterConversationRestore(filePayload.items));
+      setMemories(memoryPayload.items);
+      setMemoryCandidates(candidatePayload.items);
+      setTodos(todoItems);
+      setToolMemories(toolMemoryPayload.items);
+    } catch (caught) {
+      if (isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        nextConversationId,
+        conversationIdRef.current,
+      )) {
+        setError(caught instanceof Error ? caught.message : "会话加载失败");
+      }
+    } finally {
+      if (isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        nextConversationId,
+        conversationIdRef.current,
+      )) {
+        setContextLoading(false);
+      }
+    }
   }
 
   async function refreshContext() {
-    if (!xpert || !conversationId) return;
+    const selectedXpertId = xpert?.id;
+    const selectedConversationId = conversationIdRef.current || conversationId;
+    const requestToken = conversationRequestTokenRef.current;
+    if (!selectedXpertId || !selectedConversationId) return;
     const [conversationPayload, filePayload, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
-      listXpertConversations(xpert.id),
-      listXpertFiles(xpert.id, conversationId),
-      listXpertMemories(xpert.id, conversationId),
-      listXpertMemoryCandidates(xpert.id, conversationId),
-      listConversationTodos(xpert.id, conversationId),
-      listToolMemories(xpert.id, conversationId),
+      listXpertConversations(selectedXpertId),
+      listXpertFiles(selectedXpertId, selectedConversationId),
+      listXpertMemories(selectedXpertId, selectedConversationId),
+      listXpertMemoryCandidates(selectedXpertId, selectedConversationId),
+      listConversationTodos(selectedXpertId, selectedConversationId),
+      listToolMemories(selectedXpertId, selectedConversationId),
     ]);
+    if (!isCurrentXpertConversationRequest(
+      requestToken,
+      conversationRequestTokenRef.current,
+      selectedConversationId,
+      conversationIdRef.current,
+    )) return;
     setConversations(conversationPayload.items);
     setFiles(filePayload.items);
-    setSelectedFileIds((current) =>
-      current.filter((assetId) => filePayload.items.some((item) => item.asset_id === assetId)),
-    );
+    setSelectedFileIds((current) => selectedXpertFilesAfterRefresh(current, filePayload.items));
     setMemories(memoryPayload.items);
     setMemoryCandidates(candidatePayload.items);
     setTodos(todoItems);
@@ -459,7 +565,7 @@ export default function XpertChatPage() {
   }
 
   async function startConversation() {
-    if (!xpert || running) return;
+    if (!xpert || running || contextLoading || uploading || deletingFileId) return;
     const created = await createXpertConversation(xpert.id);
     setConversations((current) => [created, ...current]);
     await selectConversation(created.conversation_id);
@@ -467,6 +573,9 @@ export default function XpertChatPage() {
 
   async function handleFileUpload(file: File) {
     if (!xpert || !conversationId) return;
+    const targetXpertId = xpert.id;
+    const targetConversationId = conversationId;
+    const requestToken = conversationRequestTokenRef.current;
     if (!fileUploadEnabled) {
       setError("当前发布版本未启用会话文件。");
       return;
@@ -485,18 +594,77 @@ export default function XpertChatPage() {
     setUploading(true);
     setError("");
     try {
-      const uploaded = await uploadXpertFile(xpert.id, conversationId, file);
+      const uploaded = await uploadXpertFile(
+        targetXpertId,
+        targetConversationId,
+        file,
+      );
+      if (!isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        targetConversationId,
+        conversationIdRef.current,
+      )) return;
       await refreshContext();
+      if (!isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        targetConversationId,
+        conversationIdRef.current,
+      )) return;
       setSelectedFileIds((current) => (
         [...current, uploaded.asset_id].slice(-maxFilesPerRun)
       ));
       setShowContext(true);
       setShowTrace(false);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "\u6587\u4ef6\u4e0a\u4f20\u5931\u8d25");
+      if (isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        targetConversationId,
+        conversationIdRef.current,
+      )) {
+        setError(caught instanceof Error ? caught.message : "\u6587\u4ef6\u4e0a\u4f20\u5931\u8d25");
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function permanentlyDeleteFile(file: XpertFileAsset) {
+    if (!xpert || !conversationId || deletingFileId) return;
+    const targetXpertId = xpert.id;
+    const targetConversationId = conversationId;
+    const requestToken = conversationRequestTokenRef.current;
+    const confirmed = window.confirm(
+      `彻底删除“${file.filename}”？原件和提取文本将从当前会话永久移除，无法撤销。`,
+    );
+    if (!confirmed) return;
+    setDeletingFileId(file.asset_id);
+    setError("");
+    try {
+      await deleteXpertFile(targetXpertId, targetConversationId, file.asset_id);
+      if (!isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        targetConversationId,
+        conversationIdRef.current,
+      )) return;
+      setFiles((current) => xpertFilesAfterPermanentDelete(current, file.asset_id));
+      setSelectedFileIds((current) => current.filter((item) => item !== file.asset_id));
+      void refreshContext().catch(() => undefined);
+    } catch (caught) {
+      if (isCurrentXpertConversationRequest(
+        requestToken,
+        conversationRequestTokenRef.current,
+        targetConversationId,
+        conversationIdRef.current,
+      )) {
+        setError(caught instanceof Error ? caught.message : "文件删除失败");
+      }
+    } finally {
+      setDeletingFileId("");
     }
   }
 
@@ -702,11 +870,16 @@ export default function XpertChatPage() {
 
   async function sendMessage(messageOverride?: string) {
     const message = (messageOverride ?? input).trim();
-    if (!message || !xpert || !version || running || !conversationId) return;
+    if (!message || !xpert || !version || running || contextLoading || !conversationId) return;
 
     const history = messages.slice(-20);
+    const { fileAssetIdsForRun, nextSelectedFileIds } = consumeSelectedXpertFiles(
+      fileUploadEnabled,
+      selectedFileIds,
+    );
     setMessages((current) => [...current, { role: "user", content: message }]);
     setInput("");
+    setSelectedFileIds(nextSelectedFileIds);
     setEvents([]);
     setTrace(null);
     setRunId("");
@@ -723,7 +896,7 @@ export default function XpertChatPage() {
           messages: history,
           version,
           conversation_id: conversationId,
-          file_asset_ids: fileUploadEnabled ? selectedFileIds : [],
+          file_asset_ids: fileAssetIdsForRun,
         }),
       });
       if (!response.ok) throw new Error(await responseError(response));
@@ -966,7 +1139,7 @@ export default function XpertChatPage() {
             <div className="flex flex-wrap items-center justify-end gap-2">
               <select
                 className="h-9 max-w-44 rounded-lg border border-white/10 bg-white/[0.055] px-3 text-xs text-white outline-none"
-                disabled={contextLoading || running}
+                disabled={conversationNavigationLocked}
                 onChange={(event) => void selectConversation(event.target.value)}
                 value={conversationId}
               >
@@ -978,7 +1151,7 @@ export default function XpertChatPage() {
               </select>
               <button
                 className="inline-flex h-9 items-center rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-300 hover:bg-white/[0.08]"
-                disabled={running}
+                disabled={conversationNavigationLocked}
                 onClick={() => void startConversation()}
                 type="button"
               >
@@ -1158,9 +1331,11 @@ export default function XpertChatPage() {
               <div className="mb-2 flex flex-wrap gap-2">
                 {files.filter((file) => selectedFileIds.includes(file.asset_id)).map((file) => (
                   <button
+                    aria-label={`移除本轮附件：${file.filename}`}
                     className="rounded-md border border-cyan-300/20 bg-cyan-300/10 px-2 py-1 text-[10px] text-cyan-100"
                     key={file.asset_id}
                     onClick={() => setSelectedFileIds((current) => current.filter((item) => item !== file.asset_id))}
+                    title="移除本轮附件，不删除文件"
                     type="button"
                   >
                     {file.filename} {"\u00d7"}
@@ -1182,7 +1357,7 @@ export default function XpertChatPage() {
               {fileUploadEnabled ? (
                 <button
                   className="h-12 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-300 hover:bg-white/[0.08] disabled:opacity-50"
-                  disabled={running || uploading || !conversationId || selectedFileIds.length >= maxFilesPerRun}
+                  disabled={running || contextLoading || uploading || !conversationId || selectedFileIds.length >= maxFilesPerRun}
                   onClick={() => fileInputRef.current?.click()}
                   title={`允许 ${allowedFileExtensions.join(", ")}，每次最多 ${maxFilesPerRun} 个`}
                   type="button"
@@ -1203,7 +1378,7 @@ export default function XpertChatPage() {
               {audioCapabilities?.speech_to_text.enabled ? (
                 <button
                   className="h-12 rounded-lg border border-violet-300/20 bg-violet-300/[0.07] px-3 text-xs font-semibold text-violet-100 hover:bg-violet-300/[0.12] disabled:opacity-50"
-                  disabled={running || transcribing || !audioCapabilities.gateway_configured}
+                  disabled={running || contextLoading || transcribing || !audioCapabilities.gateway_configured}
                   onClick={() => audioInputRef.current?.click()}
                   title={audioCapabilities.gateway_configured ? "上传音频并转写" : "模型网关尚未配置"}
                   type="button"
@@ -1211,8 +1386,8 @@ export default function XpertChatPage() {
                   {transcribing ? "转写中..." : "语音"}
                 </button>
               ) : null}
-              <textarea className="min-h-12 flex-1 resize-none rounded-lg border border-white/10 bg-white/[0.055] px-3 py-3 text-sm leading-6 text-white outline-none focus:border-hire-300/60" disabled={running} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="输入任务，Enter 发送，Shift+Enter 换行" rows={2} value={input} />
-              <button className="h-12 rounded-lg bg-hire-300 px-5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={running || !input.trim()} onClick={() => void sendMessage()} type="button">{running ? "执行中" : "发送"}</button>
+              <textarea className="min-h-12 flex-1 resize-none rounded-lg border border-white/10 bg-white/[0.055] px-3 py-3 text-sm leading-6 text-white outline-none focus:border-hire-300/60" disabled={messageInputLocked} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="输入任务，Enter 发送，Shift+Enter 换行" rows={2} value={input} />
+              <button className="h-12 rounded-lg bg-hire-300 px-5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50" disabled={messageInputLocked || !input.trim()} onClick={() => void sendMessage()} type="button">{running ? "执行中" : "发送"}</button>
             </div>
           </footer>
         </section>
@@ -1256,16 +1431,19 @@ export default function XpertChatPage() {
                 </div>
                 <p className="mt-1 text-[10px] leading-4 text-slate-500">
                   {fileUploadEnabled
-                    ? `当前版本每次最多选择 ${maxFilesPerRun} 个文件；允许 ${allowedFileExtensions.join(", ")}。`
+                    ? `历史附件默认不选。仅勾选的文件用于下一轮，发送后自动清空选择；允许 ${allowedFileExtensions.join(", ")}，每轮最多 ${maxFilesPerRun} 个。`
                     : "当前发布版本未启用文件能力。"}
                 </p>
                 <div className="mt-2 space-y-2">
-                  {files.length ? files.map((file) => (
+                  {files.length ? files.map((file) => {
+                    const selectedForRun = selectedFileIds.includes(file.asset_id);
+                    return (
                     <div className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-2.5" key={file.asset_id}>
                       <input
-                        checked={selectedFileIds.includes(file.asset_id)}
+                        aria-label={`${selectedForRun ? "移除" : "选择"}本轮附件：${file.filename}`}
+                        checked={selectedForRun}
                         className="mt-1"
-                        disabled={!fileUploadEnabled}
+                        disabled={!fileUploadEnabled || running}
                         onChange={(event) => setSelectedFileIds((current) => {
                           if (!event.target.checked) return current.filter((item) => item !== file.asset_id);
                           if (current.includes(file.asset_id) || current.length >= maxFilesPerRun) return current;
@@ -1276,10 +1454,21 @@ export default function XpertChatPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[11px] font-semibold text-white">{file.filename}</p>
                         <p className="mt-1 text-[10px] text-slate-500">{file.character_count} chars / {(file.size_bytes / 1024).toFixed(1)} KB</p>
+                        <p className={`mt-1 text-[10px] ${selectedForRun ? "text-cyan-200" : "text-slate-500"}`}>
+                          {selectedForRun ? "本轮已选" : "本轮未选"}
+                        </p>
                       </div>
-                      <button className="text-[10px] text-rose-200" onClick={() => xpert && void archiveXpertFile(xpert.id, conversationId, file.asset_id).then(refreshContext)} type="button">{"\u5f52\u6863"}</button>
+                      <button
+                        className="text-[10px] font-semibold text-rose-200 transition hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={running || Boolean(deletingFileId)}
+                        onClick={() => void permanentlyDeleteFile(file)}
+                        type="button"
+                      >
+                        {deletingFileId === file.asset_id ? "删除中..." : "彻底删除"}
+                      </button>
                     </div>
-                  )) : <p className="rounded-lg border border-dashed border-white/10 p-3 text-center text-xs text-slate-500">{"\u5c1a\u672a\u4e0a\u4f20\u9644\u4ef6"}</p>}
+                  );
+                  }) : <p className="rounded-lg border border-dashed border-white/10 p-3 text-center text-xs text-slate-500">{"\u5c1a\u672a\u4e0a\u4f20\u9644\u4ef6"}</p>}
                 </div>
                 <div className="mt-3 border-t border-white/10 pt-3">
                   <div className="text-[11px] font-semibold text-white">加入知识库</div>

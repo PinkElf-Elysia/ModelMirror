@@ -536,7 +536,7 @@ async def test_validate_document_extractor_required_fields(
         "type": "document_extractor",
         "data": {
             "kind": "document_extractor",
-            "sourcePathVariable": "user_input",
+            "assetIdVariable": "document_asset_id",
             "outputVariable": "document_text",
         },
     }
@@ -550,11 +550,48 @@ async def test_validate_document_extractor_required_fields(
 
     assert data["valid"] is True
 
-    workflow["nodes"][1]["data"].pop("sourcePathVariable")
+    workflow["nodes"][1]["data"].pop("assetIdVariable")
     data = await validate(client, workflow)
 
     assert data["valid"] is False
-    assert "missing_document_extractor_source_path" in issue_codes(data)
+    assert "missing_document_extractor_asset_id_variable" in issue_codes(data)
+
+
+@pytest.mark.asyncio
+async def test_validate_document_extractor_legacy_path_is_read_only_warning(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "document",
+        "type": "document_extractor",
+        "data": {
+            "kind": "document_extractor",
+            "sourcePathVariable": "user_input",
+            "outputVariable": "document_text",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "document_text"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "document"},
+        {"id": "e2", "source": "document", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+
+    assert data["valid"] is True
+    warning = next(
+        issue
+        for issue in data["issues"]
+        if issue["code"] == "legacy_document_extractor_source_path_read_only"
+    )
+    assert warning["severity"] == "warning"
+
+    workflow["nodes"][1]["data"]["assetIdVariable"] = "document_asset_id"
+    data = await validate(client, workflow)
+
+    assert data["valid"] is False
+    assert "ambiguous_document_extractor_source" in issue_codes(data)
 
 
 @pytest.mark.asyncio

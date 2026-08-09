@@ -135,6 +135,27 @@ function matchesMiddlewareNode(node: RuntimeMiddlewareNode, query: string) {
   return haystack.includes(query);
 }
 
+export function disabledPaletteItem(
+  item: WorkflowPaletteItem,
+): WorkflowPalettePlaceholder {
+  const reason = item.metadata?.status_reason;
+  const statusReason =
+    typeof reason === "string" && reason.trim()
+      ? reason.trim()
+      : "当前能力未启用。";
+  return {
+    id: `disabled:${item.kind}`,
+    icon: item.icon,
+    title: item.title,
+    description: `${item.description} ${statusReason}`,
+    statusLabel: "默认关闭",
+    category: item.category,
+    tags: item.tags,
+    enabled: false,
+    metadata: item.metadata,
+  };
+}
+
 export default function NodePalette() {
   const [activeTab, setActiveTab] = useState<PaletteTab>("workflow");
   const [searchQuery, setSearchQuery] = useState("");
@@ -219,7 +240,12 @@ export default function NodePalette() {
           items: section.items
             .filter((item) => item.enabled !== false)
             .filter((item) => matchesWorkflowPaletteQuery(item, normalizedSearch)),
-          placeholders: (section.placeholders ?? []).filter((item) =>
+          placeholders: [
+            ...(section.placeholders ?? []),
+            ...section.items
+              .filter((item) => item.enabled === false)
+              .map(disabledPaletteItem),
+          ].filter((item) =>
             matchesWorkflowPaletteQuery(item, normalizedSearch),
           ),
         }))
