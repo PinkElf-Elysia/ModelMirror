@@ -10,17 +10,36 @@ import pytest
 from server.skills.creator_evaluation import (
     SkillEvaluationConflictError,
     SkillEvaluationExecutor,
+    SkillEvaluationNotFoundError,
     SkillEvaluationStateError,
     SkillEvaluationStorageError,
     SkillEvaluationStore,
     SkillEvaluationValidationError,
     aggregate_skill_evaluation_report,
     evaluate_skill_case,
+    normalize_runner_result,
 )
+from server.skills.package_validation import compute_package_digest
 
 
-DIGEST = "a" * 64
-OLD_DIGEST = "b" * 64
+PACKAGE = {
+    "name": "demo-skill",
+    "slug": "demo-skill",
+    "description": "Use when a deterministic demo task must be completed.",
+    "skill_markdown": (
+        "---\nname: demo-skill\ndescription: Use when a deterministic demo task "
+        "must be completed.\n---\n\n# Demo\n\nComplete the task.\n"
+    ),
+    "files": {},
+}
+OLD_PACKAGE = {
+    **PACKAGE,
+    "skill_markdown": PACKAGE["skill_markdown"] + "\nUse the older workflow.\n",
+}
+DIGEST = compute_package_digest(PACKAGE["skill_markdown"], PACKAGE["files"])
+OLD_DIGEST = compute_package_digest(
+    OLD_PACKAGE["skill_markdown"], OLD_PACKAGE["files"]
+)
 
 
 def _case(index: int, *, assertions: list[dict] | None = None) -> dict:
@@ -44,12 +63,7 @@ def _overlay(
         draft_id="draft-one",
         draft_revision=revision,
         content_digest=digest,
-        package={
-            "root_dir": "demo-skill",
-            "files": {
-                "demo-skill/SKILL.md": "---\nname: demo-skill\ndescription: demo\n---\n",
-            },
-        },
+        package=(OLD_PACKAGE if digest == OLD_DIGEST else PACKAGE),
     )
 
 
@@ -75,6 +89,99 @@ def _run(
         model_id="provider/model-one",
         repetitions=repetitions,
     )
+
+
+def test_runner_result_rejects_unresolved_tool_control_and_preserves_real_usage() -> None:
+    base_result = {
+        "actual_model": "provider/model-one",
+        "skill_read": True,
+        "work_manifest": [],
+    }
+    with pytest.raises(SkillEvaluationValidationError) as captured:
+        normalize_runner_result(
+            {
+                **base_result,
+                "output": json.dumps(
+                    {
+                        "tool": "sandbox_write_file",
+                        "arguments": {"path": "work/result.md", "content": "done"},
+                    }
+                ),
+            },
+            max_output_chars=20_000,
+        )
+    assert captured.value.code == "skill_evaluation_unresolved_tool_call"
+
+    for unresolved in (
+        json.dumps(
+            json.dumps(
+                {
+                    "tool": "sandbox_write_file",
+                    "arguments": {"path": "work/result.md", "content": "done"},
+                }
+            )
+        ),
+        json.dumps(json.dumps({"answer": "User-facing result"})),
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "tool": "sandbox_read_file",
+                        "arguments": {"path": "inputs/input.txt"},
+                    }
+                ]
+            }
+        ),
+    ):
+        with pytest.raises(SkillEvaluationValidationError) as nested_error:
+            normalize_runner_result(
+                {**base_result, "output": unresolved},
+                max_output_chars=20_000,
+            )
+        assert nested_error.value.code == "skill_evaluation_unresolved_tool_call"
+
+    # A direct JSON answer object may be the actual contract requested by a
+    # case; only a double-encoded legacy control envelope is rejected.
+    direct_json = normalize_runner_result(
+        {**base_result, "output": json.dumps({"answer": "ok"})},
+        max_output_chars=20_000,
+    )
+    assert json.loads(direct_json.output) == {"answer": "ok"}
+
+    normalized = normalize_runner_result(
+        {
+            **base_result,
+            "output": "User-facing result",
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 30,
+                "total_tokens": 150,
+                "tool_calls": 2,
+            },
+        },
+        max_output_chars=20_000,
+    )
+    assert normalized.usage == {
+        "prompt_tokens": 120,
+        "completion_tokens": 30,
+        "total_tokens": 150,
+        "input_tokens": 120,
+        "output_tokens": 30,
+        "tool_calls": 2,
+    }
+    unknown = normalize_runner_result(
+        {
+            **base_result,
+            "output": "User-facing result",
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        },
+        max_output_chars=20_000,
+    )
+    assert unknown.usage == {}
 
 
 def test_store_freezes_three_case_paired_matrix_and_round_trips(tmp_path: Path) -> None:
@@ -113,6 +220,16 @@ def test_case_sets_are_private_immutable_revisions_and_bind_runs(tmp_path: Path)
         quality_mode="objective",
     )
     assert first.cases_revision == 1
+    recovered_after_interrupted_projection = store.save_cases(
+        session_id="session-one",
+        draft_id="draft-one",
+        draft_revision=2,
+        content_digest=DIGEST,
+        expected_revision=0,
+        cases=first_cases,
+        quality_mode="objective",
+    )
+    assert recovered_after_interrupted_projection.cases_revision == 1
     same = store.save_cases(
         session_id="session-one",
         draft_id="draft-one",
@@ -138,6 +255,19 @@ def test_case_sets_are_private_immutable_revisions_and_bind_runs(tmp_path: Path)
     assert second.cases_revision == 2
     assert store.require_cases("session-one", revision=1).cases[0].prompt == "Complete task 1"
 
+    recovered_second = store.save_cases(
+        session_id="session-one",
+        draft_id="draft-one",
+        draft_revision=2,
+        content_digest=DIGEST,
+        expected_revision=1,
+        cases=changed_cases,
+        quality_mode="objective",
+    )
+    assert recovered_second.cases_revision == 2
+
+    conflicting_cases = [_case(index) for index in range(1, 4)]
+    conflicting_cases[0]["prompt"] = "A different stale prompt"
     with pytest.raises(SkillEvaluationConflictError):
         store.save_cases(
             session_id="session-one",
@@ -145,7 +275,7 @@ def test_case_sets_are_private_immutable_revisions_and_bind_runs(tmp_path: Path)
             draft_revision=2,
             content_digest=DIGEST,
             expected_revision=1,
-            cases=changed_cases,
+            cases=conflicting_cases,
             quality_mode="objective",
         )
 
@@ -163,6 +293,58 @@ def test_case_sets_are_private_immutable_revisions_and_bind_runs(tmp_path: Path)
     restored = SkillEvaluationStore(tmp_path)
     assert restored.require_cases("session-one").cases_revision == 2
     assert restored.require_run(run.run_id).case_set_revision == 2
+
+
+def test_evaluation_store_blocks_credentials_before_persisting_cases_and_feedback(
+    tmp_path: Path,
+) -> None:
+    store = SkillEvaluationStore(tmp_path)
+    cases = [_case(index) for index in range(1, 4)]
+    cases[0]["fixtures"][0]["content"] = "DIFY_API_KEY=dify-live-secret-value"
+
+    with pytest.raises(SkillEvaluationValidationError) as captured:
+        store.save_cases(
+            session_id="session-one",
+            draft_id="draft-one",
+            draft_revision=2,
+            content_digest=DIGEST,
+            expected_revision=0,
+            cases=cases,
+            quality_mode="objective",
+        )
+    assert captured.value.code == "skill_evaluation_case_credentials_blocked"
+    with pytest.raises(SkillEvaluationNotFoundError):
+        store.require_cases("session-one")
+
+    run = _run(store)
+    store.fail_run(run.run_id, "DIFY_API_KEY=dify-live-secret-value")
+    failed = store.require_run(run.run_id)
+    assert failed.error == (
+        "Evaluation failed because blocked credential material was detected."
+    )
+    assert "dify-live" not in json.dumps(store.serialize(failed))
+
+
+@pytest.mark.asyncio
+async def test_evaluation_executor_does_not_persist_credential_bearing_output(
+    tmp_path: Path,
+) -> None:
+    store = SkillEvaluationStore(tmp_path)
+    run = _run(store)
+
+    async def runner(_run, item, _case, _overlay):
+        return {
+            "output": "DIFY_API_KEY=dify-live-secret-value",
+            "actual_model": "provider/model-one",
+            "skill_read": item.target == "candidate",
+        }
+
+    await SkillEvaluationExecutor(store, runner=runner).execute_next()
+    failed = store.require_run(run.run_id)
+    serialized = json.dumps(store.serialize(failed))
+    assert failed.status == "failed"
+    assert "dify-live" not in serialized
+    assert any(item.error_code for item in failed.items)
 
 
 @pytest.mark.parametrize("case_count", [0, 1, 2, 4])
@@ -487,6 +669,66 @@ async def test_review_accept_and_revise_rules(tmp_path: Path) -> None:
     assert revised.review_state == "revise"
     assert revised.reviews[0].feedback == "请补充失败边界示例。"
     assert revised.reviews[0].feedback_revision == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_assertion_acknowledgement_is_required_and_persisted(
+    tmp_path: Path,
+) -> None:
+    store = SkillEvaluationStore(tmp_path)
+    run = _run(store, assertions=[{"kind": "contains", "value": "required-marker"}])
+
+    async def runner(_run, item, _case, _overlay):
+        return {
+            "output": "done without the marker",
+            "actual_model": "model-actual",
+            "skill_read": item.target == "candidate",
+        }
+
+    await SkillEvaluationExecutor(store, runner=runner).execute_next()
+    completed = store.require_run(run.run_id)
+    assert completed.report["assertion_failed_count"] == 6
+
+    with pytest.raises(
+        SkillEvaluationValidationError,
+        match="explicit acknowledgement",
+    ):
+        store.review_run(
+            run.run_id,
+            expected_revision=completed.revision,
+            expected_feedback_revision=completed.feedback_revision,
+            decision="accept",
+            reason="The author reviewed the failed deterministic checks.",
+            acknowledge_failed_assertions=False,
+        )
+
+    accepted = store.review_run(
+        run.run_id,
+        expected_revision=completed.revision,
+        expected_feedback_revision=completed.feedback_revision,
+        decision="accept",
+        reason="The author reviewed the failed deterministic checks.",
+        acknowledge_failed_assertions=True,
+    )
+    assert accepted.reviews[-1].acknowledge_failed_assertions is True
+
+    restored = SkillEvaluationStore(tmp_path).require_run(run.run_id)
+    assert restored.review_state == "accepted"
+    assert restored.reviews[-1].acknowledge_failed_assertions is True
+
+    snapshot_path = tmp_path / "skill_creator_evaluations.json"
+    payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    payload["runs"][run.run_id]["reviews"][-1][
+        "acknowledge_failed_assertions"
+    ] = False
+    snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
+    tampered = SkillEvaluationStore(tmp_path)
+    with pytest.raises(SkillEvaluationNotFoundError):
+        tampered.require_run(run.run_id)
+    assert any(
+        item["kind"] == "run" and item["record_id"] == run.run_id
+        for item in tampered.list_quarantined()
+    )
 
 
 def test_top_level_corruption_fails_closed_and_does_not_overwrite(tmp_path: Path) -> None:

@@ -193,10 +193,12 @@ def get_skill_creator_service() -> SkillCreatorService:
         raise SkillCreatorValidationError(
             "Skill Creator V2 is disabled.", code="skill_creator_disabled"
         )
+    _service.require_enabled()
     return _service
 
 
 def get_skill_creator_evaluation_service() -> SkillCreatorEvaluationService:
+    get_skill_creator_service()
     if _evaluation_service is None:
         raise SkillCreatorValidationError(
             "Skill Creator evaluation is unavailable.",
@@ -236,7 +238,16 @@ def _api_error(exc: Exception) -> HTTPException:
             else "skill_creator_storage_unavailable"
         )
     elif isinstance(exc, SkillEvaluationValidationError):
-        status = 400
+        status = (
+            503
+            if exc.code
+            in {
+                "model_gateway_unconfigured",
+                "skill_evaluation_sidecar_unavailable",
+                "skill_evaluation_preflight_failed",
+            }
+            else 400
+        )
         code = exc.code
     elif isinstance(exc, SkillCreatorValidationError):
         code = exc.code
@@ -580,11 +591,16 @@ async def start_creator_evaluation(
 @router.get("/evaluations/{run_id}")
 async def get_creator_evaluation(run_id: str):
     try:
+        creator = get_skill_creator_service()
         evaluation = get_skill_creator_evaluation_service()
-        run = await asyncio.to_thread(evaluation.require_run, run_id)
+        session, draft, run = await asyncio.to_thread(
+            evaluation.get_run_projection, run_id
+        )
         return {
             "version": evaluation.VERSION,
             "run": evaluation.evaluation_store.serialize(run),
+            "session": SkillCreatorSessionStore.serialize(session),
+            "draft": creator.serialize_draft(draft),
         }
     except (SkillCreatorError, SkillDraftError, SkillEvaluationError) as exc:
         raise _api_error(exc) from exc

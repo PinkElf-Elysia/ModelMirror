@@ -536,7 +536,12 @@ class SandboxEngine:
         if not raw and allow_root:
             return workspace
         pure = PurePosixPath(raw)
-        if not raw or pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        if (
+            not raw
+            or not pure.parts
+            or pure.is_absolute()
+            or any(part in {"", ".", ".."} for part in pure.parts)
+        ):
             raise SandboxEngineError("Unsafe sandbox path.", code="unsafe_path")
         if pure.parts[0] == ".modelmirror":
             raise SandboxEngineError("Internal sandbox paths are not accessible.", code="unsafe_path")

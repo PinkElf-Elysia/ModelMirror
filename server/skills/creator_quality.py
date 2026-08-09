@@ -426,6 +426,150 @@ def evaluate_creator_payload(
     return _report(issues, checks, expected_ids, contract_version)
 
 
+def evaluate_creator_final_package(
+    *,
+    root_name: str,
+    skill_markdown: str,
+    files: Mapping[str, str] | None = None,
+) -> CreatorDraftQualityReport:
+    """Validate the installable completeness of a Creator package without design data.
+
+    Creator proposals retain a richer design and coverage map, while immutable Draft
+    revisions intentionally store only package bytes.  This final gate therefore
+    checks the executable package itself and is safe to repeat before evaluation,
+    review recovery, waiver, and installation.
+    """
+
+    issues: list[CreatorQualityIssue] = []
+    checks: list[CreatorQualityCheck] = []
+    result = validate_skill_package(
+        root_name=root_name,
+        skill_markdown=skill_markdown,
+        files=dict(files or {}),
+    )
+    package = result.package
+    package_ok = package is not None
+    checks.append(CreatorQualityCheck("package_structure", package_ok, 5))
+    if package is None:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_package_invalid",
+                message="Creator package failed the structural and security validator.",
+                field="skill",
+            )
+        )
+        return _report(issues, checks, (), None)
+
+    body = _markdown_body(package.skill_markdown)
+    structural_body = _structural_markdown(body)
+
+    description_ok = len(package.description) >= 80 and bool(
+        _TRIGGER_RE.search(package.description)
+    )
+    if not description_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_description_trigger_missing",
+                message="Description must state the capability and when it should trigger.",
+                path="SKILL.md",
+                field="description",
+            )
+        )
+    checks.append(CreatorQualityCheck("description_trigger", description_ok, 10))
+
+    scope_ok = bool(_SCOPE_RE.search(structural_body))
+    if not scope_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_scope_missing",
+                message="SKILL.md must define its purpose, scope, or boundaries.",
+                path="SKILL.md",
+            )
+        )
+    checks.append(CreatorQualityCheck("scope", scope_ok, 10))
+
+    inputs_ok = _section_has_substantive_content(structural_body, _INPUT_RE)
+    if not inputs_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_inputs_preconditions_missing",
+                message="SKILL.md must contain substantive inputs or prerequisites.",
+                path="SKILL.md",
+            )
+        )
+    checks.append(CreatorQualityCheck("inputs_preconditions", inputs_ok, 10))
+
+    workflow_steps = _executable_workflow_steps(structural_body)
+    workflow_ok = len(workflow_steps) >= 4 and _instructions_are_distinct(workflow_steps)
+    if not workflow_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_workflow_missing",
+                message="SKILL.md must contain at least four distinct executable workflow steps.",
+                path="SKILL.md",
+            )
+        )
+    checks.append(CreatorQualityCheck("workflow", workflow_ok, 20))
+
+    output_ok = _section_has_substantive_content(structural_body, _OUTPUT_RE)
+    if not output_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_output_contract_missing",
+                message="SKILL.md must contain a substantive output contract.",
+                path="SKILL.md",
+            )
+        )
+    checks.append(CreatorQualityCheck("output_contract", output_ok, 15))
+
+    failure_ok = _section_has_substantive_content(structural_body, _FAILURE_RE)
+    if not failure_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_failure_behavior_missing",
+                message="SKILL.md must contain substantive failure or degradation behavior.",
+                path="SKILL.md",
+            )
+        )
+    checks.append(CreatorQualityCheck("failure_behavior", failure_ok, 15))
+
+    quality_ok = _section_has_substantive_content(structural_body, _QUALITY_RE)
+    if not quality_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code="creator_quality_checks_missing",
+                message="SKILL.md must contain substantive validation or quality checks.",
+                path="SKILL.md",
+            )
+        )
+    checks.append(CreatorQualityCheck("quality_checks", quality_ok, 10))
+
+    scaffold_marker = "MODEL_MIRROR_MANUAL_SCAFFOLD" in package.skill_markdown
+    placeholder_paths = [
+        path for path, content in package.files.items() if _PLACEHOLDER_RE.search(content)
+    ]
+    placeholder_ok = (
+        not scaffold_marker
+        and not _PLACEHOLDER_RE.search(package.skill_markdown)
+        and not placeholder_paths
+    )
+    if not placeholder_ok:
+        issues.append(
+            CreatorQualityIssue(
+                code=(
+                    "creator_manual_scaffold_incomplete"
+                    if scaffold_marker
+                    else "creator_placeholder_remaining"
+                ),
+                message="Creator packages must replace the manual scaffold and all placeholders.",
+                path=(placeholder_paths[0] if placeholder_paths else "SKILL.md"),
+            )
+        )
+    checks.append(CreatorQualityCheck("no_placeholders", placeholder_ok, 5))
+
+    return _report(issues, checks, (), None)
+
+
 def _validate_wrapped_skill(
     raw_skill: Any, issues: list[CreatorQualityIssue]
 ) -> SkillPackageV2 | None:
@@ -646,6 +790,60 @@ def _executable_workflow_step_count(markdown: str) -> int:
             if len(item.group(1).strip()) >= 8
         )
     return count
+
+
+def _executable_workflow_steps(markdown: str) -> list[str]:
+    instructions: list[str] = []
+    for title, section in _matching_sections(markdown):
+        if not _workflow_heading(title):
+            continue
+        instructions.extend(
+            item.group(1).strip()
+            for item in re.finditer(r"(?m)^\s*\d+[.)]\s+(.+?)\s*$", section)
+            if len(item.group(1).strip()) >= 8
+            and not _PLACEHOLDER_RE.search(item.group(1))
+        )
+    return instructions
+
+
+def _instructions_are_distinct(instructions: Sequence[str]) -> bool:
+    normalized = [_normalized_instruction(item) for item in instructions]
+    if any(not item for item in normalized) or len(set(normalized)) != len(normalized):
+        return False
+    for index, first in enumerate(normalized):
+        for second in normalized[index + 1 :]:
+            if SequenceMatcher(None, first, second).ratio() >= 0.9:
+                return False
+    return True
+
+
+def _matching_sections(markdown: str) -> list[tuple[str, str]]:
+    matches = list(_HEADING_LINE_RE.finditer(markdown))
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        level = len(match.group("marks"))
+        section_end = len(markdown)
+        for following in matches[index + 1 :]:
+            if len(following.group("marks")) <= level:
+                section_end = following.start()
+                break
+        sections.append((match.group("title"), markdown[match.end() : section_end]))
+    return sections
+
+
+def _section_has_substantive_content(markdown: str, heading_re: re.Pattern[str]) -> bool:
+    for title, section in _matching_sections(markdown):
+        synthetic_heading = f"\n## {title}"
+        if not heading_re.search(synthetic_heading):
+            continue
+        if _PLACEHOLDER_RE.search(section):
+            continue
+        plain = re.sub(r"(?m)^\s*(?:[-*+] |\d+[.)]\s+)", "", section)
+        plain = re.sub(r"[`*_>#|]", "", plain)
+        plain = re.sub(r"\s+", " ", plain).strip()
+        if len(plain) >= 40:
+            return True
+    return False
 
 
 def _workflow_heading(title: str) -> bool:
@@ -902,6 +1100,7 @@ __all__ = [
     "CreatorRequirement",
     "build_session_requirement_ids",
     "build_session_requirements",
+    "evaluate_creator_final_package",
     "evaluate_creator_payload",
     "load_creator_authoring_playbook",
 ]

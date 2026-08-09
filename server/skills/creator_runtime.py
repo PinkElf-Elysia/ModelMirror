@@ -326,6 +326,7 @@ def build_creator_workflow_invocation(
         },
         "requirements": requirements,
         "selected_evidence": selected_evidence,
+        "reviewed_iteration": dict(request.trusted_iteration or {}),
         "target_draft": target,
         "package_constraints": {
             "skill_markdown_target_characters": [1200, 6000],
@@ -432,8 +433,8 @@ def build_creator_workflow_invocation(
                     "outputVariable": "creator_result",
                     "toolMode": "mcp_tools",
                     "toolNames": request.allowed_tool,
-                    "maxIterations": "3",
-                    "maxToolCalls": "2",
+                    "maxIterations": "4",
+                    "maxToolCalls": "3",
                     "maxToolConcurrency": "1",
                     "parallelToolCalls": "false",
                     "retryOnFailure": "false",
@@ -514,6 +515,9 @@ def _creator_role_prompt(allowed_tool: str) -> str:
         "references, or text assets materially reduce repeated work. Apply progressive "
         "disclosure: SKILL.md must navigate every resource from the step that uses it. Do not "
         "create resources merely to make the package look larger.\n\n"
+        "When reviewed_iteration is present, treat its server-frozen feedback as the explicit "
+        "revision objective. Preserve correct parts of the target draft, address every review "
+        "point, and do not claim that evaluation has passed.\n\n"
         "The typed call must include creator_contract_version, the complete skill package, and "
         "design with workflow_steps, output_contract, failure_modes, resources, assumptions, "
         "and requirement_coverage. Map every supplied requirement_id to an existing Markdown "
@@ -530,7 +534,8 @@ def _creator_role_prompt(allowed_tool: str) -> str:
         "without the Markdown `##` prefix. Do not replace the scope section with only a title, "
         "introduction, background, or generic capability list.\n\n"
         f"Call only {allowed_tool}. Submit exactly one successful proposal; if the runtime "
-        "rejects a first call for a structured completeness error, correct it once. Never call "
+        "rejects a call for a structured completeness error, use at most two bounded "
+        "correction attempts. Never call "
         "another tool, never invent repository/runtime identifiers, and never treat a text-only "
         "answer as completion.\n\n"
         "Pinned creation-stage playbook (modified for ModelMirror):\n\n"

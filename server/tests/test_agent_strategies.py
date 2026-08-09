@@ -132,6 +132,7 @@ async def test_openai_adapter_sends_standard_tool_call_fields() -> None:
         return httpx.Response(
             200,
             json={
+                "model": "provider/actual-model",
                 "choices": [
                     {
                         "message": {"role": "assistant", "content": "done"},
@@ -168,6 +169,7 @@ async def test_openai_adapter_sends_standard_tool_call_fields() -> None:
     )
 
     assert captured["tools"] == tools
+    assert turn.raw["model"] == "provider/actual-model"
     assert captured["tool_choice"] == "auto"
     assert captured["parallel_tool_calls"] is True
     assert captured["stream"] is False

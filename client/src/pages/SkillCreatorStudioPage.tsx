@@ -432,7 +432,7 @@ export default function SkillCreatorStudioPage() {
       await approveSkillCreatorProposal(proposal);
       await loadSession();
       setActiveStep(2);
-      setNotice("提案已写入不可变草稿版本。该草稿仍需 PR3 评测后才能安装。");
+      setNotice("提案已写入不可变草稿版本。该草稿仍需完成当前摘要的三例对照评测后才能安装。");
     } catch (caught) {
       handleError(caught, "提案批准失败。");
     } finally {
@@ -759,7 +759,7 @@ export default function SkillCreatorStudioPage() {
                     <p className="mt-3 text-sm leading-6 text-slate-400">
                       {draft
                         ? "固定 Creator Agent 读取当前不可变草稿，提交具备完整工作流、输出约定和失败处理的更新提案。你仍需检查文件差异并批准。"
-                        : "固定 Creator Agent 根据六项已确认信息生成具备完整工作流、输出约定和失败处理的提案。生成结果仍需人工审阅与 PR3 行为评测。"}
+                        : "固定 Creator Agent 根据六项已确认信息生成具备完整工作流、输出约定和失败处理的提案。生成结果仍需人工审阅与三例行为评测。"}
                     </p>
                     {!status.model_available ? <p className="mt-3 rounded-md bg-amber-300/[0.08] p-3 text-xs leading-5 text-amber-100">{status.model_unavailable_reason || "当前未配置模型网关 Key，AI 生成已禁用。结构化手工模板仍可使用。"}</p> : null}
                     <GenerationReadiness items={generationReadiness} />
@@ -774,7 +774,7 @@ export default function SkillCreatorStudioPage() {
                       <FileEdit aria-hidden="true" className="text-hire-200" size={20} />
                       <h2 className="text-base font-semibold text-white">结构化手工模板</h2>
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-400">不调用模型，只创建带待办段落的编辑模板。模板不代表初稿完整度通过，也不能绕过 PR3 行为评测。</p>
+                    <p className="mt-3 text-sm leading-6 text-slate-400">不调用模型，只创建带待办段落的编辑模板。模板不代表初稿完整度通过，也不能绕过行为评测质量门。</p>
                     <label className="mt-4 block" htmlFor="creator-root-name">
                       <span className="text-xs font-semibold text-slate-300">Skill ID</span>
                       <input className="mt-2 w-full rounded-lg border border-white/10 bg-ink-950/75 px-3 py-2.5 font-mono text-sm text-white placeholder:text-slate-500 focus:border-hire-300/50 focus:outline-none" id="creator-root-name" maxLength={64} onChange={(event) => setRootName(event.target.value.toLowerCase())} placeholder="compare-competitor-pdf" value={rootName} />

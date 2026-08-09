@@ -5,9 +5,11 @@ import base64
 import hashlib
 import json
 import re
+import threading
 import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     from server.skills.finder import SkillFinder, SkillFinderError
@@ -57,6 +59,167 @@ class SandboxToolsetProvider:
         self.skill_manager = skill_manager
         self.skill_finder = skill_finder or SkillFinder(skill_manager=skill_manager)
         self.context_store = context_store
+        self._evaluation_overlay_resolver: Callable[[str], Any] | None = None
+        self._evaluation_guard = threading.RLock()
+        self._evaluation_workspaces: dict[str, dict[str, str]] = {}
+        self._evaluation_usage: dict[str, dict[str, Any]] = {}
+
+    def configure_skill_evaluation(
+        self, overlay_resolver: Callable[[str], Any] | None
+    ) -> None:
+        """Bind the immutable Overlay resolver used only by Skill evaluations."""
+
+        with self._evaluation_guard:
+            self._evaluation_overlay_resolver = overlay_resolver
+
+    async def provision_skill_evaluation_workspace(
+        self,
+        *,
+        item_id: str,
+        fixtures: list[dict[str, str]],
+        overlay: Any | None,
+        quota_bytes: int = 64 * 1024 * 1024,
+    ) -> str:
+        """Create and seed a fresh profile-bound workspace before model execution.
+
+        The sidecar provisioning capability is retained only in this provider's
+        process memory. It is never copied into Runtime metadata, checkpoints,
+        prompts, or model-visible tool arguments.
+        """
+
+        clean_item_id = str(item_id or "").strip()
+        if not clean_item_id:
+            raise RuntimeToolError(
+                "skill_evaluation",
+                "Evaluation item id is required.",
+                code="skill_evaluation_scope_invalid",
+            )
+        health = await self.client.health(required_profile="skill_evaluation_v1")
+        self.require_skill_evaluation_attestation(health)
+        workspace = self.store.get_or_create_workspace(
+            scope_type="skill_evaluation",
+            scope_id=f"{clean_item_id}:{uuid.uuid4().hex}",
+            node_id="skill-evaluation-agent",
+            quota_bytes=max(16 * 1024 * 1024, min(int(quota_bytes), 256 * 1024 * 1024)),
+            expires_at=time.time() + 2 * 60 * 60,
+            metadata={"evaluation_item_id": clean_item_id, "profile": "skill_evaluation_v1"},
+        )
+        response = await self.client.request(
+            {
+                "action": "ensure_workspace",
+                "workspace_id": workspace.workspace_id,
+                "profile": "skill_evaluation_v1",
+            }
+        )
+        capability = str(response.get("provisioning_capability") or "")
+        if not capability:
+            raise RuntimeToolError(
+                "skill_evaluation",
+                "Sandbox sidecar did not return an evaluation provisioning capability.",
+                code="sandbox_profile_capability_missing",
+            )
+        with self._evaluation_guard:
+            self._evaluation_workspaces[workspace.workspace_id] = {
+                "item_id": clean_item_id,
+                "capability": capability,
+            }
+            self._evaluation_usage[clean_item_id] = {
+                "skill_read": False,
+                "skill_stage": False,
+                "tool_names": set(),
+            }
+        try:
+            seed_files: list[tuple[str, str]] = []
+            for fixture in fixtures:
+                if not isinstance(fixture, dict):
+                    continue
+                seed_files.append(
+                    (
+                        f"inputs/{str(fixture.get('path') or '').strip()}",
+                        str(fixture.get("content") or ""),
+                    )
+                )
+            if overlay is not None:
+                package = dict(getattr(overlay, "package", {}) or {})
+                seed_files.append(
+                    (
+                        "skills/evaluation-skill/SKILL.md",
+                        str(package.get("skill_markdown") or ""),
+                    )
+                )
+                for path, content in sorted(dict(package.get("files") or {}).items()):
+                    seed_files.append(
+                        (f"skills/evaluation-skill/{str(path)}", str(content))
+                    )
+            for index, (path, content) in enumerate(seed_files):
+                await self.client.request(
+                    {
+                        "action": "seed_file",
+                        "workspace_id": workspace.workspace_id,
+                        "profile": "skill_evaluation_v1",
+                        "provisioning_capability": capability,
+                        "path": path,
+                        "content": content,
+                        "quota_bytes": workspace.quota_bytes,
+                        "operation_id": f"seed:{clean_item_id}:{index}",
+                    }
+                )
+            return workspace.workspace_id
+        except BaseException:
+            await self.cleanup_skill_evaluation_workspace(workspace.workspace_id)
+            raise
+
+    async def collect_skill_evaluation_manifest(
+        self, workspace_id: str
+    ) -> list[dict[str, Any]]:
+        binding = self._evaluation_binding(workspace_id)
+        response = await self.client.request(
+            {
+                "action": "collect_work_manifest",
+                "workspace_id": workspace_id,
+                "profile": "skill_evaluation_v1",
+                "provisioning_capability": binding["capability"],
+            }
+        )
+        files = response.get("files")
+        if not isinstance(files, list):
+            return []
+        return [
+            {
+                "path": item.get("path"),
+                "size": item.get("size_bytes", item.get("size", 0)),
+                "sha256": item.get("sha256"),
+                "preview": item.get("text_preview", item.get("preview")),
+            }
+            for item in files
+            if isinstance(item, dict)
+        ]
+
+    async def cleanup_skill_evaluation_workspace(self, workspace_id: str) -> None:
+        with self._evaluation_guard:
+            binding = dict(self._evaluation_workspaces.get(workspace_id) or {})
+        if binding:
+            try:
+                await self.client.request(
+                    {
+                        "action": "cleanup_workspace",
+                        "workspace_id": workspace_id,
+                        "profile": "skill_evaluation_v1",
+                        "provisioning_capability": binding.get("capability"),
+                    }
+                )
+            finally:
+                with self._evaluation_guard:
+                    self._evaluation_workspaces.pop(workspace_id, None)
+
+    def consume_skill_evaluation_usage(self, item_id: str) -> dict[str, Any]:
+        with self._evaluation_guard:
+            raw = self._evaluation_usage.pop(str(item_id), None) or {}
+        return {
+            "skill_read": bool(raw.get("skill_read", False)),
+            "skill_stage": bool(raw.get("skill_stage", False)),
+            "tool_names": sorted(str(item) for item in raw.get("tool_names", set())),
+        }
 
     async def list_tools(self) -> list[RuntimeTool]:
         return [
@@ -146,9 +309,28 @@ class SandboxToolsetProvider:
         if tool is None:
             raise RuntimeToolError(call.tool_name, "Sandbox tool not found.", code="tool_not_found")
         workspace = self._workspace(call)
-        await self.client.request({"action": "ensure_workspace", "workspace_id": workspace.workspace_id})
+        is_evaluation = self._is_skill_evaluation(call)
+        if is_evaluation:
+            self._require_skill_evaluation_tool(call)
+            binding = self._evaluation_binding(workspace.workspace_id)
+            item_id = str(call.metadata.get("skill_evaluation_item_id") or "")
+            if binding["item_id"] != item_id:
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill evaluation workspace binding changed.",
+                    code="skill_evaluation_scope_invalid",
+                )
+            with self._evaluation_guard:
+                usage = self._evaluation_usage.setdefault(
+                    item_id,
+                    {"skill_read": False, "skill_stage": False, "tool_names": set()},
+                )
+                usage.setdefault("tool_names", set()).add(call.tool_name)
+        else:
+            await self.client.request({"action": "ensure_workspace", "workspace_id": workspace.workspace_id})
         try:
-            await self._stage_context_attachments(workspace, call)
+            if not is_evaluation:
+                await self._stage_context_attachments(workspace, call)
             if call.tool_name == "skill_list":
                 return self._skill_list(call)
             if call.tool_name == "skill_read":
@@ -171,6 +353,26 @@ class SandboxToolsetProvider:
 
     def _workspace(self, call: RuntimeToolCall) -> SandboxWorkspace:
         metadata = call.metadata
+        if self._is_skill_evaluation(call):
+            workspace_id = str(metadata.get("skill_evaluation_workspace_id") or "").strip()
+            item_id = str(metadata.get("skill_evaluation_item_id") or "").strip()
+            if not workspace_id or not item_id:
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill evaluation workspace metadata is incomplete.",
+                    code="skill_evaluation_scope_invalid",
+                )
+            workspace = self.store.get_workspace(workspace_id)
+            if (
+                workspace.scope_type != "skill_evaluation"
+                or str(workspace.metadata.get("evaluation_item_id") or "") != item_id
+            ):
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill evaluation workspace does not match the current item.",
+                    code="skill_evaluation_scope_invalid",
+                )
+            return workspace
         node_id = str(metadata.get("node_id") or "agent").strip()
         if metadata.get("conversation_id"):
             scope_type = "conversation"
@@ -217,6 +419,14 @@ class SandboxToolsetProvider:
         }
         action = action_by_tool[call.tool_name]
         request = {"action": action, "workspace_id": workspace.workspace_id, **dict(call.arguments or {})}
+        if self._is_skill_evaluation(call):
+            binding = self._evaluation_binding(workspace.workspace_id)
+            request.update(
+                {
+                    "profile": "skill_evaluation_v1",
+                    "provisioning_capability": binding["capability"],
+                }
+            )
         config = call.metadata.get("sandbox_config")
         config = config if isinstance(config, dict) else {}
         if action in {"write_file", "shell", "publish_artifact"}:
@@ -224,7 +434,12 @@ class SandboxToolsetProvider:
         if action == "write_file":
             request["quota_bytes"] = workspace.quota_bytes
         if action == "shell":
-            allowed = self._csv(config.get("allowed_commands")) or ["python", "python3", "node", "npm", "npx", "git", "rg"]
+            allowed = (
+                ["python", "python3", "node", "rg"]
+                if self._is_skill_evaluation(call)
+                else self._csv(config.get("allowed_commands"))
+                or ["python", "python3", "node", "npm", "npx", "git", "rg"]
+            )
             request["allowed_commands"] = allowed
             request["timeout_seconds"] = max(1, min(int(call.arguments.get("timeout_seconds") or config.get("timeout_seconds") or 60), 300))
         artifact_id = None
@@ -286,6 +501,41 @@ class SandboxToolsetProvider:
 
     def _skill_read(self, call: RuntimeToolCall) -> RuntimeToolResult:
         skill_id = str(call.arguments.get("skill_id") or "").strip()
+        if self._is_skill_evaluation(call):
+            self._require_evaluation_alias(call, skill_id)
+            item_id = str(call.metadata.get("skill_evaluation_item_id") or "")
+            with self._evaluation_guard:
+                self._evaluation_usage.setdefault(item_id, {}).update(
+                    {"skill_read": True}
+                )
+            overlay = self._evaluation_overlay(call)
+            if overlay is None:
+                return RuntimeToolResult(
+                    output=(
+                        "No prior Skill version exists for this baseline. Complete "
+                        "the task using only the case prompt and offline workspace."
+                    ),
+                    metadata={
+                        "content_types": ["text"],
+                        "skill_id": "evaluation-skill",
+                        "skill_evaluation_read": True,
+                        "overlay_available": False,
+                    },
+                )
+            package = dict(getattr(overlay, "package", {}) or {})
+            content = str(package.get("skill_markdown") or "")
+            return RuntimeToolResult(
+                output=content[:50_000],
+                metadata={
+                    "content_types": ["text"],
+                    "skill_id": "evaluation-skill",
+                    "skill_evaluation_read": True,
+                    "overlay_available": True,
+                    "overlay_id": getattr(overlay, "overlay_id", None),
+                    "content_digest": getattr(overlay, "content_digest", None),
+                    "truncated": len(content) > 50_000,
+                },
+            )
         self._require_enabled_skill(call, skill_id)
         content = self.skill_manager.get_skill_content(skill_id)
         return RuntimeToolResult(output=content[:50_000], metadata={"content_types": ["text"], "skill_id": skill_id, "truncated": len(content) > 50_000})
@@ -400,6 +650,57 @@ class SandboxToolsetProvider:
 
     async def _skill_stage(self, workspace: SandboxWorkspace, call: RuntimeToolCall) -> RuntimeToolResult:
         skill_id = str(call.arguments.get("skill_id") or "").strip()
+        if self._is_skill_evaluation(call):
+            self._require_evaluation_alias(call, skill_id)
+            item_id = str(call.metadata.get("skill_evaluation_item_id") or "")
+            with self._evaluation_guard:
+                self._evaluation_usage.setdefault(item_id, {}).update(
+                    {"skill_stage": True}
+                )
+            overlay = self._evaluation_overlay(call)
+            if overlay is None:
+                return RuntimeToolResult(
+                    output=json.dumps(
+                        {
+                            "skill_id": "evaluation-skill",
+                            "workspace_id": workspace.workspace_id,
+                            "files": [],
+                            "available": False,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    metadata={
+                        "content_types": ["text"],
+                        "skill_id": "evaluation-skill",
+                        "file_count": 0,
+                        "workspace_id": workspace.workspace_id,
+                    },
+                )
+            package = dict(getattr(overlay, "package", {}) or {})
+            files = [
+                "skills/evaluation-skill/SKILL.md",
+                *[
+                    f"skills/evaluation-skill/{path}"
+                    for path in sorted(dict(package.get("files") or {}))
+                ],
+            ]
+            return RuntimeToolResult(
+                output=json.dumps(
+                    {
+                        "skill_id": "evaluation-skill",
+                        "workspace_id": workspace.workspace_id,
+                        "files": files,
+                        "available": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                metadata={
+                    "content_types": ["text"],
+                    "skill_id": "evaluation-skill",
+                    "file_count": len(files),
+                    "workspace_id": workspace.workspace_id,
+                },
+            )
         self._require_enabled_skill(call, skill_id)
         root = self.skill_manager.get_skill_directory(skill_id)
         operation_base = self._operation_id(call)
@@ -538,6 +839,102 @@ class SandboxToolsetProvider:
     def _require_enabled_skill(self, call: RuntimeToolCall, skill_id: str) -> None:
         if not skill_id or skill_id not in self._enabled_skills(call):
             raise RuntimeToolError(call.tool_name, "Skill is not enabled for this Agent.", code="skill_denied")
+
+    @staticmethod
+    def _is_skill_evaluation(call: RuntimeToolCall) -> bool:
+        return str(call.metadata.get("runtime_run_type") or "") == "skill_evaluation"
+
+    @staticmethod
+    def _require_skill_evaluation_tool(call: RuntimeToolCall) -> None:
+        allowed = {
+            "skill_read",
+            "skill_stage",
+            "sandbox_list_files",
+            "sandbox_read_file",
+            "sandbox_search_files",
+            "sandbox_write_file",
+            "sandbox_shell",
+        }
+        if call.tool_name not in allowed:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Tool is outside the fixed Skill evaluation allowlist.",
+                code="skill_evaluation_tool_denied",
+            )
+        if str(call.metadata.get("skill_evaluation_profile") or "") != "skill_evaluation_v1":
+            raise RuntimeToolError(
+                call.tool_name,
+                "Skill evaluation isolation profile is missing.",
+                code="sandbox_profile_unsupported",
+            )
+
+    @staticmethod
+    def require_skill_evaluation_attestation(health: dict[str, Any]) -> None:
+        profiles = health.get("profiles")
+        profile = (
+            profiles.get("skill_evaluation_v1")
+            if isinstance(profiles, dict)
+            else None
+        )
+        allowed = set(profile.get("allowed_commands") or []) if isinstance(profile, dict) else set()
+        if (
+            health.get("engine") != "modelmirror-sandbox-v1"
+            or health.get("landlock_required") is not True
+            or not isinstance(profile, dict)
+            or profile.get("network_policy") != "container_network_none_required"
+            or set(profile.get("read_only_roots") or []) != {"inputs", "skills"}
+            or set(profile.get("writable_roots") or []) != {"work", ".tmp"}
+            or set(profile.get("write_file_roots") or []) != {"work"}
+            or allowed != {"python", "python3", "node", "rg"}
+        ):
+            raise RuntimeToolError(
+                "skill_evaluation",
+                "Sandbox sidecar cannot prove the required Skill evaluation isolation profile.",
+                code="sandbox_profile_attestation_failed",
+            )
+
+    @staticmethod
+    def _require_evaluation_alias(call: RuntimeToolCall, skill_id: str) -> None:
+        if skill_id != "evaluation-skill":
+            raise RuntimeToolError(
+                call.tool_name,
+                "Skill evaluation tools only accept the fixed evaluation-skill alias.",
+                code="skill_evaluation_alias_invalid",
+            )
+
+    def _evaluation_binding(self, workspace_id: str) -> dict[str, str]:
+        with self._evaluation_guard:
+            binding = self._evaluation_workspaces.get(str(workspace_id))
+            if binding is None:
+                raise RuntimeToolError(
+                    "skill_evaluation",
+                    "Skill evaluation workspace capability is unavailable.",
+                    code="sandbox_profile_capability_missing",
+                )
+            return dict(binding)
+
+    def _evaluation_overlay(self, call: RuntimeToolCall) -> Any | None:
+        overlay_id = str(call.metadata.get("skill_evaluation_overlay_id") or "").strip()
+        if not overlay_id:
+            return None
+        with self._evaluation_guard:
+            resolver = self._evaluation_overlay_resolver
+        if resolver is None:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Skill evaluation Overlay resolver is unavailable.",
+                code="skill_evaluation_overlay_unavailable",
+            )
+        try:
+            return resolver(overlay_id)
+        except RuntimeToolError:
+            raise
+        except Exception as exc:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Skill evaluation Overlay no longer matches the frozen run.",
+                code="skill_evaluation_overlay_unavailable",
+            ) from exc
 
     @staticmethod
     def _csv(value: Any) -> list[str]:

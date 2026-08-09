@@ -175,7 +175,7 @@ export default function SkillProposalReview({
             <FlaskConical aria-hidden="true" className="text-slate-500" size={16} />
             <h3 className="text-xs font-semibold text-white" id="proposal-behavior-quality">行为评测</h3>
           </div>
-          <p className="mt-2 text-xs font-semibold text-slate-300">PR3 尚未开放</p>
+          <p className="mt-2 text-xs font-semibold text-slate-300">草稿批准后进入三例行为评测</p>
           <p className="mt-1 text-[11px] leading-5 text-slate-500">批准提案不会代表真实用例对照评测通过，也不会安装 Skill。</p>
         </section>
       </div>
@@ -258,7 +258,7 @@ export default function SkillProposalReview({
       {proposal.status === "pending" ? (
         <div className="mt-5 border-t border-white/10 pt-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs leading-5 text-slate-400">批准后进入草稿编辑，不会绕过 PR3 的评测质量门。</p>
+            <p className="text-xs leading-5 text-slate-400">批准后进入草稿编辑，不会绕过行为评测质量门。</p>
             <div className="flex flex-wrap gap-2">
               <button
                 className="rounded-full border border-rose-300/25 bg-rose-300/[0.07] px-4 py-2.5 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/15 disabled:cursor-not-allowed disabled:opacity-50"

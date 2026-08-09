@@ -90,7 +90,7 @@ def test_creator_workflow_is_fixed_to_one_typed_tool() -> None:
     assert agent["data"]["agentName"] == "skill-creator-assistant-v1"
     assert agent["data"]["modelId"] == "gateway/default-text"
     assert agent["data"]["toolNames"] == "skill_authoring_propose_create"
-    assert agent["data"]["maxToolCalls"] == "2"
+    assert agent["data"]["maxToolCalls"] == "3"
     assert agent["data"]["parallelToolCalls"] == "false"
     assert middleware["data"]["runtimeMiddlewareConfig"] == {
         "allow_create": True,
@@ -118,6 +118,42 @@ def test_creator_workflow_is_fixed_to_one_typed_tool() -> None:
         "适用场景与边界",
     ]
     assert "repository" not in invocation.inputs["creator_request"].lower()
+
+
+def test_creator_iteration_uses_only_server_frozen_review_feedback() -> None:
+    request = CreatorGenerationRequest(
+        session={**_request().session, "session_revision": 4},
+        target_draft={
+            "draft_id": "skilldraft_test",
+            "revision": 3,
+            "content_revision": 2,
+            "content_digest": "a" * 64,
+            "name": "pdf-evidence-reporter",
+            "slug": "pdf-evidence-reporter",
+            "description": "Use when PDF evidence must be traced to pages.",
+            "skill_markdown": "---\nname: pdf-evidence-reporter\ndescription: Use when PDF evidence must be traced to pages.\n---\n",
+            "files": {},
+        },
+        allowed_tool="skill_authoring_propose_update",
+        trusted_iteration={
+            "evaluation_run_id": "skill_eval_run_test",
+            "review_id": "skill_eval_review_test",
+            "evaluated_digest": "a" * 64,
+            "feedback": "Add an explicit missing-page degradation path.",
+        },
+    )
+
+    invocation = build_creator_workflow_invocation(
+        request, model_id="gateway/default-text"
+    )
+    context = json.loads(invocation.inputs["creator_request"])
+    assert context["reviewed_iteration"] == request.trusted_iteration
+    agent = next(
+        node
+        for node in invocation.workflow["nodes"]
+        if node["data"]["kind"] == "workflow_agent"
+    )
+    assert "reviewed_iteration" in agent["data"]["rolePrompt"]
 
 
 @pytest.mark.asyncio

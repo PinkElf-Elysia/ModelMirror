@@ -164,6 +164,18 @@ def test_profile_binding_seeding_sealing_manifest_and_cleanup(tmp_path: Path) ->
         )
     assert input_write.value.code == "write_scope_denied"
 
+    with pytest.raises(SandboxEngineError) as dot_path:
+        engine.dispatch(
+            {
+                **auth,
+                "action": "write_file",
+                "path": ".",
+                "content": "denied",
+                "operation_id": "write-dot-path",
+            }
+        )
+    assert dot_path.value.code == "unsafe_path"
+
     written = engine.dispatch(
         {
             **auth,

@@ -11,12 +11,17 @@ from server.skills.creator_evaluation import (
     SkillEvaluationExecutor,
     SkillEvaluationRunnerResult,
     SkillEvaluationStore,
+    SkillEvaluationValidationError,
 )
 from server.skills.creator_evaluation_service import (
     SkillCreatorEvaluationService,
 )
 from server.skills.creator_service import SkillCreatorService
-from server.skills.creator_store import SkillCreatorSessionStore
+from server.skills.creator_store import (
+    SkillCreatorConflictError,
+    SkillCreatorSessionStore,
+    SkillCreatorValidationError,
+)
 from server.skills.draft_store import WorkspaceSkillDraftStore
 from server.xpert_runtime.authoring_service import AuthoringService
 from server.xpert_runtime.authoring_store import AuthoringProposalStore
@@ -43,6 +48,7 @@ Require completed notes. Ask for clarification when the source is ambiguous.
 1. Read the notes and preserve evidence.
 2. Extract decisions, actions, owners, and open questions.
 3. Verify each claim against the source.
+4. Format the verified actions and explicitly mark unresolved fields.
 
 ## Output contract
 
@@ -148,6 +154,95 @@ def _write_context(session, draft) -> dict:
     }
 
 
+def test_evaluation_service_cannot_bypass_disabled_creator(tmp_path: Path) -> None:
+    creator, evaluation, _, _, _ = _services(tmp_path)
+    previous_creator = creator_api._service
+    previous_evaluation = creator_api._evaluation_service
+    creator.enabled = False
+    creator_api.configure_skill_creator(creator)
+    creator_api.configure_skill_creator_evaluation(evaluation)
+    try:
+        with pytest.raises(SkillCreatorValidationError) as captured:
+            creator_api.get_skill_creator_evaluation_service()
+        assert captured.value.code == "skill_creator_disabled"
+    finally:
+        creator_api.configure_skill_creator(previous_creator)
+        creator_api.configure_skill_creator_evaluation(previous_evaluation)
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["model_gateway_unconfigured", "skill_evaluation_sidecar_unavailable"],
+)
+def test_preflight_dependencies_are_reported_as_service_unavailable(code: str) -> None:
+    response = creator_api._api_error(
+        SkillEvaluationValidationError("dependency unavailable", code=code)
+    )
+
+    assert response.status_code == 503
+    assert response.detail["code"] == code
+
+
+def test_session_get_recovers_one_uniquely_matching_orphan_case_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, evaluation, _, session, draft = _services(tmp_path)
+    original_bind = evaluation.session_store.bind_cases
+
+    def interrupt_projection(*args, **kwargs):
+        del args, kwargs
+        raise OSError("simulated Session projection interruption")
+
+    monkeypatch.setattr(evaluation.session_store, "bind_cases", interrupt_projection)
+    with pytest.raises(OSError, match="projection interruption"):
+        evaluation.save_cases(
+            session.session_id,
+            **_write_context(session, draft),
+            quality_mode="objective",
+            cases=[_case(1), _case(2), _case(3)],
+        )
+    monkeypatch.setattr(evaluation.session_store, "bind_cases", original_bind)
+
+    assert evaluation.session_store.require(session.session_id).cases_revision == 0
+    recovered_session, _, case_set, run = evaluation.get_projection(session.session_id)
+    assert run is None
+    assert recovered_session.cases_revision == 1
+    assert case_set is not None and case_set["cases_revision"] == 1
+    assert len(case_set["cases"]) == 3
+
+
+def test_session_get_does_not_guess_across_multiple_orphan_case_revisions(
+    tmp_path: Path,
+) -> None:
+    _, evaluation, _, session, draft = _services(tmp_path)
+    first_cases = [_case(1), _case(2), _case(3)]
+    evaluation.evaluation_store.save_cases(
+        session_id=session.session_id,
+        draft_id=draft.draft_id,
+        draft_revision=draft.content_revision,
+        content_digest=draft.content_digest,
+        expected_revision=0,
+        cases=first_cases,
+        quality_mode="objective",
+    )
+    second_cases = [_case(1), _case(2), _case(3)]
+    second_cases[0]["prompt"] = "A second unbound case revision"
+    evaluation.evaluation_store.save_cases(
+        session_id=session.session_id,
+        draft_id=draft.draft_id,
+        draft_revision=draft.content_revision,
+        content_digest=draft.content_digest,
+        expected_revision=1,
+        cases=second_cases,
+        quality_mode="objective",
+    )
+
+    projected_session, _, case_set, _ = evaluation.get_projection(session.session_id)
+    assert projected_session.cases_revision == 0
+    assert case_set is None
+
+
 @pytest.mark.asyncio
 async def test_objective_three_case_evaluation_accepts_only_current_digest(
     tmp_path: Path,
@@ -224,6 +319,62 @@ async def test_session_get_recovers_interrupted_accepted_quality_receipt(
 
 
 @pytest.mark.asyncio
+async def test_orphan_case_recovery_does_not_replay_an_older_accepted_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, evaluation, executor, session, draft = _services(tmp_path)
+    session, draft, _ = evaluation.save_cases(
+        session.session_id,
+        **_write_context(session, draft),
+        quality_mode="objective",
+        cases=[_case(1), _case(2), _case(3)],
+    )
+    session, draft, run = await evaluation.start_evaluation(
+        session.session_id, **_write_context(session, draft)
+    )
+    assert await executor.execute_next() is True
+    session, draft, _, run = evaluation.get_projection(session.session_id)
+    assert run is not None
+    session, draft, _ = await evaluation.review(
+        run.run_id,
+        **_write_context(session, draft),
+        expected_run_revision=run.revision,
+        expected_review_revision=run.feedback_revision,
+        decision="accept",
+        reason="The first case revision was reviewed.",
+    )
+    assert draft.quality_status == "accepted"
+
+    replacement_cases = [_case(1), _case(2), _case(3)]
+    replacement_cases[0]["prompt"] = "Review a replacement input."
+    original_bind = evaluation.session_store.bind_cases
+
+    def interrupt_projection(*args, **kwargs):
+        del args, kwargs
+        raise OSError("simulated second CaseSet projection interruption")
+
+    monkeypatch.setattr(evaluation.session_store, "bind_cases", interrupt_projection)
+    with pytest.raises(OSError, match="second CaseSet projection interruption"):
+        evaluation.save_cases(
+            session.session_id,
+            **_write_context(session, draft),
+            quality_mode="objective",
+            cases=replacement_cases,
+        )
+    monkeypatch.setattr(evaluation.session_store, "bind_cases", original_bind)
+
+    recovered_session, recovered_draft, case_set, projected_run = (
+        evaluation.get_projection(session.session_id)
+    )
+    assert recovered_session.cases_revision == 2
+    assert case_set is not None and case_set["cases_revision"] == 2
+    assert projected_run is None
+    assert recovered_draft.quality_status == "outdated"
+    assert recovered_session.quality_status == "outdated"
+
+
+@pytest.mark.asyncio
 async def test_creator_evaluation_api_exposes_cases_run_and_structured_conflict(
     tmp_path: Path,
 ) -> None:
@@ -295,6 +446,17 @@ async def test_creator_evaluation_api_exposes_cases_run_and_structured_conflict(
             run_id = started.json()["evaluation_run"]["run_id"]
             assert await executor.execute_next() is True
 
+            before_poll = evaluation.session_store.require(session.session_id)
+            assert before_poll.active_evaluation_run_id == run_id
+            run_response = await client.get(
+                f"/api/skills/creator/evaluations/{run_id}"
+            )
+            assert run_response.status_code == 200, run_response.text
+            run_body = run_response.json()
+            assert run_body["run"]["status"] == "completed"
+            assert run_body["session"]["active_evaluation_run_id"] is None
+            assert run_body["draft"]["draft_id"] == draft.draft_id
+
             refreshed = await client.get(
                 f"/api/skills/creator/sessions/{session.session_id}"
             )
@@ -336,3 +498,77 @@ async def test_subjective_waiver_requires_mode_reason_confirmation_and_preflight
     assert draft.quality_decision is not None
     assert draft.quality_decision.reason
     assert session.review_state == "waived"
+
+
+@pytest.mark.asyncio
+async def test_subjective_waiver_rejects_an_active_evaluation(tmp_path: Path) -> None:
+    _, evaluation, _, session, draft = _services(tmp_path)
+    session, draft, _ = evaluation.save_cases(
+        session.session_id,
+        **_write_context(session, draft),
+        quality_mode="subjective",
+        cases=[_case(1), _case(2), _case(3)],
+    )
+    session, draft, run = await evaluation.start_evaluation(
+        session.session_id,
+        **_write_context(session, draft),
+    )
+    assert session.active_evaluation_run_id == run.run_id
+
+    with pytest.raises(SkillCreatorConflictError, match="Cancel the active evaluation"):
+        await evaluation.waive(
+            session.session_id,
+            **_write_context(session, draft),
+            reason="The author wants to use the subjective waiver instead.",
+            confirmed=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_service_persists_failed_assertion_acknowledgement(
+    tmp_path: Path,
+) -> None:
+    _, evaluation, executor, session, draft = _services(tmp_path)
+    cases = [_case(1), _case(2), _case(3)]
+    for case in cases:
+        case["assertions"] = [{"kind": "contains", "value": "missing-marker"}]
+    session, draft, _ = evaluation.save_cases(
+        session.session_id,
+        **_write_context(session, draft),
+        quality_mode="objective",
+        cases=cases,
+    )
+    session, draft, run = await evaluation.start_evaluation(
+        session.session_id,
+        **_write_context(session, draft),
+    )
+    assert await executor.execute_next() is True
+    session, draft, _, run = evaluation.get_projection(session.session_id)
+    assert run is not None and run.report["assertion_failed_count"] == 6
+
+    with pytest.raises(
+        SkillEvaluationValidationError,
+        match="explicit acknowledgement",
+    ):
+        await evaluation.review(
+            run.run_id,
+            **_write_context(session, draft),
+            expected_run_revision=run.revision,
+            expected_review_revision=run.feedback_revision,
+            decision="accept",
+            reason="The failed checks were reviewed manually.",
+            acknowledge_failed_assertions=False,
+        )
+
+    session, draft, accepted = await evaluation.review(
+        run.run_id,
+        **_write_context(session, draft),
+        expected_run_revision=run.revision,
+        expected_review_revision=run.feedback_revision,
+        decision="accept",
+        reason="The failed checks were reviewed manually.",
+        acknowledge_failed_assertions=True,
+    )
+    assert accepted.reviews[-1].acknowledge_failed_assertions is True
+    assert draft.quality_status == "accepted"
+    assert session.review_state == "accepted"

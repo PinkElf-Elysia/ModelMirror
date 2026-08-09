@@ -250,13 +250,16 @@ export default function SkillCreatorIndexPage() {
             <aside className="rounded-lg border border-white/10 bg-white/[0.035] p-5 sm:p-6">
               <div className="flex items-center gap-3">
                 <FileText aria-hidden="true" className="text-hire-200" size={20} />
-                <h2 className="text-base font-semibold text-white">本轮完成到草稿</h2>
+                <h2 className="text-base font-semibold text-white">完整 Creator V1 闭环</h2>
               </div>
               <ol className="mt-5 space-y-4 text-sm">
                 {[
                   ["定义用途", "写清触发场景、正向示例和近似反例。"],
                   ["确认素材", "逐项选择脱敏后的运行证据，也可从零开始。"],
                   ["编辑草稿", "检查 SKILL.md 和 UTF-8 文本资源。"],
+                  ["设计测试", "为当前摘要准备恰好 3 个真实用例。"],
+                  ["对照评审", "隔离比较 Baseline 与使用 Skill 的结果。"],
+                  ["迭代与安装", "人工接受或豁免后，再单独确认全局安装。"],
                 ].map(([title, detail], index) => (
                   <li className="flex gap-3" key={title}>
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-hire-300 text-xs font-bold text-ink-950">
@@ -270,7 +273,7 @@ export default function SkillCreatorIndexPage() {
                 ))}
               </ol>
               <p className="mt-5 border-t border-white/10 pt-4 text-xs leading-5 text-slate-500">
-                对照测试、结果评审、反馈迭代和正式安装将在下一轮质量门中开放。
+                评测与安装始终分离；通过质量门不会自动安装 Skill。
               </p>
             </aside>
           </section>

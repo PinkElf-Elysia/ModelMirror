@@ -16,6 +16,8 @@ from .package_validation import scan_skill_package_credentials
 CREATOR_ASSISTANT_AGENT_ID = "skill-creator-assistant-v1"
 CreatorMode = Literal["blank", "run"]
 CreatorSourceKind = Literal["blank", "xpert_chat", "workflow_classic"]
+CreatorQualityMode = Literal["objective", "subjective"]
+CreatorReviewState = Literal["none", "pending", "accepted", "revise", "waived"]
 CreatorSessionState = Literal[
     "defining",
     "selecting_evidence",
@@ -69,6 +71,18 @@ class SkillCreatorSession:
     draft_id: str | None = None
     current_revision: int | None = None
     current_digest: str | None = None
+    quality_mode: CreatorQualityMode = "objective"
+    cases_revision: int = 0
+    baseline_content_revision: int | None = None
+    baseline_content_digest: str | None = None
+    active_evaluation_run_id: str | None = None
+    latest_evaluation_run_id: str | None = None
+    review_state: CreatorReviewState = "none"
+    review_revision: int = 0
+    quality_status: str = "not_evaluated"
+    quality_run_id: str | None = None
+    quality_reason: str | None = None
+    install_state: str = "not_installed"
     state: CreatorSessionState = "defining"
     source_kind: CreatorSourceKind = "blank"
     source_task_id: str | None = None
@@ -244,6 +258,189 @@ class SkillCreatorSessionStore:
             item.updated_at = time.time()
             return self._save_or_restore_unlocked(item, previous)
 
+    def set_quality_mode(
+        self,
+        session_id: str,
+        *,
+        expected_session_revision: int,
+        quality_mode: CreatorQualityMode,
+    ) -> SkillCreatorSession:
+        clean_mode = self._quality_mode(quality_mode)
+        with self._lock:
+            item = self._require_mutable_unlocked(
+                session_id, expected_session_revision=expected_session_revision
+            )
+            if item.active_evaluation_run_id or item.review_state in {
+                "accepted",
+                "waived",
+            }:
+                raise SkillCreatorConflictError(
+                    "Quality mode is frozen for the current evaluation cycle."
+                )
+            if item.quality_mode == clean_mode:
+                return self._copy(item)
+            previous = self._copy(item)
+            item.quality_mode = clean_mode
+            item.cases_revision = 0
+            item.latest_evaluation_run_id = None
+            item.review_state = "none"
+            item.review_revision += 1
+            item.quality_status = "not_evaluated"
+            item.quality_run_id = None
+            item.quality_reason = None
+            item.state = self._derive_state(item)
+            item.session_revision += 1
+            item.updated_at = time.time()
+            return self._save_or_restore_unlocked(item, previous)
+
+    def bind_cases(
+        self,
+        session_id: str,
+        *,
+        expected_session_revision: int,
+        cases_revision: int,
+        baseline_content_revision: int | None,
+        baseline_content_digest: str | None,
+    ) -> SkillCreatorSession:
+        with self._lock:
+            item = self._require_mutable_unlocked(
+                session_id, expected_session_revision=expected_session_revision
+            )
+            previous = self._copy(item)
+            item.cases_revision = self._positive_int(cases_revision, "cases_revision")
+            item.baseline_content_revision = (
+                self._positive_int(
+                    baseline_content_revision, "baseline_content_revision"
+                )
+                if baseline_content_revision is not None
+                else None
+            )
+            item.baseline_content_digest = (
+                self._digest(
+                    baseline_content_digest, "baseline_content_digest"
+                )
+                if baseline_content_digest is not None
+                else None
+            )
+            item.active_evaluation_run_id = None
+            item.review_state = "none"
+            item.review_revision += 1
+            item.quality_status = (
+                "outdated"
+                if item.quality_status
+                in {"running", "accepted", "eval_waived", "outdated"}
+                else "not_evaluated"
+            )
+            item.quality_run_id = None
+            item.quality_reason = None
+            item.state = self._derive_state(item)
+            item.session_revision += 1
+            item.updated_at = time.time()
+            return self._save_or_restore_unlocked(item, previous)
+
+    def bind_evaluation(
+        self,
+        session_id: str,
+        *,
+        expected_session_revision: int,
+        run_id: str,
+    ) -> SkillCreatorSession:
+        with self._lock:
+            item = self._require_mutable_unlocked(
+                session_id, expected_session_revision=expected_session_revision
+            )
+            previous = self._copy(item)
+            clean_run_id = self._required_identifier(run_id, "run_id")
+            item.active_evaluation_run_id = clean_run_id
+            item.latest_evaluation_run_id = clean_run_id
+            item.review_state = "pending"
+            item.review_revision += 1
+            item.quality_status = "running"
+            item.quality_run_id = None
+            item.quality_reason = None
+            item.state = self._derive_state(item)
+            item.session_revision += 1
+            item.updated_at = time.time()
+            return self._save_or_restore_unlocked(item, previous)
+
+    def bind_quality_projection(
+        self,
+        session_id: str,
+        *,
+        draft_state_revision: int,
+        content_revision: int,
+        content_digest: str,
+        quality_status: str,
+        install_state: str,
+        active_run_id: str | None = None,
+        latest_run_id: str | None = None,
+        review_state: CreatorReviewState | None = None,
+        review_revision: int | None = None,
+        quality_run_id: str | None = None,
+        quality_reason: str | None = None,
+    ) -> SkillCreatorSession:
+        """Reconcile projections from authoritative Draft/Evaluation stores."""
+
+        with self._lock:
+            self._ensure_writable_unlocked()
+            item = self._items.get(session_id)
+            if item is None:
+                raise SkillCreatorNotFoundError(
+                    f"Skill Creator session not found: {session_id}"
+                )
+            clean_digest = self._digest(content_digest, "content_digest")
+            clean_review_state = (
+                self._review_state(review_state)
+                if review_state is not None
+                else item.review_state
+            )
+            projection = (
+                self._positive_int(draft_state_revision, "draft_state_revision"),
+                self._positive_int(content_revision, "content_revision"),
+                clean_digest,
+                self._quality_status(quality_status),
+                self._install_state(install_state),
+                self._optional_text(active_run_id, 200),
+                self._optional_text(latest_run_id, 200),
+                clean_review_state,
+                max(0, int(review_revision if review_revision is not None else item.review_revision)),
+                self._optional_text(quality_run_id, 200),
+                self._optional_text(quality_reason, 4_000),
+            )
+            current = (
+                item.draft_state_revision,
+                item.current_revision,
+                item.current_digest,
+                item.quality_status,
+                item.install_state,
+                item.active_evaluation_run_id,
+                item.latest_evaluation_run_id,
+                item.review_state,
+                item.review_revision,
+                item.quality_run_id,
+                item.quality_reason,
+            )
+            if current == projection:
+                return self._copy(item)
+            previous = self._copy(item)
+            (
+                item.draft_state_revision,
+                item.current_revision,
+                item.current_digest,
+                item.quality_status,
+                item.install_state,
+                item.active_evaluation_run_id,
+                item.latest_evaluation_run_id,
+                item.review_state,
+                item.review_revision,
+                item.quality_run_id,
+                item.quality_reason,
+            ) = projection
+            item.state = self._derive_state(item)
+            item.session_revision += 1
+            item.updated_at = time.time()
+            return self._save_or_restore_unlocked(item, previous)
+
     def set_evidence(
         self,
         session_id: str,
@@ -319,6 +516,9 @@ class SkillCreatorSessionStore:
             ):
                 return self._copy(item)
             previous = self._copy(item)
+            content_changed = bool(
+                item.current_digest and item.current_digest != clean_digest
+            )
             item.draft_id = clean_draft_id
             item.draft_state_revision = self._positive_int(
                 draft_state_revision, "draft_state_revision"
@@ -327,7 +527,19 @@ class SkillCreatorSessionStore:
                 content_revision, "content_revision"
             )
             item.current_digest = clean_digest
-            item.state = "editing_draft"
+            if content_changed:
+                item.active_evaluation_run_id = None
+                item.review_state = "none"
+                item.review_revision += 1
+                item.quality_status = (
+                    "outdated"
+                    if item.quality_status
+                    in {"running", "accepted", "eval_waived", "outdated"}
+                    else "not_evaluated"
+                )
+                item.quality_run_id = None
+                item.quality_reason = None
+            item.state = self._derive_state(item)
             item.session_revision += 1
             item.updated_at = time.time()
             return self._save_or_restore_unlocked(item, previous)
@@ -366,6 +578,19 @@ class SkillCreatorSessionStore:
         if item.state == "archived":
             return "archived"
         if item.draft_id:
+            if (
+                item.install_state == "current"
+                and item.quality_status in {"accepted", "eval_waived"}
+            ):
+                return "completed"
+            if item.review_state in {"accepted", "revise", "waived"}:
+                return "iterating"
+            if item.active_evaluation_run_id or (
+                item.latest_evaluation_run_id and item.review_state == "pending"
+            ):
+                return "reviewing_results"
+            if item.cases_revision > 0:
+                return "designing_tests"
             return "editing_draft"
         if item.intent and item.expected_output and item.success_criteria:
             return "selecting_evidence"
@@ -382,6 +607,36 @@ class SkillCreatorSessionStore:
         if value not in {"blank", "xpert_chat", "workflow_classic"}:
             raise SkillCreatorValidationError("Invalid Creator source kind.")
         return value
+
+    @staticmethod
+    def _quality_mode(value: Any) -> CreatorQualityMode:
+        if value not in {"objective", "subjective"}:
+            raise SkillCreatorValidationError("Invalid Creator quality mode.")
+        return value
+
+    @staticmethod
+    def _review_state(value: Any) -> CreatorReviewState:
+        if value not in {"none", "pending", "accepted", "revise", "waived"}:
+            raise SkillCreatorValidationError("Invalid Creator review state.")
+        return value
+
+    @staticmethod
+    def _quality_status(value: Any) -> str:
+        if value not in {
+            "not_evaluated",
+            "running",
+            "accepted",
+            "eval_waived",
+            "outdated",
+        }:
+            raise SkillCreatorValidationError("Invalid Creator quality status.")
+        return str(value)
+
+    @staticmethod
+    def _install_state(value: Any) -> str:
+        if value not in {"not_installed", "current", "outdated"}:
+            raise SkillCreatorValidationError("Invalid Creator install state.")
+        return str(value)
 
     @staticmethod
     def _validate_source(item: SkillCreatorSession) -> None:
@@ -582,6 +837,10 @@ class SkillCreatorSessionStore:
             raise ValueError("Creator assistant identity is immutable.")
         item.mode = self._mode(item.mode)
         item.source_kind = self._source_kind(item.source_kind)
+        item.quality_mode = self._quality_mode(item.quality_mode)
+        item.review_state = self._review_state(item.review_state)
+        item.quality_status = self._quality_status(item.quality_status)
+        item.install_state = self._install_state(item.install_state)
         self._validate_source(item)
         if item.state not in {
             "defining",
@@ -599,12 +858,33 @@ class SkillCreatorSessionStore:
         )
         if item.draft_state_revision < 0:
             raise ValueError("Invalid draft_state_revision.")
+        if item.cases_revision < 0 or item.review_revision < 0:
+            raise ValueError("Invalid Creator evaluation revision.")
         if item.current_revision is not None:
             item.current_revision = self._positive_int(
                 item.current_revision, "current_revision"
             )
         if item.current_digest is not None:
             item.current_digest = self._digest(item.current_digest, "current_digest")
+        if item.baseline_content_revision is not None:
+            item.baseline_content_revision = self._positive_int(
+                item.baseline_content_revision, "baseline_content_revision"
+            )
+        if item.baseline_content_digest is not None:
+            item.baseline_content_digest = self._digest(
+                item.baseline_content_digest, "baseline_content_digest"
+            )
+        for field_name in (
+            "active_evaluation_run_id",
+            "latest_evaluation_run_id",
+            "quality_run_id",
+        ):
+            setattr(
+                item,
+                field_name,
+                self._optional_text(getattr(item, field_name), 200),
+            )
+        item.quality_reason = self._optional_text(item.quality_reason, 4_000)
         item.intent = self._text(item.intent, "intent", maximum=8_000)
         item.positive_examples = self._text_list(
             item.positive_examples, "positive_examples", maximum_items=10

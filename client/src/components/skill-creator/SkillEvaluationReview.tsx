@@ -24,6 +24,7 @@ const ERROR_LABELS: Record<string, string> = {
   model_mismatch: "两侧实际模型不一致，结果不可比较。",
   tool_not_allowed: "运行尝试调用评测范围外的工具，已被阻断。",
   network_not_allowed: "运行尝试访问网络，已被离线 Sandbox 阻断。",
+  skill_evaluation_unresolved_tool_call: "模型返回了未执行的工具决策，结果已失败关闭。",
 };
 
 function statusLabel(status: SkillEvaluationRun["status"]) {
@@ -105,7 +106,7 @@ function ItemResult({ item, target }: { item?: SkillEvaluationItem; target: "bas
       ) : null}
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
         <span>{item.latency_ms != null ? `${(item.latency_ms / 1000).toFixed(1)} 秒` : "耗时待记录"}</span>
-        <span>{tokenCount != null ? `${tokenCount} tokens` : "token 待记录"}</span>
+        <span>{tokenCount != null && tokenCount > 0 ? `${tokenCount} tokens` : "token 用量未提供"}</span>
         <span>{item.actual_model || "实际模型待记录"}</span>
       </div>
     </article>
@@ -179,11 +180,14 @@ export default function SkillEvaluationReview({
     if (TERMINAL.has(run.status)) return;
     const timer = window.setInterval(() => {
       void readSkillCreatorEvaluation(run.run_id)
-        .then(onRunChange)
+        .then(async (nextRun) => {
+          onRunChange(nextRun);
+          if (TERMINAL.has(nextRun.status)) await onSessionRefresh();
+        })
         .catch((error) => onError(error, "评测进度刷新失败。"));
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [onError, onRunChange, run.run_id, run.status]);
+  }, [onError, onRunChange, onSessionRefresh, run.run_id, run.status]);
 
   const completedItems = run.items.filter((item) => item.status === "completed").length;
   const failedAssertions = run.items.some((item) => (item.assertion_results ?? item.assertions)?.some((assertion) => assertion.passed === false));

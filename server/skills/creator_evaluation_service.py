@@ -10,8 +10,10 @@ from .creator_evaluation import (
     SkillEvaluationExecutor,
     SkillEvaluationNotFoundError,
     SkillEvaluationRun,
+    SkillEvaluationStateError,
     SkillEvaluationStore,
     SkillEvaluationValidationError,
+    aggregate_skill_evaluation_report,
 )
 from .creator_store import (
     CreatorQualityMode,
@@ -90,8 +92,11 @@ class SkillCreatorEvaluationService:
     ]:
         session = self.session_store.require(session_id)
         draft = self._require_session_draft(session)
+        session, draft, recovered_case_set = self._recover_orphan_case_set(
+            session, draft
+        )
         session, draft, run = self._reconcile(session, draft)
-        case_set = self._current_case_set(session, draft)
+        case_set = recovered_case_set or self._current_case_set(session, draft)
         return (
             session,
             draft,
@@ -102,6 +107,17 @@ class SkillCreatorEvaluationService:
             ),
             run,
         )
+
+    def get_run_projection(
+        self, run_id: str
+    ) -> tuple[SkillCreatorSession, WorkspaceSkillDraft, SkillEvaluationRun]:
+        """Return one run after reconciling its authoritative Session/Draft projection."""
+
+        requested = self.evaluation_store.require_run(run_id)
+        session = self.session_store.require(requested.session_id)
+        draft = self._require_session_draft(session)
+        session, draft, _ = self._reconcile(session, draft)
+        return session, draft, self.evaluation_store.require_run(run_id)
 
     def save_cases(
         self,
@@ -431,8 +447,10 @@ class SkillCreatorEvaluationService:
             decision=decision,
             reason=reason,
             actor_kind="local_console",
+            acknowledge_failed_assertions=acknowledge_failed_assertions,
         )
         if decision == "accept":
+            self._require_failed_assertion_acknowledgement(run)
             review = run.reviews[-1]
             draft = self.draft_store.accept_evaluation(
                 draft.draft_id,
@@ -464,6 +482,10 @@ class SkillCreatorEvaluationService:
             expected_revision=expected_revision,
             expected_digest=expected_digest,
         )
+        if session.active_evaluation_run_id:
+            raise SkillCreatorConflictError(
+                "Cancel the active evaluation before waiving it."
+            )
         if session.quality_mode != "subjective":
             raise SkillCreatorValidationError(
                 "Only subjective Skills may waive automated evaluation.",
@@ -686,6 +708,44 @@ class SkillCreatorEvaluationService:
         except (SkillEvaluationConflictError, SkillEvaluationNotFoundError):
             return None
 
+    def _recover_orphan_case_set(
+        self,
+        session: SkillCreatorSession,
+        draft: WorkspaceSkillDraft,
+    ) -> tuple[SkillCreatorSession, WorkspaceSkillDraft, Any | None]:
+        """Bind exactly one interrupted CaseSet append to its Session projection.
+
+        A recoverable append must be the immediately following immutable revision and
+        must still describe the current draft digest and quality mode.  Any gap or
+        mismatched record remains fail-closed instead of guessing which cases won.
+        """
+
+        if session.active_evaluation_run_id:
+            return session, draft, None
+        try:
+            latest = self.evaluation_store.require_cases(session.session_id)
+        except SkillEvaluationNotFoundError:
+            return session, draft, None
+        if latest.cases_revision != session.cases_revision + 1:
+            return session, draft, None
+        if (
+            latest.draft_id != draft.draft_id
+            or latest.draft_revision != draft.content_revision
+            or not self._same_digest(latest.content_digest, draft.content_digest)
+            or latest.quality_mode != session.quality_mode
+        ):
+            return session, draft, None
+        draft = self._mark_outdated_if_needed(draft)
+        session = self.session_store.bind_cases(
+            session.session_id,
+            expected_session_revision=session.session_revision,
+            cases_revision=latest.cases_revision,
+            baseline_content_revision=draft.installed_content_revision,
+            baseline_content_digest=draft.installed_content_digest,
+        )
+        session = self._project_session(session, draft, None)
+        return session, draft, latest
+
     def _recoverable_run(
         self,
         session: SkillCreatorSession,
@@ -738,6 +798,7 @@ class SkillCreatorEvaluationService:
                 run.draft_id == draft.draft_id
                 and run.draft_revision == draft.content_revision
                 and self._same_digest(run.frozen_digest, draft.content_digest)
+                and run.case_set_revision == session.cases_revision
             ):
                 current_runs.append(run)
             elif run.status in {"queued", "running"}:
@@ -749,6 +810,7 @@ class SkillCreatorEvaluationService:
         if run is not None and run.status in {"queued", "running"}:
             draft = self._begin_or_reuse_draft_run(draft, run.run_id)
         if run is not None and run.review_state == "accepted" and run.reviews:
+            self._require_failed_assertion_acknowledgement(run)
             decision = draft.quality_decision
             if not (
                 draft.quality_status == "accepted"
@@ -768,8 +830,28 @@ class SkillCreatorEvaluationService:
                 )
         elif run is not None and run.review_state == "revise":
             draft = self._mark_outdated_if_needed(draft)
+        elif run is not None and run.status in {"failed", "cancelled", "stale"}:
+            draft = self._mark_outdated_if_needed(draft)
         session = self._project_session(session, draft, run)
         return session, draft, run
+
+    @staticmethod
+    def _require_failed_assertion_acknowledgement(
+        run: SkillEvaluationRun,
+    ) -> None:
+        failed_assertions = int(
+            aggregate_skill_evaluation_report(run).get("assertion_failed_count") or 0
+        )
+        if (
+            failed_assertions
+            and (
+                not run.reviews
+                or not run.reviews[-1].acknowledge_failed_assertions
+            )
+        ):
+            raise SkillEvaluationStateError(
+                "Accepted failed assertions are missing explicit acknowledgement."
+            )
 
     def _project_session(
         self,

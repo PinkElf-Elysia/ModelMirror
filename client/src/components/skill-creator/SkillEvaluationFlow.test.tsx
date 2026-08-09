@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -111,6 +111,7 @@ function evaluationRun(candidateRead: boolean, errorCode?: string): SkillEvaluat
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -205,6 +206,64 @@ describe("Skill Creator evaluation flow", () => {
 
     expect(screen.getAllByText("Sandbox sidecar 不可用，评测已失败关闭。").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "接受当前评测" })).toBeDisabled();
+  });
+
+  it("fails closed on unresolved tool control and never presents unknown usage as zero", () => {
+    const run = evaluationRun(true);
+    run.items = run.items.map((item, index) => ({
+      ...item,
+      ...(index === 1 ? {
+        status: "failed" as const,
+        output: "",
+        error_code: "skill_evaluation_unresolved_tool_call",
+      } : {}),
+      usage: index === 0 ? { total_tokens: 42 } : { estimated_tokens: 0 },
+    }));
+
+    render(
+      <SkillEvaluationReview
+        draft={draft}
+        onError={vi.fn()}
+        onNotice={vi.fn()}
+        onRunChange={vi.fn()}
+        onSessionRefresh={vi.fn()}
+        run={run}
+        session={session}
+      />,
+    );
+
+    expect(screen.getAllByText("模型返回了未执行的工具决策，结果已失败关闭。").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("42 tokens").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("token 用量未提供").length).toBeGreaterThan(0);
+    expect(screen.queryByText("0 tokens")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "接受当前评测" })).toBeDisabled();
+  });
+
+  it("refreshes the session projection when polling first reaches a terminal run", async () => {
+    vi.useFakeTimers();
+    const completedRun = evaluationRun(true);
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ version: 1, run: completedRun })));
+    const onRunChange = vi.fn();
+    const onSessionRefresh = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SkillEvaluationReview
+        draft={draft}
+        onError={vi.fn()}
+        onNotice={vi.fn()}
+        onRunChange={onRunChange}
+        onSessionRefresh={onSessionRefresh}
+        run={{ ...completedRun, status: "running" }}
+        session={session}
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(onRunChange).toHaveBeenCalledWith(completedRun);
+    expect(onSessionRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("submits human acceptance only for a comparable completed run", async () => {

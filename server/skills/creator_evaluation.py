@@ -18,6 +18,8 @@ from typing import Any, Literal, Protocol
 
 from jsonschema import Draft202012Validator
 
+from .package_validation import compute_package_digest, scan_skill_package_credentials
+
 
 SkillEvaluationTarget = Literal["baseline", "candidate"]
 SkillEvaluationRunStatus = Literal[
@@ -148,6 +150,7 @@ class SkillEvaluationReview:
     feedback_revision: int
     feedback: str
     actor_kind: str
+    acknowledge_failed_assertions: bool = False
     created_at: float = field(default_factory=time.time)
 
 
@@ -251,6 +254,25 @@ class SkillEvaluationStore:
         overlay_id: str | None = None,
     ) -> SkillEvaluationOverlay:
         clean_package = self._json_mapping(package, "package")
+        skill_markdown = clean_package.get("skill_markdown")
+        files = clean_package.get("files")
+        if not isinstance(skill_markdown, str) or not isinstance(files, Mapping):
+            raise SkillEvaluationValidationError(
+                "Evaluation overlay package is incomplete.",
+                code="skill_evaluation_overlay_invalid",
+            )
+        try:
+            actual_digest = compute_package_digest(skill_markdown, files)
+        except (TypeError, ValueError) as exc:
+            raise SkillEvaluationValidationError(
+                "Evaluation overlay package cannot be digested.",
+                code="skill_evaluation_overlay_invalid",
+            ) from exc
+        clean_digest = self._digest(content_digest, "content_digest")
+        if actual_digest != clean_digest:
+            raise SkillEvaluationConflictError(
+                "Evaluation overlay package does not match its frozen digest."
+            )
         encoded = self._canonical_json(clean_package).encode("utf-8")
         if len(encoded) > self.MAX_PACKAGE_BYTES:
             raise SkillEvaluationValidationError(
@@ -264,7 +286,7 @@ class SkillEvaluationStore:
             ),
             draft_id=self._identifier(draft_id, "draft_id"),
             draft_revision=self._positive_int(draft_revision, "draft_revision"),
-            content_digest=self._digest(content_digest, "content_digest"),
+            content_digest=clean_digest,
             package=clean_package,
             package_fingerprint=hashlib.sha256(encoded).hexdigest(),
         )
@@ -332,6 +354,10 @@ class SkillEvaluationStore:
                 "Evaluation case ids must be unique.",
                 code="skill_evaluation_case_duplicate",
             )
+        self._reject_credentials(
+            {"cases": [asdict(item) for item in clean_cases]},
+            code="skill_evaluation_case_credentials_blocked",
+        )
         fingerprint_payload = {
             "session_id": clean_session_id,
             "draft_id": clean_draft_id,
@@ -347,12 +373,17 @@ class SkillEvaluationStore:
             self._ensure_writable_unlocked()
             revisions = self._case_sets.get(clean_session_id) or []
             current_revision = len(revisions)
+            if (
+                revisions
+                and revisions[-1].case_set_fingerprint == fingerprint
+                and current_revision
+                in {int(expected_revision), int(expected_revision) + 1}
+            ):
+                return copy.deepcopy(revisions[-1])
             if int(expected_revision) != current_revision:
                 raise SkillEvaluationConflictError(
                     "Evaluation cases changed. Reload before saving."
                 )
-            if revisions and revisions[-1].case_set_fingerprint == fingerprint:
-                return copy.deepcopy(revisions[-1])
             item = SkillEvaluationCaseSet(
                 session_id=clean_session_id,
                 cases_revision=current_revision + 1,
@@ -642,23 +673,30 @@ class SkillEvaluationStore:
             if run.status in {"completed", "cancelled", "stale"}:
                 return copy.deepcopy(run)
             previous = self._snapshot_unlocked()
+            clean_error, clean_code = self._safe_failure(error, code)
             for item in run.items:
                 if item.status in {"pending", "running"}:
                     item.status = "failed"
-                    item.error_code = str(code)[:120]
-                    item.error = str(error)[:500]
+                    item.error_code = clean_code
+                    item.error = clean_error
                     item.updated_at = time.time()
             run.status = "failed"
-            run.error = str(error)[:500]
+            run.error = clean_error
             run.completed_at = time.time()
             self._touch_run(run)
             self._save_or_restore_unlocked(previous)
             return copy.deepcopy(run)
 
-    def cancel_run(self, run_id: str) -> SkillEvaluationRun:
+    def cancel_run(
+        self, run_id: str, *, expected_revision: int | None = None
+    ) -> SkillEvaluationRun:
         with self._lock:
             self._ensure_writable_unlocked()
             run = self._run_unlocked(run_id)
+            if expected_revision is not None and run.revision != expected_revision:
+                raise SkillEvaluationConflictError(
+                    "The evaluation changed before it could be cancelled."
+                )
             if run.status in {"completed", "failed", "cancelled", "stale"}:
                 return copy.deepcopy(run)
             previous = self._snapshot_unlocked()
@@ -677,11 +715,19 @@ class SkillEvaluationStore:
             return copy.deepcopy(run)
 
     def retry_run(
-        self, run_id: str, *, case_ids: list[str] | None = None
+        self,
+        run_id: str,
+        *,
+        expected_revision: int | None = None,
+        case_ids: list[str] | None = None,
     ) -> SkillEvaluationRun:
         with self._lock:
             self._ensure_writable_unlocked()
             run = self._run_unlocked(run_id)
+            if expected_revision is not None and run.revision != expected_revision:
+                raise SkillEvaluationConflictError(
+                    "The evaluation changed before it could be retried."
+                )
             if run.review_state != "pending" or run.reviews:
                 raise SkillEvaluationConflictError(
                     "Reviewed evaluations cannot be retried."
@@ -765,6 +811,7 @@ class SkillEvaluationStore:
         decision: SkillEvaluationReviewDecision,
         reason: str,
         actor_kind: str = "local_console",
+        acknowledge_failed_assertions: bool = False,
     ) -> SkillEvaluationRun:
         with self._lock:
             self._ensure_writable_unlocked()
@@ -790,22 +837,32 @@ class SkillEvaluationStore:
                     "Invalid evaluation review decision."
                 )
             clean_reason = str(reason or "").strip()
+            self._reject_credentials(
+                {"reason": clean_reason, "feedback": run.feedback},
+                code="skill_evaluation_feedback_credentials_blocked",
+            )
             if decision == "revise" and not (clean_reason or run.feedback.strip()):
                 raise SkillEvaluationValidationError(
                     "Revision feedback is required.",
                     code="skill_evaluation_feedback_required",
                 )
-            report = run.report or aggregate_skill_evaluation_report(run)
+            report = aggregate_skill_evaluation_report(run)
             if decision == "accept":
                 if not bool(report.get("eligible_for_accept")):
                     raise SkillEvaluationStateError(
                         "Evaluation is not eligible for acceptance."
                     )
-                if int(report.get("assertion_failed_count") or 0) and not clean_reason:
-                    raise SkillEvaluationValidationError(
-                        "Accepting failed assertions requires a reason.",
-                        code="skill_evaluation_accept_reason_required",
-                    )
+                if int(report.get("assertion_failed_count") or 0):
+                    if not bool(acknowledge_failed_assertions):
+                        raise SkillEvaluationValidationError(
+                            "Accepting failed assertions requires explicit acknowledgement.",
+                            code="skill_evaluation_failed_assertions_unacknowledged",
+                        )
+                    if not clean_reason:
+                        raise SkillEvaluationValidationError(
+                            "Accepting failed assertions requires a reason.",
+                            code="skill_evaluation_accept_reason_required",
+                        )
             previous = self._snapshot_unlocked()
             review = SkillEvaluationReview(
                 review_id=f"skill_eval_review_{uuid.uuid4().hex}",
@@ -816,6 +873,9 @@ class SkillEvaluationStore:
                 feedback=run.feedback,
                 actor_kind=self._required_text(
                     actor_kind, "actor_kind", maximum=80
+                ),
+                acknowledge_failed_assertions=(
+                    bool(acknowledge_failed_assertions) if decision == "accept" else False
                 ),
             )
             run.reviews.append(review)
@@ -839,6 +899,10 @@ class SkillEvaluationStore:
                 "Invalid evaluation feedback.",
                 code="skill_evaluation_feedback_invalid",
             )
+        self._reject_credentials(
+            {"feedback": feedback},
+            code="skill_evaluation_feedback_credentials_blocked",
+        )
         with self._lock:
             self._ensure_writable_unlocked()
             run = self._run_unlocked(run_id)
@@ -1102,6 +1166,13 @@ class SkillEvaluationStore:
         if not isinstance(raw, dict):
             raise ValueError("overlay must be an object")
         package = cls._json_mapping(raw.get("package"), "package")
+        skill_markdown = package.get("skill_markdown")
+        files = package.get("files")
+        if not isinstance(skill_markdown, str) or not isinstance(files, Mapping):
+            raise ValueError("overlay package is incomplete")
+        content_digest = cls._digest(raw.get("content_digest"), "content_digest")
+        if compute_package_digest(skill_markdown, files) != content_digest:
+            raise ValueError("overlay package content digest mismatch")
         encoded = cls._canonical_json(package).encode("utf-8")
         fingerprint = hashlib.sha256(encoded).hexdigest()
         if cls._digest(raw.get("package_fingerprint"), "package_fingerprint") != fingerprint:
@@ -1112,9 +1183,7 @@ class SkillEvaluationStore:
             draft_revision=cls._positive_int(
                 raw.get("draft_revision"), "draft_revision"
             ),
-            content_digest=cls._digest(
-                raw.get("content_digest"), "content_digest"
-            ),
+            content_digest=content_digest,
             package=package,
             package_fingerprint=fingerprint,
             created_at=cls._timestamp(raw.get("created_at")),
@@ -1205,7 +1274,7 @@ class SkillEvaluationStore:
         reviews = [cls._parse_review(item) for item in reviews_raw]
         if bool(reviews) != (review_state != "pending"):
             raise ValueError("review state does not match review history")
-        return SkillEvaluationRun(
+        run = SkillEvaluationRun(
             run_id=cls._identifier(raw.get("run_id"), "run_id"),
             session_id=cls._identifier(raw.get("session_id"), "session_id"),
             draft_id=cls._identifier(raw.get("draft_id"), "draft_id"),
@@ -1251,6 +1320,18 @@ class SkillEvaluationStore:
             started_at=cls._optional_timestamp(raw.get("started_at")),
             completed_at=cls._optional_timestamp(raw.get("completed_at")),
         )
+        if run.review_state == "accepted" and run.reviews:
+            failed_assertions = int(
+                aggregate_skill_evaluation_report(run).get(
+                    "assertion_failed_count"
+                )
+                or 0
+            )
+            if failed_assertions and not run.reviews[-1].acknowledge_failed_assertions:
+                raise ValueError(
+                    "accepted review is missing failed-assertion acknowledgement"
+                )
+        return run
 
     @classmethod
     def _parse_item(cls, raw: Any) -> SkillEvaluationItem:
@@ -1311,6 +1392,9 @@ class SkillEvaluationStore:
         decision = str(raw.get("decision") or "")
         if decision not in {"accept", "revise"}:
             raise ValueError("invalid review decision")
+        acknowledgement = raw.get("acknowledge_failed_assertions", False)
+        if not isinstance(acknowledgement, bool):
+            raise ValueError("invalid failed-assertion acknowledgement")
         return SkillEvaluationReview(
             review_id=cls._identifier(raw.get("review_id"), "review_id"),
             review_revision=cls._positive_int(
@@ -1325,6 +1409,7 @@ class SkillEvaluationStore:
             actor_kind=cls._required_text(
                 raw.get("actor_kind"), "actor_kind", maximum=80
             ),
+            acknowledge_failed_assertions=acknowledgement,
             created_at=cls._timestamp(raw.get("created_at")),
         )
 
@@ -1451,6 +1536,19 @@ class SkillEvaluationStore:
                 "Judge and network configuration are not supported by Skill evaluation.",
                 code="skill_evaluation_config_forbidden",
             )
+        profile = str(raw.get("isolation_profile") or "skill_evaluation_v1")
+        engine = str(raw.get("sidecar_engine") or "modelmirror-sandbox-v1")
+        network_policy = str(raw.get("network_policy") or "none")
+        if (
+            profile != "skill_evaluation_v1"
+            or engine != "modelmirror-sandbox-v1"
+            or network_policy != "none"
+            or raw.get("landlock_required", True) is not True
+        ):
+            raise SkillEvaluationValidationError(
+                "Skill evaluation isolation attestation is invalid.",
+                code="skill_evaluation_isolation_invalid",
+            )
         return {
             "timeout_seconds": cls._bounded_int(
                 raw.get("timeout_seconds", 120),
@@ -1477,12 +1575,20 @@ class SkillEvaluationStore:
                 maximum=2_147_483_647,
             ),
             "temperature": 0,
+            "isolation_profile": profile,
+            "sidecar_engine": engine,
+            "network_policy": network_policy,
+            "landlock_required": True,
         }
 
     @classmethod
     def _apply_item_result(
         cls, item: SkillEvaluationItem, result: Mapping[str, Any]
     ) -> None:
+        cls._reject_credentials(
+            dict(result),
+            code="skill_evaluation_result_credentials_blocked",
+        )
         status = str(result.get("status") or "completed")
         if status not in {"completed", "failed", "cancelled", "skill_not_read"}:
             raise SkillEvaluationValidationError("Invalid evaluation item result status.")
@@ -1511,6 +1617,29 @@ class SkillEvaluationStore:
         item.error_code = cls._optional_text(result.get("error_code"), maximum=120)
         item.error = cls._optional_text(result.get("error"), maximum=500)
         item.updated_at = time.time()
+
+    @classmethod
+    def _reject_credentials(cls, payload: Any, *, code: str) -> None:
+        try:
+            encoded = cls._canonical_json(payload)
+        except (TypeError, ValueError):
+            encoded = str(payload)
+        if scan_skill_package_credentials(skill_markdown=encoded):
+            raise SkillEvaluationValidationError(
+                "Blocked credential material was detected in Skill evaluation data.",
+                code=code,
+            )
+
+    @classmethod
+    def _safe_failure(cls, error: Any, code: Any) -> tuple[str, str]:
+        clean_error = str(error or "Evaluation failed.")[:500]
+        clean_code = str(code or "evaluation_failed")[:120]
+        if scan_skill_package_credentials(skill_markdown=clean_error):
+            return (
+                "Evaluation failed because blocked credential material was detected.",
+                "skill_evaluation_credentials_blocked",
+            )
+        return clean_error, clean_code
 
     @staticmethod
     def _attempt_snapshot(item: SkillEvaluationItem) -> dict[str, Any]:
@@ -1557,11 +1686,38 @@ class SkillEvaluationStore:
         if not isinstance(raw, Mapping):
             raise SkillEvaluationValidationError("Evaluation usage must be an object.")
         result: dict[str, int] = {}
-        for key in ("model_calls", "tool_calls", "input_tokens", "output_tokens", "estimated_tokens"):
-            value = int(raw.get(key) or 0)
+
+        def read_metric(key: str) -> int | None:
+            if key not in raw or raw.get(key) is None:
+                return None
+            value = int(raw[key])
             if value < 0:
                 raise SkillEvaluationValidationError("Evaluation usage cannot be negative.")
-            result[key] = value
+            return value
+
+        for key in ("model_calls", "tool_calls"):
+            value = read_metric(key)
+            if value is not None:
+                result[key] = value
+
+        # Preserve exact provider fields while also exposing the canonical names
+        # used by evaluation reports. A successful response with an absent/zero
+        # token receipt is unknown usage, not a trustworthy measurement of zero.
+        for key in (
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+            "estimated_tokens",
+        ):
+            value = read_metric(key)
+            if value is not None and value > 0:
+                result[key] = value
+        if "input_tokens" not in result and "prompt_tokens" in result:
+            result["input_tokens"] = result["prompt_tokens"]
+        if "output_tokens" not in result and "completion_tokens" in result:
+            result["output_tokens"] = result["completion_tokens"]
         return result
 
     @staticmethod
@@ -1774,6 +1930,11 @@ def normalize_runner_result(
             "Skill evaluation runner output must be text.",
             code="skill_evaluation_runner_result_invalid",
         )
+    if _looks_like_unresolved_tool_control(output):
+        raise SkillEvaluationValidationError(
+            "Skill evaluation returned an unresolved tool decision instead of a final answer.",
+            code="skill_evaluation_unresolved_tool_call",
+        )
     actual_model = SkillEvaluationStore._required_text(
         source.get("actual_model"), "actual_model", maximum=300
     )
@@ -1792,6 +1953,60 @@ def normalize_runner_result(
         runtime_run_id=SkillEvaluationStore._optional_identifier(
             source.get("runtime_run_id")
         ),
+    )
+
+
+def _looks_like_unresolved_tool_control(output: str) -> bool:
+    """Reject a pure model-control envelope before it can become scored output."""
+
+    stripped = output.strip()
+    try:
+        payload = json.loads(stripped)
+    except ValueError:
+        return False
+    # Some OpenAI-compatible gateways return the JSON control envelope as a
+    # JSON-encoded string when native tool calls are unavailable. Decode one
+    # bounded extra layer so that it cannot be mistaken for user-facing text.
+    nested_string = isinstance(payload, str)
+    if nested_string:
+        nested = payload.strip()
+        if not nested.startswith("{") or not nested.endswith("}"):
+            return False
+        try:
+            payload = json.loads(nested)
+        except ValueError:
+            return False
+    if not isinstance(payload, dict):
+        return False
+    keys = {str(key) for key in payload}
+    if (
+        nested_string
+        and keys == {"answer"}
+        and isinstance(payload.get("answer"), str)
+        and payload["answer"].strip()
+    ):
+        return True
+    tool_name = payload.get("tool") or payload.get("tool_name")
+    argument_keys = {"arguments", "input", "parameters", "action_input"}
+    envelope_keys = {
+        "tool",
+        "tool_name",
+        "arguments",
+        "input",
+        "parameters",
+        "action_input",
+        "id",
+        "type",
+    }
+    return bool(
+        isinstance(tool_name, str)
+        and tool_name.strip()
+        and keys.intersection(argument_keys)
+        and keys.issubset(envelope_keys)
+    ) or bool(
+        isinstance(payload.get("tools"), list)
+        and payload["tools"]
+        and keys.issubset({"tools", "id", "type"})
     )
 
 

@@ -31,7 +31,7 @@ function proposal(status: SkillCreatorProposal["status"]): SkillCreatorProposal 
 }
 
 describe("SkillProposalReview terminal states", () => {
-  it("separates structural validity, draft completeness, and the future behavior evaluation", () => {
+  it("separates structural validity, draft completeness, and behavior evaluation", () => {
     render(
       <SkillProposalReview
         approving={false}
@@ -47,7 +47,7 @@ describe("SkillProposalReview terminal states", () => {
     expect(screen.getByRole("heading", { name: "行为评测" })).toBeVisible();
     expect(screen.getByText("校验通过")).toBeVisible();
     expect(screen.getByText("后端未报告")).toBeVisible();
-    expect(screen.getByText("PR3 尚未开放")).toBeVisible();
+    expect(screen.getByText("草稿批准后进入三例行为评测")).toBeVisible();
     expect(screen.getByText("兼容旧响应；结构通过不等于内容完整。批准仍由服务端规则决定。")).toBeVisible();
   });
 
@@ -117,7 +117,7 @@ describe("SkillProposalReview terminal states", () => {
     );
 
     expect(screen.getByText("门槛通过 · 88 分")).toBeVisible();
-    expect(screen.getByText("PR3 尚未开放")).toBeVisible();
+    expect(screen.getByText("草稿批准后进入三例行为评测")).toBeVisible();
     expect(screen.getByRole("button", { name: "批准并写入草稿" })).toBeEnabled();
   });
 

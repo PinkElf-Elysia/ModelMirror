@@ -13,8 +13,8 @@ THIRD_PARTY_NOTICES.md. Anthropic does not endorse this modification.
 
 Use this playbook only inside the trusted `skill-creator-assistant-v1` draft
 generator. Produce a complete, reviewable draft; never claim that the draft has
-passed behavioral evaluation. PR3 owns baseline/candidate evaluation and the
-installation quality gate.
+passed behavioral evaluation. Behavioral evaluation and the installation
+quality gate run outside this drafting workflow.
 
 ## 1. Turn the session into explicit requirements
 
@@ -108,7 +108,8 @@ link to deeper references. Add a table of contents to a reference longer than
   draft.
 - Do not claim a script works merely because it parses. Give it conservative
   failure behavior and leave runtime evaluation to the evaluation phase.
-- Do not create `evals/` in PR2. The Creator session stores test design in PR3.
+- Do not create `eval/` or `evals/` in the Skill package. Test cases remain in
+  ModelMirror's independent Evaluation Store.
 
 ## 6. Return one typed proposal
 
