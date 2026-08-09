@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,7 +28,11 @@ from server.coding_project_host.windows_helper import (
     public_project,
     validate_server_url,
 )
-from server.coding_runtime.projects import build_safe_git_environment
+from server.coding_runtime.projects import build_safe_git_command, build_safe_git_environment
+
+
+ROOT_IDENTITY = "1-2"
+GIT_IDENTITY = "1-3"
 
 
 class XorProtector:
@@ -66,6 +71,39 @@ def _repository(tmp_path: Path) -> Path:
     return project
 
 
+def _directory_link(link: Path, target: Path) -> None:
+    if os.name == "nt":
+        result = subprocess.run(
+            ("cmd", "/c", "mklink", "/J", str(link), str(target)),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            text=True,
+        )
+        if result.returncode != 0:
+            pytest.skip(f"Directory junctions are unavailable: {result.stderr}")
+        return
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("Directory symlinks are unavailable on this test host")
+
+
+def _replace_repository_identity(project: Path, tmp_path: Path, target: str) -> None:
+    if target == "root":
+        backup = tmp_path / "original-project"
+        project.rename(backup)
+        shutil.copytree(backup, project)
+        return
+    if target == "git":
+        backup = tmp_path / "original-dot-git"
+        (project / ".git").rename(backup)
+        shutil.copytree(backup, project / ".git")
+        return
+    raise AssertionError(target)
+
+
 def test_registry_encrypts_token_path_and_device_secret(tmp_path: Path) -> None:
     state_path = tmp_path / "state.bin"
     registry = ProjectHostRegistry(state_path, XorProtector())
@@ -81,6 +119,8 @@ def test_registry_encrypts_token_path_and_device_secret(tmp_path: Path) -> None:
             "state": "available",
             "reason": "",
             "path": project_path,
+            "root_identity": ROOT_IDENTITY,
+            "git_identity": GIT_IDENTITY,
         }
     )
 
@@ -91,6 +131,109 @@ def test_registry_encrypts_token_path_and_device_secret(tmp_path: Path) -> None:
     restored = ProjectHostRegistry(state_path, XorProtector())
     assert restored.credentials == ("phost_0123456789abcdef0123456789abcdef", token)
     assert restored.projects()[0]["path"] == project_path
+
+
+def test_registry_never_persists_an_inventory_above_server_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    monkeypatch.setattr(registry, "_persist", lambda: None)
+    for index in range(50):
+        registry.remember_project(
+            {
+                "project_id": f"hostgit_{index:032x}",
+                "name": f"project-{index}",
+                "branch": "main",
+                "head": "a" * 40,
+                "state": "available",
+                "reason": "",
+                "path": f"C:\\projects\\project-{index}",
+                "root_identity": f"1-{index + 10:x}",
+                "git_identity": f"2-{index + 10:x}",
+            }
+        )
+
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        registry.remember_project(
+            {
+                "project_id": f"hostgit_{50:032x}",
+                "name": "project-50",
+                "branch": "main",
+                "head": "a" * 40,
+                "state": "available",
+                "reason": "",
+                "path": "C:\\projects\\project-50",
+                "root_identity": "1-3c",
+                "git_identity": "2-3c",
+            }
+        )
+
+    assert rejected.value.code == "project_limit_exceeded"
+    assert len(registry.projects()) == 50
+
+
+def test_legacy_registry_project_is_loaded_only_as_reselection_tombstone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_path = tmp_path / "state.bin"
+    protector = XorProtector()
+    seed = ProjectHostRegistry(state_path, protector)
+    project_id = "hostgit_0123456789abcdef0123456789abcdef"
+    legacy = dict(seed._state)
+    legacy["projects"] = {
+        project_id: {
+            "project_id": project_id,
+            "name": "legacy-project",
+            "branch": "main",
+            "head": "a" * 40,
+            "state": "available",
+            "reason": "",
+            "path": "C:\\legacy\\project",
+        }
+    }
+    encoded = json.dumps(
+        legacy,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    state_path.write_bytes(
+        windows_helper_module.STATE_MAGIC
+        + base64.b64encode(protector.protect(encoded))
+    )
+
+    restored = ProjectHostRegistry(state_path, protector)
+    [tombstone] = restored.projects()
+    assert tombstone["state"] == "unavailable"
+    assert tombstone["reason"] == "project_reselection_required"
+    assert "root_identity" not in tombstone
+    assert "git_identity" not in tombstone
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        restored.project(project_id)
+    assert rejected.value.code == "project_reselection_required"
+
+    monkeypatch.setattr(
+        windows_helper_module,
+        "inspect_git_project",
+        lambda *_args, **_kwargs: pytest.fail("Legacy inventory must not bind a new identity"),
+    )
+    sent: list[dict[str, object]] = []
+
+    class FakeWebSocket:
+        async def send(self, message: str) -> None:
+            sent.append(json.loads(message))
+
+    transport = ProjectHostTransport(
+        restored,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=lambda: None,
+    )
+    asyncio.run(transport._send_inventory(FakeWebSocket()))
+    assert sent[0]["projects"][0]["state"] == "unavailable"  # type: ignore[index]
+    assert sent[0]["projects"][0]["reason"] == "project_reselection_required"  # type: ignore[index]
 
 
 def test_registry_head_update_is_idempotent_and_rejects_wrong_branch(
@@ -109,6 +252,8 @@ def test_registry_head_update_is_idempotent_and_rejects_wrong_branch(
             "state": "available",
             "reason": "",
             "path": "C:\\random\\nebula-k8r3",
+            "root_identity": ROOT_IDENTITY,
+            "git_identity": GIT_IDENTITY,
         }
     )
     persist_calls = 0
@@ -155,17 +300,133 @@ def test_git_inspection_accepts_remote_without_reading_or_returning_it(tmp_path:
     assert "example.invalid" not in encoded
 
 
+@pytest.mark.parametrize("replacement", ["root", "git"])
+def test_bound_inspection_rejects_same_repository_content_with_new_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replacement: str,
+) -> None:
+    project = _repository(tmp_path)
+    secret = b"k" * 32
+    baseline = inspect_git_project(project, secret, enforce_windows=False)
+    _replace_repository_identity(project, tmp_path, replacement)
+    assert _git(project, "symbolic-ref", "--short", "HEAD") == baseline["branch"]
+    assert _git(project, "rev-parse", "HEAD") == baseline["head"]
+
+    original_run_git = windows_helper_module._run_git
+    monkeypatch.setattr(
+        windows_helper_module,
+        "_run_git",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Identity mismatch must be rejected before any repository Git command"
+        ),
+    )
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        inspect_git_project(
+            project,
+            secret,
+            enforce_windows=False,
+            expected_root_identity=baseline["root_identity"],
+            expected_git_identity=baseline["git_identity"],
+        )
+    assert rejected.value.code == "project_identity_changed"
+
+    monkeypatch.setattr(windows_helper_module, "_run_git", original_run_git)
+    reselected = inspect_git_project(project, secret, enforce_windows=False)
+    assert reselected["project_id"] != baseline["project_id"]
+    assert reselected["branch"] == baseline["branch"]
+    assert reselected["head"] == baseline["head"]
+
+
+@pytest.mark.asyncio
+async def test_reselection_publishes_old_identity_tombstone_before_new_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _repository(tmp_path)
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    original = inspect_git_project(project, registry.device_secret, enforce_windows=False)
+    registry.remember_project(original)
+    _replace_repository_identity(project, tmp_path, "root")
+    replacement = inspect_git_project(project, registry.device_secret, enforce_windows=False)
+    assert replacement["project_id"] != original["project_id"]
+    assert replacement["branch"] == original["branch"]
+    assert replacement["head"] == original["head"]
+
+    def selected_or_bound(*_args, **kwargs):
+        if kwargs:
+            assert kwargs["expected_root_identity"] == replacement["root_identity"]
+            assert kwargs["expected_git_identity"] == replacement["git_identity"]
+        return dict(replacement)
+
+    monkeypatch.setattr(
+        windows_helper_module,
+        "inspect_git_project",
+        selected_or_bound,
+    )
+    sent: list[dict[str, object]] = []
+
+    class FakeWebSocket:
+        async def send(self, message: str) -> None:
+            sent.append(json.loads(message))
+
+    transport = ProjectHostTransport(
+        registry,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=lambda: str(project),
+    )
+    await transport._handle_message(
+        FakeWebSocket(),
+        json.dumps(
+            {
+                "type": "select_project",
+                "request_id": "phreq_0123456789abcdef0123456789abcdef",
+            }
+        ),
+    )
+
+    assert [message["type"] for message in sent] == ["inventory", "selection_result"]
+    inventory = {
+        item["project_id"]: item
+        for item in sent[0]["projects"]  # type: ignore[index]
+    }
+    assert inventory[original["project_id"]]["state"] == "unavailable"
+    assert (
+        inventory[original["project_id"]]["reason"]
+        == "project_reselection_required"
+    )
+    assert inventory[replacement["project_id"]]["state"] == "available"
+    with pytest.raises(ProjectHostHelperError) as stale:
+        registry.project(original["project_id"])
+    assert stale.value.code == "project_reselection_required"
+    assert registry.project(replacement["project_id"])["root_identity"] == replacement[
+        "root_identity"
+    ]
+
+
 @pytest.mark.parametrize("inspection", ["initial", "recovery"])
 @pytest.mark.parametrize(
     ("config_name", "config_value"),
     [
+        ("include.path", "../outside-config"),
+        ("includeIf.onbranch:main.path", "../outside-config"),
+        ("filter.nebula.clean", "outside-filter"),
+        ("credential.helper", "outside-credential-helper"),
+        ("diff.nebula.textconv", "outside-textconv"),
+        ("diff.nebula.external", "outside-diff-driver"),
+        ("url.https://example.invalid/.insteadOf", "private:"),
+        ("core.worktree", "../outside-worktree"),
+        ("core.excludesFile", "../outside-excludes"),
+        ("extensions.worktreeConfig", "true"),
+        ("extensions.refStorage", "reftable"),
         ("extensions.partialClone", "origin"),
         ("remote.origin.promisor", "true"),
         ("remote..promisor", "true"),
         ("remote.origin.partialCloneFilter", "blob:none"),
     ],
 )
-def test_git_inspection_rejects_lazy_fetch_config_before_object_resolution(
+def test_git_inspection_rejects_unsafe_config_before_object_resolution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     inspection: str,
@@ -195,6 +456,8 @@ def test_git_inspection_rejects_lazy_fetch_config_before_object_resolution(
                 expected_project_id=baseline["project_id"],
                 expected_branch=baseline["branch"],
                 expected_head=baseline["head"],
+                expected_root_identity=baseline["root_identity"],
+                expected_git_identity=baseline["git_identity"],
                 enforce_windows=False,
             )
 
@@ -204,7 +467,11 @@ def test_git_inspection_rejects_lazy_fetch_config_before_object_resolution(
     object_commands = {"rev-parse", "ls-tree", "cat-file", "diff", "status"}
     assert all(object_commands.isdisjoint(command) for command in commands)
     assert all(env["GIT_NO_LAZY_FETCH"] == "1" for env in environments)
-    assert build_safe_git_environment()["GIT_NO_LAZY_FETCH"] == "1"
+    safe_environment = build_safe_git_environment()
+    assert safe_environment["GIT_NO_LAZY_FETCH"] == "1"
+    assert safe_environment["GIT_NO_REPLACE_OBJECTS"] == "1"
+    safe_command = build_safe_git_command(project, ("status", "--porcelain=v2"))
+    assert f"core.excludesFile={os.devnull}" in safe_command
     assert (project / "README.md").read_bytes() == b"marker: q7m4\n"
 
 
@@ -234,11 +501,214 @@ def test_git_inspection_rejects_http_alternates_without_running_git(
                 expected_project_id=baseline["project_id"],
                 expected_branch=baseline["branch"],
                 expected_head=baseline["head"],
+                expected_root_identity=baseline["root_identity"],
+                expected_git_identity=baseline["git_identity"],
                 enforce_windows=False,
             )
 
     assert rejected.value.code == "git_alternates_not_allowed"
     assert (project / "README.md").read_bytes() == b"marker: q7m4\n"
+
+
+@pytest.mark.parametrize("inspection", ["initial", "recovery"])
+@pytest.mark.parametrize(
+    "unsafe_metadata",
+    [
+        "config_hardlink",
+        "head_hardlink",
+        "index_hardlink",
+        "objects_reparse",
+        "refs_reparse",
+        "info_reparse",
+        "replace_refs",
+        "grafts",
+    ],
+)
+def test_git_inspection_rejects_unsafe_metadata_before_running_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inspection: str,
+    unsafe_metadata: str,
+) -> None:
+    project = _repository(tmp_path)
+    baseline = inspect_git_project(project, b"k" * 32, enforce_windows=False)
+    git_path = project / ".git"
+    if unsafe_metadata.endswith("_hardlink"):
+        name = unsafe_metadata.removesuffix("_hardlink")
+        source = git_path / {"config": "config", "head": "HEAD", "index": "index"}[name]
+        try:
+            os.link(source, tmp_path / f"{name}.outside-link")
+        except OSError:
+            pytest.skip("Hard links are unavailable on this test host")
+    elif unsafe_metadata.endswith("_reparse"):
+        name = unsafe_metadata.removesuffix("_reparse")
+        source = git_path / name
+        target = git_path / f"{name}-real"
+        source.rename(target)
+        _directory_link(source, target)
+    elif unsafe_metadata == "replace_refs":
+        (git_path / "refs" / "replace").mkdir()
+    else:
+        (git_path / "info" / "grafts").write_text(
+            baseline["head"] + "\n",
+            encoding="ascii",
+        )
+
+    monkeypatch.setattr(
+        windows_helper_module,
+        "_run_git",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Git must not run before rejecting unsafe metadata"
+        ),
+    )
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        if inspection == "initial":
+            inspect_git_project(project, b"k" * 32, enforce_windows=False)
+        else:
+            inspect_git_project_for_recovery(
+                project,
+                b"k" * 32,
+                expected_project_id=baseline["project_id"],
+                expected_branch=baseline["branch"],
+                expected_head=baseline["head"],
+                expected_root_identity=baseline["root_identity"],
+                expected_git_identity=baseline["git_identity"],
+                enforce_windows=False,
+            )
+
+    assert rejected.value.code == "git_metadata_unsafe"
+    assert (project / "README.md").read_bytes() == b"marker: q7m4\n"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows handle sharing gate")
+def test_registry_snapshot_holds_config_guard_across_archive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _repository(tmp_path)
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    inspected = inspect_git_project(project, registry.device_secret)
+    registry.remember_project(inspected)
+    blocked_writes: list[bool] = []
+
+    def guarded_archive(*_args, **_kwargs):
+        config = project / ".git" / "config"
+        try:
+            config.write_bytes(config.read_bytes() + b"\n[unsafe]\n")
+        except PermissionError:
+            blocked_writes.append(True)
+        else:
+            pytest.fail("Config write must be blocked while snapshot cat-file is running")
+        Path(_args[1]).write_bytes(b"guarded-archive")
+        return SimpleNamespace(project_id=inspected["project_id"])
+
+    monkeypatch.setattr(
+        windows_helper_module,
+        "create_host_snapshot_archive",
+        guarded_archive,
+    )
+    result, archive_identity = registry.create_snapshot(
+        inspected["project_id"],
+        tmp_path / "snapshot.tar.gz",
+    )
+
+    assert result.project_id == inspected["project_id"]
+    assert archive_identity
+    assert blocked_writes == [True]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows helper safety gate")
+def test_registry_snapshot_rejects_unsafe_config_before_archive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _repository(tmp_path)
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    inspected = inspect_git_project(project, registry.device_secret)
+    registry.remember_project(inspected)
+    _git(project, "config", "filter.nebula.clean", "outside-filter")
+    monkeypatch.setattr(
+        windows_helper_module,
+        "create_host_snapshot_archive",
+        lambda *_args, **_kwargs: pytest.fail("Unsafe project must not be archived"),
+    )
+
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        registry.create_snapshot(inspected["project_id"], tmp_path / "snapshot.tar.gz")
+
+    assert rejected.value.code == "git_config_unsafe"
+    assert not (tmp_path / "snapshot.tar.gz").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows selected-project identity gate")
+@pytest.mark.parametrize("replacement", ["root", "git"])
+def test_snapshot_and_operation_reject_replaced_selected_identity_before_side_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replacement: str,
+) -> None:
+    project = _repository(tmp_path)
+    registry = ProjectHostRegistry(tmp_path / "state.bin", XorProtector())
+    inspected = inspect_git_project(project, registry.device_secret)
+    registry.remember_project(inspected)
+    registered = registry.project(inspected["project_id"])
+    readme = (project / "README.md").read_bytes()
+    _replace_repository_identity(project, tmp_path, replacement)
+    assert _git(project, "symbolic-ref", "--short", "HEAD") == inspected["branch"]
+    assert _git(project, "rev-parse", "HEAD") == inspected["head"]
+
+    monkeypatch.setattr(
+        windows_helper_module,
+        "_run_git",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Identity mismatch must be rejected before Git"
+        ),
+    )
+    monkeypatch.setattr(
+        windows_helper_module,
+        "create_host_snapshot_archive",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Identity mismatch must be rejected before snapshot creation"
+        ),
+    )
+    monkeypatch.setattr(
+        windows_helper_module,
+        "HostGitApplyEngine",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Identity mismatch must be rejected before engine construction"
+        ),
+    )
+    monkeypatch.setattr(
+        windows_helper_module,
+        "HostGitCommitEngine",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Identity mismatch must be rejected before engine construction"
+        ),
+    )
+    archive = tmp_path / "snapshot.tar.gz"
+    with pytest.raises(ProjectHostHelperError) as snapshot_rejected:
+        registry.create_snapshot(inspected["project_id"], archive)
+    assert snapshot_rejected.value.code == "project_identity_changed"
+
+    transport = ProjectHostTransport(
+        registry,
+        "http://127.0.0.1:8000",
+        "12345678",
+        select_folder=lambda: None,
+    )
+    with pytest.raises(ProjectHostHelperError) as operation_rejected:
+        transport._execute_project_operation(
+            registered,
+            operation_id="apply_0123456789abcdef012345",
+            action="apply",
+            payload={},
+            branch=inspected["branch"],
+            baseline_head=inspected["head"],
+        )
+    assert operation_rejected.value.code == "project_identity_changed"
+    assert not archive.exists()
+    assert not (project / ".git" / "modelmirror-transactions").exists()
+    assert (project / "README.md").read_bytes() == readme
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows helper safety gate")
@@ -441,7 +911,7 @@ async def test_helper_handles_snapshot_request_without_closing_connection(
     monkeypatch.setattr(
         registry,
         "create_snapshot",
-        lambda *_args, **_kwargs: result,
+        lambda *_args, **_kwargs: (result, "1-2"),
     )
     transport = ProjectHostTransport(
         registry,
@@ -449,7 +919,7 @@ async def test_helper_handles_snapshot_request_without_closing_connection(
         "12345678",
         select_folder=lambda: None,
     )
-    monkeypatch.setattr(transport, "_upload_snapshot", lambda *_args: None)
+    monkeypatch.setattr(transport, "_upload_snapshot_exact", lambda *_args: None)
     sent: list[dict[str, object]] = []
 
     class FakeWebSocket:
@@ -700,6 +1170,8 @@ def test_helper_registry_tracks_commit_undo_and_revert_heads(tmp_path: Path) -> 
             "state": "available",
             "reason": "",
             "path": "C:\\random\\nebula-k8r3",
+            "root_identity": ROOT_IDENTITY,
+            "git_identity": GIT_IDENTITY,
         }
     )
     transport = ProjectHostTransport(
@@ -772,6 +1244,8 @@ async def test_second_cycle_dirty_inventory_uses_committed_head(
             "state": "available",
             "reason": "",
             "path": "C:\\random\\nebula-k8r3",
+            "root_identity": ROOT_IDENTITY,
+            "git_identity": GIT_IDENTITY,
         }
     )
     transport = ProjectHostTransport(
@@ -852,6 +1326,8 @@ def test_registry_persist_failure_turns_operation_result_unknown(
             "state": "available",
             "reason": "",
             "path": "C:\\random\\nebula-k8r3",
+            "root_identity": ROOT_IDENTITY,
+            "git_identity": GIT_IDENTITY,
         }
     )
     transport = ProjectHostTransport(

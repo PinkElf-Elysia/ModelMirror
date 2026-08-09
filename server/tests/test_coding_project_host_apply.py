@@ -65,6 +65,38 @@ def _repository(tmp_path: Path, files: dict[str, bytes]) -> tuple[Path, str, str
     return root, "feature/local-k8m2", _git(root, "rev-parse", "HEAD")
 
 
+def _directory_link(link: Path, target: Path) -> None:
+    if os.name == "nt":
+        result = subprocess.run(
+            ("cmd", "/c", "mklink", "/J", str(link), str(target)),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if result.returncode != 0:
+            pytest.skip("Directory junctions are unavailable")
+        return
+    link.symlink_to(target, target_is_directory=True)
+
+
+def test_engine_construction_never_runs_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _branch, _head = _repository(tmp_path, {"safe.txt": b"safe\n"})
+    monkeypatch.setattr(
+        host_apply_engine_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("Constructor must not execute Git"),
+    )
+
+    _engine(tmp_path, root)
+
+    assert not (root / ".git" / "modelmirror-transactions").exists()
+    assert not (tmp_path / "operations.bin").exists()
+
+
 def _patch(*changes: tuple[str, bytes | None, bytes | None]) -> tuple[str, tuple[str, ...]]:
     rendered: list[str] = []
     for path, before, after in sorted(changes):
@@ -1295,11 +1327,25 @@ def test_local_include_configuration_is_rejected(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("unsafe_kind", "expected_code"),
     [
+        ("diff.nebula.external", "git_config_unsafe"),
+        ("url.https://example.invalid/.insteadOf", "git_config_unsafe"),
+        ("core.excludesFile", "git_config_unsafe"),
+        ("extensions.refStorage", "git_config_unsafe"),
         ("extensions.partialClone", "git_config_unsafe"),
         ("remote.origin.promisor", "git_config_unsafe"),
         ("remote..promisor", "git_config_unsafe"),
         ("remote.origin.partialCloneFilter", "git_config_unsafe"),
         ("http-alternates", "git_alternates_not_allowed"),
+        ("commondir-broken", "git_shared_directory_not_allowed"),
+        ("replace-refs", "git_metadata_unsafe"),
+        ("grafts", "git_metadata_unsafe"),
+        ("config-hardlink", "git_metadata_unsafe"),
+        ("head-hardlink", "git_metadata_unsafe"),
+        ("index-hardlink", "git_metadata_unsafe"),
+        ("objects-reparse", "git_metadata_unsafe"),
+        ("objects-info-reparse", "git_metadata_unsafe"),
+        ("refs-reparse", "git_metadata_unsafe"),
+        ("info-reparse", "git_metadata_unsafe"),
     ],
 )
 def test_apply_rejects_lazy_fetch_sources_before_object_commands_or_writes(
@@ -1315,8 +1361,43 @@ def test_apply_rejects_lazy_fetch_sources_before_object_commands_or_writes(
             "https://example.invalid/objects\n",
             encoding="utf-8",
         )
+    elif unsafe_kind == "commondir-broken":
+        try:
+            (root / ".git" / "commondir").symlink_to(
+                tmp_path / "missing-common-directory",
+                target_is_directory=False,
+            )
+        except OSError:
+            pytest.skip("File symlinks are unavailable")
+    elif unsafe_kind == "replace-refs":
+        (root / ".git" / "refs" / "replace").mkdir()
+    elif unsafe_kind == "grafts":
+        (root / ".git" / "info" / "grafts").write_text(head + "\n", encoding="ascii")
+    elif unsafe_kind.endswith("-hardlink"):
+        name = unsafe_kind.removesuffix("-hardlink")
+        source = root / ".git" / {"config": "config", "head": "HEAD", "index": "index"}[name]
+        try:
+            os.link(source, tmp_path / f"{name}.outside-link")
+        except OSError:
+            pytest.skip("Hard links are unavailable")
+    elif unsafe_kind.endswith("-reparse"):
+        name = unsafe_kind.removesuffix("-reparse")
+        source = (
+            root / ".git" / "objects" / "info"
+            if name == "objects-info"
+            else root / ".git" / name
+        )
+        target = root / ".git" / f"{name}-real"
+        source.rename(target)
+        _directory_link(source, target)
     else:
-        value = "blob:none" if unsafe_kind.endswith("Filter") else "true"
+        value = {
+            "diff.nebula.external": "outside-diff-driver",
+            "url.https://example.invalid/.insteadOf": "private:",
+            "core.excludesFile": "../outside-excludes",
+            "extensions.refStorage": "reftable",
+            "remote.origin.partialCloneFilter": "blob:none",
+        }.get(unsafe_kind, "true")
         _git(root, "config", unsafe_kind, value)
     patch, paths = _patch(("safe.txt", b"safe\n", b"changed\n"))
     original_run = subprocess.run
@@ -1344,7 +1425,9 @@ def test_apply_rejects_lazy_fetch_sources_before_object_commands_or_writes(
     object_commands = {"rev-parse", "ls-tree", "cat-file", "diff", "status"}
     assert all(object_commands.isdisjoint(command) for command in commands)
     assert all(env["GIT_NO_LAZY_FETCH"] == "1" for env in environments)
+    assert all(env["GIT_NO_REPLACE_OBJECTS"] == "1" for env in environments)
     assert build_safe_git_environment()["GIT_NO_LAZY_FETCH"] == "1"
+    assert build_safe_git_environment()["GIT_NO_REPLACE_OBJECTS"] == "1"
     assert (root / "safe.txt").read_bytes() == b"safe\n"
     assert not (root / ".git" / "modelmirror-transactions").exists()
     assert not (tmp_path / "operations.bin").exists()

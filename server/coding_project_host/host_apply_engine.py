@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -25,6 +25,10 @@ from .host_file_transaction import (
     FileMutation,
     HostFileTransaction,
     HostFileTransactionError,
+    _windows_close_handle,
+    _windows_handle_identity,
+    _windows_open_existing,
+    _windows_read_all,
     file_identity,
     move_directory_no_replace,
     read_regular,
@@ -35,11 +39,16 @@ from .operation_log import HostOperationJournal, HostOperationLogError
 
 GIT_TIMEOUT_SECONDS = 30
 FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
+MAX_GIT_NAMESPACE_ENTRIES = 500_000
+MAX_GIT_CONFIG_BYTES = 2 * 1024 * 1024
+MAX_GIT_INDEX_BYTES = 32 * 1024 * 1024
+MAX_GIT_PACKED_REFS_BYTES = 16 * 1024 * 1024
 MutationHook = Callable[[str, int, str], None]
 _DANGEROUS_CONFIG = re.compile(
-    r"^(?:include(?:if)?\..+|filter\..+|credential\..+|"
-    r"diff\..*\.textconv|core\.worktree|extensions\.worktreeconfig|"
-    r"extensions\.partialclone|remote\..*\.(?:promisor|partialclonefilter))$",
+    r"^(?:(?:include(?:if)?|filter|credential|diff|url)(?:\..+)?|"
+    r"core\.(?:worktree|excludesfile)|"
+    r"extensions\.(?:worktreeconfig|partialclone|refstorage)|"
+    r"remote\..*\.(?:promisor|partialclonefilter))$",
     re.IGNORECASE,
 )
 
@@ -60,7 +69,7 @@ def _serialize_project_operation(method):
             raise HostApplyError("windows_required")
         with _project_process_lock(
             self.root,
-            preflight=self._validate_repository_layout,
+            preflight=self._guard_repository_configuration,
         ):
             return method(self, *args, **kwargs)
 
@@ -71,7 +80,7 @@ def _serialize_project_operation(method):
 def _project_process_lock(
     root: Path,
     *,
-    preflight: Callable[[], None] | None = None,
+    preflight: Callable[[], contextlib.AbstractContextManager[None]] | None = None,
 ):
     git = root / ".git"
     if (
@@ -81,9 +90,9 @@ def _project_process_lock(
         or not git.is_dir()
     ):
         raise HostApplyError("git_metadata_unsafe")
-    with _guard_directories((root, git)):
-        if preflight is not None:
-            preflight()
+    with _guard_directories((root, git)), (
+        preflight() if preflight is not None else contextlib.nullcontext()
+    ):
         directory = git / "modelmirror-transactions"
         if directory.exists():
             if _is_link_or_reparse(directory) or not directory.is_dir():
@@ -815,6 +824,8 @@ class HostGitApplyEngine:
         for path in paths:
             self._assert_path_chain(path)
         self._assert_case_safe(paths)
+        if len(_parent_paths_for_paths(paths)) > 64:
+            raise HostApplyError("too_many_created_directories")
         receipt_files = (
             {item.path: item for item in apply_receipt.files}
             if apply_receipt is not None
@@ -935,35 +946,142 @@ class HostGitApplyEngine:
         git = self.root / ".git"
         if not git.is_dir() or _is_link_or_reparse(git):
             raise HostApplyError("git_repository_required")
-        if (git / "commondir").exists():
+        if _path_entry_exists(git / "commondir"):
+            raise HostApplyError("git_shared_directory_not_allowed")
+        for metadata in (git / "config", git / "HEAD", git / "index"):
+            if _path_entry_exists(metadata) and _is_link_or_reparse(metadata):
+                raise HostApplyError("git_metadata_unsafe")
+
+    def _assert_repository_redirections_absent(self) -> None:
+        git = self.root / ".git"
+        if _path_entry_exists(git / "commondir"):
             raise HostApplyError("git_shared_directory_not_allowed")
         for name in ("alternates", "http-alternates"):
-            alternate = git / "objects" / "info" / name
-            try:
-                alternate.lstat()
-            except FileNotFoundError:
-                continue
-            except OSError as exc:
-                raise HostApplyError("git_inspection_failed") from exc
-            raise HostApplyError("git_alternates_not_allowed")
-        for metadata in (git / "config", git / "HEAD", git / "index"):
-            if metadata.exists() and _is_link_or_reparse(metadata):
+            if _path_entry_exists(git / "objects" / "info" / name):
+                raise HostApplyError("git_alternates_not_allowed")
+        for redirection in (git / "refs" / "replace", git / "info" / "grafts"):
+            if _path_entry_exists(redirection):
                 raise HostApplyError("git_metadata_unsafe")
-        configured = self._git(
-            "config",
-            "--local",
-            "--no-includes",
-            "--name-only",
-            "--list",
-        )
-        if configured.returncode != 0:
-            raise HostApplyError("git_inspection_failed")
+
+    @contextlib.contextmanager
+    def _guard_repository_configuration(self):
+        self._validate_repository_layout()
+        git = self.root / ".git"
+        config = git / "config"
         try:
-            names = configured.stdout.decode("utf-8", errors="strict").splitlines()
-        except UnicodeError as exc:
-            raise HostApplyError("git_encoding_not_supported") from exc
-        if any(_DANGEROUS_CONFIG.fullmatch(name) for name in names):
-            raise HostApplyError("git_config_unsafe")
+            namespaces = [git / "objects", git / "refs"]
+            if _path_entry_exists(git / "info"):
+                namespaces.append(git / "info")
+            with contextlib.ExitStack() as stack:
+                # Bind each direct namespace root before recursively walking
+                # it.  Nested redirection leaves are inspected only after
+                # their complete parent namespace has been validated and
+                # guarded, so a junction cannot redirect the preflight read.
+                stack.enter_context(_guard_directories(tuple(namespaces)))
+                directories = tuple(
+                    dict.fromkeys(
+                        directory
+                        for namespace in namespaces
+                        for directory in _safe_git_namespace(namespace)
+                    )
+                )
+                stack.enter_context(_guard_directories(directories))
+                for namespace in namespaces:
+                    _safe_git_namespace(namespace)
+                self._assert_repository_redirections_absent()
+                config_record = stack.enter_context(
+                    _guard_repository_regular(
+                        config,
+                        MAX_GIT_CONFIG_BYTES,
+                        required=True,
+                    )
+                )
+                head_record = stack.enter_context(
+                    _guard_repository_regular(git / "HEAD", 4096, required=True)
+                )
+                stack.enter_context(
+                    _guard_repository_regular(
+                        git / "index",
+                        MAX_GIT_INDEX_BYTES,
+                        required=True,
+                    )
+                )
+                stack.enter_context(
+                    _guard_repository_regular(
+                        git / "packed-refs",
+                        MAX_GIT_PACKED_REFS_BYTES,
+                        required=False,
+                    )
+                )
+                assert config_record is not None and head_record is not None
+                try:
+                    head = head_record[0].decode("ascii", errors="strict").strip()
+                except UnicodeError as exc:
+                    raise HostApplyError("git_encoding_not_supported") from exc
+                if head.startswith("ref: refs/heads/"):
+                    relative = head.removeprefix("ref: ")
+                    if (
+                        "\\" in relative
+                        or any(part in {"", ".", ".."} for part in relative.split("/"))
+                    ):
+                        raise HostApplyError("git_metadata_unsafe")
+                    stack.enter_context(
+                        _guard_repository_regular(
+                            git.joinpath(*relative.split("/")),
+                            4096,
+                            required=False,
+                        )
+                    )
+                with tempfile.TemporaryDirectory(prefix="modelmirror-git-config-") as safe_cwd:
+                    configured = subprocess.run(
+                        build_safe_git_command(
+                            self.root,
+                            (
+                                "config",
+                                "--file",
+                                str(config),
+                                "--no-includes",
+                                "--name-only",
+                                "--list",
+                            ),
+                        ),
+                        cwd=safe_cwd,
+                        env=build_safe_git_environment(),
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        check=False,
+                        timeout=GIT_TIMEOUT_SECONDS,
+                        creationflags=(
+                            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                            if os.name == "nt"
+                            else 0
+                        ),
+                    )
+                if configured.returncode != 0:
+                    raise HostApplyError("git_inspection_failed")
+                try:
+                    names = configured.stdout.decode(
+                        "utf-8",
+                        errors="strict",
+                    ).splitlines()
+                except UnicodeError as exc:
+                    raise HostApplyError("git_encoding_not_supported") from exc
+                if any(_DANGEROUS_CONFIG.fullmatch(name) for name in names):
+                    raise HostApplyError("git_config_unsafe")
+                yield
+                self._validate_repository_layout()
+                self._assert_repository_redirections_absent()
+                for namespace in namespaces:
+                    _safe_git_namespace(namespace)
+        except HostApplyError as exc:
+            if exc.code == "path_parent_invalid":
+                raise HostApplyError("git_metadata_unsafe") from exc
+            raise
+        except HostFileTransactionError as exc:
+            raise HostApplyError("git_metadata_unsafe") from exc
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise HostApplyError("git_inspection_failed") from exc
 
     def _assert_path_chain(self, relative: str) -> None:
         current = self.root
@@ -1589,6 +1707,144 @@ def _transaction_files(plan: Sequence[_PlannedFile]) -> tuple[FileMutation, ...]
     )
 
 
+@contextlib.contextmanager
+def _guard_repository_regular(
+    path: Path,
+    maximum_bytes: int,
+    *,
+    required: bool,
+):
+    if not _path_entry_exists(path):
+        if required:
+            raise HostFileTransactionError("path_unavailable")
+        yield None
+        return
+    if os.name == "nt":
+        handle = _windows_open_existing(
+            path,
+            access=0x80000000 | 0x00000080,
+            share=0x00000001,
+            allow_missing=False,
+        )
+        assert handle is not None
+        try:
+            identity = _windows_handle_identity(handle, require_directory=False)
+            metadata = os.stat(path, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_size > maximum_bytes
+                or file_identity(path) != identity
+            ):
+                raise HostFileTransactionError("path_unsafe")
+            content = _windows_read_all(handle)
+            if len(content) > maximum_bytes:
+                raise HostFileTransactionError("path_unsafe")
+            yield content, identity
+            current = os.stat(path, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(current.st_mode)
+                or current.st_nlink != 1
+                or current.st_size > maximum_bytes
+                or file_identity(path) != identity
+                or _windows_handle_identity(handle, require_directory=False) != identity
+                or _windows_read_all(handle) != content
+            ):
+                raise HostFileTransactionError("transaction_conflict")
+        finally:
+            _windows_close_handle(handle)
+        return
+
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_size > maximum_bytes
+            or metadata.st_dev <= 0
+            or metadata.st_ino <= 0
+        ):
+            raise HostFileTransactionError("path_unsafe")
+        identity = f"{metadata.st_dev:x}-{metadata.st_ino:x}"
+
+        def read_current() -> bytes:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            chunks: list[bytes] = []
+            remaining = maximum_bytes + 1
+            while remaining:
+                chunk = os.read(descriptor, min(remaining, 64 * 1024))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            value = b"".join(chunks)
+            if len(value) > maximum_bytes:
+                raise HostFileTransactionError("path_unsafe")
+            return value
+
+        content = read_current()
+        if file_identity(path) != identity:
+            raise HostFileTransactionError("transaction_conflict")
+        yield content, identity
+        current = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or current.st_nlink != 1
+            or f"{current.st_dev:x}-{current.st_ino:x}" != identity
+            or file_identity(path) != identity
+            or read_current() != content
+        ):
+            raise HostFileTransactionError("transaction_conflict")
+    finally:
+        os.close(descriptor)
+
+
+def _safe_git_namespace(root: Path) -> tuple[Path, ...]:
+    if _is_link_or_reparse(root) or not root.is_dir():
+        raise HostApplyError("git_metadata_unsafe")
+    pending = [root]
+    directories: list[Path] = []
+    entries_seen = 0
+    while pending:
+        directory = pending.pop()
+        if _is_link_or_reparse(directory) or not directory.is_dir():
+            raise HostApplyError("git_metadata_unsafe")
+        directories.append(directory)
+        try:
+            children = list(os.scandir(directory))
+        except OSError as exc:
+            raise HostApplyError("git_metadata_unsafe") from exc
+        entries_seen += len(children)
+        if entries_seen > MAX_GIT_NAMESPACE_ENTRIES:
+            raise HostApplyError("git_metadata_unsafe")
+        for child in children:
+            candidate = Path(child.path)
+            try:
+                if child.is_symlink() or _is_link_or_reparse(candidate):
+                    raise HostApplyError("git_metadata_unsafe")
+                if child.is_dir(follow_symlinks=False):
+                    pending.append(candidate)
+                elif child.is_file(follow_symlinks=False):
+                    if os.stat(candidate, follow_symlinks=False).st_nlink != 1:
+                        raise HostApplyError("git_metadata_unsafe")
+                else:
+                    raise HostApplyError("git_metadata_unsafe")
+            except OSError as exc:
+                raise HostApplyError("git_metadata_unsafe") from exc
+    return tuple(directories)
+
+
+def _path_entry_exists(path: Path) -> bool:
+    try:
+        path.lstat()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise HostApplyError("git_metadata_unsafe") from exc
+
+
 def _read_regular(path: Path) -> bytes | None:
     try:
         return read_regular(path)
@@ -1631,9 +1887,13 @@ def _sha256(content: bytes) -> str:
 
 
 def _parent_paths(plan: Sequence[_PlannedFile]) -> tuple[str, ...]:
+    return _parent_paths_for_paths(item.path for item in plan)
+
+
+def _parent_paths_for_paths(paths: Iterable[str]) -> tuple[str, ...]:
     values: set[str] = set()
-    for item in plan:
-        parts = PurePosixPath(item.path).parts[:-1]
+    for path in paths:
+        parts = PurePosixPath(path).parts[:-1]
         for index in range(1, len(parts) + 1):
             values.add(PurePosixPath(*parts[:index]).as_posix())
     return tuple(sorted(values, key=lambda value: (len(PurePosixPath(value).parts), value)))
