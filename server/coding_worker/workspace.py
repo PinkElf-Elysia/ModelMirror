@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import uuid
@@ -393,4 +394,20 @@ class WorkspaceBroker:
     @staticmethod
     def _remove_tree(path: Path) -> None:
         if path.exists():
-            shutil.rmtree(path)
+            root = path.resolve()
+
+            def remove_owned_readonly(
+                function: object, name: str, error: tuple[type[BaseException], BaseException, object]
+            ) -> None:
+                failure = error[1]
+                target = Path(name)
+                try:
+                    metadata = os.lstat(target)
+                    if stat.S_ISLNK(metadata.st_mode) or not target.resolve().is_relative_to(root):
+                        raise failure
+                    os.chmod(target, metadata.st_mode | stat.S_IWRITE)
+                    function(name)  # type: ignore[operator]
+                except Exception:
+                    raise failure
+
+            shutil.rmtree(path, onerror=remove_owned_readonly)

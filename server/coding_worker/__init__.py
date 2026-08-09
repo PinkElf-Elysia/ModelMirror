@@ -17,6 +17,7 @@ from .provider import CodingAgentProvider, FakeCodingAgentProvider
 from .opencode_provider import OpenCodeProvider
 from .service import CodingWorkerService
 from .store import CodingWorkerStore
+from .tool_broker import FrozenCheck, ToolBroker, ToolBrokerError, ToolResult
 from .workspace import WorkspaceBroker
 
 __all__ = [
@@ -25,6 +26,10 @@ __all__ = [
     "CodingAgentProvider",
     "CodingWorkerService",
     "CodingWorkerStore",
+    "FrozenCheck",
+    "ToolBroker",
+    "ToolBrokerError",
+    "ToolResult",
     "ContextReference",
     "FakeCodingAgentProvider",
     "OpenCodeProvider",
