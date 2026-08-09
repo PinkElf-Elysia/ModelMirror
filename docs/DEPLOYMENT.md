@@ -24,6 +24,8 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 | `office-host` | 否 | `office` profile；实验性 Office Add-in host。 |
 | `coding-runtime` | 否 | `coding` profile；单实例代码问答与修改草稿执行面，无宿主端口。 |
 | `coding-verifier` | 否 | `coding-verify` profile；无网络的草稿项目验证执行面，无宿主端口。 |
+| `coding-project-source` | 否 | `coding-projects` 或 `coding-project-host` profile；把当前项目 HEAD 导入单槽快照，不向 Server 暴露路径。 |
+| `coding-project-writer` | 否 | `coding-writeback` profile；只写清单 v3 授权的 `local_clone`。 |
 | `coding-applier` | 否 | 独立 overlay 的 `coding-apply` profile；把已验证草稿写入固定专用工作树。 |
 | `coding-committer` | 否 | 独立 overlay 的 `coding-commit` profile；只在无远程独立仓库中创建本地提交。 |
 | `coding-publisher` | 否 | 独立 overlay 的 `coding-publish` profile；只读发布固定提交链。 |
@@ -31,6 +33,8 @@ Dify 不是部署依赖。`/workflow` 和 `/rag` 分别由 classic 工作流和�
 
 Coding 恢复没有新增常驻服务；`docker-compose.coding-recovery.yml` 只给 Server
 挂载独立加密存储，并提供一次性、无网络、只读的重建预检容器。
+Windows Project Host v2 是单独打包、由用户启动的便携 Windows 应用，不是 Compose
+服务，也不会随容器自动启动。
 
 启动默认栈：
 
@@ -193,9 +197,10 @@ Runtime 只经私有 socket 和单槽快照卷取得所选项目的 HEAD 内容�
 个文件、192 MiB，单文件 32 MiB；只读取根目录 UTF-8 `AGENTS.md`（最多 64 KiB），
 仓库内 OpenCode、插件、MCP、provider 和可执行配置均不会生效。
 
-自定义项目支持问答、结构化文本文件操作、Diff、轻量检查、确认后的离线验证、下载和
-重启恢复。只有清单 v3 显式授权且满足无 remote/固定分支条件的项目支持写入与本地提交；
-仍不支持 GitHub 发布或多轮提交。内置 ModelMirror 仍是默认项目并保留完整闭环；停止
+清单项目支持问答、结构化文本文件操作、Diff、轻量检查、确认后的离线验证、下载和
+重启恢复。只有清单 v3 显式授权且满足无 remote/固定分支条件的 `local_clone` 支持
+Writer 写入与单轮本地提交；仍不支持 GitHub 发布或多轮提交。内置 ModelMirror 仍是
+默认项目并保留完整闭环；停止
 Project Source 后也必须继续可用。共享栈重建前应先确认根路径为绝对路径、清单可解析、
 所有登记仓库符合其能力要求，并取得独占窗口；任一预检不通过时不要重建。
 
@@ -220,7 +225,7 @@ curl http://localhost:8000/api/coding/projects
 
 `CODING_FILE_OPERATIONS_ENABLED=false` 只关闭代码助手的删除/移动工具；既有新增、修改和
 只读能力不受影响。`CODING_PROJECT_WRITEBACK_ENABLED=false` 或省略 Writer overlay 会让
-自定义项目回到只读草稿、验证和下载，不会撤销已有本地文件或提交。应用/提交前 Writer
+清单项目回到只读草稿、验证和下载，不会撤销已有本地文件或提交。应用/提交前 Writer
 再次复核项目 ID、基准 HEAD、固定分支、remote、索引、工作区、Patch 和文件哈希；异常
 只影响所选项目写回能力，不得导致 ModelMirror 或其他自定义项目不可用。
 
@@ -232,6 +237,76 @@ curl http://localhost:8000/api/coding/projects
 
 若只需第二轮草稿能力，可省略 `coding-verify` profile。此时页面会明确提示验证
 服务未启动，但查看 Diff、轻量检查和下载仍可使用。
+
+#### Windows 本地项目助手直接写入
+
+`host_git` 不使用 `CODING_PROJECTS_ROOT` 或容器 Writer。Windows Project Host v2 是
+宿主项目路径的唯一持有者，在用户明确选择的干净独立 Git 项目内执行原子写入、撤销、
+当前分支本地提交、撤销提交和精确对账。项目可已有 remote，但助手不会读取或返回 URL，
+不会执行 fetch、push、ls-remote 或创建 PR。v1 助手和写回开关关闭时仍可选择项目、问答、
+生成草稿、查看/下载 Diff，但始终不显示写入入口。
+
+写回资格仅支持标准 files refs 后端，并在任何对象/status/事务命令前拒绝
+`extensions.refStorage`/reftable、replace refs、grafts、partial clone、promisor、alternates、
+配置 include/filter/credential 与外部 excludes。Helper 本地 DPAPI registry 绑定所选 root
+和 `.git` 的文件身份；旧 path-only 记录或同路径换仓必须由用户重新选择，不能自动继承授权。
+
+先固定绝对数据根，并在该根对应的 `${MODELMIRROR_DATA_ROOT}/server/.env` 中设置：
+
+```dotenv
+CODING_PROJECT_HOST_WRITEBACK_ENABLED=true
+```
+
+该变量由 base Compose 的 `server.env_file` 注入；只在 PowerShell 设置同名环境变量不会
+把它传给 `server`。`CODING_PROJECT_HOST_ENABLED` 则由 Project Host overlay 读取：
+
+```powershell
+$env:MODELMIRROR_DATA_ROOT = 'C:\absolute\path\to\stable\data\workspace'
+$env:CODING_PROJECT_HOST_ENABLED = 'true'
+docker compose -f docker-compose.yml -f docker-compose.coding-project-host.yml `
+  -f docker-compose.coding-commands.yml -p modelmirror `
+  --profile coding --profile coding-verify --profile coding-project-host config --quiet
+```
+
+这条命令只做配置预检。实际 `up -d --build --force-recreate` 必须等用户确认共享栈独占
+窗口和最新基线后，从批准的验收集成工作树执行。若清单 `local_clone` 与 Windows 助手
+同时启用，overlay 顺序固定为 base → `docker-compose.coding-projects.yml` →
+`docker-compose.coding-project-host.yml` → `docker-compose.coding-project-host-full.yml`，
+之后再追加当前部署已使用的 commands、writeback、recovery 等 overlay；缺少 full overlay
+会破坏 Project Source 的隔离列表或挂载合并。只使用其中一种项目来源时不要加载 full。
+
+当前 `docker-compose.coding-recovery.yml` 仍同时预检 legacy Applier/Committer 的
+`CODING_IMPLEMENTATION_WORKTREE` 和 `CODING_COMMIT_REPOSITORY`，且 Compose 会在 profile
+过滤前插值。因此不能把它描述为无需其他变量的全新 host-only recovery overlay；共享栈
+应继续提供现有受控目标变量并保留当前拓扑，或在后续拆出 host 专用恢复预检后再简化。
+不得用虚构路径绕过检查。
+
+便携助手必须与容器代码来自同一实现 HEAD，并在临时输出目录重新打包：
+
+```powershell
+$helperRoot = 'C:\tmp\modelmirror-project-host-v2'
+python -m venv "$helperRoot\venv"
+& .\scripts\build-coding-project-host.ps1 `
+  -Python "$helperRoot\venv\Scripts\python.exe" `
+  -OutputRoot "$helperRoot\package"
+```
+
+脚本会在传入的解释器环境中安装固定 `websockets==16.0`、`pyinstaller==6.14.1`；因此
+必须使用专用 venv，不能污染部署者默认 Python。它没有新增第三方依赖；生成
+`ModelMirrorProjectHost-windows-x64.zip`、打印 SHA-256，并在压缩包超过 40 MiB 时失败。
+产物、spec、build、dist 和助手日志不得提交。便携包不内置 Git；目标电脑必须预装
+Git for Windows 或兼容 `git.exe`，并让助手进程可从 `PATH` 找到。助手只接受
+`http://127.0.0.1:<port>`（默认 8000），不接受 `localhost`、非回环地址、HTTPS、认证信息、
+路径、query 或 fragment。完成容器重建后还必须启动这份 v2 助手，
+核对 `/api/coding/project-host` 的协议、`direct_writeback`、可用性和原因，再真实走一次
+“选择→快照→草稿→apply→commit→undo→revert”协议冒烟；旧便携包不能作为写回验收。
+
+重建前必须另行检查绝对 `MODELMIRROR_DATA_ROOT` 及其 `server/.env` 中 Coding 模型 Key
+和上述开关是否存在且非空，不得把值打印到终端或日志；当前 recovery preflight 不代替
+这项检查。把 `CODING_PROJECT_HOST_WRITEBACK_ENABLED=false` 写入该 `server/.env` 并在
+批准窗口内重启或重建 Server 后，即恢复第十二轮只读助手；设置
+`CODING_PROJECT_HOST_ENABLED=false` 并在后续启动中省略 Project Host overlay 可完全关闭
+助手。两种回退都不会自动撤销已写文件、删除本地提交或移除用户项目。
 
 #### 受控应用到专用工作树
 
@@ -267,8 +342,10 @@ Runtime 与 Verifier 也不能访问它的独立 socket。
 
 应用前目标必须仍与镜像基准完全一致：除 `.git` 外不能有修改、额外文件或符号
 链接。成功应用后页面可在当前会话内执行一次安全撤销；如果有人又编辑了目标，
-撤销会拒绝覆盖。Server 重启后不保证保留撤销凭据，此时应删除并从相同提交重新
-创建这个专用工作树。不要让自动清理脚本删除用户未确认的工作树。
+撤销会拒绝覆盖。未加载 `docker-compose.coding-recovery.yml` 时，Server 重启后不保证
+保留撤销凭据，此时应人工确认并从相同提交重建专用工作树；启用恢复后，加密意图、
+公开回执和 Applier 日志精确一致可恢复撤销，不明确则只读冲突。不要让自动清理脚本
+删除用户未确认的工作树。
 
 #### 保存为隔离本地提交
 
@@ -419,7 +496,8 @@ curl http://localhost:5173/studio
   不得自动创建新的付费会话。
 - 视频任务状态与连续轮询错误；临时网络错误不直接写成任务失败。
 - Browser、Sandbox、newAPI 和 server health。
-- 启用后检查 Coding capabilities、项目清单、Project Source/Worker/Verifier/Project Writer/Applier/Committer/Publisher health、
+- 启用后检查 Coding capabilities、项目清单、Project Host 协议/心跳/direct writeback、
+  Project Source/Worker/Verifier/Project Writer/Applier/Committer/Publisher health、
   出口域名拒绝、验证取消清理、快照指纹、恢复 pending/retention 和源码 Git 状态。Capabilities 与
   日志不得返回目标绝对路径、恢复密钥或密文负载。
 
@@ -446,7 +524,12 @@ curl http://localhost:5173/studio
   `MULTIMODAL_REALTIME_VOICE_ENABLED`；已有 STT/TTS、普通 Chat 和视频链路不受影响。
 - 智能调度：切回 `MODEL_ROUTER_ENGINE=sidecar` 或 default/newAPI，保留 SQLite。
 - OmniRoute：停止 profile，不删除 `omniroute-data`。
-- 代码助手：若只回退第十一轮，先设置 `CODING_PROJECT_WRITEBACK_ENABLED=false`、
+- 代码助手：若只回退第十三轮，在绝对数据根对应的 `server/.env` 设置
+  `CODING_PROJECT_HOST_WRITEBACK_ENABLED=false` 并重启或重建 Server，即可保留第十二轮
+  只读 Windows 助手；
+  再设置 `CODING_PROJECT_HOST_ENABLED=false` 并省略 `docker-compose.coding-project-host.yml`
+  可完全关闭助手。已有宿主文件、本地提交和授权不会被自动清理。若还要回退第十一轮，
+  设置 `CODING_PROJECT_WRITEBACK_ENABLED=false`、
   `CODING_FILE_OPERATIONS_ENABLED=false`
   并省略 `docker-compose.coding-writeback.yml`；这不会自动撤销已写入文件或已有本地
   提交。如需进一步关闭自定义项目，再设置 `CODING_PROJECTS_ENABLED=false` 并在后续

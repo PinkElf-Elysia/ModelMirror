@@ -1065,6 +1065,11 @@ class CodingService:
             return base
         try:
             project = await self._load_recovery_project_context(record)
+            recovery_preview = (
+                self._recovery_operation_preview(record, project)
+                if project.kind is ProjectKind.HOST_GIT
+                else None
+            )
         except HTTPException:
             return {
                 **base,
@@ -1123,12 +1128,26 @@ class CodingService:
                         self.project_host is not None
                         and project.head is not None
                         and project.branch is not None
+                        and recovery_preview is not None
                     )
-                    self.project_host.check_project(
-                        project.project_id,
-                        project.head,
-                        project.branch,
-                    )
+                    if (
+                        recovery_preview.apply_operation_id is None
+                        and not recovery_preview.cycle_history.cycles
+                    ):
+                        self.project_host.check_project(
+                            project.project_id,
+                            project.head,
+                            project.branch,
+                        )
+                    else:
+                        host_health = await self.project_host.health()
+                        if host_health.get("available") is not True:
+                            raise ProjectHostError(
+                                _safe_code(
+                                    host_health.get("reason")
+                                    or "project_host_writeback_unavailable"
+                                )
+                            )
             except ProjectSourceClientError as exc:
                 can_resume = False
                 reason = _safe_code(exc.code)
@@ -1305,6 +1324,7 @@ class CodingService:
         *,
         expected_head: str | None = None,
         expected_branch: str | None = None,
+        managed_operation_id: str | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.project_host is None or self.project_source is None:
             raise _http_error(
@@ -1317,6 +1337,7 @@ class CodingService:
                 project_id,
                 expected_head=expected_head,
                 expected_branch=expected_branch,
+                managed_operation_id=managed_operation_id,
             )
             transfer_id = str(transfer["upload_id"])
             project = transfer["project"]
@@ -1340,10 +1361,38 @@ class CodingService:
         finally:
             if transfer_id is not None:
                 self.project_host.finish_transfer(transfer_id)
-        public_project = _project_from_source(source)
+        public_project = self.project_host.public_project(project_id)
+        if managed_operation_id is not None:
+            managed_project = _project_from_source(source)
+            capability = self.project_host.capability()
+            writeback_available = capability.get("direct_writeback") is True
+            features = managed_project.get("features")
+            if isinstance(features, dict):
+                managed_project["features"] = {
+                    **features,
+                    "apply": writeback_available,
+                    "commit": writeback_available,
+                }
+            managed_project["state"] = ProjectState.AVAILABLE.value
+            managed_project["reason"] = None
+            managed_project["writeback_reason"] = (
+                None
+                if writeback_available
+                else _safe_code(
+                    capability.get("writeback_reason")
+                    or "project_host_writeback_unavailable"
+                )
+            )
+            public_project = managed_project
         if (
             source.get("kind") != ProjectKind.HOST_GIT.value
             or public_project.get("id") != project_id
+            or public_project.get("branch") != source.get("branch")
+            or (
+                managed_operation_id is None
+                and public_project.get("head")
+                != str(source.get("head") or "")[:12]
+            )
             or (expected_head is not None and source.get("head") != expected_head)
             or (
                 expected_branch is not None
@@ -1356,6 +1405,121 @@ class CodingService:
                 "invalid_project_source_response",
             )
         return source, public_project
+
+    def _recovery_operation_preview(
+        self,
+        recovery: RecoveryRecord,
+        project: RecoveryProjectContext,
+    ) -> CodingApiSession:
+        source = (
+            {
+                "kind": project.kind.value,
+                "project_id": project.project_id,
+                "name": project.name,
+                "head": project.head,
+                "branch": project.branch,
+                "fingerprint": recovery.snapshot_fingerprint,
+            }
+            if project.kind is not ProjectKind.BUILTIN
+            else None
+        )
+        preview = CodingApiSession(
+            session_id="recovery-preview",
+            worker_session_id="recovery-preview",
+            project=project.to_public(),
+            project_source=source,
+            cycle_number=len(recovery.payload.cycles) + 1,
+            cycle_history=CodingCycleHistory(recovery.payload.cycles),
+        )
+        self._hydrate_recovered_session(preview, recovery)
+        return preview
+
+    def _bind_host_recovery_operations(
+        self,
+        recovery: RecoveryRecord,
+        project: RecoveryProjectContext,
+        preview: CodingApiSession,
+    ) -> str | None:
+        if (
+            self.project_host is None
+            or project.head is None
+            or project.branch is None
+        ):
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "project_host_unavailable",
+            )
+        try:
+            current_parent, lineage = self._host_cycle_lineage(
+                preview,
+                base_head=project.head,
+                branch=project.branch,
+                fingerprint=recovery.snapshot_fingerprint,
+            )
+            anchor_operation_id: str | None = None
+            seen_operations: set[str] = set()
+            for parent, apply_receipt, commit_receipt in lineage:
+                if anchor_operation_id is None:
+                    anchor_operation_id = apply_receipt.apply_id
+                seen_operations.update(
+                    {apply_receipt.apply_id, commit_receipt.commit_id}
+                )
+                self.project_host.bind_recovery_operations(
+                    project_id=project.project_id,
+                    expected_head=parent,
+                    expected_branch=project.branch,
+                    apply_operation_id=apply_receipt.apply_id,
+                    commit_operation_id=commit_receipt.commit_id,
+                    apply_receipt=apply_receipt,
+                    commit_receipt=commit_receipt,
+                )
+
+            active_apply_id = preview.apply_operation_id
+            active_commit_id = preview.commit_operation_id
+            active_apply = preview.apply_receipt
+            active_commit = preview.commit_receipt
+            if active_apply_id is not None:
+                if (
+                    active_apply_id in seen_operations
+                    or active_commit_id in seen_operations
+                    or (
+                        active_apply is not None
+                        and active_apply.snapshot_fingerprint
+                        != recovery.snapshot_fingerprint
+                    )
+                    or (
+                        active_commit is not None
+                        and (
+                            active_apply is None
+                            or active_commit.apply_id != active_apply.apply_id
+                            or active_commit.parent_sha != current_parent
+                            or active_commit.branch != project.branch
+                        )
+                    )
+                ):
+                    raise ValueError("Active host cycle lineage is invalid")
+                self.project_host.bind_recovery_operations(
+                    project_id=project.project_id,
+                    expected_head=current_parent,
+                    expected_branch=project.branch,
+                    apply_operation_id=active_apply_id,
+                    commit_operation_id=active_commit_id,
+                    apply_receipt=active_apply,
+                    commit_receipt=active_commit,
+                )
+                anchor_operation_id = anchor_operation_id or active_apply_id
+            elif active_commit_id is not None:
+                raise ValueError("Host commit has no active application")
+            if lineage and anchor_operation_id is None:
+                raise ValueError("Host recovery has no snapshot anchor")
+            return anchor_operation_id
+        except ProjectHostError as exc:
+            raise _project_host_http_error(exc) from exc
+        except (TypeError, ValueError) as exc:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "recovery_data_corrupt",
+            ) from exc
 
     async def resume_recovery(self) -> CodingApiSession:
         health = await self._require_available()
@@ -1396,10 +1560,42 @@ class CodingService:
                     status.HTTP_409_CONFLICT,
                     "recovery_data_corrupt",
                 )
-            source, _ = await self._acquire_host_project(
+            if self.project_host is None:
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    self.project_host_reason or "project_host_unavailable",
+                )
+            recovery_preview = self._recovery_operation_preview(
+                recovery,
+                project_context,
+            )
+            has_managed_operations = bool(
+                recovery_preview.apply_operation_id is not None
+                or recovery_preview.cycle_history.cycles
+            )
+            managed_operation_id: str | None = None
+            if has_managed_operations:
+                try:
+                    host_health = await self.project_host.health()
+                    if host_health.get("available") is not True:
+                        raise ProjectHostError(
+                            _safe_code(
+                                host_health.get("reason")
+                                or "project_host_writeback_unavailable"
+                            )
+                        )
+                except ProjectHostError as exc:
+                    raise _project_host_http_error(exc) from exc
+                managed_operation_id = self._bind_host_recovery_operations(
+                    recovery,
+                    project_context,
+                    recovery_preview,
+                )
+            source, resumed_host_project = await self._acquire_host_project(
                 project_context.project_id,
                 expected_head=project_context.head,
                 expected_branch=project_context.branch,
+                managed_operation_id=managed_operation_id,
             )
         cumulative_changes = _public_changes(recovery.payload.changes)
         active_changes = (
@@ -1501,7 +1697,7 @@ class CodingService:
                 resumed_project["reason"] = None
                 resumed_project["writeback_reason"] = None
         elif project_context.kind is ProjectKind.HOST_GIT and source is not None:
-            resumed_project = _project_from_source(source)
+            resumed_project = resumed_host_project
         record = CodingApiSession(
             session_id=session_id,
             worker_session_id=session_id,
@@ -1658,7 +1854,14 @@ class CodingService:
             "max_cycles": MAX_INCREMENTAL_CYCLES,
             "can_continue": bool(
                 self.incremental_enabled
-                and self._is_builtin_project(record)
+                and (
+                    self._is_builtin_project(record)
+                    or (
+                        self._is_host_project(record)
+                        and isinstance(record.project.get("features"), dict)
+                        and record.project["features"].get("commit") is True
+                    )
+                )
                 and latest_commit is not None
                 and record.cycle_number < MAX_INCREMENTAL_CYCLES
                 and record.recovery_conflict is None
@@ -1675,7 +1878,14 @@ class CodingService:
         commit_id: str,
     ) -> dict[str, Any]:
         record = await self._review_record(session_id)
-        self._require_builtin_project(record)
+        if not (
+            self._is_builtin_project(record)
+            or self._is_host_project(record)
+        ):
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "project_operation_unavailable",
+            )
         async with record.apply_lock:
             if record.publish_manifest is not None:
                 raise _http_error(status.HTTP_409_CONFLICT, "session_published")
@@ -1694,6 +1904,18 @@ class CodingService:
                 or receipt.commit_id != commit_id
             ):
                 raise _http_error(status.HTTP_409_CONFLICT, "commit_mismatch")
+            if self._is_host_project(record):
+                _project_id, expected_parent, _fingerprint, branch = (
+                    self._host_writer_context(record)
+                )
+                if (
+                    receipt.parent_sha != expected_parent
+                    or receipt.branch != branch
+                ):
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT,
+                        "cycle_lineage_invalid",
+                    )
             changes = await self._current_changes(record)
             if changes["revision"] != revision or not changes["files"]:
                 raise _http_error(status.HTTP_409_CONFLICT, "stale_revision")
@@ -1953,8 +2175,21 @@ class CodingService:
                 return self._public_apply(record, revision)
             self._require_mutable(record)
             writer_context: tuple[str, str, str] | None = None
+            host_context: tuple[str, str, str, str] | None = None
+            host_retry_unknown = bool(
+                self._is_host_project(record)
+                and record.apply_state is ApplyState.FAILED
+                and record.apply_operation_id is not None
+                and record.apply_reason == "operation_result_unknown"
+            )
             if self._is_builtin_project(record):
                 expected_fingerprint = await self._require_apply_available()
+            elif self._is_host_project(record):
+                host_context = await self._require_host_writer_available(
+                    record,
+                    require_clean=not host_retry_unknown,
+                )
+                expected_fingerprint = host_context[2]
             else:
                 writer_context = await self._require_project_writer_available(record)
                 expected_fingerprint = writer_context[2]
@@ -2005,7 +2240,68 @@ class CodingService:
                 record.apply_finished_at = time.time()
                 raise
             try:
-                if writer_context is None:
+                if host_context is not None:
+                    assert self.project_host is not None
+                    try:
+                        if host_retry_unknown:
+                            self.project_host.bind_recovery_operations(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                apply_operation_id=operation_id,
+                                apply_receipt=record.apply_receipt,
+                                commit_receipt=None,
+                            )
+                        else:
+                            self.project_host.bind_persisted_intent(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                operation_id=operation_id,
+                                kind="apply",
+                            )
+                    except ProjectHostError as exc:
+                        raise ProjectWriterClientError(
+                            "Host project intent was rejected.",
+                            code=_safe_code(exc.code),
+                        ) from exc
+                    reconciled_state = "not_applied"
+                    receipt = None
+                    if host_retry_unknown:
+                        reconciled_state, receipt = (
+                            await self.project_host.reconcile_apply(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                operation_id=operation_id,
+                                revision=revision,
+                                patch=patch,
+                                paths=paths,
+                                expected_fingerprint=expected_fingerprint,
+                            )
+                        )
+                        if reconciled_state == "conflict":
+                            raise ProjectWriterClientError(
+                                "Host application reconciliation conflicted.",
+                                code="operation_conflict",
+                            )
+                    if reconciled_state == "not_applied":
+                        receipt = await self.project_host.apply(
+                            project_id=host_context[0],
+                            expected_head=host_context[1],
+                            expected_branch=host_context[3],
+                            operation_id=operation_id,
+                            revision=revision,
+                            patch=patch,
+                            paths=paths,
+                            expected_fingerprint=expected_fingerprint,
+                        )
+                    if receipt is None:
+                        raise ProjectWriterClientError(
+                            "Host application reconciliation was incomplete.",
+                            code="operation_result_unknown",
+                        )
+                elif writer_context is None:
                     assert self.applier is not None
                     receipt = await self.applier.apply(
                         operation_id=operation_id,
@@ -2026,10 +2322,16 @@ class CodingService:
                         expected_fingerprint=expected_fingerprint,
                     )
                 if (
-                    receipt.revision != revision
+                    receipt.apply_id != operation_id
+                    or receipt.revision != revision
                     or receipt.snapshot_fingerprint != expected_fingerprint
                     or [item.path for item in receipt.files] != paths
                 ):
+                    if host_context is not None:
+                        raise ProjectWriterClientError(
+                            "Host application result must be reconciled.",
+                            code="operation_result_unknown",
+                        )
                     try:
                         if writer_context is None:
                             assert self.applier is not None
@@ -2122,7 +2424,31 @@ class CodingService:
                 record.commit_state is CommitState.FAILED
                 and record.commit_operation_id is not None
             )
-            if not retrying_unknown_result:
+            host_retry_unknown = bool(
+                self._is_host_project(record)
+                and retrying_unknown_result
+                and record.commit_reason == "operation_result_unknown"
+            )
+            host_context: tuple[str, str, str, str] | None = None
+            host_patch: str | None = None
+            if self._is_host_project(record):
+                host_context = await self._require_host_writer_available(
+                    record,
+                    require_clean=False,
+                )
+                if host_context[2] != apply_receipt.snapshot_fingerprint:
+                    raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
+                if host_retry_unknown:
+                    try:
+                        host_patch = _safe_diff(
+                            await self.worker.patch(
+                                record.worker_session_id,
+                                revision,
+                            )
+                        )
+                    except CodingWorkerError as exc:
+                        raise _worker_http_error(exc) from exc
+            elif not retrying_unknown_result:
                 await self._require_commit_available(
                     record,
                     apply_receipt.snapshot_fingerprint
@@ -2151,6 +2477,88 @@ class CodingService:
                         apply_receipt=apply_receipt,
                         message=message,
                     )
+                elif self._is_host_project(record):
+                    assert host_context is not None
+                    project_id, expected_head, _, expected_branch = host_context
+                    assert self.project_host is not None
+                    try:
+                        if host_retry_unknown:
+                            self.project_host.bind_recovery_operations(
+                                project_id=project_id,
+                                expected_head=expected_head,
+                                expected_branch=expected_branch,
+                                apply_operation_id=apply_receipt.apply_id,
+                                commit_operation_id=operation_id,
+                                apply_receipt=apply_receipt,
+                                commit_receipt=record.commit_receipt,
+                            )
+                        else:
+                            self.project_host.bind_persisted_intent(
+                                project_id=project_id,
+                                expected_head=expected_head,
+                                expected_branch=expected_branch,
+                                operation_id=operation_id,
+                                kind="commit",
+                                parent_operation_id=apply_receipt.apply_id,
+                            )
+                    except ProjectHostError as exc:
+                        raise ProjectWriterClientError(
+                            "Host commit intent was rejected.",
+                            code=_safe_code(exc.code),
+                        ) from exc
+                    reconciled_state = "not_committed"
+                    receipt = None
+                    if host_retry_unknown:
+                        assert host_patch is not None
+                        reconciled_state, restored_apply, receipt = (
+                            await self.project_host.reconcile_commit(
+                                project_id=project_id,
+                                expected_head=expected_head,
+                                expected_branch=expected_branch,
+                                operation_id=apply_receipt.apply_id,
+                                revision=revision,
+                                patch=host_patch,
+                                paths=[item.path for item in apply_receipt.files],
+                                expected_fingerprint=(
+                                    apply_receipt.snapshot_fingerprint
+                                ),
+                                apply_receipt=apply_receipt,
+                                commit_operation_id=operation_id,
+                                message=message,
+                            )
+                        )
+                        if restored_apply != apply_receipt:
+                            raise ProjectWriterClientError(
+                                "Host commit reconciliation was not bound.",
+                                code="operation_result_unknown",
+                            )
+                        if reconciled_state == "undone" and receipt is not None:
+                            record.commit_receipt = receipt
+                            record.commit_state = CommitState.UNDONE
+                            record.commit_reason = None
+                            record.commit_finished_at = time.time()
+                            record.updated_at = record.commit_finished_at
+                            await self._persist_recovery(record, required=True)
+                            return self._public_commit(record, revision)
+                    if reconciled_state == "not_committed":
+                        receipt = await self.project_host.commit(
+                            project_id=project_id,
+                            expected_head=expected_head,
+                            expected_branch=expected_branch,
+                            operation_id=operation_id,
+                            apply_receipt=apply_receipt,
+                            message=message,
+                        )
+                    elif reconciled_state != "committed":
+                        raise ProjectWriterClientError(
+                            "Host commit reconciliation conflicted.",
+                            code="operation_conflict",
+                        )
+                    if receipt is None:
+                        raise ProjectWriterClientError(
+                            "Host commit reconciliation was incomplete.",
+                            code="operation_result_unknown",
+                        )
                 else:
                     project_id, expected_head, _ = self._project_writer_context(record)
                     assert self.project_writer is not None
@@ -2168,12 +2576,24 @@ class CodingService:
                     or receipt.apply_id != apply_id
                     or receipt.message != message
                     or receipt.files != expected_files
+                    or (
+                        self._is_host_project(record)
+                        and (
+                            receipt.branch != self._host_writer_context(record)[3]
+                            or receipt.parent_sha != self._host_writer_context(record)[1]
+                        )
+                    )
                 ):
+                    if self._is_host_project(record):
+                        raise ProjectWriterClientError(
+                            "Host commit result must be reconciled.",
+                            code="operation_result_unknown",
+                        )
                     try:
                         if self._is_builtin_project(record):
                             assert self.committer is not None
                             await self.committer.undo(receipt, apply_receipt)
-                        else:
+                        elif not self._is_host_project(record):
                             project_id, expected_head, _ = self._project_writer_context(record)
                             assert self.project_writer is not None
                             await self.project_writer.undo(
@@ -2488,9 +2908,30 @@ class CodingService:
                 return self._public_commit(record, revision)
             if record.commit_state is not CommitState.COMMITTED:
                 raise _http_error(status.HTTP_409_CONFLICT, "commit_not_undoable")
+            host_context: tuple[str, str, str, str] | None = None
+            host_retry_unknown = bool(
+                self._is_host_project(record)
+                and record.commit_reason == "operation_result_unknown"
+            )
+            host_patch: str | None = None
             if self._is_builtin_project(record):
                 if self.committer is None:
                     raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "committer_unavailable")
+            elif self._is_host_project(record):
+                host_context = await self._require_host_writer_available(
+                    record,
+                    require_clean=False,
+                )
+                if host_retry_unknown:
+                    try:
+                        host_patch = _safe_diff(
+                            await self.worker.patch(
+                                record.worker_session_id,
+                                revision,
+                            )
+                        )
+                    except CodingWorkerError as exc:
+                        raise _worker_http_error(exc) from exc
             elif self.project_writer is None:
                 raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "project_writer_unavailable")
             record.commit_state = CommitState.UNDOING
@@ -2506,6 +2947,70 @@ class CodingService:
                 if self._is_builtin_project(record):
                     assert self.committer is not None
                     undone = await self.committer.undo(receipt, apply_receipt)
+                elif host_context is not None:
+                    assert self.project_host is not None
+                    if host_retry_unknown:
+                        try:
+                            self.project_host.bind_recovery_operations(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                apply_operation_id=apply_receipt.apply_id,
+                                commit_operation_id=receipt.commit_id,
+                                apply_receipt=apply_receipt,
+                                commit_receipt=receipt,
+                            )
+                        except ProjectHostError as exc:
+                            raise ProjectWriterClientError(
+                                "Host undo intent was rejected.",
+                                code=_safe_code(exc.code),
+                            ) from exc
+                        assert host_patch is not None
+                        state, restored_apply, restored_commit = (
+                            await self.project_host.reconcile_commit(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                operation_id=apply_receipt.apply_id,
+                                revision=revision,
+                                patch=host_patch,
+                                paths=[item.path for item in apply_receipt.files],
+                                expected_fingerprint=(
+                                    apply_receipt.snapshot_fingerprint
+                                ),
+                                apply_receipt=apply_receipt,
+                                commit_operation_id=receipt.commit_id,
+                                message=receipt.message,
+                            )
+                        )
+                        if restored_apply != apply_receipt:
+                            raise ProjectWriterClientError(
+                                "Host undo reconciliation was not bound.",
+                                code="operation_result_unknown",
+                            )
+                        if state == "undone" and restored_commit == receipt:
+                            undone = receipt
+                        elif state == "committed" and restored_commit == receipt:
+                            undone = await self.project_host.undo(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                apply_receipt=apply_receipt,
+                                commit_receipt=receipt,
+                            )
+                        else:
+                            raise ProjectWriterClientError(
+                                "Host undo reconciliation conflicted.",
+                                code="operation_conflict",
+                            )
+                    else:
+                        undone = await self.project_host.undo(
+                            project_id=host_context[0],
+                            expected_head=host_context[1],
+                            expected_branch=host_context[3],
+                            apply_receipt=apply_receipt,
+                            commit_receipt=receipt,
+                        )
                 else:
                     project_id, expected_head, _ = self._project_writer_context(record)
                     assert self.project_writer is not None
@@ -2564,15 +3069,41 @@ class CodingService:
             if record.apply_state is ApplyState.REVERTED:
                 return self._public_apply(record, revision)
             if record.apply_state is not ApplyState.APPLIED:
-                if record.apply_state is ApplyState.FAILED:
+                if record.apply_state is ApplyState.FAILED and not (
+                    self._is_host_project(record)
+                    and record.apply_reason == "operation_result_unknown"
+                ):
                     return self._public_apply(record, revision)
-                raise _http_error(status.HTTP_409_CONFLICT, "apply_not_revertible")
+                if record.apply_state is not ApplyState.FAILED:
+                    raise _http_error(status.HTTP_409_CONFLICT, "apply_not_revertible")
+            host_context: tuple[str, str, str, str] | None = None
+            host_retry_unknown = bool(
+                self._is_host_project(record)
+                and record.apply_state is ApplyState.FAILED
+                and record.apply_reason == "operation_result_unknown"
+            )
+            host_patch: str | None = None
             if self._is_builtin_project(record):
                 if self.applier is None:
                     raise _http_error(
                         status.HTTP_503_SERVICE_UNAVAILABLE,
                         "applier_unavailable",
                     )
+            elif self._is_host_project(record):
+                host_context = await self._require_host_writer_available(
+                    record,
+                    require_clean=False,
+                )
+                if host_retry_unknown:
+                    try:
+                        host_patch = _safe_diff(
+                            await self.worker.patch(
+                                record.worker_session_id,
+                                revision,
+                            )
+                        )
+                    except CodingWorkerError as exc:
+                        raise _worker_http_error(exc) from exc
             elif self.project_writer is None:
                 raise _http_error(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -2591,6 +3122,55 @@ class CodingService:
                 if self._is_builtin_project(record):
                     assert self.applier is not None
                     reverted = await self.applier.revert(receipt)
+                elif host_context is not None:
+                    assert self.project_host is not None
+                    if host_retry_unknown:
+                        try:
+                            self.project_host.bind_recovery_operations(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                apply_operation_id=receipt.apply_id,
+                                apply_receipt=receipt,
+                                commit_receipt=None,
+                            )
+                        except ProjectHostError as exc:
+                            raise ProjectWriterClientError(
+                                "Host revert intent was rejected.",
+                                code=_safe_code(exc.code),
+                            ) from exc
+                        assert host_patch is not None
+                        state, restored = await self.project_host.reconcile_apply(
+                            project_id=host_context[0],
+                            expected_head=host_context[1],
+                            expected_branch=host_context[3],
+                            operation_id=receipt.apply_id,
+                            revision=revision,
+                            patch=host_patch,
+                            paths=[item.path for item in receipt.files],
+                            expected_fingerprint=receipt.snapshot_fingerprint,
+                        )
+                        if state == "not_applied":
+                            reverted = receipt
+                        elif state == "applied" and restored == receipt:
+                            reverted = await self.project_host.revert(
+                                project_id=host_context[0],
+                                expected_head=host_context[1],
+                                expected_branch=host_context[3],
+                                receipt=receipt,
+                            )
+                        else:
+                            raise ProjectWriterClientError(
+                                "Host revert reconciliation conflicted.",
+                                code="operation_conflict",
+                            )
+                    else:
+                        reverted = await self.project_host.revert(
+                            project_id=host_context[0],
+                            expected_head=host_context[1],
+                            expected_branch=host_context[3],
+                            receipt=receipt,
+                        )
                 else:
                     project_id, expected_head, _ = self._project_writer_context(record)
                     assert self.project_writer is not None
@@ -3095,6 +3675,10 @@ class CodingService:
     def _is_builtin_project(record: CodingApiSession) -> bool:
         return record.project.get("kind") == ProjectKind.BUILTIN.value
 
+    @staticmethod
+    def _is_host_project(record: CodingApiSession) -> bool:
+        return record.project.get("kind") == ProjectKind.HOST_GIT.value
+
     def _require_builtin_project(self, record: CodingApiSession) -> None:
         if not self._is_builtin_project(record):
             raise _http_error(
@@ -3216,6 +3800,14 @@ class CodingService:
         paths: list[str],
         fingerprint: str,
     ) -> None:
+        if self._is_host_project(record):
+            await self._reconcile_recovered_host_writeback(
+                record,
+                patch,
+                paths,
+                fingerprint,
+            )
+            return
         if not self._is_builtin_project(record):
             await self._reconcile_recovered_project_writeback(
                 record,
@@ -3345,6 +3937,177 @@ class CodingService:
         record.publish_reason = None
         record.publish_finished_at = time.time()
         record.state = "published"
+
+    async def _reconcile_recovered_host_writeback(
+        self,
+        record: CodingApiSession,
+        patch: str,
+        paths: list[str],
+        fingerprint: str,
+    ) -> None:
+        if self.project_host is None:
+            self._mark_recovery_conflict(record, "project_host_unavailable")
+            return
+        try:
+            project_id, expected_head, expected_fingerprint, expected_branch = (
+                self._host_writer_context(record)
+            )
+            source = record.project_source
+            if not isinstance(source, dict) or not isinstance(source.get("head"), str):
+                raise ValueError("Host project baseline is missing")
+            _current_parent, lineage = self._host_cycle_lineage(
+                record,
+                base_head=source["head"],
+                branch=expected_branch,
+                fingerprint=fingerprint,
+            )
+        except HTTPException:
+            self._mark_recovery_conflict(record, "project_changed")
+            return
+        except (TypeError, ValueError):
+            self._mark_recovery_conflict(record, "cycle_lineage_invalid")
+            return
+        if expected_fingerprint != fingerprint:
+            self._mark_recovery_conflict(record, "snapshot_mismatch")
+            return
+        apply_operation = record.apply_operation_id
+        apply_receipt = record.apply_receipt
+        if lineage and apply_operation is None:
+            if (
+                record.apply_state is not ApplyState.NOT_APPLIED
+                or record.commit_operation_id is not None
+                or record.commit_state is not CommitState.NOT_COMMITTED
+            ):
+                self._mark_recovery_conflict(record, "cycle_lineage_invalid")
+                return
+            last_cycle = record.cycle_history.cycles[-1]
+            parent, archived_apply, archived_commit = lineage[-1]
+            try:
+                state, restored_apply, restored_commit = (
+                    await self.project_host.reconcile_commit(
+                        project_id=project_id,
+                        expected_head=parent,
+                        expected_branch=expected_branch,
+                        operation_id=archived_apply.apply_id,
+                        revision=last_cycle.revision,
+                        patch=last_cycle.patch,
+                        paths=[item.path for item in archived_apply.files],
+                        expected_fingerprint=fingerprint,
+                        apply_receipt=archived_apply,
+                        commit_operation_id=archived_commit.commit_id,
+                        message=archived_commit.message,
+                    )
+                )
+            except ProjectWriterClientError as exc:
+                self._mark_recovery_conflict(record, _safe_code(exc.code))
+                return
+            if (
+                state != "committed"
+                or restored_apply != archived_apply
+                or restored_commit != archived_commit
+            ):
+                self._mark_recovery_conflict(record, "commit_recovery_conflict")
+            return
+        if (
+            apply_operation is not None
+            and apply_receipt is not None
+            and record.commit_operation_id is not None
+            and record.commit_message is not None
+            and record.commit_state is not CommitState.NOT_COMMITTED
+        ):
+            try:
+                state, restored_apply, commit_receipt = (
+                    await self.project_host.reconcile_commit(
+                        project_id=project_id,
+                        expected_head=expected_head,
+                        expected_branch=expected_branch,
+                        operation_id=apply_operation,
+                        revision=record.apply_revision or 0,
+                        patch=patch,
+                        paths=paths,
+                        expected_fingerprint=fingerprint,
+                        apply_receipt=apply_receipt,
+                        commit_operation_id=record.commit_operation_id,
+                        message=record.commit_message,
+                    )
+                )
+            except ProjectWriterClientError as exc:
+                self._mark_recovery_conflict(record, _safe_code(exc.code))
+                return
+            record.apply_receipt = restored_apply
+            record.apply_state = ApplyState.APPLIED
+            if state == "committed" and commit_receipt is not None:
+                record.commit_receipt = commit_receipt
+                record.commit_state = CommitState.COMMITTED
+                record.apply_reason = None
+                record.commit_reason = None
+                record.commit_finished_at = time.time()
+                record.state = "applied"
+                return
+            if state == "undone" and commit_receipt is not None:
+                record.commit_receipt = commit_receipt
+                record.commit_state = CommitState.UNDONE
+                record.apply_reason = None
+                record.commit_reason = None
+                record.commit_finished_at = time.time()
+                record.state = "applied"
+                return
+            if state == "not_committed" and record.commit_receipt is None:
+                record.commit_state = CommitState.FAILED
+                record.commit_reason = "commit_not_completed"
+                record.state = "applied"
+                return
+            self._mark_recovery_conflict(record, "commit_recovery_conflict")
+            return
+
+        if apply_operation is None or record.apply_state is ApplyState.NOT_APPLIED:
+            return
+        intended_revert = (
+            apply_receipt is not None
+            and record.apply_state in {ApplyState.REVERTING, ApplyState.FAILED}
+        )
+        try:
+            state, receipt = await self.project_host.reconcile_apply(
+                project_id=project_id,
+                expected_head=expected_head,
+                expected_branch=expected_branch,
+                operation_id=apply_operation,
+                revision=record.apply_revision or 0,
+                patch=patch,
+                paths=paths,
+                expected_fingerprint=fingerprint,
+            )
+        except ProjectWriterClientError as exc:
+            self._mark_recovery_conflict(record, _safe_code(exc.code))
+            return
+        if state == "conflict":
+            self._mark_recovery_conflict(record, "apply_recovery_conflict")
+        elif state == "applied" and receipt is not None:
+            record.apply_receipt = receipt
+            record.apply_state = ApplyState.APPLIED
+            record.apply_reason = None
+            record.apply_finished_at = time.time()
+            record.state = "applied"
+        elif state == "not_applied" and intended_revert:
+            record.apply_state = ApplyState.REVERTED
+            record.apply_reason = None
+            record.apply_finished_at = time.time()
+            record.state = "reverted"
+        elif state == "not_applied" and record.apply_state is ApplyState.REVERTED:
+            record.apply_reason = None
+            record.state = "reverted"
+        elif state == "not_applied" and record.apply_state in {
+            ApplyState.APPLYING,
+            ApplyState.FAILED,
+        }:
+            record.apply_state = ApplyState.NOT_APPLIED
+            record.apply_operation_id = None
+            record.apply_receipt = None
+            record.apply_reason = None
+            record.apply_finished_at = time.time()
+            record.state = "ready"
+        else:
+            self._mark_recovery_conflict(record, "apply_recovery_conflict")
 
     async def _reconcile_recovered_project_writeback(
         self,
@@ -3673,6 +4436,14 @@ class CodingService:
         record: CodingApiSession,
         expected_fingerprint: str,
     ) -> None:
+        if self._is_host_project(record):
+            _, _, fingerprint, _ = await self._require_host_writer_available(
+                record,
+                require_clean=False,
+            )
+            if fingerprint != expected_fingerprint:
+                raise _http_error(status.HTTP_409_CONFLICT, "snapshot_mismatch")
+            return
         if not self._is_builtin_project(record):
             _, _, fingerprint = await self._require_project_writer_available(record)
             if fingerprint != expected_fingerprint:
@@ -3700,6 +4471,11 @@ class CodingService:
         self,
         record: CodingApiSession,
     ) -> tuple[str, str, str]:
+        if record.project.get("kind") != ProjectKind.LOCAL_CLONE.value:
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "project_operation_unavailable",
+            )
         features = record.project.get("features")
         if not isinstance(features, dict) or features.get("apply") is not True:
             raise _http_error(
@@ -3711,6 +4487,45 @@ class CodingService:
             reason = str(capability.get("reason") or "project_writer_unavailable")
             raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, reason)
         return self._project_writer_context(record)
+
+    async def _require_host_writer_available(
+        self,
+        record: CodingApiSession,
+        *,
+        require_clean: bool,
+    ) -> tuple[str, str, str, str]:
+        if not self._is_host_project(record) or self.project_host is None:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "project_host_writeback_unavailable",
+            )
+        features = record.project.get("features")
+        if not isinstance(features, dict) or features.get("apply") is not True:
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                _safe_code(
+                    record.project.get("writeback_reason")
+                    or "project_operation_unavailable"
+                ),
+            )
+        try:
+            health = await self.project_host.health()
+        except ProjectHostError as exc:
+            raise _project_host_http_error(exc) from exc
+        if health.get("available") is not True:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                _safe_code(
+                    health.get("reason") or "project_host_writeback_unavailable"
+                ),
+            )
+        project_id, head, fingerprint, branch = self._host_writer_context(record)
+        if require_clean:
+            try:
+                self.project_host.check_project(project_id, head, branch)
+            except ProjectHostError as exc:
+                raise _project_host_http_error(exc) from exc
+        return project_id, head, fingerprint, branch
 
     @staticmethod
     def _project_writer_context(
@@ -3732,6 +4547,89 @@ class CodingService:
         ):
             raise _http_error(status.HTTP_409_CONFLICT, "project_changed")
         return project_id, head, fingerprint
+
+    @staticmethod
+    def _host_cycle_lineage(
+        record: CodingApiSession,
+        *,
+        base_head: str,
+        branch: str,
+        fingerprint: str,
+    ) -> tuple[str, tuple[tuple[str, ApplyReceipt, CommitReceipt], ...]]:
+        parent = base_head
+        seen_operations: set[str] = set()
+        lineage: list[tuple[str, ApplyReceipt, CommitReceipt]] = []
+        for cycle in record.cycle_history.cycles:
+            if (
+                cycle.state is not CycleState.COMMITTED
+                or cycle.apply.get("state") != ApplyState.APPLIED.value
+                or cycle.commit.get("state") != CommitState.COMMITTED.value
+            ):
+                raise ValueError("Host cycle is not committed")
+            apply_receipt = _apply_receipt_from_storage(
+                cycle.apply.get("receipt")
+            )
+            commit_receipt = _commit_receipt_from_storage(
+                cycle.commit.get("receipt")
+            )
+            paths = tuple(item.path for item in apply_receipt.files)
+            try:
+                patch_paths = tuple(_diff_paths(cycle.patch))
+            except HTTPException as exc:
+                raise ValueError("Host cycle Patch is invalid") from exc
+            change_files = cycle.changes.get("files")
+            if not isinstance(change_files, list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("path"), str)
+                for item in change_files
+            ):
+                raise ValueError("Host cycle changes are invalid")
+            change_paths = tuple(item["path"] for item in change_files)
+            if (
+                apply_receipt.revision != cycle.revision
+                or apply_receipt.snapshot_fingerprint != fingerprint
+                or patch_paths != paths
+                or change_paths != paths
+                or commit_receipt.revision != cycle.revision
+                or commit_receipt.apply_id != apply_receipt.apply_id
+                or commit_receipt.files != paths
+                or commit_receipt.branch != branch
+                or commit_receipt.parent_sha != parent
+                or commit_receipt.commit_sha == parent
+                or apply_receipt.apply_id in seen_operations
+                or commit_receipt.commit_id in seen_operations
+            ):
+                raise ValueError("Host cycle lineage is invalid")
+            seen_operations.update(
+                {apply_receipt.apply_id, commit_receipt.commit_id}
+            )
+            lineage.append((parent, apply_receipt, commit_receipt))
+            parent = commit_receipt.commit_sha
+        return parent, tuple(lineage)
+
+    @staticmethod
+    def _host_writer_context(
+        record: CodingApiSession,
+    ) -> tuple[str, str, str, str]:
+        if record.project.get("kind") != ProjectKind.HOST_GIT.value:
+            raise _http_error(status.HTTP_409_CONFLICT, "project_changed")
+        project_id, head, fingerprint = CodingService._project_writer_context(record)
+        source = record.project_source
+        branch = source.get("branch") if isinstance(source, dict) else None
+        if not isinstance(branch, str) or not branch:
+            raise _http_error(status.HTTP_409_CONFLICT, "project_changed")
+        try:
+            parent, _lineage = CodingService._host_cycle_lineage(
+                record,
+                base_head=head,
+                branch=branch,
+                fingerprint=fingerprint,
+            )
+        except (TypeError, ValueError) as exc:
+            raise _http_error(
+                status.HTTP_409_CONFLICT,
+                "cycle_lineage_invalid",
+            ) from exc
+        return project_id, parent, fingerprint, branch
 
     async def _publish_capability(self) -> dict[str, Any]:
         capability: dict[str, Any] = {
@@ -5541,8 +6439,12 @@ def _recovery_http_error(exc: CodingRecoveryError) -> HTTPException:
 def _applier_http_error(exc: ApplierClientError) -> HTTPException:
     if exc.code in {
         "already_reverted",
+        "apply_conflict",
+        "branch_changed",
+        "head_changed",
         "operation_conflict",
         "patch_apply_failed",
+        "project_changed",
         "revert_conflict",
         "snapshot_mismatch",
         "target_changed",
@@ -5559,10 +6461,14 @@ def _committer_http_error(exc: CommitterClientError) -> HTTPException:
     if exc.code in {
         "already_undone",
         "baseline_mismatch",
+        "branch_changed",
         "commit_already_exists",
         "commit_conflict",
         "dirty_index",
+        "head_changed",
+        "index_changed",
         "operation_conflict",
+        "project_changed",
         "repository_has_remote",
         "repository_not_independent",
         "shared_git_directory",

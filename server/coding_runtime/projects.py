@@ -528,6 +528,8 @@ def build_safe_git_environment() -> dict[str, str]:
         {
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
         }
@@ -546,6 +548,8 @@ def build_safe_git_command(project_path: Path, arguments: Sequence[str]) -> tupl
         "credential.helper=",
         "-c",
         f"core.attributesFile={os.devnull}",
+        "-c",
+        f"core.excludesFile={os.devnull}",
         "-c",
         f"safe.directory={project_path}",
         *arguments,

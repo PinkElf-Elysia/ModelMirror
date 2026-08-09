@@ -155,7 +155,10 @@ class CodingCommitterEngine:
                         code="already_undone",
                     )
                 if state == "committed" and reconciled is not None:
-                    return reconciled
+                    return _require_fixed_commit_branch(
+                        reconciled,
+                        code="operation_conflict",
+                    )
                 if state == "conflict":
                     raise CodingCommitError(
                         "Commit recovery state is ambiguous.",
@@ -173,9 +176,10 @@ class CodingCommitterEngine:
                 if key != "reason"
             }
             self._health_snapshot["available"] = True
-            return receipt
+            return _require_fixed_commit_branch(receipt, code="operation_conflict")
 
     def undo(self, receipt: CommitReceipt, apply_receipt: ApplyReceipt) -> CommitReceipt:
+        _require_fixed_commit_branch(receipt, code="operation_conflict")
         with self._lock:
             operation = self._operations.get(receipt.commit_id)
             if operation is None or operation.receipt != receipt:
@@ -200,7 +204,10 @@ class CodingCommitterEngine:
             )
             if state == "undone":
                 assert reconciled is not None
-                return receipt
+                return _require_fixed_commit_branch(
+                    receipt,
+                    code="operation_conflict",
+                )
             if state != "committed":
                 if state == "conflict":
                     self._assert_committed_state(receipt, apply_receipt)
@@ -236,7 +243,7 @@ class CodingCommitterEngine:
                 if key != "reason"
             }
             self._health_snapshot["available"] = True
-            return receipt
+            return _require_fixed_commit_branch(receipt, code="operation_conflict")
 
     def reconcile(
         self,
@@ -284,6 +291,7 @@ class CodingCommitterEngine:
                 code="operation_conflict",
             )
         receipt = operation.receipt
+        _require_fixed_commit_branch(receipt, code="operation_conflict")
         try:
             self._assert_committed_state(receipt, apply_receipt)
         except CodingCommitError:
@@ -367,6 +375,10 @@ class CodingCommitterEngine:
         return operations
 
     def _write_journal(self, operation: _Operation) -> None:
+        _require_fixed_commit_branch(
+            operation.receipt,
+            code="recovery_journal_unavailable",
+        )
         git_dir = self.target_root / ".git"
         journal_parent = self._journal_root.parent
         for directory in (journal_parent, self._journal_root):
@@ -801,6 +813,7 @@ class CodingCommitterEngine:
                 tree_sha=tree,
                 message=message,
                 files=tuple(item.path for item in apply_receipt.files),
+                branch=COMMIT_BRANCH,
             )
             prepared = _Operation(
                 apply_receipt=apply_receipt,
@@ -826,7 +839,7 @@ class CodingCommitterEngine:
             )
             self._operations[operation_id] = committed
             self._write_journal(committed)
-            return receipt
+            return _require_fixed_commit_branch(receipt, code="operation_conflict")
 
     def _move_head_and_index(
         self,
@@ -1130,7 +1143,23 @@ def _commit_receipt_from_journal(value: object) -> CommitReceipt:
     files = value["files"]
     if not isinstance(files, list) or any(not isinstance(path, str) for path in files):
         raise ValueError("Commit journal files are invalid")
-    return CommitReceipt(**{**value, "files": tuple(files)})
+    receipt = CommitReceipt(**{**value, "files": tuple(files)})
+    if receipt.branch != COMMIT_BRANCH:
+        raise ValueError("Commit journal branch is invalid")
+    return receipt
+
+
+def _require_fixed_commit_branch(
+    receipt: CommitReceipt,
+    *,
+    code: str,
+) -> CommitReceipt:
+    if receipt.branch != COMMIT_BRANCH:
+        raise CodingCommitError(
+            "Commit receipt branch is not allowed for the fixed repository.",
+            code=code,
+        )
+    return receipt
 
 
 def _validate_identity(value: str, field: str) -> str:

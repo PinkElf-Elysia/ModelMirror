@@ -15,7 +15,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import CodingApplyPanel from "./CodingApplyPanel";
 import CodingPublishPanel from "./CodingPublishPanel";
 import CodingVerificationPanel from "./CodingVerificationPanel";
@@ -25,6 +25,7 @@ import type {
   CodingCommitResult,
   CodingDraftChanges,
   CodingDraftFile,
+  CodingProjectSummary,
   CodingPublishResult,
   CodingVerification,
 } from "../types/coding";
@@ -62,6 +63,7 @@ interface CodingChangesPanelProps {
   publishCapability: CodingCapabilities["publish"];
   publishError: string;
   publishResult: CodingPublishResult | null;
+  selectedProject: CodingProjectSummary | null;
   sessionId: string | null;
   verification: CodingVerification | null;
   verificationAvailable: boolean;
@@ -152,6 +154,18 @@ const commitReasonText: Record<string, string> = {
     "项目版本正在更新，当前修改暂时不能保存为本地版本。",
   project_changed:
     "所选项目的版本已经变化。为避免覆盖现有内容，本次保存已停止。",
+  operation_result_unknown:
+    "本次操作的结果暂时无法确认。当前状态会保留，重新连接后将继续核对。",
+  project_host_offline:
+    "本地项目助手连接已断开。当前状态和操作区会保留，重新连接后可继续。",
+  project_host_protocol_readonly:
+    "当前助手版本只支持查看和下载。请更新助手后重新连接，再决定是否保存本地版本。",
+  project_host_unavailable:
+    "本地项目助手当前不可用。当前状态和操作区会保留，重新连接后可继续。",
+  project_host_writeback_disabled:
+    "本地项目写入已关闭。当前修改仍可查看和下载。",
+  project_host_writeback_unavailable:
+    "本地项目助手暂时不能保存本地版本。当前状态会保留，重新连接后可继续。",
   project_writer_not_configured:
     "本地项目写入尚未配置，修改仍可查看、下载和撤销写入。",
   project_writer_timeout:
@@ -194,7 +208,7 @@ interface CodingCommitPanelProps {
   onUndo: () => Promise<void>;
   publishLocked: boolean;
   result: CodingCommitResult | null;
-  selectedProject: boolean;
+  selectedProject: CodingProjectSummary | null;
 }
 
 function CodingCommitPanel({
@@ -228,6 +242,8 @@ function CodingCommitPanel({
     changes.revision,
     result?.commit_id,
     result?.message,
+    result?.reason,
+    result?.state,
     result?.suggested_message,
   ]);
 
@@ -243,15 +259,24 @@ function CodingCommitPanel({
     normalizedMessage.length <= maxChars &&
     subjectLength <= 120;
   const committed = result?.state === "committed";
+  const operationResultUnknown = result?.reason === "operation_result_unknown";
+  const commitResultUnknown =
+    operationResultUnknown && result?.state === "failed" && !result.commit_id;
+  const undoResultUnknown =
+    operationResultUnknown && result?.state === "committed" && Boolean(result.commit_id);
   const waiting =
     action !== "idle" ||
     result?.state === "committing" ||
     result?.state === "undoing";
+  const selectedProjectName = selectedProject?.name ?? "所选本地项目";
+  const selectedProjectBranch = result?.commit_id
+    ? result.branch
+    : selectedProject?.branch;
   const unavailableCopy =
     commitReasonText[capability?.reason ?? ""] ??
     `当前不能创建本地版本，修改仍安全保留在${selectedProject ? "所选项目" : "专用项目副本"}中。`;
   const resultError =
-    result?.state === "failed"
+    result?.state === "failed" && !operationResultUnknown
       ? commitReasonText[result.reason ?? ""] ??
         "本次保存没有完成。修改仍保留，可以使用相同说明重试。"
       : "";
@@ -262,6 +287,7 @@ function CodingCommitPanel({
     nextAction: Exclude<CommitAction, "idle">,
     callback: () => Promise<void>,
   ) => {
+    if (action !== "idle") return;
     setAction(nextAction);
     setLocalError("");
     try {
@@ -278,25 +304,49 @@ function CodingCommitPanel({
   if (committed) {
     return (
       <section
+        aria-busy={waiting}
         aria-labelledby="coding-commit-title"
         className="mt-5 rounded-lg border border-cyan-300/20 bg-cyan-300/[0.055] p-4"
       >
         <div className="flex items-start gap-3">
-          <CheckCircle2
-            aria-hidden="true"
-            className="mt-0.5 shrink-0 text-cyan-200"
-            size={18}
-          />
+          {undoResultUnknown ? (
+            <CircleAlert
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-amber-200"
+              size={18}
+            />
+          ) : (
+            <CheckCircle2
+              aria-hidden="true"
+              className="mt-0.5 shrink-0 text-cyan-200"
+              size={18}
+            />
+          )}
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-white" id="coding-commit-title">
-              已保存一个本地版本
+              {undoResultUnknown ? "撤销结果待核对" : "已保存一个本地版本"}
             </h3>
-            <p aria-live="polite" className="mt-1 text-xs leading-5 text-slate-300">
-              {publishLocked
+            <p
+              aria-atomic="true"
+              aria-live="polite"
+              className="mt-1 text-xs leading-5 text-slate-300"
+              role="status"
+            >
+              {undoResultUnknown
+                ? "上次撤销本地版本的结果暂时无法确认。重新连接后请核对原操作；系统不会新建另一条撤销。"
+                : publishLocked
                 ? "这份本地版本已进入 GitHub 发布流程，不能再撤销或继续追加修改。"
-                : selectedProject
-                  ? "这份版本只保存在你选择的本地项目中，不会自动上传到远程平台。"
-                  : "这份版本目前只保存在专用项目副本中，不会自动上传到远程平台。"}
+                : selectedProject ? (
+                    <>
+                      这份版本只保存在“
+                      <span className="break-all font-semibold text-slate-200">
+                        {selectedProjectName}
+                      </span>
+                      ”的本地分支中，不会上传到远程平台。
+                    </>
+                  ) : (
+                    "这份版本目前只保存在专用项目副本中，不会自动上传到远程平台。"
+                  )}
             </p>
             <dl className="mt-3 grid min-w-0 gap-2 text-xs sm:grid-cols-[88px_minmax(0,1fr)]">
               <dt className="text-slate-500">版本说明</dt>
@@ -305,55 +355,88 @@ function CodingCommitPanel({
               </dd>
               <dt className="text-slate-500">本地编号</dt>
               <dd className="min-w-0">
-                <code className="rounded bg-black/25 px-2 py-1 text-cyan-100">
+                <code className="break-all rounded bg-black/25 px-2 py-1 text-cyan-100">
                   {result.short_sha}
+                </code>
+              </dd>
+              <dt className="text-slate-500">本地分支</dt>
+              <dd className="min-w-0">
+                <code className="break-all rounded bg-black/25 px-2 py-1 text-cyan-100">
+                  {result.branch}
                 </code>
               </dd>
             </dl>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          {onContinue && !publishLocked ? (
+        {undoResultUnknown ? (
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button
-              className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-              disabled={disabled || waiting}
-              onClick={() => void runAction("closing", onContinue)}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-amber-200 px-3 text-sm font-semibold text-amber-950 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              disabled={disabled || waiting || capability?.available !== true}
+              onClick={() => void runAction("undoing", onUndo)}
               type="button"
             >
-              {action === "closing" ? (
-                <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={14} />
-              ) : null}
-              继续修改
+              {action === "undoing" ? (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="animate-spin motion-reduce:animate-none"
+                  size={14}
+                />
+              ) : (
+                <Undo2 aria-hidden="true" size={16} />
+              )}
+              {action === "undoing" ? "正在核对本次撤销" : "核对本次撤销"}
             </button>
-          ) : null}
-          {!publishLocked ? (
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {onContinue && !publishLocked ? (
+              <button
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                disabled={disabled || waiting}
+                onClick={() => void runAction("closing", onContinue)}
+                type="button"
+              >
+                {action === "closing" ? (
+                  <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" size={14} />
+                ) : null}
+                继续修改
+              </button>
+            ) : null}
+            {!publishLocked ? (
+              <button
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-amber-300/30 px-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                disabled={
+                  disabled ||
+                  waiting ||
+                  !result.can_undo ||
+                  capability?.available !== true
+                }
+                onClick={() => {
+                  setConfirmUndo(true);
+                  setConfirmClose(false);
+                }}
+                type="button"
+              >
+                <Undo2 aria-hidden="true" size={16} />
+                撤销本地提交
+              </button>
+            ) : null}
             <button
-              className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-amber-300/30 px-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/70 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-              disabled={disabled || waiting || !result.can_undo}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              disabled={disabled || waiting}
               onClick={() => {
-                setConfirmUndo(true);
-                setConfirmClose(false);
+                setConfirmClose(true);
+                setConfirmUndo(false);
               }}
               type="button"
             >
-              <Undo2 aria-hidden="true" size={16} />
-              撤销本地提交
+              <X aria-hidden="true" size={16} />
+              结束本次修改
             </button>
-          ) : null}
-          <button
-            className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-            disabled={disabled || waiting}
-            onClick={() => {
-              setConfirmClose(true);
-              setConfirmUndo(false);
-            }}
-            type="button"
-          >
-            <X aria-hidden="true" size={16} />
-            结束本次修改
-          </button>
-        </div>
+          </div>
+        )}
 
         {confirmUndo ? (
           <div
@@ -362,18 +445,34 @@ function CodingCommitPanel({
           >
             <p className="font-semibold">撤销这条本地版本记录吗？</p>
             <p className="mt-1 text-xs leading-5 text-amber-100/80">
-              文件修改会继续保留，你可以修改说明后重新保存，或再撤销已应用的修改。
+              {selectedProject ? (
+                <>
+                  将从“
+                  <span className="break-all font-semibold text-amber-50">
+                    {selectedProjectName}
+                  </span>
+                  ”的分支{" "}
+                  <code className="break-all font-mono text-amber-50">
+                    {result.branch}
+                  </code>{" "}
+                  撤销这条记录。文件修改会继续保留，不会上传任何内容。
+                </>
+              ) : (
+                "文件修改会继续保留，你可以修改说明后重新保存，或再撤销已应用的修改。"
+              )}
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <button
-                className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                className="min-h-11 rounded-lg border border-white/15 px-3 text-xs font-semibold hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={action !== "idle"}
                 onClick={() => setConfirmUndo(false)}
                 type="button"
               >
                 保留本地版本
               </button>
               <button
-                className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-amber-200 px-3 text-xs font-semibold text-amber-950 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-amber-200 px-3 text-xs font-semibold text-amber-950 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={action !== "idle" || capability?.available !== true}
                 onClick={() => void runAction("undoing", onUndo)}
                 type="button"
               >
@@ -401,14 +500,16 @@ function CodingCommitPanel({
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <button
-                className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                className="min-h-11 rounded-lg border border-white/15 px-3 text-xs font-semibold hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={action !== "idle"}
                 onClick={() => setConfirmClose(false)}
                 type="button"
               >
                 继续留在本页
               </button>
               <button
-                className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-slate-200 px-3 text-xs font-semibold text-ink-950 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-slate-200 px-3 text-xs font-semibold text-ink-950 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={action !== "idle"}
                 onClick={() => void runAction("closing", onClose)}
                 type="button"
               >
@@ -425,7 +526,7 @@ function CodingCommitPanel({
           </div>
         ) : null}
 
-        {localError || error ? (
+        {!operationResultUnknown && (localError || error) ? (
           <p
             aria-live="assertive"
             className="mt-3 rounded-lg bg-rose-300/10 px-3 py-2 text-xs leading-5 text-rose-100"
@@ -440,6 +541,7 @@ function CodingCommitPanel({
 
   return (
     <section
+      aria-busy={waiting}
       aria-labelledby="coding-commit-title"
       className="mt-5 rounded-lg border border-white/10 bg-white/[0.025] p-4"
     >
@@ -460,12 +562,36 @@ function CodingCommitPanel({
           <p className="mt-1 text-xs leading-5 text-slate-400">
             {capability?.available
               ? selectedProject
-                ? "填写版本说明后，在所选本地项目中保存一个可找回的版本。不会自动上传。"
+                ? "填写版本说明后，在上方确认的项目当前分支保存一个可找回的本地版本。不会上传。"
                 : "填写版本说明后创建本地提交。它只保存在专用副本，不会自动上传，也不会改变你当前使用的项目目录。"
               : unavailableCopy}
           </p>
         </div>
       </div>
+
+      {result?.state === "committing" || result?.state === "undoing" ? (
+        <p
+          aria-atomic="true"
+          aria-live="polite"
+          className="mt-4 rounded-lg bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-100"
+          role="status"
+        >
+          {result.state === "undoing"
+            ? "正在核对本地版本撤销结果，请勿重复操作。"
+            : "正在核对本地版本保存结果，请勿重复操作。"}
+        </p>
+      ) : null}
+
+      {commitResultUnknown ? (
+        <p
+          aria-atomic="true"
+          aria-live="polite"
+          className="mt-4 rounded-lg bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100"
+          role="status"
+        >
+          上次保存结果暂时无法确认。重新连接后可核对原操作；只有确认尚未提交时，系统才会继续同一次保存。
+        </p>
+      ) : null}
 
       {result?.state === "undone" ? (
         <p
@@ -485,7 +611,9 @@ function CodingCommitPanel({
       <textarea
         aria-describedby="coding-commit-message-help"
         className="mt-2 min-h-24 w-full min-w-0 resize-y rounded-lg border border-white/10 bg-ink-950/75 px-3 py-2 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 hover:border-white/20 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={!capability?.available || disabled || waiting}
+        disabled={
+          !capability?.available || disabled || waiting || commitResultUnknown
+        }
         id="coding-commit-message"
         maxLength={maxChars}
         onChange={(event) => {
@@ -508,44 +636,73 @@ function CodingCommitPanel({
       </div>
 
       <button
-        className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 sm:w-auto"
+        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 sm:w-auto"
         disabled={!capability?.available || disabled || waiting || !validMessage}
         onClick={() => setConfirmCommit(true)}
         type="button"
       >
         <Save aria-hidden="true" size={16} />
-        创建本地提交
+        {commitResultUnknown ? "核对本次保存" : "创建本地提交"}
       </button>
 
       {confirmCommit ? (
         <div
-          aria-live="polite"
+          aria-labelledby="coding-commit-confirm-title"
           className="mt-4 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.065] p-3 text-sm text-cyan-50"
+          role="group"
         >
-          <p className="font-semibold">确认保存 {changes.file_count} 个文件吗？</p>
+          <p className="font-semibold" id="coding-commit-confirm-title">
+            {commitResultUnknown
+              ? "核对上一次保存结果吗？"
+              : `确认保存 ${changes.file_count} 个文件吗？`}
+          </p>
+          {commitResultUnknown ? (
+            <p className="mt-2 text-xs leading-5 text-cyan-100/85">
+              系统会先核对原操作；只有明确确认尚未提交时，才会继续使用相同说明完成同一次保存。
+            </p>
+          ) : null}
           <ul className="mt-2 space-y-1 text-xs leading-5 text-cyan-100/80">
             <li>
-              {selectedProject
-                ? "会在所选本地项目中创建一条本地版本记录。"
-                : "会在专用项目副本中创建一条本地版本记录。"}
+              {selectedProject ? (
+                <>
+                  会在“
+                  <span className="break-all font-semibold text-cyan-50">
+                    {selectedProjectName}
+                  </span>
+                  ”的分支{" "}
+                  <code className="break-all font-mono text-cyan-50">
+                    {selectedProjectBranch ?? "暂时无法确认"}
+                  </code>{" "}
+                  创建一条本地版本记录。
+                </>
+              ) : (
+                "会在专用项目副本中创建一条本地版本记录。"
+              )}
             </li>
             <li>
               {selectedProject
-                ? "不会自动上传，也不会创建 GitHub PR。"
+                ? "只会修改这个本地项目；不会上传，不会访问远程仓库，也不会创建 GitHub PR。"
                 : "不会提交到你当前使用的项目目录，也不会自动上传；发布到 GitHub 需要另行确认。"}
             </li>
             <li>保存后仍可安全撤销记录，文件修改会继续保留。</li>
           </ul>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button
-              className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+              className="min-h-11 rounded-lg border border-white/15 px-3 text-xs font-semibold hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={action !== "idle"}
               onClick={() => setConfirmCommit(false)}
               type="button"
             >
               返回修改说明
             </button>
             <button
-              className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-cyan-200 px-3 text-xs font-semibold text-cyan-950 hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-cyan-200 px-3 text-xs font-semibold text-cyan-950 hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={
+                action !== "idle" ||
+                capability?.available !== true ||
+                !validMessage ||
+                (Boolean(selectedProject) && !selectedProjectBranch)
+              }
               onClick={() =>
                 void runAction("committing", () => onCommit(normalizedMessage))
               }
@@ -558,13 +715,13 @@ function CodingCommitPanel({
                   size={14}
                 />
               ) : null}
-              确认保存到本地
+              {commitResultUnknown ? "核对并继续本次保存" : "确认保存到本地"}
             </button>
           </div>
         </div>
       ) : null}
 
-      {resultError || localError || error ? (
+      {!operationResultUnknown && (resultError || localError || error) ? (
         <p
           aria-live="assertive"
           className="mt-3 rounded-lg bg-rose-300/10 px-3 py-2 text-xs leading-5 text-rose-100"
@@ -618,6 +775,7 @@ export default function CodingChangesPanel({
   publishCapability,
   publishError,
   publishResult,
+  selectedProject,
   sessionId,
   verification,
   verificationAvailable,
@@ -630,6 +788,9 @@ export default function CodingChangesPanel({
   const [diffs, setDiffs] = useState<Record<string, string>>({});
   const [diffLoading, setDiffLoading] = useState("");
   const [message, setMessage] = useState("");
+  const actionInFlightRef = useRef(false);
+  const writebackInFlightRef = useRef(false);
+  const [writebackBusy, setWritebackBusy] = useState(false);
 
   useEffect(() => {
     setExpandedPath(null);
@@ -650,6 +811,8 @@ export default function CodingChangesPanel({
     nextAction: Exclude<ActionState, "idle">,
     callback: () => Promise<void>,
   ) => {
+    if (actionInFlightRef.current || writebackInFlightRef.current) return;
+    actionInFlightRef.current = true;
     setAction(nextAction);
     setMessage("");
     try {
@@ -660,7 +823,20 @@ export default function CodingChangesPanel({
     } catch (error) {
       setMessage(describeReviewError(error));
     } finally {
+      actionInFlightRef.current = false;
       setAction("idle");
+    }
+  };
+
+  const runWritebackAction = async (callback: () => Promise<void>) => {
+    if (writebackInFlightRef.current || actionInFlightRef.current) return;
+    writebackInFlightRef.current = true;
+    setWritebackBusy(true);
+    try {
+      await callback();
+    } finally {
+      writebackInFlightRef.current = false;
+      setWritebackBusy(false);
     }
   };
 
@@ -693,7 +869,13 @@ export default function CodingChangesPanel({
   const completedWithoutChanges = Boolean(
     changes && changes.revision > 0 && !hasChanges,
   );
-  const isActing = action !== "idle";
+  const isActing = action !== "idle" || writebackBusy;
+  const serverWritebackActive = Boolean(
+    applyResult?.state === "applying" ||
+      applyResult?.state === "reverting" ||
+      commitResult?.state === "committing" ||
+      commitResult?.state === "undoing",
+  );
   const verificationRunning =
     verification?.stale === false &&
     ["awaiting_confirmation", "running"].includes(
@@ -947,19 +1129,27 @@ export default function CodingChangesPanel({
                   verification={verification}
                 />
 
-                {commitResult?.state !== "committed" ? (
+                {commitResult?.state !== "committed" &&
+                commitResult?.reason !== "operation_result_unknown" ? (
                   <CodingApplyPanel
                     capability={applyCapability}
                     changes={changes}
                     disabled={
-                      disabled || readOnly || isActing || verificationRunning
+                      disabled ||
+                      readOnly ||
+                      isActing ||
+                      writebackBusy ||
+                      serverWritebackActive ||
+                      verificationRunning
                     }
                     error={applyError}
-                    onApply={onApply}
-                    onClose={onClose}
-                    onRevert={onRevert}
+                    onApply={(confirmQualityRisks) =>
+                      runWritebackAction(() => onApply(confirmQualityRisks))
+                    }
+                    onClose={() => runWritebackAction(onClose)}
+                    onRevert={() => runWritebackAction(onRevert)}
                     result={applyResult}
-                    selectedProject={localWriteback}
+                    selectedProject={localWriteback ? selectedProject : null}
                     verification={verification}
                   />
                 ) : null}
@@ -968,15 +1158,27 @@ export default function CodingChangesPanel({
                   applyResult={applyResult}
                   capability={commitCapability}
                   changes={changes}
-                  disabled={disabled || readOnly || isActing}
+                  disabled={
+                    disabled ||
+                    readOnly ||
+                    isActing ||
+                    writebackBusy ||
+                    serverWritebackActive
+                  }
                   error={commitError}
-                  onCommit={onCommit}
-                  onContinue={onContinue}
-                  onClose={onClose}
-                  onUndo={onUndoCommit}
+                  onCommit={(commitMessage) =>
+                    runWritebackAction(() => onCommit(commitMessage))
+                  }
+                  onContinue={
+                    onContinue
+                      ? () => runWritebackAction(onContinue)
+                      : undefined
+                  }
+                  onClose={() => runWritebackAction(onClose)}
+                  onUndo={() => runWritebackAction(onUndoCommit)}
                   publishLocked={Boolean(publishResult?.publish_id)}
                   result={commitResult}
-                  selectedProject={localWriteback}
+                  selectedProject={localWriteback ? selectedProject : null}
                 />
 
                 {!localWriteback ? (
@@ -996,7 +1198,7 @@ export default function CodingChangesPanel({
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <button
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={disabled || readOnly || frozen || isActing}
                 onClick={() =>
                   void runAction("checking", onValidate)
@@ -1015,7 +1217,7 @@ export default function CodingChangesPanel({
                 检查修改
               </button>
               <button
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
                 disabled={
                   disabled ||
                   isActing
@@ -1035,7 +1237,7 @@ export default function CodingChangesPanel({
                 下载 Diff
               </button>
               <button
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={
                   disabled || readOnly || frozen || isActing || verificationRunning
                 }
@@ -1058,14 +1260,16 @@ export default function CodingChangesPanel({
                 </p>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <button
-                    className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                    className="min-h-11 rounded-lg border border-white/15 px-3 text-xs font-semibold transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isActing}
                     onClick={() => setConfirmDownload(false)}
                     type="button"
                   >
                     返回查看
                   </button>
                   <button
-                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-amber-200 px-3 text-xs font-semibold text-amber-950 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-amber-200 px-3 text-xs font-semibold text-amber-950 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isActing}
                     onClick={() => {
                       setConfirmDownload(false);
                       void runAction("downloading", onDownload);
@@ -1090,14 +1294,16 @@ export default function CodingChangesPanel({
                 </p>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <button
-                    className="min-h-9 rounded-lg border border-white/15 px-3 text-xs font-semibold transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                    className="min-h-11 rounded-lg border border-white/15 px-3 text-xs font-semibold transition hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isActing}
                     onClick={() => setConfirmDiscard(false)}
                     type="button"
                   >
                     继续保留
                   </button>
                   <button
-                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-rose-200 px-3 text-xs font-semibold text-rose-950 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-100"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-rose-200 px-3 text-xs font-semibold text-rose-950 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isActing}
                     onClick={() =>
                       void runAction("discarding", onDiscard)
                     }
@@ -1169,7 +1375,7 @@ export default function CodingChangesPanel({
             如果不再继续追问，可以结束当前任务并选择其他项目。本次回答不会保存。
           </p>
           <button
-            className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled || readOnly || isActing}
             onClick={() => void runAction("closing", onClose)}
             type="button"
