@@ -5,6 +5,10 @@ import PageContainer from "../components/PageContainer";
 interface KnowledgeBase {
   id: string;
   name: string;
+  origin?: string;
+  catalog_ref?: Record<string, unknown>;
+  corpus_locked?: boolean;
+  provisioning_status?: string;
 }
 
 interface RagDocument {
@@ -28,12 +32,15 @@ interface ExpectedReference {
   page_number?: number | null;
   relevance: number;
   document_name?: string;
+  match_mode?: "document" | "source_block" | "chunk" | null;
+  catalog_anchor_key?: string | null;
 }
 
 interface EvaluationCase {
   case_id: string;
   query: string;
   expected_refs: ExpectedReference[];
+  expected_no_result?: boolean;
   tags: string[];
   notes: string;
 }
@@ -47,6 +54,20 @@ interface EvaluationSet {
   status: string;
   cases: EvaluationCase[];
   updated_at: number;
+  origin?: string;
+  catalog_ref?: Record<string, unknown>;
+  provenance?: Record<string, unknown>;
+  coverage?: Record<string, number>;
+  calibration?: Record<string, unknown>;
+  latest_version?: number | null;
+}
+
+interface EvaluationSetVersion extends EvaluationSet {
+  version_id: string;
+  version: number;
+  source_revision: number;
+  checksum: string;
+  published_at: number;
 }
 
 interface GatePolicy {
@@ -56,6 +77,8 @@ interface GatePolicy {
   max_mrr_regression: number;
   max_citation_hit_regression: number;
   max_no_result_increase: number;
+  min_no_result_accuracy: number;
+  min_citation_coverage: number;
   max_p95_latency_ratio: number;
   require_zero_errors: boolean;
 }
@@ -99,6 +122,7 @@ interface EvaluationRun {
   status: string;
   progress: number;
   eval_set_id: string;
+  eval_set_version?: number | null;
   baseline_version_id?: string | null;
   target_results: TargetResult[];
   created_at: number;
@@ -138,6 +162,8 @@ export default function KnowledgeEvaluationPage() {
   const [versions, setVersions] = useState<PipelineVersion[]>([]);
   const [evaluationSets, setEvaluationSets] = useState<EvaluationSet[]>([]);
   const [selectedSetId, setSelectedSetId] = useState("");
+  const [evaluationSetVersions, setEvaluationSetVersions] = useState<EvaluationSetVersion[]>([]);
+  const [selectedEvaluationVersion, setSelectedEvaluationVersion] = useState<string>("draft");
   const [gate, setGate] = useState<GatePolicy | null>(null);
   const [runs, setRuns] = useState<EvaluationRun[]>([]);
   const [selectedRun, setSelectedRun] = useState<EvaluationRun | null>(null);
@@ -147,6 +173,7 @@ export default function KnowledgeEvaluationPage() {
   const [query, setQuery] = useState("");
   const [tags, setTags] = useState("");
   const [references, setReferences] = useState<ExpectedReference[]>([]);
+  const [expectedNoResult, setExpectedNoResult] = useState(false);
   const [previewSources, setPreviewSources] = useState<PreviewSource[]>([]);
   const [previewVersionId, setPreviewVersionId] = useState("");
   const [busy, setBusy] = useState("");
@@ -162,6 +189,15 @@ export default function KnowledgeEvaluationPage() {
     if (!kbId) return;
     void loadWorkspace();
   }, [kbId]);
+
+  useEffect(() => {
+    if (!selectedSetId) {
+      setEvaluationSetVersions([]);
+      setSelectedEvaluationVersion("draft");
+      return;
+    }
+    void loadEvaluationSetVersions(selectedSetId);
+  }, [selectedSetId]);
 
   useEffect(() => {
     const active = versions.find((item) => item.active) ?? versions[0];
@@ -223,6 +259,18 @@ export default function KnowledgeEvaluationPage() {
     if (preferId) setSelectedSetId(preferId);
   }
 
+  async function loadEvaluationSetVersions(evalSetId: string) {
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(evalSetId)}/versions`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const next = (data.versions ?? []) as EvaluationSetVersion[];
+    setEvaluationSetVersions(next);
+    setSelectedEvaluationVersion((current) => {
+      if (current !== "draft" && next.some((item) => String(item.version) === current)) return current;
+      return next[0] ? String(next[0].version) : "draft";
+    });
+  }
+
   async function createSet() {
     if (!newSetName.trim()) return;
     setBusy("set");
@@ -241,7 +289,7 @@ export default function KnowledgeEvaluationPage() {
 
   function addDocumentReference(documentId: string, documentName?: string) {
     if (!documentId || references.some((item) => item.document_id === documentId && !item.chunk_id)) return;
-    setReferences((current) => [...current, { document_id: documentId, document_name: documentName, relevance: 2 }]);
+    setReferences((current) => [...current, { document_id: documentId, document_name: documentName, relevance: 2, match_mode: "document" }]);
   }
 
   function addPreviewReference(source: PreviewSource) {
@@ -254,6 +302,7 @@ export default function KnowledgeEvaluationPage() {
       source_block_id: source.source_block_id,
       page_number: source.page_number,
       relevance: 3,
+      match_mode: source.source_block_id ? "source_block" : "chunk",
     }]);
   }
 
@@ -273,7 +322,7 @@ export default function KnowledgeEvaluationPage() {
   }
 
   async function addCase() {
-    if (!selectedSet || !query.trim() || references.length === 0) return;
+    if (!selectedSet || !query.trim() || (!expectedNoResult && references.length === 0)) return;
     setBusy("case");
     setError("");
     const response = await fetch(`/api/rag/evaluation-sets/${selectedSet.eval_set_id}/cases`, {
@@ -283,7 +332,8 @@ export default function KnowledgeEvaluationPage() {
         expected_revision: selectedSet.revision,
         case: {
           query: query.trim(),
-          expected_refs: references.map(({ document_name: _name, ...item }) => item),
+          expected_no_result: expectedNoResult,
+          expected_refs: expectedNoResult ? [] : references.map(({ document_name: _name, ...item }) => item),
           tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
         },
       }),
@@ -294,6 +344,7 @@ export default function KnowledgeEvaluationPage() {
     setQuery("");
     setTags("");
     setReferences([]);
+    setExpectedNoResult(false);
     setPreviewSources([]);
     await reloadSets(selectedSet.eval_set_id);
     setNotice("评估问题已保存。");
@@ -334,6 +385,7 @@ export default function KnowledgeEvaluationPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         eval_set_id: selectedSet.eval_set_id,
+        eval_set_version: selectedEvaluationVersion === "draft" ? null : Number(selectedEvaluationVersion),
         targets: selectedVersions.map((versionId) => ({ version_id: versionId })),
         baseline_version_id: selectedVersions.includes(baselineVersionId) ? baselineVersionId : null,
         ks: [1, 3, 5, 10],
@@ -344,6 +396,24 @@ export default function KnowledgeEvaluationPage() {
     if (!response.ok) return setError(errorMessage(data, "启动评估失败。"));
     setSelectedRun(data);
     setRuns((current) => [data, ...current.filter((item) => item.run_id !== data.run_id)]);
+  }
+
+  async function publishEvaluationSet() {
+    if (!selectedSet) return;
+    setBusy("publish-set");
+    setError("");
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_revision: selectedSet.revision, release_notes: "Published from Knowledge Evaluation workspace" }),
+    });
+    const data = await response.json().catch(() => null);
+    setBusy("");
+    if (!response.ok) return setError(errorMessage(data, "发布评测版本失败。"));
+    await reloadSets(selectedSet.eval_set_id);
+    await loadEvaluationSetVersions(selectedSet.eval_set_id);
+    setSelectedEvaluationVersion(String(data.version));
+    setNotice(`评测集 v${data.version} 已发布；后续草稿编辑不会改变该版本。`);
   }
 
   async function refreshRun(runId: string, refreshList = true) {
@@ -413,12 +483,19 @@ export default function KnowledgeEvaluationPage() {
           <div className={`rounded-lg border px-4 py-3 text-sm ${error ? "border-rose-300/30 bg-rose-400/10 text-rose-100" : "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"}`}>{error || notice}</div>
         ) : null}
 
+        {knowledgeBase?.corpus_locked ? (
+          <div className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+            <strong>RAG 引擎标准基准锁定语料</strong>
+            <span className="ml-2 text-amber-100/80">语料由 {String((knowledgeBase.catalog_ref as { pack_id?: string } | undefined)?.pack_id || "Catalog")} 固定；用于检索配置回归，不代表业务知识库质量。可编辑流水线、构建候选、评测、激活和回滚。</span>
+          </div>
+        ) : null}
+
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(480px,0.95fr)]">
           <section className="surface-panel rounded-lg border border-white/10 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
               <div>
                 <h2 className="text-sm font-semibold text-white">评估数据集</h2>
-                <p className="mt-1 text-xs text-slate-500">revision {selectedSet?.revision ?? "-"}</p>
+                <p className="mt-1 text-xs text-slate-500">草稿 revision {selectedSet?.revision ?? "-"} · 已发布 v{selectedSet?.latest_version ?? "-"}</p>
               </div>
               <div className="flex gap-2">
                 <select className="rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setSelectedSetId(event.target.value)} value={selectedSetId}>
@@ -426,6 +503,7 @@ export default function KnowledgeEvaluationPage() {
                   {evaluationSets.map((item) => <option key={item.eval_set_id} value={item.eval_set_id}>{item.name} ({item.cases.length})</option>)}
                 </select>
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 disabled:opacity-40" disabled={!selectedSet} onClick={() => importRef.current?.click()} type="button">导入</button>
+                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set"} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
                 <input accept=".json,.csv,application/json,text/csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCases(file); event.target.value = ""; }} ref={importRef} type="file" />
               </div>
             </div>
@@ -448,12 +526,16 @@ export default function KnowledgeEvaluationPage() {
                 <button className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={!query.trim() || !previewVersionId || busy === "preview"} onClick={() => void previewRetrieval()} type="button">试检索</button>
               </div>
               <input className="w-full rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white outline-none focus:border-hire-300/40" onChange={(event) => setTags(event.target.value)} placeholder="标签，逗号分隔" value={tags} />
+              <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.025] px-3 py-2 text-xs text-slate-300">
+                <input checked={expectedNoResult} className="h-4 w-4 accent-hire-300" onChange={(event) => { setExpectedNoResult(event.target.checked); if (event.target.checked) setReferences([]); }} type="checkbox" />
+                无答案样例：正确行为是返回空检索结果
+              </label>
 
               {references.length > 0 ? (
                 <div className="divide-y divide-white/10 rounded-lg border border-white/10">
                   {references.map((reference, index) => (
                     <div className="flex items-center gap-3 px-3 py-2 text-xs" key={`${reference.document_id}:${reference.chunk_id || index}`}>
-                      <span className="min-w-0 flex-1 truncate text-slate-200">{reference.document_name || reference.document_id}{reference.page_number ? ` · p${reference.page_number}` : ""}</span>
+                      <span className="min-w-0 flex-1 truncate text-slate-200">{reference.document_name || reference.document_id}{reference.page_number ? ` · p${reference.page_number}` : ""} · {reference.match_mode || "legacy"}</span>
                       <select className="rounded border border-white/10 bg-surface-950 px-2 py-1 text-slate-200" onChange={(event) => setReferences((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, relevance: Number(event.target.value) } : item))} value={reference.relevance}>
                         <option value={1}>相关</option><option value={2}>重要</option><option value={3}>关键</option>
                       </select>
@@ -475,14 +557,14 @@ export default function KnowledgeEvaluationPage() {
                 </div>
               ) : null}
 
-              <button className="w-full rounded-lg bg-hire-300 px-4 py-2.5 text-sm font-bold text-surface-950 disabled:opacity-40" disabled={!selectedSet || !query.trim() || references.length === 0 || busy === "case"} onClick={() => void addCase()} type="button">保存评估问题</button>
+              <button className="w-full rounded-lg bg-hire-300 px-4 py-2.5 text-sm font-bold text-surface-950 disabled:opacity-40" disabled={!selectedSet || !query.trim() || (!expectedNoResult && references.length === 0) || busy === "case"} onClick={() => void addCase()} type="button">保存评估问题</button>
             </div>
 
             <div className="mt-5 max-h-[360px] divide-y divide-white/10 overflow-y-auto border-t border-white/10">
               {selectedSet?.cases.length ? selectedSet.cases.map((item, index) => (
                 <div className="py-3" key={item.case_id}>
                   <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p><button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
-                  <p className="mt-2 pl-7 text-xs text-slate-500">{item.expected_refs.length} 个期望引用 · {item.tags.join(" · ") || "未标记"}</p>
+                  <p className="mt-2 pl-7 text-xs text-slate-500">{item.expected_no_result ? "期望无结果" : `${item.expected_refs.length} 个期望引用 · ${[...new Set(item.expected_refs.map((ref) => ref.match_mode || "legacy"))].join(" / ")}`} · {item.tags.join(" · ") || "未标记"}</p>
                 </div>
               )) : <p className="py-10 text-center text-sm text-slate-500">尚无评估问题</p>}
             </div>
@@ -491,8 +573,14 @@ export default function KnowledgeEvaluationPage() {
           <section className="surface-panel rounded-lg border border-white/10 p-4">
             <div className="border-b border-white/10 pb-3">
               <h2 className="text-sm font-semibold text-white">版本对比</h2>
-              <p className="mt-1 text-xs text-slate-500">最多选择 5 个不可变索引版本</p>
+              <p className="mt-1 text-xs text-slate-500">固定评测版本与最多 5 个不可变索引版本</p>
             </div>
+            <label className="mt-3 block text-xs text-slate-400">评测数据版本
+              <select className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-3 py-2 text-sm text-white" onChange={(event) => setSelectedEvaluationVersion(event.target.value)} value={selectedEvaluationVersion}>
+                <option value="draft">草稿 revision {selectedSet?.revision ?? "-"}（兼容模式）</option>
+                {evaluationSetVersions.map((item) => <option key={item.version_id} value={String(item.version)}>不可变 v{item.version} · {item.cases.length} cases</option>)}
+              </select>
+            </label>
             <div className="mt-3 divide-y divide-white/10 rounded-lg border border-white/10">
               {versions.map((version) => {
                 const checked = selectedVersions.includes(version.version_id);
@@ -513,6 +601,8 @@ export default function KnowledgeEvaluationPage() {
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <label className="text-xs text-slate-400">模式<select className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" onChange={(event) => setGate({ ...gate, mode: event.target.value as GatePolicy["mode"] })} value={gate.mode}><option value="advisory">提示</option><option value="required">强制</option></select></label>
                   <label className="text-xs text-slate-400">最低 Recall@5<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, min_recall_at_5: Number(event.target.value) })} step={0.05} type="number" value={gate.min_recall_at_5} /></label>
+                  <label className="text-xs text-slate-400">最低引用覆盖<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, min_citation_coverage: Number(event.target.value) })} step={0.05} type="number" value={gate.min_citation_coverage} /></label>
+                  <label className="text-xs text-slate-400">最低无答案准确率<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, min_no_result_accuracy: Number(event.target.value) })} step={0.05} type="number" value={gate.min_no_result_accuracy} /></label>
                   <label className="text-xs text-slate-400">MRR 最大回退<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={1} min={0} onChange={(event) => setGate({ ...gate, max_mrr_regression: Number(event.target.value) })} step={0.01} type="number" value={gate.max_mrr_regression} /></label>
                   <label className="text-xs text-slate-400">P95 延迟倍数<input className="mt-1 w-full rounded-lg border border-white/10 bg-surface-950 px-2 py-2 text-sm text-white" max={10} min={1} onChange={(event) => setGate({ ...gate, max_p95_latency_ratio: Number(event.target.value) })} step={0.1} type="number" value={gate.max_p95_latency_ratio} /></label>
                 </div>
@@ -536,12 +626,12 @@ export default function KnowledgeEvaluationPage() {
           {selectedRun?.target_results.length ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-left text-xs">
-                <thead className="border-b border-white/10 bg-white/[0.025] text-slate-500"><tr><th className="px-4 py-3">版本</th><th>Recall@1</th><th>Recall@5</th><th>MRR@10</th><th>nDCG@10</th><th>引用命中</th><th>无结果</th><th>P95</th><th>Gate</th><th className="pr-4">操作</th></tr></thead>
+                <thead className="border-b border-white/10 bg-white/[0.025] text-slate-500"><tr><th className="px-4 py-3">版本</th><th>Recall@1</th><th>Recall@5</th><th>MRR@10</th><th>nDCG@10</th><th>引用覆盖</th><th>无答案准确</th><th>误召回</th><th>P95</th><th>Gate</th><th className="pr-4">操作</th></tr></thead>
                 <tbody className="divide-y divide-white/10">
                   {selectedRun.target_results.map((target) => (
                     <tr key={target.version_id}>
                       <td className="px-4 py-3 font-semibold text-white">v{target.version}</td>
-                      <td>{metric(target.metrics.recall_at_1)}</td><td>{metric(target.metrics.recall_at_5)}</td><td>{metric(target.metrics.mrr_at_10, false)}</td><td>{metric(target.metrics.ndcg_at_10, false)}</td><td>{metric(target.metrics.citation_hit_rate)}</td><td>{metric(target.metrics.no_result_rate)}</td><td>{target.metrics.p95_latency_ms?.toFixed(0) ?? "-"} ms</td>
+                      <td>{metric(target.metrics.recall_at_1)}</td><td>{metric(target.metrics.recall_at_5)}</td><td>{metric(target.metrics.mrr_at_10, false)}</td><td>{metric(target.metrics.ndcg_at_10, false)}</td><td>{metric(target.metrics.citation_coverage ?? target.metrics.citation_hit_rate)}</td><td>{metric(target.metrics.no_result_accuracy)}</td><td>{metric(target.metrics.false_positive_rate)}</td><td>{target.metrics.p95_latency_ms?.toFixed(0) ?? "-"} ms</td>
                       <td><span className={target.promotion_gate.passed ? "text-emerald-200" : "text-rose-200"}>{target.promotion_gate.passed ? "通过" : "未通过"}</span></td>
                       <td className="pr-4"><button className="rounded-md border border-emerald-300/25 px-2.5 py-1.5 font-semibold text-emerald-100 disabled:cursor-not-allowed disabled:opacity-35" disabled={!target.promotion_gate.passed || busy === `promote:${target.version_id}`} onClick={() => void promote(target.version_id)} type="button">推广</button></td>
                     </tr>
@@ -555,7 +645,7 @@ export default function KnowledgeEvaluationPage() {
                     <div className="max-h-72 divide-y divide-white/10 overflow-y-auto">
                       {target.case_results.map((caseResult) => (
                         <details className="px-3 py-2" key={caseResult.case_id}>
-                          <summary className="cursor-pointer text-xs text-slate-200">{caseResult.query_preview}<span className="ml-2 text-slate-500">R@5 {metric(caseResult.metrics.recall_at_5)} · {caseResult.latency_ms.toFixed(0)}ms</span></summary>
+                          <summary className="cursor-pointer text-xs text-slate-200">{caseResult.query_preview}<span className="ml-2 text-slate-500">{caseResult.metrics.no_result_accuracy != null ? `No-result ${metric(caseResult.metrics.no_result_accuracy)}` : `R@5 ${metric(caseResult.metrics.recall_at_5)}`} · {caseResult.latency_ms.toFixed(0)}ms</span></summary>
                           <div className="mt-2 space-y-1 pl-3">{caseResult.ranking.slice(0, 10).map((item) => <div className="flex gap-2 text-[11px]" key={`${caseResult.case_id}:${item.rank}`}><span className="w-5 text-slate-600">{item.rank}</span><span className={`min-w-0 flex-1 truncate ${item.relevance ? "text-emerald-200" : "text-slate-500"}`}>{item.document_name || item.document_id}</span><span className="text-slate-600">{item.score?.toFixed(3) ?? "-"}</span></div>)}</div>
                         </details>
                       ))}

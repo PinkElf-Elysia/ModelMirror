@@ -2,12 +2,42 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-07-28
+最后更新日期：2026-08-09
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
+
+## 2026-08-09 增量：RAG 引擎标准 Benchmark 与版本化评测
+
+Benchmark Catalog 新增 `modelmirror-rag-foundation-bilingual-v1`。它使用 12 份
+ModelMirror 自有中英双语 Markdown 语料和 40 条固定查询，离线构建 General +
+Parent-child + hash embedding + 向量/FTS5 双索引的托管知识库。实例化任务可恢复，只有
+索引、40 条 Gold 与不可变评测 v1 全部成功后，知识库才进入正常列表并激活初始版本。
+
+该 Pack 是检索引擎的一致性与回归基准，只能证明分块、双索引、引用、无答案处理和版本
+切换在固定合成语料上的行为。它不代表任意业务知识库的真实质量，也不应替代针对目标
+知识库、固定索引版本和实际问题分布生成并人工审核的 Gold 评测集。下一轮固定进入
+`XPERT-RAG-BENCHMARK-GENERATOR-04`，补齐这项业务质量门禁。
+
+托管 Benchmark KB 使用 `origin=benchmark_catalog`、`corpus_locked=true`：语料上传、
+文档删除和 Knowledge Inbox 写入返回 409；流水线草稿、候选构建、固定评测、激活、回滚
+和删除整个知识库保持可用。初始 Full-text Profile 是离线可重复基线，用户可在同一锁定
+语料上构建 Recursive、Vector 或 Hybrid 候选。
+
+Knowledge Evaluation Set 新增不可变递增版本 API：
+
+```text
+POST /api/rag/evaluation-sets/{eval_set_id}/publish
+GET  /api/rag/evaluation-sets/{eval_set_id}/versions
+GET  /api/rag/evaluation-sets/{eval_set_id}/versions/{version}
+```
+
+运行请求可传 `eval_set_version` 固定 Gold 快照；未传时继续使用兼容 revision 模式。
+标准 Gold 使用 `match_mode=source_block`，以稳定 source block 跨分块比较，初始 chunk ID
+只作诊断。`expected_no_result=true` 表示正确行为是空召回，且不得同时提供引用；报告单独
+计算 No-result Accuracy 与 False-positive Rate，正样例指标不会被负样例稀释。
 
 ## 2026-07-16 增量：离线检索评估与 Promotion Gate
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
     from server.file_assets.validation import FileValidationError
@@ -18,6 +18,7 @@ from .rag_service import (
     DocumentDeletionError,
     DocumentNotFoundError,
     KnowledgeBaseDeletionError,
+    KnowledgeBaseLockedError,
     KnowledgeBaseNotFoundError,
     KnowledgeWriteProposalConflictError,
     KnowledgeWriteProposalNotFoundError,
@@ -66,6 +67,10 @@ class KnowledgeBasePayload(BaseModel):
     updated_at: float
     deletion_status: str = "active"
     deletion_error_code: str | None = None
+    origin: str = "manual"
+    catalog_ref: dict[str, Any] = Field(default_factory=dict)
+    corpus_locked: bool = False
+    provisioning_status: str = "ready"
 
 
 class KnowledgeBaseListResponse(BaseModel):
@@ -555,13 +560,24 @@ class EvaluationReferenceInput(BaseModel):
     source_block_id: str | None = Field(default=None, max_length=240)
     page_number: int | None = Field(default=None, ge=1, le=100_000)
     relevance: int = Field(default=1, ge=1, le=3)
+    match_mode: str | None = Field(default=None, pattern="^(document|source_block|chunk)$")
+    catalog_anchor_key: str | None = Field(default=None, max_length=200)
 
 
 class EvaluationCaseInput(BaseModel):
     query: str = Field(min_length=1, max_length=20_000)
-    expected_refs: list[EvaluationReferenceInput] = Field(min_length=1, max_length=50)
+    expected_refs: list[EvaluationReferenceInput] = Field(default_factory=list, max_length=50)
+    expected_no_result: bool = False
     tags: list[str] = Field(default_factory=list, max_length=20)
     notes: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_expectation(self) -> "EvaluationCaseInput":
+        if self.expected_no_result and self.expected_refs:
+            raise ValueError("No-result cases cannot define expected references.")
+        if not self.expected_no_result and not self.expected_refs:
+            raise ValueError("Answerable cases require expected references.")
+        return self
 
 
 class EvaluationSetCreateRequest(BaseModel):
@@ -575,6 +591,11 @@ class EvaluationSetUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
+
+
+class EvaluationSetPublishRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
+    release_notes: str = Field(default="", max_length=1000)
 
 
 class EvaluationCasesRequest(BaseModel):
@@ -595,6 +616,7 @@ class EvaluationTargetInput(BaseModel):
 
 class EvaluationRunCreateRequest(BaseModel):
     eval_set_id: str = Field(min_length=1, max_length=200)
+    eval_set_version: int | None = Field(default=None, ge=1)
     targets: list[EvaluationTargetInput] = Field(min_length=1, max_length=5)
     baseline_version_id: str | None = Field(default=None, max_length=200)
     ks: list[int] = Field(default_factory=lambda: [1, 3, 5, 10], min_length=1, max_length=8)
@@ -606,6 +628,8 @@ class EvaluationGateUpdateRequest(BaseModel):
     max_mrr_regression: float = Field(ge=0, le=1)
     max_citation_hit_regression: float = Field(ge=0, le=1)
     max_no_result_increase: float = Field(ge=0, le=1)
+    min_no_result_accuracy: float = Field(default=0, ge=0, le=1)
+    min_citation_coverage: float = Field(default=0, ge=0, le=1)
     max_p95_latency_ratio: float = Field(ge=1, le=10)
     require_zero_errors: bool = True
 
@@ -753,6 +777,11 @@ async def delete_knowledge_base(kb_id: str) -> dict[str, bool]:
                 "message": str(exc),
             },
         ) from exc
+    except KnowledgeBaseLockedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "rag_benchmark_corpus_locked", "message": str(exc)},
+        ) from exc
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -780,6 +809,11 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)) -> dict[str,
                 "code": "rag_knowledge_base_deleting",
                 "message": str(exc),
             },
+        ) from exc
+    except KnowledgeBaseLockedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "rag_benchmark_corpus_locked", "message": str(exc)},
         ) from exc
     except KnowledgeBaseNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -836,6 +870,11 @@ async def delete_document(doc_id: str) -> dict[str, bool]:
         return {"ok": True}
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KnowledgeBaseLockedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "rag_benchmark_corpus_locked", "message": str(exc)},
+        ) from exc
     except DocumentDeletionError as exc:
         raise HTTPException(
             status_code=409,
@@ -1382,6 +1421,42 @@ async def update_evaluation_set(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/evaluation-sets/{eval_set_id}/publish")
+async def publish_evaluation_set(
+    eval_set_id: str,
+    payload: EvaluationSetPublishRequest,
+) -> dict[str, Any]:
+    try:
+        return get_evaluation_store().publish_set(
+            eval_set_id,
+            expected_revision=payload.expected_revision,
+            release_notes=payload.release_notes,
+        )
+    except EvaluationSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except EvaluationRevisionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (EvaluationStateError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/evaluation-sets/{eval_set_id}/versions")
+async def list_evaluation_set_versions(eval_set_id: str) -> dict[str, Any]:
+    try:
+        versions = get_evaluation_store().list_set_versions(eval_set_id)
+        return {"versions": versions, "version_count": len(versions)}
+    except EvaluationSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/evaluation-sets/{eval_set_id}/versions/{version}")
+async def get_evaluation_set_version(eval_set_id: str, version: int) -> dict[str, Any]:
+    try:
+        return get_evaluation_store().get_set_version(eval_set_id, version)
+    except EvaluationSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/evaluation-sets/{eval_set_id}/cases")
 async def add_evaluation_case(
     eval_set_id: str,
@@ -1463,6 +1538,8 @@ async def import_evaluation_cases(
                     {
                         "query": row.get("query"),
                         "expected_refs": references,
+                        "expected_no_result": str(row.get("expected_no_result") or "").strip().lower()
+                        in {"1", "true", "yes"},
                         "tags": tags,
                         "notes": row.get("notes") or "",
                     }
@@ -1505,8 +1582,18 @@ async def update_evaluation_gate(
 async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str, Any]:
     try:
         evaluation_set = get_evaluation_store().get_set(payload.eval_set_id)
-        if evaluation_set.get("status") != "active" or not evaluation_set.get("cases"):
-            raise ValueError("Evaluation set must be active and contain at least one case.")
+        evaluation_version = (
+            get_evaluation_store().get_set_version(
+                payload.eval_set_id, payload.eval_set_version
+            )
+            if payload.eval_set_version is not None
+            else None
+        )
+        evaluation_snapshot = evaluation_version or evaluation_set
+        if not evaluation_snapshot.get("cases"):
+            raise ValueError("Evaluation set snapshot must contain at least one case.")
+        if evaluation_version is None and evaluation_set.get("status") != "active":
+            raise ValueError("Draft evaluation runs require an active evaluation set.")
         version_ids = [target.version_id for target in payload.targets]
         if len(set(version_ids)) != len(version_ids):
             raise ValueError("Evaluation targets must use distinct version IDs.")
@@ -1533,6 +1620,7 @@ async def create_evaluation_run(payload: EvaluationRunCreateRequest) -> dict[str
             )
         run = get_evaluation_store().create_run(
             evaluation_set=evaluation_set,
+            evaluation_set_version=evaluation_version,
             targets=targets,
             baseline_version_id=payload.baseline_version_id,
             ks=evaluation_ks,

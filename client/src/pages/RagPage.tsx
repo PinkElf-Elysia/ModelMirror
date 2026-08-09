@@ -23,6 +23,10 @@ interface KnowledgeBase {
   updated_at: number;
   deletion_status?: "active" | "deleting" | "cleanup_pending" | "failed";
   deletion_error_code?: string | null;
+  origin?: string;
+  catalog_ref?: Record<string, unknown>;
+  corpus_locked?: boolean;
+  provisioning_status?: string;
 }
 
 interface KnowledgeBaseListResponse {
@@ -812,7 +816,7 @@ export default function RagPage() {
   }, [fileCapabilities]);
   const ragUploadAvailable =
     fileCapabilitiesLoaded && ragExtensions.length > 0 && ragMaxFileBytes > 0;
-  const ragFileSelectionDisabled = isRagFileSelectionDisabled({
+  const ragCapabilityDisabled = isRagFileSelectionDisabled({
     capabilityReady: ragUploadAvailable,
     isUploading,
     hasPendingXlsx: Boolean(pendingXlsxFile),
@@ -833,6 +837,7 @@ export default function RagPage() {
       ) ?? null,
     [knowledgeBases, selectedKbId],
   );
+  const ragFileSelectionDisabled = ragCapabilityDisabled || Boolean(selectedKnowledgeBase?.corpus_locked);
 
   const activePipelineVersion = useMemo(
     () =>
@@ -1563,7 +1568,7 @@ export default function RagPage() {
   }
 
   function enqueueUploadFiles(files: File[]) {
-    if (!selectedKbId || isUploading || files.length === 0) return;
+    if (!selectedKbId || selectedKnowledgeBase?.corpus_locked || isUploading || files.length === 0) return;
     setUploadWarningSummary(EMPTY_DOCUMENT_WARNING_SUMMARY);
     setError("");
     if (files.length === 1 && isXlsxFile(files[0])) {
@@ -1911,12 +1916,16 @@ export default function RagPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/15"
-                    to={`/rag/${encodeURIComponent(selectedKnowledgeBase.id)}/inbox`}
-                  >
-                    知识审批 Inbox
-                  </Link>
+                  {selectedKnowledgeBase.corpus_locked ? (
+                    <span className="cursor-not-allowed rounded-lg border border-white/10 bg-white/[0.035] px-4 py-2 text-sm font-semibold text-slate-500" title="标准 Benchmark 语料不可写入">知识审批已锁定</span>
+                  ) : (
+                    <Link
+                      className="rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/15"
+                      to={`/rag/${encodeURIComponent(selectedKnowledgeBase.id)}/inbox`}
+                    >
+                      知识审批 Inbox
+                    </Link>
+                  )}
                   <Link
                     className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/15"
                     to={`/rag/${encodeURIComponent(selectedKnowledgeBase.id)}/pipeline`}
@@ -1940,6 +1949,13 @@ export default function RagPage() {
                   </button>
                 </div>
               </div>
+
+              {selectedKnowledgeBase.corpus_locked ? (
+                <div className="mt-5 rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+                  <strong>RAG 引擎标准基准语料已锁定。</strong>
+                  <span className="ml-2 text-amber-100/80">该语料只用于检索一致性与回归验证，不代表业务知识库质量。不能上传、删除文档或审批写入；仍可调整流水线、构建候选版本、评测、激活和回滚。</span>
+                </div>
+              ) : null}
 
               <input
                 accept={ragAccept}
@@ -1986,10 +2002,10 @@ export default function RagPage() {
                 onDrop={handleDrop}
               >
                 <p className="text-sm font-semibold text-white">
-                  {isUploading ? "正在按队列入库..." : "拖拽一批文档到这里，或点击上传"}
+                  {selectedKnowledgeBase.corpus_locked ? "此 Benchmark 知识库的标准语料不可变更" : isUploading ? "正在按队列入库..." : "拖拽一批文档到这里，或点击上传"}
                 </p>
                 <p className="mt-2 text-xs text-slate-400">
-                  {ragFormatHint}
+                  {selectedKnowledgeBase.corpus_locked ? "请在流水线中调整处理、分块和检索配置，并用固定评测版本比较候选。" : ragFormatHint}
                 </p>
                 <button
                   className="mt-4 rounded-full bg-white/[0.08] px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1999,7 +2015,9 @@ export default function RagPage() {
                 >
                   {isUploading
                     ? "处理中"
-                    : ragUploadAvailable
+                      : selectedKnowledgeBase.corpus_locked
+                        ? "语料已锁定"
+                        : ragUploadAvailable
                       ? "选择文件（可多选）"
                       : "暂不可用"}
                 </button>
@@ -3061,10 +3079,12 @@ export default function RagPage() {
                             </div>
                             <button
                               className="w-fit rounded-full border border-rose-300/20 bg-rose-300/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-300/20"
+                              disabled={selectedKnowledgeBase.corpus_locked}
                               onClick={() => void deleteDocument(document)}
+                              title={selectedKnowledgeBase.corpus_locked ? "标准 Benchmark 语料不可删除" : undefined}
                               type="button"
                             >
-                              删除
+                              {selectedKnowledgeBase.corpus_locked ? "已锁定" : "删除"}
                             </button>
                           </article>
                         );

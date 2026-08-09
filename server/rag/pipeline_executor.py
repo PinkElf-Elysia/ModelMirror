@@ -580,7 +580,20 @@ class KnowledgePipelineExecutor:
         profile = snapshot.get("embedding_profile", {}) if isinstance(snapshot, dict) else {}
         model = str(profile.get("model") or self.service.embedder.model)
         embedder = self.service.embedder
-        if model != self.service.embedder.model:
+        if (
+            str(profile.get("provider") or "") == "hash"
+            and bool(self.service.embedder.api_key)
+            and getattr(self.service.embedder, "embedding_mode", "hash") != "hash"
+        ):
+            embedder = EmbeddingClient(
+                api_base="",
+                api_key="",
+                model=model,
+                dimension=self.service.embedder.dimension,
+            )
+            embedder.api_key = ""
+            embedder.embedding_mode = "hash"
+        elif model != self.service.embedder.model:
             embedder = EmbeddingClient(
                 api_base=self.service.embedder.api_base,
                 api_key=self.service.embedder.api_key,

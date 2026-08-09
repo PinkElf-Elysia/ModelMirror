@@ -10,6 +10,9 @@ from typing import Any
 from .service import BenchmarkGenerationError, BenchmarkGenerationService
 from .store import BenchmarkJobStore
 
+if False:  # pragma: no cover - type-only import without a runtime cycle.
+    from .knowledge_executor import KnowledgeBenchmarkProvisioner
+
 
 @dataclass(frozen=True)
 class BenchmarkGeneratorOutput:
@@ -77,6 +80,7 @@ class BenchmarkJobExecutor:
         evaluation_store: Any,
         evaluation_service: Any,
         evaluation_executor: Any,
+        knowledge_provisioner: "KnowledgeBenchmarkProvisioner | None" = None,
         poll_seconds: float = 0.5,
     ) -> None:
         self.store = store
@@ -85,6 +89,7 @@ class BenchmarkJobExecutor:
         self.evaluation_store = evaluation_store
         self.evaluation_service = evaluation_service
         self.evaluation_executor = evaluation_executor
+        self.knowledge_provisioner = knowledge_provisioner
         self.poll_seconds = max(0.1, float(poll_seconds))
         self._task: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
@@ -118,8 +123,17 @@ class BenchmarkJobExecutor:
                 try:
                     if job.get("kind") == "generation":
                         await self._run_generation(job)
-                    else:
+                    elif job.get("kind") == "calibration":
                         await self._run_calibration(job)
+                    elif (
+                        job.get("kind") == "knowledge_instantiation"
+                        and self.knowledge_provisioner is not None
+                    ):
+                        await self.knowledge_provisioner.run(job)
+                    else:
+                        raise BenchmarkGenerationError(
+                            "Benchmark job kind is not configured."
+                        )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

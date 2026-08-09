@@ -373,6 +373,17 @@ npm.cmd run build
 - Catalog Pack 不可编辑。实例化必须在一个 Store 原子写入中创建草稿和完全一致的不可变
   v1；后续草稿修改不得改写 v1，并应把 calibration 标记为 stale。
 - 旧 Dataset 缺少元数据时必须按 `origin=manual` 兼容读取，不得要求破坏性离线迁移。
+- 标准 RAG Pack 必须使用仓库自有、锁定、带 checksum 的合成语料。实例化只有在双索引、
+  Gold 唯一解析、不可变评测版本和活动指针全部成功后才能对用户可见；失败和取消必须清理
+  半成品知识库。
+- 托管 Benchmark KB 必须拒绝上传、文档删除和 Knowledge Inbox 写入，但允许流水线候选、
+  固定版本评测、激活、回滚和删除整个 KB。内部 provisioner 的绕过能力不得暴露给普通 API。
+- RAG Gold Pack 只能保存稳定逻辑 anchor；实例化时必须唯一解析真实 document/chunk/source
+  block。跨分块比较优先使用 `match_mode=source_block`，不得用当前 Top-K 结果重写 Gold。
+- 无答案样例必须显式 `expected_no_result=true` 且引用为空；Recall/MRR/nDCG/Citation 仅聚合
+  正样例，No-result Accuracy 与 False-positive Rate 单独报告。
+- Published EvaluationSetVersion 不可变，草稿编辑不得使固定版本报告 stale；未固定版本的
+  旧 revision Run 继续执行原 stale 门禁。
 - 后续定向生成必须固定目标 revision/version、能力摘要、模型、资源版本和 Dataset revision；
   生成结果只能进入待审核草稿，不得批准 Proposal、修改线上 Xpert 或自动发布。
 - 定向生成只允许一次生成和一次 JSON 修复。生成任务必须保存安全 Job 状态；重启后应
@@ -422,6 +433,7 @@ npm.cmd run build
 
 ```bash
 python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_benchmark_generator.py server/tests/test_xpert_evaluations.py -q
+python -m pytest server/tests/test_rag_benchmark_standard.py server/tests/test_rag_evaluation.py server/tests/test_rag_retrieval_v2.py -q
 cd client
 npm.cmd run build
 ```

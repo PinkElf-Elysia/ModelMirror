@@ -1,6 +1,6 @@
 # ModelMirror Benchmark
 
-最后更新日期：2026-08-08
+最后更新日期：2026-08-09
 
 ## 1. 定位
 
@@ -11,9 +11,9 @@ Benchmark 产品层为 Xpert Evaluator、Knowledge Evaluation 和后续 Agent Wo
 - RAG 数据集继续由 `KnowledgeEvaluationStore` 保存。
 - 后续生成与校准任务只在 `BenchmarkJobStore` 保存任务状态，不复制正式数据集。
 
-当前已交付 `EVOAGENTX-BENCHMARK-CATALOG-01` 与
-`EVOAGENTX-BENCHMARK-GENERATOR-02`。RAG 标准 Pack、RAG 定向生成和 Agent
-Workspace 适配仍为后续独立轮次。
+当前已交付 `EVOAGENTX-BENCHMARK-CATALOG-01`、
+`EVOAGENTX-BENCHMARK-GENERATOR-02` 与 `XPERT-RAG-BENCHMARK-STANDARD-03`。
+RAG 定向生成和 Agent Workspace 适配仍为后续独立轮次。
 
 ## 2. 统一 Manifest
 
@@ -27,7 +27,7 @@ Workspace 适配仍为后续独立轮次。
 | `metric_policy` | 核心确定性指标及附加指标边界。 |
 | `target_requirements` | 可运行目标与副作用要求。 |
 | `source / license` | 数据来源和许可证声明。 |
-| `case_count / checksum` | 用例数量和规范化 SHA-256。 |
+| `case_count / document_count / checksum` | 用例、托管语料数量和规范化 SHA-256。 |
 
 目录 Pack 不可编辑。checksum 基于规范化用例计算，启动时会验证用例 ID、评分契约和
 指标白名单。
@@ -149,6 +149,8 @@ GET  /api/benchmarks/capabilities
 GET  /api/benchmarks/catalog?kind=agent_response
 GET  /api/benchmarks/catalog/{pack_id}
 POST /api/benchmarks/catalog/{pack_id}/instantiate
+GET  /api/benchmarks/instantiations/{job_id}
+POST /api/benchmarks/instantiations/{job_id}/cancel
 POST /api/benchmarks/generations/preflight
 GET  /api/benchmarks/generations
 POST /api/benchmarks/generations
@@ -196,20 +198,56 @@ completion 预算主要消耗在推理通道；该配置不影响普通聊天或
 Xpert Studio、Meta Planner Proposal、Prompt Profile 与 Evolution Proposal 均提供
 “生成评测集”入口。生成草稿仍须在“我的评测集”中人工审阅；校准不会自动发布。
 
-## 8. 安全与后续边界
+## 8. RAG 引擎标准 Benchmark
+
+`modelmirror-rag-foundation-bilingual-v1` 是 ModelMirror 自有的离线双语合成 Pack：
+
+它的职责是验证检索、分块、索引、引用、无答案处理和版本切换的确定性行为，并为不同
+Retrieval Profile 提供相同语料上的回归对照。它不是任意业务知识库的质量证明，也不得
+作为用户知识库候选版本的唯一 Promotion Gate。业务质量必须使用基于目标知识库、固定
+索引版本和真实问题分布生成并经人工审核的定向 Gold 评测集。
+
+- 12 份 Markdown 文档，覆盖标题、表格、相似术语、长章节和冲突信息。
+- 40 条查询：事实定位 12、同义改写 8、父子段/章节 8、跨语言 6、无答案 6。
+- 初始索引固定为 General Processor、Parent-child 分块、本地 hash embedding、向量与
+  FTS5 双索引、Full-text Top-K 10、无 Rerank。
+- Gold 以 `document_key + anchor_key + anchor_phrase` 随 Pack 固定；实例化后必须在真实
+  索引中唯一解析到 `document_id / chunk_id / source_block_id`，否则整个任务失败。
+- 标准引用使用 `match_mode=source_block`，因此同一锁定语料可以公平比较 Recursive 与
+  Parent-child 等不同分块候选；初始 chunk ID 只保留为诊断。
+
+RAG Pack 实例化是可恢复异步任务，依次创建托管知识库、导入语料、构建双索引、解析
+Gold、发布不可变评测 v1 并激活初始索引。未完成知识库不会进入普通列表；失败或取消会
+清理半成品。托管知识库固定 `corpus_locked=true`，拒绝上传、删除文档和 Knowledge Inbox
+写入，但允许修改流水线、构建候选、评测、激活、回滚和删除整个知识库。
+
+Knowledge Evaluation Set 现在支持不可变递增版本。运行可显式固定
+`eval_set_version`；草稿后续编辑或归档不会改写已有版本和报告。未传版本时继续按旧
+revision 快照运行并保留 stale 规则。
+
+无答案样例使用 `expected_no_result=true` 且必须没有 Gold 引用。Recall、MRR、nDCG 与
+Citation 只聚合有答案样例；无答案样例单独报告 `no_result_accuracy` 与
+`false_positive_rate`。标准 Pack 建议 Gate 为 Recall@5 0.70、Citation Coverage 0.70、
+No-result Accuracy 0.80，但不会自动推广候选索引。
+
+## 9. 安全与后续边界
 
 - Pack 内容与 checksum 随仓库版本发布，不在运行时联网更新。
 - 标准核心 Benchmark 不执行真实副作用、HITL、Browser、Sandbox 写入或外部实时数据。
 - 目录实例化不运行 Xpert、不批准 Proposal，也不修改线上资源。
 - 后续定向生成默认创建待审核草稿，并必须完成同 revision 的受限校准后才可发布。
-- RAG Benchmark 使用 `KnowledgeEvaluationStore`，不会复制到 Xpert Dataset Store。
+- 下一轮唯一知识评测主线锁定为 `XPERT-RAG-BENCHMARK-GENERATOR-04`：针对具体知识库与
+  固定索引版本生成、校准和人工审核 Gold；在该闭环完成前不扩张新的通用 RAG Pack。
+- RAG Benchmark 使用 `KnowledgeEvaluationStore`，不会复制到 Xpert Dataset Store；目录 API
+  不返回语料正文、内部锚点短语、chunk 全文、embedding 或物理路径。
 - General Agent Workspace 最终只接目录和运行摘要，不替换 Penguin Benchmark Runtime。
 
-## 9. 回归
+## 10. 回归
 
 ```bash
 python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_benchmark_generator.py -q
 python -m pytest server/tests/test_xpert_evaluations.py -q
+python -m pytest server/tests/test_rag_benchmark_standard.py server/tests/test_rag_evaluation.py -q
 cd client
 npm.cmd run build
 ```
