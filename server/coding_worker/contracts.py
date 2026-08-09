@@ -279,7 +279,7 @@ class TaskRecord(StrictModel):
     spec: TaskSpec
     state: TaskState
     workspace_id: str | None = None
-    provider_session_id: str | None = None
+    provider_session_id: str | None = Field(default=None, exclude=True, repr=False)
     created_at: float
     updated_at: float
     expires_at: float

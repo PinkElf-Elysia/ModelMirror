@@ -14,6 +14,7 @@ from .contracts import (
     WorkspaceSource,
 )
 from .provider import CodingAgentProvider, FakeCodingAgentProvider
+from .opencode_provider import OpenCodeProvider
 from .service import CodingWorkerService
 from .store import CodingWorkerStore
 from .workspace import WorkspaceBroker
@@ -26,6 +27,7 @@ __all__ = [
     "CodingWorkerStore",
     "ContextReference",
     "FakeCodingAgentProvider",
+    "OpenCodeProvider",
     "Origin",
     "PolicyProfile",
     "TaskBudget",
