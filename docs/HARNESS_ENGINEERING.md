@@ -270,8 +270,8 @@ curl http://localhost:5173/models
     Patch，把当前轮放入活动 Patch；项目验证使用两者的累计路径选择步骤。恢复时若只用
     当前轮路径复核，会把合法的混合验证结果误判为损坏。恢复验证必须使用基准与活动
     路径的去重并集，同时仍分别复核两段 Patch 的路径和 revision。
-12. **安全边界与质量建议必须分层。** 路径越界、秘密、符号链接、真实仓库写入、目标
-    指纹和远端基线属于不可覆盖的硬门禁；语法检查、项目验证和依赖可运行性属于质量
+12. **安全边界与质量建议必须分层。** 路径越界、秘密、符号链接、未经项目授权和逐次
+    确认的真实仓库写入、目标指纹和远端基线属于不可覆盖的硬门禁；语法检查、项目验证和依赖可运行性属于质量
     结论。质量结论未通过时应清楚告知风险并允许用户再次确认，不能用同一种“不可用”
     状态永久锁死下载或专用副本应用。
 13. **进程内对账必须优先复用已知操作。** Applier 已保存相同操作 ID 与回执时，应先
@@ -292,9 +292,11 @@ curl http://localhost:5173/models
     专用仓库，其任务提交父节点不会等于远端 `main`，严格基线检查必然拒绝。不得把
     “远端必须精确匹配”放宽为祖先或可快进判断；应先合并实现，或由部署者临时固定一个
     精确指向任务基线的验收分支。验收结束后恢复 `main` 并明确处理临时远端内容。
-18. **项目根目录只能由最小 Broker 看见。** 不得为了项目选择把整个宿主根目录挂载给
-    Server 或 Runtime；只有无网络 Project Source 可只读扫描清单，Runtime 只消费当前
-    租约的单槽快照。Broker 故障必须独立降级，内置 ModelMirror 不受影响。
+18. **项目根目录只能由最小宿主执行面看见。** 清单 `local_clone` 不得为了项目选择把整个
+    根目录挂载给 Server 或 Runtime；只有无网络 Project Source 可只读扫描清单，Runtime
+    只消费当前租约的单槽快照。`host_git` 的物理路径只保存在 Windows Helper 的 DPAPI
+    registry 中，Server、浏览器、Runtime 和模型仍只能看到不透明项目 ID。任一来源故障
+    必须独立降级，内置 ModelMirror 不受影响。
 19. **项目快照必须来自 Git HEAD blob。** 复制工作区会把 Windows CRLF、过滤器结果和
     未跟踪内容混入基准，导致指纹误报甚至泄露。固定 `ls-tree`/`cat-file` 只读取对象，
     不运行 Hook、clean/smudge、凭据助手或仓库命令；宿主仓库验收前后必须无变化。
@@ -310,19 +312,23 @@ curl http://localhost:5173/models
 23. **恢复项目上下文要向后兼容并保持加密。** 项目 ID、类型、显示名和 HEAD 进入独立
     认证加密表，不保存宿主路径、不改 recovery schema v3 `user_version`；旧记录视为
     ModelMirror。项目变化只降级为下载，不改写基线或借旧 Patch 恢复到新 HEAD。
-24. **前端先按项目功能矩阵裁剪请求。** 自定义项目不得轮询验证、应用、提交或发布；
-    否则固定 409 会触发重复刷新、操作区消失和误报不可用。活动会话或 pending 恢复存在
-    时锁定项目选择，切换永远不能成为清空草稿的隐式操作。
+24. **前端先按项目功能矩阵裁剪请求。** `local_clone`、`host_git` 和内置项目必须分别按
+    自身 features 与执行面可用性请求验证、应用、提交或发布，不能让一个全局 capability
+    覆盖项目级拒绝。状态查询仅用于 applying、reverting、committing、undoing 等活动态，
+    终态立即停止；活动会话或 pending 恢复存在时锁定项目选择，切换不能成为清空草稿的
+    隐式操作。
 25. **不要用 Windows junction 共享可删除依赖目录。** 临时 worktree 若把 `node_modules`
     junction 到实现目录，清理 worktree 时可能遍历并删除真实依赖。体积基线应使用独立
     依赖安装、既有构建产物或只读统计，清理前必须确认链接目标不会被递归处理。
-26. **写回资格必须逐项目显式授权。** “位于受控根目录”只证明可被 Broker 读取，不等于
-    可以写入。写回需要清单版本、逐项目开关、无 remote、固定分支和独立 `.git` 同时成立；
-    任一条件缺失只降级该项目的写入/提交能力，不得禁用问答、草稿、验证或下载。
-27. **恢复基准必须锚定保存的提交，不是当前工作区。** 用户确认写入或提交后，目标按设计
-    不再等于初始干净工作区；若 Project Source 仍只接受“当前 HEAD + 全目录干净”，重启会
-    把合法结果误报为项目变脏。恢复只能按已保存基准 HEAD 读取 Git 对象，并由 Writer 回执
-    证明后续状态，不能把预期副作用当作未授权改动。
+26. **写回资格必须逐项目显式授权。** “位于受控根目录”只证明 `local_clone` 可被 Broker
+    读取，不等于可以写入；它仍需要清单 v3、逐项目开关、无 remote、固定分支和独立
+    `.git`。`host_git` 则必须同时满足 v2 协议、服务端独立开关、助手在线、系统选择授权、
+    当前分支和项目资格。任一条件缺失只降级该项目的写入/提交能力，不得禁用问答、草稿、
+    Diff、验证或下载。
+27. **恢复基准必须锚定不可变 `H0`，当前轮写入绑定 `Hk`。** 用户确认写入或提交后，目标
+    按设计不再等于初始干净工作区；恢复以首轮操作日志授权读取保存的 `H0` 快照，再由线性
+    CommitReceipt 推导当前父提交 `Hk` 并对账活动操作。不能用当前工作区重写基准，也不能
+    把合法脏树、HEAD 前进或历史轮次当作未授权改动。
 28. **公开回执与执行面日志不能混为一种凭据。** API ApplyReceipt 面向会话、恢复和前端，
     Writer/Committer 日志还包含内部基准、父提交和操作阶段；两者时间或指纹字段不必相同。
     对账应分别校验各自 schema 并以不透明 ID 关联，不能拿公开回执直接伪造内部提交上下文。
@@ -334,3 +340,44 @@ curl http://localhost:5173/models
     只表示该项目符合静态资格；Writer 未配置或不可达时仍应隐藏写入入口并显示日常语言
     原因。反过来，Writer 健康也不能给未授权项目开放按钮；不能复用 ModelMirror 的 Applier
     capability，否则会把自定义项目错误路由到专用副本并造成状态区消失或重复请求。
+31. **Helper v1 与 v2 必须按协议能力降级。** 旧助手、写回开关关闭或瞬时离线都要保留
+    项目摘要、草稿、Diff、下载和最后可信操作状态，只关闭新写入动作。paired 与 available
+    不是同一状态；过期凭据要停止旧码重试并始终提供重置/重新配对入口。
+32. **副作用结果未知只能按原 ID 对账。** apply、revert、commit 和 undo 都要在副作用前
+    持久化 operation ID；超时、断线、畸形回执或 catalog 落盘失败统一进入待核对状态。
+    前端不得显示红色确定失败、生成新 revision 或重新发送新 ID，只能触发原方向 reconcile。
+33. **Windows 文件事务必须绑定对象而不是路径字符串。** `lstat/hash → replace/unlink` 存在
+    TOCTOU，会覆盖同内容人工替换或穿透 junction。生产写回要以 no-follow 句柄、file ID、
+    no-replace 移动、持久事务清单和可重入隔离完成；无法提供等价删除语义的平台失败关闭，
+    POSIX 领域测试不能被宣称为产品支持。
+34. **Git 安全边界是完整命名空间。** 只禁 remote 或 Hook 不够；objects、fanout、refs、
+    reflog、HEAD、index/index.lock、config、commondir、alternates、partial clone、promisor、
+    replace refs、grafts、refStorage/reftable、外部 excludes、filter、credential、签名与 URL
+    rewrite 都可能造成越界读写或联网。对象应在私有目录生成，reflog/索引按身份停放恢复，
+    ref 使用固定参数 CAS；不支持的 refs 后端在任何事务产物前拒绝，remote 配置可存在但不得
+    读取值。
+35. **路径授权必须绑定项目对象身份。** 仅用规范路径 HMAC 无法区分同一路径整体换仓或
+    `.git` 被替换。Helper 应在 DPAPI 本地状态保存 root/`.git` identity、让 project ID 随身份
+    变化，并在 inspect→archive→reinspect 及 apply/revert/commit/undo/reconcile 全程持有
+    no-follow guard；旧 path-only 授权只能要求重选，不能由 inventory 或首次操作静默补绑。
+36. **公开回执、Helper 日志和 catalog 各有独立职责。** 回执证明会话操作，DPAPI 日志证明
+    宿主阶段和对象身份，catalog 只提供脱敏可见性。只有严格回执与日志同时通过才推进
+    catalog HEAD/state；离线 catalog 隐去 branch/head 时可用当前会话可信身份补显示，但
+    不能用旧 catalog feature 重新开放动作。
+37. **Helper registry 落盘必须先成功再接受内存状态。** DPAPI、原子写盘或留存清理失败时
+    要回滚候选内存值，不能让本进程报告 HEAD 已推进、重启后又回到旧值。多 Helper 进程还
+    必须以单实例锁或跨进程 CAS 防止 last-writer-wins 丢失操作日志。
+38. **连接代际和心跳要独立于长操作。** Helper 必须主动心跳，并用 generation 或
+    connection_id 防止旧连接的 finally 把新连接标离线；snapshot、apply、commit 等长操作
+    不能饿死心跳。前端能力签名变化可静默刷新，但不得形成无延迟请求循环或整页闪烁。
+39. **容器配置通过不等于执行面可启动。** 新 Python 模块要同步 Dockerfile/PyInstaller
+    收集和只读挂载点；Compose overlay 合并要验证实际顺序，尤其两个 Project Source 来源
+    并存时需要 full compatibility overlay。容器重建还必须同步打包和启动同一 HEAD 的 v2
+    便携助手，不能用旧包或 Mock 冒烟替代。
+40. **未知结果 UI 必须保留唯一安全出口。** apply/revert/commit/undo 四种未知方向的 receipt
+    形态不同；界面要分别显示对应“核对本次操作”，锁住新修改和放弃，但保留 Diff、下载和
+    原操作核对。活动态轮询终止后应刷新 history/catalog，不能让成功状态因旧摘要退回只读。
+41. **共享栈验收必须晚于自动门禁且再次核对基线。** 多 worktree 共用 `-p modelmirror` 时，
+    任何 build/up/recreate 前都要取得用户确认的独占窗口；若 `origin/main` 前进，应在新验收
+    集成工作树定向引入批次并 range-diff。人工验收后还要再次核对主线、全 Diff、敏感信息
+    和禁止产物，才允许 push 或 PR。

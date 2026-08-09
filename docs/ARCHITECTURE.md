@@ -38,8 +38,9 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | Browser / Sandbox sidecar | 受控浏览器和无网络沙箱执行。 |
 | OmniRoute sidecar | 可选兼容、诊断和紧急回退；不是普通用户控制面。 |
 | OpenCode + 最小 ACP Worker | 实验性代码问答与修改草稿执行面；单实例、默认关闭。 |
-| Coding Project Source | 无网络的受控项目清单与单槽 Git HEAD 快照服务；只有它可读取项目根目录。 |
+| Coding Project Source | 无网络的受控项目清单与单槽 Git HEAD 快照服务；只有它可读取清单 `CODING_PROJECTS_ROOT`。 |
 | Coding Project Writer | 对清单中逐项目授权的无远程本地克隆执行原子写入、撤销、本地提交与对账。 |
+| Windows Project Host v2 | 在用户电脑上保存项目路径并执行受控原子写入、当前分支本地提交和精确对账；Server 只看到不透明项目 ID。 |
 | Coding Verifier | 用户手动触发的草稿项目验证执行面；无网络、固定命令、可选启动。 |
 | Coding Applier | 把满足门禁的草稿原子写入固定专用工作树；无网络、无 Git 操作、可选启动。 |
 | Coding Committer | 把已应用文件保存到独立本地仓库；无网络、固定分支、只写隔离 `.git`。 |
@@ -77,6 +78,9 @@ flowchart LR
   API -->|"独立 Unix socket"| WRITER["coding-project-writer"]
   WRITER -->|"确认后原子写入 / 本地提交"| ROOT
   WRITER -. "network_mode: none" .-> OFFLINE
+  API <-->|"配对 / WebSocket 操作元数据"| HOST["Windows Project Host v2"]
+  HOST -->|"拉取 90 秒单次负载 / no-store"| API
+  HOST -->|"原子文件事务 / 固定 Git plumbing"| HOSTREPO["用户明确选择的 Windows Git 项目"]
   CODER -->|"internal network"| GW
   CODER -->|"Patch + revision / Unix socket"| VERIFY["coding-verifier"]
   VERIFY -. "network_mode: none" .-> OFFLINE["无网络"]
@@ -169,11 +173,14 @@ flowchart LR
   物理路径。服务按固定清单校验干净独立 Git 克隆，通过 `git ls-tree` 与
   `git cat-file --batch` 从 HEAD blob 构造单槽快照，不读取工作区换行转换，也不运行
   Hook、过滤器、凭据助手或联网操作。租约释放或失败时清空快照卷。
-- 自定义项目默认只开放问答、临时文本草稿、Diff、轻量检查、离线验证、下载和项目
-  绑定恢复。version 3 清单可逐项目显式开放本地写入；此时只能写入无 remote、固定在
-  `coding/local-draft` 的独立克隆，并可在同一 Writer 内保存或撤销本地版本。
-  GitHub 发布、多轮提交和任意分支仍只适用于内置 ModelMirror 流程；停止 Project
-  Source 或 Writer 不得降低 ModelMirror 的既有能力。
+- 自定义项目有两条互不串扰的来源。清单 `local_clone` 由 Project Source 提供快照，
+  version 3 清单可逐项目显式开放容器 Writer；可写项目仍必须无 remote、固定在
+  `coding/local-draft`，只支持单轮本地版本且不发布。`host_git` 由 Windows Project
+  Host v2 选择，允许仓库已有 remote 并保留选择时的安全当前分支，但不读取 remote URL、
+  不执行远程命令或联网；它支持受控线性多轮本地提交，发布始终为 `false`。v1 助手及
+  `CODING_PROJECT_HOST_WRITEBACK_ENABLED=false` 只保留问答、草稿、Diff、验证和下载。
+  停止任一 Project Source、Writer 或 Project Host 不得降低其他项目来源和内置
+  ModelMirror 的既有能力。
 - Coding Verifier 是独立的可选进程边界。Worker 只向它发送当前 revision 的内部
   Patch、变化路径和快照指纹；Verifier 重新校验并应用到 1 GiB 临时副本。其根文件
   系统和基准快照只读，网络为 `none`，不接收模型密钥、宿主路径、Docker socket
@@ -200,20 +207,46 @@ flowchart LR
   缺失、损坏、schema 不兼容或密文被篡改时失败关闭，不生成新密钥覆盖旧记录。
 - 自定义项目的 ID、类型、显示名和基准 HEAD 保存在同一 SQLite 的独立认证加密上下文
   表中，不保存宿主路径，也不改变 recovery schema v3 的 `user_version`。旧记录没有
-  项目上下文时仍解释为内置 ModelMirror；项目被删除、变脏或 HEAD 改变时只允许下载
-  原始 Diff，不会把 Patch 应用到不同版本。
+  项目上下文时仍解释为内置 ModelMirror。`local_clone` 被删除或出现未受管的脏树/HEAD
+  变化时只允许下载原始 Diff；`host_git` 的合法 applied 脏树与 committed HEAD 前进则由
+  已认证 operation 日志和后述 `H0/Hk` 谱系精确对账，不能把 Patch 应用到不同版本。
 - Coding Project Writer 只在显式加载写回 overlay 后存在。它是唯一可写挂载受控项目
   根目录的执行面，使用 Project Source 已验证的不透明项目 ID 定位目标；Server、Runtime
   与浏览器都不接收物理路径。Writer 无网络、端口、Docker socket 或模型/Git 凭据，
   先在 tmpfs 预演 Patch，再按原文件哈希原子写入。提交使用临时索引、固定 Git plumbing
   与 compare-and-swap 引用更新，不运行 Hook、过滤器、签名或凭据助手。
+- Windows Project Host 是宿主路径的唯一持有者。项目 ID 到路径的映射、host token、
+  设备密钥和操作日志使用 Windows DPAPI 保护；Server、Runtime、Verifier、浏览器和模型
+  永不接收物理路径。v2 写入请求帧只发送 request、project、operation、action 以及 payload
+  ID、摘要、大小和到期时间；revision、分支、HEAD、Patch 和提交说明位于 host token 鉴权、
+  绑定 host/project/operation/action、短时单次消费的 HTTP envelope，或其他已绑定的
+  inventory/snapshot/回执消息中。回执缺失、畸形或断线只表示结果未知，必须按原
+  operation ID reconcile。
+- Helper 本地授权把 canonical path、项目根目录和 `.git` 目录的文件身份共同绑定到
+  project ID；identity 不公开也不上送 Server。同一路径整体替换仓库或替换 `.git` 会产生
+  新 ID，旧授权只作为 `project_reselection_required` 墓碑并拒绝写入。inspect、快照归档和
+  五类写操作会持有选择路径祖先、root、`.git`、关键 metadata leaf 与已发现 namespace
+  目录的 no-follow guard；这证明已绑定对象未被换绑，但不宣称锁住恶意同用户进程动态创建
+  的每一个新 object child。
+- 宿主 apply/revert 使用 Windows 句柄和文件身份绑定的可恢复事务；宿主 commit/undo 使用
+  私有对象目录、临时索引、受控 reflog 停放和 CAS 更新已保存的当前分支。实现拒绝
+  reparse/symlink/hardlink、配置 include、worktree/commondir、alternates、partial clone、
+  promisor、replace refs、grafts、过滤器、外部 excludes、Hook、签名和凭据助手；只支持
+  files refs 后端，`extensions.refStorage`/reftable 失败关闭。允许 remote 配置存在但不读取
+  其值、不执行 remote/fetch/push/ls-remote。生产默认构造在非 Windows 失败关闭；领域
+  测试可显式关闭平台门禁运行参考后端，但不构成 POSIX 产品支持。
 - 自定义项目写回支持新增、修改、删除及移动 UTF-8 普通文本；移动在内部表示为旧路径
   删除与新路径新增。目录、符号链接、二进制、敏感路径、越界路径、覆盖已有目标和超限
   Patch 继续失败关闭。应用、撤销、提交或撤销提交中断后，只在文件哈希、HEAD、索引和
-  Writer 日志精确一致时恢复，否则进入只读冲突态。
+  对应 Writer 或 Helper DPAPI 日志精确一致时恢复，否则进入只读冲突态。
 - 恢复会从镜像内不可变基准重新复核并应用 Patch，再创建全新 Agent 会话；问题、
   回答、计划、工具过程和原始命令输出从不持久化。基准或验证环境指纹变化会使
   结果过期；应用/提交状态无法精确对账时进入只读冲突态，不重复写入或覆盖人工内容。
+- `host_git` 多轮恢复将 Project Source/恢复上下文中的初始提交 `H0` 保持不变，并从已完成
+  CommitReceipt 线性推导当前轮父提交 `Hk`。恢复以首轮 apply 日志授权读取 `H0` 快照，
+  再分别对账当前轮操作和宿主 `Hk`；分支、父提交、路径、revision、指纹或操作链任一不符
+  都进入只读冲突。应用后合法脏树、提交后 HEAD 前进以及 Helper/Server 重启不会重新套用
+  初始“必须干净”资格。
 - Coding Publisher 只在显式加载发布 overlay 后存在。它只读挂载同一无远程独立仓库，
   复核固定分支、HEAD、线性提交链、恢复回执和 GitHub 基础分支；目标分支只允许不存在
   或精确指向任务 HEAD，禁止 force push、Hook、凭据助手和 URL 重写。
@@ -231,21 +264,27 @@ flowchart LR
 - 当前没有完整用户、组织、RBAC 或公网控制台安全模型。
 - 静态模型快照与实时目录需要定期校准，价格快照必须标注日期。
 - OmniRoute 是可选回退，不得成为普通用户必须理解的配置入口。
-- `/coding` 仅适用于本地单实例实验。部署者可登记最多 50 个受控的干净独立克隆，
-  但同一时刻仍只有一个项目租约和一个 Agent 会话。Draft 可新增、修改、删除或移动
-  临时 UTF-8 文本；默认不会写回宿主目录。只有清单 v3 逐项目授权、无 remote 且固定
-  分支的克隆可由用户确认后写入和保存本地版本。显式启用 ModelMirror 受控应用后，
-  只有轻量检查通过且当前项目验证
-  `passed`（纯文档允许 `not_applicable`）的 revision 才能写入固定专用工作树。
-  当前主工作树不挂载给 Applier 或 Committer。显式启用隔离本地提交时，系统只在
-  无远程独立克隆中创建本地提交。显式启用发布 overlay 后，只有线性提交链可以一次性
+- `/coding` 仅适用于本地单实例实验。部署者可登记最多 50 个清单项目，也可通过
+  Windows 助手逐个选择干净独立 Git 项目；同一时刻仍只有一个项目租约和一个 Agent
+  会话。清单 `local_clone` 的边界与既有 Writer 保持不变；`host_git` 仅在 v2 助手、
+  独立开关和项目资格同时满足时开放当前分支写入与线性多轮本地提交。两者都不支持发布。
+  Draft 可新增、修改、删除或移动临时 UTF-8 文本；模型处理本身不会写回宿主目录。
+  只有清单 v3 逐项目授权的 `local_clone` 或通过 v2 助手资格复核的 `host_git`，才可在
+  当前 revision 的原位确认后写入对应项目。语法/项目验证失败、未运行或环境未就绪属于
+  可再次确认的质量风险；路径、秘密、文件类型、项目身份、分支、HEAD 和对象身份属于
+  不可绕过的安全门禁。
+  当前主工作树不挂载给 Applier 或 Committer。内置 ModelMirror 的隔离 Committer 与
+  清单 `local_clone` 只在无远程独立克隆中创建本地提交；`host_git` 可保留 remote 配置，
+  但不读取其 URL 或执行远程操作。显式启用发布 overlay 后，只有内置 ModelMirror 的
+  线性提交链可以一次性
   推送到部署时固定的 GitHub.com 仓库并创建 Draft PR；用户再次确认才标记为 Ready，
   产品不提供合并、关闭 PR 或删除远程分支。
 - 应用成功后会话冻结；Diff、Patch 和验证结果仍可读。启用恢复 overlay 后，精确
   对账成功的应用、提交及其撤销能力可在重启后恢复；外部状态不明确时只允许查看和
   下载。有效本地提交存在时必须先撤销提交并保留文件，才可撤销应用。Agent 仍
-  不能使用 Shell、Git、测试命令或选择测试范围；自定义项目仍不能发布或多轮提交。
-  系统仍不提供任意绝对路径、任意仓库选择、
-  仓库/分支选择、force push、远端合并、目录操作、多 Agent、分布式
+  不能使用 Shell、Git、测试命令或选择测试范围；`local_clone` 仍不能多轮，所有
+  自定义项目都不能发布，只有 v2 `host_git` 可在保存的当前分支进行受控线性多轮。
+  系统仍不允许浏览器或 Agent 传入任意绝对路径、仓库或分支，也不提供 force push、
+  远端合并、目录操作、多 Agent、分布式
   Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。

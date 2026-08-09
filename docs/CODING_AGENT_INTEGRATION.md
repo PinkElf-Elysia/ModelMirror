@@ -1,6 +1,6 @@
 # 代码助手接入说明
 
-最后更新日期：2026-08-05
+最后更新日期：2026-08-08
 维护人：模镜团队
 
 ## 当前状态
@@ -16,15 +16,19 @@ Diff、轻量检查结果和停止按钮。Draft 用户还可以手动启动独�
 固定 GitHub App 和发布 overlay 后，用户可把线性本地提交创建为 Draft PR，并再次
 确认是否标记为 Ready。
 
-ModelMirror 使用镜像内固定快照并保留完整闭环；自定义项目使用无网络 Project Source
-从干净独立克隆的 Git HEAD 生成单槽只读快照，开放问答、草稿、Diff、下载、恢复和
-逐次确认的离线项目检查。清单 version 3 可逐项目授权无 remote、固定分支的独立克隆；
-用户确认后，可把草稿原子写入所选项目并保存一个本地版本。
-Draft 默认不会写回任何宿主目录；受控应用也只允许写入预先创建的专用工作树，当前主工作树始终不挂载。
-系统只在用户确认后向固定独立克隆创建本地提交；远程发布也只允许固定 GitHub.com
+ModelMirror 使用镜像内固定快照并保留完整闭环。清单 `local_clone` 使用无网络 Project
+Source 从干净独立克隆的 Git HEAD 生成单槽只读快照；清单 version 3 可逐项目授权
+无 remote、固定 `coding/local-draft` 分支的独立克隆，经容器 Writer 完成单轮写入和
+本地版本。Windows `host_git` 由 Project Host v2 在系统选择器中授权；助手是物理路径的
+唯一持有者，在用户保存的当前分支执行原子写入、撤销、本地提交和最多 10 轮线性修改。
+它允许仓库已有 remote，但不读取 URL、不执行任何远程命令或联网，且始终不能发布。
+Draft 默认不会写回任何宿主目录。内置受控应用只允许写入预先创建的专用工作树，
+`local_clone` 只写清单授权的固定克隆；`host_git` 则由 Windows 助手在用户逐 revision
+确认后直接修改系统选择器授权的项目。Server 和容器始终不挂载该宿主路径。
+系统只在用户确认后向对应受控仓库创建本地提交；远程发布仍只允许固定 GitHub.com
 仓库、系统分支和 Draft PR，不提供合并、关闭或远端清理。草稿支持删除与移动普通
-UTF-8 文本，但不支持目录、符号链接、二进制、直接 Shell、未经确认的命令、任意仓库
-或分支选择、多 Agent、完整 ACP、
+UTF-8 文本，但不支持目录、符号链接、二进制、直接 Shell、未经确认的命令、浏览器或
+Agent 传入任意仓库/分支、remote 操作、多 Agent、完整 ACP、
 分布式 Worker、保存对话、多任务历史或生产级多租户。不要将该入口直接暴露到公网。
 
 ## 用户体验约束
@@ -51,9 +55,9 @@ UTF-8 文本，但不支持目录、符号链接、二进制、直接 Shell、�
 - “应用到本地项目副本”仅在门禁满足时启用；确认区必须说明文件数量、不会提交或
   上传、当前项目目录不改变。目标不匹配或已有修改时使用日常语言提示，技术原因
   默认折叠。
-- 对逐项目授权的自定义克隆，操作显示为“写入所选本地项目”；确认区明确真实所选项目
-  会改变、不会自动保存本地版本或上传，并说明发现外部修改会停止。未授权或 Writer
-  不可用只降级为查看、验证与下载。
+- 对逐项目授权的 `local_clone` 或 v2 `host_git`，操作显示为“写入所选本地项目”；
+  确认区明确项目名、当前分支、真实所选项目会改变、不会自动上传，并说明发现外部修改
+  会停止。项目级授权或对应执行面不可用只降级该项目为查看、验证与下载。
 - 应用成功后明确显示“修改已应用”，冻结输入与修改操作，但保留 Diff、验证和
   下载；提供“撤销本次应用”和“结束本次修改”。撤销不得覆盖之后的人工改动。
 - 独立本地仓库可用时，页面显示“保存一个可找回的本地版本”，预填系统建议并允许
@@ -80,6 +84,9 @@ flowchart LR
   PROJECTS -->|"当前项目单槽快照"| WORKER
   API -->|"独立私有 Unix socket"| WRITER["coding-project-writer"]
   WRITER -->|"确认后原子写入 / 本地提交"| ROOT
+  API <-->|"配对 / v2 WebSocket 元数据"| PHOST["Windows Project Host v2"]
+  API -->|"90 秒单次操作负载"| PHOST
+  PHOST -->|"本机原子写入 / 当前分支提交"| HOSTREPO["系统选择器授权的 Git 项目"]
   WORKER --> ACP["最小 ACP 客户端"]
   ACP --> OC["OpenCode 1.18.9"]
   SOURCE["只读基准快照 /opt/modelmirror-source"] -->|"会话创建时复制"| WORK["临时 /workspace"]
@@ -117,6 +124,14 @@ flowchart LR
 | --- | --- |
 | `GET /api/coding/capabilities` | 查询功能是否启用、当前模式及输入/草稿限制。 |
 | `GET /api/coding/projects` | 返回可选项目、状态、短 HEAD 和功能矩阵，不返回物理路径或 remote。 |
+| `GET /api/coding/project-host` | 返回 paired、available、protocol、direct_writeback、writeback_available 与原因；enabled 位于 capabilities，不返回路径。 |
+| `POST /api/coding/project-host/pairings` / `POST /api/coding/project-host/reconnect` | 创建一次性配对，或向当前已建立连接发送心跳并确认在线；离线助手需自行重连/重启，凭据被拒后由助手清除并要求重新配对。 |
+| `DELETE /api/coding/project-host/{host_id}` | 撤销助手授权；不修改、撤销或删除本地项目内容。 |
+| `POST /api/coding/projects/selections` / `GET /api/coding/projects/selections/{request_id}` | 让已配对助手打开系统项目选择器并低频查询结果。 |
+| `PATCH /api/coding/projects/{project_id}` / `DELETE /api/coding/projects/{project_id}` | 重命名或移除不透明项目授权，不接收物理路径。 |
+| `WS /api/coding/project-host/connect` | 助手心跳、inventory、snapshot 与操作控制元数据；写入请求帧只含 request/project/operation/action、payload ID/摘要/大小/到期时间，不承载 Patch、分支、HEAD 或提交正文。 |
+| `PUT /api/coding/project-host/transfers/{transfer_id}` | 助手上传有界 HEAD 快照；绑定 host/project/transfer。 |
+| `GET /api/coding/project-host/operations/{payload_id}` | 助手令牌读取 90 秒、单次消费、`no-store` 的操作负载；绑定 host/project/operation/action。 |
 | `POST /api/coding/sessions` | 创建临时问答或草稿记录；可选请求体只接受 `project_id`，省略时仍选择 ModelMirror。 |
 | `GET /api/coding/sessions/{id}` | 检查临时记录是否仍存在；不返回问题、回答或文件内容。 |
 | `POST /api/coding/sessions/{id}/turns` | 提交问题；请求体只允许 `prompt`。 |
@@ -133,8 +148,7 @@ flowchart LR
 | `POST /api/coding/sessions/{id}/verification/confirm` | 确认自定义项目当前 revision 的固定检查计划。 |
 | `GET /api/coding/sessions/{id}/commands/pending` | SSE 重连后查询当前待确认命令，不返回内部令牌。 |
 | `POST /api/coding/sessions/{id}/commands/{request_id}/decision` | 对一条代码助手命令选择 `allow_once` 或 `reject`。 |
-| `POST /api/coding/sessions/{id}/apply` | 应用指定 revision；请求体只允许 `revision`。Windows 绑定目录扫描较慢时最多等待 90 秒。 |
-| `POST /api/coding/sessions/{id}/commit` | 保存本地提交；Windows 绑定目录扫描较慢时最多等待 90 秒。 |
+| `POST /api/coding/sessions/{id}/apply` | 应用指定 revision；请求体只允许 `revision` 与可选严格布尔 `confirm_quality_risks`。确认只绑定该 revision，不能绕过硬安全策略。旧绑定目录执行面最多等待 90 秒；Project Host 等待上限为 150 秒，超时仍按结果未知处理。 |
 | `GET /api/coding/sessions/{id}/apply?revision=` | 查询应用、撤销状态和是否仍可撤销。 |
 | `POST /api/coding/sessions/{id}/apply/revert` | 安全撤销；请求体只允许 `revision` 与不透明 `apply_id`。 |
 | `POST /api/coding/sessions/{id}/close` | 结束已应用或已撤销的冻结会话，释放单会话 Runtime。 |
@@ -165,6 +179,9 @@ Draft、精确基础版本要求和 Ready 支持；不可用原因不影响本�
 会话开始事件、会话状态和恢复状态只携带项目 ID、显示名、来源、短 HEAD 与功能矩阵。
 `project_writeback` 公开 enabled、configured、available、固定目标、删除/移动、撤销和
 本地提交能力；项目列表只返回功能矩阵与安全原因码，不返回清单路径或物理项目路径。
+`project_host` 另公开配对/在线状态、协议、`direct_writeback`、`writeback_available`
+和脱敏原因；项目 `features` 仍按 `kind` 与对应执行面独立计算，不能用 Host 在线状态
+开启 `local_clone`，也不能用容器 Writer 健康状态开启 `host_git`。
 
 公共事件限定为：会话开始、分析开始、计划、回答增量、查阅状态、命令待确认、命令已处理、
 完成、失败、取消和心跳。服务端只保留有限内存事件，不持久化问题、完整回答、命令审批或工具输出。
@@ -195,7 +212,8 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 
 ## 受控本地项目草稿
 
-- 部署者只通过根目录 `.modelmirror-coding-projects.json` 登记最多 50 个项目。名称供
+- 清单 `local_clone` 由部署者通过根目录 `.modelmirror-coding-projects.json` 登记最多
+  50 个项目。名称供
   用户识别，路径只在 Project Source 内使用；API 返回由规范化相对路径生成的稳定
   不透明 ID，不返回根目录、相对路径、remote 或 Git 配置。
 - 项目必须是干净独立 Git 克隆，并拒绝 worktree 指针、alternates、子模块、符号链接
@@ -207,7 +225,7 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 - 仅根目录 UTF-8 `AGENTS.md`（最多 64 KiB）会显式带入会话；嵌套 AGENTS、OpenCode、
   MCP、插件、provider 和其他可执行配置均隐藏且不会生效。Runtime 还会复核项目 ID、
   HEAD、租约与快照指纹，避免跨项目串读。
-- 自定义项目沿用 20 个变化文件、单文件 512 KiB、Patch 1 MiB 限额，允许新增、修改、
+- `local_clone` 沿用 20 个变化文件、单文件 512 KiB、Patch 1 MiB 限额，允许新增、修改、
   删除或移动 UTF-8 普通文本。项目验证与逐次确认命令仅在临时副本中运行；只有 version 3
   逐项目授权、无 remote 且固定分支的独立克隆开放应用与本地提交，发布和多轮接口仍固定
   返回 `project_operation_unavailable`，不会误用 ModelMirror 的执行面。
@@ -271,7 +289,7 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 - 输出按步骤聚合、脱敏和截断。验证期间禁止新 Agent 轮次与放弃草稿，但 Diff 和
   Patch 保持可读；revision 变化后旧结果标记 stale。
 
-## 自定义项目受控写入与本地版本
+## 清单项目受控写入与本地版本
 
 - 清单 version 3 通过 `writeback.enabled=true` 逐项目授权。v1/v2、未声明授权、存在
   remote 或不在 `coding/local-draft` 分支的项目保持草稿能力，但不会显示写入入口。
@@ -291,6 +309,42 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
   索引、工作区哈希和 Writer 日志精确一致才恢复操作；不明确时进入只读冲突态，不重复
   写入或提交。
 
+## Windows Project Host v2 直接写入
+
+- v2 协议为 `modelmirror-coding-project-host-v2`。只有服务端独立写回开关、助手在线、
+  协议为 v2 且所选项目通过资格复核时，`host_git.features.apply/commit` 才为 `true`；
+  v1、离线、过期配对或禁用写回时保留草稿、Diff、下载和最后可信回执，只关闭新动作。
+- Windows 助手使用 DPAPI 保存 host token、设备密钥、项目 ID 到路径的映射和独立操作日志。
+  日志最多 64 条、8 MiB、保留 7 天，包含操作意图、Patch、阶段、文件哈希和回执；不保存
+  模型对话、凭据、remote URL，Server 端也不保存宿主绝对路径。
+- 本地 registry 还保存 root 与 `.git` 的文件身份，并把 canonical path + 两个 identity 绑定
+  到 project ID；这些 identity 不离开 Helper。同一路径换成另一仓库或只替换 `.git` 后，旧
+  项目成为必须重新选择的只读墓碑，所有操作在构造写入引擎前拒绝。旧的 path-only 授权不会
+  被 inventory 或首次操作静默升级。
+- 写入请求帧只传 request/project/operation/action 以及 payload ID、摘要、大小和到期时间。
+  revision、分支、HEAD、Patch 与提交说明进入最多 1.2 MiB、90 秒、单次消费、
+  `Cache-Control: no-store` 的绑定 envelope；Helper 下载后再次核对 token、host、project、
+  operation、action、长度和 SHA-256。inventory、snapshot 与回执使用各自已绑定消息。
+- apply/revert 先在临时状态预演，并以 Windows no-follow 句柄、文件身份、原子 no-replace
+  移动、事务清单和持久 marker 完成全旧或全新恢复。路径越界、秘密、二进制、reparse、
+  symlink、hardlink、大小写冲突及人工同内容替换均失败关闭；生产写回仅支持 Windows。
+- commit/undo 只接受服务端已绑定的当前分支、父 HEAD、ApplyReceipt 和文件身份。助手使用
+  私有对象目录、临时索引、受控 reflog 停放与 compare-and-swap ref 更新；固定 Git 环境
+  禁止 Hook、filter、签名、credential helper、include、worktree/commondir、alternates、
+  partial clone、promisor、replace refs、grafts、外部 excludes 和 `extensions.refStorage`。
+  仅支持 files refs；reftable 等其他 refs 后端只读拒绝。remote 可存在，但不读取其配置值
+  或执行 remote/fetch/push。
+  宿主提交作者固定为 `ModelMirror Coding Assistant <coding@modelmirror.local>`，不接受浏览器、
+  Agent 或 Compose 的旧 Committer 作者变量覆盖。
+- 恢复把初始快照 `H0` 与当前轮父提交 `Hk` 分开。已完成轮次的 commit parent 必须严格
+  线性，首轮 apply 日志只用于授权重建 `H0`，当前 apply/commit/undo/revert 则绑定 `Hk`。
+  Helper、Server 或 Runtime 重启后只接受项目、分支、HEAD、索引、文件身份和回执精确
+  一致的结果；应用后的预期脏树不得重新套用初始干净资格。
+- `operation_result_unknown` 不等于失败。apply、revert、commit、undo 四个方向分别保留
+  原 operation ID 和最后可信状态；页面只提供“核对本次写入/撤销/保存”动作，禁止创建
+  新 revision 或发送新副作用 ID。仅活动态低频查询，终态立即停止；离线或 v1 降级不隐藏
+  Diff、下载和操作历史，也不把未知结果显示成红色失败。
+
 ## 受控应用与撤销
 
 - `coding-applier` 只存在于显式加载的独立 Compose overlay，使用非 root、只读
@@ -308,9 +362,10 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 - 成功后会话冻结，只允许查看变化、Diff、Patch、验证和应用结果。撤销只有在
   目标仍精确保持应用后状态时执行；新增文件只在这次撤销中删除。外部修改会使
   撤销失败，不会被覆盖。
-- 应用凭据仅存 Server 内存。会话关闭、过期或 Server 重启后不保证页面撤销；
-  应删除并从同一提交重建专用工作树。Applier 不可用不会影响 Draft、Diff、
-  Verifier、Patch 下载或核心服务健康。
+- 未启用 recovery overlay 时，应用凭据只存 Server 内存；会话关闭、过期或 Server 重启后
+  不保证页面撤销，此时应人工确认并从同一提交重建专用工作树。启用恢复后，加密意图、
+  公开回执与 Applier 日志精确一致可恢复撤销；不明确时只读冲突。Applier 不可用不会影响
+  Draft、Diff、Verifier、Patch 下载或核心服务健康。
 
 ## 隔离本地提交与撤销
 
@@ -351,11 +406,13 @@ FastAPI 的完整环境。源码变化后必须重建 `coding-runtime` 才会刷
 
 ## 多轮本地修改
 
-- 加载恢复 overlay 并设置 `CODING_INCREMENTAL_ENABLED=true` 后，同一任务最多可完成
+- 内置 ModelMirror 与 v2 `host_git` 在恢复可用且设置 `CODING_INCREMENTAL_ENABLED=true`
+  后，同一任务最多可完成
   10 轮修改、验证、应用和本地提交。每次提交成功后，用户必须明确点击“继续修改”才会
   开始下一轮；旧轮次保持只读。
 - 项目验证针对基准、此前全部已提交轮次和当前草稿的累计状态运行；应用和提交只处理
-  当前轮增量。目标仓库保持线性父子提交关系，不允许选择分支或改写旧轮次。
+  当前轮增量。目标仓库保持线性父子提交关系；`host_git` 固定使用选择时保存的当前分支，
+  浏览器和 Agent 不允许选择或切换分支，也不能改写旧轮次。清单 `local_clone` 仍为单轮。
 - 页面默认展示当前轮文件与 Diff，历史折叠显示，并可分别下载当前轮或全部累计修改。
   只允许撤销最新一轮；达到 10 轮后仍可查看、下载和结束任务。
 - 恢复 schema v3 保存已完成轮次、当前完整草稿和加密发布意图/回执；旧 v1/v2 记录
@@ -400,13 +457,16 @@ CODING_PROJECT_COMMANDS_ENABLED=false
 CODING_RUNNER_PACKS_ROOT=
 CODING_FILE_OPERATIONS_ENABLED=true
 CODING_PROJECT_WRITEBACK_ENABLED=false
+CODING_PROJECT_HOST_ENABLED=false
+CODING_PROJECT_HOST_WRITEBACK_ENABLED=false
 ```
 
 `CODING_AGENT_MODE` 默认为 `readonly`，只有显式设置为 `draft` 才开放临时编辑。
 `CODING_AGENT_GATEWAY_KEY` 只注入隔离 Worker，不注入 FastAPI。模型标识只允许
 字母、数字、点、下划线、斜线、冒号和短横线。
-多轮模式依赖恢复、Applier 和 Committer 同时可用；任一执行面缺失时 capabilities 会
-明确显示不可用，不会静默降级为可写多轮流程。恢复 overlay 默认开启该能力；设置
+内置多轮模式依赖恢复、Applier 和 Committer 同时可用；`host_git` 多轮依赖恢复与
+Project Host v2。对应执行面缺失时 capabilities 会明确显示不可用，不会静默改用另一
+项目来源的写入面。恢复 overlay 默认开启该能力；设置
 `CODING_INCREMENTAL_ENABLED=false` 可立即回到第六轮单次流程。
 发布功能还要求恢复、Applier、Committer 与无 remote 独立仓库均可用，并显式加载
 `docker-compose.coding-publish.yml`。App ID、安装 ID、仓库 ID、`owner/repository`
@@ -419,10 +479,17 @@ CODING_PROJECT_WRITEBACK_ENABLED=false
 Python 3.12、Node 22/npm 与已有锁定依赖。若设置该变量，必须使用部署者控制的绝对目录，
 每个 Pack 使用不可变版本 ID，且只读挂载给 Verifier。本轮未新增前端或后端第三方依赖；OpenCode 仍固定
 为 `1.18.9`（MIT），现有第三方声明无需新增条目。
-自定义项目写回还必须使用清单 v3，逐项目设置 `writeback.enabled=true`，并加载
+清单 `local_clone` 写回还必须使用清单 v3，逐项目设置 `writeback.enabled=true`，并加载
 `docker-compose.coding-writeback.yml`。目标必须无 remote 且固定在
 `coding/local-draft`；省略 overlay 或关闭 `CODING_PROJECT_WRITEBACK_ENABLED` 只会让
 写入/提交不可用，不影响草稿、验证、命令、下载或 ModelMirror 完整闭环。
+Windows `host_git` 需加载 `docker-compose.coding-project-host.yml`，由
+`CODING_PROJECT_HOST_ENABLED=true` 开启接入，并在绝对 `MODELMIRROR_DATA_ROOT` 对应的
+`server/.env` 设置 `CODING_PROJECT_HOST_WRITEBACK_ENABLED=true`。助手使用
+`scripts/build-coding-project-host.ps1` 从同一实现 HEAD 打包并单独启动；旧 v1 包严格只读。
+两种项目来源并存时必须在两者 overlay 后加载
+`docker-compose.coding-project-host-full.yml`。完整拓扑、40 MiB 包门禁、恢复 overlay 的
+legacy 变量约束和共享栈独占窗口见 [DEPLOYMENT.md](./DEPLOYMENT.md)。
 
 实现分支尚未合并时，基于实现 HEAD 创建的验收仓库不可能与 GitHub `main` 精确匹配。
 真实远端验收可由部署者临时把 `CODING_GITHUB_BASE_BRANCH` 固定为一个精确指向任务基线
@@ -556,10 +623,35 @@ docker compose -f docker-compose.yml -f docker-compose.coding-apply.yml -f docke
     不留下部分写入；正常撤销精确恢复，撤销前人工改文件时不得覆盖。
 37. 保存本地版本后核对固定作者、说明、父提交和文件集合；重复点击不新增提交。撤销提交
     保留文件，再撤销写入恢复基准。Server/Writer 在各操作回执前重启后不得重复写入或提交。
-38. 停止 Writer 或关闭项目授权，确认自定义项目仍可问答、修改草稿、验证、逐次确认命令、
+38. 停止 Writer 或关闭清单授权，确认 `local_clone` 仍可问答、修改草稿、验证、逐次确认命令、
     下载和恢复；项目 B 的随机标记始终不能被项目 A 的 Writer 请求读取或修改。
+39. 从同一实现 HEAD 打包并启动 v2 Windows 助手，使用中文与空格路径、随机当前分支、
+    已配置 remote 的两个独立项目 A/B。确认 Server、浏览器、响应、日志和恢复记录均不含
+    物理路径或 remote URL，且进程网络观测中没有 fetch、push、ls-remote 或凭据访问。
+40. 在 A 中对 3–5 个随机 UTF-8 文件完成新增、修改、删除和重命名；验证失败或未运行时
+    逐 revision 二次确认可继续，`.env`、秘密、二进制、越界、reparse/symlink/hardlink、
+    大小写冲突仍绝对拒绝。项目 B 与所有未选工作树保持不变。
+41. 依次核对 apply、当前分支 commit、undo（保留文件）和 revert（恢复精确初始内容），
+    再完成两轮 `H0→H1→H2` 线性提交；确认恢复上下文始终锚定 `H0`，第二轮父提交为 `H1`，
+    达到 10 轮后只禁止继续，不影响查看和下载。
+42. 在 Helper 接收前、宿主副作用后/回执前、Server 落盘前分别断线或重启 Helper、Server、
+    Runtime；超时页面只显示待核对，按原 operation ID 返回 applied/committed/undone/reverted，
+    任一文件最多写一次、任一轮最多产生一个可达提交。
+43. 应用后人工同内容替换或改写文件、切分支、推进 HEAD、改变索引；撤销和恢复必须进入
+    只读冲突且不覆盖人工对象。分别使用 v1 助手、禁用写回和完全离线，确认草稿、Diff、
+    下载、最后可信状态及 ModelMirror/`local_clone` 闭环保留，且没有写入控制请求。
+44. 验收前后核对主工作树、实现工作树、未选项目、remote 配置和网络均无意外变化；只有
+    人工确认的项目与分支包含预期文件和本地提交。以上真实助手与共享栈验收必须等用户确认
+    独占窗口和最新基线后执行，不能用单元测试或旧 v1 包替代。
 
 ## 回退
+
+先在绝对数据根对应的 `server/.env` 设置
+`CODING_PROJECT_HOST_WRITEBACK_ENABLED=false` 并重启或重建 Server，即保留第十二轮
+Project Host 只读项目选择、问答、草稿、Diff 和下载；已有宿主文件或本地提交不会自动
+撤销。再设置
+`CODING_PROJECT_HOST_ENABLED=false` 并在后续启动中省略
+`docker-compose.coding-project-host.yml` 可完全关闭助手，仍不会删除项目或授权外内容。
 
 先设置 `CODING_PROJECT_WRITEBACK_ENABLED=false` 并省略
 `docker-compose.coding-writeback.yml`，自定义项目立即回到草稿、验证、命令、下载和恢复；
