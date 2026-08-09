@@ -242,3 +242,21 @@ async def test_provider_gives_mcp_only_a_revocable_task_broker_binding(
     revoke()
     assert task.task_id not in rpc._tokens
     await rpc.close()
+
+
+def test_opencode_provider_accepts_sidecar_broker_binding(tmp_path: Path) -> None:
+    provider = OpenCodeProvider(
+        workspace_resolver=lambda _workspace_id: tmp_path,
+        runtime_root=tmp_path / "runtime",
+        routes={"coding/default": _route()},
+        tool_broker_command=("python", "-m", "coding_worker.broker_mcp"),
+    )
+    provider.bind_broker("task_sidecar", "unix:/run/broker.sock", "t" * 48)
+    environment, revoke = provider._broker_environment("task_sidecar")
+    assert environment == {
+        "CODING_WORKER_BROKER_ENDPOINT": "unix:/run/broker.sock",
+        "CODING_WORKER_BROKER_TOKEN": "t" * 48,
+        "CODING_WORKER_TASK_ID": "task_sidecar",
+    }
+    revoke()
+    assert "task_sidecar" not in provider._broker_bindings

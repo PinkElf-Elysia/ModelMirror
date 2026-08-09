@@ -105,7 +105,26 @@ class OpenCodeProvider(CodingAgentProvider):
         self._server_factory = server_factory or self._launch_server
         self._handles: dict[str, OpenCodeServerHandle] = {}
         self._requests: dict[str, ProviderOpenRequest] = {}
+        self._broker_bindings: dict[str, tuple[str, str]] = {}
         self._lock = asyncio.Lock()
+
+    def bind_broker(self, task_id: str, endpoint: str, token: str) -> None:
+        if not (
+            endpoint.startswith("unix:")
+            or endpoint.startswith("tcp:127.0.0.1:")
+        ) or len(token) < 32:
+            raise OpenCodeProviderError(
+                "Tool Broker binding is invalid.", code="tool_broker_unavailable"
+            )
+        existing = self._broker_bindings.get(task_id)
+        if existing is not None and existing != (endpoint, token):
+            raise OpenCodeProviderError(
+                "Tool Broker binding changed.", code="tool_broker_binding_changed"
+            )
+        self._broker_bindings[task_id] = (endpoint, token)
+
+    def unbind_broker(self, task_id: str) -> None:
+        self._broker_bindings.pop(task_id, None)
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
@@ -436,20 +455,27 @@ class OpenCodeProvider(CodingAgentProvider):
         )
 
     def _broker_environment(self, task_id: str) -> tuple[dict[str, str], Callable[[], None]]:
-        if self._broker_rpc is None:
-            return {}, lambda: None
-        endpoint = self._broker_rpc.endpoint
-        if endpoint is None:
-            raise OpenCodeProviderError(
-                "Tool Broker RPC is unavailable.", code="tool_broker_unavailable"
-            )
-        token = self._broker_rpc.register_task(task_id)
+        if self._broker_rpc is not None:
+            endpoint = self._broker_rpc.endpoint
+            if endpoint is None:
+                raise OpenCodeProviderError(
+                    "Tool Broker RPC is unavailable.", code="tool_broker_unavailable"
+                )
+            token = self._broker_rpc.register_task(task_id)
+        else:
+            binding = self._broker_bindings.get(task_id)
+            if binding is None:
+                return {}, lambda: None
+            endpoint, token = binding
         revoked = False
 
         def revoke() -> None:
             nonlocal revoked
             if not revoked:
-                self._broker_rpc.revoke_task(task_id)
+                if self._broker_rpc is not None:
+                    self._broker_rpc.revoke_task(task_id)
+                else:
+                    self.unbind_broker(task_id)
                 revoked = True
 
         return {
