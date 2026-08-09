@@ -268,6 +268,7 @@ export const mcpIsolationLabels: Record<string, string> = {
   "sealed-database-input-read-only,no-artifact-write":
     "封存数据库输入只读；不允许写入原文件或生成旁路产物",
   "allowlist:api.supabase.com,supabase.com": "仅允许 Supabase 官方 API 域名",
+  "allowlist:registry.terraform.io": "仅允许匿名访问 registry.terraform.io",
   "blocked:no-production-runtime": "已阻断：没有生产级运行时",
   "browser-egress:validated-public-http-https":
     "仅允许 DNS 固定后的公网 HTTP/HTTPS 目标（80/443 端口）；跨 origin 请求与重定向拒绝",
@@ -276,6 +277,8 @@ export const mcpIsolationLabels: Record<string, string> = {
   "browser-artifacts:screenshot-only": "仅允许生成受控截图产物",
   "blocked:unmaintained-browser-runtime": "已阻断：上游浏览器运行时已归档",
   "blocked:license-runtime-contract": "已阻断：许可证与运行时契约尚未厘清",
+  "blocked:credential-egress-not-approved": "已阻断：未批准账号凭据出站",
+  "blocked:unreconciled-provider-cost": "已阻断：供应商费用尚无逐项目对账与硬上限",
 };
 
 export function formatMcpCapability(capability: string) {
@@ -426,7 +429,7 @@ const waveMetadata: Record<
     connectionKind: "sandboxed-stdio",
     risk: "critical",
     requiredCapabilities: ["一次性代码沙箱", "进程资源上限"],
-    limitations: ["等待断网、无宿主挂载的一次性代码执行沙箱验证。"],
+    limitations: ["两个上游均未通过安全与发布物门槛，当前不提供代码执行运行时。"],
   },
   9: {
     connectionKind: "sandboxed-stdio",
@@ -577,6 +580,81 @@ const waveSevenBlockedDetails: Record<string, string[]> = {
   ],
 };
 
+const waveEightBlockedDetails: Record<string, string[]> = {
+  "mcp-run-python": [
+    "固定核验上游 0.0.22。维护方已归档项目，并明确说明 Pyodide 代码可执行任意 JavaScript、污染后续调用、访问运行时文件且无法可靠限制内存。",
+    "连接、依赖安装、Deno/Pyodide 和代码提交入口全部关闭；不会以实验性的 Monty 或自研执行器冒充该上游。",
+  ],
+  "python-interpreter": [
+    "固定核验 PyPI 1.2.3。默认 inline 模式会在 MCP Server 进程内执行代码并保留会话，同时开放 pip 安装、文件读写、环境选择和最长 300 秒的子进程执行。",
+    "发布 wheel 声明 MIT classifier，但携带的 LICENSE 文件为空；许可证正文、一次性容器和固定 subprocess-only 契约完成前不开放任何执行或文件入口。",
+  ],
+};
+
+const waveNineReadyIds = new Set(["terraform-mcp"]);
+
+const waveNineReadyDetails: Record<string, string[]> = {
+  "terraform-mcp": [
+    "固定为 Terraform MCP 1.2.0 公共 Registry 只读兼容契约，仅开放 Provider 版本、能力、文档与 Module 搜索、详情、最新版本六项工具。",
+    "独立 mcp-registry sidecar 仅连接 registry.terraform.io；不接收 Token，不读取 Terraform 工作区、状态文件、变量或本机配置。HCP/TFE、私有 Registry、plan、apply、destroy 与资源变更工具全部关闭。",
+  ],
+};
+
+const waveNineBlockedDetails: Record<string, string[]> = {
+  "apify-mcp": [
+    "固定上游仍要求 Apify Token，Actor 运行与动态工具会产生外部费用；本批未批准向 Apify 发送账号凭据。",
+    "Token、OAuth、Actor 运行、数据集与动态工具全部关闭；需单独批准凭据出站并建立逐项目费用上限后再评估。",
+  ],
+  "aiven-mcp": [
+    "上游可收窄为只读 scope，但仍需向 Aiven 发送项目账号 Token，并可读取项目、服务、VPC 与套餐元数据。",
+    "本批未批准账号凭据出站，配置、连接和工具入口全部关闭。",
+  ],
+  "bright-data-mcp": [
+    "基础抓取和 Pro 工具均消耗供应商额度，当前没有可与账单对账的逐项目硬预算。",
+    "Token、连接与抓取入口全部关闭；免费额度不替代费用护栏。",
+  ],
+  "browserbase-mcp": [
+    "官方仓库已归档，托管浏览器会话还会持续消耗外部资源，无法锁定维护中的生产契约。",
+    "连接、项目密钥与云浏览器入口全部关闭；浏览器能力使用第七批一次性本地适配器。",
+  ],
+  "e2b-mcp": [
+    "官方 MCP 仓库已归档；云沙箱默认允许联网、任意安装与命令执行，并在存活期间计费。",
+    "API Key、代码、依赖安装和云沙箱创建入口全部关闭。",
+  ],
+  "stripe-mcp": [
+    "当前官方 MCP 已迁移到 mcp.stripe.com 的 OAuth 远程服务，支付、退款与订阅写入具有真实资金影响。",
+    "转入第十批处理 OAuth scope、解绑和终止性金融操作审批；本批不开放登录或 API Key。",
+  ],
+  "alpaca-mcp": [
+    "官方 v2 同时暴露真实交易、平仓与期权能力，市场数据订阅也可能产生费用；paper 默认值不能证明凭据属于模拟账户。",
+    "API Key、行情、账户和订单工具全部关闭，等待账户类型证明、费用上限与金融终止操作审批。",
+  ],
+  "aws-kb-mcp": [
+    "Bedrock Knowledge Bases 检索依赖 AWS 身份、区域与知识库范围，可能产生查询费用并返回企业敏感内容。",
+    "AWS 凭据、Knowledge Base ID 与检索入口全部关闭，等待 SigV4 代理、资源白名单与 usage 对账。",
+  ],
+  "elevenlabs-mcp": [
+    "语音与音效生成会消耗外部额度并产生媒体产物，部分工具还管理持久 Voice 资源。",
+    "API Key、生成、克隆、播放、下载和删除入口全部关闭，等待费用与产物隔离。",
+  ],
+  "minimax-mcp": [
+    "官方工具会发起付费语音、图像、视频、音乐与 Voice Clone 任务，并接受本地文件或 URL。",
+    "API Key、生成、轮询、文件与产物入口全部关闭，等待价格锁定、异步账本与媒体隔离。",
+  ],
+  "s3-mcp": [
+    "S3 Tables Server 包含 Namespace 与 Table 的创建、更新和删除能力，并依赖 AWS 凭据与资源级 IAM。",
+    "AWS 凭据、资源 ARN 与工具入口全部关闭，等待固定只读工具集和 SigV4 资源白名单。",
+  ],
+  "kubernetes-mcp": [
+    "即使禁用 destructive，仍需 kubeconfig/ServiceAccount、集群网络和 namespace 级 RBAC；日志与资源可能包含敏感数据。",
+    "Kubeconfig、集群连接、exec、日志与资源入口全部关闭，等待只读 RBAC 实测与固定 namespace 绑定。",
+  ],
+  "semgrep-mcp": [
+    "官方仓库已归档，扫描需要读取项目源码并启动本地 Semgrep 运行时，不能形成维护中的文件与执行契约。",
+    "源码目录、Token、CLI 与扫描入口全部关闭。",
+  ],
+};
+
 function buildAdaptationPlan() {
   const records: Record<string, McpAdaptationRecord> = {};
   for (const projectId of localStdioIds) {
@@ -611,6 +689,12 @@ function buildAdaptationPlan() {
               ? waveSevenReadyIds.has(projectId)
                 ? "ready"
                 : "blocked"
+            : wave === 8
+              ? "blocked"
+            : wave === 9
+              ? waveNineReadyIds.has(projectId)
+                ? "ready"
+                : "blocked"
             : wave <= 4
               ? "ready"
               : "planned",
@@ -625,7 +709,9 @@ function buildAdaptationPlan() {
           projectId === "graphiti-mcp" ||
           projectId === "hindsight-mcp"
             ? "critical"
-            : metadata.risk,
+            : projectId === "terraform-mcp"
+              ? "medium"
+              : metadata.risk,
         requiredCapabilities:
           projectId === "bibigpt-mcp"
             ? ["OAuth PKCE", "授权撤销与解绑", "最小 Scope 审核"]
@@ -639,6 +725,8 @@ function buildAdaptationPlan() {
               ? ["维护中的固定上游契约", "数据库只读策略", "查询超时与结果限制"]
             : projectId === "cognee-mcp" || projectId === "graphiti-mcp" || projectId === "hindsight-mcp"
               ? ["状态化记忆运行时", "模型与向量服务隔离", "持久写入审批与数据保留"]
+            : projectId === "terraform-mcp"
+              ? ["固定服务出口域名", "只读工具策略", "Schema 漂移恢复", "进程资源限制"]
             : [...metadata.requiredCapabilities],
         limitations:
           projectId === "bibigpt-mcp"
@@ -682,6 +770,12 @@ function buildAdaptationPlan() {
                   ...waveSevenReadyDetails[projectId],
                   ...metadata.limitations,
                 ]
+            : waveEightBlockedDetails[projectId]
+              ? [...waveEightBlockedDetails[projectId]]
+            : waveNineBlockedDetails[projectId]
+              ? [...waveNineBlockedDetails[projectId]]
+            : waveNineReadyDetails[projectId]
+              ? [...waveNineReadyDetails[projectId]]
             : [...metadata.limitations],
       };
     }

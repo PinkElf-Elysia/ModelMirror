@@ -225,9 +225,9 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/yzfly/mcp-python-interpreter",
     category: "开发与代码",
     description:
-      "在指定工作目录和 Python 环境中执行代码、管理包并读写文件，适合数据分析和开发任务。",
+      "上游提供 Python 执行、包管理、文件读写和持久会话；这些能力尚未形成可安全部署的固定沙箱契约。",
     readmeSummary:
-      "项目要求显式指定工作目录，并提供文件大小限制和路径隔离；同时具备代码执行能力，使用前应审查权限。",
+      "PyPI 1.2.3 默认在 MCP Server 进程内执行代码，并开放 pip、文件和环境选择；发布 wheel 的 LICENSE 文件为空，因此保持阻断。",
     stars: 0,
     language: "Python",
     verifiedAt: "2026-08-02",
@@ -235,8 +235,8 @@ const originalMcpProjectSeeds: McpProjectSeed[] = [
     installCommand:
       "pip install mcp-python-interpreter\nuvx mcp-python-interpreter --dir <sandbox> --python-path <python>",
     installNote:
-      "需要 uv/uvx 和显式 Python 路径。模镜后端尚未提供该安装链路，因此不开放一键连接。",
-    tags: ["代码执行", "Python 环境", "目录隔离"],
+      "不会安装或运行该发布物；待许可证正文、一次性容器和固定 subprocess-only 契约全部通过后再评估。",
+    tags: ["代码执行", "高风险", "许可证待核验"],
   },
   {
     id: "github-mcp-server",
@@ -754,8 +754,8 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
   plannedMcp({
     id: "apify-mcp",
     name: "Apify Actors MCP",
-    repoName: "apify/actors-mcp-server",
-    repoUrl: "https://github.com/apify/actors-mcp-server",
+    repoName: "apify/apify-mcp-server",
+    repoUrl: "https://github.com/apify/apify-mcp-server",
     category: "浏览器与网页",
     description: "把 Apify Actors 的网页抓取、数据处理和自动化能力提供给 AI。",
     readmeSummary: "Apify 官方集成，可发现并运行 Actors，再读取其数据集结果。",
@@ -910,10 +910,10 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoName: "pydantic/mcp-run-python",
     repoUrl: "https://github.com/pydantic/mcp-run-python",
     category: "开发与代码",
-    description: "在隔离环境中执行 Python 代码，适合计算、转换和小型数据任务。",
-    readmeSummary: "Pydantic 团队项目，强调通过 Pyodide/Deno 等运行时隔离 Python 执行。",
+    description: "曾通过 Pyodide/Deno 执行 Python；维护方已因无法安全隔离不可信代码而归档项目。",
+    readmeSummary: "Pydantic 已退休该实现，并明确警告任意 JavaScript、运行时污染、文件访问和内存耗尽风险。",
     language: "Python",
-    tags: ["Pydantic", "Python", "隔离执行"],
+    tags: ["Pydantic", "Python", "已归档"],
     requirements: ["external-runtime", "system-permission"],
     usageExamples: ["执行可复现的数据计算", "把输入文本批量转换为结构化结果"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
@@ -1051,10 +1051,10 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
     repoUrl: "https://github.com/hashicorp/terraform-mcp-server",
     category: "云平台与运维",
     description: "查询 Terraform Registry、Provider、Module 和基础设施开发信息。",
-    readmeSummary: "HashiCorp 官方 MCP Server，为 Terraform 与 HCP Terraform 工作流提供工具。",
+    readmeSummary: "HashiCorp 官方契约的公共 Terraform Registry 只读子集；HCP/TFE 与资源变更能力不进入本批运行时。",
     language: "Go",
     tags: ["HashiCorp 官方", "Terraform", "基础设施即代码"],
-    requirements: ["external-runtime", "token", "account-binding"],
+    requirements: ["external-runtime", "remote-transport"],
     usageExamples: ["查找合适的 Terraform 模块", "读取 Provider 资源文档"],
     sources: ["awesome-mcp-zh", "awesome-mcp-servers"],
   }),
@@ -1635,8 +1635,8 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
   plannedMcp({
     id: "stripe-mcp",
     name: "Stripe MCP",
-    repoName: "stripe/agent-toolkit",
-    repoUrl: "https://github.com/stripe/agent-toolkit",
+    repoName: "stripe/ai",
+    repoUrl: "https://github.com/stripe/ai",
     category: "金融与市场",
     description: "查询和管理 Stripe 客户、支付、订阅、退款与账单对象。",
     readmeSummary: "Stripe 官方 Agent Toolkit 包含 MCP 支持，为支付业务提供结构化工具。",
@@ -1745,6 +1745,7 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
 
   return {
     ...seed,
+    verifiedAt: adaptation.wave === 8 ? "2026-08-09" : seed.verifiedAt,
     installMode: isLocalStdio ? "one-click" : "manual",
     installCommand: isLocalStdio
       ? seed.installCommand

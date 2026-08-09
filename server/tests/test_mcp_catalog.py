@@ -29,6 +29,8 @@ from server.mcp.catalog import (
     WAVE_FIVE_ADAPTERS,
     WAVE_SIX_ADAPTERS,
     WAVE_SEVEN_ADAPTERS,
+    WAVE_NINE_BLOCKED_ADAPTERS,
+    WAVE_NINE_READY_ADAPTERS,
     WAVE_PROJECTS,
     CatalogAdapterManifest,
     CatalogConfigurationRequest,
@@ -340,15 +342,15 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 44
+    ) == 45
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 43
+    ) == 27
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 13
+    ) == 28
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -392,7 +394,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
 def test_planned_adapter_cannot_be_enabled_by_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    manifest = CATALOG_ADAPTERS["mcp-run-python"]
+    manifest = CATALOG_ADAPTERS["apify-mcp"]
     monkeypatch.setenv(manifest.feature_flag, "true")
 
     assert manifest.feature_enabled is True
@@ -456,6 +458,130 @@ def test_wave_seven_manifest_freezes_ready_blocked_and_public_policy() -> None:
     assert CATALOG_ADAPTERS["selenium-mcp"].availability == "blocked"
     assert CATALOG_ADAPTERS["puppeteer-mcp"].server_command == ()
     assert CATALOG_ADAPTERS["selenium-mcp"].server_command == ()
+
+
+def test_wave_eight_manifest_blocks_unsafe_python_runtimes() -> None:
+    expected = {
+        "mcp-run-python": (
+            "0.0.22-blocked:retired-unsafe-runtime",
+            "maintained-safe-execution-runtime",
+            "Pyodide",
+        ),
+        "python-interpreter": (
+            "1.2.3-blocked:unsafe-contract-and-empty-license",
+            "complete-license-provenance",
+            "LICENSE",
+        ),
+    }
+    for project_id, (version, capability, evidence) in expected.items():
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.wave == 8
+        assert manifest.availability == "blocked"
+        assert manifest.risk == "critical"
+        assert manifest.adapter_version == version
+        assert capability in manifest.required_capabilities
+        assert any(evidence in item for item in manifest.limitations)
+        assert manifest.runtime_image == ""
+        assert manifest.server_command == ()
+        assert manifest.endpoint == ""
+        assert manifest.tool_policies == {}
+        assert manifest.network_policy == "blocked:no-production-runtime"
+        assert manifest.filesystem_policy == "blocked:no-runtime"
+
+
+def test_wave_eight_feature_flags_cannot_enable_blocked_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for project_id in ("mcp-run-python", "python-interpreter"):
+        manifest = CATALOG_ADAPTERS[project_id]
+        monkeypatch.setenv(manifest.feature_flag, "true")
+        assert manifest.feature_enabled is True
+        assert manifest.executable is False
+        assert manifest.to_public()["executable"] is False
+
+
+def test_wave_nine_freezes_one_public_registry_adapter_and_thirteen_blocked() -> None:
+    assert set(WAVE_NINE_READY_ADAPTERS) == {"terraform-mcp"}
+    assert len(WAVE_NINE_BLOCKED_ADAPTERS) == 13
+    terraform = CATALOG_ADAPTERS["terraform-mcp"]
+    assert terraform.wave == 9
+    assert terraform.availability == "ready"
+    assert terraform.risk == "medium"
+    assert terraform.enabled_by_default is True
+    assert terraform.executable is True
+    assert terraform.runtime_image == "modelmirror-mcp-registry:wave9-v1"
+    assert terraform.network_policy == "allowlist:registry.terraform.io"
+    assert terraform.filesystem_policy == "read-only-empty-workspace"
+    assert terraform.credential_policies == ()
+    assert terraform.allowed_settings == ()
+    assert set(terraform.tool_policies) == set(
+        WAVE_NINE_READY_ADAPTERS["terraform-mcp"].tools
+    )
+    assert all(policy.effect == "read" for policy in terraform.tool_policies.values())
+    assert all(policy.read_only for policy in terraform.tool_policies.values())
+
+    for project_id in WAVE_NINE_BLOCKED_ADAPTERS:
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.wave == 9
+        assert manifest.availability == "blocked"
+        assert manifest.server_command == ()
+        assert manifest.runtime_image == ""
+        assert manifest.tool_policies == {}
+        assert manifest.network_policy == "blocked:no-production-runtime"
+
+
+def test_wave_nine_compose_isolates_registry_from_wave_four_token_sidecar() -> None:
+    source = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    registry_block = source[
+        source.index("  mcp-registry:\n") : source.index("  mcp-saas:\n")
+    ]
+    token_block = source[source.index("  mcp-token:\n") : source.index("  mcp-registry:\n")]
+    assert "image: modelmirror-mcp-registry:wave9-v1" in registry_block
+    assert "MCP_TOKEN_ALLOWED_ADAPTERS: terraform-mcp" in registry_block
+    assert 'MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"' in registry_block
+    assert "read_only: true" in registry_block
+    assert "cap_drop:\n      - ALL" in registry_block
+    assert "pids_limit: 64" in registry_block
+    assert "mcp_registry_socket:/run/modelmirror-registry-mcp" in registry_block
+    assert "terraform-mcp" not in token_block
+    assert "mcp-registry:\n        condition: service_healthy" in source
+    assert "MCP_REGISTRY_SOCKET_PATH: /run/modelmirror-registry-mcp/registry-mcp.sock" in source
+
+
+@pytest.mark.asyncio
+async def test_wave_nine_terraform_connect_uses_empty_handshake_and_registry_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, manager, installer, registry = make_service()
+    manager.tools = [
+        Tool(name=name, description=name, inputSchema={})
+        for name in sorted(WAVE_NINE_READY_ADAPTERS["terraform-mcp"].tools)
+    ]
+    monkeypatch.setenv(
+        "MCP_REGISTRY_SOCKET_PATH",
+        "/run/modelmirror-registry-mcp/registry-mcp.sock",
+    )
+
+    connected = await service.connect("terraform-mcp")
+
+    assert connected["tools_count"] == 6
+    assert installer.calls == []
+    assert registry.registered == []
+    profile = manager.profiles[0]
+    assert profile["server_command"] == list(
+        CATALOG_ADAPTERS["terraform-mcp"].server_command
+    )
+    assert profile["reconnect_attempts"] == 0
+    assert profile["environment"]["MCP_TOKEN_SOCKET_PATH"] == (
+        "/run/modelmirror-registry-mcp/registry-mcp.sock"
+    )
+    payload = json.loads(
+        base64.urlsafe_b64decode(
+            profile["environment"]["MCP_TOKEN_HANDSHAKE_B64"]
+        ).decode("utf-8")
+    )
+    assert payload == {"settings": {}, "credentials": {}}
+    assert manager.scrubbed == [connected["session_id"]]
 
 
 def test_wave_seven_compose_isolates_browser_and_egress_services() -> None:
@@ -1392,9 +1518,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 100
-            assert payload["ready"] == 44
-            assert payload["planned"] == 43
-            assert payload["blocked"] == 13
+            assert payload["ready"] == 45
+            assert payload["planned"] == 27
+            assert payload["blocked"] == 28
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized

@@ -170,6 +170,7 @@ services:
       - mcp_public_egress
     environment:
       MCP_TOKEN_MAX_SESSIONS: "6"
+      MCP_TOKEN_ALLOWED_ADAPTERS: agentql-mcp,brave-search-mcp,exa-mcp,firecrawl-mcp,perplexity-mcp,tavily-mcp,axiom-mcp,figma-context-mcp,google-maps-mcp,grafana-mcp,graphlit-mcp,kagi-mcp,pinecone-assistant-mcp,shodan-mcp,virustotal-mcp
       MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
       MCP_TOKEN_WORKSPACE_ROOT: /workspaces
       MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"
@@ -195,6 +196,50 @@ services:
           "python",
           "-c",
           "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-token-mcp/token-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  mcp-registry:
+    build:
+      context: ./server/sandbox_sidecar
+      dockerfile: Dockerfile.registry
+    image: modelmirror-mcp-registry:wave9-v1
+    container_name: modelmirror-mcp-registry
+    networks:
+      - mcp_public_egress
+    environment:
+      MCP_TOKEN_MAX_SESSIONS: "4"
+      MCP_TOKEN_ALLOWED_ADAPTERS: terraform-mcp
+      MCP_TOKEN_SOCKET_PATH: /run/modelmirror-registry-mcp/registry-mcp.sock
+      MCP_TOKEN_WORKSPACE_ROOT: /workspaces
+      # Docker Desktop maps public DNS through 198.18/15; the adapter still
+      # pins registry.terraform.io and verifies its TLS hostname/certificate.
+      MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,uid=65532,gid=65532,mode=0700
+      - /workspaces:rw,nosuid,nodev,noexec,size=64m,uid=65532,gid=65532,mode=0700
+    volumes:
+      - mcp_registry_socket:/run/modelmirror-registry-mcp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-registry-mcp/registry-mcp.sock'); s.sendall(b'{\"action\":\"health\"}\\n'); assert json.loads(s.recv(4096))['ok']",
         ]
       interval: 10s
       timeout: 5s
@@ -492,6 +537,8 @@ services:
         condition: service_healthy
       mcp-token:
         condition: service_healthy
+      mcp-registry:
+        condition: service_healthy
       mcp-saas:
         condition: service_healthy
       mcp-browser:
@@ -547,6 +594,7 @@ services:
       MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
       MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
+      MCP_REGISTRY_SOCKET_PATH: /run/modelmirror-registry-mcp/registry-mcp.sock
       MCP_SAAS_SOCKET_PATH: /run/modelmirror-saas-mcp/saas-mcp.sock
       MCP_BROWSER_SOCKET_PATH: /run/modelmirror-browser-mcp/browser-mcp.sock
       MCP_BROWSER_ARTIFACT_STAGING_ROOT: /app/mcp-browser-staging
@@ -591,6 +639,7 @@ services:
       - mcp_public_socket:/run/modelmirror-public-mcp
       - mcp_files_socket:/run/modelmirror-files-mcp
       - mcp_token_socket:/run/modelmirror-token-mcp
+      - mcp_registry_socket:/run/modelmirror-registry-mcp
       - mcp_saas_socket:/run/modelmirror-saas-mcp
       - mcp_browser_socket:/run/modelmirror-browser-mcp
       - mcp_browser_artifact_staging:/app/mcp-browser-staging
@@ -756,6 +805,7 @@ volumes:
   mcp_public_socket:
   mcp_files_socket:
   mcp_token_socket:
+  mcp_registry_socket:
   mcp_saas_socket:
   mcp_browser_socket:
   mcp_browser_egress_socket:

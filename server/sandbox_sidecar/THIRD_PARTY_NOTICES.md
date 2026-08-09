@@ -159,3 +159,13 @@ inactive. The original source is `seccomp/default.json` in that tagged release.
 Puppeteer MCP and Selenium MCP are not installed or executed in Wave 7. Their
 catalog entries remain blocked until an independently verified sandbox and
 upstream schema contract are available.
+
+The `modelmirror-mcp-registry:wave9-v1` image implements an independent,
+credential-free, read-only compatibility subset after reviewing HashiCorp
+Terraform MCP Server v1.2.0 (`hashicorp/terraform-mcp-server`), licensed under
+MPL-2.0. No HashiCorp server source or binary is copied into the image. The
+runtime exposes six public Terraform Registry discovery/documentation tools
+and cannot access HCP Terraform, Terraform Enterprise, private registries,
+local Terraform files, or infrastructure mutation tools. Its pinned direct
+Python runtime dependencies are MCP Python SDK 1.27.2 (MIT) and tzdata 2026.3
+(public-domain/IANA database notices retained in installed package metadata).
