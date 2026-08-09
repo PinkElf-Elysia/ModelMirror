@@ -586,6 +586,7 @@ class ToolBroker:
                 handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
+            self.workspace_broker.apply_slot_owner(workspace_id, Path(temporary))
             os.replace(temporary, target)
         finally:
             try:
@@ -715,6 +716,7 @@ class ToolBroker:
                     raise ToolBrokerError("Workspace path changed.", code="workspace_changed")
             elif create_parents:
                 parent.mkdir()
+                self.workspace_broker.apply_slot_owner(workspace_id, parent)
             else:
                 raise ToolBrokerError("Workspace path was not found.", code="entry_not_found")
         target = parent / path.name

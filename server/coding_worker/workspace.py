@@ -199,6 +199,20 @@ class WorkspaceBroker:
     def workspace_slot(self, workspace_id: str) -> str:
         return self._workspace_location(workspace_id)[0]
 
+    def apply_slot_owner(self, workspace_id: str, path: Path) -> None:
+        if self._slot_owner is None or os.name == "nt":
+            return
+        workspace_root = self._workspace_root(workspace_id)
+        candidate = Path(path)
+        resolved = candidate.resolve(strict=True)
+        if not resolved.is_relative_to(workspace_root) or candidate.is_symlink():
+            raise WorkspaceError(
+                "Workspace ownership target is invalid.", code="workspace_changed"
+            )
+        uid, gid = self._slot_owner
+        os.chown(candidate, uid, gid)
+        candidate.chmod(0o770 if candidate.is_dir() else 0o660)
+
     def repository_path(self, workspace_id: str) -> Path:
         root = self._workspace_root(workspace_id)
         repository = root / "repo"
