@@ -1,21 +1,30 @@
 import {
-  applyGameSessionAction,
-  createGameSession,
-} from "@matrix-oasis/game-pack-simulator";
-import type { GameRuntimeDiagnostic } from "@matrix-oasis/game-pack-simulator";
+  applyGamePackParitySessionAction,
+  createGamePackParitySession,
+} from "@matrix-oasis/game-pack-parity-harness";
+import type {
+  ApplyGamePackParitySessionActionResult,
+  CreateGamePackParitySessionResult,
+} from "@matrix-oasis/game-pack-parity-harness";
 import type { CreatorSessionBundle } from "./pack-loader";
 
-export interface CreatorRuntimeInternalDiagnostic {
-  readonly phase: "runtime";
+type ParityOperationDiagnostic = Extract<
+  | ApplyGamePackParitySessionActionResult
+  | CreateGamePackParitySessionResult,
+  { readonly ok: false }
+>["diagnostics"][number];
+
+export interface CreatorParityInternalDiagnostic {
+  readonly phase: "parity";
   readonly severity: "error";
-  readonly code: "PACK_RUNTIME_INTERNAL_ERROR";
+  readonly code: "PACK_PARITY_INTERNAL_ERROR";
   readonly path: "";
   readonly message: string;
 }
 
 export type CreatorSessionOperationDiagnostic =
-  | GameRuntimeDiagnostic
-  | CreatorRuntimeInternalDiagnostic;
+  | ParityOperationDiagnostic
+  | CreatorParityInternalDiagnostic;
 
 export type CreatorSessionCandidateResult =
   | {
@@ -34,11 +43,11 @@ export interface SessionCommitDecision {
 
 const INTERNAL_DIAGNOSTICS = Object.freeze([
   Object.freeze({
-    phase: "runtime" as const,
+    phase: "parity" as const,
     severity: "error" as const,
-    code: "PACK_RUNTIME_INTERNAL_ERROR" as const,
+    code: "PACK_PARITY_INTERNAL_ERROR" as const,
     path: "" as const,
-    message: "The reference simulator could not complete the operation safely.",
+    message: "The parity harness could not complete the operation safely.",
   }),
 ]);
 
@@ -57,7 +66,8 @@ function success(candidate: CreatorSessionBundle): CreatorSessionCandidateResult
 
 export function resetSessionCandidate(
   baseSession: CreatorSessionBundle,
-  createSession: typeof createGameSession = createGameSession,
+  createSession: typeof createGamePackParitySession =
+    createGamePackParitySession,
 ): CreatorSessionCandidateResult {
   try {
     const created = createSession(baseSession.prepared);
@@ -68,6 +78,7 @@ export function resetSessionCandidate(
       Object.freeze({
         source: baseSession.source,
         prepared: baseSession.prepared,
+        artifact: baseSession.artifact,
         snapshot: created.snapshot,
         inspection: created.inspection,
         emittedCues: created.emittedCues,
@@ -82,7 +93,8 @@ export function resetSessionCandidate(
 export function applySessionActionCandidate(
   baseSession: CreatorSessionBundle,
   actionId: string,
-  applyAction: typeof applyGameSessionAction = applyGameSessionAction,
+  applyAction: typeof applyGamePackParitySessionAction =
+    applyGamePackParitySessionAction,
 ): CreatorSessionCandidateResult {
   try {
     const applied = applyAction(
@@ -97,6 +109,7 @@ export function applySessionActionCandidate(
       Object.freeze({
         source: baseSession.source,
         prepared: baseSession.prepared,
+        artifact: baseSession.artifact,
         snapshot: applied.snapshot,
         inspection: applied.inspection,
         emittedCues: applied.transition.emittedCues,

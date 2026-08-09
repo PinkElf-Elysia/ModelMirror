@@ -36,7 +36,7 @@ R0.2 已固定以下 Creator 第三方依赖；R3.2-R3.4 只复用 lockfile 中�
 | Ajv | 8.20.0 | MIT | JSON Schema 2020-12 严格结构验证 |
 | jsonc-parser | 3.3.1 | MIT | 严格 JSON 语法树与重复键定位 |
 
-测试与护栏仍使用 Node 24 内置 `node:test`，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。R2 模拟器只精确依赖内部 `@matrix-oasis/game-pack-validator@0.1.0-r1`；Creator 只依赖内部 `@matrix-oasis/game-pack-simulator@0.1.0-r2`。R3.2 新增无外部依赖的 `@matrix-oasis/runtime-pack-contracts@0.1.0-r3`，以及精确依赖该合同、Ajv 8.20.0 和 jsonc-parser 3.3.1 的 `@matrix-oasis/runtime-pack-validator@0.1.0-r3`。R3.3 Compiler 只精确依赖冻结 R1 Validator 与上述两个 R3 内部包。R3.4 Runtime Simulator 只依赖内部 Runtime Validator；parity harness 只依赖内部 Compiler、冻结 R2 Simulator、Runtime contracts 与 Runtime Simulator。两包均不新增 registry 或许可证表面。验证过程无网络、无代码生成入库、无父仓依赖。
+测试与护栏仍使用 Node 24 内置 `node:test`，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。R2 模拟器只精确依赖内部 `@matrix-oasis/game-pack-validator@0.1.0-r1`。R3.2 新增无外部依赖的 `@matrix-oasis/runtime-pack-contracts@0.1.0-r3`，以及精确依赖该合同、Ajv 8.20.0 和 jsonc-parser 3.3.1 的 `@matrix-oasis/runtime-pack-validator@0.1.0-r3`。R3.3 Compiler 只精确依赖冻结 R1 Validator 与上述两个 R3 内部包。R3.4 Runtime Simulator 只依赖内部 Runtime Validator；parity harness 只依赖内部 Compiler、冻结 R2 Simulator、Runtime contracts 与 Runtime Simulator。R3.5 Creator 将直接内部依赖由冻结 R2 Simulator 切换为 parity harness，不增加 registry 或许可证表面。验证过程无网络、无代码生成入库、无父仓依赖。
 
 Ajv 8.20.0 的传递依赖已按模块 lockfile 盘点：
 
@@ -59,7 +59,7 @@ Ajv 8.20.0 的传递依赖已按模块 lockfile 盘点：
 
 该例外只适用于上述精确包与版本，不扩展 CC-BY-4.0 的通用准入范围。若分发依赖材料，必须保留上游归因与许可证通知；版本变化后需要重新盘点并审批。
 
-模块根版本标识为 `0.3.0-r3`；R3 contracts、Validator、Compiler、Runtime Simulator 与 parity harness workspace 均为 `0.1.0-r3`；Creator 保持 `0.2.0-r2`，参考模拟器保持 `0.1.0-r2`，冻结的 Authoring 合同与验证器保持 `0.1.0-r1`。全部 workspace 均为 private/UNLICENSED，不代表发布版本。
+模块根版本标识为 `0.3.0-r3`；R3 contracts、Validator、Compiler、Runtime Simulator 与 parity harness workspace 均为 `0.1.0-r3`；Creator 为 `0.3.0-r3`，参考模拟器保持 `0.1.0-r2`，冻结的 Authoring 合同与验证器保持 `0.1.0-r1`。全部 workspace 均为 private/UNLICENSED，不代表发布版本。
 
 ## 变更流程
 

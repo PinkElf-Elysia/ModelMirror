@@ -1,6 +1,6 @@
 # R3 验收记录
 
-状态：R3.1-R3.3 已提交；R3.4 独立 Runtime Simulator 与 parity harness 已完成并验证，等待本地提交；R3.5-R3.6 尚未实施
+状态：R3.1-R3.4 已提交；R3.5 Creator 双执行锁步实验台已完成并验证，等待本地提交；R3.6 尚未实施
 
 固定基线：`380c747e62193855c724a947d99a84070ca623ff`
 
@@ -24,8 +24,8 @@
 | R3.2 | Runtime Pack/Receipt 合同与 Validator | `c019585420ca9e9c3d979a98767699a95e842586` | 已完成 |
 | R3.2a | 冻结 R1 字符串域的规范化兼容修正 | `5af297be551f37bfba938bc927cd12d17350fc2b` | 已完成 |
 | R3.3 | 确定性 Compiler 与安全 CLI | `a888cf5c9f1eea23de88f139bd8f105ee1a4b641` | 已完成 |
-| R3.4 | 独立 Runtime Simulator 与 parity harness | 本批提交；SHA 由下一批或仓外交付清单记录 | 已验证，等待本地提交 |
-| R3.5 | Creator 双执行锁步实验台 | 待提交 | 未开始 |
+| R3.4 | 独立 Runtime Simulator 与 parity harness | `ace01117ef3a7075ef82ef36c840e71365b18967` | 已完成 |
+| R3.5 | Creator 双执行锁步实验台 | 本批提交；SHA 由下一批或仓外交付清单记录 | 已验证，等待本地提交 |
 | R3.6 | 拆分、无回归、浏览器与证据收口 | 待提交 | 未开始 |
 
 ## R3.1 验收证据
@@ -150,5 +150,25 @@ R3.3 实施前发现冻结 R1 Validator 会合法接受孤立 UTF-16 代理项�
 夹具事实：中性夹具五步精确到变量、位置和 Cue；末班地铁无需题材特判到达三个 ending，并在显式循环与精确 step limit 下保持 parity。有界 BFS 以位置、变量和步数为状态键，探索所有当前可用 action；样例仍只承担可替换验证职责，不进入运行源码或公共合同。
 
 范围与回退：冻结 R1/R2 文件、Creator、examples 与 R0-R2 历史记录相对 `a888cf5` 零差异；父仓与共享栈零改动。逆序 revert 本批提交即可删除两个新 workspace、语义测试、根接线和本批文档，恢复到完整 R3.3；无数据库、路由、服务、环境变量、Artifact 入库或运行数据迁移。
+
+## R3.5 验收证据
+
+本批变更严格限于 19 个模块内白名单路径：Creator 的 `index.html`、package、App、loader、事务与 CSS；模块根 package/lock；Creator smoke；四个 Creator 测试文件；README、ARCHITECTURE、BOUNDARIES、DEPENDENCIES、KNOWN_LIMITATIONS 与本文。未修改任何 R1/R2 冻结实现、examples、R3 Compiler/Runtime/parity 包或父仓文件。
+
+已执行并通过：
+
+- `npm.cmd install --package-lock-only --offline --ignore-scripts --no-audit --no-fund` 与 `npm.cmd ci --offline --no-audit --no-fund`：84 packages；lockfile 只把 Creator `0.3.0-r3` 的直接内部依赖从 R2 Simulator 切换为 parity harness，无 registry 变化。
+- `npm.cmd run test:creator`：23/23 通过；覆盖双侧 prepared/artifact、fatal UTF-8 与 1 MiB、异步 stale、引用 CAS、重置/单步原子候选、parity mismatch、固定 operational 诊断、显式下载与 R0/R2/R3 标识。
+- `npm.cmd test`：356/356 通过；R0-R3.4 harness、合同、Validator、Compiler、CLI 与两套模拟语义无回归。
+- `npm.cmd run verify`：11/11 步通过；Creator 严格 TypeScript 与 Vite build 转换 247 modules，生产 bundle 446.26 kB；loopback smoke 返回 HTTP 200 并命中 R0、R2、R3 三个稳定标识。
+- `npm.cmd prefix`、`npm.cmd ls --all`、boundary、round scope、固定 parent scope 与 `git diff --check` 全部退出 0；boundary checked 139/tracked 137，round/parent checked 81。
+
+原子性事实：Creator 只从 parity harness 公共入口准备 Pack；bundle 同时持有 opaque prepared、规范 Artifact、双侧 snapshot、公共 inspection、Cue 与 transition。异步本地候选、重置和 action 都以捕获的 base session 计算，并在提交时再次做引用 CAS；迟到候选、验证/编译失败、运行失败或 parity mismatch 不改变当前会话。Pack/Receipt 只在明确按钮点击时从当前内存文本下载，不自动保存、不接网络/storage/File System API。
+
+浏览器事实：独立生产 preview 在桌面与 320px 视口真实渲染；320px 下 `clientWidth=scrollWidth=320`，操作与下载按钮高度均至少 44px。末班地铁夹具切换后单步“询问背包学生”到达 `Step 1 / 256`，状态反馈正确，控制台零 warning/error。页面使用通用 Pack 数据，无题材条件分支、动画、渐变、玻璃效果或产品级样例包装。下载动作本批只做静态/单元验证，完整文件下载与更多轨迹留到 R3.6 最终人工验收。
+
+环境事实：未提升权限的 lockfile 更新、`npm ci` 与 build 首次受 `C:\tmp` 沙箱 EPERM 阻止；仅对独立模块的离线 lock/install/build/verify 使用提升写权限后通过。未终止用户进程，未启动父前后端、Docker 或共享栈。浏览器 QA 使用独立 loopback preview，结束后只终止本次创建的两个预览进程。
+
+回退：revert 本批提交即可恢复 R2 Creator 直接依赖与 UI，同时保留完整 R3.4 Compiler/Runtime/parity 能力；无数据库、路由、服务、环境变量、已发布 Artifact 或运行数据需要恢复。
 
 用户明确回复“R3 验收通过，可以创建PR”前不 push、不创建 PR。

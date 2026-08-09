@@ -1,14 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import {
-  createGameSession,
-  prepareAuthoringGamePackJson,
-} from "@matrix-oasis/game-pack-simulator";
 import mechanicsPackText from "../../../examples/mechanics-conformance.authoring-game-pack.json?raw";
 import integrationPackText from "../../../examples/last-train-r1.authoring-game-pack.json?raw";
 import {
   LocalPackLoader,
   MAX_LOCAL_PACK_BYTES,
+  prepareCreatorSession,
 } from "./pack-loader";
 import type { CreatorSessionBundle } from "./pack-loader";
 import {
@@ -19,6 +16,7 @@ import {
 
 const R0_MARKER = "MATRIX_OASIS_R0_ISOLATED_SHELL";
 const R2_MARKER = "MATRIX_OASIS_R2_REFERENCE_SIMULATOR";
+const R3_MARKER = "MATRIX_OASIS_R3_RUNTIME_PARITY";
 
 const BUILTIN_PACKS = {
   neutral: mechanicsPackText,
@@ -44,28 +42,26 @@ interface FeedbackState {
   readonly diagnostics?: readonly DisplayDiagnostic[];
 }
 
-function createBuiltinSession(id: BuiltinPackId): CreatorSessionBundle {
-  const preparedResult = prepareAuthoringGamePackJson(BUILTIN_PACKS[id]);
+async function createBuiltinSession(
+  id: BuiltinPackId,
+): Promise<CreatorSessionBundle> {
+  const preparedResult = await prepareCreatorSession(BUILTIN_PACKS[id], {
+    kind: "builtin",
+    id,
+  });
   if (!preparedResult.ok) {
     throw new Error("A bundled Pack failed validation.");
   }
-  const created = createGameSession(preparedResult.prepared);
-  if (!created.ok) {
-    throw new Error("A bundled Pack could not create a session.");
-  }
-  return Object.freeze({
-    source: Object.freeze({ kind: "builtin" as const, id }),
-    prepared: preparedResult.prepared,
-    snapshot: created.snapshot,
-    inspection: created.inspection,
-    emittedCues: created.emittedCues,
-    transition: null,
-  });
+  return preparedResult.candidate;
 }
 
+const [neutralSession, integrationSession] = await Promise.all([
+  createBuiltinSession("neutral"),
+  createBuiltinSession("integration"),
+]);
 const BUILTIN_SESSIONS = Object.freeze({
-  neutral: createBuiltinSession("neutral"),
-  integration: createBuiltinSession("integration"),
+  neutral: neutralSession,
+  integration: integrationSession,
 });
 
 function initialWorkspace(): WorkspaceState {
@@ -85,6 +81,25 @@ function diagnosticsFeedback(
   };
 }
 
+function downloadArtifact(
+  text: string,
+  fileName: string,
+): void {
+  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName;
+    anchor.hidden = true;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceState>(initialWorkspace);
   const [feedback, setFeedback] = useState<FeedbackState>({
@@ -100,6 +115,13 @@ function App() {
   const { inspection } = session;
   const isEnded = inspection.status === "ended";
   const activeBuiltin = session.source.kind === "builtin" ? session.source.id : null;
+  const artifactIdentity = session.snapshot.runtime.pack;
+  const artifactBytes = new TextEncoder().encode(
+    session.artifact.runtimePackJson,
+  ).byteLength;
+  const receiptBytes = new TextEncoder().encode(
+    session.artifact.runtimePackReceiptJson,
+  ).byteLength;
 
   useEffect(() => {
     if (focusRevision > 0) {
@@ -170,7 +192,9 @@ function App() {
         );
         return;
       }
-      commitSession(result.candidate);
+      if (!commitSession(result.candidate, baseSession)) {
+        return;
+      }
       setFeedback({
         tone: "success",
         message: `已验证 ${result.candidate.inspection.pack.title}，并原子替换当前会话。`,
@@ -233,6 +257,34 @@ function App() {
     setFocusRevision((revision) => revision + 1);
   }
 
+  function downloadCurrentArtifact(kind: "runtime" | "receipt") {
+    try {
+      if (kind === "runtime") {
+        downloadArtifact(
+          session.artifact.runtimePackJson,
+          `${inspection.pack.id}.runtime-game-pack.json`,
+        );
+      } else {
+        downloadArtifact(
+          session.artifact.runtimePackReceiptJson,
+          `${inspection.pack.id}.runtime-game-pack-receipt.json`,
+        );
+      }
+      setFeedback({
+        tone: "success",
+        message:
+          kind === "runtime"
+            ? "已生成 Runtime Pack 下载。"
+            : "已生成 Receipt 下载。",
+      });
+    } catch {
+      setFeedback({
+        tone: "error",
+        message: "无法生成下载，当前会话未改变。",
+      });
+    }
+  }
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -251,20 +303,21 @@ function App() {
         </div>
         <div className="round-meta" aria-label="模块状态">
           <span>独立模块</span>
-          <strong>R2 参考模拟器</strong>
+          <strong>R3 运行语义等价</strong>
         </div>
       </header>
 
       <main id="main-content" className="main-content" tabIndex={-1}>
         <span className="sr-only">
-          {R0_MARKER} {R2_MARKER}
+          {R0_MARKER} {R2_MARKER} {R3_MARKER}
         </span>
 
         <section className="page-heading" aria-labelledby="page-title">
           <div>
-            <h1 id="page-title">Creator 运行实验台</h1>
+            <h1 id="page-title">Creator 语义等价实验台</h1>
             <p>
-              加载一个 Authoring Game Pack，按参考语义执行单步，并核对状态、变量与 Cue。
+              加载一个 Authoring Game Pack，同时推进参考模型与编译后 Runtime，
+              只在两侧结果一致时提交下一步。
             </p>
           </div>
           <dl className="pack-summary" aria-label="当前 Pack">
@@ -283,11 +336,63 @@ function App() {
           </dl>
         </section>
 
+        <section className="parity-strip" aria-labelledby="parity-title">
+          <div>
+            <p className="context-line">R2 Reference ↔ R3 Runtime</p>
+            <h2 id="parity-title">编译前后锁步一致</h2>
+            <p>
+              当前会话的创建与每次操作均已通过可观察语义对照；Receipt
+              只证明产物完整性，不是签名或来源认证。
+            </p>
+          </div>
+          <dl className="artifact-summary" aria-label="当前运行产物">
+            <div>
+              <dt>Runtime Pack</dt>
+              <dd>{artifactBytes} B</dd>
+            </div>
+            <div>
+              <dt>Receipt</dt>
+              <dd>{receiptBytes} B</dd>
+            </div>
+          </dl>
+          <div className="artifact-actions" aria-label="下载当前运行产物">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => downloadCurrentArtifact("runtime")}
+            >
+              下载 Runtime Pack
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => downloadCurrentArtifact("receipt")}
+            >
+              下载 Receipt
+            </button>
+          </div>
+          <details className="integrity-details">
+            <summary>查看完整性标识</summary>
+            <dl>
+              <div>
+                <dt>Source SHA-256</dt>
+                <dd><code>{artifactIdentity.sourceSha256}</code></dd>
+              </div>
+              <div>
+                <dt>Artifact SHA-256</dt>
+                <dd><code>{artifactIdentity.artifactSha256}</code></dd>
+              </div>
+            </dl>
+          </details>
+        </section>
+
         <section className="input-panel" aria-labelledby="input-title">
           <div className="input-heading">
             <div>
               <h2 id="input-title">选择测试输入</h2>
-              <p>切换输入会创建新会话。本地候选失败时不会替换当前会话。</p>
+              <p>
+                切换输入会先编译并完成双侧创建；验证、编译或等价检查失败时不会替换当前会话。
+              </p>
             </div>
             <button
               className="secondary-button"
@@ -325,8 +430,9 @@ function App() {
               aria-describedby="local-file-help"
               onChange={selectLocalFile}
             />
-            <p id="local-file-help">
-              仅在本机内存中读取，限制 {MAX_LOCAL_PACK_BYTES / 1_048_576} MiB，不上传、不保存。
+          <p id="local-file-help">
+              仅在本机内存中读取，限制 {MAX_LOCAL_PACK_BYTES / 1_048_576} MiB，
+              不上传、不自动保存。
             </p>
           </div>
 
@@ -486,7 +592,8 @@ function App() {
         </div>
 
         <p className="boundary-note">
-          此实验台只调用模块内 Validator 与参考模拟器，不连接父项目 API、网络或持久化服务。
+          此实验台只调用模块内 Validator、Compiler、参考模拟器、Runtime 模拟器与等价 Harness，
+          不连接父项目 API、网络或持久化服务。
         </p>
       </main>
 

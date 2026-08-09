@@ -1,6 +1,6 @@
 # 矩阵绿洲 AI 原生 3D 游戏引擎（实验模块）
 
-这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.4 已形成从 Authoring 到规范 Artifact、强制 Receipt 准入、独立编译态执行与黑盒锁步差分的完整内存闭环。
+这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.5 已把这条链路接入独立 Creator：候选 Pack 只有在编译、双侧创建与每步可观察结果一致时才会原子替换当前会话。
 
 ## R3 当前状态
 
@@ -9,10 +9,11 @@
 - R3.2a 兼容冻结 R1 的完整字符串准入范围：孤立 UTF-16 代理项以确定性 ASCII 转义保留，不改 R1，也不做替换字符修复。
 - R3.3 新增浏览器兼容的确定性 Compiler；CLI 只在模块内读取 JSON，并以同目录暂存、独占写入、回读自校验和单次目录 rename 发布固定 Pack/Receipt 文件对。
 - R3.4 新增独立 Runtime Simulator 与 parity harness；Runtime 快照以索引执行并绑定 source/artifact 双哈希，harness 只从冻结 R2 包根调用黑盒 oracle，差异失败关闭。
+- R3.5 将 Creator 升级为双执行锁步实验台；内置或本地 Pack 均通过 parity harness 准备，重置和单步操作按引用 CAS 原子提交，并可由用户明确点击下载规范 Runtime Pack 与 Receipt。
 - 固定基线为 `380c747e62193855c724a947d99a84070ca623ff`。
 - R1 contracts、Validator/CLI、examples，R2 Simulator/语义测试以及 R0-R2 历史 ADR/验收记录字节冻结。
 - schema v3 对既有 app/docs/scripts/tests 使用精确文件白名单，只对五个批准的新 R3 package 使用目录前缀。
-- Creator 当前仍是 R2 最小运行实验台；到 R3.5 才会在精确白名单内演进。
+- Creator 保留 R0 隔离标识与 R2 参考语义标识，并新增 R3 parity 标识；仍不接父路由、网络、存储或文件系统 API。
 - 样例仅用于测试、差分和可视化验收，不是最终成品物料。
 
 R3 不包含 Godot、3D、AI、NPC、RAG、MCP、父项目接入、共享栈、部署或发布。
@@ -29,7 +30,7 @@ Authoring Game Pack 0.1.0
 → Creator parity lab
 ```
 
-R3.4 已完成 Compiler、合同、Validator、CLI、独立 Runtime Simulator 与 parity harness；Creator 双执行锁步仍须在 R3.5 的精确白名单内实现和验收。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。
+R3.5 已完成 Compiler、合同、Validator、CLI、独立 Runtime Simulator、parity harness 与 Creator 锁步实验台。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。下载按钮只导出当前内存中的规范 Artifact 文本，不自动保存、不修改 Pack，也不把 Receipt 描述成签名。
 
 ## 独立性约束
 

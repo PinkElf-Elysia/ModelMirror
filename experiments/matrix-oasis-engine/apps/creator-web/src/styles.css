@@ -244,6 +244,94 @@ h1 {
   padding: 1.25rem 0;
 }
 
+.parity-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin-top: 2rem;
+  border-top: 1px solid #356379;
+  border-bottom: 1px solid #2b3843;
+  padding: 1rem 0;
+}
+
+.parity-strip h2 {
+  margin: 0;
+  color: #edf3f8;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.parity-strip > div:first-child > p:last-child {
+  max-width: 64ch;
+  margin: 0.35rem 0 0;
+  color: #9fb0bf;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.artifact-summary {
+  display: flex;
+  gap: 1.25rem;
+  margin: 0;
+}
+
+.artifact-summary dt,
+.integrity-details dt {
+  color: #8294a5;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.artifact-summary dd {
+  margin: 0.2rem 0 0;
+  color: #dce6ee;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.integrity-details {
+  grid-column: 1 / -1;
+  color: #aebdca;
+  font-size: 0.75rem;
+}
+
+.integrity-details summary {
+  width: fit-content;
+  min-height: 44px;
+  padding: 0.75rem 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.integrity-details dl {
+  display: grid;
+  gap: 0.625rem;
+  margin: 0 0 0.25rem;
+}
+
+.integrity-details dl > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.integrity-details dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.integrity-details code {
+  color: #c7d7e2;
+  overflow-wrap: anywhere;
+}
+
 .input-heading,
 .section-heading-row,
 .surface-heading {
@@ -731,6 +819,15 @@ footer {
   .workspace-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .parity-strip {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .artifact-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 640px) {
@@ -767,6 +864,20 @@ footer {
   .source-button {
     width: 100%;
     max-width: none;
+  }
+
+  .parity-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .artifact-summary,
+  .artifact-actions,
+  .integrity-details {
+    grid-column: 1;
+  }
+
+  .artifact-actions {
+    display: grid;
   }
 
   .file-row {

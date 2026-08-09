@@ -40,6 +40,8 @@ R2 Simulator 只能通过包根公开 API 作为黑盒 oracle。R3 contracts/val
 
 R3.4 Runtime Simulator 只接受规范 Runtime Pack JSON 与必需 Receipt JSON；准备阶段先调用公开 Runtime Validator，再建立 opaque handle。运行快照使用索引位置与变量数组，并绑定 source SHA-256 和 artifact SHA-256；它只用于当前 prepared handle 的内存实验，不是正式存档。Parity harness 分别调用冻结 R2 包根与独立 Runtime 包根，排除有意不同的索引/哈希身份后比较全部可观察结果；任何单侧失败或投影差异只返回静态 parity 诊断，不发布候选快照。两个新包运行源码同样禁止网络、环境、文件系统、storage、父源码与 `node:*`。
 
+R3.5 Creator 只依赖 parity harness 包根。内置与本地 Pack 都先完成编译、双侧 prepare/create，再形成独立候选；异步候选、重置和单步用捕获会话引用做最终 CAS，迟到或失败结果不能覆盖新状态。Creator 只在用户点击下载按钮后，以内存 `Blob` 和临时 object URL 输出当前规范 Runtime Pack 或 Receipt；object URL 在触发后立即撤销。该动作不访问网络、不调用 File System API、不写 storage、不自动保存，也不改变当前会话。
+
 ## 自动范围门
 
 - schema v3 固定 `activeRound=R3` 与基线 `380c747e62193855c724a947d99a84070ca623ff`。

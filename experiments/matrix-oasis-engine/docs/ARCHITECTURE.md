@@ -1,11 +1,11 @@
 # 架构方向
 
 最后更新：2026-08-08
-状态：R3.4 独立 Runtime Simulator 与黑盒 parity harness
+状态：R3.5 Creator 双执行锁步实验台
 
 ## 当前系统
 
-R1 Authoring Game Pack 0.1.0 与 Validator、R2 确定性参考模拟器及 Creator 最小运行实验台保持冻结。R3.4 已新增 canonical-json/1、确定性 Compiler、Runtime Pack/Receipt 0.1.0 合同、严格 Validator、模块内安全 CLI、独立 Runtime Simulator 与包根黑盒 parity harness。Creator 仍保持 R2 状态，等待 R3.5 精确解冻。
+R1 Authoring Game Pack 0.1.0 与 Validator、R2 确定性参考模拟器保持冻结。R3.5 已新增 canonical-json/1、确定性 Compiler、Runtime Pack/Receipt 0.1.0 合同、严格 Validator、模块内安全 CLI、独立 Runtime Simulator、包根黑盒 parity harness 与 Creator 锁步实验台。Creator 只依赖 parity harness 公共入口，不自行实现或读取两套 evaluator。
 
 ## R3 目标数据流
 
@@ -20,6 +20,8 @@ Authoring Game Pack 0.1.0
 ```
 
 R3 不把 Runtime Pack 提前等同于 Godot 格式，也不复用 R2 evaluator。两个 Simulator 独立实现；parity harness 只比较 source identity 投影、位置/正文/实体、变量、action 可用性、步数、transition 与 Cue，不以共享代码自证等价。
+
+Creator 将一次会话视为同一原子 bundle：source、opaque parity prepared handle、规范 Artifact、双侧 snapshot、公共 inspection、Cue 与最近 transition。异步本地候选、重置和单步都基于捕获的当前 bundle 计算，并在提交时以引用 CAS 再核对；迟到结果、验证失败、运行失败或 parity mismatch 均保留当前会话。Pack 与 Receipt 只在用户明确点击后通过浏览器内存下载，不写 storage，也不接网络。
 
 ## 独立模块原则
 
