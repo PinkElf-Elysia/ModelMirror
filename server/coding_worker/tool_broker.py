@@ -15,6 +15,7 @@ from typing import Any
 from pydantic import Field
 
 from .contracts import CapabilityName, OperationState, PolicyProfile, StrictModel, TaskState
+from .process_manager import BackgroundProcessManager, ProcessManagerError
 from .store import CodingWorkerStore, WorkerConflictError
 from .workspace import WorkspaceBroker, WorkspaceError
 
@@ -77,6 +78,7 @@ class ToolBroker:
         store: CodingWorkerStore,
         workspace_broker: WorkspaceBroker,
         frozen_checks: Mapping[str, FrozenCheck] | None = None,
+        process_manager: BackgroundProcessManager | None = None,
         max_output_bytes: int = MAX_TOOL_OUTPUT_BYTES,
     ) -> None:
         if not 1024 <= max_output_bytes <= 16 * 1024 * 1024:
@@ -84,6 +86,7 @@ class ToolBroker:
         self.store = store
         self.workspace_broker = workspace_broker
         self.frozen_checks = dict(frozen_checks or {})
+        self.process_manager = process_manager
         self.max_output_bytes = max_output_bytes
 
     async def execute(
@@ -139,7 +142,9 @@ class ToolBroker:
                 OperationState.RUNNING,
                 expected_state=OperationState.PREPARED,
             )
-            data = await self._dispatch(task.workspace_id, tool_name, request["arguments"])
+            data = await self._dispatch(
+                task_id, task.workspace_id, tool_name, request["arguments"]
+            )
             completed = self.store.transition_operation(
                 operation_id,
                 OperationState.COMPLETED,
@@ -156,6 +161,7 @@ class ToolBroker:
             ToolBrokerError,
             WorkerConflictError,
             WorkspaceError,
+            ProcessManagerError,
             OSError,
             asyncio.TimeoutError,
         ) as exc:
@@ -242,16 +248,24 @@ class ToolBroker:
         operation_id: str,
         request: dict[str, Any],
     ) -> None:
-        readonly = {"list_files", "read_file", "search_text", "diff"}
+        readonly = {"list_files", "read_file", "search_text", "diff", "service_status"}
         if tool_name in readonly:
             return
-        if tool_name in {"write_file", "delete_file", "run_check"}:
+        if tool_name in {
+            "write_file",
+            "delete_file",
+            "run_check",
+            "service_input",
+            "stop_service",
+        }:
             if profile not in {PolicyProfile.DEVELOP, PolicyProfile.DEVELOP_NETWORKED}:
                 raise ToolBrokerError("Task policy is read-only.", code="approval_required")
             return
         capability: CapabilityName
         if tool_name == "run_command":
             capability = "command"
+        elif tool_name == "start_service":
+            capability = "service"
         else:
             raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
         if lease_id is None:
@@ -266,12 +280,15 @@ class ToolBroker:
                 self.store.transition(task_id, TaskState.WAITING_APPROVAL)
             raise ToolBrokerError("Tool requires approval.", code="approval_required")
         lease = self.store.consume_lease(lease_id, task_id=task_id, capability=capability)
-        requested_argv = request["arguments"].get("argv")
-        if lease.scope.get("argv") != requested_argv:
-            raise ToolBrokerError("Approval does not match the command.", code="lease_scope_mismatch")
+        if lease.scope != request["arguments"]:
+            raise ToolBrokerError("Approval does not match the request.", code="lease_scope_mismatch")
 
     async def _dispatch(
-        self, workspace_id: str, tool_name: str, arguments: dict[str, Any]
+        self,
+        task_id: str,
+        workspace_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
     ) -> dict[str, Any]:
         if tool_name == "list_files":
             return {
@@ -341,7 +358,53 @@ class ToolBroker:
             if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 1800:
                 raise ToolBrokerError("Command timeout is invalid.", code="tool_input_invalid")
             return await self._run_process(workspace_id, tuple(argv), timeout)
+        if tool_name == "start_service":
+            manager = self._require_process_manager()
+            argv = arguments.get("argv")
+            ttl = arguments.get("ttl_seconds", 900)
+            if (
+                not isinstance(argv, list)
+                or not all(isinstance(item, str) for item in argv)
+                or isinstance(ttl, bool)
+                or not isinstance(ttl, int)
+            ):
+                raise ToolBrokerError("Service input is invalid.", code="tool_input_invalid")
+            record = await manager.start(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                argv=self._validate_argv(argv),
+                ttl_seconds=ttl,
+            )
+            return record.model_dump(mode="json")
+        if tool_name == "service_status":
+            record = self._require_process_manager().status(
+                task_id=task_id,
+                service_id=str(arguments.get("service_id", "")),
+            )
+            return record.model_dump(mode="json")
+        if tool_name == "service_input":
+            service_id = str(arguments.get("service_id", ""))
+            data = arguments.get("data")
+            if not isinstance(data, str):
+                raise ToolBrokerError("Service input is invalid.", code="tool_input_invalid")
+            await self._require_process_manager().send_input(
+                task_id=task_id,
+                service_id=service_id,
+                data=data.encode("utf-8"),
+            )
+            return {"service_id": service_id, "accepted": True}
+        if tool_name == "stop_service":
+            record = await self._require_process_manager().interrupt(
+                task_id=task_id,
+                service_id=str(arguments.get("service_id", "")),
+            )
+            return record.model_dump(mode="json")
         raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
+
+    def _require_process_manager(self) -> BackgroundProcessManager:
+        if self.process_manager is None:
+            raise ToolBrokerError("Service manager is unavailable.", code="service_unavailable")
+        return self.process_manager
 
     def _write_file(self, workspace_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
         path = str(arguments.get("path", ""))

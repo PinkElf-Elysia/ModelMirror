@@ -18,6 +18,7 @@ from server.coding_worker.contracts import (
     WorkspaceSource,
 )
 from server.coding_worker.store import CodingWorkerStore
+from server.coding_worker.process_manager import BackgroundProcessManager
 from server.coding_worker.tool_broker import FrozenCheck, ToolBroker, ToolBrokerError
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
@@ -264,3 +265,68 @@ async def test_missing_command_lease_creates_one_approval_and_same_operation_res
         lease_id=decided.lease.lease_id,
     )
     assert result.data["output"].strip() == "approved"
+
+
+@pytest.mark.asyncio
+async def test_background_service_requires_exact_lease_and_remains_task_owned(
+    tmp_path: Path,
+) -> None:
+    broker, store, task_id, _ = await _broker(tmp_path)
+    manager = BackgroundProcessManager(
+        store=store,
+        workspace_broker=broker.workspace_broker,
+        environment_factory=lambda workspace_id: broker._safe_environment(
+            broker.workspace_broker.repository_path(workspace_id)
+        ),
+    )
+    broker.process_manager = manager
+    arguments = {
+        "argv": [
+            "python",
+            "-c",
+            "import sys,time;print('ready',flush=True);"
+            "line=sys.stdin.readline();print(line,flush=True);time.sleep(30)",
+        ],
+        "ttl_seconds": 60,
+    }
+    with pytest.raises(ToolBrokerError) as approval_required:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="start-service",
+            tool_name="start_service",
+            arguments=arguments,
+        )
+    assert approval_required.value.code == "approval_required"
+    approval = store.list_approvals(task_id)[-1]
+    lease = store.decide_approval(approval.approval_id, approved=True).lease
+    assert lease is not None
+    store.transition(task_id, TaskState.RUNNING)
+    started = await broker.execute(
+        task_id=task_id,
+        operation_id="start-service",
+        tool_name="start_service",
+        arguments=arguments,
+        lease_id=lease.lease_id,
+    )
+    service_id = str(started.data["service_id"])
+    await broker.execute(
+        task_id=task_id,
+        operation_id="service-input",
+        tool_name="service_input",
+        arguments={"service_id": service_id, "data": "hello\n"},
+    )
+    status = await broker.execute(
+        task_id=task_id,
+        operation_id="service-status",
+        tool_name="service_status",
+        arguments={"service_id": service_id},
+    )
+    assert status.data["task_id"] == task_id and "pid" not in status.data
+    stopped = await broker.execute(
+        task_id=task_id,
+        operation_id="service-stop",
+        tool_name="stop_service",
+        arguments={"service_id": service_id},
+    )
+    assert stopped.data["reason"] == "user_interrupted"
+    await manager.shutdown()
