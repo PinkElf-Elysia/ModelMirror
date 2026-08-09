@@ -82,6 +82,10 @@ jobs:
           python -m pip install
           "fastapi==0.116.2"
           "httpx==0.28.1"
+          "cryptography==45.0.7"
+          "duckdb==1.4.1"
+          "openpyxl==3.1.5"
+          "python-multipart==0.0.20"
           "pytest==9.1.0"
       - name: Test shared file registry
         run: python -m pytest server/tests/test_file_assets.py -q
