@@ -17,6 +17,167 @@ export type SkillQualityStatus =
   | "eval_waived"
   | "outdated";
 
+export type SkillCreatorQualityMode = "objective" | "subjective";
+
+export type SkillEvaluationRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "stale";
+
+export type SkillEvaluationItemStatus =
+  | "pending"
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "skill_not_read";
+
+export type SkillEvaluationAssertionKind =
+  | "exact_match"
+  | "contains"
+  | "not_contains"
+  | "json_schema"
+  | "file_exists"
+  | "file_sha256";
+
+export interface SkillEvaluationFixture {
+  path: string;
+  content: string;
+}
+
+export interface SkillEvaluationAssertion {
+  kind: SkillEvaluationAssertionKind;
+  value?: string | null;
+  path?: string | null;
+  schema?: Record<string, unknown> | null;
+  sha256?: string | null;
+  passed?: boolean | null;
+  message?: string | null;
+  reason?: string | null;
+  score?: number | null;
+}
+
+export interface SkillEvaluationCase {
+  case_id: string;
+  name: string;
+  prompt: string;
+  expected_behavior: string;
+  fixtures: SkillEvaluationFixture[];
+  assertions: SkillEvaluationAssertion[];
+}
+
+export interface SkillEvaluationUsage {
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  estimated_tokens?: number | null;
+  model_calls?: number | null;
+  tool_calls?: number | null;
+}
+
+export interface SkillEvaluationWorkFile {
+  path: string;
+  size?: number | null;
+  size_bytes?: number | null;
+  sha256?: string | null;
+  preview?: string | null;
+  text_preview?: string | null;
+  preview_truncated?: boolean;
+}
+
+export interface SkillEvaluationAttempt {
+  attempt?: number;
+  status?: SkillEvaluationItemStatus;
+  output?: string | null;
+  error_code?: string | null;
+  error?: string | null;
+  created_at?: number | null;
+}
+
+export interface SkillEvaluationItem {
+  item_id: string;
+  pair_id?: string | null;
+  case_id: string;
+  target: "baseline" | "candidate";
+  repetition: number;
+  status: SkillEvaluationItemStatus;
+  attempts?: number;
+  output?: string | null;
+  actual_model?: string | null;
+  skill_read?: boolean;
+  work_manifest?: SkillEvaluationWorkFile[];
+  assertions?: SkillEvaluationAssertion[];
+  assertion_results?: SkillEvaluationAssertion[];
+  score?: number | null;
+  usage?: SkillEvaluationUsage | null;
+  latency_ms?: number | null;
+  error_code?: string | null;
+  error?: string | null;
+  attempt_history?: SkillEvaluationAttempt[];
+}
+
+export interface SkillEvaluationReview {
+  review_revision?: number;
+  decision: "accept" | "revise";
+  feedback?: string | null;
+  reason?: string | null;
+  actor_kind?: string;
+  created_at?: number;
+}
+
+export interface SkillEvaluationReport {
+  completed_items?: number;
+  total_items?: number;
+  passed_assertions?: number;
+  total_assertions?: number;
+  baseline_usage?: SkillEvaluationUsage | null;
+  candidate_usage?: SkillEvaluationUsage | null;
+  baseline_latency_ms?: number | null;
+  candidate_latency_ms?: number | null;
+}
+
+export interface SkillEvaluationRun {
+  run_id: string;
+  session_id: string;
+  status: SkillEvaluationRunStatus;
+  revision: number;
+  frozen_digest: string;
+  baseline_overlay_id?: string | null;
+  candidate_overlay_id?: string | null;
+  model_id: string;
+  repetitions: number;
+  case_set_revision?: number | null;
+  cases: SkillEvaluationCase[];
+  items: SkillEvaluationItem[];
+  report?: SkillEvaluationReport | null;
+  reviews?: SkillEvaluationReview[];
+  review_state?: "pending" | "accepted" | "revise" | null;
+  review_revision?: number;
+  feedback?: string;
+  feedback_revision?: number;
+  cancel_requested?: boolean;
+  error_code?: string | null;
+  error?: string | null;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface SkillCreatorQualityDecision {
+  status: "accepted" | "eval_waived" | "outdated";
+  revision?: number | null;
+  content_digest?: string | null;
+  evaluation_run_id?: string | null;
+  reason?: string | null;
+  actor_kind?: string | null;
+  decided_at?: number | null;
+}
+
 export interface SkillPackageIssue {
   code: string;
   message: string;
@@ -93,6 +254,10 @@ export interface SkillCreatorDraft extends SkillPackagePayload {
   draft_state_revision?: number;
   quality_required?: boolean;
   quality_status?: SkillQualityStatus;
+  quality_decision?: SkillCreatorQualityDecision | null;
+  install_state?: "not_installed" | "current" | "outdated";
+  installed_skill_id?: string | null;
+  installed_content_digest?: string | null;
   frontmatter?: SkillPackageFrontmatter | null;
   validation?: SkillPackageValidation;
   source_proposal_id?: string | null;
@@ -173,6 +338,24 @@ export interface SkillCreatorSession {
   draft_id?: string | null;
   current_revision?: number | null;
   current_digest?: string | null;
+  quality_mode?: SkillCreatorQualityMode;
+  cases_revision?: number;
+  evaluation_cases?: SkillEvaluationCase[];
+  evaluation_repetitions?: number;
+  active_evaluation_run_id?: string | null;
+  latest_evaluation_run_id?: string | null;
+  evaluation_run?: SkillEvaluationRun | null;
+  baseline_content_revision?: number | null;
+  baseline_content_digest?: string | null;
+  review_state?: "none" | "pending" | "accepted" | "revise" | "waived" | null;
+  review_revision?: number;
+  review_feedback?: string | null;
+  quality_status?: SkillQualityStatus;
+  quality_run_id?: string | null;
+  quality_reason?: string | null;
+  quality_decision?: SkillCreatorQualityDecision | null;
+  install_state?: "not_installed" | "current" | "outdated";
+  installed_skill_id?: string | null;
   state: SkillCreatorSessionState;
   source_kind?: SkillCreatorSourceKind | null;
   source_task_id?: string | null;
@@ -280,6 +463,9 @@ function unwrapSession(
         session: SkillCreatorSession;
         draft?: SkillCreatorDraft | null;
         proposal?: SkillCreatorProposal | null;
+        cases?: SkillEvaluationCase[];
+        cases_revision?: number;
+        evaluation_run?: SkillEvaluationRun | null;
       },
 ): SkillCreatorSession {
   if (!("session" in payload)) return payload;
@@ -287,6 +473,9 @@ function unwrapSession(
     ...payload.session,
     draft: payload.draft ?? payload.session.draft,
     proposal: payload.proposal ?? payload.session.proposal,
+    evaluation_cases: payload.cases ?? payload.session.evaluation_cases,
+    cases_revision: payload.cases_revision ?? payload.session.cases_revision,
+    evaluation_run: payload.evaluation_run ?? payload.session.evaluation_run,
   };
 }
 
@@ -335,12 +524,225 @@ export async function updateSkillCreatorSession(
     near_miss_examples?: string[];
     expected_output?: string;
     success_criteria?: string[];
+    quality_mode?: SkillCreatorQualityMode;
   },
 ) {
   return unwrapSession(await request<SkillCreatorSession | { session: SkillCreatorSession }>(
     `/api/skills/creator/sessions/${encodeURIComponent(sessionId)}`,
     jsonRequest("PATCH", payload),
   ));
+}
+
+function optimisticPayload(session: SkillCreatorSession, draft: SkillCreatorDraft) {
+  return {
+    expected_session_revision: session.session_revision,
+    expected_revision: draft.revision,
+    expected_digest: draft.content_digest,
+  };
+}
+
+function unwrapEvaluationRun(
+  payload: SkillEvaluationRun | { run: SkillEvaluationRun } | { evaluation_run: SkillEvaluationRun },
+) {
+  if ("run" in payload) return payload.run;
+  if ("evaluation_run" in payload) return payload.evaluation_run;
+  return payload;
+}
+
+function evaluationReviewRevision(run: SkillEvaluationRun, session?: SkillCreatorSession) {
+  return run.feedback_revision ?? run.review_revision ?? session?.review_revision ?? 0;
+}
+
+export async function saveSkillCreatorEvaluationCases(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  cases: SkillEvaluationCase[],
+) {
+  return unwrapSession(await request<SkillCreatorSession | {
+    session: SkillCreatorSession;
+    draft?: SkillCreatorDraft;
+    cases?: SkillEvaluationCase[];
+    cases_revision?: number;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/cases`,
+    jsonRequest("PUT", {
+      ...optimisticPayload(session, draft),
+      quality_mode: session.quality_mode ?? "objective",
+      cases: cases.map((evaluationCase) => ({
+        name: evaluationCase.name,
+        prompt: evaluationCase.prompt,
+        expected_behavior: evaluationCase.expected_behavior,
+        fixtures: evaluationCase.fixtures,
+        assertions: evaluationCase.assertions,
+      })),
+    }),
+  ));
+}
+
+export async function startSkillCreatorEvaluation(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  repetitions = 1,
+) {
+  const result = await request<
+    SkillEvaluationRun |
+    { run: SkillEvaluationRun; session?: SkillCreatorSession } |
+    { evaluation_run: SkillEvaluationRun; session?: SkillCreatorSession }
+  >(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/evaluations`,
+    jsonRequest("POST", {
+      ...optimisticPayload(session, draft),
+      repetitions,
+    }),
+  );
+  return {
+    run: unwrapEvaluationRun(result),
+    session: "session" in result ? result.session : undefined,
+  };
+}
+
+export async function readSkillCreatorEvaluation(runId: string) {
+  return unwrapEvaluationRun(await request<SkillEvaluationRun | { run: SkillEvaluationRun } | { evaluation_run: SkillEvaluationRun }>(
+    `/api/skills/creator/evaluations/${encodeURIComponent(runId)}`,
+  ));
+}
+
+export async function cancelSkillCreatorEvaluation(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  run: SkillEvaluationRun,
+) {
+  const result = await request<SkillEvaluationRun | { run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft } | { evaluation_run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft }>(
+    `/api/skills/creator/evaluations/${encodeURIComponent(run.run_id)}/cancel`,
+    jsonRequest("POST", {
+      ...optimisticPayload(session, draft),
+      expected_run_revision: run.revision,
+    }),
+  );
+  return {
+    run: unwrapEvaluationRun(result),
+    session: "session" in result ? result.session : undefined,
+    draft: "draft" in result ? result.draft : undefined,
+  };
+}
+
+export async function retrySkillCreatorEvaluation(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  run: SkillEvaluationRun,
+  caseIds?: string[],
+) {
+  const result = await request<SkillEvaluationRun | { run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft } | { evaluation_run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft }>(
+    `/api/skills/creator/evaluations/${encodeURIComponent(run.run_id)}/retry`,
+    jsonRequest("POST", {
+      ...optimisticPayload(session, draft),
+      expected_run_revision: run.revision,
+      case_ids: caseIds?.length ? caseIds : undefined,
+    }),
+  );
+  return {
+    run: unwrapEvaluationRun(result),
+    session: "session" in result ? result.session : undefined,
+    draft: "draft" in result ? result.draft : undefined,
+  };
+}
+
+export async function saveSkillCreatorEvaluationFeedback(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  run: SkillEvaluationRun,
+  feedback: string,
+) {
+  const result = await request<SkillEvaluationRun | { run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft } | { evaluation_run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft }>(
+    `/api/skills/creator/evaluations/${encodeURIComponent(run.run_id)}/review`,
+    jsonRequest("PATCH", {
+      ...optimisticPayload(session, draft),
+      expected_run_revision: run.revision,
+      expected_review_revision: evaluationReviewRevision(run, session),
+      feedback: feedback.trim(),
+    }),
+  );
+  return {
+    run: unwrapEvaluationRun(result),
+    session: "session" in result ? result.session : undefined,
+    draft: "draft" in result ? result.draft : undefined,
+  };
+}
+
+export async function submitSkillCreatorEvaluationReview(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  run: SkillEvaluationRun,
+  decision: "accept" | "revise",
+  payload: { feedback?: string; reason?: string; confirm_failed_assertions?: boolean },
+) {
+  const result = await request<
+    SkillEvaluationRun |
+    { run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft } |
+    { evaluation_run: SkillEvaluationRun; session?: SkillCreatorSession; draft?: SkillCreatorDraft }
+  >(
+    `/api/skills/creator/evaluations/${encodeURIComponent(run.run_id)}/review`,
+    jsonRequest("POST", {
+      ...optimisticPayload(session, draft),
+      expected_run_revision: run.revision,
+      expected_review_revision: evaluationReviewRevision(run, session),
+      decision,
+      reason: payload.reason?.trim() || undefined,
+      acknowledge_failed_assertions: payload.confirm_failed_assertions ?? false,
+    }),
+  );
+  return {
+    run: unwrapEvaluationRun(result),
+    session: "session" in result ? result.session : undefined,
+    draft: "draft" in result ? result.draft : undefined,
+  };
+}
+
+export async function iterateSkillCreatorDraft(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  run: SkillEvaluationRun,
+) {
+  const result = await request<{
+    session?: SkillCreatorSession;
+    proposal: SkillCreatorProposal;
+  }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/iterate`,
+    jsonRequest("POST", {
+      ...optimisticPayload(session, draft),
+      evaluation_run_id: run.run_id,
+      expected_review_revision: evaluationReviewRevision(run, session),
+    }),
+  );
+  return {
+    proposal: result.proposal,
+    session: result.session ?? await readSkillCreatorSession(session.session_id),
+  };
+}
+
+export async function waiveSkillCreatorEvaluation(
+  session: SkillCreatorSession,
+  draft: SkillCreatorDraft,
+  reason: string,
+) {
+  return unwrapSession(await request<SkillCreatorSession | { session: SkillCreatorSession; draft?: SkillCreatorDraft }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/waive-evaluation`,
+    jsonRequest("POST", {
+      ...optimisticPayload(session, draft),
+      reason: reason.trim(),
+      confirmed: true,
+    }),
+  ));
+}
+
+export async function installSkillCreatorDraft(draft: SkillCreatorDraft) {
+  return request<{ draft: SkillCreatorDraft; installed: { skill_id?: string } }>(
+    `/api/skills/drafts/${encodeURIComponent(draft.draft_id)}/install`,
+    jsonRequest("POST", {
+      expected_revision: draft.revision,
+      expected_digest: draft.content_digest,
+    }),
+  );
 }
 
 export function previewSkillCreatorSource(session: SkillCreatorSession) {

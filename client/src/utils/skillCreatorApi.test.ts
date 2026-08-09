@@ -4,11 +4,16 @@ import {
   copySkillCreatorSession,
   createSkillCreatorSession,
   generateSkillCreatorProposal,
+  retrySkillCreatorEvaluation,
+  saveSkillCreatorEvaluationCases,
   saveSkillCreatorDraft,
+  submitSkillCreatorEvaluationReview,
   updateSkillCreatorSession,
   type SkillCreatorDraft,
   type SkillCreatorProposal,
   type SkillCreatorSession,
+  type SkillEvaluationCase,
+  type SkillEvaluationRun,
 } from "./skillCreatorApi";
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -65,6 +70,28 @@ const proposal: SkillCreatorProposal = {
   payload_digest: "c".repeat(64),
   content_digest: "a".repeat(64),
   payload: draft,
+};
+
+const evaluationCases: SkillEvaluationCase[] = [1, 2, 3].map((value) => ({
+  case_id: `case-${value}`,
+  name: `用例 ${value}`,
+  prompt: `处理样例 ${value}`,
+  expected_behavior: "返回带页码的摘要",
+  fixtures: [],
+  assertions: [{ kind: "contains", value: "页码" }],
+}));
+
+const evaluationRun: SkillEvaluationRun = {
+  run_id: "eval_1",
+  session_id: session.session_id,
+  status: "completed",
+  revision: 4,
+  frozen_digest: draft.content_digest,
+  model_id: "test-model",
+  repetitions: 1,
+  cases: evaluationCases,
+  items: [],
+  review_revision: 2,
 };
 
 afterEach(() => {
@@ -228,5 +255,57 @@ describe("skillCreatorApi", () => {
       preview_fingerprint: "blank-preview-fingerprint",
       candidate_ids: [],
     });
+  });
+
+  it("saves exactly the case contract without leaking client-only case ids", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
+      session: { ...session, cases_revision: 1 },
+      cases_revision: 1,
+      cases: evaluationCases,
+      draft,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const updated = await saveSkillCreatorEvaluationCases(session, draft, evaluationCases);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      expected_session_revision: 3,
+      expected_revision: 2,
+      expected_digest: draft.content_digest,
+      quality_mode: "objective",
+    });
+    expect(body.cases).toHaveLength(3);
+    expect(body.cases[0]).not.toHaveProperty("case_id");
+    expect(updated.cases_revision).toBe(1);
+    expect(updated.evaluation_cases).toEqual(evaluationCases);
+  });
+
+  it("uses run and draft consistency guards for retries and human acceptance", async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ evaluation_run: evaluationRun, session, draft }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await retrySkillCreatorEvaluation(session, draft, evaluationRun, ["case-2"]);
+    await submitSkillCreatorEvaluationReview(session, draft, evaluationRun, "accept", {
+      feedback: "三组结果均改善",
+      confirm_failed_assertions: true,
+    });
+
+    const retryBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(retryBody).toMatchObject({
+      expected_run_revision: 4,
+      expected_session_revision: 3,
+      expected_revision: 2,
+      expected_digest: draft.content_digest,
+      case_ids: ["case-2"],
+    });
+    const reviewBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    expect(reviewBody).toMatchObject({
+      decision: "accept",
+      expected_run_revision: 4,
+      expected_review_revision: 2,
+      acknowledge_failed_assertions: true,
+    });
+    expect(reviewBody).not.toHaveProperty("feedback");
   });
 });

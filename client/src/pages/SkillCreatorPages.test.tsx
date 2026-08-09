@@ -6,6 +6,8 @@ import type {
   SkillCreatorDraft,
   SkillCreatorProposal,
   SkillCreatorSession,
+  SkillEvaluationCase,
+  SkillEvaluationRun,
 } from "../utils/skillCreatorApi";
 import SkillCreatorIndexPage from "./SkillCreatorIndexPage";
 import SkillCreatorStudioPage from "./SkillCreatorStudioPage";
@@ -545,5 +547,64 @@ describe("Skill Creator pages", () => {
     confirm.mockReturnValue(true);
     await userEvent.click(screen.getByRole("link", { name: "Creator 会话" }));
     expect(await screen.findByText("Creator session list")).toBeVisible();
+  });
+
+  it("restores an evaluation run after refresh and exposes the responsive final stages", async () => {
+    const cases: SkillEvaluationCase[] = [1, 2, 3].map((number) => ({
+      case_id: `case-${number}`,
+      name: `恢复用例 ${number}`,
+      prompt: `处理材料 ${number}`,
+      expected_behavior: "返回摘要",
+      fixtures: [],
+      assertions: [],
+    }));
+    const run: SkillEvaluationRun = {
+      run_id: "evaluation-recovered",
+      session_id: baseSession.session_id,
+      status: "completed",
+      revision: 3,
+      frozen_digest: draft.content_digest,
+      model_id: "gateway/default-text",
+      repetitions: 1,
+      cases,
+      items: cases.flatMap((item) => ([
+        { item_id: `${item.case_id}-base`, case_id: item.case_id, target: "baseline" as const, repetition: 1, status: "completed" as const, output: "baseline", actual_model: "real-model" },
+        { item_id: `${item.case_id}-candidate`, case_id: item.case_id, target: "candidate" as const, repetition: 1, status: "completed" as const, output: "candidate", actual_model: "real-model", skill_read: true },
+      ])),
+    };
+    const recoveredSession: SkillCreatorSession = {
+      ...baseSession,
+      draft_id: draft.draft_id,
+      draft,
+      current_revision: draft.revision,
+      current_digest: draft.content_digest,
+      state: "reviewing_results",
+      latest_evaluation_run_id: run.run_id,
+      active_evaluation_run_id: null,
+      quality_mode: "objective",
+      cases_revision: 1,
+      evaluation_cases: cases,
+      review_state: "pending",
+      review_revision: 0,
+    };
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/skills/creator/status") return jsonResponse(status);
+      if (url === "/api/skills/creator/sessions/creator_1" && !init?.method) return jsonResponse({ session: recoveredSession, draft });
+      if (url === `/api/skills/creator/evaluations/${run.run_id}` && !init?.method) return jsonResponse({ version: 1, run });
+      return jsonResponse({ detail: `not found: ${url}` }, 404);
+    }));
+
+    render(
+      <MemoryRouter initialEntries={["/skills/create/creator_1"]}>
+        <Routes><Route element={<SkillCreatorStudioPage />} path="/skills/create/:sessionId" /></Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Baseline 与 With Skill" })).toBeVisible();
+    expect(screen.getByText("当前步骤 5/6")).toBeVisible();
+    expect(screen.getByText("展开全部步骤")).toBeVisible();
+    expect(screen.getByRole("button", { name: "第 4 步：设计测试" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "第 6 步：迭代与安装" })).toBeEnabled();
   });
 });
