@@ -30,7 +30,11 @@
 
 ## 输入与工具边界
 
-现有 Authoring Pack CLI 和 Creator 本地入口继续执行路径/realpath、`.json`、1 MiB、fatal UTF-8 与安全诊断检查。R3.2 Runtime Validator 只接受调用方已提供的两个 JSON 字符串，不读取文件；先验证 Pack/Receipt 合同与 typed index，再强制规范文本、UTF-8 byteLength 和 Web Crypto SHA-256。R3 Compiler/Runtime CLI 的文件上限、输出和路径规则必须在 R3.3 实现后才能宣称可用。
+现有 Authoring Pack CLI 和 Creator 本地入口继续执行路径/realpath、`.json`、1 MiB、fatal UTF-8 与安全诊断检查。R3 Runtime Validator 只接受调用方已提供的两个 JSON 字符串，不读取文件；先验证 Pack/Receipt 合同与 typed index，再强制规范文本、UTF-8 byteLength 和 Web Crypto SHA-256。
+
+R3.3 Compiler 运行源码保持浏览器兼容，只通过冻结包根 API 读取已捕获快照；Node 文件能力仅存在于模块根 CLI。编译 CLI 只接受模块内相对 `.json`、1 MiB 与安全小写 slug；使用 bigint 文件身份、fatal UTF-8、同父目录暂存、`wx+` 独占 FileHandle、句柄回读自校验及单次目录 rename 发布固定文件对。已存在目录、外部 junction、读取期间替换与可观察竞态均失败关闭，清理只处理能证明仍是本次创建身份的暂存目录；身份不可信的最终目标不递归删除。Runtime 回验 CLI 对 Pack/Receipt 分别限制为 16 MiB/16 KiB，并复用公开 Validator。`exports/` 始终忽略且不得跟踪。
+
+Node 24 没有可移植的 `openat`/目录句柄相对打开接口，因此同用户恶意宿主仍可在“身份门→open 系统调用”的不可原子瞬间制造外部零字节文件，或在最终回验返回后再次篡改 Artifact。R3.3 保证在句柄身份验证前不写入 Pack 内容、不会把可观察替换宣称成功；不把此边界描述成对恶意宿主或任意文件系统的安全事务。
 
 R2 Simulator 只能通过包根公开 API 作为黑盒 oracle。R3 contracts/validator 运行源码保持浏览器兼容，不访问网络、环境变量、文件系统、storage 或 `node:*`；Node 文件入口只能存在于模块根 CLI/验证层。
 

@@ -1,9 +1,10 @@
-# R3.2 已知限制
+# R3.3 已知限制
 
-- Runtime Pack/Receipt 0.1.0 合同、canonical-json/1 与严格 Validator 已实现；Compiler、Runtime Simulator、parity harness 与 Creator 双执行仍未实现。
-- 当前可运行能力仍是 R2 参考模拟器和最小运行实验台，不能宣称编译态或生产运行时就绪。
+- Runtime Pack/Receipt 0.1.0 合同、canonical-json/1、严格 Validator、确定性 Compiler 与安全 CLI 已实现；Runtime Simulator、parity harness 与 Creator 双执行仍未实现。
+- Compiler 只证明 Authoring 到规范 Runtime Artifact 的确定性映射与完整性回验；没有独立编译态执行器，因此不能宣称编译前后语义等价或生产运行时就绪。
 - R1/R2 权威输入已冻结；发现缺陷时必须停报，不能混入 R3 修复。
-- `source.canonicalSha256` 目前只能验证格式；在 R3.3 Compiler 提供 Authoring 输入前不能核验其来源内容。
+- Compiler 会从完整规范 Authoring 内容生成 `source.canonicalSha256`；但下游只有 Runtime Pack/Receipt 时仍无法独立认证作者或来源，Receipt 也不是签名。
+- CLI 的 FileHandle 与目录 rename 是同卷、同父目录的最小发布边界；它降低半成品和内容越界风险，但 Node 无可移植 `openat`，不宣称跨所有文件系统、网络盘或恶意同用户宿主具备数据库事务语义。身份门与 open 之间最多仍可能留下外部零字节文件；最终成功返回后 Artifact 也不是持续锁定的。
 - Receipt 只提供字节一致性，不是签名、身份或可信编译器证明；恶意方可同时替换 Pack 与 Receipt。
 - canonicalizer 无法可靠识别所有透明 JavaScript Proxy；trap 故障会安全地转为静态 operational error。
 - 不提供正式存档、回放、undo/redo、自动运行、随机、时间或并发。

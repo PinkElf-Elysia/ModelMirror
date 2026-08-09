@@ -1,6 +1,6 @@
 # R3 Runtime Pack 威胁模型
 
-状态：R3.2 已实现合同、规范 JSON 与 Pack/Receipt Validator；Compiler、独立执行和 parity 控制将在 R3.3-R3.6 逐批验证。
+状态：R3.3 已实现合同、规范 JSON、Pack/Receipt Validator、确定性 Compiler 与安全 CLI；独立执行和 parity 控制将在 R3.4-R3.6 逐批验证。
 
 ## 保护目标
 
@@ -15,10 +15,11 @@
 | --- | --- |
 | 修改冻结 R1/R2 权威 | 固定基线、冻结路径、通用阻断码 |
 | 未审批文件绕过范围 | 精确文件 allowlist，新包仅五个前缀，未知路径失败关闭 |
-| Compiler 非确定或 Artifact 被改 | 规范 JSON、SHA-256、byteLength、重复编译与篡改负测（后续批次） |
+| Compiler 非确定或 Artifact 被改 | 单快照编译、规范 JSON、SHA-256、byteLength、20 次/并发确定性、公开 Validator 自校验与篡改负测 |
 | 孤立 UTF-16 代理项被编码器替换并造成哈希碰撞 | 以确定性小写 `\uXXXX` ASCII 转义保留原代码单元，与真实 `U+FFFD` 分离 |
 | Runtime 与 Authoring 语义漂移 | 独立执行器、包根黑盒 parity、有界差分轨迹（后续批次） |
 | 路径逃逸或外部能力注入 | 模块内 realpath、无网络/环境/持久化、Runtime 源码禁用 `node:*` |
+| CLI 半成品、覆盖或清理越界 | 同父暂存、`wx+` FileHandle、句柄回读、bigint 身份、单次 rename；既有/竞态目标不覆盖，身份不明暂存或目标不递归删除 |
 | 诊断泄漏 | 静态错误码与白名单字段，不回显原值、路径、异常或堆栈 |
 
-Receipt 是完整性与复现证据，不是签名、身份或信任证明。R3 不处理恶意宿主、供应链签名、加密或远程分发。
+Receipt 是完整性与复现证据，不是签名、身份或信任证明。Node 无可移植 `openat`，所以 CLI 不承诺抵御同用户恶意宿主在最后文件系统边界制造空文件或在返回后继续篡改；它只在写入 Pack 内容前绑定并复核 FileHandle 身份，对可观察替换失败关闭。R3 不处理恶意宿主、供应链签名、加密或远程分发。

@@ -1,12 +1,13 @@
 # 矩阵绿洲 AI 原生 3D 游戏引擎（实验模块）
 
-这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.2 已形成 Runtime Pack/Receipt 0.1.0 合同和严格 Validator，但尚未实现 Compiler 或编译态执行。
+这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.3 已形成确定性 Compiler、Runtime Pack/Receipt 0.1.0 合同、严格 Validator 与安全文件 CLI，但尚未实现独立编译态执行。
 
 ## R3 当前状态
 
 - R3.1 已切换活动轮次、固定基线与正向范围策略。
 - R3.2 新增浏览器兼容的 Runtime Pack/Receipt 合同、canonical-json/1 与严格 Validator；Receipt 为必需完整性输入，但不是签名或信任证明。
 - R3.2a 兼容冻结 R1 的完整字符串准入范围：孤立 UTF-16 代理项以确定性 ASCII 转义保留，不改 R1，也不做替换字符修复。
+- R3.3 新增浏览器兼容的确定性 Compiler；CLI 只在模块内读取 JSON，并以同目录暂存、独占写入、回读自校验和单次目录 rename 发布固定 Pack/Receipt 文件对。
 - 固定基线为 `380c747e62193855c724a947d99a84070ca623ff`。
 - R1 contracts、Validator/CLI、examples，R2 Simulator/语义测试以及 R0-R2 历史 ADR/验收记录字节冻结。
 - schema v3 对既有 app/docs/scripts/tests 使用精确文件白名单，只对五个批准的新 R3 package 使用目录前缀。
@@ -27,7 +28,7 @@ Authoring Game Pack 0.1.0
 → Creator parity lab
 ```
 
-R3.2 只完成合同与 Validator；Compiler、独立 Runtime Simulator、parity harness 和 Creator 双执行仍须按批准批次实现和验收。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。
+R3.3 已完成 Compiler、合同、Validator 与 CLI；独立 Runtime Simulator、parity harness 和 Creator 双执行仍须按批准批次实现和验收。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。
 
 ## 独立性约束
 
@@ -49,10 +50,20 @@ npm.cmd prefix
 npm.cmd ls --all
 npm.cmd run check:boundary
 npm.cmd run check:round-scope
+npm.cmd run verify:compiler
 npm.cmd test
 npm.cmd run verify
 npm.cmd run verify:extraction
 ```
+
+模块内编译与回验命令：
+
+```powershell
+npm.cmd run --silent compile:pack -- examples/mechanics-conformance.authoring-game-pack.json --output mechanics-r3 --json
+npm.cmd run --silent validate:runtime-pack -- exports/mechanics-r3/runtime-game-pack.json exports/mechanics-r3/runtime-game-pack-receipt.json --json
+```
+
+编译输入上限为 1 MiB；输出 slug 只接受安全的小写 ASCII。发布目录固定为忽略跟踪的 `exports/<slug>/`，已存在目标绝不覆盖。Runtime Pack 输入上限为 16 MiB，Receipt 上限为 16 KiB。两条 CLI 的 JSON 模式均输出单行静态、安全结果；退出码 0/1/2 分别表示成功、内容拒绝和参数/文件系统/内部故障。
 
 仅在父仓 R3 worktree 中执行固定父范围保护：
 

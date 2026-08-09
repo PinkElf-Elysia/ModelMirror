@@ -1,6 +1,6 @@
 # Runtime Game Pack 0.1.0
 
-状态：R3.2 合同与严格 Validator。Compiler、独立 Runtime Simulator、parity harness 和 Creator 双执行接入仍未实现。
+状态：R3.3 合同、严格 Validator、确定性 Compiler 与安全 CLI。独立 Runtime Simulator、parity harness 和 Creator 双执行接入仍未实现。
 
 ## 目的
 
@@ -26,7 +26,7 @@ entryNodeIndex
 entities / variables / cues / nodes / endings
 ```
 
-`source` 固定包含 Authoring `format`、`formatVersion`、`id`、`contentVersion` 与完整规范化 Authoring 内容的 `canonicalSha256`。R3.2 Validator 没有 Authoring 输入，因此只验证该哈希的格式，不宣称能证明其来源；R3.3 Compiler 才负责生成它。
+`source` 固定包含 Authoring `format`、`formatVersion`、`id`、`contentVersion` 与完整规范化 Authoring 内容的 `canonicalSha256`。Validator 没有 Authoring 输入，因此只验证该哈希的格式，不宣称能证明其来源；R3.3 Compiler 负责从同一捕获快照的规范 Authoring 字节生成它。
 
 映射规则：
 
@@ -75,6 +75,19 @@ R3.2 固定 Compiler 身份为 `@matrix-oasis/game-pack-compiler@0.1.0-r3`。`ar
 
 Receipt 只证明给定 Pack 字节与回执一致，不是签名、作者身份、可信编译器证明或防恶意重签机制。拿到 Pack 的一方可以同时伪造新的 Receipt；签名、密钥管理和分发信任不属于 R3。
 
+## Compiler 与 CLI
+
+Compiler 公开异步入口：
+
+```ts
+compileAuthoringGamePack(value)
+compileAuthoringGamePackJson(text)
+```
+
+非法 Authoring 原样返回冻结的 R1 Validation Report；成功返回冻结的 `{ok:true,runtimePack,canonicalJson,receipt}`。对象入口先以 property descriptor 捕获一次规范快照，再只验证和编译该快照，避免验证后原对象变化。Compiler 显式构造全部 Runtime 字段、保序映射 typed index、把 `-0` 统一为 `0`，并依次生成 Authoring SHA、Artifact SHA/UTF-8 byteLength 和 Receipt；最终用公开 Runtime Validator 自校验。不可恢复故障只抛固定 `PACK_COMPILER_INTERNAL_ERROR`。
+
+模块根提供 `compile:pack` 与 `validate:runtime-pack`。编译发布固定为 `exports/<slug>/runtime-game-pack.json` 和 `runtime-game-pack-receipt.json`；不覆盖既有目标，不追加 BOM 或换行。`exports/` 是忽略目录，Artifact 不是源码、不得提交。
+
 ## Validator
 
 公开入口只有：
@@ -99,4 +112,4 @@ Validator 运行源码保持浏览器兼容，哈希使用 Web Crypto；无 `nod
 - Validator 只接受上述两个 `0.1.0` 格式和 `matrix-oasis.canonical-json/1`。
 - 未知格式、版本、字段或编译器身份失败关闭，不猜测、不迁移。
 - 改变既有合法 Runtime Pack 字节或语义时必须升级 Runtime `formatVersion`。
-- R3.2 可通过逆序 revert 本批提交删除两个新 workspace 和根接线；冻结的 R1/R2 输入不受影响。
+- R3.3 可通过逆序 revert Compiler/CLI 提交恢复到仅合同与 Validator；冻结的 R1/R2 输入不受影响。

@@ -12,6 +12,7 @@ const steps = [
   ["boundary", ["run", "check:boundary"]],
   ["pack-examples", ["run", "validate:examples"]],
   ["runtime-pack", ["run", "verify:runtime-pack"]],
+  ["compiler", ["run", "verify:compiler"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],

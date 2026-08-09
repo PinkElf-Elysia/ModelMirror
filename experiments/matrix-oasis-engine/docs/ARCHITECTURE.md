@@ -1,11 +1,11 @@
 # 架构方向
 
 最后更新：2026-08-08
-状态：R3.2 Runtime Pack/Receipt 合同与 Validator
+状态：R3.3 确定性 Compiler、Runtime Pack/Receipt 与安全 CLI
 
 ## 当前系统
 
-R1 Authoring Game Pack 0.1.0 与 Validator、R2 确定性参考模拟器及 Creator 最小运行实验台保持冻结。R3.2 已新增 canonical-json/1、Runtime Pack/Receipt 0.1.0 合同与严格 Validator；Compiler、独立 Runtime Simulator 与 parity harness 尚未实现。
+R1 Authoring Game Pack 0.1.0 与 Validator、R2 确定性参考模拟器及 Creator 最小运行实验台保持冻结。R3.3 已新增 canonical-json/1、确定性 Compiler、Runtime Pack/Receipt 0.1.0 合同、严格 Validator 与模块内安全 CLI；独立 Runtime Simulator 与 parity harness 尚未实现。
 
 ## R3 目标数据流
 

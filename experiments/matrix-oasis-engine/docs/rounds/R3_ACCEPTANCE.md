@@ -1,6 +1,6 @@
 # R3 验收记录
 
-状态：R3.1-R3.2 已提交；R3.2a UTF-16 规范化兼容修正已完成并验证，等待本地提交；R3.3-R3.6 尚未实施
+状态：R3.1-R3.2a 已提交；R3.3 确定性 Compiler 与安全 CLI 已完成并验证，等待本地提交；R3.4-R3.6 尚未实施
 
 固定基线：`380c747e62193855c724a947d99a84070ca623ff`
 
@@ -22,8 +22,8 @@
 | --- | --- | --- | --- |
 | R3.1 | 治理、精确 allowlist 与 R1/R2 冻结 | `27a33d65e8eb7ed43821a907ae991797449ed5bc` | 已完成 |
 | R3.2 | Runtime Pack/Receipt 合同与 Validator | `c019585420ca9e9c3d979a98767699a95e842586` | 已完成 |
-| R3.2a | 冻结 R1 字符串域的规范化兼容修正 | 本批提交；SHA 由下一批或仓外交付清单记录 | 已验证，等待本地提交 |
-| R3.3 | 确定性 Compiler 与安全 CLI | 待提交 | 未开始 |
+| R3.2a | 冻结 R1 字符串域的规范化兼容修正 | `5af297be551f37bfba938bc927cd12d17350fc2b` | 已完成 |
+| R3.3 | 确定性 Compiler 与安全 CLI | 本批提交；SHA 由下一批或仓外交付清单记录 | 已验证，等待本地提交 |
 | R3.4 | 独立 Runtime Simulator 与 parity harness | 待提交 | 未开始 |
 | R3.5 | Creator 双执行锁步实验台 | 待提交 | 未开始 |
 | R3.6 | 拆分、无回归、浏览器与证据收口 | 待提交 | 未开始 |
@@ -95,5 +95,34 @@ R3.3 实施前发现冻结 R1 Validator 会合法接受孤立 UTF-16 代理项�
 - `npm.cmd run verify`：8/8 步通过；scope、boundary、parent guard、UTF-8 与 `git diff --check` 全部退出 0。
 
 回退：单独 revert 本修正提交即可恢复 R3.2 的严格 well-formed UTF-16 限制，不触碰 R1/R2、Schema、Receipt、Creator、父仓或共享栈。若回退，R3.3 的“全部 R1 合法 Pack 可编译”退出条件会再次被阻断。
+
+## R3.3 验收证据
+
+本批变更严格限于 22 个模块内路径：
+
+- Compiler workspace：`packages/game-pack-compiler/**` 共 6 个文件，包含 package、公开实现/类型、说明和测试。
+- Node CLI：`scripts/compile-pack.mjs`、`scripts/validate-runtime-pack.mjs`、`scripts/lib/runtime-pack-input-core.mjs`、`tests/compiler-cli.test.mjs`、`tests/runtime-pack-cli.test.mjs`。
+- 模块根接线：`package.json`、`package-lock.json`、`scripts/run-verify.mjs`。
+- 文档：`README.md`、`docs/ARCHITECTURE.md`、`docs/BOUNDARIES.md`、`docs/DEPENDENCIES_AND_LICENSES.md`、`docs/KNOWN_LIMITATIONS.md`、`docs/RUNTIME_GAME_PACK.md`、`docs/RUNTIME_PACK_THREAT_MODEL.md` 与本文。
+
+已执行并通过：
+
+- `npm.cmd ci --offline --no-audit --no-fund`：从本机缓存安装 82 packages，退出 0；未联网，lockfile 只新增内部 Compiler workspace link/元数据。
+- `npm.cmd prefix`：精确指向当前 R3 模块根；`npm.cmd ls --all`：退出 0，无 missing/extraneous。
+- Compiler package：20/20 通过；类型声明 strict 检查通过，且只从权威 contracts 进行 type-only import，不复制 Runtime 合同。
+- `npm.cmd run test:compiler`：49/49 通过，无跳过；覆盖完整字段/union/index 映射、`-0`、20 次及并发确定性、Unicode/数字等价拼写、Web Crypto/自校验故障、深冻结、输入竞态、真实 Windows bigint identity、junction/目标竞态、同 slug 并发、窄清理和静态输出。
+- 两个冻结 examples 均通过公开 Compiler 在一次性临时模块发布规范固定文件对；无 BOM/尾换行，公开 Runtime Validator 回验 `valid=true`。
+- `npm.cmd test`：322/322 通过，既有 R0-R2 harness、R3 contracts/Validator 与模拟语义无回归。
+- 浏览器兼容 bundle：Compiler 392,255 bytes；运行源码无 `node:*`、父源码、网络、文件系统、环境变量或 storage，Node 文件能力只在模块根 CLI。
+- `npm.cmd run verify`：9/9 步通过；包含 doctor、round scope、boundary、样例、Runtime Pack、Compiler、全部测试、Creator build 与 loopback smoke。
+- `npm.cmd run check:boundary`、`npm.cmd run check:round-scope`、`npm.cmd run check:parent-scope -- --base 380c747e62193855c724a947d99a84070ca623ff` 与 `git diff --check`：全部退出 0。
+
+环境事实：第一次最终 `verify` 在已通过 Runtime Pack 与 Compiler 步骤后，第二次全量 Node tests 并发创建临时 Git 仓时遇到 Windows 子进程初始化码 `0xC0000142`；失败来自多项 `git init --quiet`，不是源码断言。只读进程核对确认存活 Node 均为 Codex MCP 或用户既有 OpenClaw，未终止任何进程；在无并行实现代理后原命令单次重跑即 9/9 通过。该瞬态不被伪装为成功测试，也未通过降低并发、跳过用例或修改冻结 harness 规避。
+
+确定性与完整性事实：对象入口先 descriptor-capture 一次规范快照，随后只验证和编译该快照；JSON 入口规范化键序、空白、转义和数字拼写。Compiler 显式映射全部字段与 typed index，保留声明顺序，生成 Authoring SHA、Artifact SHA/UTF-8 byteLength 与独立 Receipt，再调用公开 Runtime Validator 自校验。非法内容原样返回冻结 R1 report；不可恢复故障只暴露固定 `PACK_COMPILER_INTERNAL_ERROR`。
+
+文件边界事实：编译 CLI 只接受模块内相对 `.json`、1 MiB 与安全小写 slug；Runtime/Receipt 回验上限为 16 MiB/16 KiB。发布以同父暂存、`wx+` FileHandle、bigint dev/ino、句柄回读、公开 Validator 与单次目录 rename 完成；已存在、外部 junction、可观察替换和竞态失败关闭，不覆盖或递归删除身份不可信目标。Node 无可移植 `openat`，所以恶意同用户在身份门与 open 的瞬间仍可能留下外部零字节文件，且成功返回后可再次篡改；R3.3 不虚称恶意宿主安全事务。
+
+范围与回退：R1/R2 冻结包、examples、CLI/语义测试及 R0-R2 ADR/验收记录相对固定基线零差异；Creator 与父 `client`、`server`、`.github`、Docker、根 manifest/lock 和 Matrix Oasis 页面零差异。未启动父服务、Docker 或共享栈。逆序 revert 本批提交即可删除 Compiler workspace、CLI、根接线和本批文档，恢复到完整 R3.2a；无数据库、路由、服务、环境变量或运行数据迁移。
 
 用户明确回复“R3 验收通过，可以创建PR”前不 push、不创建 PR。
