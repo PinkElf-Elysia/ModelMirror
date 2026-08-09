@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import secrets
 from pathlib import Path
 from typing import Any
@@ -49,7 +50,7 @@ class BrokerRPCServer:
     def revoke_task(self, task_id: str) -> None:
         self._tokens.pop(task_id, None)
 
-    async def start_unix(self, socket_path: Path) -> str:
+    async def start_unix(self, socket_path: Path, *, group_id: int | None = None) -> str:
         if self._server is not None:
             raise RuntimeError("broker RPC server is already running")
         socket_path = Path(socket_path)
@@ -59,6 +60,9 @@ class BrokerRPCServer:
             self._handle, path=str(socket_path), limit=MAX_RPC_BYTES
         )
         socket_path.chmod(0o600)
+        if group_id is not None and hasattr(os, "chown"):
+            os.chown(socket_path, -1, group_id)
+            socket_path.chmod(0o660)
         self.endpoint = f"unix:{socket_path}"
         return self.endpoint
 

@@ -89,6 +89,7 @@ class WorkspaceBroker:
         *,
         id_key: bytes,
         slot_roots: Mapping[str, Path] | None = None,
+        slot_owner: tuple[int, int] | None = None,
     ) -> None:
         if len(id_key) < 32:
             raise ValueError("workspace id key is too short")
@@ -103,6 +104,7 @@ class WorkspaceBroker:
         self._slot_roots = {
             key: Path(value).resolve() for key, value in configured.items()
         }
+        self._slot_owner = slot_owner
         first_root = next(iter(self._slot_roots.values()))
         self.workspaces_root = first_root / "workspaces"
         self.staging_root = first_root / "workspace-staging"
@@ -168,6 +170,7 @@ class WorkspaceBroker:
                 ).encode("utf-8"),
             )
             os.replace(stage, destination)
+            self._apply_slot_owner(destination)
             return self.get(workspace_id)
         except WorkspaceError:
             self._remove_tree(stage)
@@ -453,3 +456,15 @@ class WorkspaceBroker:
                     raise failure
 
             shutil.rmtree(path, onerror=remove_owned_readonly)
+
+    def _apply_slot_owner(self, root: Path) -> None:
+        if self._slot_owner is None or os.name == "nt":
+            return
+        uid, gid = self._slot_owner
+        for candidate in (root, *root.rglob("*")):
+            if candidate.is_symlink():
+                raise WorkspaceError(
+                    "Workspace contains a link.", code="workspace_link_detected"
+                )
+            os.chown(candidate, uid, gid)
+            candidate.chmod(0o770 if candidate.is_dir() else 0o660)

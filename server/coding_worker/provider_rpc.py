@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import secrets
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
@@ -60,6 +61,7 @@ class ProviderRPCServer:
         self.endpoint: str | None = None
         self._active_task_id: str | None = None
         self._lock = asyncio.Lock()
+        self._connections: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
 
     async def start_unix(self, socket_path: Path) -> str:
         if self._server is not None:
@@ -87,13 +89,23 @@ class ProviderRPCServer:
     async def close(self) -> None:
         if self._server is not None:
             self._server.close()
-            await self._server.wait_closed()
+        connections = tuple(self._connections.items())
+        for task, writer in connections:
+            writer.close()
+            task.cancel()
+        if connections:
+            await asyncio.wait(tuple(task for task, _writer in connections), timeout=2)
+        if self._server is not None:
+            await asyncio.wait_for(self._server.wait_closed(), timeout=2)
         self._server = None
         self.endpoint = None
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        current = asyncio.current_task()
+        if current is not None:
+            self._connections[current] = writer
         try:
             request = await self._read_request(reader)
             if request.action == "message":
@@ -125,7 +137,10 @@ class ProviderRPCServer:
             )
         finally:
             writer.close()
-            await writer.wait_closed()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(writer.wait_closed(), timeout=1)
+            if current is not None:
+                self._connections.pop(current, None)
 
     async def _dispatch(self, request: ProviderRPCRequest) -> dict[str, Any]:
         if request.action == "capabilities":
