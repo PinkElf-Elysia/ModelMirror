@@ -144,6 +144,8 @@ node scripts/audit-skill-experience.mjs
 
 阶段性结论：Creator V1 已能生成“结构完整、可评测的初稿”并建立行为质量证据；下一轮资源化增强再对齐官方 Creator 案例中按需拆分、检索和加载资源的成熟度。
 
+资源化增强 PR 1 已建立 `resource-authoring-v2` 的不可变规划合同：固定 Creator 先提出必要澄清问题，再给出可编辑、可冻结的工作流与资源计划；简单 Skill 可以明确选择零附加资源。该阶段不生成文件，不写 Authoring Proposal，也不改变既有评测和安装门。`SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED` 默认关闭，独立预览验收时才显式开启；PR 2 完成资源构建与脚本实测、PR 3 完成工作台迁移后再成为新 Session 默认流程。
+
 ### 4.4 外部市场
 
 SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验当前索引中的既有条目，不产生新目录、不做市场搜索、不自动同步外部条目。

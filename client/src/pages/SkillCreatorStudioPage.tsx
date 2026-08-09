@@ -21,6 +21,7 @@ import SkillEvaluationDesigner from "../components/skill-creator/SkillEvaluation
 import SkillEvaluationReview from "../components/skill-creator/SkillEvaluationReview";
 import SkillPackageEditor from "../components/skill-creator/SkillPackageEditor";
 import SkillProposalReview from "../components/skill-creator/SkillProposalReview";
+import SkillResourcePlanPanel from "../components/skill-creator/SkillResourcePlanPanel";
 import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
 import {
   approveSkillCreatorProposal,
@@ -47,7 +48,7 @@ import {
   type SkillPackagePayload,
 } from "../utils/skillCreatorApi";
 
-const STEPS = [
+const LEGACY_STEPS = [
   { title: "定义用途", detail: "触发条件与成功标准", icon: Lightbulb },
   { title: "确认素材", detail: "选择证据并生成草稿", icon: ClipboardCheck },
   { title: "编辑草稿", detail: "文件、规范与安全", icon: FileEdit },
@@ -55,6 +56,18 @@ const STEPS = [
   { title: "评审结果", detail: "Baseline 对照", icon: ShieldCheck },
   { title: "迭代与安装", detail: "反馈、质量门与安装", icon: Sparkles },
 ] as const;
+
+type CreatorStep = {
+  title: string;
+  detail: string;
+  icon: (typeof LEGACY_STEPS)[number]["icon"];
+};
+
+const RESOURCE_STEPS: readonly CreatorStep[] = LEGACY_STEPS.map((step, index) => (
+  index === 1
+    ? { ...step, title: "素材与资源计划", detail: "确认素材并规划可复用资源" }
+    : step
+));
 
 const EVIDENCE_LABELS: Record<SkillCreatorEvidenceCandidate["kind"], string> = {
   intent_summary: "目标摘要",
@@ -129,10 +142,12 @@ function StepRail({
   activeStep,
   availableSteps,
   onSelect,
+  steps,
 }: {
   activeStep: number;
   availableSteps: boolean[];
   onSelect: (index: number) => void;
+  steps: readonly CreatorStep[];
 }) {
   const previous = [...availableSteps.keys()].filter((index) => index < activeStep && availableSteps[index]).at(-1);
   const next = [...availableSteps.keys()].find((index) => index > activeStep && availableSteps[index]);
@@ -143,21 +158,21 @@ function StepRail({
           <button aria-label="上一步" className="rounded-md border border-white/10 p-2 text-slate-200 disabled:opacity-30" disabled={previous == null} onClick={() => previous != null && onSelect(previous)} type="button"><ArrowLeft aria-hidden="true" size={15} /></button>
           <div className="min-w-0 text-center">
             <p className="text-xs text-slate-500">当前步骤 {activeStep + 1}/6</p>
-            <p className="mt-1 truncate text-sm font-semibold text-white">{STEPS[activeStep].title}</p>
+            <p className="mt-1 truncate text-sm font-semibold text-white">{steps[activeStep].title}</p>
           </div>
           <button aria-label="下一步" className="rounded-md border border-white/10 p-2 text-slate-200 disabled:opacity-30" disabled={next == null} onClick={() => next != null && onSelect(next)} type="button"><ArrowRight aria-hidden="true" size={15} /></button>
         </div>
         <details className="mt-3 border-t border-white/10 pt-3">
           <summary className="cursor-pointer text-center text-xs font-semibold text-slate-300">展开全部步骤</summary>
           <ol className="mt-3 grid gap-2">
-            {STEPS.map((step, index) => (
+            {steps.map((step, index) => (
               <li key={step.title}><button aria-current={activeStep === index ? "step" : undefined} className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs ${activeStep === index ? "bg-hire-300/10 text-hire-100" : "text-slate-300"}`} disabled={!availableSteps[index]} onClick={() => onSelect(index)} type="button"><span>{index + 1}. {step.title}</span>{!availableSteps[index] ? <LockKeyhole aria-hidden="true" size={12} /> : null}</button></li>
             ))}
           </ol>
         </details>
       </div>
       <ol className="hidden grid-cols-6 gap-2 lg:grid">
-        {STEPS.map((step, index) => {
+        {steps.map((step, index) => {
           const Icon = step.icon;
           const inaccessible = !availableSteps[index];
           const current = activeStep === index;
@@ -253,6 +268,7 @@ export default function SkillCreatorStudioPage() {
     setEvaluationRun(hydratedRun);
     syncSessionForm(value);
     let restoredStep = 0;
+    if (!hydratedDraft && value.evidence_confirmed) restoredStep = 1;
     if (hydratedDraft) restoredStep = 2;
     if (value.state === "designing_tests") restoredStep = 3;
     if (hydratedRun || value.state === "reviewing_results") restoredStep = 4;
@@ -313,7 +329,9 @@ export default function SkillCreatorStudioPage() {
       });
       await hydrate(updated);
       setActiveStep(1);
-      setNotice("用途与示例已保存。下一步确认素材并生成草稿。");
+      setNotice(status?.resource_authoring_enabled
+        ? "用途与示例已保存。下一步确认素材并生成资源计划。"
+        : "用途与示例已保存。下一步确认素材并生成草稿。");
     } catch (caught) {
       handleError(caught, "用途保存失败。");
     } finally {
@@ -549,7 +567,8 @@ export default function SkillCreatorStudioPage() {
     };
   }, [draftDirty]);
 
-  const currentStep = useMemo(() => STEPS[activeStep], [activeStep]);
+  const steps = status?.resource_authoring_enabled ? RESOURCE_STEPS : LEGACY_STEPS;
+  const currentStep = steps[activeStep];
   const qualityStatus = session?.quality_status ?? draft?.quality_status ?? "not_evaluated";
   const installState = session?.install_state ?? draft?.install_state ?? "not_installed";
   const evaluationTerminal = Boolean(evaluationRun && ["completed", "failed", "cancelled", "stale"].includes(evaluationRun.status));
@@ -643,7 +662,7 @@ export default function SkillCreatorStudioPage() {
             </div>
           </header>
 
-          <StepRail activeStep={activeStep} availableSteps={availableSteps} onSelect={selectStep} />
+          <StepRail activeStep={activeStep} availableSteps={availableSteps} onSelect={selectStep} steps={steps} />
 
           {error ? (
             <div className="mt-4 rounded-lg border border-rose-300/25 bg-rose-300/10 px-4 py-3 text-sm text-rose-50" role="alert">{error}</div>
@@ -749,7 +768,11 @@ export default function SkillCreatorStudioPage() {
                 )}
               </section>
 
-              {proposal?.status !== "pending" ? (
+              {status.resource_authoring_enabled ? (
+                <SkillResourcePlanPanel onSession={acceptHydratedSession} session={session} status={status} />
+              ) : null}
+
+              {!status.resource_authoring_enabled && proposal?.status !== "pending" ? (
                 <section className={`grid gap-5 ${draft ? "lg:grid-cols-1" : "lg:grid-cols-2"}`}>
                   <div className="rounded-lg border border-brand-300/20 bg-surface-900/80 p-5">
                     <div className="flex items-center gap-3">
@@ -813,7 +836,7 @@ export default function SkillCreatorStudioPage() {
 
           {activeStep === 2 && draft ? (
             <div className="mt-5">
-              {proposal?.status !== "pending" ? (
+              {!status.resource_authoring_enabled && proposal?.status !== "pending" ? (
                 <section className="mb-4 rounded-lg border border-brand-300/20 bg-brand-300/[0.06] p-4" aria-labelledby="creator-update-proposal-heading">
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-white" id="creator-update-proposal-heading">AI 生成可评测更新初稿</h2>
