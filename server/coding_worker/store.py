@@ -10,13 +10,19 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
+    ApprovalStatus,
+    CapabilityName,
+    CapabilityLease,
+    OperationState,
     TERMINAL_STATES,
     Origin,
     TaskRecord,
     TaskSpec,
     TaskState,
     WorkerEvent,
+    WorkerApproval,
     WorkerMessage,
+    WorkerOperation,
     require_transition,
 )
 from .crypto import WorkerCryptoError, WorkerEncryptedCodec
@@ -74,6 +80,7 @@ class CodingWorkerStore:
         self.workspaces_root.mkdir(parents=True, exist_ok=True)
         self._initialize()
         self.mark_inflight_interrupted()
+        self.mark_inflight_operations_unknown()
 
     def create_task(self, spec: TaskSpec) -> TaskRecord:
         now = self._now()
@@ -320,6 +327,330 @@ class CodingWorkerStore:
             )
         return self.get_task(task_id)
 
+    def create_approval(
+        self,
+        *,
+        task_id: str,
+        operation_id: str,
+        capability: CapabilityName,
+        request: dict[str, Any],
+    ) -> WorkerApproval:
+        now = self._now()
+        approval_id = f"approval_{uuid.uuid4().hex}"
+        encrypted_request = self._codec.encrypt(request)
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            existing = connection.execute(
+                "SELECT * FROM worker_approvals WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            if existing is not None:
+                approval = self._approval(existing)
+                if (
+                    approval.task_id != task_id
+                    or approval.capability != capability
+                    or approval.request != request
+                ):
+                    raise WorkerConflictError(
+                        "Approval operation id is bound to another intent.",
+                        code="approval_intent_conflict",
+                    )
+                return approval
+            connection.execute(
+                """
+                INSERT INTO worker_approvals (
+                    approval_id, task_id, operation_id, capability, status,
+                    request_ciphertext, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    approval_id,
+                    task_id,
+                    operation_id,
+                    capability,
+                    ApprovalStatus.PENDING.value,
+                    encrypted_request,
+                    now,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=task_id,
+                event_type="approval_requested",
+                payload={"approval_id": approval_id, "capability": capability},
+                created_at=now,
+            )
+        return self.get_approval(approval_id)
+
+    def get_approval(self, approval_id: str) -> WorkerApproval:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_approvals WHERE approval_id = ?", (approval_id,)
+            ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError("Approval was not found.", code="approval_not_found")
+        return self._approval(row)
+
+    def list_approvals(self, task_id: str) -> list[WorkerApproval]:
+        with self._connect() as connection:
+            self._require_task_row(connection, task_id)
+            rows = connection.execute(
+                "SELECT * FROM worker_approvals WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+        return [self._approval(row) for row in rows]
+
+    def decide_approval(
+        self,
+        approval_id: str,
+        *,
+        approved: bool,
+        task_scope: bool = False,
+        ttl_seconds: int = 900,
+    ) -> WorkerApproval:
+        if isinstance(ttl_seconds, bool) or not 30 <= ttl_seconds <= 3600:
+            raise ValueError("approval ttl is outside the allowed range")
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM worker_approvals WHERE approval_id = ?", (approval_id,)
+            ).fetchone()
+            if row is None:
+                raise WorkerNotFoundError("Approval was not found.", code="approval_not_found")
+            if row["status"] != ApprovalStatus.PENDING.value:
+                raise WorkerConflictError(
+                    "Approval has already been decided.", code="approval_already_decided"
+                )
+            lease: CapabilityLease | None = None
+            status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
+            if approved:
+                task_row = self._require_task_row(connection, str(row["task_id"]))
+                lease = CapabilityLease(
+                    lease_id=f"lease_{uuid.uuid4().hex}",
+                    task_id=str(row["task_id"]),
+                    capability=str(row["capability"]),  # type: ignore[arg-type]
+                    scope=self._decrypt_dict(row["request_ciphertext"]),
+                    issued_at=now,
+                    expires_at=min(now + ttl_seconds, float(task_row["expires_at"])),
+                    operation_limit=1024 if task_scope else 1,
+                )
+                connection.execute(
+                    """
+                    INSERT INTO worker_leases (
+                        lease_id, task_id, capability, scope_ciphertext,
+                        issued_at, expires_at, remaining_operations
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        lease.lease_id,
+                        lease.task_id,
+                        lease.capability,
+                        self._codec.encrypt(lease.scope),
+                        lease.issued_at,
+                        lease.expires_at,
+                        lease.operation_limit,
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE worker_approvals SET status = ?, lease_ciphertext = ?, decided_at = ?
+                WHERE approval_id = ?
+                """,
+                (
+                    status.value,
+                    self._codec.encrypt(lease.model_dump(mode="json")) if lease else None,
+                    now,
+                    approval_id,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=str(row["task_id"]),
+                event_type="approval_decided",
+                payload={"approval_id": approval_id, "status": status.value},
+                created_at=now,
+            )
+        return self.get_approval(approval_id)
+
+    def consume_lease(
+        self, lease_id: str, *, task_id: str, capability: CapabilityName
+    ) -> CapabilityLease:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM worker_leases WHERE lease_id = ?", (lease_id,)
+            ).fetchone()
+            if (
+                row is None
+                or row["task_id"] != task_id
+                or row["capability"] != capability
+                or float(row["expires_at"]) <= now
+                or int(row["remaining_operations"]) <= 0
+            ):
+                raise WorkerConflictError(
+                    "Capability lease is unavailable.", code="lease_unavailable"
+                )
+            remaining = int(row["remaining_operations"]) - 1
+            connection.execute(
+                "UPDATE worker_leases SET remaining_operations = ? WHERE lease_id = ?",
+                (remaining, lease_id),
+            )
+            return CapabilityLease(
+                lease_id=lease_id,
+                task_id=task_id,
+                capability=capability,  # type: ignore[arg-type]
+                scope=self._decrypt_dict(row["scope_ciphertext"]),
+                issued_at=float(row["issued_at"]),
+                expires_at=float(row["expires_at"]),
+                operation_limit=remaining + 1,
+            )
+
+    def create_operation(
+        self,
+        *,
+        task_id: str,
+        operation_id: str,
+        tool_name: str,
+        intent_sha256: str,
+        request: dict[str, Any],
+    ) -> WorkerOperation:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_task_row(connection, task_id)
+            existing = connection.execute(
+                "SELECT * FROM worker_operations WHERE operation_id = ?", (operation_id,)
+            ).fetchone()
+            if existing is not None:
+                operation = self._operation(existing)
+                if (
+                    operation.task_id != task_id
+                    or operation.tool_name != tool_name
+                    or operation.intent_sha256 != intent_sha256
+                    or operation.request != request
+                ):
+                    raise WorkerConflictError(
+                        "Tool operation id is bound to another intent.",
+                        code="operation_intent_conflict",
+                    )
+                return operation
+            connection.execute(
+                """
+                INSERT INTO worker_operations (
+                    operation_id, task_id, tool_name, intent_sha256, state,
+                    request_ciphertext, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    operation_id,
+                    task_id,
+                    tool_name,
+                    intent_sha256,
+                    OperationState.PREPARED.value,
+                    self._codec.encrypt(request),
+                    now,
+                    now,
+                ),
+            )
+        return self.get_operation(operation_id)
+
+    def get_operation(self, operation_id: str) -> WorkerOperation:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM worker_operations WHERE operation_id = ?", (operation_id,)
+            ).fetchone()
+        if row is None:
+            raise WorkerNotFoundError("Tool operation was not found.", code="operation_not_found")
+        return self._operation(row)
+
+    def transition_operation(
+        self,
+        operation_id: str,
+        target: OperationState,
+        *,
+        result: dict[str, Any] | None = None,
+        expected_state: OperationState | None = None,
+    ) -> WorkerOperation:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM worker_operations WHERE operation_id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise WorkerNotFoundError("Tool operation was not found.", code="operation_not_found")
+            current = OperationState(row["state"])
+            if expected_state is not None and current is not expected_state:
+                raise WorkerConflictError(
+                    "Tool operation state changed.", code="operation_state_conflict"
+                )
+            allowed = {
+                OperationState.PREPARED: {OperationState.RUNNING, OperationState.FAILED},
+                OperationState.RUNNING: {
+                    OperationState.COMPLETED,
+                    OperationState.FAILED,
+                    OperationState.UNKNOWN,
+                },
+                OperationState.UNKNOWN: {
+                    OperationState.COMPLETED,
+                    OperationState.FAILED,
+                },
+                OperationState.COMPLETED: set(),
+                OperationState.FAILED: set(),
+            }
+            if current is not target and target not in allowed[current]:
+                raise WorkerConflictError(
+                    "Tool operation transition is invalid.", code="operation_state_conflict"
+                )
+            connection.execute(
+                """
+                UPDATE worker_operations SET state = ?, result_ciphertext = ?, updated_at = ?
+                WHERE operation_id = ?
+                """,
+                (
+                    target.value,
+                    self._codec.encrypt(result) if result is not None else row["result_ciphertext"],
+                    now,
+                    operation_id,
+                ),
+            )
+            self._append_event_locked(
+                connection,
+                task_id=str(row["task_id"]),
+                event_type="tool_operation",
+                payload={"operation_id": operation_id, "state": target.value},
+                created_at=now,
+            )
+        return self.get_operation(operation_id)
+
+    def mark_inflight_operations_unknown(self) -> int:
+        now = self._now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT operation_id, task_id FROM worker_operations WHERE state = ?",
+                (OperationState.RUNNING.value,),
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    "UPDATE worker_operations SET state = ?, updated_at = ? WHERE operation_id = ?",
+                    (OperationState.UNKNOWN.value, now, row["operation_id"]),
+                )
+                self._append_event_locked(
+                    connection,
+                    task_id=str(row["task_id"]),
+                    event_type="tool_operation",
+                    payload={
+                        "operation_id": str(row["operation_id"]),
+                        "state": OperationState.UNKNOWN.value,
+                    },
+                    created_at=now,
+                )
+        return len(rows)
+
     def delete_task(self, task_id: str) -> bool:
         with self._lock, self._connect() as connection:
             row = self._require_task_row(connection, task_id)
@@ -432,6 +763,44 @@ class CodingWorkerStore:
                     UNIQUE(task_id, sequence),
                     FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS worker_approvals (
+                    approval_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    operation_id TEXT NOT NULL UNIQUE,
+                    capability TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    request_ciphertext TEXT NOT NULL,
+                    lease_ciphertext TEXT,
+                    created_at REAL NOT NULL,
+                    decided_at REAL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_approvals_task
+                    ON worker_approvals(task_id, created_at);
+                CREATE TABLE IF NOT EXISTS worker_leases (
+                    lease_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    capability TEXT NOT NULL,
+                    scope_ciphertext TEXT NOT NULL,
+                    issued_at REAL NOT NULL,
+                    expires_at REAL NOT NULL,
+                    remaining_operations INTEGER NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS worker_operations (
+                    operation_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    intent_sha256 TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    request_ciphertext TEXT NOT NULL,
+                    result_ciphertext TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    FOREIGN KEY(task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_worker_operations_task
+                    ON worker_operations(task_id, created_at);
                 """
             )
 
@@ -486,6 +855,55 @@ class CodingWorkerStore:
             (task_id, event_type, self._codec.encrypt(payload), created_at),
         )
         return int(cursor.lastrowid)
+
+    def _approval(self, row: sqlite3.Row) -> WorkerApproval:
+        try:
+            lease_value = (
+                self._codec.decrypt(str(row["lease_ciphertext"]))
+                if row["lease_ciphertext"] is not None
+                else None
+            )
+            lease = CapabilityLease.model_validate(lease_value) if lease_value else None
+            return WorkerApproval(
+                approval_id=str(row["approval_id"]),
+                task_id=str(row["task_id"]),
+                operation_id=str(row["operation_id"]),
+                capability=str(row["capability"]),
+                status=ApprovalStatus(row["status"]),
+                request=self._decrypt_dict(row["request_ciphertext"]),
+                lease=lease,
+                created_at=float(row["created_at"]),
+                decided_at=(
+                    float(row["decided_at"]) if row["decided_at"] is not None else None
+                ),
+            )
+        except (WorkerCryptoError, ValueError) as exc:
+            raise WorkerStoreError(
+                "Worker approval data is corrupt.", code="worker_data_corrupt"
+            ) from exc
+
+    def _operation(self, row: sqlite3.Row) -> WorkerOperation:
+        try:
+            result = (
+                self._decrypt_dict(row["result_ciphertext"])
+                if row["result_ciphertext"] is not None
+                else None
+            )
+            return WorkerOperation(
+                operation_id=str(row["operation_id"]),
+                task_id=str(row["task_id"]),
+                tool_name=str(row["tool_name"]),
+                intent_sha256=str(row["intent_sha256"]),
+                state=OperationState(row["state"]),
+                request=self._decrypt_dict(row["request_ciphertext"]),
+                result=result,
+                created_at=float(row["created_at"]),
+                updated_at=float(row["updated_at"]),
+            )
+        except (WorkerCryptoError, ValueError) as exc:
+            raise WorkerStoreError(
+                "Worker operation data is corrupt.", code="worker_data_corrupt"
+            ) from exc
 
     @staticmethod
     def _require_task_row(connection: sqlite3.Connection, task_id: str) -> sqlite3.Row:

@@ -11,6 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 SAFE_ROUTE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,127}$")
 TERMINAL_STATES: frozenset["TaskState"]
+CapabilityName = Literal[
+    "workspace_write", "command", "dependency_install", "service", "network"
+]
 
 
 class StrictModel(BaseModel):
@@ -255,9 +258,7 @@ class TaskSpec(TaskCreateRequest):
 class CapabilityLease(StrictModel):
     lease_id: str
     task_id: str
-    capability: Literal[
-        "workspace_write", "command", "dependency_install", "service", "network"
-    ]
+    capability: CapabilityName
     scope: dict[str, Any] = Field(default_factory=dict)
     issued_at: float
     expires_at: float
@@ -324,7 +325,7 @@ class WorkerApproval(StrictModel):
     approval_id: str
     task_id: str
     operation_id: str
-    capability: str
+    capability: CapabilityName
     status: ApprovalStatus
     request: dict[str, Any] = Field(default_factory=dict)
     lease: CapabilityLease | None = None
@@ -348,3 +349,23 @@ class WorkerArtifact(StrictModel):
     size: int = Field(ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: float
+
+
+class OperationState(StrEnum):
+    PREPARED = "prepared"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+class WorkerOperation(StrictModel):
+    operation_id: str
+    task_id: str
+    tool_name: str
+    intent_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    state: OperationState
+    request: dict[str, Any]
+    result: dict[str, Any] | None = None
+    created_at: float
+    updated_at: float
