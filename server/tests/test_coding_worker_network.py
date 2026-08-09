@@ -23,7 +23,7 @@ def test_network_is_default_deny_and_scope_is_deployment_allowlisted() -> None:
         disabled.approval_scope(domains=["registry.npmjs.org"], purpose="npm-install")
     assert denied.value.code == "network_disabled"
 
-    policy = EgressPolicy(enabled=True, allowed_domains={"registry.npmjs.org"})
+    policy = EgressPolicy(enabled=True, allowed_domains={"registry.npmjs.org"}, grant_key=b"k" * 32)
     assert policy.approval_scope(
         domains=["REGISTRY.NPMJS.ORG."], purpose="npm-install"
     ) == {"domains": ["registry.npmjs.org"], "purpose": "npm-install"}
@@ -46,6 +46,7 @@ def test_https_destination_is_bound_to_task_purpose_dns_and_ttl() -> None:
         enabled=True,
         allowed_domains={"registry.npmjs.org", "cdn.example.com"},
         clock=lambda: 150.0,
+        grant_key=b"k" * 32,
     )
     scope = policy.approval_scope(
         domains=["registry.npmjs.org"], purpose="npm-install"
@@ -83,6 +84,7 @@ def test_redirect_must_remain_inside_the_exact_lease_domain() -> None:
         enabled=True,
         allowed_domains={"registry.npmjs.org", "cdn.example.com"},
         clock=lambda: 150.0,
+        grant_key=b"k" * 32,
     )
     lease = _lease(
         policy.approval_scope(
@@ -101,7 +103,7 @@ def test_redirect_must_remain_inside_the_exact_lease_domain() -> None:
 
 def test_credentials_non_https_and_nonstandard_ports_are_rejected() -> None:
     policy = EgressPolicy(
-        enabled=True, allowed_domains={"registry.npmjs.org"}, clock=lambda: 150.0
+        enabled=True, allowed_domains={"registry.npmjs.org"}, clock=lambda: 150.0, grant_key=b"k" * 32
     )
     lease = _lease(
         policy.approval_scope(domains=["registry.npmjs.org"], purpose="install")
@@ -119,3 +121,31 @@ def test_credentials_non_https_and_nonstandard_ports_are_rejected() -> None:
                 resolved_addresses=["104.16.24.34"],
             )
         assert denied.value.code == "network_url_not_allowed"
+
+
+def test_signed_proxy_grant_is_exact_task_domain_purpose_and_ttl() -> None:
+    policy = EgressPolicy(
+        enabled=True,
+        allowed_domains={"registry.npmjs.org"},
+        clock=lambda: 150.0,
+        grant_key=b"g" * 32,
+    )
+    lease = _lease(
+        policy.approval_scope(
+            domains=["registry.npmjs.org"], purpose="dependency-install"
+        )
+    )
+    proxy_url = policy.proxy_url(
+        base_url="http://worker-egress:8080",
+        lease=lease,
+        task_id="task_network",
+        purpose="dependency-install",
+    )
+    token = proxy_url.split("grant:", 1)[1].split("@", 1)[0]
+    payload = policy.validate_grant(token, domain="registry.npmjs.org")
+    assert payload["task_id"] == "task_network"
+    with pytest.raises(NetworkPolicyError):
+        policy.validate_grant(token, domain="example.com")
+    tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
+    with pytest.raises(NetworkPolicyError):
+        policy.validate_grant(tampered, domain="registry.npmjs.org")

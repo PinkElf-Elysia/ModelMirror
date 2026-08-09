@@ -15,7 +15,14 @@ from urllib.parse import urlsplit
 
 from pydantic import Field
 
-from .contracts import CapabilityName, OperationState, PolicyProfile, StrictModel, TaskState
+from .contracts import (
+    CapabilityLease,
+    CapabilityName,
+    OperationState,
+    PolicyProfile,
+    StrictModel,
+    TaskState,
+)
 from .process_manager import BackgroundProcessManager, ProcessManagerError
 from .network_policy import EgressPolicy, NetworkPolicyError
 from .store import CodingWorkerStore, WorkerConflictError
@@ -146,7 +153,7 @@ class ToolBroker:
                 "Tool operation cannot be replayed.", code="operation_not_replayable"
             )
         try:
-            self._authorize(
+            network_lease = self._authorize(
                 task.spec.policy_profile,
                 tool_name,
                 lease_id,
@@ -161,7 +168,11 @@ class ToolBroker:
                 expected_state=OperationState.PREPARED,
             )
             data = await self._dispatch(
-                task_id, task.workspace_id, tool_name, request["arguments"]
+                task_id,
+                task.workspace_id,
+                tool_name,
+                request["arguments"],
+                network_lease=network_lease,
             )
             completed = self.store.transition_operation(
                 operation_id,
@@ -279,10 +290,10 @@ class ToolBroker:
         operation_id: str,
         request: dict[str, Any],
         network_lease_id: str | None,
-    ) -> None:
+    ) -> CapabilityLease | None:
         readonly = {"list_files", "read_file", "search_text", "diff", "service_status"}
         if tool_name in readonly:
-            return
+            return None
         if tool_name in {
             "write_file",
             "delete_file",
@@ -292,7 +303,7 @@ class ToolBroker:
         }:
             if profile not in {PolicyProfile.DEVELOP, PolicyProfile.DEVELOP_NETWORKED}:
                 raise ToolBrokerError("Task policy is read-only.", code="approval_required")
-            return
+            return None
         capability: CapabilityName
         if tool_name == "run_command":
             capability = "command"
@@ -338,15 +349,17 @@ class ToolBroker:
         lease = self.store.consume_lease(lease_id, task_id=task_id, capability=capability)
         if lease.scope != request["arguments"]:
             raise ToolBrokerError("Approval does not match the request.", code="lease_scope_mismatch")
+        consumed_network_lease: CapabilityLease | None = None
         if network_scope is not None:
-            network_lease = self.store.consume_lease(
+            consumed_network_lease = self.store.consume_lease(
                 str(network_lease_id), task_id=task_id, capability="network"
             )
             self._require_egress_policy().validate_lease_scope(
-                lease=network_lease,
+                lease=consumed_network_lease,
                 domains=("registry.npmjs.org",),
                 purpose="dependency-install",
             )
+        return consumed_network_lease
 
     async def _dispatch(
         self,
@@ -354,6 +367,8 @@ class ToolBroker:
         workspace_id: str,
         tool_name: str,
         arguments: dict[str, Any],
+        *,
+        network_lease: CapabilityLease | None,
     ) -> dict[str, Any]:
         if tool_name == "list_files":
             return {
@@ -500,14 +515,24 @@ class ToolBroker:
                 )
             if self.egress_proxy_url is None:
                 raise ToolBrokerError("Egress proxy is unavailable.", code="network_disabled")
+            if network_lease is None:
+                raise ToolBrokerError(
+                    "Network lease is unavailable.", code="network_lease_invalid"
+                )
+            authenticated_proxy = self._require_egress_policy().proxy_url(
+                base_url=self.egress_proxy_url,
+                lease=network_lease,
+                task_id=task_id,
+                purpose="dependency-install",
+            )
             result = await self._run_process(
                 task_id,
                 workspace_id,
                 ("npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"),
                 1800,
                 environment_overrides={
-                    "HTTPS_PROXY": self.egress_proxy_url,
-                    "HTTP_PROXY": self.egress_proxy_url,
+                    "HTTPS_PROXY": authenticated_proxy,
+                    "HTTP_PROXY": authenticated_proxy,
                     "NO_PROXY": "",
                     "npm_config_registry": "https://registry.npmjs.org/",
                     "npm_config_ignore_scripts": "true",

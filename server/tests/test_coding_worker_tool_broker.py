@@ -426,7 +426,9 @@ async def test_dependency_install_requires_both_exact_leases_and_records_source(
         tmp_path, profile=PolicyProfile.DEVELOP_NETWORKED
     )
     broker.egress_policy = EgressPolicy(
-        enabled=True, allowed_domains={"registry.npmjs.org"}
+        enabled=True,
+        allowed_domains={"registry.npmjs.org"},
+        grant_key=b"g" * 32,
     )
     broker.egress_proxy_url = "http://worker-egress:8080"
     broker._run_process = AsyncMock(
@@ -460,7 +462,8 @@ async def test_dependency_install_requires_both_exact_leases_and_records_source(
     source = store.read_artifact(result.data["source_artifact_id"], task_id=task_id)
     assert b"registry.npmjs.org" in source and b"worker-egress" not in source
     call = broker._run_process.await_args
-    assert call.kwargs["environment_overrides"]["HTTPS_PROXY"] == "http://worker-egress:8080"
+    proxy = call.kwargs["environment_overrides"]["HTTPS_PROXY"]
+    assert proxy.startswith("http://grant:") and proxy.endswith("@worker-egress:8080")
 
 
 @pytest.mark.asyncio

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import ipaddress
+import base64
+import hashlib
+import hmac
+import json
+import secrets
 import re
 import time
 from collections.abc import Callable, Iterable
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from .contracts import CapabilityLease
 
@@ -27,12 +32,94 @@ class EgressPolicy:
         enabled: bool = False,
         allowed_domains: Iterable[str] = (),
         clock: Callable[[], float] = time.time,
+        grant_key: bytes | str | None = None,
     ) -> None:
         self.enabled = enabled
         self.allowed_domains = frozenset(
             self._normalize_domain(domain) for domain in allowed_domains
         )
         self._clock = clock
+        self._grant_key = (
+            grant_key.encode("utf-8") if isinstance(grant_key, str) else grant_key
+        )
+        if self.enabled and (self._grant_key is None or len(self._grant_key) < 32):
+            raise NetworkPolicyError(
+                "Egress grant key is unavailable.", code="network_grant_key_invalid"
+            )
+
+    def proxy_url(
+        self,
+        *,
+        base_url: str,
+        lease: CapabilityLease,
+        task_id: str,
+        purpose: str,
+    ) -> str:
+        self.validate_lease_scope(
+            lease=lease,
+            domains=tuple(str(item) for item in lease.scope.get("domains", ())),
+            purpose=purpose,
+        )
+        payload = {
+            "task_id": task_id,
+            "domains": lease.scope["domains"],
+            "purpose": purpose,
+            "expires_at": lease.expires_at,
+            "nonce": secrets.token_hex(16),
+        }
+        encoded = self._encode_payload(payload)
+        assert self._grant_key is not None
+        signature = hmac.new(self._grant_key, encoded, hashlib.sha256).digest()
+        token = self._urlsafe(encoded) + "." + self._urlsafe(signature)
+        parsed = urlsplit(base_url)
+        if parsed.scheme != "http" or parsed.hostname is None:
+            raise NetworkPolicyError(
+                "Egress proxy is invalid.", code="network_proxy_invalid"
+            )
+        authority = parsed.hostname
+        if parsed.port is not None:
+            authority += f":{parsed.port}"
+        return f"http://grant:{quote(token, safe='')}@{authority}"
+
+    def validate_grant(self, token: str, *, domain: str) -> dict[str, object]:
+        self._require_enabled()
+        try:
+            payload_part, signature_part = token.split(".", 1)
+            encoded = self._urlsafe_decode(payload_part)
+            signature = self._urlsafe_decode(signature_part)
+        except (ValueError, UnicodeError) as exc:
+            raise NetworkPolicyError(
+                "Egress grant is invalid.", code="network_grant_invalid"
+            ) from exc
+        assert self._grant_key is not None
+        expected = hmac.new(self._grant_key, encoded, hashlib.sha256).digest()
+        if not hmac.compare_digest(expected, signature):
+            raise NetworkPolicyError(
+                "Egress grant is invalid.", code="network_grant_invalid"
+            )
+        try:
+            payload = json.loads(encoded)
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise NetworkPolicyError(
+                "Egress grant is invalid.", code="network_grant_invalid"
+            ) from exc
+        normalized = self._normalize_domain(domain)
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("task_id"), str)
+            or not isinstance(payload.get("purpose"), str)
+            or not isinstance(payload.get("domains"), list)
+            or normalized not in payload["domains"]
+            or normalized not in self.allowed_domains
+            or not isinstance(payload.get("expires_at"), (int, float))
+            or isinstance(payload.get("expires_at"), bool)
+            or float(payload["expires_at"]) <= self._clock()
+        ):
+            raise NetworkPolicyError(
+                "Egress grant does not match the destination.",
+                code="network_grant_invalid",
+            )
+        return payload
 
     def approval_scope(self, *, domains: Iterable[str], purpose: str) -> dict[str, object]:
         self._require_enabled()
@@ -121,6 +208,18 @@ class EgressPolicy:
     def _require_enabled(self) -> None:
         if not self.enabled:
             raise NetworkPolicyError("Worker network access is disabled.", code="network_disabled")
+
+    @staticmethod
+    def _encode_payload(value: dict[str, object]) -> bytes:
+        return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    @staticmethod
+    def _urlsafe(value: bytes) -> str:
+        return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _urlsafe_decode(value: str) -> bytes:
+        return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
     @staticmethod
     def _normalize_domain(value: str) -> str:
