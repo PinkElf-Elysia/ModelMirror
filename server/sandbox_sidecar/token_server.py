@@ -20,6 +20,14 @@ SOCKET_PATH = Path(os.getenv("MCP_TOKEN_SOCKET_PATH", "/run/modelmirror-token-mc
 WORKSPACE_ROOT = Path(os.getenv("MCP_TOKEN_WORKSPACE_ROOT", "/workspaces"))
 MAX_MCP_MESSAGE_BYTES = 256 * 1024
 MAX_TOKEN_SESSIONS = max(1, min(int(os.getenv("MCP_TOKEN_MAX_SESSIONS", "6")), 12))
+_raw_allowed_adapters = os.getenv("MCP_TOKEN_ALLOWED_ADAPTERS", "").strip()
+ALLOWED_ADAPTERS = (
+    frozenset(item.strip() for item in _raw_allowed_adapters.split(",") if item.strip())
+    if _raw_allowed_adapters
+    else frozenset(TOKEN_ADAPTERS)
+)
+if not ALLOWED_ADAPTERS or not ALLOWED_ADAPTERS.issubset(TOKEN_ADAPTERS):
+    raise RuntimeError("invalid_token_adapter_allowlist")
 TOKEN_SEMAPHORE = asyncio.Semaphore(MAX_TOKEN_SESSIONS)
 
 
@@ -170,6 +178,12 @@ def _child_environment(
         "DISABLE_TELEMETRY": "true",
         "NO_PROXY": "*",
         "no_proxy": "*",
+        "MCP_PUBLIC_ALLOW_SYNTHETIC_DNS": (
+            "true"
+            if os.getenv("MCP_PUBLIC_ALLOW_SYNTHETIC_DNS", "").strip().lower()
+            in {"1", "true", "yes", "on"}
+            else "false"
+        ),
         "MCP_ALLOWED_HOSTS": ",".join(sorted(hosts)),
         "NODE_OPTIONS": "--require=/opt/modelmirror/sandbox_sidecar/network_guard.cjs",
     }
@@ -186,6 +200,8 @@ async def _handle_mcp_stdio(
     request: dict[str, Any],
 ) -> None:
     adapter_id = str(request.get("adapter_id") or "").strip()
+    if adapter_id not in ALLOWED_ADAPTERS:
+        raise SandboxEngineError("Token adapter denied.", code="mcp_adapter_denied")
     try:
         contract, credentials, settings = validate_configuration(
             adapter_id, request.get("configuration")

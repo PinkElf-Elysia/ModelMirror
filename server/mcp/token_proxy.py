@@ -1,4 +1,4 @@
-"""Credential-aware stdio proxy for fixed Wave 4 catalog adapters.
+"""Configuration-aware stdio proxy for fixed catalog adapters.
 
 The server process supplies one short-lived, base64-encoded configuration via
 the child environment.  This proxy removes it immediately and transfers it to
@@ -22,6 +22,7 @@ ALLOWED_ADAPTERS = {
     "perplexity-mcp", "tavily-mcp", "axiom-mcp", "figma-context-mcp",
     "google-maps-mcp", "grafana-mcp", "graphlit-mcp", "kagi-mcp",
     "pinecone-assistant-mcp", "shodan-mcp", "virustotal-mcp",
+    "terraform-mcp",
 }
 SOCKET_PATH = Path(
     os.getenv(

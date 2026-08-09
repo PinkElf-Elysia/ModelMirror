@@ -1,4 +1,4 @@
-"""Offline initialization and tool-discovery smoke for Wave 4 runtime pins."""
+"""Offline initialization and tool-discovery smoke for fixed token runtimes."""
 
 from __future__ import annotations
 
@@ -86,7 +86,15 @@ async def discover(adapter_id: str) -> tuple[str, set[str], str]:
 
 
 async def main() -> None:
-    for adapter_id in sorted(TOKEN_ADAPTERS):
+    requested = {
+        item.strip()
+        for item in os.getenv("MCP_SMOKE_ADAPTERS", "").split(",")
+        if item.strip()
+    }
+    adapter_ids = requested or set(TOKEN_ADAPTERS)
+    if not adapter_ids.issubset(TOKEN_ADAPTERS):
+        raise RuntimeError("unknown adapter requested for runtime smoke")
+    for adapter_id in sorted(adapter_ids):
         name, discovered, digest = await asyncio.wait_for(discover(adapter_id), timeout=20)
         allowed = discovered & TOKEN_ADAPTERS[name].tools
         print(

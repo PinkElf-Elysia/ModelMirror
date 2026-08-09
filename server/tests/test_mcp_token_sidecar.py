@@ -7,7 +7,11 @@ import json
 import pytest
 
 from server.mcp import token_proxy
-from server.mcp.catalog import CATALOG_ADAPTERS, WAVE_FOUR_ADAPTERS
+from server.mcp.catalog import (
+    CATALOG_ADAPTERS,
+    WAVE_FOUR_ADAPTERS,
+    WAVE_NINE_READY_ADAPTERS,
+)
 from server.sandbox_sidecar import token_server
 from server.sandbox_sidecar.safe_http import NetworkPolicyError
 from server.sandbox_sidecar.token_contracts import (
@@ -37,9 +41,10 @@ def reader_for(*messages: dict[str, object]) -> asyncio.StreamReader:
 
 
 def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
-    assert set(TOKEN_ADAPTERS) == set(WAVE_FOUR_ADAPTERS)
+    expected = set(WAVE_FOUR_ADAPTERS) | set(WAVE_NINE_READY_ADAPTERS)
+    assert set(TOKEN_ADAPTERS) == expected
     assert set(TOKEN_SCHEMA_SHA256) == set(TOKEN_ADAPTERS)
-    assert set(token_proxy.ALLOWED_ADAPTERS) == set(WAVE_FOUR_ADAPTERS)
+    assert set(token_proxy.ALLOWED_ADAPTERS) == expected
     assert "snyk-mcp" not in TOKEN_ADAPTERS
     for project_id, contract in TOKEN_ADAPTERS.items():
         assert contract.tools == frozenset(CATALOG_ADAPTERS[project_id].tool_policies)
@@ -58,6 +63,15 @@ def test_configuration_contract_rejects_missing_and_extra_fields() -> None:
     assert contract.builtin is True
     assert credentials == {"service_token": "secret"}
     assert settings == {"stack_slug": "my-stack"}
+
+    terraform, credentials, settings = validate_configuration(
+        "terraform-mcp",
+        {"credentials": {}, "settings": {}},
+    )
+    assert terraform.builtin is True
+    assert terraform.allowed_hosts == frozenset({"registry.terraform.io"})
+    assert credentials == {}
+    assert settings == {}
 
     with pytest.raises(ValueError, match="configuration_contract_mismatch"):
         validate_configuration(
@@ -85,6 +99,20 @@ def test_proxy_configuration_is_removed_from_environment(monkeypatch: pytest.Mon
     )
     assert token_proxy._load_configuration() == payload
     assert "MCP_TOKEN_HANDSHAKE_B64" not in token_proxy.os.environ
+
+
+def test_synthetic_dns_flag_is_normalized_for_child(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    contract = TOKEN_ADAPTERS["terraform-mcp"]
+    monkeypatch.setenv("MCP_PUBLIC_ALLOW_SYNTHETIC_DNS", "YES")
+    enabled = token_server._child_environment(contract, {}, {}, tmp_path)
+    assert enabled["MCP_PUBLIC_ALLOW_SYNTHETIC_DNS"] == "true"
+
+    monkeypatch.setenv("MCP_PUBLIC_ALLOW_SYNTHETIC_DNS", "unexpected")
+    disabled = token_server._child_environment(contract, {}, {}, tmp_path)
+    assert disabled["MCP_PUBLIC_ALLOW_SYNTHETIC_DNS"] == "false"
 
 
 @pytest.mark.asyncio

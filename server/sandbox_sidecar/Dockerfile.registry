@@ -1,0 +1,25 @@
+FROM python:3.12-slim@sha256:401f6e1a67dad31a1bd78e9ad22d0ee0a3b52154e6bd30e90be696bb6a3d7461
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MCP_TOKEN_ALLOWED_ADAPTERS=terraform-mcp \
+    MCP_TOKEN_SOCKET_PATH=/run/modelmirror-registry-mcp/registry-mcp.sock \
+    MCP_TOKEN_WORKSPACE_ROOT=/workspaces
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 65532 sandbox \
+    && useradd --uid 65532 --gid 65532 --home-dir /workspaces --no-create-home sandbox \
+    && mkdir -p /opt/modelmirror/sandbox_sidecar /workspaces /run/modelmirror-registry-mcp \
+    && chown -R sandbox:sandbox /workspaces /run/modelmirror-registry-mcp
+
+WORKDIR /opt/modelmirror
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
+COPY __init__.py engine.py landlock_exec.py safe_http.py smoke_token_adapters.py token_builtin.py token_contracts.py token_server.py ./sandbox_sidecar/
+COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-registry/THIRD_PARTY_NOTICES.md
+RUN MCP_SMOKE_ADAPTERS=terraform-mcp python -m sandbox_sidecar.smoke_token_adapters
+
+USER 65532:65532
+CMD ["python", "-m", "sandbox_sidecar.token_server"]

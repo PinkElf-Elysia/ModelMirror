@@ -83,7 +83,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **44 ready / 43 planned / 13 blocked**；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **45 ready / 27 planned / 28 blocked**；planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
 
@@ -158,6 +158,20 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 - 导航、点击和填写属于 `state-write + requires_approval`。一次性审批绑定租户、所有者、项目、目录会话、浏览器 generation、页面 revision/digest、当前 origin、工具/Schema、冻结参数和配置版本；确认前页面或会话漂移即失效。此类调用永不自动重试，发送后超时或连接中断标记为 `unknown_outcome` 并污染、关闭当前会话。若 sidecar 以 `-32011` 明确证明 DNS 或目标 URL 在调用前被策略拒绝，则旧审批进入 `rejected` 终态但临时会话保留，用户修正目标后必须发起全新的审批；跨域跳转等可能发生在调用后的策略错误仍按未知结果 fail-closed。
 - 快照只产生网关签发的不透明元素 ref；点击与填写不接受 CSS、XPath 或任意文本定位器，并拒绝密码、OTP、支付和验证码字段。截图先写入上限 64 MiB 的临时共享区，后端以单一文件描述符校验 PNG、大小、链接数与摘要，再复制到仅服务端可见的可信产物目录并登记 24 小时索引；产物接口只返回不透明 ID，并允许用户下载或清理。异常临时项只按固定目录和命名规则清扫，畸形条目告警并 fail-closed，不做宽泛递归删除。网页上传、网页下载、剪贴板、Cookie/Storage 导入导出与持久化、任意脚本求值工具、CDP、扩展和本机文件全部关闭。网页自身在会话内产生的 Cookie、缓存和站点存储只存在于临时 profile，断开时一并删除。
 - `puppeteer-mcp` 因官方仓库归档、危险启动参数/脚本执行面及未修复安全报告保持 `blocked`。`selenium-mcp` 因发行物许可证元数据冲突、未锁定的 root 浏览器镜像及任意参数/路径/脚本/Cookie 能力保持 `blocked`。两项都不显示安装或连接入口。
+
+批次 8 的两个 Python 执行条目均保持 `blocked`，本批不新增代码执行 sidecar：
+
+- `mcp-run-python` 固定核验 0.0.22。官方仓库已归档，维护方明确说明 Pyodide 代码能够执行任意 JavaScript、污染后续调用、访问运行时文件并耗尽宿主内存，因此不把该实现部署为不可信代码沙箱。
+- `mcp-python-interpreter` 固定核验 PyPI 1.2.3。默认 `run_python_code` 是进程内 `inline` 执行并保留全局会话，同时公开 pip 安装、文件读写、环境选择和最长 300 秒子进程调用；发布 wheel 虽声明 MIT classifier，但携带的 `LICENSE` 文件为空。
+- 两个后端 manifest 都没有镜像、命令、端点、工具策略或 enabled-by-default 路径，功能开关不能使其可执行。前端不提交代码、包名、Python 路径、工作目录、环境、文件或会话 ID，也不显示安装/连接按钮。Manim 与 Snyk 仍等待一个独立立项、可复现且维护中的代码执行边界，不能因完成目录裁决而自动解锁。
+
+批次 9 仅把 Terraform 公共 Registry 适配为可执行项，并使用独立 `mcp-registry` sidecar：
+
+- 固定兼容 HashiCorp Terraform MCP Server v1.2.0，只开放 Provider 最新版本/能力/文档和 Module 搜索/详情/最新版本六个只读工具；Schema 摘要为 `73a2b116bcaa257dbf158d1ab8a778d067dac2d969db7dff160372d1617e3445`。
+- `mcp-registry` 不复用 `mcp-token` socket：服务端通过 `/run/modelmirror-registry-mcp/registry-mcp.sock` 发送固定项目 ID 与空 `{settings, credentials}` 握手。sidecar 只允许 `terraform-mcp`，而 Wave4 `mcp-token` 只允许原 15 项 Token 适配器。
+- 运行时不接收 Token、账号或配置字段，不挂载宿主目录和 Docker socket；容器为 UID/GID 65532、只读根文件系统、`cap_drop: ALL`、`no-new-privileges`、512 MiB/1 CPU/64 PIDs，tmpfs 工作区不持久化。固定主机为 `registry.terraform.io`、禁止重定向、DNS 后固定连接地址并校验 TLS hostname；Docker Desktop 合成 DNS 仅作为固定主机的传输兼容，不形成任意 URL 输入。
+- HCP Terraform、Terraform Enterprise、私有 Registry、plan、apply、destroy、run、workspace、本地状态/变量/配置和资源变更工具均不在清单；目录连接零重试且连接后立即擦除内部握手环境。
+- Apify、Aiven、Bright Data、Browserbase、E2B、Stripe、Alpaca、AWS KB、ElevenLabs、MiniMax、S3 Tables、Kubernetes 与 Semgrep 均为 `blocked`，没有凭据、命令、端点或工具入口。
 
 兼容层仍保留以下默认值：
 
@@ -442,6 +456,8 @@ python server/sandbox_sidecar/smoke_browser_runtime.py --image modelmirror-mcp-b
 ```
 
 成功结果必须包含 Chrome DevTools 与 Playwright 各两次导航、快照、元素交互和 PNG 登记，以及各一次真实 20 秒导航超时（`-32008 / unknown_outcome / retryable=false`）、browser/egress PID1 精确单次重启、运行目录/进程清理和最终 `cleanup=verified`。该 harness 只创建随机 `mm-wave7-runtime-smoke-*` 资源；任何失败或残留都返回非零，不能用容器健康检查代替。
+
+批次 8 没有可执行运行时，因此验收不得以 mock 或自研 Python 执行器替代上游 smoke。聚焦测试必须断言两个项目始终为 `blocked`，公开 `executable=false`，且不存在 `runtime_image`、`server_command`、`endpoint` 和工具策略；同时保持 Manim 与 Snyk 的既有阻断。
 
 测试覆盖：
 

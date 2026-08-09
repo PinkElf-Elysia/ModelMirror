@@ -117,6 +117,22 @@ TOKEN_ADAPTERS: dict[str, TokenAdapterContract] = {
         (("api_key", "VIRUSTOTAL_API_KEY"),),
         allowed_hosts=frozenset({"www.virustotal.com"}),
     ),
+    "terraform-mcp": TokenAdapterContract(
+        ("python", "-m", "sandbox_sidecar.token_builtin", "terraform-mcp"),
+        frozenset(
+            {
+                "get_latest_provider_version",
+                "get_provider_capabilities",
+                "get_provider_details",
+                "search_modules",
+                "get_module_details",
+                "get_latest_module_version",
+            }
+        ),
+        (),
+        allowed_hosts=frozenset({"registry.terraform.io"}),
+        builtin=True,
+    ),
 }
 
 
@@ -136,6 +152,7 @@ TOKEN_SCHEMA_SHA256: dict[str, str] = {
     "shodan-mcp": "5fefb2af3c61d61dc3c5679db0bbdaf095de5fd2fbbee5d1ffc5401bb6cd001e",
     "tavily-mcp": "01ca28e4482a06c12ef88bf26e1ddb96e2aae83ec65c5234365a8555854d7710",
     "virustotal-mcp": "c66291ebfcfb5ccf9cd23608cbfca9760031f3215271448249959927f843c234",
+    "terraform-mcp": "73a2b116bcaa257dbf158d1ab8a778d067dac2d969db7dff160372d1617e3445",
 }
 
 

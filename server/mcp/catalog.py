@@ -1317,6 +1317,132 @@ WAVE_SEVEN_ADAPTERS: dict[str, WaveSevenAdapterSpec] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class WaveNineAdapterSpec:
+    adapter_version: str
+    tools: tuple[str, ...]
+    credential_policies: tuple[CatalogCredentialSlotPolicy, ...]
+    network_policy: str
+    limitations: tuple[str, ...]
+    sensitive: bool = False
+
+
+WAVE_NINE_READY_ADAPTERS: dict[str, WaveNineAdapterSpec] = {
+    "terraform-mcp": WaveNineAdapterSpec(
+        "1.2.0-registry-read-only-compatible-v1",
+        (
+            "get_latest_provider_version",
+            "get_provider_capabilities",
+            "get_provider_details",
+            "search_modules",
+            "get_module_details",
+            "get_latest_module_version",
+        ),
+        (),
+        "allowlist:registry.terraform.io",
+        (
+            "仅访问匿名公共 Terraform Registry；不接收 Token，不读取工作区、状态文件、变量或本机 Terraform 配置。",
+            "HCP Terraform、Terraform Enterprise、私有 Registry、plan、apply、destroy、run、workspace 与任何资源变更工具全部不可发现、不可调用。",
+        ),
+    ),
+}
+
+
+WAVE_NINE_BLOCKED_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "apify-mcp": (
+        "0.14.2-blocked:credential-and-cost-boundary",
+        (
+            "Actor 搜索与详情虽免费，但固定 stdio 上游仍要求 Apify Token；Actor 运行和动态工具会产生外部费用。",
+            "本批不向 Apify 发送账号 Token，也不开放 OAuth、AGI、x402、MPP、Skyfire、Actor 运行、数据集或动态工具；需单独批准凭据出站后再评估只读发现子集。",
+        ),
+    ),
+    "aiven-mcp": (
+        "1.15.2-blocked:credential-egress-not-approved",
+        (
+            "上游 1.15.2 支持 read-only/core scope，但仍需向 Aiven API 发送项目账号 Token，并可读取项目、服务、VPC 与套餐元数据。",
+            "本批未获向 Aiven 发送具体凭据的授权，因此 Token、配置、连接和工具入口全部关闭；后续需单独批准账号范围与凭据出站。",
+        ),
+    ),
+    "bright-data-mcp": (
+        "2.11.1-blocked:unreconciled-provider-cost",
+        (
+            "上游基础抓取与 Pro 工具均消耗 Bright Data 请求额度，且 Pro 模式默认不限制调用频率；当前目录没有可与供应商账单对账的逐项目硬预算。",
+            "Token、连接和抓取工具全部关闭；完成供应商 usage 对账、硬预算、并发与停止开关前不以免费额度替代费用护栏。",
+        ),
+    ),
+    "browserbase-mcp": (
+        "3.0.0-blocked:archived-cloud-browser-runtime",
+        (
+            "官方仓库已归档，托管浏览器会话又会持续消耗外部资源，无法锁定维护中的生产契约与费用停止语义。",
+            "连接、项目密钥、云浏览器和任意页面操作全部关闭；需要浏览器能力时使用第七批的一次性本地浏览器适配器。",
+        ),
+    ),
+    "e2b-mcp": (
+        "0.1.1-blocked:archived-billed-code-runtime",
+        (
+            "官方 MCP 仓库已归档；上游沙箱默认允许联网、支持任意安装和运行命令，并在存活期间计费。",
+            "连接、API Key、代码、依赖安装和云沙箱创建入口全部关闭；不会以当前归档包承载不可信代码。",
+        ),
+    ),
+    "stripe-mcp": (
+        "remote-oauth-blocked:wave10",
+        (
+            "Stripe 当前官方 MCP 是 mcp.stripe.com 的 OAuth 远程服务，而非旧 agent-toolkit 本地包；支付、退款和订阅写入具有真实资金影响。",
+            "本批不打开外站登录、API Key 或支付对象入口；转入第十批完成 OAuth scope、账号解绑与终止性金融操作审批。",
+        ),
+    ),
+    "alpaca-mcp": (
+        "v2-blocked:trading-and-market-data-cost",
+        (
+            "官方 v2 同时暴露真实交易、平仓、期权行权和账户能力，市场数据订阅也可能产生套餐费用；paper 默认值不能证明凭据属于模拟账户。",
+            "API Key、行情、账户和订单工具全部关闭；完成 paper/live 身份证明、行情费用上限与金融终止操作审批前不开放。",
+        ),
+    ),
+    "aws-kb-mcp": (
+        "2026.08.20260805092707-blocked:aws-scope-and-query-cost",
+        (
+            "Bedrock Knowledge Bases 检索依赖 AWS 身份、区域和知识库范围，并可能产生检索或模型费用；结果还可能包含企业敏感内容。",
+            "AWS 凭据、Knowledge Base ID 和检索入口全部关闭；等待 SigV4 凭据代理、资源白名单、usage 对账与数据范围预检。",
+        ),
+    ),
+    "elevenlabs-mcp": (
+        "0.12.2-blocked:paid-media-and-artifacts",
+        (
+            "语音、音效与相关生成工具会消耗外部额度并产生音频产物，部分工具还管理 Voice 等持久资源。",
+            "API Key、生成、克隆、播放、下载和删除入口全部关闭；等待字符/时长预算、价格快照、产物隔离和逐次费用确认。",
+        ),
+    ),
+    "minimax-mcp": (
+        "main-blocked:paid-multimodal-and-local-files",
+        (
+            "官方工具会发起语音、图像、视频、音乐和 Voice Clone 付费任务，并接受本地文件或 URL、写入媒体产物。",
+            "API Key、地区主机、生成、轮询、文件和产物入口全部关闭；等待模型价格锁定、异步任务账本与媒体输入输出隔离。",
+        ),
+    ),
+    "s3-mcp": (
+        "2026.08.20260805092707-blocked:aws-resource-scope",
+        (
+            "S3 Tables Server 同时包含 Namespace 与 Table 的创建、更新和删除能力，依赖 AWS 凭据、区域和资源级 IAM。",
+            "AWS 凭据、Bucket/Table ARN 和工具入口全部关闭；等待 SigV4 代理、固定资源白名单、只读工具集与终止性删除审批。",
+        ),
+    ),
+    "kubernetes-mcp": (
+        "0.0.66-blocked:cluster-credential-and-namespace-scope",
+        (
+            "上游虽提供 disable-destructive，但仍需 kubeconfig/ServiceAccount、集群网络和命名空间级 RBAC；日志与资源内容可能包含敏感数据。",
+            "Kubeconfig、集群连接、exec、日志和资源工具全部关闭；等待固定集群/namespace 绑定、只读 RBAC 实测与连接后权限预检。",
+        ),
+    ),
+    "semgrep-mcp": (
+        "0.4.0-blocked:archived-local-scan-runtime",
+        (
+            "官方仓库已归档，扫描需要读取项目源码并启动本地 Semgrep 运行时，无法满足维护中的代码执行与文件范围契约。",
+            "源码目录、Token、CLI 和扫描入口全部关闭；不会回退到归档包或未固定的社区替代品。",
+        ),
+    ),
+}
+
+
 WAVE_PROJECTS: dict[int, tuple[str, ...]] = {
     1: ("calculator-mcp", "time-mcp", "vegalite-mcp"),
     2: (
@@ -1479,7 +1605,7 @@ WAVE_METADATA: dict[
         "sandboxed-stdio",
         "critical",
         ("ephemeral-code-sandbox", "process-resource-limits"),
-        ("等待断网、无宿主挂载的一次性代码执行沙箱验证。",),
+        ("两个上游均未通过安全与发布物门槛，当前不提供代码执行运行时。",),
     ),
     9: (
         "sandboxed-stdio",
@@ -2120,6 +2246,103 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
         network_policy="blocked:no-production-runtime",
         filesystem_policy="blocked:no-runtime",
     )
+
+    manifests["mcp-run-python"] = CatalogAdapterManifest(
+        project_id="mcp-run-python",
+        wave=8,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="critical",
+        required_capabilities=(
+            "maintained-safe-execution-runtime",
+            "ephemeral-code-sandbox",
+            "process-resource-limits",
+        ),
+        limitations=(
+            "上游 0.0.22 已由维护方归档；维护方明确说明 Pyodide 中的代码可执行任意 JavaScript、污染后续调用、访问运行时文件并耗尽宿主内存，因此不再把该实现视为不可信代码沙箱。",
+            "连接、依赖安装、Deno/Pyodide 运行时和代码提交入口全部关闭；不会用实验性的 Monty 或模镜自研执行器冒充该上游适配器。",
+        ),
+        adapter_version="0.0.22-blocked:retired-unsafe-runtime",
+        network_policy="blocked:no-production-runtime",
+        filesystem_policy="blocked:no-runtime",
+    )
+    manifests["python-interpreter"] = CatalogAdapterManifest(
+        project_id="python-interpreter",
+        wave=8,
+        availability="blocked",
+        connection_kind="sandboxed-stdio",
+        risk="critical",
+        required_capabilities=(
+            "complete-license-provenance",
+            "ephemeral-code-sandbox",
+            "fixed-subprocess-only-contract",
+            "process-resource-limits",
+        ),
+        limitations=(
+            "PyPI 1.2.3 默认以 inline 模式在 MCP Server 进程内执行代码并保留全局会话，同时开放任意 pip 安装、文件读写、环境选择和最长 300 秒子进程执行，不能作为受控代码沙箱直接部署。",
+            "发布 wheel 虽声明 MIT classifier，但所携 LICENSE 文件为空；在许可证正文、固定 subprocess-only 契约与一次性容器边界全部核验前，不提供安装、连接、文件或执行入口。",
+        ),
+        adapter_version="1.2.3-blocked:unsafe-contract-and-empty-license",
+        network_policy="blocked:no-production-runtime",
+        filesystem_policy="blocked:no-runtime",
+    )
+
+    for project_id, spec in WAVE_NINE_READY_ADAPTERS.items():
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=9,
+            availability="ready",
+            connection_kind="sandboxed-stdio",
+            risk="medium",
+            required_capabilities=(
+                "fixed-egress-policy",
+                "read-only-tool-policy",
+                "schema-drift-recovery",
+                "cost-guardrails",
+                "process-resource-limits",
+            ),
+            limitations=spec.limitations,
+            adapter_version=spec.adapter_version,
+            runtime_image="modelmirror-mcp-registry:wave9-v1",
+            network_policy=spec.network_policy,
+            filesystem_policy="read-only-empty-workspace",
+            resource_limits=(
+                ("cpu", "1 core / 60 CPU seconds per call"),
+                ("memory", "512 MiB sidecar"),
+                ("processes", "maximum 4 sessions / 64 sidecar PIDs"),
+                ("operation_timeout", "60 seconds"),
+                ("tool_output", "256 KiB"),
+                ("provider_cost", "anonymous public Registry reads only"),
+            ),
+            server_command=(*TOKEN_SANDBOX_PROXY, project_id),
+            preparation_kind="bundled",
+            tool_policies={
+                name: CatalogToolPolicy(read_only=True, effect="read")
+                for name in spec.tools
+            },
+            enabled_by_default=True,
+            operation_timeout=60.0,
+            max_output_bytes=256 * 1024,
+        )
+
+    for project_id, (version, limitations) in WAVE_NINE_BLOCKED_ADAPTERS.items():
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=9,
+            availability="blocked",
+            connection_kind="sandboxed-stdio",
+            risk="critical",
+            required_capabilities=(
+                "cost-guardrails",
+                "resource-preview",
+                "terminal-action-approval",
+                "maintained-upstream-contract",
+            ),
+            limitations=limitations,
+            adapter_version=version,
+            network_policy="blocked:no-production-runtime",
+            filesystem_policy="blocked:no-runtime",
+        )
 
     manifests["snyk-mcp"] = CatalogAdapterManifest(
         project_id="snyk-mcp",
@@ -2832,6 +3055,15 @@ class MCPCatalogService:
             if manifest.connection_kind == "sandboxed-stdio":
                 environment: dict[str, str] = {}
                 configuration = self._configurations.get(scope_key)
+                uses_token_sidecar = (
+                    tuple(manifest.server_command[: len(TOKEN_SANDBOX_PROXY)])
+                    == TOKEN_SANDBOX_PROXY
+                )
+                if uses_token_sidecar and manifest.project_id == "terraform-mcp":
+                    environment["MCP_TOKEN_SOCKET_PATH"] = os.getenv(
+                        "MCP_REGISTRY_SOCKET_PATH",
+                        "/run/modelmirror-registry-mcp/registry-mcp.sock",
+                    )
                 workspace_id = ""
                 if manifest.workspace_policy is not None:
                     workspace_id = str(
@@ -2887,10 +3119,15 @@ class MCPCatalogService:
                             credential_id,
                             float(getattr(public, "updated_at", 0.0)),
                         )
-                if manifest.credential_policies or manifest.database_policy is not None:
-                    assert configuration is not None
+                if (
+                    uses_token_sidecar
+                    or manifest.credential_policies
+                    or manifest.database_policy is not None
+                ):
                     handshake_configuration: dict[str, Any] = {
-                        "settings": configuration.settings,
+                        "settings": (
+                            configuration.settings if configuration is not None else {}
+                        ),
                         "credentials": secrets,
                     }
                     if manifest.database_policy is not None:
@@ -2941,7 +3178,8 @@ class MCPCatalogService:
                     "network_policy": manifest.network_policy,
                     "reconnect_attempts": (
                         0
-                        if manifest.credential_policies
+                        if uses_token_sidecar
+                        or manifest.credential_policies
                         or manifest.database_policy is not None
                         or manifest.browser_policy is not None
                         else 1
@@ -2953,7 +3191,8 @@ class MCPCatalogService:
                     profile["environment"] = environment
                 session_id = await self.manager.connect_profile(**profile)
                 if (
-                    manifest.credential_policies
+                    uses_token_sidecar
+                    or manifest.credential_policies
                     or manifest.database_policy is not None
                     or manifest.browser_policy is not None
                 ):
