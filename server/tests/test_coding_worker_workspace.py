@@ -114,3 +114,36 @@ async def test_workspace_tree_detects_links_and_diff_uses_private_index(tmp_path
         (repository / "unsafe-link").symlink_to(repository / "tracked.txt")
         with pytest.raises(WorkspaceError, match="link"):
             broker.tree(record.workspace_id)
+
+
+@pytest.mark.asyncio
+async def test_dedicated_slots_keep_workspace_files_in_separate_roots(
+    tmp_path: Path,
+) -> None:
+    source = _source()
+    broker = WorkspaceBroker(
+        tmp_path / "control",
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {(source.source_id, source.revision): {"main.py": b"print('ok')\n"}}
+            )
+        },
+        id_key=b"s" * 32,
+        slot_roots={
+            "slot-a": tmp_path / "slot-a",
+            "slot-b": tmp_path / "slot-b",
+        },
+    )
+
+    first = await broker.prepare(source, slot_id="slot-a")
+    second = await broker.prepare(source, slot_id="slot-b")
+
+    assert first.slot_id == "slot-a"
+    assert second.slot_id == "slot-b"
+    assert broker.workspace_slot(first.workspace_id) == "slot-a"
+    assert broker.workspace_slot(second.workspace_id) == "slot-b"
+    assert broker.repository_path(first.workspace_id).is_relative_to(tmp_path / "slot-a")
+    assert broker.repository_path(second.workspace_id).is_relative_to(tmp_path / "slot-b")
+    with pytest.raises(WorkspaceError) as raised:
+        await broker.prepare(source)
+    assert raised.value.code == "workspace_slot_unavailable"

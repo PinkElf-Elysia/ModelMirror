@@ -47,6 +47,7 @@ class CodingWorkerService:
         self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
         self._active: dict[str, asyncio.Task[None]] = {}
+        self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
         self._wake = asyncio.Event()
         self._scheduler: asyncio.Task[None] | None = None
@@ -87,6 +88,7 @@ class CodingWorkerService:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._scheduler
         self._active.clear()
+        self._task_slots.clear()
         self._sessions.clear()
         self._scheduler = None
         self._started = False
@@ -176,11 +178,17 @@ class CodingWorkerService:
         while True:
             await self._wake.wait()
             self._wake.clear()
-            while not self._closing and len(self._active) < self.max_active_tasks:
-                queued = self.store.list_queued_tasks(limit=1)
-                if not queued:
+            capacity = min(
+                self.max_active_tasks,
+                len(self.workspace_broker.slot_ids)
+                if self.workspace_broker.dedicated_slots
+                else self.max_active_tasks,
+            )
+            while not self._closing and len(self._active) < capacity:
+                selected = self._select_queued_task()
+                if selected is None:
                     break
-                record = queued[0]
+                record, slot_id = selected
                 try:
                     self.store.transition(
                         record.task_id,
@@ -189,8 +197,11 @@ class CodingWorkerService:
                     )
                 except WorkerConflictError:
                     continue
+                if slot_id is not None:
+                    self._task_slots[record.task_id] = slot_id
                 runner = asyncio.create_task(
-                    self._run_task(record.task_id), name=f"coding-worker-{record.task_id}"
+                    self._run_task(record.task_id, slot_id=slot_id),
+                    name=f"coding-worker-{record.task_id}",
                 )
                 self._active[record.task_id] = runner
                 runner.add_done_callback(
@@ -199,21 +210,58 @@ class CodingWorkerService:
                     )
                 )
 
+    def _select_queued_task(self) -> tuple[TaskRecord, str | None] | None:
+        queued = self.store.list_queued_tasks(limit=128)
+        if not queued:
+            return None
+        if not self.workspace_broker.dedicated_slots:
+            return queued[0], None
+        occupied = set(self._task_slots.values())
+        available = [
+            slot_id
+            for slot_id in self.workspace_broker.slot_ids
+            if slot_id not in occupied
+        ]
+        if not available:
+            return None
+        for record in queued:
+            required_slot: str | None = None
+            if record.workspace_id is not None:
+                try:
+                    required_slot = self.workspace_broker.workspace_slot(
+                        record.workspace_id
+                    )
+                except WorkspaceError:
+                    # Let the runner persist the precise workspace failure.
+                    required_slot = available[0]
+            if required_slot is None:
+                return record, available[0]
+            if required_slot in available:
+                return record, required_slot
+        return None
+
     def _task_finished(self, task_id: str, _task: asyncio.Task[None]) -> None:
         self._active.pop(task_id, None)
+        self._task_slots.pop(task_id, None)
         self._sessions.pop(task_id, None)
         if not self._closing:
             self._wake.set()
 
-    async def _run_task(self, task_id: str) -> None:
+    async def _run_task(self, task_id: str, *, slot_id: str | None = None) -> None:
         session: ProviderSession | None = None
         try:
             task = self.store.get_task(task_id)
             workspace = (
                 self.workspace_broker.get(task.workspace_id)
                 if task.workspace_id is not None
-                else await self.workspace_broker.prepare(task.spec.workspace_source)
+                else await self.workspace_broker.prepare(
+                    task.spec.workspace_source, slot_id=slot_id
+                )
             )
+            if slot_id is not None and workspace.slot_id != slot_id:
+                raise WorkspaceError(
+                    "Workspace slot binding changed.", code="workspace_slot_changed"
+                )
             request = ProviderOpenRequest(
                 task_id=task_id,
                 workspace_id=workspace.workspace_id,

@@ -44,6 +44,7 @@ class SourceSnapshot(StrictModel):
 
 class WorkspaceRecord(StrictModel):
     workspace_id: str
+    slot_id: str = "default"
     source: WorkspaceSource
     baseline_commit: str = Field(pattern=r"^[a-f0-9]{40}$")
     baseline_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -87,18 +88,37 @@ class WorkspaceBroker:
         adapters: Mapping[str, WorkspaceSourceAdapter],
         *,
         id_key: bytes,
+        slot_roots: Mapping[str, Path] | None = None,
     ) -> None:
         if len(id_key) < 32:
             raise ValueError("workspace id key is too short")
         self.root = Path(root).resolve()
-        self.workspaces_root = self.root / "workspaces"
-        self.staging_root = self.root / "workspace-staging"
+        self.dedicated_slots = slot_roots is not None
+        configured = slot_roots or {"default": self.root}
+        if not configured or any(
+            re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", key) is None
+            for key in configured
+        ):
+            raise ValueError("workspace slot id is invalid")
+        self._slot_roots = {
+            key: Path(value).resolve() for key, value in configured.items()
+        }
+        first_root = next(iter(self._slot_roots.values()))
+        self.workspaces_root = first_root / "workspaces"
+        self.staging_root = first_root / "workspace-staging"
         self._adapters = dict(adapters)
         self._id_key = bytes(id_key)
-        self.workspaces_root.mkdir(parents=True, exist_ok=True)
-        self.staging_root.mkdir(parents=True, exist_ok=True)
+        for slot_root in self._slot_roots.values():
+            (slot_root / "workspaces").mkdir(parents=True, exist_ok=True)
+            (slot_root / "workspace-staging").mkdir(parents=True, exist_ok=True)
 
-    async def prepare(self, source: WorkspaceSource) -> WorkspaceRecord:
+    @property
+    def slot_ids(self) -> tuple[str, ...]:
+        return tuple(self._slot_roots)
+
+    async def prepare(
+        self, source: WorkspaceSource, *, slot_id: str | None = None
+    ) -> WorkspaceRecord:
         adapter = self._adapters.get(source.kind)
         if adapter is None:
             raise WorkspaceError("Workspace source kind is unavailable.", code="source_unavailable")
@@ -106,9 +126,15 @@ class WorkspaceBroker:
         if snapshot.source != source:
             raise WorkspaceError("Workspace source binding changed.", code="source_changed")
         normalized = self._validate_snapshot(snapshot.files)
+        selected_slot = slot_id or (None if self.dedicated_slots else "default")
+        slot_root = self._slot_roots.get(selected_slot or "")
+        if slot_root is None:
+            raise WorkspaceError(
+                "Workspace slot is unavailable.", code="workspace_slot_unavailable"
+            )
         workspace_id = f"workspace_{uuid.uuid4().hex}"
-        stage = self.staging_root / workspace_id
-        destination = self.workspaces_root / workspace_id
+        stage = slot_root / "workspace-staging" / workspace_id
+        destination = slot_root / "workspaces" / workspace_id
         if stage.exists() or destination.exists():
             raise WorkspaceError("Workspace id collision.", code="workspace_unavailable")
         repository = stage / "repo"
@@ -125,6 +151,7 @@ class WorkspaceBroker:
             total_bytes = sum(len(file.content) for _, file in normalized)
             metadata = WorkspaceRecord(
                 workspace_id=workspace_id,
+                slot_id=selected_slot or "",
                 source=source,
                 baseline_commit=baseline_commit,
                 baseline_tree_hash=baseline_tree_hash,
@@ -152,15 +179,22 @@ class WorkspaceBroker:
             ) from exc
 
     def get(self, workspace_id: str) -> WorkspaceRecord:
-        root = self._workspace_root(workspace_id)
+        slot_id, root = self._workspace_location(workspace_id)
         try:
             value = json.loads((root / "metadata.json").read_text(encoding="utf-8"))
             record = WorkspaceRecord.model_validate(value)
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             raise WorkspaceError("Workspace metadata is invalid.", code="workspace_corrupt") from exc
-        if record.workspace_id != workspace_id or not (root / "repo").is_dir():
+        if (
+            record.workspace_id != workspace_id
+            or record.slot_id != slot_id
+            or not (root / "repo").is_dir()
+        ):
             raise WorkspaceError("Workspace metadata is invalid.", code="workspace_corrupt")
         return record
+
+    def workspace_slot(self, workspace_id: str) -> str:
+        return self._workspace_location(workspace_id)[0]
 
     def repository_path(self, workspace_id: str) -> Path:
         root = self._workspace_root(workspace_id)
@@ -255,12 +289,20 @@ class WorkspaceBroker:
         self._remove_tree(self._workspace_root(workspace_id))
 
     def _workspace_root(self, workspace_id: str) -> Path:
+        return self._workspace_location(workspace_id)[1]
+
+    def _workspace_location(self, workspace_id: str) -> tuple[str, Path]:
         if SAFE_WORKSPACE_ID.fullmatch(workspace_id) is None:
             raise WorkspaceError("Workspace id is invalid.", code="workspace_not_found")
-        candidate = self.workspaces_root / workspace_id
-        if not candidate.is_dir() or candidate.is_symlink():
+        matches = [
+            (slot_id, slot_root / "workspaces" / workspace_id)
+            for slot_id, slot_root in self._slot_roots.items()
+            if (slot_root / "workspaces" / workspace_id).is_dir()
+            and not (slot_root / "workspaces" / workspace_id).is_symlink()
+        ]
+        if len(matches) != 1:
             raise WorkspaceError("Workspace was not found.", code="workspace_not_found")
-        return candidate
+        return matches[0]
 
     @staticmethod
     def _validate_snapshot(files: Sequence[SourceFile]) -> list[tuple[PurePosixPath, SourceFile]]:

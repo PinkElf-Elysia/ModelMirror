@@ -193,6 +193,62 @@ async def test_shutdown_interrupts_without_replaying_and_resume_is_explicit(tmp_
 
 
 @pytest.mark.asyncio
+async def test_dedicated_slots_queue_third_task_and_resume_on_original_slot(
+    tmp_path: Path,
+) -> None:
+    blocker = asyncio.Event()
+    provider = FakeCodingAgentProvider(block=blocker)
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    broker = WorkspaceBroker(
+        tmp_path / "control",
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {("source-01", "revision-01"): {"main.py": b"print('ok')\n"}}
+            )
+        },
+        id_key=b"z" * 32,
+        slot_roots={
+            "slot-a": tmp_path / "slot-a",
+            "slot-b": tmp_path / "slot-b",
+        },
+    )
+    service = CodingWorkerService(
+        store=store,
+        workspace_broker=broker,
+        provider=provider,
+        max_active_tasks=2,
+    )
+    origin = Origin(module="test", object_id="dedicated-slots")
+    tasks = [
+        await service.create_task(origin, _request(f"slot-task-{index}"))
+        for index in range(3)
+    ]
+
+    for task in tasks[:2]:
+        await service.wait_for(task.task_id, lambda item: item.state is TaskState.RUNNING)
+    first_workspace = service.store.get_task(tasks[0].task_id).workspace_id
+    second_workspace = service.store.get_task(tasks[1].task_id).workspace_id
+    assert first_workspace is not None and second_workspace is not None
+    assert {
+        broker.workspace_slot(first_workspace),
+        broker.workspace_slot(second_workspace),
+    } == {"slot-a", "slot-b"}
+    original_slot = broker.workspace_slot(first_workspace)
+    assert service.store.get_task(tasks[2].task_id).state is TaskState.QUEUED
+
+    await service.pause(tasks[0].task_id)
+    await service.wait_for(tasks[2].task_id, lambda item: item.state is TaskState.RUNNING)
+    await service.pause(tasks[2].task_id)
+    await service.resume(tasks[0].task_id)
+    await service.wait_for(tasks[0].task_id, lambda item: item.state is TaskState.RUNNING)
+    assert broker.workspace_slot(first_workspace) == original_slot
+
+    await service.cancel(tasks[0].task_id)
+    await service.cancel(tasks[1].task_id)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_failed_acceptance_is_repaired_and_retested_before_completion(
     tmp_path: Path,
 ) -> None:
