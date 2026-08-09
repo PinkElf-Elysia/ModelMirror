@@ -65,6 +65,7 @@ import {
   getPendingCodingCommand,
   getCodingHistory,
   getCodingPatch,
+  getCodingProjectHost,
   getCodingProjects,
   getCodingPublishStatus,
   getCodingRecovery,
@@ -122,6 +123,21 @@ const BUILTIN_PROJECT: CodingProjectSummary = {
   reason: null,
   state: "available",
 };
+
+function mergeProjectCatalog(
+  current: CodingProjectSummary[],
+  incoming: CodingProjectSummary[],
+) {
+  return incoming.map((project) => {
+    if (project.kind !== "host_git") return project;
+    const previous = current.find((item) => item.id === project.id);
+    return {
+      ...project,
+      branch: project.branch ?? previous?.branch ?? null,
+      head: project.head ?? previous?.head ?? null,
+    };
+  });
+}
 
 function readStoredCodingSession(): StoredCodingSession | null {
   if (typeof window === "undefined") return null;
@@ -243,6 +259,16 @@ const projectReason: Record<string, string> = {
   git_remote_not_allowed:
     "项目仍连接远程平台。移除远程连接后才能开放本地写入。",
   project_not_found: "项目已从清单中移除。",
+  project_host_offline:
+    "本地项目助手连接已断开。重新连接前仍可查看和下载已有修改。",
+  project_host_protocol_readonly:
+    "当前助手版本只支持查看和下载；更新助手后才能直接写入。",
+  project_host_unavailable:
+    "本地项目助手当前不可用。重新连接前仍可查看和下载已有修改。",
+  project_host_writeback_disabled:
+    "本地项目写入已关闭，仍可查看、检查和下载修改。",
+  project_host_writeback_unavailable:
+    "本地项目助手暂时不能执行写入，重新连接后可继续。",
   project_source_unavailable: "本地项目服务暂时不可用。",
   snapshot_limit_exceeded: "项目文件数量或大小超出本轮限制。",
   project_writer_not_configured:
@@ -295,10 +321,12 @@ function CodingSidebar({
   isDraft,
   localDraftOnly,
   localWriteback,
+  localWritebackAvailable,
 }: {
   isDraft: boolean;
   localDraftOnly: boolean;
   localWriteback: boolean;
+  localWritebackAvailable: boolean;
 }) {
   return (
     <div>
@@ -318,7 +346,9 @@ function CodingSidebar({
             {localDraftOnly
               ? "所有修改只保存在临时副本；你可以查看并下载 Diff，本地项目不会被写入。"
               : localWriteback
-                ? "所有修改先保存在临时副本，只有你确认后才会写入所选本地项目。"
+                ? localWritebackAvailable
+                  ? "所有修改先保存在临时副本，只有你确认后才会写入所选本地项目。"
+                  : "已有写入状态和 Diff 会继续保留；当前只允许查看，恢复本地写入能力后才能核对或继续操作。"
               : isDraft
               ? "所有修改先保存在临时副本，只有你确认后才会写入专用项目副本。"
               : "只查看固定的 ModelMirror 项目代码。"}
@@ -336,7 +366,9 @@ function CodingSidebar({
             {localDraftOnly
               ? "检查不能联网，运行产生的文件会被丢弃；不会创建本地提交或 GitHub PR。"
               : localWriteback
-                ? "写入后可保存本地版本并安全撤销；不会自动上传，也不会创建 GitHub PR。"
+                ? localWritebackAvailable
+                  ? "写入后可保存本地版本并安全撤销；不会自动上传，也不会创建 GitHub PR。"
+                  : "已有本地状态不会被清除，也不会因为本地写入能力暂时不可用而误报为失败。"
               : isDraft
               ? "只有你再次确认，才会保存为本地提交；不会自动上传或合并，发布到 GitHub 还需单独确认。当前项目目录始终不受影响。"
               : "不会修改文件、生成变更或提交代码。"}
@@ -402,7 +434,7 @@ function CodingCommandConfirmation({
           </details>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <button
-              className="inline-flex min-h-10 items-center justify-center rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/60 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/15 px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/60 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={action !== "idle"}
               onClick={() => void onDecision("reject")}
               type="button"
@@ -410,7 +442,7 @@ function CodingCommandConfirmation({
               {action === "rejecting" ? "正在拒绝" : "暂不运行"}
             </button>
             <button
-              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-cyan-200 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-11 items-center justify-center rounded-lg bg-cyan-200 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={action !== "idle"}
               onClick={() => void onDecision("allow_once")}
               type="button"
@@ -499,29 +531,118 @@ export default function CodingPage() {
   const pendingSessionStoreRef = useRef<StoredCodingSession | null>(null);
   const streamRenderTimerRef = useRef<number | null>(null);
   const initialDraftLoadSessionRef = useRef<string | null>(null);
+  const hostStatusSignatureRef = useRef<string | null>(null);
   const isDraftMode = capabilities?.mode === "draft";
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) ??
     (recovery?.project?.id === selectedProjectId ? recovery.project : null) ??
     (selectedProjectId === "modelmirror" ? BUILTIN_PROJECT : null);
-  const isLocalProject =
-    selectedProject?.kind === "local_clone" || selectedProject?.kind === "host_git";
+  const isHostProject = selectedProject?.kind === "host_git";
+  const isManifestProject = selectedProject?.kind === "local_clone";
+  const isLocalProject = isManifestProject || isHostProject;
+  const hostRuntimeReason =
+    capabilities?.project_host?.writeback_reason ??
+    capabilities?.project_host?.reason;
+  const hostProjectReason =
+    selectedProject?.writeback_reason ?? selectedProject?.reason;
+  const hostRuntimeWritebackAvailable = Boolean(
+    capabilities?.project_host?.enabled === true &&
+      capabilities?.project_host?.direct_writeback === true &&
+      capabilities?.project_host?.writeback_available !== false,
+  );
+  const hostWritebackReason =
+    hostRuntimeWritebackAvailable
+      ? hostProjectReason
+      : hostRuntimeReason ?? hostProjectReason;
+  const hostWritebackProtocolCapable = Boolean(
+    isHostProject &&
+      capabilities?.project_host?.enabled === true &&
+      ![
+        "project_host_not_configured",
+        "project_host_protocol_readonly",
+        "project_host_writeback_disabled",
+      ].includes(hostRuntimeReason ?? ""),
+  );
   const supportsVerification = selectedProject?.features.verification !== false;
   const supportsCommands = selectedProject?.features.commands === true;
-  const supportsApply = selectedProject?.features.apply !== false;
-  const supportsCommit = selectedProject?.features.commit !== false;
+  const projectSupportsApply = selectedProject?.features.apply === true;
+  const projectSupportsCommit = selectedProject?.features.commit === true;
+  const shouldLoadApplyState =
+    projectSupportsApply || Boolean(isHostProject && sessionId);
+  const shouldLoadCommitState =
+    projectSupportsCommit || Boolean(isHostProject && sessionId);
   const supportsPublish = selectedProject?.features.publish !== false;
+  const hostHasApplyState = Boolean(
+    isHostProject &&
+      applyResult &&
+      (applyResult.state !== "not_applied" ||
+        applyResult.apply_id ||
+        applyResult.reason === "operation_result_unknown"),
+  );
+  const hostHasCommitState = Boolean(
+    isHostProject &&
+      commitResult &&
+      (commitResult.state !== "not_committed" ||
+        commitResult.commit_id ||
+        commitResult.reason === "operation_result_unknown"),
+  );
+  const hostWritebackSurface = Boolean(
+    isHostProject &&
+      ((hostWritebackProtocolCapable &&
+        projectSupportsApply &&
+        projectSupportsCommit) ||
+        hostHasApplyState ||
+        hostHasCommitState),
+  );
+  const hostManagedDirtyState = Boolean(
+    isHostProject &&
+      selectedProject?.reason === "git_repository_dirty" &&
+      (hostHasApplyState || hostHasCommitState),
+  );
+  const hostWritebackRuntimeAvailable = Boolean(
+    isHostProject &&
+      hostRuntimeWritebackAvailable &&
+      selectedProject?.branch,
+  );
+  const hostApplyAvailable = Boolean(
+    hostWritebackRuntimeAvailable &&
+      ((selectedProject?.state === "available" && projectSupportsApply) ||
+        hostManagedDirtyState),
+  );
+  const hostCommitAvailable = Boolean(
+    hostWritebackRuntimeAvailable &&
+      ((selectedProject?.state === "available" && projectSupportsCommit) ||
+        hostManagedDirtyState),
+  );
   const localWriteback = Boolean(
-    isLocalProject && supportsApply && supportsCommit,
+    (isManifestProject && projectSupportsApply && projectSupportsCommit) ||
+      hostWritebackSurface,
+  );
+  const localWritebackAvailable = Boolean(
+    isHostProject
+      ? hostWritebackRuntimeAvailable &&
+          (hostApplyAvailable || hostCommitAvailable)
+      : isManifestProject
+        ? localWriteback &&
+          capabilities?.project_writeback?.available === true
+        : false,
   );
   const localDraftOnly = Boolean(isLocalProject && !localWriteback);
   const effectiveApplyCapability: CodingCapabilities["apply"] = localWriteback
     ? {
         allows_not_applicable: true,
         allows_quality_risk_confirmation: true,
-        available: capabilities?.project_writeback?.available === true,
-        configured: capabilities?.project_writeback?.configured === true,
-        reason: capabilities?.project_writeback?.reason,
+        available: isHostProject
+          ? hostApplyAvailable
+          : capabilities?.project_writeback?.available === true,
+        configured: isHostProject
+          ? hostWritebackProtocolCapable || hostHasApplyState
+          : capabilities?.project_writeback?.configured === true,
+        reason: isHostProject
+          ? hostApplyAvailable
+            ? undefined
+            : hostWritebackReason ?? "project_host_writeback_unavailable"
+          : capabilities?.project_writeback?.reason,
         requires_verification: false,
         supports_revert: true,
         target: "selected_local_repository",
@@ -529,10 +650,18 @@ export default function CodingPage() {
     : capabilities?.apply;
   const effectiveCommitCapability: CodingCapabilities["commit"] = localWriteback
     ? {
-        available: capabilities?.project_writeback?.available === true,
-        configured: capabilities?.project_writeback?.configured === true,
+        available: isHostProject
+          ? hostCommitAvailable
+          : capabilities?.project_writeback?.available === true,
+        configured: isHostProject
+          ? hostWritebackProtocolCapable || hostHasCommitState
+          : capabilities?.project_writeback?.configured === true,
         max_message_chars: 2_000,
-        reason: capabilities?.project_writeback?.reason,
+        reason: isHostProject
+          ? hostCommitAvailable
+            ? undefined
+            : hostWritebackReason ?? "project_host_writeback_unavailable"
+          : capabilities?.project_writeback?.reason,
         remote_operations: false,
         requires_apply: true,
         supports_undo: true,
@@ -563,8 +692,18 @@ export default function CodingPage() {
   const publishRunning =
     publishResult?.state === "publishing" ||
     publishResult?.state === "marking_ready";
+  const applyOperationActive = ["applying", "reverting"].includes(
+    applyResult?.state ?? "",
+  );
+  const commitOperationActive = ["committing", "undoing"].includes(
+    commitResult?.state ?? "",
+  );
   const sessionFrozen = Boolean(
     recoveryConflict ||
+      applyOperationActive ||
+      commitOperationActive ||
+      applyResult?.reason === "operation_result_unknown" ||
+      commitResult?.reason === "operation_result_unknown" ||
       recoveredState === "applied" ||
       recoveredState === "reverted" ||
       (applyResult?.apply_id &&
@@ -696,10 +835,23 @@ export default function CodingPage() {
       setRecovery(result.pending ? result : null);
       if (result.pending && result.project?.id) {
         setSelectedProjectId(result.project.id);
-        setProjects((current) => [
-          ...current.filter((project) => project.id !== result.project?.id),
-          result.project as CodingProjectSummary,
-        ]);
+        setProjects((current) => {
+          const recoveredProject = result.project as CodingProjectSummary;
+          const catalogProject = current.find(
+            (project) => project.id === recoveredProject.id,
+          );
+          if (!catalogProject) return [...current, recoveredProject];
+          return current.map((project) =>
+            project.id === recoveredProject.id
+              ? {
+                  ...recoveredProject,
+                  ...catalogProject,
+                  branch: catalogProject.branch ?? recoveredProject.branch,
+                  head: catalogProject.head ?? recoveredProject.head,
+                }
+              : project,
+          );
+        });
       }
     } catch (requestError) {
       setRecoveryError(describeError(requestError));
@@ -715,7 +867,10 @@ export default function CodingPage() {
       setCapabilities(result);
       try {
         const catalog = await getCodingProjects();
-        setProjects(catalog.projects.length ? catalog.projects : [BUILTIN_PROJECT]);
+        const nextProjects = catalog.projects.length
+          ? catalog.projects
+          : [BUILTIN_PROJECT];
+        setProjects((current) => mergeProjectCatalog(current, nextProjects));
         setProjectsError("");
       } catch (requestError) {
         setProjectsError(describeError(requestError));
@@ -749,8 +904,23 @@ export default function CodingPage() {
   }, [loadRecovery]);
 
   const refreshProjectCatalog = useCallback(
-    async (preferredProjectId?: string) => {
-      await loadCapabilities();
+    async (preferredProjectId?: string, quiet = false) => {
+      try {
+        const result = await getCodingCapabilities();
+        setCapabilities(result);
+        try {
+          const catalog = await getCodingProjects();
+          const nextProjects = catalog.projects.length
+            ? catalog.projects
+            : [BUILTIN_PROJECT];
+          setProjects((current) => mergeProjectCatalog(current, nextProjects));
+          setProjectsError("");
+        } catch (requestError) {
+          if (!quiet) setProjectsError(describeError(requestError));
+        }
+      } catch (requestError) {
+        if (!quiet) setProjectsError(describeError(requestError));
+      }
       if (preferredProjectId) {
         setSelectedProjectId(preferredProjectId);
         setError("");
@@ -758,7 +928,7 @@ export default function CodingPage() {
         setDraftNotice("");
       }
     },
-    [loadCapabilities],
+    [],
   );
 
   useEffect(() => {
@@ -778,7 +948,62 @@ export default function CodingPage() {
   }, [clearPendingStreamRender, loadCapabilities]);
 
   useEffect(() => {
-    if (!sessionId || projects.some((project) => project.id === selectedProjectId)) {
+    if (!isHostProject || capabilityState !== "ready") return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const status = await getCodingProjectHost();
+        if (!active) return;
+        const signature = JSON.stringify([
+          status.host_id,
+          status.version,
+          status.available,
+          status.direct_writeback,
+          status.writeback_available,
+          status.writeback_reason,
+          status.reason,
+        ]);
+        const capability = capabilities?.project_host;
+        const capabilityChanged =
+          status.available !== capability?.available ||
+          status.direct_writeback !== capability?.direct_writeback ||
+          status.writeback_available !== capability?.writeback_available ||
+          status.writeback_reason !== capability?.writeback_reason;
+        const statusChanged =
+          hostStatusSignatureRef.current !== null &&
+          hostStatusSignatureRef.current !== signature;
+        hostStatusSignatureRef.current = signature;
+        if (capabilityChanged || statusChanged) {
+          await refreshProjectCatalog(undefined, true);
+          await loadRecovery();
+        }
+      } catch {
+        // Preserve the last trusted UI state until the next lightweight probe.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [
+    capabilities?.project_host,
+    capabilityState,
+    isHostProject,
+    loadRecovery,
+    refreshProjectCatalog,
+  ]);
+
+  useEffect(() => {
+    const catalogProject = projects.find(
+      (project) => project.id === selectedProjectId,
+    );
+    const needsTrustedHostIdentity = Boolean(
+      catalogProject?.kind === "host_git" &&
+        (!catalogProject.branch || !catalogProject.head),
+    );
+    if (!sessionId || (catalogProject && !needsTrustedHostIdentity)) {
       return;
     }
     let active = true;
@@ -786,10 +1011,23 @@ export default function CodingPage() {
       .then((result) => {
         if (!active || !result.project) return;
         setSelectedProjectId(result.project.id);
-        setProjects((current) => [
-          ...current.filter((project) => project.id !== result.project?.id),
-          result.project as CodingProjectSummary,
-        ]);
+        setProjects((current) => {
+          const sessionProject = result.project as CodingProjectSummary;
+          const existing = current.find(
+            (project) => project.id === sessionProject.id,
+          );
+          if (!existing) return [...current, sessionProject];
+          const branch = existing.branch ?? sessionProject.branch;
+          const head = existing.head ?? sessionProject.head;
+          if (branch === existing.branch && head === existing.head) {
+            return current;
+          }
+          return current.map((project) =>
+            project.id === sessionProject.id
+              ? { ...sessionProject, ...project, branch, head }
+              : project,
+          );
+        });
       })
       .catch((requestError) => {
         if (
@@ -1117,7 +1355,7 @@ export default function CodingPage() {
   useEffect(() => {
     if (
       !isDraftMode ||
-      !supportsCommit ||
+      !shouldLoadCommitState ||
       !sessionId ||
       capabilities?.incremental?.enabled !== true
     ) {
@@ -1130,13 +1368,13 @@ export default function CodingPage() {
     isDraftMode,
     refreshCycleHistory,
     sessionId,
-    supportsCommit,
+    shouldLoadCommitState,
   ]);
 
   useEffect(() => {
     if (
       !isDraftMode ||
-      !supportsApply ||
+      !shouldLoadApplyState ||
       !sessionId ||
       !draftChanges?.files.length
     ) {
@@ -1170,13 +1408,13 @@ export default function CodingPage() {
     isDraftMode,
     resetExpiredSession,
     sessionId,
-    supportsApply,
+    shouldLoadApplyState,
   ]);
 
   useEffect(() => {
     if (
       !isDraftMode ||
-      !supportsCommit ||
+      !shouldLoadCommitState ||
       !sessionId ||
       !draftChanges?.files.length ||
       applyResult?.state !== "applied" ||
@@ -1214,7 +1452,143 @@ export default function CodingPage() {
     isDraftMode,
     resetExpiredSession,
     sessionId,
-    supportsCommit,
+    shouldLoadCommitState,
+  ]);
+
+  useEffect(() => {
+    if (
+      !sessionId ||
+      !draftChanges?.files.length ||
+      !applyOperationActive
+    ) {
+      return;
+    }
+    let active = true;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const result = await getCodingApplyStatus(
+          sessionId,
+          draftChanges.revision,
+        );
+        if (active) {
+          setApplyResult(result);
+          setApplyError("");
+        }
+      } catch (requestError) {
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setApplyError(describeError(requestError));
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [
+    applyOperationActive,
+    draftChanges?.files.length,
+    draftChanges?.revision,
+    resetExpiredSession,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !sessionId ||
+      !draftChanges?.files.length ||
+      !commitOperationActive
+    ) {
+      return;
+    }
+    let active = true;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const result = await getCodingCommitStatus(
+          sessionId,
+          draftChanges.revision,
+        );
+        if (active) {
+          setCommitResult(result);
+          setCommitError("");
+          if (result.state === "committed" || result.state === "undone") {
+            await refreshCycleHistory(sessionId);
+          }
+        }
+      } catch (requestError) {
+        if (!active) return;
+        if (
+          requestError instanceof CodingApiError &&
+          requestError.code === "session_not_found"
+        ) {
+          resetExpiredSession(sessionId);
+          return;
+        }
+        setCommitError(describeError(requestError));
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [
+    commitOperationActive,
+    draftChanges?.files.length,
+    draftChanges?.revision,
+    refreshCycleHistory,
+    resetExpiredSession,
+    sessionId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isHostProject ||
+      !applyResult ||
+      !["applied", "reverted", "failed"].includes(applyResult.state)
+    ) {
+      return;
+    }
+    void refreshProjectCatalog(undefined, true);
+  }, [
+    applyResult?.apply_id,
+    applyResult?.reason,
+    applyResult?.state,
+    isHostProject,
+    refreshProjectCatalog,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isHostProject ||
+      !commitResult ||
+      !["committed", "undone", "failed"].includes(commitResult.state)
+    ) {
+      return;
+    }
+    void refreshProjectCatalog(undefined, true);
+  }, [
+    commitResult?.commit_id,
+    commitResult?.reason,
+    commitResult?.state,
+    isHostProject,
+    refreshProjectCatalog,
   ]);
 
   const recoverExpiredSession = useCallback(
@@ -1590,6 +1964,7 @@ export default function CodingPage() {
       setCommitError("");
       setPublishResult(null);
       setPublishError("");
+      await refreshCycleHistory(sessionId);
       setDraftNotice(
         localWriteback
           ? "本次写入已撤销，所选本地项目已恢复。"
@@ -1694,6 +2069,9 @@ export default function CodingPage() {
       draftChanges.revision,
       commitResult.commit_id,
     );
+    if (isHostProject) {
+      await refreshProjectCatalog(undefined, true);
+    }
     setCycleHistory(history);
     setDraftChanges(await getCodingChanges(sessionId));
     setVerification(null);
@@ -1742,6 +2120,7 @@ export default function CodingPage() {
       setApplyResult(
         await getCodingApplyStatus(sessionId, draftChanges.revision),
       );
+      await refreshCycleHistory(sessionId);
       setDraftNotice(
         localWriteback
           ? "本地版本记录已撤销，文件修改仍保留在所选项目中。"
@@ -1900,6 +2279,7 @@ export default function CodingPage() {
           isDraft={isDraftMode}
           localDraftOnly={localDraftOnly}
           localWriteback={localWriteback}
+          localWritebackAvailable={localWritebackAvailable}
         />
       }
     >
@@ -1922,14 +2302,18 @@ export default function CodingPage() {
                 )}
                 {isLocalProject
                   ? localWriteback
-                    ? "修改草稿，确认后写入所选项目"
+                    ? localWritebackAvailable
+                      ? "修改草稿，确认后写入所选项目"
+                      : "保留写入状态，当前只读"
                     : "修改草稿，不会写入项目"
                   : isDraftMode
                     ? "修改草稿，确认后可应用"
                     : "只读实验"}
               </span>
-              <span className="rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs text-slate-300">
-                当前项目：{selectedProject?.name ?? "正在读取"}
+              <span className="inline-flex min-w-0 max-w-full rounded-full border border-white/10 bg-white/[0.045] px-2.5 py-1 text-xs text-slate-300">
+                <span className="min-w-0 break-all">
+                  当前项目：{selectedProject?.name ?? "正在读取"}
+                </span>
               </span>
             </div>
             <h1 className="mt-3 text-2xl font-semibold tracking-[-0.025em] text-white sm:text-3xl">
@@ -1939,14 +2323,16 @@ export default function CodingPage() {
               {isDraftMode
                 ? isLocalProject
                   ? localWriteback
-                    ? "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行检查，再决定是否写入所选本地项目并保存本地版本。"
+                    ? localWritebackAvailable
+                      ? "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行检查，再决定是否写入所选本地项目并保存本地版本。"
+                      : "所选项目已有写入状态会继续保留。当前可以查看和下载 Diff；恢复本地写入能力后，再核对原操作。"
                     : "描述希望调整的内容。代码助手会在隔离的临时副本中准备修改；你可以逐个文件查看并下载 Diff，本地项目不会被改变。"
                   : "描述希望调整的内容。代码助手会先在临时副本中准备修改；你可以逐个文件查看、运行项目验证，再决定下载 Diff、应用到专用项目副本或保存本地版本。"
                 : "你可以询问功能如何实现、页面与服务如何配合，或某段代码的作用。代码助手只能查看项目并回答，不会修改文件或执行命令。"}
             </p>
           </div>
           <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-white/10 bg-white/[0.045] px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/35 hover:bg-cyan-300/10 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-lg border border-white/10 bg-white/[0.045] px-3 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/35 hover:bg-cyan-300/10 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={capabilityState === "loading" || isBusy}
             onClick={() => void loadCapabilities()}
             type="button"
@@ -2009,11 +2395,17 @@ export default function CodingPage() {
               ))}
             </select>
             <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-400" id="coding-project-help">
-              {selectedProject?.state === "unavailable"
+              {selectedProject?.state === "unavailable" &&
+              !(isHostProject && (hostHasApplyState || hostHasCommitState))
                 ? projectReason[selectedProject.reason ?? ""] ??
                   "这个项目目前不能安全读取，请由开发者检查项目状态。"
                 : isLocalProject
-                  ? localWriteback
+                  ? isHostProject &&
+                    hostWritebackSurface &&
+                    !hostApplyAvailable &&
+                    !hostCommitAvailable
+                    ? "已有写入状态和 Diff 会继续保留；当前只允许查看和下载，恢复写入能力后可核对原操作。"
+                    : localWriteback
                     ? "可查看修改、确认离线检查、写入所选本地项目并保存本地版本；不会自动上传或创建 GitHub PR。"
                     : "可查看、准备修改、确认离线检查并下载 Diff；不会写入本地项目、创建提交或发布 PR。"
                   : "ModelMirror 提供修改审阅、项目验证、受控应用、本地提交和 GitHub 草稿 PR 的完整流程。"}
@@ -2022,7 +2414,18 @@ export default function CodingPage() {
               <p className="mt-1 text-xs leading-5 text-amber-100/80">
                 当前任务已绑定此项目。若本轮没有修改，可在下方结束当前任务；否则请先放弃或处理完现有修改。
               </p>
-            ) : isLocalProject && localDraftOnly && selectedProject?.writeback_reason ? (
+            ) : null}
+            {isHostProject &&
+            hostWritebackSurface &&
+            !hostApplyAvailable &&
+            !hostCommitAvailable ? (
+              <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                {projectReason[hostWritebackReason ?? ""] ??
+                  "本地项目助手当前不能执行写入。已有状态仍会保留，重新连接或更新助手后可继续核对。"}
+              </p>
+            ) : isLocalProject &&
+              localDraftOnly &&
+              selectedProject?.writeback_reason ? (
               <p className="mt-1 text-xs leading-5 text-amber-100/80">
                 {projectReason[selectedProject.writeback_reason] ??
                   "此项目当前只开放修改草稿，仍可查看、检查和下载修改。"}
@@ -2239,7 +2642,7 @@ export default function CodingPage() {
               <div className="flex gap-2">
                 {isBusy ? (
                   <button
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-rose-300/35 bg-rose-300/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-300/35 bg-rose-300/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={runState === "stopping"}
                     onClick={() => void stopTurn()}
                     type="button"
@@ -2249,7 +2652,7 @@ export default function CodingPage() {
                   </button>
                 ) : (
                   <button
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-4 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-4 text-sm font-semibold text-ink-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
                     disabled={
                       !workspaceAvailable ||
                       !prompt.trim() ||
@@ -2336,12 +2739,16 @@ export default function CodingPage() {
                 localWriteback={localWriteback}
                 loading={draftLoading}
                 readOnly={Boolean(recoveryConflict)}
+                selectedProject={localWriteback ? selectedProject : null}
                 onApply={applyDraft}
                 onClose={closeAppliedSession}
                 onCommit={commitAppliedDraft}
                 onContinue={
-                  !isLocalProject &&
-                  capabilities?.incremental?.available &&
+                  ((selectedProject?.kind === "builtin" &&
+                    capabilities?.incremental?.available) ||
+                    (selectedProject?.kind === "host_git" &&
+                      hostWritebackSurface &&
+                      capabilities?.incremental?.enabled)) &&
                   cycleHistory?.can_continue
                     ? continueAfterCommit
                     : undefined
@@ -2365,7 +2772,7 @@ export default function CodingPage() {
                 verificationAvailable={verificationAvailable}
                 verificationError={verificationError}
               />
-              {!isLocalProject ? (
+              {selectedProject?.kind !== "local_clone" ? (
                 <CodingHistoryPanel
                   disabled={isBusy}
                   history={cycleHistory}

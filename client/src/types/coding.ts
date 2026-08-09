@@ -15,22 +15,28 @@ export type CodingProjectKind = "builtin" | "local_clone" | "host_git";
 
 export interface CodingProjectHostCapability {
   available: boolean;
-  direct_writeback: false;
+  direct_writeback: boolean;
   enabled: boolean;
   paired: boolean;
   platform: "windows";
   reason?: string;
   remembers_projects: true;
   selection: true;
+  writeback_available?: boolean;
+  writeback_reason?: string;
 }
 
 export interface CodingProjectHostStatus {
   available: boolean;
+  direct_writeback?: boolean;
   host_id: string | null;
   name: string | null;
   paired: boolean;
   platform: "windows";
+  reason?: string;
   version: string | null;
+  writeback_available?: boolean;
+  writeback_reason?: string;
 }
 
 export interface CodingProjectHostPairing {
@@ -403,7 +409,7 @@ export type CodingCommitState =
   | "failed";
 
 export interface CodingCommitResult {
-  branch: "coding/local-draft";
+  branch: string;
   can_undo: boolean;
   commit_id: string | null;
   commit_sha: string | null;
