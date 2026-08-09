@@ -13,6 +13,8 @@ const steps = [
   ["pack-examples", ["run", "validate:examples"]],
   ["runtime-pack", ["run", "verify:runtime-pack"]],
   ["compiler", ["run", "verify:compiler"]],
+  ["runtime-simulator", ["run", "verify:runtime-simulator"]],
+  ["parity", ["run", "verify:parity"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],

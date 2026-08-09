@@ -38,6 +38,8 @@ Node 24 没有可移植的 `openat`/目录句柄相对打开接口，因此同�
 
 R2 Simulator 只能通过包根公开 API 作为黑盒 oracle。R3 contracts/validator 运行源码保持浏览器兼容，不访问网络、环境变量、文件系统、storage 或 `node:*`；Node 文件入口只能存在于模块根 CLI/验证层。
 
+R3.4 Runtime Simulator 只接受规范 Runtime Pack JSON 与必需 Receipt JSON；准备阶段先调用公开 Runtime Validator，再建立 opaque handle。运行快照使用索引位置与变量数组，并绑定 source SHA-256 和 artifact SHA-256；它只用于当前 prepared handle 的内存实验，不是正式存档。Parity harness 分别调用冻结 R2 包根与独立 Runtime 包根，排除有意不同的索引/哈希身份后比较全部可观察结果；任何单侧失败或投影差异只返回静态 parity 诊断，不发布候选快照。两个新包运行源码同样禁止网络、环境、文件系统、storage、父源码与 `node:*`。
+
 ## 自动范围门
 
 - schema v3 固定 `activeRound=R3` 与基线 `380c747e62193855c724a947d99a84070ca623ff`。
@@ -45,7 +47,7 @@ R2 Simulator 只能通过包根公开 API 作为黑盒 oracle。R3 contracts/val
 - `check:parent-scope -- --base <SHA>` 拒绝全部模块外变化；调用者不能用较新 SHA 缩短检查范围。
 - 两个检查均解析 NUL 分隔 Git 输出；未知或异常状态失败关闭。
 - standalone 中 round scope 只在模块精确等于仓库根时返回 `not_applicable`。
-- `verify` 继续执行 doctor、R3 scope、boundary、冻结 Pack 验证、Node tests、Creator build 与 loopback smoke。
+- `verify` 执行 doctor、R3 scope、boundary、冻结 Pack 验证、Runtime Pack、Compiler、独立 Runtime Simulator、parity、全量 Node tests、Creator build 与 loopback smoke。
 
 ## 父项目、共享栈与回退
 

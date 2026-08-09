@@ -1,6 +1,6 @@
 # Runtime Game Pack 0.1.0
 
-状态：R3.3 合同、严格 Validator、确定性 Compiler 与安全 CLI。独立 Runtime Simulator、parity harness 和 Creator 双执行接入仍未实现。
+状态：R3.4 合同、严格 Validator、确定性 Compiler、安全 CLI、独立 Runtime Simulator 与 parity harness。Creator 双执行接入仍未实现。
 
 ## 目的
 
@@ -107,9 +107,26 @@ validateRuntimeGamePackJson(runtimeText, receiptText): Promise<ValidationReport>
 
 Validator 运行源码保持浏览器兼容，哈希使用 Web Crypto；无 `node:*`、文件系统、网络、环境变量或持久化访问。
 
+## Runtime Simulator 与 parity
+
+独立 Runtime Simulator 的公开入口为：
+
+```ts
+prepareRuntimeGamePackJson(runtimeText, receiptText)
+createRuntimeGameSession(prepared, options?)
+inspectRuntimeGameSession(prepared, snapshot)
+applyRuntimeGameSessionAction(prepared, snapshot, actionId)
+```
+
+prepare 为异步且必须同时通过 Runtime Validator 的 Pack/Receipt 完整性门；prepared handle 不可序列化。其余调用同步、纯内存、每次最多推进一步。Runtime 快照以节点/结局索引和变量数组执行，并绑定 Runtime format、Authoring source identity、source SHA-256 与 artifact SHA-256；JSON round-trip 只保证继续交给同一 prepared handle，不构成正式存档合同。
+
+Runtime evaluator 独立实现全部九种 condition、三种 effect、typed target、短路、顺序工作副本、Cue 顺序、循环、step limit 与安全整数溢出原子回滚。预期失败沿用冻结 R2 的 `PACK_RUNTIME_*` code/path；不可恢复故障只抛固定 `PACK_RUNTIME_INTERNAL_ERROR`。
+
+Parity harness 编译同一 Authoring JSON，分别准备冻结 R2 Authoring Simulator 与独立 Runtime Simulator。它只从两个包根调用公开 API，把 Runtime 的索引/哈希身份投影回 Authoring 可观察身份后比较位置、正文、实体、变量、actions/availability、步数、transition 与 Cue。只有两侧成功且投影完全相等时才返回新的复合快照；匹配的预期失败保留 R2 运行诊断，单侧失败或结果差异返回静态 `PACK_PARITY_MISMATCH`。harness 同时返回规范 Pack/Receipt 文本供后续 Creator 下载，但不自动写文件。
+
 ## 兼容与回退
 
 - Validator 只接受上述两个 `0.1.0` 格式和 `matrix-oasis.canonical-json/1`。
 - 未知格式、版本、字段或编译器身份失败关闭，不猜测、不迁移。
 - 改变既有合法 Runtime Pack 字节或语义时必须升级 Runtime `formatVersion`。
-- R3.3 可通过逆序 revert Compiler/CLI 提交恢复到仅合同与 Validator；冻结的 R1/R2 输入不受影响。
+- R3.4 可通过逆序 revert Runtime Simulator/parity 提交恢复到完整 R3.3；冻结的 R1/R2 输入不受影响。

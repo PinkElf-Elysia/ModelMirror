@@ -1,0 +1,26 @@
+{
+  "name": "@matrix-oasis/runtime-pack-simulator",
+  "version": "0.1.0-r3",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24.0.0 <25.0.0",
+    "npm": ">=11.0.0 <12.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs",
+      "default": "./src/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@matrix-oasis/runtime-pack-validator": "0.1.0-r3"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

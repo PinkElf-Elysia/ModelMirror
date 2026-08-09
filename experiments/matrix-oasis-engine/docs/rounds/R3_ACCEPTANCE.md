@@ -1,6 +1,6 @@
 # R3 验收记录
 
-状态：R3.1-R3.2a 已提交；R3.3 确定性 Compiler 与安全 CLI 已完成并验证，等待本地提交；R3.4-R3.6 尚未实施
+状态：R3.1-R3.3 已提交；R3.4 独立 Runtime Simulator 与 parity harness 已完成并验证，等待本地提交；R3.5-R3.6 尚未实施
 
 固定基线：`380c747e62193855c724a947d99a84070ca623ff`
 
@@ -23,8 +23,8 @@
 | R3.1 | 治理、精确 allowlist 与 R1/R2 冻结 | `27a33d65e8eb7ed43821a907ae991797449ed5bc` | 已完成 |
 | R3.2 | Runtime Pack/Receipt 合同与 Validator | `c019585420ca9e9c3d979a98767699a95e842586` | 已完成 |
 | R3.2a | 冻结 R1 字符串域的规范化兼容修正 | `5af297be551f37bfba938bc927cd12d17350fc2b` | 已完成 |
-| R3.3 | 确定性 Compiler 与安全 CLI | 本批提交；SHA 由下一批或仓外交付清单记录 | 已验证，等待本地提交 |
-| R3.4 | 独立 Runtime Simulator 与 parity harness | 待提交 | 未开始 |
+| R3.3 | 确定性 Compiler 与安全 CLI | `a888cf5c9f1eea23de88f139bd8f105ee1a4b641` | 已完成 |
+| R3.4 | 独立 Runtime Simulator 与 parity harness | 本批提交；SHA 由下一批或仓外交付清单记录 | 已验证，等待本地提交 |
 | R3.5 | Creator 双执行锁步实验台 | 待提交 | 未开始 |
 | R3.6 | 拆分、无回归、浏览器与证据收口 | 待提交 | 未开始 |
 
@@ -124,5 +124,31 @@ R3.3 实施前发现冻结 R1 Validator 会合法接受孤立 UTF-16 代理项�
 文件边界事实：编译 CLI 只接受模块内相对 `.json`、1 MiB 与安全小写 slug；Runtime/Receipt 回验上限为 16 MiB/16 KiB。发布以同父暂存、`wx+` FileHandle、bigint dev/ino、句柄回读、公开 Validator 与单次目录 rename 完成；已存在、外部 junction、可观察替换和竞态失败关闭，不覆盖或递归删除身份不可信目标。Node 无可移植 `openat`，所以恶意同用户在身份门与 open 的瞬间仍可能留下外部零字节文件，且成功返回后可再次篡改；R3.3 不虚称恶意宿主安全事务。
 
 范围与回退：R1/R2 冻结包、examples、CLI/语义测试及 R0-R2 ADR/验收记录相对固定基线零差异；Creator 与父 `client`、`server`、`.github`、Docker、根 manifest/lock 和 Matrix Oasis 页面零差异。未启动父服务、Docker 或共享栈。逆序 revert 本批提交即可删除 Compiler workspace、CLI、根接线和本批文档，恢复到完整 R3.2a；无数据库、路由、服务、环境变量或运行数据迁移。
+
+## R3.4 验收证据
+
+本批变更严格限于 30 个模块内路径：
+
+- `packages/runtime-pack-simulator/**` 共 10 个文件：private workspace、公开类型、独立 prepared/snapshot/evaluator、安全诊断、说明与测试。
+- `packages/game-pack-parity-harness/**` 共 7 个文件：private workspace、包根黑盒锁步适配、可观察投影、说明与测试。
+- 语义门：`tests/runtime-pack-simulator-semantics.test.mjs` 与 `tests/game-pack-parity.test.mjs`。
+- 模块根接线：`package.json`、`package-lock.json` 与 `scripts/run-verify.mjs`。
+- 文档：`README.md`、`docs/ARCHITECTURE.md`、`docs/BOUNDARIES.md`、`docs/DEPENDENCIES_AND_LICENSES.md`、`docs/KNOWN_LIMITATIONS.md`、`docs/RUNTIME_GAME_PACK.md`、`docs/RUNTIME_PACK_THREAT_MODEL.md` 与本文。
+
+已执行并通过：
+
+- `npm.cmd ci --offline --no-audit --no-fund`：从本机缓存安装 84 packages，退出 0；lockfile 只新增两个内部 workspace link/元数据，无 registry 依赖变化。
+- `npm.cmd run test:runtime-simulator`：16/16 通过；覆盖强制 Receipt、source/artifact 双哈希身份、九种 condition、短路与边界、三种 effect、两种 target、顺序工作副本、正负溢出原子回滚、Cue、循环、step limit、快照门与 20 次确定性。
+- `npm.cmd run test:parity`：14/14 通过；覆盖冻结 R2 包根黑盒调用、精确中性轨迹、匹配错误诊断、单侧快照篡改、复合快照 round-trip、20 次 Artifact/会话稳定及两个夹具的有界可达状态探索。
+- `npm.cmd test`：352/352 通过，既有 R0-R3.3 harness、合同、Validator、Compiler、CLI、Creator 与冻结 R2 语义无回归。
+- 严格声明类型检查通过；浏览器 bundle：Runtime Simulator 364,871 bytes、parity harness 446,070 bytes，运行源码无 `node:*`、网络、文件系统、环境变量、storage、父源码或题材专用分支。
+- `npm.cmd run verify`：11/11 步通过；包含 doctor、round scope、boundary、样例、Runtime Pack、Compiler、Runtime Simulator、parity、全部测试、Creator build 与 loopback smoke。
+- `npm.cmd run check:boundary`、`npm.cmd run check:round-scope`、`npm.cmd run check:parent-scope -- --base 380c747e62193855c724a947d99a84070ca623ff` 与 `git diff --check`：全部退出 0。
+
+语义事实：Runtime prepare 只接受规范 Runtime Pack JSON 与必需 Receipt JSON，并在公开 Validator 完整性门后建立 opaque handle。Runtime 快照使用索引位置与变量数组，并同时绑定 Authoring source SHA-256 和 Artifact SHA-256。evaluator 独立实现且不导入 Compiler、examples、Creator 或冻结 R2 源码；parity harness 只从 R2 与 Runtime 包根调用公开 API，排除有意不同的索引/哈希身份后比较全部可观察状态、inspection、action availability、transition 与 Cue。
+
+夹具事实：中性夹具五步精确到变量、位置和 Cue；末班地铁无需题材特判到达三个 ending，并在显式循环与精确 step limit 下保持 parity。有界 BFS 以位置、变量和步数为状态键，探索所有当前可用 action；样例仍只承担可替换验证职责，不进入运行源码或公共合同。
+
+范围与回退：冻结 R1/R2 文件、Creator、examples 与 R0-R2 历史记录相对 `a888cf5` 零差异；父仓与共享栈零改动。逆序 revert 本批提交即可删除两个新 workspace、语义测试、根接线和本批文档，恢复到完整 R3.3；无数据库、路由、服务、环境变量、Artifact 入库或运行数据迁移。
 
 用户明确回复“R3 验收通过，可以创建PR”前不 push、不创建 PR。

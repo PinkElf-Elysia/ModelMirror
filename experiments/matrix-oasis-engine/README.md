@@ -1,6 +1,6 @@
 # 矩阵绿洲 AI 原生 3D 游戏引擎（实验模块）
 
-这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.3 已形成确定性 Compiler、Runtime Pack/Receipt 0.1.0 合同、严格 Validator 与安全文件 CLI，但尚未实现独立编译态执行。
+这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.4 已形成从 Authoring 到规范 Artifact、强制 Receipt 准入、独立编译态执行与黑盒锁步差分的完整内存闭环。
 
 ## R3 当前状态
 
@@ -8,6 +8,7 @@
 - R3.2 新增浏览器兼容的 Runtime Pack/Receipt 合同、canonical-json/1 与严格 Validator；Receipt 为必需完整性输入，但不是签名或信任证明。
 - R3.2a 兼容冻结 R1 的完整字符串准入范围：孤立 UTF-16 代理项以确定性 ASCII 转义保留，不改 R1，也不做替换字符修复。
 - R3.3 新增浏览器兼容的确定性 Compiler；CLI 只在模块内读取 JSON，并以同目录暂存、独占写入、回读自校验和单次目录 rename 发布固定 Pack/Receipt 文件对。
+- R3.4 新增独立 Runtime Simulator 与 parity harness；Runtime 快照以索引执行并绑定 source/artifact 双哈希，harness 只从冻结 R2 包根调用黑盒 oracle，差异失败关闭。
 - 固定基线为 `380c747e62193855c724a947d99a84070ca623ff`。
 - R1 contracts、Validator/CLI、examples，R2 Simulator/语义测试以及 R0-R2 历史 ADR/验收记录字节冻结。
 - schema v3 对既有 app/docs/scripts/tests 使用精确文件白名单，只对五个批准的新 R3 package 使用目录前缀。
@@ -28,7 +29,7 @@ Authoring Game Pack 0.1.0
 → Creator parity lab
 ```
 
-R3.3 已完成 Compiler、合同、Validator 与 CLI；独立 Runtime Simulator、parity harness 和 Creator 双执行仍须按批准批次实现和验收。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。
+R3.4 已完成 Compiler、合同、Validator、CLI、独立 Runtime Simulator 与 parity harness；Creator 双执行锁步仍须在 R3.5 的精确白名单内实现和验收。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。
 
 ## 独立性约束
 
@@ -51,6 +52,8 @@ npm.cmd ls --all
 npm.cmd run check:boundary
 npm.cmd run check:round-scope
 npm.cmd run verify:compiler
+npm.cmd run verify:runtime-simulator
+npm.cmd run verify:parity
 npm.cmd test
 npm.cmd run verify
 npm.cmd run verify:extraction

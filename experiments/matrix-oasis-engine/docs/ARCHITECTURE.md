@@ -1,11 +1,11 @@
 # 架构方向
 
 最后更新：2026-08-08
-状态：R3.3 确定性 Compiler、Runtime Pack/Receipt 与安全 CLI
+状态：R3.4 独立 Runtime Simulator 与黑盒 parity harness
 
 ## 当前系统
 
-R1 Authoring Game Pack 0.1.0 与 Validator、R2 确定性参考模拟器及 Creator 最小运行实验台保持冻结。R3.3 已新增 canonical-json/1、确定性 Compiler、Runtime Pack/Receipt 0.1.0 合同、严格 Validator 与模块内安全 CLI；独立 Runtime Simulator 与 parity harness 尚未实现。
+R1 Authoring Game Pack 0.1.0 与 Validator、R2 确定性参考模拟器及 Creator 最小运行实验台保持冻结。R3.4 已新增 canonical-json/1、确定性 Compiler、Runtime Pack/Receipt 0.1.0 合同、严格 Validator、模块内安全 CLI、独立 Runtime Simulator 与包根黑盒 parity harness。Creator 仍保持 R2 状态，等待 R3.5 精确解冻。
 
 ## R3 目标数据流
 
@@ -19,7 +19,7 @@ Authoring Game Pack 0.1.0
   → Creator parity lab
 ```
 
-R3 不把 Runtime Pack 提前等同于 Godot 格式，也不复用 R2 evaluator。两个 Simulator 必须独立实现，并只通过公开结果投影做差分。
+R3 不把 Runtime Pack 提前等同于 Godot 格式，也不复用 R2 evaluator。两个 Simulator 独立实现；parity harness 只比较 source identity 投影、位置/正文/实体、变量、action 可用性、步数、transition 与 Cue，不以共享代码自证等价。
 
 ## 独立模块原则
 
