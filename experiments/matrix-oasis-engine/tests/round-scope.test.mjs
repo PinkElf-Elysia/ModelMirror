@@ -18,8 +18,10 @@ import {
   classifyRoundPath,
 } from "../scripts/lib/parent-scope-core.mjs";
 import {
+  ACTIVE_ROUND,
+  ACTIVE_ROUND_BASELINE_SHA,
   ROUND_ALLOWED_MODULE_PREFIXES,
-  ROUND_ALLOWED_MODULE_ROOT_FILES,
+  ROUND_ALLOWED_MODULE_FILES,
   ROUND_FROZEN_MODULE_PATHS,
 } from "../scripts/lib/scope-policy.mjs";
 
@@ -67,13 +69,18 @@ function makeParentFixture(t) {
   write(fixture, `${MODULE_PREFIX}/package.json`, "{}\n");
   write(fixture, `${MODULE_PREFIX}/apps/creator-web/index.html`, "fixture\n");
   write(fixture, `${MODULE_PREFIX}/packages/game-pack-contracts/src/index.mjs`);
+  write(fixture, `${MODULE_PREFIX}/packages/game-pack-simulator/src/index.mjs`);
   write(fixture, `${MODULE_PREFIX}/packages/game-pack-validator/src/index.mjs`);
   write(fixture, `${MODULE_PREFIX}/examples/neutral.json`);
   write(fixture, `${MODULE_PREFIX}/docs/AUTHORING_GAME_PACK.md`);
   write(fixture, `${MODULE_PREFIX}/docs/adr/0001-isolated-experiment-module.md`);
   write(fixture, `${MODULE_PREFIX}/docs/adr/0002-r1-active-round-governance.md`);
+  write(fixture, `${MODULE_PREFIX}/docs/adr/0003-r2-reference-simulator-governance.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R0_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R1_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R2_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/scripts/validate-pack.mjs`);
+  write(fixture, `${MODULE_PREFIX}/tests/game-pack-simulator-semantics.test.mjs`);
   write(fixture, "client/fixture.txt", "parent fixture\n");
   const base = initializeGit(fixture);
   registerCleanup(t, fixture);
@@ -88,14 +95,17 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R2 allowlist", () => {
+test("machine boundary and code expose the same ordered R3 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
+  assert.equal(policy.schemaVersion, 3);
+  assert.equal(policy.activeRound, ACTIVE_ROUND);
+  assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
-    policy.activeRoundChangePolicy.allowedModuleRootFiles,
-    ROUND_ALLOWED_MODULE_ROOT_FILES,
+    policy.activeRoundChangePolicy.allowedModuleFiles,
+    ROUND_ALLOWED_MODULE_FILES,
   );
   assert.deepEqual(
     policy.activeRoundChangePolicy.allowedModulePrefixes,
@@ -107,17 +117,17 @@ test("machine boundary and code expose the same ordered R2 allowlist", () => {
   );
 });
 
-test("accepts allowlisted R2 changes in every Git status source", (t) => {
+test("accepts exact R3 files and new-package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/apps/creator-web/index.html`, "R2 lab\n");
+  write(fixture, `${MODULE_PREFIX}/apps/creator-web/src/App.tsx`, "R3 lab\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/packages/game-pack-simulator/src/index.mjs`);
-  git(fixture, ["add", `${MODULE_PREFIX}/packages/game-pack-simulator/src/index.mjs`]);
-  write(fixture, `${MODULE_PREFIX}/scripts/r2.mjs`, "unstaged\n");
-  git(fixture, ["add", `${MODULE_PREFIX}/scripts/r2.mjs`]);
-  write(fixture, `${MODULE_PREFIX}/scripts/r2.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R2_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/packages/game-pack-compiler/src/index.mjs`);
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/game-pack-compiler/src/index.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
+  write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R3_ACCEPTANCE.md`);
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -133,7 +143,7 @@ test("rejects a committed R1 contracts change", (t) => {
 
   expectCode(
     () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-    "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
 });
 
@@ -144,7 +154,7 @@ test("rejects a staged R1 validator change", (t) => {
 
   expectCode(
     () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-    "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
 });
 
@@ -154,7 +164,7 @@ test("rejects an unstaged R1 example change", (t) => {
 
   expectCode(
     () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-    "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
 });
 
@@ -164,18 +174,18 @@ test("rejects an untracked file under frozen R1 examples", (t) => {
 
   expectCode(
     () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-    "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
 });
 
-for (const acceptance of ["R0_ACCEPTANCE.md", "R1_ACCEPTANCE.md"]) {
+for (const acceptance of ["R0_ACCEPTANCE.md", "R1_ACCEPTANCE.md", "R2_ACCEPTANCE.md"]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
     write(fixture, `${MODULE_PREFIX}/docs/rounds/${acceptance}`, "changed\n");
 
     expectCode(
       () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-      "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+      "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
     );
   });
 }
@@ -184,6 +194,7 @@ for (const historicalPath of [
   "docs/AUTHORING_GAME_PACK.md",
   "docs/adr/0001-isolated-experiment-module.md",
   "docs/adr/0002-r1-active-round-governance.md",
+  "docs/adr/0003-r2-reference-simulator-governance.md",
 ]) {
   test(`rejects byte changes to frozen ${historicalPath}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -191,7 +202,40 @@ for (const historicalPath of [
 
     expectCode(
       () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-      "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+      "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+    );
+  });
+}
+
+for (const frozenPath of [
+  "packages/game-pack-simulator/src/index.mjs",
+  "scripts/validate-pack.mjs",
+  "tests/game-pack-simulator-semantics.test.mjs",
+]) {
+  test(`rejects byte changes to frozen R1/R2 implementation ${frozenPath}`, (t) => {
+    const { fixture, moduleRoot, base } = makeParentFixture(t);
+    write(fixture, `${MODULE_PREFIX}/${frozenPath}`, "changed\n");
+
+    expectCode(
+      () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
+      "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+    );
+  });
+}
+
+for (const unknownPath of [
+  "apps/creator-web/src/unplanned.ts",
+  "docs/unplanned.md",
+  "scripts/unplanned.mjs",
+  "tests/unplanned.test.mjs",
+]) {
+  test(`rejects unlisted path inside formerly broad prefix ${unknownPath}`, (t) => {
+    const { fixture, moduleRoot, base } = makeParentFixture(t);
+    write(fixture, `${MODULE_PREFIX}/${unknownPath}`);
+
+    expectCode(
+      () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
+      "ROUND_SCOPE_PATH_NOT_ALLOWLISTED",
     );
   });
 }
@@ -250,20 +294,28 @@ test("rejects a caller-selected base", (t) => {
 test("round path classifier exposes stable guard categories", () => {
   assert.equal(classifyRoundPath(`${MODULE_PREFIX}/apps/creator-web/src/App.tsx`), null);
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/game-pack-simulator/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/game-pack-compiler/src/index.mjs`),
     null,
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/packages/game-pack-contracts/src/index.mjs`),
-    "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/game-pack-simulator/src/index.mjs`),
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/docs/rounds/R1_ACCEPTANCE.md`),
-    "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/docs/AUTHORING_GAME_PACK.md`),
-    "ROUND_GUARD_R1_ARTIFACT_CHANGED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/docs/unplanned.md`),
+    "ROUND_SCOPE_PATH_NOT_ALLOWLISTED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/unexpected-root.txt`),

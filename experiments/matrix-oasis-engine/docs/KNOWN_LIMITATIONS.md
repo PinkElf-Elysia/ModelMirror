@@ -1,18 +1,14 @@
-# R2 已知限制
+# R3.1 已知限制
 
-R2 聚焦确定性参考语义与最小运行实验台。R2.4 已完成模块内 Creator 接入，以下限制必须如实保留：
-
-- R1 Authoring Game Pack 0.1.0、Validator、两个样例及历史验收记录在 R2 字节冻结；发现问题时必须停报，不能在本轮顺手修复。
-- Creator 只提供纯内存验证、单步、观察和重置；不构成编辑器、生产运行时或正式玩家客户端。
-- 参考模拟器不定义 Compiler、Runtime Pack、正式存档、批量回放、随机、时间或并发。
-- 会话身份只依赖 Pack format、formatVersion、id 与 contentVersion，不计算内容哈希；作者修改内容时必须提升 contentVersion。
-- Creator 只允许两个内置夹具与用户主动选择的不超过 1 MiB 的本地 UTF-8 JSON；不提供编辑、保存、导出、自动运行、节点图或题材包装。
-- 本地会话快照只在当前页面内存中使用；刷新页面会丢失状态，prepared handle 与 snapshot 也不是正式存档协议。
-- “末班地铁：回声十三站”仍是可替换的薄型集成夹具，不承诺最终题材、剧情质量、美术、音频或可玩成品。
-- 未连接父项目模型、RAG、MCP、Agent、资产、鉴权、路由、API、数据库或共享栈。
-- 没有 AI Provider、NPC、3D、Gaussian Splat、Tauri、Godot 工程或部署流程；Godot 4.6.x 缺失不会阻塞 R2。
-- 没有根 CI 门覆盖本模块；验证继续从模块根手动执行，并以历史保留型拆分证明可移植性。
+- R3.1 只有治理与隔离基线；Compiler、Runtime Pack/Receipt、Runtime Validator、Runtime Simulator、parity harness 与 Creator 双执行均未实现。
+- 当前可运行能力仍是 R2 参考模拟器和最小运行实验台，不能宣称编译态或生产运行时就绪。
+- R1/R2 权威输入已冻结；发现缺陷时必须停报，不能混入 R3 修复。
+- Runtime Pack 0.1.0、规范 JSON 与 Receipt 的稳定合同要到后续批次才形成。
+- 不提供正式存档、回放、undo/redo、自动运行、随机、时间或并发。
+- 样例只用于验证，不承诺最终题材、剧情、美术、音频或成品质量。
+- 未连接父项目、共享栈、AI、NPC、RAG、MCP、Godot、3D、资产或部署。
+- 模块仍依赖手动执行本地门与拆分验证；没有新增根 CI。
 - 模块为 `UNLICENSED` 内部实验，不发布 npm 包。
-- 当前 lockfile 仍包含已记录的 `esbuild@0.27.7` low severity 开发期问题；R2 继续只允许 loopback 开发与预览，不自动升级固定工具链。
+- lockfile 中既有 `esbuild@0.27.7` low severity 开发期问题未在 R3.1 升级；preview 继续限制为 loopback。
 
-移除任一限制必须进入明确批次、补齐验收与回退，不能以样例打磨替代引擎主线。
+移除任一限制必须进入对应批准批次并补齐验收与回退。

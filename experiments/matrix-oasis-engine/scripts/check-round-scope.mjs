@@ -9,7 +9,7 @@ import {
   ACTIVE_ROUND,
   ACTIVE_ROUND_BASELINE_SHA,
   ROUND_ALLOWED_MODULE_PREFIXES,
-  ROUND_ALLOWED_MODULE_ROOT_FILES,
+  ROUND_ALLOWED_MODULE_FILES,
   ROUND_FROZEN_MODULE_PATHS,
 } from "./lib/scope-policy.mjs";
 
@@ -33,8 +33,8 @@ try {
     policy.activeRound !== ACTIVE_ROUND ||
     policy.activeRoundBaselineSha !== ACTIVE_ROUND_BASELINE_SHA ||
     !sameStringArray(
-      policy.activeRoundChangePolicy?.allowedModuleRootFiles,
-      ROUND_ALLOWED_MODULE_ROOT_FILES,
+      policy.activeRoundChangePolicy?.allowedModuleFiles,
+      ROUND_ALLOWED_MODULE_FILES,
     ) ||
     !sameStringArray(
       policy.activeRoundChangePolicy?.allowedModulePrefixes,

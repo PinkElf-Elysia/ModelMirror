@@ -1,66 +1,37 @@
 # 架构方向
 
-最后更新：2026-08-07
-状态：R2.4 最小运行实验台
+最后更新：2026-08-08
+状态：R3.1 治理与隔离基线
 
 ## 当前系统
 
-R1 已完成的 Authoring Game Pack 合同、验证器与两个样例在 R2 字节冻结。R2.2 已实现独立参考模拟器，R2.3 已用中性权威轨迹和可替换集成夹具固定其语义；R2.4 已让 Creator Web 通过公开接口接入模拟器。
+R1 Authoring Game Pack 0.1.0 与 Validator、R2 确定性参考模拟器及 Creator 最小运行实验台已经存在。R3.1 只冻结这些权威输入并建立 R3 范围门；Compiler、Runtime Pack、Receipt、独立 Runtime Simulator 与 parity harness 尚未实现。
+
+## R3 目标数据流
 
 ```text
-┌───────────────────────────────┐
-│ Creator Web：最小运行实验台   │
-│ - 无父项目适配器              │
-│ - 内置/本地 Pack 严格验证     │
-│ - 参考模拟器单步执行与观察    │
-│ - 候选会话 ready 后原子替换   │
-│ - 无外部网络                  │
-│ - 无 Godot Runtime            │
-└───────────────────────────────┘
+Authoring Game Pack 0.1.0
+  → R1 Validator（冻结）
+  → R3 Compiler
+  → Immutable Runtime Pack 0.1.0 + Receipt
+  → Independent Runtime Simulator
+  ↔ R2 Reference Simulator（冻结、仅包根黑盒调用）
+  → Creator parity lab
 ```
 
-## 组件方向与 R2 边界
-
-```text
-Creator
-  │ 作者编辑意图（未来）
-  ▼
-Authoring Game Pack
-  │ R1 确定性验证
-  ▼
-Validator
-  │ R2 参考执行与可观察轨迹（已实现）
-  ▼
-Deterministic Reference Simulator
-  │ 不构成生产运行包
-  ▼
-Compiler（未来）
-  │ 产生不可变运行包（未来）
-  ▼
-Immutable Runtime Pack
-  │ 只读加载（未来）
-  ▼
-Godot Runtime
-```
-
-参考模拟器只消费已通过 R1 Validator 的 Pack，以显式输入产生确定性状态与单步轨迹；它不修改 Pack、不访问网络、不持久化状态，也不伪装为 Runtime Pack 或 Godot 行为。Creator 只接入这些公开纯函数，在浏览器内存中提供验证、单步、观察与重置。
+R3 不把 Runtime Pack 提前等同于 Godot 格式，也不复用 R2 evaluator。两个 Simulator 必须独立实现，并只通过公开结果投影做差分。
 
 ## 独立模块原则
 
-- 模块内部拥有源代码、manifest、lockfile、构建、测试、诊断和拆分脚本。
-- 父仓各模块未来只能经独立轮次设计、版本化并获人工批准的适配器被视为“可复用工具箱”；R2 不限定适配器协议。
-- 在适配器获得人工审批前，父项目交互保持为空。
-- 运行时依赖方向只能由本模块指向本模块内稳定接口，禁止隐式读取父源码或父环境。
-- 每个后续轮次都必须保持“可 subtree 拆分”和“revert 即删除”的性质。
+- 模块内部拥有 manifest、lockfile、构建、测试、诊断和拆分脚本。
+- 父仓能力仍只是未经接入的“可复用工具箱”；没有批准的适配器前，父项目交互为空。
+- 运行依赖只能指向模块内 workspace 公共入口，禁止读取父源码、父环境或模块外路径。
+- 新格式与新执行器保持浏览器兼容、无网络、无持久化，并可随模块 subtree 拆分。
+- 每批都先通过固定范围、自动验证与回退门，再进入下一批。
 
-## R0 决策记录
+## 决策记录
 
-见 [`adr/0001-isolated-experiment-module.md`](./adr/0001-isolated-experiment-module.md)。
-
-## R1 决策记录
-
-见 [`adr/0002-r1-active-round-governance.md`](./adr/0002-r1-active-round-governance.md)。
-
-## R2 决策记录
-
-见 [`adr/0003-r2-reference-simulator-governance.md`](./adr/0003-r2-reference-simulator-governance.md)。
+- [ADR-0001：独立实验模块](./adr/0001-isolated-experiment-module.md)
+- [ADR-0002：R1 活动轮次治理](./adr/0002-r1-active-round-governance.md)
+- [ADR-0003：R2 参考模拟器治理](./adr/0003-r2-reference-simulator-governance.md)
+- [ADR-0004：R3 Runtime Pack 与双执行治理](./adr/0004-r3-runtime-pack-governance.md)
