@@ -1,106 +1,93 @@
 # 矩阵绿洲 AI 原生 3D 游戏引擎（实验模块）
 
-这是模镜仓库中的独立实验模块。R2 以已验收的 Authoring Game Pack 合同与确定性验证器为冻结输入，建设案例无关的确定性参考模拟器与 Creator 最小运行实验台；模块仍必须可独立验证、拆分和回退。
+这是模镜仓库中的独立实验模块。R3 以 R1 Authoring Game Pack/Validator 和 R2 确定性参考模拟器为冻结权威，逐批建立 Compiler、不可变 Runtime Pack、独立 Runtime Simulator 与黑盒语义等价验证；模块始终保持可独立验证、拆分和回退。R3.5 已把这条链路接入独立 Creator：候选 Pack 只有在编译、双侧创建与每步可观察结果一致时才会原子替换当前会话。
 
-## R2 固定范围
+## R3 当前状态
 
-- R2.1 将活动轮次切换到固定 R2 基线，并以正向 allowlist 限制本轮变更。
-- R1 contracts、validator、examples 与 R0/R1 验收记录保持字节冻结。
-- R2.2 已在 `packages/game-pack-simulator/**` 建立浏览器兼容的确定性参考模拟器。
-- R2.3 以中性权威夹具固定完整语义矩阵，并仅把“末班地铁”作为可替换集成输入。
-- R2.4 已把 Creator 演进为最小运行实验台，支持内置夹具、本地 JSON、单步执行、状态观察与重置。
-- 样例仅用于测试、语义追踪和可视化验收，不得驱动题材专属引擎设计或叙事打磨。
-- Creator 只调用模拟器公开接口；本地候选必须完整通过读取、严格验证与会话创建后才会原子替换当前会话。
-- Godot 4.6.x 仍是未来可选工具，不是 R2 前置条件。
+- R3.1 已切换活动轮次、固定基线与正向范围策略。
+- R3.2 新增浏览器兼容的 Runtime Pack/Receipt 合同、canonical-json/1 与严格 Validator；Receipt 为必需完整性输入，但不是签名或信任证明。
+- R3.2a 兼容冻结 R1 的完整字符串准入范围：孤立 UTF-16 代理项以确定性 ASCII 转义保留，不改 R1，也不做替换字符修复。
+- R3.3 新增浏览器兼容的确定性 Compiler；CLI 只在模块内读取 JSON，并以同目录暂存、独占写入、回读自校验和单次目录 rename 发布固定 Pack/Receipt 文件对。
+- R3.4 新增独立 Runtime Simulator 与 parity harness；Runtime 快照以索引执行并绑定 source/artifact 双哈希，harness 只从冻结 R2 包根调用黑盒 oracle，差异失败关闭。
+- R3.5 将 Creator 升级为双执行锁步实验台；内置或本地 Pack 均通过 parity harness 准备，重置和单步操作按引用 CAS 原子提交，并可由用户明确点击下载规范 Runtime Pack 与 Receipt。
+- 固定基线为 `380c747e62193855c724a947d99a84070ca623ff`。
+- R1 contracts、Validator/CLI、examples，R2 Simulator/语义测试以及 R0-R2 历史 ADR/验收记录字节冻结。
+- schema v3 对既有 app/docs/scripts/tests 使用精确文件白名单，只对五个批准的新 R3 package 使用目录前缀。
+- Creator 保留 R0 隔离标识与 R2 参考语义标识，并新增 R3 parity 标识；仍不接父路由、网络、存储或文件系统 API。
+- 样例仅用于测试、差分和可视化验收，不是最终成品物料。
 
-R2 不包含 Compiler、Runtime Pack、生产运行时、AI、NPC、RAG、MCP、Godot 工程、3D 内容、Tauri、父项目接入、部署或发布。
+R3 不包含 Godot、3D、AI、NPC、RAG、MCP、父项目接入、共享栈、部署或发布。
+
+## 实施方向
+
+```text
+Authoring Game Pack 0.1.0
+→ R1 Validator
+→ R3 Compiler
+→ Immutable Runtime Pack 0.1.0 + Receipt
+→ Independent Runtime Simulator
+↔ R2 Reference Simulator（black-box oracle）
+→ Creator parity lab
+```
+
+R3.5 已完成 Compiler、合同、Validator、CLI、独立 Runtime Simulator、parity harness 与 Creator 锁步实验台。R2 Simulator 只能通过包根公开 API 调用，禁止复用其内部 evaluator。下载按钮只导出当前内存中的规范 Artifact 文本，不自动保存、不修改 Pack，也不把 Receipt 描述成签名。
 
 ## 独立性约束
 
 - 父项目交互为 `none`，白名单为空。
-- 不依赖父仓源码、配置、环境变量、数据库、Docker、路由、资产或 `node_modules`。
-- 模块拥有自己的 npm 根、lockfile 和验证脚本。
-- Creator 源码无网络访问；验证脚本仅可访问 loopback。
-- 内部实验使用 `UNLICENSED`，不发布 npm 包。
+- 不依赖父仓源码、配置、环境变量、数据库、Docker、路由、资产或依赖目录。
+- 模块拥有独立 manifest、lockfile、测试、诊断与拆分脚本。
+- Creator 无网络访问；验证脚本只可访问 loopback。
+- 所有包均为 `private`、`UNLICENSED`，不发布 npm 包。
 
-机器可读规则位于 [`module-boundary.json`](./module-boundary.json)，详细说明见 [`docs/BOUNDARIES.md`](./docs/BOUNDARIES.md)。
+机器规则见 [`module-boundary.json`](./module-boundary.json)，架构和范围见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) 与 [`docs/BOUNDARIES.md`](./docs/BOUNDARIES.md)。
 
-## 架构方向
-
-```text
-Creator
-→ Authoring Game Pack
-→ Validator
-→ Deterministic Reference Simulator
-→ Compiler（未来）
-→ Immutable Runtime Pack
-→ Godot Runtime
-```
-
-R1 已完成作者合同与验证语义。R2 只允许在冻结合同之上建设可复现、可观察的参考执行语义；Compiler、Runtime Pack 与 Godot Runtime 仍只是未来方向。
-
-R2.4 已将 `apps/creator-web/**` 从 R0 空壳演进为最小运行实验台，但仍不连接父项目、网络或持久化能力。R0 独立模块标识继续保留，并新增 R2 参考模拟器能力标识。
-
-## 独立运行与验证
+## 独立验证
 
 在模块根执行：
 
 ```powershell
-npm.cmd ci
-npm.cmd run dev
-npm.cmd run verify:creator
-npm.cmd run doctor
-npm.cmd run --silent doctor -- --json
+npm.cmd ci --no-audit --no-fund
+npm.cmd prefix
+npm.cmd ls --all
 npm.cmd run check:boundary
 npm.cmd run check:round-scope
-npm.cmd run test:contracts
-npm.cmd run test:pack
-npm.cmd run validate:examples
-npm.cmd run test:examples
-npm.cmd run verify:pack
-npm.cmd run verify:simulator
+npm.cmd run verify:compiler
+npm.cmd run verify:runtime-simulator
+npm.cmd run verify:parity
 npm.cmd test
 npm.cmd run verify
+npm.cmd run verify:extraction
 ```
 
-验证模块内单个 Pack（路径必须相对模块根，且真实目标仍位于模块内）：
+模块内编译与回验命令：
 
 ```powershell
-npm.cmd run --silent validate:pack -- examples/mechanics-conformance.authoring-game-pack.json --json
+npm.cmd run --silent compile:pack -- examples/mechanics-conformance.authoring-game-pack.json --output mechanics-r3 --json
+npm.cmd run --silent validate:runtime-pack -- exports/mechanics-r3/runtime-game-pack.json exports/mechanics-r3/runtime-game-pack-receipt.json --json
 ```
 
-CLI 对合法内容返回 0、内容无效返回 1、工具或路径错误返回 2。`--json` 模式只向 stdout 输出一行稳定报告。两个示例都只是合同、诊断与未来只读可视化的验收夹具，不是产品剧情或最终物料。
+编译输入上限为 1 MiB；输出 slug 只接受安全的小写 ASCII。发布目录固定为忽略跟踪的 `exports/<slug>/`，已存在目标绝不覆盖。Runtime Pack 输入上限为 16 MiB，Receipt 上限为 16 KiB。两条 CLI 的 JSON 模式均输出单行静态、安全结果；退出码 0/1/2 分别表示成功、内容拒绝和参数/文件系统/内部故障。
 
-其中带 `--silent` 的 doctor 命令是机器可解析入口：其标准输出只包含一个 JSON 文档，不带 npm 生命周期前缀。普通 `npm.cmd run doctor` 保留为供人工阅读的诊断输出。
+仅在父仓 R3 worktree 中执行固定父范围保护：
 
-缺少 Godot 不会阻塞 R2，普通 doctor 返回 `ready_with_warnings`。用于后续轮次的严格检查会如实失败：
+```powershell
+npm.cmd run check:parent-scope -- --base 380c747e62193855c724a947d99a84070ca623ff
+```
+
+`check:round-scope` 检查 committed、staged、unstaged 与 untracked 路径，冻结路径优先、未知路径失败关闭。standalone 拆分仓只在模块就是仓库根时返回 `not_applicable`。
+
+Godot 4.6.x 仍是未来可选诊断；缺失时普通 doctor 只给出 warning，严格检查会如实失败：
 
 ```powershell
 npm.cmd run doctor:godot
 ```
 
-历史保留型拆分演练：
-
-```powershell
-npm.cmd run verify:extraction
-```
-
-仅在父仓 worktree 中执行固定基线范围保护：
-
-```powershell
-npm.cmd run check:parent-scope -- --base a8e627e217c8c9e2cb8cca83fea8542c47edaeba
-```
-
-`check:parent-scope` 拒绝模块外变更；`check:round-scope` 按 R2 正向 allowlist 放行，并优先拒绝 R1 核心与历史验收记录变更。两者使用代码与策略共同固定的 R2 基线，不能通过传入较新提交缩短范围。拆分后的 standalone 仓对 round scope 明确返回 `not_applicable`，不会伪装成父仓检查已通过。
-
-该命令只从干净 worktree 克隆当前 HEAD，在一次性临时目录执行 `git subtree split`，并在拆分仓库根从空依赖完成安装、完整验证与 source-only archive 哈希。成功后只清理自身创建的临时目录；失败时保留并报告精确诊断目录。
-
 ## 拆分与回退
 
-- 历史保留型拆分使用 `git subtree split --prefix=experiments/matrix-oasis-engine`，并在一次性临时仓库中验证。
-- 模块没有父路由、API、数据库、环境变量、Docker 服务或运行数据。
-- PR 前可逆序 `git revert` R2 模块专属提交。
-- 合并后可单独 revert R2 PR 回到 R1；现有 `/matrix-oasis` 占位页保持不变。
-- 未经用户明确要求，不删除 R0/R1/R2 分支或 worktree。
+- 使用 `git subtree split --prefix=experiments/matrix-oasis-engine` 保留历史并独立验证。
+- R3 各批可逆序 `git revert`；整体回退 R3 PR 后回到完整 R2。
+- 没有父路由、API、数据库、共享容器或运行数据需要恢复。
+- 未经用户明确要求，不删除并行分支或 worktree。
 
-任何需要修改父仓文件的提案必须先填写 [`docs/PARENT_CHANGE_REQUEST_TEMPLATE.md`](./docs/PARENT_CHANGE_REQUEST_TEMPLATE.md) 并经用户人工批准。
+任何父仓修改必须先填写 [`docs/PARENT_CHANGE_REQUEST_TEMPLATE.md`](./docs/PARENT_CHANGE_REQUEST_TEMPLATE.md) 并取得人工批准；任何共享栈重建必须另行确认时间窗口和共享基线。

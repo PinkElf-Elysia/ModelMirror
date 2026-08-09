@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import {
   MODULE_PREFIX,
   ROUND_ALLOWED_MODULE_PREFIXES,
-  ROUND_ALLOWED_MODULE_ROOT_FILES,
+  ROUND_ALLOWED_MODULE_FILES,
   ROUND_FROZEN_MODULE_PATHS,
 } from "./scope-policy.mjs";
 
@@ -191,11 +191,11 @@ export function classifyRoundPath(candidate) {
       matchesPathOrDescendant(relative, frozenPath)
     )
   ) {
-    return "ROUND_GUARD_R1_ARTIFACT_CHANGED";
+    return "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED";
   }
 
   if (
-    ROUND_ALLOWED_MODULE_ROOT_FILES.includes(relative) ||
+    ROUND_ALLOWED_MODULE_FILES.includes(relative) ||
     ROUND_ALLOWED_MODULE_PREFIXES.some((allowedPrefix) =>
       matchesPathOrDescendant(relative, allowedPrefix)
     )

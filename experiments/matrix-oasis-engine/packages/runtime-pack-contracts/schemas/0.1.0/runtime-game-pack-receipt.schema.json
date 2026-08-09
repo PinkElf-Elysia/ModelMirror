@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:matrix-oasis:runtime-game-pack-receipt:0.1.0",
+  "title": "Matrix Oasis Runtime Game Pack Receipt 0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "formatVersion", "canonicalization", "compiler", "artifact"],
+  "properties": {
+    "format": { "type": "string", "const": "matrix-oasis.runtime-game-pack-receipt" },
+    "formatVersion": { "type": "string", "const": "0.1.0" },
+    "canonicalization": { "type": "string", "const": "matrix-oasis.canonical-json/1" },
+    "compiler": { "$ref": "#/$defs/compiler" },
+    "artifact": { "$ref": "#/$defs/artifact" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "compiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "const": "@matrix-oasis/game-pack-compiler" },
+        "version": { "type": "string", "const": "0.1.0-r3" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "formatVersion", "sha256", "byteLength"],
+      "properties": {
+        "format": { "type": "string", "const": "matrix-oasis.runtime-game-pack" },
+        "formatVersion": { "type": "string", "const": "0.1.0" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      }
+    }
+  }
+}

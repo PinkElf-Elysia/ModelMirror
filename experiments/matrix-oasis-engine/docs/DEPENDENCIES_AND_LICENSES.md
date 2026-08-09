@@ -22,7 +22,7 @@
 
 ## 当前直接依赖
 
-R0.2 已固定以下 Creator 第三方依赖；R1 合同、R2 参考模拟器与 R2.4 Creator 接入均不新增第三方依赖：
+R0.2 已固定以下 Creator 第三方依赖；R3.2-R3.4 只复用 lockfile 中既有的 Ajv 与 jsonc-parser，不新增 registry 依赖：
 
 | 依赖 | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |
@@ -36,9 +36,9 @@ R0.2 已固定以下 Creator 第三方依赖；R1 合同、R2 参考模拟器与
 | Ajv | 8.20.0 | MIT | JSON Schema 2020-12 严格结构验证 |
 | jsonc-parser | 3.3.1 | MIT | 严格 JSON 语法树与重复键定位 |
 
-测试与护栏仍使用 Node 24 内置 `node:test`，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。R2 模拟器只精确依赖内部 `@matrix-oasis/game-pack-validator@0.1.0-r1`；Creator 只新增对内部 `@matrix-oasis/game-pack-simulator@0.1.0-r2` 的精确 workspace 依赖。Ajv 与 jsonc-parser 仍只由验证器 workspace 引入。验证与模拟过程无网络、无代码生成落盘、无父仓依赖。
+测试与护栏仍使用 Node 24 内置 `node:test`，不引入 Vitest、Testing Library、Tailwind、路由器或 UI 库。R2 模拟器只精确依赖内部 `@matrix-oasis/game-pack-validator@0.1.0-r1`。R3.2 新增无外部依赖的 `@matrix-oasis/runtime-pack-contracts@0.1.0-r3`，以及精确依赖该合同、Ajv 8.20.0 和 jsonc-parser 3.3.1 的 `@matrix-oasis/runtime-pack-validator@0.1.0-r3`。R3.3 Compiler 只精确依赖冻结 R1 Validator 与上述两个 R3 内部包。R3.4 Runtime Simulator 只依赖内部 Runtime Validator；parity harness 只依赖内部 Compiler、冻结 R2 Simulator、Runtime contracts 与 Runtime Simulator。R3.5 Creator 将直接内部依赖由冻结 R2 Simulator 切换为 parity harness，不增加 registry 或许可证表面。验证过程无网络、无代码生成入库、无父仓依赖。
 
-Ajv 8.20.0 的新增传递依赖已按模块 lockfile 盘点：
+Ajv 8.20.0 的传递依赖已按模块 lockfile 盘点：
 
 | 依赖 | 版本 | 许可证 | 来源 |
 | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ Ajv 8.20.0 的新增传递依赖已按模块 lockfile 盘点：
 
 以上均属于既有许可证准入范围，不新增例外。版本变化时必须重新盘点。
 
-当前 `npm audit` 对 Vite 的间接开发依赖 `esbuild@0.27.7` 报告 1 个 low severity 项（`GHSA-g7r4-m6w7-qqqr`，Windows 开发服务器场景）。R2 不自动升级用户锁定的工具链；开发与 preview 只允许绑定 loopback，后续升级前须重新审计和审批。
+当前 `npm audit` 对 Vite 的间接开发依赖 `esbuild@0.27.7` 报告 1 个 low severity 项（`GHSA-g7r4-m6w7-qqqr`，Windows 开发服务器场景）。R3 不自动升级用户锁定的工具链；开发与 preview 只允许绑定 loopback，后续升级前须重新审计和审批。
 
 ## 人工批准的许可证例外
 
@@ -59,7 +59,7 @@ Ajv 8.20.0 的新增传递依赖已按模块 lockfile 盘点：
 
 该例外只适用于上述精确包与版本，不扩展 CC-BY-4.0 的通用准入范围。若分发依赖材料，必须保留上游归因与许可证通知；版本变化后需要重新盘点并审批。
 
-模块根与 Creator 版本标识为 `0.2.0-r2`，参考模拟器为 `0.1.0-r2`；冻结的合同与验证器保持 `0.1.0-r1`。全部 workspace 均为 private/UNLICENSED，不代表发布版本。
+模块根版本标识为 `0.3.0-r3`；R3 contracts、Validator、Compiler、Runtime Simulator 与 parity harness workspace 均为 `0.1.0-r3`；Creator 为 `0.3.0-r3`，参考模拟器保持 `0.1.0-r2`，冻结的 Authoring 合同与验证器保持 `0.1.0-r1`。全部 workspace 均为 private/UNLICENSED，不代表发布版本。
 
 ## 变更流程
 

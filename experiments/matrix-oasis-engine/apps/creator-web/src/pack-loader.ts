@@ -1,23 +1,38 @@
 import {
-  createGameSession,
-  prepareAuthoringGamePackJson,
-} from "@matrix-oasis/game-pack-simulator";
+  createGamePackParitySession,
+  prepareGamePackParityJson,
+} from "@matrix-oasis/game-pack-parity-harness";
 import type {
-  CueDescriptor,
-  GameRuntimeDiagnostic,
-  GameSessionInspection,
-  GameSessionSnapshot,
-  GameSessionTransition,
-  PrepareAuthoringGamePackResult,
-  PreparedAuthoringGamePack,
-} from "@matrix-oasis/game-pack-simulator";
+  ApplyGamePackParitySessionActionResult,
+  CompiledRuntimeArtifact,
+  CreateGamePackParitySessionResult,
+  GamePackParitySnapshot,
+  PrepareGamePackParityResult,
+  PreparedGamePackParity,
+} from "@matrix-oasis/game-pack-parity-harness";
 
 export const MAX_LOCAL_PACK_BYTES = 1_048_576;
 
 type ValidationReport = Extract<
-  PrepareAuthoringGamePackResult,
+  PrepareGamePackParityResult,
   { readonly ok: false }
 >["validationReport"];
+type ParityRuntimeFailure = Extract<
+  CreateGamePackParitySessionResult,
+  { readonly ok: false }
+>;
+type ParityCreateSuccess = Extract<
+  CreateGamePackParitySessionResult,
+  { readonly ok: true }
+>;
+type ParityApplySuccess = Extract<
+  ApplyGamePackParitySessionActionResult,
+  { readonly ok: true }
+>;
+type CueDescriptor = Extract<
+  CreateGamePackParitySessionResult,
+  { readonly ok: true }
+>["emittedCues"][number];
 
 export interface LocalPackFile {
   readonly name: string;
@@ -31,11 +46,12 @@ export type CreatorSessionSource =
 
 export interface CreatorSessionBundle {
   readonly source: CreatorSessionSource;
-  readonly prepared: PreparedAuthoringGamePack;
-  readonly snapshot: GameSessionSnapshot;
-  readonly inspection: GameSessionInspection;
+  readonly prepared: PreparedGamePackParity;
+  readonly artifact: CompiledRuntimeArtifact;
+  readonly snapshot: GamePackParitySnapshot;
+  readonly inspection: ParityCreateSuccess["inspection"];
   readonly emittedCues: readonly CueDescriptor[];
-  readonly transition: GameSessionTransition | null;
+  readonly transition: ParityApplySuccess["transition"] | null;
 }
 
 export type PackLoaderDiagnosticCode =
@@ -58,7 +74,7 @@ export interface PackLoaderDiagnostic {
 export type PackLoadDiagnostic =
   | PackLoaderDiagnostic
   | ValidationReport["diagnostics"][number]
-  | GameRuntimeDiagnostic;
+  | ParityRuntimeFailure["diagnostics"][number];
 
 interface PackLoadResultBase {
   readonly requestToken: number;
@@ -83,6 +99,10 @@ export type PackLoadResult =
   | PackLoadReadyResult
   | PackLoadRejectedResult
   | PackLoadStaleResult;
+
+export type PrepareCreatorSessionResult =
+  | { readonly ok: true; readonly candidate: CreatorSessionBundle }
+  | { readonly ok: false; readonly diagnostics: readonly PackLoadDiagnostic[] };
 
 const DIAGNOSTIC_DEFINITIONS = Object.freeze({
   PACK_LOADER_FILE_INVALID: Object.freeze({
@@ -167,6 +187,47 @@ function ready(
 
 function validFileSize(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
+}
+
+export async function prepareCreatorSession(
+  text: string,
+  source: CreatorSessionSource,
+): Promise<PrepareCreatorSessionResult> {
+  try {
+    const preparedResult = await prepareGamePackParityJson(text);
+    if (!preparedResult.ok) {
+      return Object.freeze({
+        ok: false as const,
+        diagnostics: freezeDiagnostics(
+          preparedResult.validationReport.diagnostics,
+        ),
+      });
+    }
+    const sessionResult = createGamePackParitySession(preparedResult.prepared);
+    if (!sessionResult.ok) {
+      return Object.freeze({
+        ok: false as const,
+        diagnostics: freezeDiagnostics(sessionResult.diagnostics),
+      });
+    }
+    return Object.freeze({
+      ok: true as const,
+      candidate: Object.freeze({
+        source: Object.freeze(source),
+        prepared: preparedResult.prepared,
+        artifact: preparedResult.artifact,
+        snapshot: sessionResult.snapshot,
+        inspection: sessionResult.inspection,
+        emittedCues: sessionResult.emittedCues,
+        transition: null,
+      }),
+    });
+  } catch {
+    return Object.freeze({
+      ok: false as const,
+      diagnostics: loaderDiagnostics("PACK_LOADER_PREPARATION_FAILED"),
+    });
+  }
 }
 
 export class LocalPackLoader {
@@ -284,40 +345,12 @@ export class LocalPackLoader {
       );
     }
 
-    try {
-      const preparedResult = prepareAuthoringGamePackJson(text);
-      if (!preparedResult.ok) {
-        return rejected(
-          requestToken,
-          activeSession,
-          preparedResult.validationReport.diagnostics,
-        );
-      }
-      const sessionResult = createGameSession(preparedResult.prepared);
-      if (!sessionResult.ok) {
-        return rejected(
-          requestToken,
-          activeSession,
-          sessionResult.diagnostics,
-        );
-      }
-      const candidate = Object.freeze({
-        source: Object.freeze({ kind: "local" as const }),
-        prepared: preparedResult.prepared,
-        snapshot: sessionResult.snapshot,
-        inspection: sessionResult.inspection,
-        emittedCues: sessionResult.emittedCues,
-        transition: null,
-      });
-      return requestToken === this.#latestRequestToken
-        ? ready(requestToken, activeSession, candidate)
-        : stale(requestToken, activeSession);
-    } catch {
-      return rejected(
-        requestToken,
-        activeSession,
-        loaderDiagnostics("PACK_LOADER_PREPARATION_FAILED"),
-      );
+    const prepared = await prepareCreatorSession(text, { kind: "local" });
+    if (requestToken !== this.#latestRequestToken) {
+      return stale(requestToken, activeSession);
     }
+    return prepared.ok
+      ? ready(requestToken, activeSession, prepared.candidate)
+      : rejected(requestToken, activeSession, prepared.diagnostics);
   }
 }

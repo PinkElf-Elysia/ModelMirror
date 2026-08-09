@@ -11,26 +11,31 @@ async function read(relativePath) {
   return fs.readFile(path.join(creatorRoot, relativePath), "utf8");
 }
 
-test("Creator HTML retains the R0 identity and declares the R2 simulator", async () => {
+test("Creator HTML retains R0/R2 identity and declares R3 parity", async () => {
   const html = await read("index.html");
 
   assert.match(html, /矩阵绿洲 · Matrix Oasis Engine/);
   assert.match(html, /MATRIX_OASIS_R0_ISOLATED_SHELL/);
   assert.match(html, /MATRIX_OASIS_R2_REFERENCE_SIMULATOR/);
+  assert.match(html, /MATRIX_OASIS_R3_RUNTIME_PARITY/);
   assert.match(html, /lang="zh-CN"/);
 });
 
-test("Creator exposes the implemented R2 session controls and observations", async () => {
+test("Creator exposes R3 parity controls, observations, and explicit downloads", async () => {
   const source = await read(path.join("src", "App.tsx"));
 
   for (const expected of [
-    "Creator 运行实验台",
+    "Creator 语义等价实验台",
     "加载本地 JSON",
     "重置当前会话",
     "可选操作",
     "会话状态",
     "最近 Transition",
     "本步 Cue",
+    "编译前后锁步一致",
+    "下载 Runtime Pack",
+    "下载 Receipt",
+    "只证明产物完整性",
     "父项目 API、网络或持久化服务",
   ]) {
     assert.match(source, new RegExp(expected));
@@ -55,27 +60,48 @@ test("Creator replaces a local session only after the safe loader is ready", asy
   assert.match(source, /loader\.loadCandidate\(file, baseSession\)/);
   assert.match(source, /result\.status === "stale"/);
   assert.match(source, /result\.status === "rejected"/);
-  assert.match(source, /commitSession\(result\.candidate\)/);
+  assert.match(source, /commitSession\(result\.candidate, baseSession\)/);
   assert.match(source, /当前会话未改变/);
   assert.match(source, /type="file"/);
   assert.match(source, /accept="\.json,application\/json"/);
 });
 
-test("Creator uses the public simulator API for reset and one-step actions", async () => {
-  const source = await read(path.join("src", "App.tsx"));
-  const transaction = await read(path.join("src", "session-transaction.ts"));
+test("Creator uses the public parity API for prepare, reset, and one-step actions", async () => {
+  const [source, loader, transaction] = await Promise.all([
+    read(path.join("src", "App.tsx")),
+    read(path.join("src", "pack-loader.ts")),
+    read(path.join("src", "session-transaction.ts")),
+  ]);
 
-  assert.match(source, /prepareAuthoringGamePackJson/);
-  assert.match(source, /createGameSession/);
+  assert.match(loader, /prepareGamePackParityJson/);
+  assert.match(loader, /createGamePackParitySession/);
   assert.match(source, /selectSessionCandidate/);
   assert.match(source, /activeSessionRef\.current !== baseSession/);
-  assert.match(transaction, /applyGameSessionAction/);
+  assert.match(transaction, /applyGamePackParitySessionAction/);
+  assert.match(transaction, /createGamePackParitySession/);
+  assert.match(transaction, /artifact: baseSession\.artifact/);
   assert.match(transaction, /snapshot: applied\.snapshot/);
   assert.match(transaction, /inspection: applied\.inspection/);
   assert.match(transaction, /emittedCues: applied\.transition\.emittedCues/);
-  assert.match(transaction, /PACK_RUNTIME_INTERNAL_ERROR/);
+  assert.match(transaction, /PACK_PARITY_INTERNAL_ERROR/);
   assert.match(transaction, /catch \{/);
-  assert.doesNotMatch(source, /inspectGameSession/);
+  assert.doesNotMatch(loader, /game-pack-simulator/);
+  assert.doesNotMatch(loader, /runtime-pack-simulator/);
+  assert.doesNotMatch(source, /inspectGamePackParitySession/);
+});
+
+test("Creator downloads only the current canonical artifact after an explicit click", async () => {
+  const source = await read(path.join("src", "App.tsx"));
+
+  assert.match(source, /new Blob\(\[text\]/);
+  assert.match(source, /URL\.createObjectURL\(blob\)/);
+  assert.match(source, /anchor\.download = fileName/);
+  assert.match(source, /anchor\.click\(\)/);
+  assert.match(source, /URL\.revokeObjectURL\(objectUrl\)/);
+  assert.match(source, /runtimePackJson/);
+  assert.match(source, /runtimePackReceiptJson/);
+  assert.doesNotMatch(source, /localStorage|sessionStorage|indexedDB/);
+  assert.doesNotMatch(source, /showSaveFilePicker|showOpenFilePicker/);
 });
 
 test("Creator keeps accessible status, focus, target, and mobile guards", async () => {
