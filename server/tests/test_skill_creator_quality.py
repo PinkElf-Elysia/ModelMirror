@@ -505,6 +505,14 @@ def test_creator_generation_limits_resource_count() -> None:
     assert "creator_resource_count_budget_exceeded" in {
         issue.code for issue in report.issues
     }
+    resource_build_report = evaluate_creator_payload(
+        payload,
+        requirements=_requirements(),
+        resource_build=True,
+    )
+    assert "creator_resource_count_budget_exceeded" not in {
+        issue.code for issue in resource_build_report.issues
+    }
 
 
 def test_playbook_and_license_are_local_versioned_attributed_resources() -> None:
