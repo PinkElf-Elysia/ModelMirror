@@ -126,7 +126,10 @@ if (unknownArguments.length > 0) {
 }
 
 function runRaw(command, args, options = {}) {
-  return spawnSync(command, args, {
+  const effectiveArgs = command === "git"
+    ? ["-c", "core.longpaths=true", ...args]
+    : args;
+  return spawnSync(command, effectiveArgs, {
     cwd: options.cwd,
     encoding: Object.hasOwn(options, "encoding") ? options.encoding : "utf8",
     maxBuffer: 25 * 1024 * 1024,

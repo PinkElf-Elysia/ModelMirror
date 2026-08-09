@@ -1,6 +1,6 @@
 # R4 验收记录
 
-状态：R4.4 已验证，等待本地提交；尚未达到人工验收门。
+状态：R4.5 已验证，等待本地提交与最终提交后拆分复验；尚未达到人工验收门。
 
 固定 `R4_BASE_SHA`：`df4a4b53e1f03f81fbf5a041065dc1443158c472`
 
@@ -11,8 +11,8 @@
 | R4.1 治理与冻结迁移 | 已完成 | `6370008` |
 | R4.2 Godot 工具链与最小工程 | 已完成 | `70b2504` |
 | R4.3 GdUnit4 与来源护栏 | 已完成 | `d611904` |
-| R4.4 自动验证、MCP 资格与固定帧 | 已验证 | 本批提交，SHA 在 R4.5 记录 |
-| R4.5 拆分与证据收口 | 未开始 | — |
+| R4.4 自动验证、MCP 资格与固定帧 | 已完成 | `8c7400e` |
+| R4.5 拆分与证据收口 | 已验证 | 本批提交，最终 SHA 仅在仓外交付清单记录 |
 
 ## R4.1 证据
 
@@ -85,6 +85,23 @@ R4.3 不新增 npm registry 依赖、不改 lockfile、不加入导出模板或�
 - `npm.cmd run check:round-scope`：`ROUND_SCOPE_OK checked=651 changed=641`；`check:parent-scope` 同为 651/641；`npm.cmd run check:boundary`：`BOUNDARY_OK checked=761 tracked=761`。
 
 图形帧、MCP 安装树、一次性项目和详细 JSON 报告全部位于仓外；自动 `verify` 不依赖 GPU 或 MCP 网络安装。回退本批提交只移除 R4.4 checker、capture/qualification harness 和相关文档，保留 R4.3 的可验证 Godot/GdUnit 工程。
+
+## R4.5 证据
+
+本批收口模块、父仓和 standalone 验收，并修复 fresh checkout 才能观察到的一个供应链字节问题：GdUnit4 的 `SceneWithEmbeddedScript.tscn` 在 R4.3 工作树中是上游 CRLF 字节，但当时 Git blob 被归一化为 LF。本批按已锁 tree hash 将该单文件重新暂存为原始上游字节；未修改其文本、许可或任何其他 vendored 文件。拆分脚本同时对每个 Git 子进程使用进程内 `core.longpaths=true`，不改全局 Git 配置，以支持 GdUnit4 的深层测试资源路径。
+
+已执行并通过：
+
+- 模块根 `npm.cmd ci --no-audit --no-fund`：84 packages，退出 0；`npm.cmd prefix` 精确指向模块根；`npm.cmd ls --all` 退出 0，无 missing/extraneous，仅既有 optional dependency 与 esbuild allow-scripts 提示。
+- `npm.cmd run doctor:godot`：Node 24.18.0、npm 11.16.0、Git 2.51.0、Godot `4.6.3.stable.official.7d41c59c4` 全部满足 R4 硬门。
+- `npm.cmd run verify`：12/12 steps；Godot import、4 个 GdUnit、headless smoke、391/391 Node tests、Creator 247 modules build 与 HTTP 200 smoke 全部通过。受限沙箱对 Godot 用户日志目录只有读权限时会失败；相同命令在正常进程权限下通过，未修改系统目录或工程源码。
+- 固定帧证据仍为 Forward+、960×540、30 FPS、12 张有效 PNG；MCP 资格报告仍只位于仓外，未接入正式工程。
+- 父 `client` 在本独立 worktree 执行 `npm.cmd ci --no-audit --no-fund`：384 packages；`npm.cmd run build`：3062 modules，退出 0；仅既有大 chunk warning，构建后父 client Git 状态为空。
+- `check:round-scope`、`check:parent-scope -- --base df4a4b53e1f03f81fbf5a041065dc1443158c472`、`check:boundary` 与 `git diff --check` 均作为本批提交门；R1–R3 权威实现、Creator、examples、历史 ADR/验收和全部父仓路径必须保持零差异。
+
+拆分诊断先暴露 Windows 长路径门，启用进程内长路径后又精确暴露上述单文件 Git blob 漂移；两个失败临时根均按设计保留。最终 R4.5 提交后的 `verify:extraction` 必须在 clean HEAD 再运行，最终 split commit/tree 与 source archive SHA-256 只写入仓外交付清单；失败则本状态和人工验收资格立即失效。
+
+未运行父后端、Docker、共享栈、部署、父路由或 Godot 正式导出；R4 仍无玩法、Runtime Pack 桥接、资产管线、AI、Marble 或 MCP 正式接入。回退本批提交会移除验收收口、长路径拆分加固和唯一 vendored blob 修正；逆序回退 R4.4–R4.1 可完整恢复 R3。
 
 ## 最终仓外标识
 

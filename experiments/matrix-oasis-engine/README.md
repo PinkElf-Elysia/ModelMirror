@@ -8,7 +8,7 @@
 - 模块版本：`0.4.0-r4`，private/UNLICENSED。
 - Godot：标准版 4.6.3 + GDScript，仓外通过 `GODOT_BIN` 提供。
 - Godot 工程根：`apps/runtime-godot/`；只允许最小 Bootstrap、内建 primitive、测试和精确 GdUnit4 addon。
-- R4.4 已增加第一方 GDScript 边界、固定 12 帧图形证据与仓外 MCP 资格报告；minimal MCP 仅获“后续只读候选”，satellite MCP 因 headless 编辑器桥接未就绪而延后，二者均未接入正式工程。
+- R4.5 已完成 Godot/GdUnit、父 client、固定帧、供应链和独立拆分收口；minimal MCP 仅获“后续只读候选”，satellite MCP 因 headless 编辑器桥接未就绪而延后，二者均未接入正式工程。
 - schema v4 正向 allowlist 冻结 R1–R3，并拒绝未批准的 Godot 路径、addon、生成物和二进制。
 - R4 不实现 Runtime Pack 桥接、玩法、控制器、Marble、3D 资产、AI、MCP 接入、父项目接入或部署。
 
@@ -35,6 +35,8 @@ npm.cmd run verify
 npm.cmd run verify:extraction
 npm.cmd run check:parent-scope -- --base df4a4b53e1f03f81fbf5a041065dc1443158c472
 ```
+
+拆分脚本对自身创建的 Git 子进程启用 `core.longpaths=true`，不读取或改写用户的全局 Git 配置，以保证 Windows 上可检出 GdUnit4 的深层上游测试资源。
 
 固定帧人工证据使用：
 
