@@ -1,6 +1,6 @@
 # MCP 目录扩充与适配路线
 
-最后更新日期：2026-08-07
+最后更新日期：2026-08-09
 维护人：模镜团队
 
 ## 1. 目标与当前范围
@@ -15,11 +15,13 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-09，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 8 的两个 Python 执行上游均未通过门槛；批次 9 仅 Terraform 公共 Registry 只读子集通过，另外 13 项因凭据、费用、归档、资源写入或本机/集群范围受阻。当前状态精确为 **45 ready / 27 planned / 28 blocked**。
+截至 2026-08-09，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 8 的两个 Python 执行上游均未通过门槛；批次 9 仅 Terraform 公共 Registry 只读子集通过；批次 10 暂缓到多租户主体边界完善后；批次 11 的 13 个桌面/宿主条目因缺少可信本机桥接、宿主实例证明和逐应用授权而全部受阻。当前状态精确为 **45 ready / 14 planned / 41 blocked**。
+
+批次 0—11 的第一阶段交付边界、状态分布、阶段二准入条件和可复现验收命令统一记录在 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
 
 ## 2. 当前边界与明确不实现
 
-批次 1–9 只允许固定且完成验收的适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar，批次 4 使用固定 Token 槽和只读出口 sidecar，批次 5 使用结构化数据库配置及相互隔离的远程/本地数据库 sidecar，批次 6 使用固定 SaaS 服务、账号作用域和资源级一次性审批 sidecar，批次 7 使用真实锁定上游、临时 Chromium 和强制出口代理；批次 8 因两个上游均未通过门槛，不新增运行时；批次 9 仅新增无凭据、固定公共 Registry 出口的 Terraform sidecar。这些批次都不扩大任意连接或任意执行能力：
+批次 1–11 只允许固定且完成验收的适配器：批次 1 使用完全断网计算 sidecar，批次 2 使用独立公网 sidecar，批次 3 使用受控上传工作区和完全断网的文件处理 sidecar，批次 4 使用固定 Token 槽和只读出口 sidecar，批次 5 使用结构化数据库配置及相互隔离的远程/本地数据库 sidecar，批次 6 使用固定 SaaS 服务、账号作用域和资源级一次性审批 sidecar，批次 7 使用真实锁定上游、临时 Chromium 和强制出口代理；批次 8 因两个上游均未通过门槛，不新增运行时；批次 9 仅新增无凭据、固定公共 Registry 出口的 Terraform sidecar；批次 10 暂缓且批次 11 全部受阻，都不新增运行时。这些批次都不扩大任意连接或任意执行能力：
 
 - 不接受用户指定的 Python 包、解释器、命令、工作目录或其他额外运行时。
 - 不实现 OAuth 回调、刷新或外站登录；批次 4—5 的卡片可把明文 Secret 单次提交到服务端加密库，但连接配置只接受不透明 `credential_id`，保存后不再返回或显示明文。
@@ -33,6 +35,8 @@
 - 批次 7 不接受浏览器启动参数、CDP/远程端点、profile、代理、Header、Cookie、storage、上传/下载路径或本机文件。用户只提交待审批且不含 Token、API Key、签名等敏感查询参数的公网 URL，以及网关签发的不透明元素 ref；首版不采集账号凭据、不提供外站登录流程，也不继承或保存登录态。页面仍可能自行呈现无法由透明 HTTPS 出口可靠识别的登录界面，用户不得输入账号、密码、OTP 或其他认证信息。
 - 批次 8 不接受 Python 代码、包名、解释器、环境、文件、会话 ID、命令、工作目录或执行超时。两个条目均无镜像、命令、端点或工具策略；功能开关不能把 `blocked` 改为可执行。
 - 批次 9 的 Terraform 适配器不接收 Token、组织、工作区、状态文件、变量、Terraform CLI 路径或任意 Registry URL；仅匿名访问固定 `registry.terraform.io`。HCP Terraform、Terraform Enterprise、私有 Registry、plan、apply、destroy、run 与资源变更能力全部不可发现、不可调用。
+- 批次 10 保持 `planned`，待不可伪造的逐请求用户主体、租户隔离和 OAuth 生命周期完成后再恢复；本轮不引入其暂缓改动。
+- 批次 11 不接收本机端口、LAN 主机、宿主路径、Docker Socket、浏览器登录态、IDE/DAW/逆向工具实例、设备 ID、USB、Xcode 工程、API Key 或插件配置。13 项均无镜像、命令、端点、配置/凭据字段和工具策略。
 - 不接管 Blender、Zotero、Obsidian、JetBrains、Xcode、Ghidra 等桌面宿主。
 - 不提供用户自定义 MCP 连接。
 - 不提供 MCP Builder、可视化生成器或发布市场流程。
@@ -91,7 +95,7 @@
 | 8 | MCP Run Python、MCP Python Interpreter | 2 | **已完成门槛判定**：MCP Run Python 因维护方明确否定 Pyodide 不可信代码沙箱并归档而受阻；MCP Python Interpreter 因进程内执行、包/文件/会话能力及空 LICENSE 发布物受阻 |
 | 9 | Apify、Bright Data、Browserbase、E2B、Stripe、Terraform、Aiven、Alpaca、AWS KB、ElevenLabs、MiniMax、S3、Kubernetes、Semgrep | 14 | **已完成门槛判定**：Terraform 公共 Registry 六项只读工具可用；其余 13 项因凭据出站未批准、费用无法对账、归档运行时、真实金融/云资源写入或本机/集群范围受阻 |
 | 10 | Gmail、Atlassian、Google Calendar、Google Drive、Microsoft 365、OneDrive、Sentry、Azure、Box、Cloudflare、GitHub、Linear、Neon、Slack | 14 | PKCE、state、最小 scope、刷新、撤销与解绑 |
-| 11 | 小红书、Ableton、Binary Ninja、Blender、Ghidra、JetBrains、ChatCrystal、Obsidian、OpenTabs、Zotero、Docker、Mobile、XcodeBuild | 13 | 版本化本机桥接、宿主校验、逐应用与目录授权 |
+| 11 | 小红书、Ableton、Binary Ninja、Blender、Ghidra、JetBrains、ChatCrystal、Obsidian、OpenTabs、Zotero、Docker、Mobile、XcodeBuild | 13 | **已完成门槛判定**：全部依赖真实本机宿主、登录态、目录、设备或 Docker daemon；缺少版本化桥接、宿主实例证明、会话主体绑定和逐应用授权，13 项均受阻 |
 
 每批在前一批验收完成后单独建分支和 PR；批内可以逐项开启功能开关，但不能绕过整批共享的安全门槛。
 
@@ -170,6 +174,15 @@
 - 真实隔离验收通过六项工具：`hashicorp/random` 最新版本 `3.9.0`、3 类能力、1935 字节公开文档；`vpc` 搜索首项 `terraform-aws-modules/vpc/aws/6.6.1`，详情裁剪为 50 个输入并确认最新版本 `6.6.1`。`apply` 在真实网关调用中返回拒绝；HCP/TFE、私有 Registry、plan、destroy 与资源写入工具均不在工具清单。
 - Apify 与 Aiven 因未批准账号凭据出站保持 `blocked`；Bright Data 因缺少供应商账单对账与逐项目硬预算受阻；Browserbase、E2B、Semgrep 因归档/不维护运行时受阻；Stripe 转入第十批 OAuth 与金融终止操作审批；Alpaca、AWS KB、ElevenLabs、MiniMax、S3 Tables、Kubernetes 因真实交易、云资源、付费媒体、AWS/集群作用域或写入面保持关闭。
 
+批次 11 的执行结论：
+
+- 本批没有创建桌面代理、宿主端插件、Docker 服务、端口转发或授权 UI。一个可发布的桥接必须先绑定不可伪造的用户会话、宿主实例/版本、应用或项目范围、工具 Schema、逐动作同意与撤销状态；现有 Office/Coding 宿主流程不能在未实现各应用协议时被声明为通用桌面桥。
+- 小红书当前发布依赖本机 Chromium、Cookie/QR 登录、绝对媒体路径并包含发布/评论等真实账号写入；OpenTabs 0.0.115 复用浏览器登录态并动态开放约 2000 个工具。两者都与第七批“不继承登录态、固定工具契约”的浏览器边界冲突。
+- Ableton MCP 1.3.5、Blender MCP 1.8.0、Binary Ninja MCP v1.2.1、GhidraMCP v0.2.2+ghidra12.0.4 与 JetBrains Proxy（源码 1.9.0 / npm 1.8.0）都通过本机插件或 localhost/LAN 端口控制真实桌面宿主；能力包含项目/场景/二进制修改、任意 Python 或 IDE 动作，不能由服务端容器沙箱代替宿主授权。
+- ChatCrystal 0.5.8 会导入本机编码对话并调用可配置模型服务；MCPVault 0.15.0 直接读写 Vault；Zotero MCP 0.9.1 读取文献全文并可通过 Web API 写入；这些敏感目录或账号范围没有受信任本机 grant，不能用宿主路径或 Token 临时拼接。
+- Docker MCP Gateway v0.43.3 是动态 Server/容器/Secret/OAuth 控制面，不是固定只读适配器；模镜继续禁止挂载 Docker Socket。Mobile MCP 1.0.2 和 XcodeBuildMCP 2.7.0 可安装应用、控制真机/模拟器、构建/测试/调试和执行 UI 输入，也没有测试专用设备与 macOS 主机证明。
+- 13 项公开状态均为 `blocked + executable=false`，环境功能开关不能绕过；`runtime_image`、`server_command`、`endpoint`、配置/凭据字段和工具策略全部为空。未来若实现桌面代理，应按单一应用、单一只读子集逐项重新立项验收，而不是开启通用 localhost 或宿主路径输入。
+
 ## 6. 验收、发布和回退
 
 - 每个项目必须通过初始化、工具发现、代表性调用、超时、重连、断开与清理测试；Schema 漂移视为阻断。浏览器条目还必须在双 sidecar 容器中走完 UDS 握手、受控导航、快照、元素交互、真实截图登记、断开与进程/profile/临时文件清理，单独的上游 `tools/list` 或容器健康检查不能作为 ready 证据。
@@ -189,7 +202,7 @@
 
 主要风险是上游项目快速变化、条目说明过期，以及把“已收录”误解为“当前可安全运行”。前端必须持续使用明确的状态标签和禁用按钮表达边界。
 
-批次 0–4 不引入数据库迁移；批次 5 只把旧凭据 JSON 元数据显式迁移到 `local/local` 作用域，不接触外部数据库 schema 或数据。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭四个文件项目开关、撤销审批并停止 `mcp-files`；批次 4 回退时关闭 15 个 Token 项目的独立功能开关、断开目录会话并停止 `mcp-token`；批次 5 回退时关闭六个数据库项目开关、断开会话、停止远程和本地数据库 sidecar，并清理临时 DuckDB 工作区；批次 6 回退时关闭四个 SaaS 项目开关和全局单用户确认门禁、执行项目解绑并停止 `mcp-saas`；批次 7 回退时关闭两个浏览器项目开关、作废待确认操作、断开会话并停止 `mcp-browser` 与 `mcp-browser-egress`，随后清理临时 profile 与截图产物。批次 8 没有新增运行时，回退只需恢复目录状态与说明；批次 9 回退时先断开 Terraform 目录会话，再停止 `mcp-registry`，无需删除凭据、工作区或外部资源。回退不自动删除外部 SaaS 数据，也不声称撤销服务商 Token；卡片专属加密凭据仅在用户选择撤销时删除。Airbnb、BibiGPT、Manim、Snyk、PostgreSQL、SQLite、Cognee、Graphiti、Hindsight、中国电商经营 MCP、Mem0、Puppeteer MCP、Selenium MCP、MCP Run Python 与 MCP Python Interpreter 本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容，但目录会话不能使用无项目策略的直接调用端点：
+批次 0–4 不引入数据库迁移；批次 5 只把旧凭据 JSON 元数据显式迁移到 `local/local` 作用域，不接触外部数据库 schema 或数据。批次 2 回退时关闭对应公网项目开关并停止 `mcp-public`；批次 3 回退时关闭四个文件项目开关、撤销审批并停止 `mcp-files`；批次 4 回退时关闭 15 个 Token 项目的独立功能开关、断开目录会话并停止 `mcp-token`；批次 5 回退时关闭六个数据库项目开关、断开会话、停止远程和本地数据库 sidecar，并清理临时 DuckDB 工作区；批次 6 回退时关闭四个 SaaS 项目开关和全局单用户确认门禁、执行项目解绑并停止 `mcp-saas`；批次 7 回退时关闭两个浏览器项目开关、作废待确认操作、断开会话并停止 `mcp-browser` 与 `mcp-browser-egress`，随后清理临时 profile 与截图产物。批次 8 与批次 11 没有新增运行时，回退只需恢复目录状态与说明；批次 9 回退时先断开 Terraform 目录会话，再停止 `mcp-registry`，无需删除凭据、工作区或外部资源。回退不自动删除外部 SaaS 数据，也不声称撤销服务商 Token；卡片专属加密凭据仅在用户选择撤销时删除。Airbnb、BibiGPT、Manim、Snyk、PostgreSQL、SQLite、Cognee、Graphiti、Hindsight、中国电商经营 MCP、Mem0、Puppeteer MCP、Selenium MCP、MCP Run Python、MCP Python Interpreter 与全部批次 11 条目本来就不可执行。旧版 `/api/mcp/*` 接口保持兼容，但目录会话不能使用无项目策略的直接调用端点：
 
 - `server/mcp/catalog.py`
 - `server/mcp/sandbox_proxy.py`

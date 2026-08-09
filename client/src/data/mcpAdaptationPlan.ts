@@ -446,8 +446,8 @@ const waveMetadata: Record<
   11: {
     connectionKind: "desktop-bridge",
     risk: "critical",
-    requiredCapabilities: ["版本化桌面桥接", "逐应用同意"],
-    limitations: ["等待本机桥接协议、宿主版本和逐应用授权验证。"],
+    requiredCapabilities: ["版本化桌面桥接", "宿主实例证明", "会话主体绑定", "逐应用同意", "终止性操作审批", "桥接撤销"],
+    limitations: ["13 个上游均依赖真实本机宿主或账号状态；当前没有可信桌面配对、实例证明和逐应用授权，因此全部阻断。"],
   },
 };
 
@@ -655,6 +655,61 @@ const waveNineBlockedDetails: Record<string, string[]> = {
   ],
 };
 
+const waveElevenBlockedDetails: Record<string, string[]> = {
+  "xiaohongshu-mcp": [
+    "当前上游依赖本机 Chromium 登录、Cookie 和 QR 登录，并开放搜索、评论、收藏以及图文/视频发布；发布可读取宿主绝对文件路径。",
+    "没有账号实例绑定、本地媒体授权和发布终止审批时，登录态、代理、Cookie、文件与全部工具入口保持关闭。",
+  ],
+  "ableton-mcp": [
+    "1.3.5 需要向 Ableton Live 安装 Remote Script，并通过 localhost:9000 创建/删除轨道、编辑 Clip、加载设备和控制播放。",
+    "缺少可证明宿主版本、当前 Live Set、端口归属与用户在场的签名桌面桥，不能连接真实音乐项目。",
+  ],
+  "binary-ninja-mcp": [
+    "v1.2.1 是商业桌面宿主插件与 localhost:9009 桥接器，既读取反编译数据，也能定义类型、创建函数、重命名和删除注释。",
+    "许可证席位、打开二进制、插件实例和写入目标无法绑定当前用户；只读工具冻结与修改审批完成前保持关闭。",
+  ],
+  "blender-mcp": [
+    "1.8.0 通过 Blender 插件与 Socket 操作场景，并允许在宿主内执行任意 Python、读取/删除文件和下载外部资产。",
+    "调用继承 Blender 进程的完整宿主权限，服务端 sidecar 无法约束；任意代码、插件与场景入口全部关闭。",
+  ],
+  "ghidra-mcp": [
+    "v0.2.2+ghidra12.0.4 公开 70 个查询与修改工具，包括 patch_bytes、内存权限、结构、类型和符号修改；默认 localhost 模式没有 API Key。",
+    "当前没有固定 Ghidra Program、强制桥接认证和二进制写入事务审批，端口扫描、多实例和全部工具均不接入。",
+  ],
+  "jetbrains-mcp": [
+    "当前源码标签为 1.9.0、npm 包为 1.8.0；代理扫描 63342—63352 或接受 HOST/IDE_PORT，把项目读取和 IDE 动作转发到本机 HTTP API。",
+    "没有配对 IDE、项目根、端口所有权和工具级同意时，自动发现、LAN 主机和代理入口全部关闭。",
+  ],
+  chatcrystal: [
+    "0.5.8 会扫描 Claude Code、Cursor、Codex 等本机历史，调用可配置 LLM/Embedding 服务，并提供记忆检索与写回。",
+    "编码对话可能包含源码、提示词和凭据；缺少导入清单、脱敏、费用/保留策略和桌面主体绑定时不开放。",
+  ],
+  "obsidian-mcp": [
+    "上游已迁移为 bitbonsai/mcpvault 0.15.0，直接接收宿主 Vault 路径并开放读取、覆盖/追加、移动、标签修改和确认删除。",
+    "上传工作区不等同实时 Vault，服务端也不接受宿主路径；逐 Vault 授权、读写分离和备份恢复完成前保持关闭。",
+  ],
+  opentabs: [
+    "0.0.115 通过 Chrome 扩展复用已登录会话，并提供 100+ 动态插件、约 2000 个工具，可直接调用真实 Web API。",
+    "动态插件确认不能替代固定 Schema、账号/Origin 绑定和外部写入账本；扩展、登录态与全部工具关闭。",
+  ],
+  "zotero-mcp": [
+    "0.9.1 本地模式可读取文献、附件全文和批注；配置 Web API Key 后又可新增文献、更新笔记/批注并下载 PDF。",
+    "没有签名桥确认本地 Zotero 实例和 Library，也未冻结仅本地只读工具与附件范围，因此保持关闭。",
+  ],
+  "docker-mcp": [
+    "v0.43.3 是管理动态 MCP 目录、容器生命周期、Secrets 与 OAuth 的 Docker CLI 插件，不是单一固定只读工具。",
+    "模镜服务端禁止挂载 Docker Socket，也不允许用户选择镜像、Server、Secret 或网络策略，因此不能接入。",
+  ],
+  "mobile-mcp": [
+    "1.0.2 调用 adb、xcrun simctl、WebDriverAgent 或真实 USB 设备，可安装/卸载应用、输入、打开 URL、录屏并读取崩溃报告。",
+    "没有设备所有权、测试专用证明、应用 allowlist 和安装/卸载终止审批时，SDK、USB、端口与设备工具全部关闭。",
+  ],
+  "xcodebuild-mcp": [
+    "2.7.0 需要具备 Xcode 的 macOS 宿主，公开项目发现、构建、测试、清理、安装/启动、调试、日志和 UI 自动化。",
+    "当前 Windows/Docker 部署没有可验真的 macOS 主机、工程范围和 Simulator/Device，全部宿主入口关闭。",
+  ],
+};
+
 function buildAdaptationPlan() {
   const records: Record<string, McpAdaptationRecord> = {};
   for (const projectId of localStdioIds) {
@@ -695,6 +750,8 @@ function buildAdaptationPlan() {
               ? waveNineReadyIds.has(projectId)
                 ? "ready"
                 : "blocked"
+            : wave === 11
+              ? "blocked"
             : wave <= 4
               ? "ready"
               : "planned",
@@ -776,6 +833,8 @@ function buildAdaptationPlan() {
               ? [...waveNineBlockedDetails[projectId]]
             : waveNineReadyDetails[projectId]
               ? [...waveNineReadyDetails[projectId]]
+            : waveElevenBlockedDetails[projectId]
+              ? [...waveElevenBlockedDetails[projectId]]
             : [...metadata.limitations],
       };
     }

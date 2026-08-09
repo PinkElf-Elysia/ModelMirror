@@ -1443,6 +1443,101 @@ WAVE_NINE_BLOCKED_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+WAVE_ELEVEN_BLOCKED_ADAPTERS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "xiaohongshu-mcp": (
+        "v2026.07.26.1327-b8412a2-blocked:browser-account-and-publish",
+        (
+            "当前上游要求本机 Chromium 登录并持久保存 Cookie，公开 QR 登录、删除 Cookie、搜索、评论、收藏以及图文/视频发布工具；发布还接受外部 URL 与宿主绝对文件路径。",
+            "现有服务端没有可信桌面主体、账号实例绑定、本地媒体授权和发布终止操作审批；浏览器登录态、代理、Cookie、二维码、文件和全部工具入口保持关闭。",
+        ),
+    ),
+    "ableton-mcp": (
+        "1.3.5-blocked:local-live-socket-and-project-write",
+        (
+            "Ableton MCP 1.3.5 需要把 Remote Script 安装进 Ableton Live，并通过 localhost:9000 TCP 桥接创建/删除轨道、编辑 Clip、加载设备和控制播放；上游还默认收集匿名工具遥测。",
+            "当前没有可证明宿主版本、当前 Live Set、端口归属和用户在场的签名桌面桥；在项目快照、逐动作预览、撤销/未知结果和遥测禁用验收完成前不连接宿主。",
+        ),
+    ),
+    "binary-ninja-mcp": (
+        "1.2.1-blocked:commercial-host-and-binary-mutation",
+        (
+            "Binary Ninja MCP v1.2.1 是安装进商业桌面宿主的插件与 localhost:9009 桥接器，既读取反编译/内存数据，也能定义类型、创建函数、重命名和删除注释。",
+            "当前不能验证许可证席位、打开二进制、桥接端口、插件版本和写入目标属于当前用户；缺少只读工具冻结与二进制修改审批时保持完全阻断。",
+        ),
+    ),
+    "blender-mcp": (
+        "1.8.0-blocked:arbitrary-python-host-execution",
+        (
+            "Blender MCP 1.8.0 通过宿主插件与本地 Socket 操作场景，并公开在 Blender 内执行任意 Python、读取/删除文件、下载外部资产和调用生成服务的能力。",
+            "这些调用继承 Blender 进程的完整宿主权限，不能由服务端 sidecar 沙箱约束；在移除任意代码、固定插件握手、场景副本和产物范围前不提供安装或连接入口。",
+        ),
+    ),
+    "ghidra-mcp": (
+        "0.2.2+ghidra12.0.4-blocked:local-bridge-and-binary-mutation",
+        (
+            "GhidraMCP v0.2.2+ghidra12.0.4 在 Ghidra 内启动 localhost TCP 服务和 Go 桥，公开 70 个查询与修改工具，包括 patch_bytes、内存权限、结构、类型和符号修改；默认 localhost 模式不启用 API Key。",
+            "当前没有固定 Ghidra 实例/Program、强制桥接认证和写入事务审批；端口扫描、多实例 target_port、远程模式、API Key 与全部分析工具均不接入。",
+        ),
+    ),
+    "jetbrains-mcp": (
+        "source-1.9.0/npm-1.8.0-blocked:ide-discovery-and-actions",
+        (
+            "JetBrains MCP Proxy 当前源码标签为 1.9.0、npm 包为 1.8.0；代理会扫描 63342—63352 或接受 HOST/IDE_PORT，并把项目读取、导航、检查和 IDE 动作转发到本机 HTTP API。",
+            "当前没有经用户配对的 IDE 实例、项目根、端口所有权和工具级同意，也不能把容器内 localhost 当作用户 IDE；自动发现、LAN 主机和全部代理入口关闭。",
+        ),
+    ),
+    "chatcrystal": (
+        "0.5.8-blocked:sensitive-history-and-provider-state",
+        (
+            "ChatCrystal 0.5.8 会扫描 Claude Code、Cursor、Codex 等本机历史并导入完整编码对话，调用可配置 LLM/Embedding 服务，并通过 MCP 提供记忆检索与写回；云模式另有共享 API Token。",
+            "对话可能包含源码、提示词和凭据，当前没有逐目录导入清单、内容脱敏、模型费用/保留策略和桌面主体绑定；本机扫描、Provider、Token、上传与记忆工具全部关闭。",
+        ),
+    ),
+    "obsidian-mcp": (
+        "0.15.0-blocked:host-vault-write-access",
+        (
+            "目录上游已迁移为 bitbonsai/mcpvault 0.15.0；它不需要 Obsidian 插件，但直接接收宿主 Vault 路径并开放笔记读取、覆盖/追加、移动、标签修改与确认删除。",
+            "现有上传工作区不能等同用户实时 Vault，服务端也不接受任意宿主路径；在版本化本机代理、逐 Vault 授权、只读/写分离和备份恢复验收前保持关闭。",
+        ),
+    ),
+    "opentabs": (
+        "0.0.115-blocked:authenticated-browser-and-dynamic-plugins",
+        (
+            "OpenTabs 0.0.115 通过 Chrome 扩展复用用户已登录会话，宣称 100+ 动态插件与约 2000 个工具，可直接调用 Slack、GitHub、AWS、Stripe 等真实 Web API，并允许安装自定义插件。",
+            "插件内确认不能替代模镜的固定 Schema、账号/Origin 绑定和外部写入账本；现有浏览器 sidecar明确不继承登录态，因此扩展、动态插件、Cookie 和所有工具入口关闭。",
+        ),
+    ),
+    "zotero-mcp": (
+        "0.9.1-blocked:local-library-and-cloud-write-scope",
+        (
+            "Zotero MCP 0.9.1 的本地模式可读取 Zotero 7+ 文献、附件全文与批注；配置 Web API Key 后又会新增文献、更新笔记/批注和下载 PDF，语义检索还可调用外部 Embedding 服务。",
+            "当前没有签名桌面桥来确认本地 Zotero 实例和 Library，也未冻结仅本地只读工具与附件范围；API Key、数据库路径、全文、Provider 和写入入口全部关闭。",
+        ),
+    ),
+    "docker-mcp": (
+        "0.43.3-blocked:docker-daemon-and-dynamic-server-control",
+        (
+            "Docker MCP Gateway v0.43.3 是管理动态 MCP 目录、容器生命周期、Secrets 和 OAuth 的 Docker CLI 插件，而非单一固定只读工具；运行它需要可信 Docker Desktop/daemon 控制面。",
+            "模镜服务端禁止挂载 Docker Socket，也不允许用户选择镜像、目录、工具、Secret 或网络策略；不能把现有 sidecar 隔离边界反向交给动态 Gateway 管理。",
+        ),
+    ),
+    "mobile-mcp": (
+        "1.0.2-blocked:device-control-and-installation",
+        (
+            "Mobile MCP 1.0.2 直接调用 adb、xcrun simctl、WebDriverAgent 或真实 USB 设备，可安装/卸载应用、点击输入、打开 URL、录屏并读取崩溃报告；SSE 模式还可暴露本机端口。",
+            "当前没有设备序列号所有权、测试专用设备证明、应用 allowlist、输入隐私和安装/卸载终止审批；SDK、USB、Bearer Token、端口和全部设备工具关闭。",
+        ),
+    ),
+    "xcodebuild-mcp": (
+        "2.7.0-blocked:macos-build-and-ui-control",
+        (
+            "XcodeBuildMCP 2.7.0 仅能在具备 Xcode 的 macOS 宿主工作，公开项目发现、构建、测试、清理、安装/启动应用、调试、日志、截图与 UI 点击/输入等工具，并写入用户 Library 状态。",
+            "当前 Windows/Docker 部署没有可验真的 macOS 主机、工程范围、Simulator/Device 和签名身份；构建执行、UI 自动化、项目脚手架与全部宿主文件入口关闭。",
+        ),
+    ),
+}
+
+
 WAVE_PROJECTS: dict[int, tuple[str, ...]] = {
     1: ("calculator-mcp", "time-mcp", "vegalite-mcp"),
     2: (
@@ -2342,6 +2437,27 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             adapter_version=version,
             network_policy="blocked:no-production-runtime",
             filesystem_policy="blocked:no-runtime",
+        )
+
+    for project_id, (version, limitations) in WAVE_ELEVEN_BLOCKED_ADAPTERS.items():
+        manifests[project_id] = CatalogAdapterManifest(
+            project_id=project_id,
+            wave=11,
+            availability="blocked",
+            connection_kind="desktop-bridge",
+            risk="critical",
+            required_capabilities=(
+                "versioned-desktop-bridge",
+                "host-instance-attestation",
+                "session-owner-binding",
+                "per-app-consent",
+                "terminal-action-approval",
+                "bridge-revocation",
+            ),
+            limitations=limitations,
+            adapter_version=version,
+            network_policy="blocked:no-trusted-host-bridge",
+            filesystem_policy="blocked:no-host-grant",
         )
 
     manifests["snyk-mcp"] = CatalogAdapterManifest(

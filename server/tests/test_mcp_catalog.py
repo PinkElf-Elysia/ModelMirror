@@ -29,6 +29,7 @@ from server.mcp.catalog import (
     WAVE_FIVE_ADAPTERS,
     WAVE_SIX_ADAPTERS,
     WAVE_SEVEN_ADAPTERS,
+    WAVE_ELEVEN_BLOCKED_ADAPTERS,
     WAVE_NINE_BLOCKED_ADAPTERS,
     WAVE_NINE_READY_ADAPTERS,
     WAVE_PROJECTS,
@@ -346,11 +347,11 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 27
+    ) == 14
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 28
+    ) == 41
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -1519,8 +1520,8 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             payload = response.json()
             assert payload["total"] == 100
             assert payload["ready"] == 45
-            assert payload["planned"] == 27
-            assert payload["blocked"] == 28
+            assert payload["planned"] == 14
+            assert payload["blocked"] == 41
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
@@ -1980,6 +1981,47 @@ def test_bibigpt_is_fail_closed_until_oauth_wave() -> None:
     assert manifest.endpoint == ""
     assert manifest.executable is False
     assert "oauth-pkce" in manifest.required_capabilities
+
+
+def test_wave_ten_stays_planned_and_wave_eleven_is_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert all(
+        CATALOG_ADAPTERS[project_id].availability == "planned"
+        for project_id in WAVE_PROJECTS[10]
+    )
+    assert set(WAVE_ELEVEN_BLOCKED_ADAPTERS) == set(WAVE_PROJECTS[11])
+
+    for project_id in WAVE_PROJECTS[11]:
+        manifest = CATALOG_ADAPTERS[project_id]
+        monkeypatch.setenv(manifest.feature_flag, "true")
+
+        assert manifest.wave == 11
+        assert manifest.availability == "blocked"
+        assert manifest.connection_kind == "desktop-bridge"
+        assert manifest.executable is False
+        assert manifest.runtime_image == ""
+        assert manifest.server_command == ()
+        assert manifest.endpoint == ""
+        assert manifest.allowed_settings == ()
+        assert manifest.credential_slots == ()
+        assert manifest.setting_policies == ()
+        assert manifest.credential_policies == ()
+        assert manifest.tool_policies == {}
+        assert manifest.workspace_policy is None
+        assert manifest.database_policy is None
+        assert manifest.saas_policy is None
+        assert manifest.browser_policy is None
+        assert manifest.network_policy == "blocked:no-trusted-host-bridge"
+        assert manifest.filesystem_policy == "blocked:no-host-grant"
+        assert {
+            "versioned-desktop-bridge",
+            "host-instance-attestation",
+            "session-owner-binding",
+            "per-app-consent",
+            "terminal-action-approval",
+            "bridge-revocation",
+        }.issubset(manifest.required_capabilities)
 
 
 def test_airbnb_is_fail_closed_on_upstream_schema_drift() -> None:
