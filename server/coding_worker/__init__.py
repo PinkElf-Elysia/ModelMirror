@@ -17,6 +17,7 @@ from .provider import CodingAgentProvider, FakeCodingAgentProvider
 from .evidence import HarnessRunner
 from .network_policy import EgressPolicy, NetworkPolicyError
 from .process_manager import BackgroundProcessManager, ManagedProcess, ProcessManagerError
+from .broker_rpc import BrokerRPCClient, BrokerRPCError, BrokerRPCServer
 from .opencode_provider import OpenCodeProvider
 from .service import CodingWorkerService
 from .store import CodingWorkerStore
@@ -36,6 +37,9 @@ __all__ = [
     "BackgroundProcessManager",
     "ManagedProcess",
     "ProcessManagerError",
+    "BrokerRPCClient",
+    "BrokerRPCError",
+    "BrokerRPCServer",
     "ToolBroker",
     "ToolBrokerError",
     "ToolResult",
