@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import sys
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 import pytest
@@ -10,13 +13,21 @@ from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
     Origin,
+    PolicyProfile,
+    TaskBudget,
     TaskCreateRequest,
     TaskState,
     WorkspaceSource,
 )
-from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.evidence import HarnessRunner
+from server.coding_worker.provider import (
+    FakeCodingAgentProvider,
+    ProviderEvent,
+    ProviderSession,
+)
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore
+from server.coding_worker.tool_broker import FrozenCheck, ToolBroker
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
 
@@ -46,6 +57,59 @@ def _service(tmp_path: Path, provider: FakeCodingAgentProvider) -> CodingWorkerS
         tmp_path / "worker", {"manifest": adapter}, id_key=b"s" * 32
     )
     return CodingWorkerService(store=store, workspace_broker=broker, provider=provider)
+
+
+class _RepairingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+        self.repair: Callable[[], Awaitable[None]] | None = None
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.messages.append(text)
+        if len(self.messages) == 2 and self.repair is not None:
+            await self.repair()
+        async for event in super().message(session, text):
+            yield event
+
+
+def _service_with_harness(
+    tmp_path: Path, provider: FakeCodingAgentProvider
+) -> tuple[CodingWorkerService, ToolBroker]:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    workspace = WorkspaceBroker(
+        tmp_path / "worker",
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {("source-01", "revision-01"): {"main.py": b"bad python\n"}}
+            )
+        },
+        id_key=b"h" * 32,
+    )
+    broker = ToolBroker(
+        store=store,
+        workspace_broker=workspace,
+        frozen_checks={
+            "pytest": FrozenCheck(
+                check_id="pytest",
+                argv=(sys.executable, "-m", "py_compile", "main.py"),
+            )
+        },
+    )
+    harness = HarnessRunner(
+        store=store, workspace_broker=workspace, tool_broker=broker
+    )
+    return (
+        CodingWorkerService(
+            store=store,
+            workspace_broker=workspace,
+            provider=provider,
+            harness_runner=harness,
+        ),
+        broker,
+    )
 
 
 @pytest.mark.asyncio
@@ -102,4 +166,61 @@ async def test_shutdown_interrupts_without_replaying_and_resume_is_explicit(tmp_
     await service.wait_for(task.task_id, lambda item: item.state is TaskState.RUNNING)
     assert service.store.get_task(task.task_id).workspace_id == workspace_id
     await service.cancel(task.task_id)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failed_acceptance_is_repaired_and_retested_before_completion(
+    tmp_path: Path,
+) -> None:
+    provider = _RepairingProvider()
+    service, broker = _service_with_harness(tmp_path, provider)
+    request = _request("repair").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    task = await service.create_task(Origin(module="test", object_id="repair"), request)
+
+    async def repair() -> None:
+        content = "print('fixed')\n"
+        await broker.execute(
+            task_id=task.task_id,
+            operation_id="repair-main",
+            tool_name="write_file",
+            arguments={
+                "path": "main.py",
+                "content": content,
+                "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+            },
+        )
+
+    provider.repair = repair
+    completed = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.COMPLETED
+    )
+    assert completed.reason is None
+    assert len(provider.messages) == 2
+    assert "Check pytest failed" in provider.messages[1]
+    statuses = [item.status.value for item in service.store.list_evidence(task.task_id)]
+    assert statuses[-1] == "passed"
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_required_check_failure_exhausts_turn_budget_without_completion(
+    tmp_path: Path,
+) -> None:
+    service, _ = _service_with_harness(tmp_path, FakeCodingAgentProvider())
+    request = _request("budget").model_copy(
+        update={
+            "policy_profile": PolicyProfile.DEVELOP,
+            "budget": TaskBudget(max_turns=2),
+        }
+    )
+    task = await service.create_task(Origin(module="test", object_id="budget"), request)
+    limited = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BUDGET_LIMITED
+    )
+    assert limited.reason == "turn_budget_exhausted"
+    assert limited.state is not TaskState.COMPLETED
+    assert len(service.store.list_evidence(task.task_id)) == 2
     await service.shutdown()

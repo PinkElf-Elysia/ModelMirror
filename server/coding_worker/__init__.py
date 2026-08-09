@@ -14,6 +14,7 @@ from .contracts import (
     WorkspaceSource,
 )
 from .provider import CodingAgentProvider, FakeCodingAgentProvider
+from .evidence import HarnessRunner
 from .opencode_provider import OpenCodeProvider
 from .service import CodingWorkerService
 from .store import CodingWorkerStore
@@ -27,6 +28,7 @@ __all__ = [
     "CodingWorkerService",
     "CodingWorkerStore",
     "FrozenCheck",
+    "HarnessRunner",
     "ToolBroker",
     "ToolBrokerError",
     "ToolResult",

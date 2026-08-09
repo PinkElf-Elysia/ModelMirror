@@ -5,13 +5,16 @@ import contextlib
 from collections.abc import Callable
 
 from .contracts import (
+    EvidenceStatus,
     Origin,
     TaskCreateRequest,
     TaskRecord,
     TaskSpec,
     TaskState,
     TERMINAL_STATES,
+    WorkerEvidence,
 )
+from .evidence import HarnessRunner
 from .provider import (
     CodingAgentProvider,
     ProviderEventKind,
@@ -19,6 +22,7 @@ from .provider import (
     ProviderSession,
 )
 from .store import CodingWorkerStore, WorkerConflictError
+from .tool_broker import ToolBrokerError
 from .workspace import WorkspaceBroker, WorkspaceError
 
 
@@ -31,6 +35,7 @@ class CodingWorkerService:
         store: CodingWorkerStore,
         workspace_broker: WorkspaceBroker,
         provider: CodingAgentProvider,
+        harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
@@ -38,6 +43,7 @@ class CodingWorkerService:
         self.store = store
         self.workspace_broker = workspace_broker
         self.provider = provider
+        self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
         self._active: dict[str, asyncio.Task[None]] = {}
         self._sessions: dict[str, ProviderSession] = {}
@@ -226,35 +232,13 @@ class CodingWorkerService:
             )
             if not self.store.list_messages(task_id):
                 self.store.append_message(task_id, role="user", content=task.spec.objective)
-            terminal = False
-            async for event in self.provider.message(session, task.spec.objective):
-                self.store.append_event(
-                    task_id,
-                    "provider_event",
-                    {"kind": event.kind.value, "data": event.data},
-                )
-                if event.kind is ProviderEventKind.TURN_COMPLETED:
-                    self.store.transition(task_id, TaskState.TESTING)
+            await self._drive_session(task, session)
+        except TimeoutError:
+            current = self.store.get_task(task_id)
+            if current.state not in TERMINAL_STATES:
+                with contextlib.suppress(WorkerConflictError):
                     self.store.transition(
-                        task_id,
-                        TaskState.BLOCKED,
-                        reason="acceptance_runner_pending",
-                    )
-                    terminal = True
-                    break
-                if event.kind is ProviderEventKind.CANCELLED:
-                    self.store.transition(task_id, TaskState.CANCELLED, reason="provider_cancelled")
-                    terminal = True
-                    break
-                if event.kind is ProviderEventKind.FAILED:
-                    self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
-                    terminal = True
-                    break
-            if not terminal:
-                current = self.store.get_task(task_id)
-                if current.state not in TERMINAL_STATES:
-                    self.store.transition(
-                        task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
+                        task_id, TaskState.BUDGET_LIMITED, reason="time_budget_exhausted"
                     )
         except asyncio.CancelledError:
             current = self.store.get_task(task_id)
@@ -278,3 +262,130 @@ class CodingWorkerService:
             if session is not None:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
+
+    async def _drive_session(self, task: TaskRecord, session: ProviderSession) -> None:
+        task_id = task.task_id
+        message = task.spec.objective
+        turns = 0
+        async with asyncio.timeout(task.spec.budget.max_seconds):
+            while True:
+                turns += 1
+                turn_completed = False
+                async for event in self.provider.message(session, message):
+                    self.store.append_event(
+                        task_id,
+                        "provider_event",
+                        {"kind": event.kind.value, "data": event.data},
+                    )
+                    if event.kind is ProviderEventKind.TURN_COMPLETED:
+                        turn_completed = True
+                        break
+                    if event.kind is ProviderEventKind.CANCELLED:
+                        self.store.transition(
+                            task_id, TaskState.CANCELLED, reason="provider_cancelled"
+                        )
+                        return
+                    if event.kind is ProviderEventKind.FAILED:
+                        self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
+                        return
+                if not turn_completed:
+                    current = self.store.get_task(task_id)
+                    if current.state not in TERMINAL_STATES:
+                        self.store.transition(
+                            task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
+                        )
+                    return
+
+                self.store.transition(
+                    task_id, TaskState.TESTING, expected_state=TaskState.RUNNING
+                )
+                if self.harness_runner is None:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BLOCKED,
+                        reason="acceptance_runner_pending",
+                        expected_state=TaskState.TESTING,
+                    )
+                    return
+                try:
+                    evidence = await self.harness_runner.run_required_checks(task_id)
+                except ToolBrokerError as exc:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BLOCKED,
+                        reason=exc.code,
+                        expected_state=TaskState.TESTING,
+                    )
+                    return
+                self.store.append_event(
+                    task_id,
+                    "acceptance_evaluated",
+                    {
+                        "turn": turns,
+                        "evidence": [
+                            {
+                                "check_id": item.check_id,
+                                "status": item.status.value,
+                                "artifact_id": item.artifact_id,
+                            }
+                            for item in evidence
+                        ],
+                    },
+                )
+                if self.harness_runner.acceptance_satisfied(task_id):
+                    self.store.transition(
+                        task_id,
+                        TaskState.COMPLETED,
+                        expected_state=TaskState.TESTING,
+                    )
+                    return
+                if turns >= task.spec.budget.max_turns:
+                    self.store.transition(
+                        task_id,
+                        TaskState.BUDGET_LIMITED,
+                        reason="turn_budget_exhausted",
+                        expected_state=TaskState.TESTING,
+                    )
+                    return
+                message = self._acceptance_feedback(task_id, evidence)
+                self.store.append_message(task_id, role="system", content=message)
+                self.store.append_event(task_id, "acceptance_retry", {"turn": turns + 1})
+                self.store.transition(
+                    task_id,
+                    TaskState.RUNNING,
+                    reason="acceptance_failed",
+                    expected_state=TaskState.TESTING,
+                )
+
+    def _acceptance_feedback(
+        self, task_id: str, evidence: tuple[WorkerEvidence, ...]
+    ) -> str:
+        task = self.store.get_task(task_id)
+        lines = [
+            "Required acceptance checks are not yet satisfied.",
+            "Fix the workspace without weakening or rewriting the acceptance contract, "
+            "then finish the turn for an exact retest.",
+        ]
+        for item in evidence:
+            if item.status is EvidenceStatus.PASSED:
+                continue
+            output = self.store.read_artifact(item.artifact_id, task_id=task_id)
+            excerpt = output.decode("utf-8", errors="replace")[:4000]
+            lines.append(
+                f"\nCheck {item.check_id} failed with exit code {item.exit_code}:\n{excerpt}"
+            )
+        current_hash = self.workspace_broker.current_tree_hash(task.workspace_id or "")
+        artifacts = self.store.list_artifacts(task_id)
+        supplied = {
+            str(item.metadata.get("requirement_id"))
+            for item in artifacts
+            if item.metadata.get("workspace_tree_hash") == current_hash
+        }
+        missing = [
+            item.artifact_id
+            for item in task.spec.acceptance.required_artifacts
+            if item.artifact_id not in supplied
+        ]
+        if missing:
+            lines.append("\nMissing required artifacts: " + ", ".join(missing))
+        return "\n".join(lines)[:16_384]
