@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "package": "GdUnit4",
+  "upstream": "https://github.com/godot-gdunit-labs/gdUnit4",
+  "tag": "v6.2.0",
+  "commit": "d18770221c2df4a3c991a42fdce7907df40eea75",
+  "license": "MIT",
+  "devOnly": true,
+  "modified": false,
+  "includedPath": "addons/gdUnit4",
+  "vendorPath": "apps/runtime-godot/addons/gdUnit4",
+  "licensePath": "third-party/gdunit4/LICENSE",
+  "licenseSha256": "6be2166fe758ee8fbbc76cf676467cdb68a4756ed0ea079abc9eb987fc92bb7f",
+  "sourceArchiveUrl": "https://github.com/godot-gdunit-labs/gdUnit4/archive/refs/tags/v6.2.0.tar.gz",
+  "sourceArchiveSha256": "74e00f49e245b9b0c1599d1359d0ea88d1a867d05d7e5b12fa982bc4ca312a1a",
+  "tree": {
+    "profile": "matrix-oasis.vendor-tree/1",
+    "fileCount": 599,
+    "byteLength": 2294905,
+    "sha256": "4b1904e747517348cc05134d45b91e7244c92923fb4b6823e700fa4f255664ab"
+  }
+}

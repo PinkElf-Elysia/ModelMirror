@@ -6,6 +6,7 @@ export const ACTIVE_ROUND_BASELINE_SHA =
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",
   "README.md",
+  ".gitattributes",
   ".gitignore",
   "module-boundary.json",
   "package-lock.json",

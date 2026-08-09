@@ -1206,6 +1206,9 @@ function isForbiddenFile(relative, policy) {
   if (isRotatedLogName(name)) {
     return true;
   }
+  if (isAllowedAddonPath(relative, policy)) {
+    return classifyForbiddenArtifact(relative, name, policy) !== null;
+  }
   if (policy.forbiddenTrackedExtensions.some((extension) =>
     name.toLowerCase().endsWith(extension.toLowerCase()),
   )) {
@@ -1426,6 +1429,10 @@ export async function auditBoundary({ moduleRoot, policy, trackedFiles }) {
         relative,
         "This artifact type is explicitly forbidden by the active-round boundary.",
       );
+    }
+
+    if (isAllowedAddonPath(relative, policy)) {
+      continue;
     }
 
     const bytes = await fs.readFile(absolute);

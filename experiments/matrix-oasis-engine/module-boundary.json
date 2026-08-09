@@ -9,6 +9,7 @@
     "allowedModuleFiles": [
       "AGENTS.md",
       "README.md",
+      ".gitattributes",
       ".gitignore",
       "module-boundary.json",
       "package-lock.json",

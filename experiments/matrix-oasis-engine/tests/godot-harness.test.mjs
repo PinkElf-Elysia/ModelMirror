@@ -7,6 +7,7 @@ import {
   GODOT_READINESS_MARKER,
   GODOT_REQUIRED_VERSION,
   GodotHarnessError,
+  assertGdUnitSuccess,
   assertGodotOutputClean,
   assertSingleReadinessMarker,
   extractGodotVersion,
@@ -83,4 +84,31 @@ test("Godot output gates reject errors and duplicate readiness", () => {
     () => assertSingleReadinessMarker(`${GODOT_READINESS_MARKER}\n${GODOT_READINESS_MARKER}`),
     (error) => error instanceof GodotHarnessError && error.code === "GODOT_READINESS_MARKER_INVALID",
   );
+});
+
+test("GdUnit output gate requires the exact four-test clean summary", () => {
+  const success = [
+    "Overall Summary:",
+    "4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans",
+    "Executed test suites: (1/1)",
+    "Executed test cases : (4/4)",
+  ].join("\n");
+  assert.doesNotThrow(() => assertGdUnitSuccess(success));
+  for (const invalid of [
+    "No test cases found",
+    success.replace("4 test cases", "3 test cases"),
+    success.replace("0 failures", "1 failures"),
+  ]) {
+    assert.throws(
+      () => assertGdUnitSuccess(invalid),
+      (error) => error instanceof GodotHarnessError && error.code === "GDUNIT4_RESULT_INVALID",
+    );
+  }
+});
+
+test("Godot verification uses a disposable project instead of mutating the vendor", () => {
+  const harness = readFileSync(path.join(moduleRoot, "scripts", "run-godot.mjs"), "utf8");
+  assert.match(harness, /matrix-oasis-godot-project-/);
+  assert.match(harness, /fs\.cpSync\(sourceProjectRoot, projectRoot/);
+  assert.match(harness, /path\.basename\(source\) !== "\.godot"/);
 });

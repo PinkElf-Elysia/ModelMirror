@@ -1,6 +1,6 @@
 # R4 验收记录
 
-状态：R4.2 已验证，等待本地提交；尚未达到人工验收门。
+状态：R4.3 已验证，等待本地提交；尚未达到人工验收门。
 
 固定 `R4_BASE_SHA`：`df4a4b53e1f03f81fbf5a041065dc1443158c472`
 
@@ -9,8 +9,8 @@
 | 批次 | 状态 | 本地提交 |
 | --- | --- | --- |
 | R4.1 治理与冻结迁移 | 已完成 | `6370008` |
-| R4.2 Godot 工具链与最小工程 | 已验证 | 本批提交，SHA 在 R4.3 记录 |
-| R4.3 GdUnit4 与来源护栏 | 未开始 | — |
+| R4.2 Godot 工具链与最小工程 | 已完成 | `70b2504` |
+| R4.3 GdUnit4 与来源护栏 | 已验证 | 本批提交，SHA 在 R4.4 记录 |
 | R4.4 自动验证、MCP 资格与固定帧 | 未开始 | — |
 | R4.5 拆分与证据收口 | 未开始 | — |
 
@@ -48,6 +48,28 @@
 - `git diff --check` 退出 0；R1–R3 packages、examples、Creator 与历史验收相对固定基线零差异。
 
 受限沙箱不能创建 Godot 用户缓存时会以权限错误退出；在不改系统目录、不改环境值的正常进程权限下，同一命令已通过。`.godot/` 全部忽略且未跟踪。回退本批提交会移除独立 Godot 工程和 R4.2 harness，保留 R4.1 治理，不影响父仓和现有数据合同。
+
+## R4.3 证据
+
+本批原样 vendoring GdUnit4 `v6.2.0` / commit `d18770221c2df4a3c991a42fdce7907df40eea75` 的 `addons/gdUnit4/**`，保留 MIT 许可证，并新增机器可读来源锁、tree verifier 和四个中性工程测试。上游源码未修改；Godot 操作在仓外一次性工程副本中运行，避免导入器为 addon 写入 `.uid/.import` 派生文件。
+
+固定供应链标识：
+
+- 官方 tag 源归档 SHA-256：`74e00f49e245b9b0c1599d1359d0ea88d1a867d05d7e5b12fa982bc4ca312a1a`。
+- 原样 addon：599 files、2,294,905 bytes。
+- `matrix-oasis.vendor-tree/1` SHA-256：`4b1904e747517348cc05134d45b91e7244c92923fb4b6823e700fa4f255664ab`。
+- MIT LICENSE SHA-256：`6be2166fe758ee8fbbc76cf676467cdb68a4756ed0ea079abc9eb987fc92bb7f`。
+
+已执行并通过：
+
+- `npm.cmd run verify:vendor`：精确 commit/tag/license/archive/tree 全部匹配；新增、删除、字节漂移和 junction 负向测试均拒绝。
+- `node --test tests/godot-harness.test.mjs tests/vendor.test.mjs`：11/11；GdUnit 输出必须精确为 1 suite、4/4 tests、零 errors/failures/flaky/skipped/orphans。
+- `npm.cmd run test:godot`：Godot 4.6.3 同一仓外副本先 import 后执行四个 GdUnit 测试，退出 0；测试项目设置、主场景、关键节点、readiness/smoke 合同和资源引用边界。
+- `npm.cmd run verify:godot`：doctor → vendor → disposable import → GdUnit → smoke 全链退出 0；正式 vendor 前后 tree hash 不变。
+- `npm.cmd test`：375/375；边界正向允许精确 vendor，第一方规则不扫描 vendored 源码，未知 addon 与 vendor 外 `.scn` 仍拒绝。
+- `npm.cmd run verify`：12/12 steps；完整 375/375 Node tests、Godot/GdUnit、R1–R3、Creator 247 modules build 与 HTTP 200 smoke 全部通过。
+
+R4.3 不新增 npm registry 依赖、不改 lockfile、不加入导出模板或平台二进制。若回退本批提交，将移除 vendored addon、来源锁、GdUnit 测试和供应链 harness；R4.2 最小工程仍可独立 import/smoke。
 
 ## 最终仓外标识
 

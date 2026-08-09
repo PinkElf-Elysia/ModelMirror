@@ -8,4 +8,6 @@ R4 固定官方标准版 Godot 4.6.3、GDScript 与 Forward+。Godot 通过仓�
 
 Godot 4.6 自动生成的 `.gd.uid` 是 GDScript 源码身份 sidecar，和源码一起跟踪；`.godot/` 导入缓存仍始终忽略。
 
+自动 import、GdUnit 和 smoke 均先把工程复制到仓外一次性目录再启动 Godot，成功后只清理该精确目录。这样 Godot 为上游 addon 生成的派生 UID 和导入缓存不会改变原样 vendored 树；失败副本保留供诊断。
+
 R4 不定义 Runtime Pack 适配接口；任何桥接必须留到下一轮，并以冻结 R3 Runtime Pack 为输入权威。

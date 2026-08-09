@@ -14,6 +14,8 @@
 - Node 24.x、npm 11.x、Git 与 Godot 4.6.3 是 R4 必需工具。
 - Godot 可执行文件和导出模板不得进入仓库；通过仓外 `GODOT_BIN` 使用。
 - GdUnit4 由机器可读 lock 固定 upstream、tag、commit、MIT、源归档哈希和目录树哈希；源码保持未修改。
+- `.gitattributes` 只对精确 GdUnit4 根设置 `-text -whitespace`，使 Git 保留上游 fixture 的原始字节与空白；第一方文件仍执行常规行尾和 `diff --check`。
+- Godot 验证只运行仓外一次性工程副本，避免引擎为 addon 写入派生 `.uid` 或导入缓存；原样 vendor 的任何增删改均失败。
 - 生成的 `.godot/`、test reports、movie captures、logs 与 exports 均忽略且不得跟踪。
 
 ## 能力边界

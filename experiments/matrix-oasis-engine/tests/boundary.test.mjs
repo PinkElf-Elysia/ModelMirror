@@ -184,6 +184,10 @@ test("a valid isolated fixture passes", async () => {
       "@tool\nextends EditorPlugin\n",
       "utf8",
     );
+    await fs.writeFile(
+      path.join(root, "apps", "runtime-godot", "addons", "gdUnit4", "fixture.scn"),
+      Buffer.from([0x47, 0x44, 0x53, 0x43]),
+    );
 
     const internalLink = path.join(root, "linked-shared");
     await fs.symlink(

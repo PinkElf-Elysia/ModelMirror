@@ -78,6 +78,19 @@ export function assertSingleReadinessMarker(output) {
   }
 }
 
+export function assertGdUnitSuccess(output) {
+  const text = output ?? "";
+  if (
+    text.includes("No test cases found") ||
+    !text.includes("Overall Summary:") ||
+    !text.includes("4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans") ||
+    !text.includes("Executed test suites: (1/1)") ||
+    !text.includes("Executed test cases : (4/4)")
+  ) {
+    fail("GDUNIT4_RESULT_INVALID");
+  }
+}
+
 export function projectPath(moduleRoot) {
   return path.join(moduleRoot, "apps", "runtime-godot");
 }
