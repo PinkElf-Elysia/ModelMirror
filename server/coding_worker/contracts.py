@@ -301,3 +301,50 @@ class WorkerEvent(StrictModel):
     type: str = Field(min_length=1, max_length=80)
     payload: dict[str, Any] = Field(default_factory=dict)
     created_at: float
+
+
+class WorkerMessage(StrictModel):
+    message_id: str
+    task_id: str
+    sequence: int = Field(ge=1)
+    role: Literal["user", "assistant", "tool", "system"]
+    content: str
+    created_at: float
+
+
+class ApprovalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
+class WorkerApproval(StrictModel):
+    approval_id: str
+    task_id: str
+    operation_id: str
+    capability: str
+    status: ApprovalStatus
+    request: dict[str, Any] = Field(default_factory=dict)
+    lease: CapabilityLease | None = None
+    created_at: float
+    decided_at: float | None = None
+
+
+class WorkerCheckpoint(StrictModel):
+    checkpoint_id: str
+    task_id: str
+    workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: float
+
+
+class WorkerArtifact(StrictModel):
+    artifact_id: str
+    task_id: str
+    media_type: str
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    size: int = Field(ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: float

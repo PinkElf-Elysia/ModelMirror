@@ -14,11 +14,13 @@ from .contracts import (
     WorkspaceSource,
 )
 from .provider import CodingAgentProvider, FakeCodingAgentProvider
+from .store import CodingWorkerStore
 
 __all__ = [
     "AcceptanceContract",
     "CapabilityLease",
     "CodingAgentProvider",
+    "CodingWorkerStore",
     "ContextReference",
     "FakeCodingAgentProvider",
     "Origin",
