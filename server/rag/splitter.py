@@ -121,7 +121,11 @@ def _split_windowed(
     text_length = len(text)
     while cursor < text_length:
         hard_end = min(cursor + chunk_size, text_length)
-        end = _preferred_boundary(text, cursor, hard_end, separators)
+        end = (
+            text_length
+            if hard_end == text_length
+            else _preferred_boundary(text, cursor, hard_end, separators)
+        )
         if end <= cursor:
             end = hard_end
 

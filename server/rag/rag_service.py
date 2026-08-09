@@ -123,6 +123,10 @@ class KnowledgeBaseDeletionError(KnowledgeBaseNotFoundError):
     """Raised when a tombstoned knowledge base still needs cleanup retry."""
 
 
+class KnowledgeBaseLockedError(RagError):
+    """Raised when a managed benchmark corpus rejects a mutation."""
+
+
 class DocumentNotFoundError(RagError):
     """Raised when a document does not exist."""
 
@@ -232,7 +236,15 @@ class RagService:
         else:
             self.llm_enabled = llm_enabled
 
-    def create_knowledge_base(self, name: str) -> dict[str, Any]:
+    def create_knowledge_base(
+        self,
+        name: str,
+        *,
+        origin: str = "manual",
+        catalog_ref: dict[str, Any] | None = None,
+        corpus_locked: bool = False,
+        provisioning_status: str = "ready",
+    ) -> dict[str, Any]:
         """Create a knowledge base and return its metadata."""
 
         clean_name = name.strip()
@@ -244,6 +256,10 @@ class RagService:
         item = {
             "id": kb_id,
             "name": clean_name,
+            "origin": str(origin or "manual")[:80],
+            "catalog_ref": json.loads(json.dumps(catalog_ref or {})),
+            "corpus_locked": bool(corpus_locked),
+            "provisioning_status": str(provisioning_status or "ready")[:40],
             "created_at": time.time(),
             "updated_at": time.time(),
         }
@@ -252,13 +268,14 @@ class RagService:
         (self.uploads_dir / kb_id).mkdir(parents=True, exist_ok=True)
         return self._kb_payload(item, metadata)
 
-    def list_knowledge_bases(self) -> list[dict[str, Any]]:
+    def list_knowledge_bases(self, *, include_provisioning: bool = False) -> list[dict[str, Any]]:
         """Return all knowledge bases with document counts."""
 
         metadata = self._read_metadata()
         items = [
             self._kb_payload(item, metadata)
             for item in metadata["knowledge_bases"].values()
+            if include_provisioning or item.get("provisioning_status", "ready") == "ready"
         ]
         return sorted(items, key=lambda item: item["created_at"], reverse=True)
 
@@ -402,7 +419,7 @@ class RagService:
         ]
         for doc_id in current_document_ids:
             try:
-                self.delete_document(doc_id)
+                self.delete_document(doc_id, allow_locked=True)
             except (DocumentDeletionError, DocumentNotFoundError):
                 cleanup_pending = True
                 error_code = error_code or "rag_document_cleanup_pending"
@@ -569,12 +586,15 @@ class RagService:
         filename: str,
         content: bytes,
         declared_media_type: str | None = None,
+        allow_locked: bool = False,
+        pipeline_only: bool = False,
     ) -> dict[str, Any]:
         """Hold a write claim so knowledge-base deletion cannot finalize mid-upload."""
 
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
             self._ensure_kb_exists(metadata, kb_id)
+            self._assert_corpus_mutable(metadata, kb_id, allow_locked=allow_locked)
             self._knowledge_base_write_claims[kb_id] = (
                 self._knowledge_base_write_claims.get(kb_id, 0) + 1
             )
@@ -584,6 +604,7 @@ class RagService:
                 filename,
                 content,
                 declared_media_type=declared_media_type,
+                pipeline_only=pipeline_only,
             )
         finally:
             with self._metadata_lock:
@@ -599,6 +620,7 @@ class RagService:
         filename: str,
         content: bytes,
         declared_media_type: str | None = None,
+        pipeline_only: bool = False,
     ) -> dict[str, Any]:
         """Save, parse, split, embed and index an uploaded document."""
 
@@ -647,12 +669,12 @@ class RagService:
         stored_path = target_dir / f"{doc_id}_{safe_name}"
         stored_path.write_bytes(content)
 
-        pipeline_required = is_image
+        pipeline_required = is_image or pipeline_only
         chunks: list[str] = []
         chunk_sources: list[dict[str, Any]] = []
         embeddings: list[list[float]] = []
         document_warnings: list[str] = []
-        if not is_image:
+        if not is_image and not pipeline_only:
             try:
                 if extension in {".xlsx", ".docx", ".pptx"}:
                     if extension in {".docx", ".pptx"}:
@@ -778,7 +800,7 @@ class RagService:
             "chunk_count": len(chunks),
             "content_type": mimetypes.guess_type(filename)[0] or "application/octet-stream",
             "ingestion_status": "pipeline_required" if pipeline_required else "indexed_legacy",
-            "visual_candidate": pipeline_required,
+            "visual_candidate": is_image or bool(visual_metadata),
             "visual_metadata": visual_metadata,
             "warnings": document_warnings,
             "content_hash": hashlib.sha256(content).hexdigest(),
@@ -905,6 +927,7 @@ class RagService:
         with self._metadata_lock:
             metadata = self._read_metadata_unlocked()
             self._ensure_kb_exists(metadata, kb_id)
+            self._assert_corpus_mutable(metadata, kb_id)
             for existing in metadata["knowledge_write_proposals"].values():
                 if (
                     existing.get("kb_id") == kb_id
@@ -1043,6 +1066,7 @@ class RagService:
             metadata = self._read_metadata_unlocked()
             proposal = self._knowledge_write_proposal_or_raise(metadata, proposal_id)
             self._assert_pending_proposal(proposal, expected_revision)
+            self._assert_corpus_mutable(metadata, str(proposal["kb_id"]))
             if proposal.get("approval_in_progress"):
                 raise KnowledgeWriteProposalConflictError("Proposal approval is already running.")
             proposal["approval_in_progress"] = True
@@ -3410,10 +3434,18 @@ class RagService:
             for doc_id in deleted_document_ids
         )
 
-    def delete_document(self, doc_id: str) -> None:
+    def delete_document(self, doc_id: str, *, allow_locked: bool = False) -> None:
         """Claim one in-process delete while allowing restart recovery."""
 
         with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            document = metadata["documents"].get(doc_id)
+            if isinstance(document, dict):
+                self._assert_corpus_mutable(
+                    metadata,
+                    str(document.get("kb_id") or ""),
+                    allow_locked=allow_locked,
+                )
             if doc_id in self._document_delete_claims:
                 raise DocumentDeletionError("Document cleanup is already in progress.")
             self._document_delete_claims.add(doc_id)
@@ -4152,7 +4184,7 @@ class RagService:
     ) -> dict[str, Any]:
         config = {**self._default_embedding_profile(), **dict(current or {})}
         if patch:
-            unknown = set(patch) - {"model"}
+            unknown = set(patch) - {"model", "provider"}
             if unknown:
                 raise PipelineDraftValidationError(
                     f"Unsupported embedding profile field: {sorted(unknown)[0]}"
@@ -4161,9 +4193,18 @@ class RagService:
             if not model or len(model) > 200:
                 raise PipelineDraftValidationError("embedding_profile.model is invalid.")
             config["model"] = model
-        config["provider"] = self._default_embedding_profile()["provider"]
+            provider = str(patch.get("provider") or config.get("provider") or "").strip()
+            if provider not in {"hash", "openai_compatible"}:
+                raise PipelineDraftValidationError(
+                    "embedding_profile.provider must be hash or openai_compatible."
+                )
+            config["provider"] = provider
+        provider = str(config.get("provider") or self._default_embedding_profile()["provider"])
+        if provider == "openai_compatible" and not self.embedder.api_key:
+            provider = "hash"
+        config["provider"] = provider
         config["dimension"] = self.embedder.dimension
-        config["degraded"] = self._default_embedding_profile()["degraded"]
+        config["degraded"] = provider == "hash"
         return config
 
     def _default_pipeline_draft_stages(self) -> dict[str, dict[str, Any]]:
@@ -4844,6 +4885,33 @@ class RagService:
             raise KnowledgeBaseDeletionError(
                 "Knowledge base is isolated for deletion and no longer accepts reads or writes."
             )
+
+    def _assert_corpus_mutable(
+        self,
+        metadata: dict[str, Any],
+        kb_id: str,
+        *,
+        allow_locked: bool = False,
+    ) -> None:
+        item = metadata["knowledge_bases"].get(kb_id)
+        if (
+            isinstance(item, dict)
+            and bool(item.get("corpus_locked"))
+            and not allow_locked
+        ):
+            raise KnowledgeBaseLockedError(
+                "This managed Benchmark corpus is locked; pipeline versions remain editable."
+            )
+
+    def complete_benchmark_provisioning(self, kb_id: str) -> dict[str, Any]:
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            self._ensure_kb_exists(metadata, kb_id)
+            item = metadata["knowledge_bases"][kb_id]
+            item["provisioning_status"] = "ready"
+            item["updated_at"] = time.time()
+            self._write_metadata_unlocked(metadata)
+            return self._kb_payload(item, metadata)
 
     def _document_for_artifact_id(self, artifact_id: str) -> dict[str, Any]:
         doc_id = artifact_id.removeprefix("artifact_")

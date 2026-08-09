@@ -41,6 +41,8 @@ DEFAULT_GATE_POLICY: dict[str, Any] = {
     "max_mrr_regression": 0.03,
     "max_citation_hit_regression": 0.02,
     "max_no_result_increase": 0.05,
+    "min_no_result_accuracy": 0.0,
+    "min_citation_coverage": 0.0,
     "max_p95_latency_ratio": 2.0,
     "require_zero_errors": True,
 }
@@ -53,10 +55,29 @@ def evaluate_retrieval_case(
     ks: list[int] | None = None,
     latency_ms: float = 0.0,
     warnings: list[str] | None = None,
+    expected_no_result: bool = False,
 ) -> dict[str, Any]:
     """Score one ranked retrieval response against stable relevance references."""
 
     normalized_ks = sorted(set(ks or DEFAULT_KS))
+    if expected_no_result:
+        no_result = len(sources) == 0
+        return {
+            "status": "completed",
+            "metrics": {
+                "no_result_accuracy": 1.0 if no_result else 0.0,
+                "false_positive_rate": 0.0 if no_result else 1.0,
+            },
+            "latency_ms": round(max(0.0, latency_ms), 3),
+            "source_count": len(sources),
+            "expected_count": 0,
+            "matched_expected_count": 0,
+            "expected_no_result": True,
+            "no_result": no_result,
+            "warning_count": len(warnings or []),
+            "warnings": [str(item)[:240] for item in (warnings or [])[:10]],
+            "ranking": [_ranking_item(source, rank) for rank, source in enumerate(sources, 1)],
+        }
     relevant_ranks: list[int] = []
     matched_ref_indexes: set[int] = set()
     ranking: list[dict[str, Any]] = []
@@ -126,6 +147,7 @@ def evaluate_retrieval_case(
         "source_count": len(sources),
         "expected_count": total_relevant,
         "matched_expected_count": len(matched_ref_indexes),
+        "expected_no_result": False,
         "no_result": len(sources) == 0,
         "warning_count": len(warnings or []),
         "warnings": [str(item)[:240] for item in (warnings or [])[:10]],
@@ -142,6 +164,8 @@ def aggregate_target_metrics(
 
     normalized_ks = sorted(set(ks or DEFAULT_KS))
     completed = [item for item in case_results if item.get("status") == "completed"]
+    positive = [item for item in completed if not item.get("expected_no_result")]
+    no_result_cases = [item for item in completed if item.get("expected_no_result")]
     errors = [item for item in case_results if item.get("status") == "failed"]
     metric_names = [
         *(f"hit_at_{k}" for k in normalized_ks),
@@ -153,11 +177,11 @@ def aggregate_target_metrics(
     ]
     metrics = {
         name: round(
-            sum(float(item.get("metrics", {}).get(name, 0.0)) for item in completed)
-            / len(completed),
+            sum(float(item.get("metrics", {}).get(name, 0.0)) for item in positive)
+            / len(positive),
             6,
         )
-        if completed
+        if positive
         else 0.0
         for name in metric_names
     }
@@ -167,6 +191,18 @@ def aggregate_target_metrics(
             "case_count": len(case_results),
             "completed_case_count": len(completed),
             "error_count": len(errors),
+            "positive_case_count": len(positive),
+            "no_result_case_count": len(no_result_cases),
+            "no_result_accuracy": round(
+                sum(float(item.get("metrics", {}).get("no_result_accuracy", 0.0)) for item in no_result_cases)
+                / len(no_result_cases),
+                6,
+            ) if no_result_cases else 1.0,
+            "false_positive_rate": round(
+                sum(float(item.get("metrics", {}).get("false_positive_rate", 0.0)) for item in no_result_cases)
+                / len(no_result_cases),
+                6,
+            ) if no_result_cases else 0.0,
             "no_result_rate": round(
                 sum(1 for item in completed if item.get("no_result")) / len(completed), 6
             )
@@ -218,6 +254,24 @@ def evaluate_promotion_gate(
         recall,
         min_recall,
         "Recall@5 must meet the configured minimum.",
+    )
+    no_result_accuracy = float(candidate.get("no_result_accuracy", 1.0))
+    minimum_no_result_accuracy = float(effective["min_no_result_accuracy"])
+    add_check(
+        "min_no_result_accuracy",
+        no_result_accuracy >= minimum_no_result_accuracy,
+        no_result_accuracy,
+        minimum_no_result_accuracy,
+        "No-result accuracy must meet the configured minimum.",
+    )
+    citation_coverage = float(candidate.get("citation_coverage", 0.0))
+    minimum_citation_coverage = float(effective["min_citation_coverage"])
+    add_check(
+        "min_citation_coverage",
+        citation_coverage >= minimum_citation_coverage,
+        citation_coverage,
+        minimum_citation_coverage,
+        "Citation coverage must meet the configured minimum.",
     )
     errors = float(candidate.get("error_count", 0))
     if bool(effective.get("require_zero_errors", True)):
@@ -286,7 +340,18 @@ class KnowledgeEvaluationStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
-    def create_set(self, kb_id: str, name: str, description: str = "") -> dict[str, Any]:
+    def create_set(
+        self,
+        kb_id: str,
+        name: str,
+        description: str = "",
+        *,
+        origin: str = "manual",
+        catalog_ref: dict[str, Any] | None = None,
+        provenance: dict[str, Any] | None = None,
+        coverage: dict[str, Any] | None = None,
+        calibration: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         clean_name = name.strip()
         if not clean_name:
             raise ValueError("Evaluation set name is required.")
@@ -299,6 +364,12 @@ class KnowledgeEvaluationStore:
             "revision": 1,
             "status": "active",
             "cases": [],
+            "origin": str(origin or "manual")[:80],
+            "catalog_ref": _copy(catalog_ref or {}),
+            "provenance": _copy(provenance or {}),
+            "coverage": _copy(coverage or {}),
+            "calibration": _copy(calibration or {}),
+            "latest_version": None,
             "created_at": now,
             "updated_at": now,
         }
@@ -312,12 +383,90 @@ class KnowledgeEvaluationStore:
         data = self._read()
         items = [item for item in data["sets"].values() if item.get("kb_id") == kb_id]
         items.sort(key=lambda item: float(item.get("updated_at", 0.0)), reverse=True)
-        return [_copy(item) for item in items]
+        return [self._set_payload(item) for item in items]
 
     def get_set(self, eval_set_id: str) -> dict[str, Any]:
         item = self._read()["sets"].get(eval_set_id)
         if not isinstance(item, dict):
             raise EvaluationSetNotFoundError("Knowledge evaluation set not found.")
+        return self._set_payload(item)
+
+    def publish_set(
+        self,
+        eval_set_id: str,
+        *,
+        expected_revision: int,
+        release_notes: str = "",
+    ) -> dict[str, Any]:
+        with self._lock:
+            data = self._read_unlocked()
+            item = self._set_or_raise(data, eval_set_id)
+            self._check_revision(item, expected_revision)
+            if item.get("status") != "active" or not item.get("cases"):
+                raise EvaluationStateError(
+                    "Only active evaluation sets with cases can be published."
+                )
+            cases = [self._normalize_case(case, preserve_id=True) for case in item["cases"]]
+            current = [
+                version
+                for version in data["versions"].values()
+                if version.get("eval_set_id") == eval_set_id
+            ]
+            version_number = max(
+                (int(version.get("version") or 0) for version in current),
+                default=0,
+            ) + 1
+            now = time.time()
+            version_id = f"evalsetver_{uuid.uuid4().hex}"
+            version = {
+                "version_id": version_id,
+                "eval_set_id": eval_set_id,
+                "kb_id": item["kb_id"],
+                "version": version_number,
+                "name": item["name"],
+                "description": item["description"],
+                "source_revision": int(item["revision"]),
+                "cases": _copy(cases),
+                "origin": str(item.get("origin") or "manual"),
+                "catalog_ref": _copy(item.get("catalog_ref") or {}),
+                "provenance": _copy(item.get("provenance") or {}),
+                "coverage": _copy(item.get("coverage") or {}),
+                "calibration": _copy(item.get("calibration") or {}),
+                "release_notes": str(release_notes or "")[:1000],
+                "checksum": _checksum({"cases": cases, "coverage": item.get("coverage") or {}}),
+                "published_at": now,
+            }
+            data["versions"][version_id] = version
+            item["latest_version"] = version_number
+            item["updated_at"] = now
+            self._write_unlocked(data)
+            return _copy(version)
+
+    def list_set_versions(self, eval_set_id: str) -> list[dict[str, Any]]:
+        data = self._read()
+        self._set_or_raise(data, eval_set_id)
+        items = [
+            _copy(version)
+            for version in data["versions"].values()
+            if version.get("eval_set_id") == eval_set_id
+        ]
+        items.sort(key=lambda value: int(value.get("version") or 0), reverse=True)
+        return items
+
+    def get_set_version(self, eval_set_id: str, version: int) -> dict[str, Any]:
+        data = self._read()
+        self._set_or_raise(data, eval_set_id)
+        item = next(
+            (
+                value
+                for value in data["versions"].values()
+                if value.get("eval_set_id") == eval_set_id
+                and int(value.get("version") or 0) == int(version)
+            ),
+            None,
+        )
+        if not isinstance(item, dict):
+            raise EvaluationSetNotFoundError("Knowledge evaluation set version not found.")
         return _copy(item)
 
     def update_set(
@@ -420,6 +569,7 @@ class KnowledgeEvaluationStore:
         baseline_version_id: str | None,
         ks: list[int],
         gate_policy: dict[str, Any],
+        evaluation_set_version: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         now = time.time()
         run = {
@@ -427,7 +577,17 @@ class KnowledgeEvaluationStore:
             "kb_id": evaluation_set["kb_id"],
             "eval_set_id": evaluation_set["eval_set_id"],
             "eval_set_revision": evaluation_set["revision"],
-            "eval_set_snapshot": _copy(evaluation_set),
+            "eval_set_version": (
+                int(evaluation_set_version["version"])
+                if evaluation_set_version is not None
+                else None
+            ),
+            "eval_set_version_id": (
+                str(evaluation_set_version["version_id"])
+                if evaluation_set_version is not None
+                else None
+            ),
+            "eval_set_snapshot": _copy(evaluation_set_version or evaluation_set),
             "targets": _copy(targets),
             "baseline_version_id": baseline_version_id,
             "ks": sorted(set(ks)),
@@ -599,9 +759,10 @@ class KnowledgeEvaluationStore:
         run = self.get_run(evaluation_run_id)
         if run["status"] != "succeeded" or run["kb_id"] != kb_id:
             raise EvaluationPromotionError("Evaluation run is not a successful run for this knowledge base.")
-        current_set = self.get_set(str(run["eval_set_id"]))
-        if int(current_set["revision"]) != int(run["eval_set_revision"]):
-            raise EvaluationPromotionError("Evaluation set changed after this run; run it again before promotion.")
+        if run.get("eval_set_version") is None:
+            current_set = self.get_set(str(run["eval_set_id"]))
+            if int(current_set["revision"]) != int(run["eval_set_revision"]):
+                raise EvaluationPromotionError("Evaluation set changed after this run; run it again before promotion.")
         target = next(
             (item for item in run["target_results"] if item.get("version_id") == version_id),
             None,
@@ -633,9 +794,14 @@ class KnowledgeEvaluationStore:
         query = str(raw.get("query") or "").strip()
         if not query or len(query) > 20_000:
             raise ValueError("Evaluation query must contain between 1 and 20,000 characters.")
+        expected_no_result = bool(raw.get("expected_no_result", False))
         references = raw.get("expected_refs")
-        if not isinstance(references, list) or not references or len(references) > 50:
-            raise ValueError("Each evaluation case needs between 1 and 50 expected references.")
+        if not isinstance(references, list) or len(references) > 50:
+            raise ValueError("Evaluation expected_refs must be a list with at most 50 items.")
+        if expected_no_result and references:
+            raise ValueError("No-result cases cannot define expected references.")
+        if not expected_no_result and not references:
+            raise ValueError("Answerable evaluation cases need at least one expected reference.")
         normalized_refs: list[dict[str, Any]] = []
         for reference in references:
             if not isinstance(reference, dict) or not str(reference.get("document_id") or "").strip():
@@ -651,12 +817,15 @@ class KnowledgeEvaluationStore:
                     "source_block_id": _optional_string(reference.get("source_block_id"), 240),
                     "page_number": _optional_int(reference.get("page_number")),
                     "relevance": relevance,
+                    "match_mode": _normalize_match_mode(reference),
+                    "catalog_anchor_key": _optional_string(reference.get("catalog_anchor_key"), 200),
                 }
             )
         return {
             "case_id": str(raw.get("case_id")) if preserve_id and raw.get("case_id") else f"evalcase_{uuid.uuid4().hex}",
             "query": query,
             "expected_refs": normalized_refs,
+            "expected_no_result": expected_no_result,
             "tags": [str(item)[:80] for item in raw.get("tags", []) if str(item).strip()][:20],
             "notes": str(raw.get("notes") or "")[:1000],
         }
@@ -664,6 +833,19 @@ class KnowledgeEvaluationStore:
     def _touch_set(self, item: dict[str, Any]) -> None:
         item["revision"] = int(item.get("revision", 0)) + 1
         item["updated_at"] = time.time()
+
+    def _set_payload(self, item: dict[str, Any]) -> dict[str, Any]:
+        payload = _copy(item)
+        payload.setdefault("origin", "manual")
+        payload.setdefault("catalog_ref", {})
+        payload.setdefault("provenance", {})
+        payload.setdefault("coverage", {})
+        payload.setdefault("calibration", {})
+        payload.setdefault("latest_version", None)
+        for case in payload.get("cases", []):
+            if isinstance(case, dict):
+                case.setdefault("expected_no_result", False)
+        return payload
 
     def _check_revision(self, item: dict[str, Any], expected_revision: int) -> None:
         if int(item.get("revision", 0)) != expected_revision:
@@ -687,14 +869,15 @@ class KnowledgeEvaluationStore:
 
     def _read_unlocked(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"version": "knowledge-evaluation-v1", "sets": {}, "runs": {}, "gate_policies": {}}
+            return {"version": "knowledge-evaluation-v2", "sets": {}, "versions": {}, "runs": {}, "gate_policies": {}}
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             value = {}
         return {
-            "version": "knowledge-evaluation-v1",
+            "version": "knowledge-evaluation-v2",
             "sets": value.get("sets") if isinstance(value.get("sets"), dict) else {},
+            "versions": value.get("versions") if isinstance(value.get("versions"), dict) else {},
             "runs": value.get("runs") if isinstance(value.get("runs"), dict) else {},
             "gate_policies": value.get("gate_policies") if isinstance(value.get("gate_policies"), dict) else {},
         }
@@ -714,6 +897,15 @@ def _source_matches_reference(source: dict[str, Any], reference: dict[str, Any])
     )
     if source_document != str(reference.get("document_id") or ""):
         return False
+    match_mode = str(reference.get("match_mode") or "").strip()
+    if match_mode == "document":
+        return True
+    if match_mode == "source_block":
+        expected_block = str(reference.get("source_block_id") or "")
+        return bool(expected_block) and str(source.get("source_block_id") or "") == expected_block
+    if match_mode == "chunk":
+        expected_chunk = str(reference.get("chunk_id") or "")
+        return bool(expected_chunk) and str(source.get("chunk_id") or "") == expected_chunk
     expected_chunk = str(reference.get("chunk_id") or "")
     if expected_chunk:
         return str(source.get("chunk_id") or "") == expected_chunk
@@ -756,6 +948,8 @@ def _validate_gate_policy(policy: dict[str, Any]) -> dict[str, Any]:
         "max_mrr_regression",
         "max_citation_hit_regression",
         "max_no_result_increase",
+        "min_no_result_accuracy",
+        "min_citation_coverage",
     ]
     for key in bounded:
         value = float(policy[key])
@@ -788,6 +982,52 @@ def _float_or_none(value: Any) -> float | None:
         return round(float(value), 6)
     except (TypeError, ValueError):
         return None
+
+
+def _ranking_item(source: dict[str, Any], rank: int) -> dict[str, Any]:
+    return {
+        "rank": rank,
+        "chunk_id": str(source.get("chunk_id") or ""),
+        "document_id": str(
+            source.get("source_document_id")
+            or source.get("doc_id")
+            or source.get("document_id")
+            or ""
+        ),
+        "document_name": str(source.get("document_name") or "")[:240],
+        "source_block_id": source.get("source_block_id"),
+        "page_number": source.get("page_number"),
+        "visual_kind": source.get("visual_kind"),
+        "score": _float_or_none(source.get("score")),
+        "vector_score": _float_or_none(source.get("vector_score")),
+        "fulltext_score": _float_or_none(source.get("fulltext_score")),
+        "fused_score": _float_or_none(source.get("fused_score")),
+        "rerank_score": _float_or_none(source.get("rerank_score")),
+        "relevance": 0,
+        "matched_reference_id": None,
+    }
+
+
+def _normalize_match_mode(reference: dict[str, Any]) -> str | None:
+    value = str(reference.get("match_mode") or "").strip()
+    if value:
+        if value not in {"document", "source_block", "chunk"}:
+            raise ValueError("Reference match_mode must be document, source_block, or chunk.")
+        required = {
+            "chunk": "chunk_id",
+            "source_block": "source_block_id",
+        }.get(value)
+        if required and not str(reference.get(required) or "").strip():
+            raise ValueError(f"Reference match_mode={value} requires {required}.")
+        return value
+    return None
+
+
+def _checksum(value: Any) -> str:
+    import hashlib
+
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _safe_error(value: Any) -> str:

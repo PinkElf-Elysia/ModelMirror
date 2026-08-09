@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 try:
     from server.evaluations.store import EvaluationStateError, XpertEvaluationStore
@@ -11,6 +11,7 @@ except ModuleNotFoundError:
 
 from .catalog import BenchmarkCatalog, BenchmarkCatalogError, BenchmarkPackNotFoundError
 from .executor import BenchmarkJobExecutor, GeneratorRunner
+from .knowledge_executor import KnowledgeBenchmarkProvisioner
 from .models import (
     BenchmarkCalibrationRequest,
     BenchmarkGenerationPreflightRequest,
@@ -40,6 +41,8 @@ def configure_benchmarks(
     prompt_store: Any | None = None,
     context_store: Any | None = None,
     rag_service: Any | None = None,
+    rag_pipeline_executor: Any | None = None,
+    rag_evaluation_store: Any | None = None,
     toolset_store: Any | None = None,
     generator_runner: GeneratorRunner | None = None,
 ) -> BenchmarkCatalog:
@@ -72,6 +75,19 @@ def configure_benchmarks(
             rag_service=rag_service,
             toolset_store=toolset_store,
         )
+        knowledge_provisioner = (
+            KnowledgeBenchmarkProvisioner(
+                catalog=_catalog,
+                store=_job_store,
+                rag_service=rag_service,
+                pipeline_executor=rag_pipeline_executor,
+                evaluation_store=rag_evaluation_store,
+            )
+            if rag_service is not None
+            and rag_pipeline_executor is not None
+            and rag_evaluation_store is not None
+            else None
+        )
         _executor = BenchmarkJobExecutor(
             _job_store,
             service=_service,
@@ -79,6 +95,7 @@ def configure_benchmarks(
             evaluation_store=evaluation_store,
             evaluation_service=evaluation_service,
             evaluation_executor=evaluation_executor,
+            knowledge_provisioner=knowledge_provisioner,
         )
     return _catalog
 
@@ -141,8 +158,25 @@ async def get_catalog_pack(pack_id: str) -> dict[str, Any]:
 async def instantiate_catalog_pack(
     pack_id: str,
     payload: InstantiateBenchmarkRequest,
+    response: Response,
 ) -> dict[str, Any]:
     try:
+        pack = get_benchmark_catalog().get_pack(pack_id)
+        if pack.manifest.kind == "knowledge_retrieval":
+            item = await _to_thread(
+                get_benchmark_job_store().create_job,
+                kind="knowledge_instantiation",
+                request={
+                    "pack_id": pack.manifest.pack_id,
+                    "pack_version": pack.manifest.version,
+                    "pack_checksum": pack.manifest.checksum,
+                    "name": payload.name,
+                    "description": payload.description,
+                },
+            )
+            get_benchmark_job_executor().wake()
+            response.status_code = 202
+            return _sanitize_job(item)
         return get_benchmark_catalog().instantiate(
             pack_id,
             store=_require_evaluation_store(),
@@ -153,6 +187,30 @@ async def instantiate_catalog_pack(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (BenchmarkCatalogError, EvaluationStateError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/instantiations/{job_id}")
+async def get_instantiation(job_id: str) -> dict[str, Any]:
+    try:
+        item = await _to_thread(get_benchmark_job_store().require_job, job_id)
+    except BenchmarkJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if item.get("kind") != "knowledge_instantiation":
+        raise HTTPException(status_code=404, detail="Benchmark instantiation not found.")
+    return _sanitize_job(item)
+
+
+@router.post("/instantiations/{job_id}/cancel")
+async def cancel_instantiation(job_id: str) -> dict[str, Any]:
+    try:
+        item = await _to_thread(get_benchmark_job_store().require_job, job_id)
+        if item.get("kind") != "knowledge_instantiation":
+            raise BenchmarkJobNotFoundError("Benchmark instantiation not found.")
+        result = await _to_thread(get_benchmark_job_store().cancel_job, job_id)
+        get_benchmark_job_executor().wake()
+        return _sanitize_job(result)
+    except BenchmarkJobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/generations/preflight")

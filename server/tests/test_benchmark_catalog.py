@@ -19,6 +19,10 @@ EXPECTED_PACK_COUNTS = {
     "mm-agent-abstention-bilingual-v1": 12,
 }
 
+EXPECTED_KNOWLEDGE_PACK_COUNTS = {
+    "modelmirror-rag-foundation-bilingual-v1": (12, 40),
+}
+
 
 def test_builtin_agent_catalog_is_stable_bilingual_and_deterministic() -> None:
     catalog = BenchmarkCatalog()
@@ -48,6 +52,40 @@ def test_builtin_agent_catalog_is_stable_bilingual_and_deterministic() -> None:
             assert set(case.get("weights") or {}).issubset(
                 {"exact_match", "contains", "json_schema"}
             )
+
+
+def test_builtin_knowledge_catalog_is_locked_bilingual_and_safe() -> None:
+    catalog = BenchmarkCatalog()
+    items = catalog.list_packs(kind="knowledge_retrieval")
+
+    assert {
+        item["pack_id"]: (item["document_count"], item["case_count"])
+        for item in items
+    } == EXPECTED_KNOWLEDGE_PACK_COUNTS
+    item = items[0]
+    assert item["locales"] == ["zh-CN", "en"]
+    assert item["metric_policy"] == {
+        "mode": "advisory",
+        "min_recall_at_5": 0.70,
+        "min_citation_coverage": 0.70,
+        "min_no_result_accuracy": 0.80,
+    }
+    pack = catalog.get_pack(item["pack_id"])
+    assert sum(bool(case.get("expected_no_result")) for case in pack.cases) == 6
+    categories = [str(case["tags"][0]) for case in pack.cases]
+    assert {name: categories.count(name) for name in set(categories)} == {
+        "fact": 12,
+        "paraphrase": 8,
+        "parent_child": 8,
+        "cross_language": 6,
+        "no_answer": 6,
+    }
+
+    payload = catalog.pack_payload(item["pack_id"])
+    serialized = json.dumps(payload, ensure_ascii=False).lower()
+    assert "anchor_phrase" not in serialized
+    assert "# 极光设备运维手册" not in serialized
+    assert "stored_path" not in serialized
 
 
 def test_catalog_instantiation_atomically_publishes_immutable_v1(tmp_path: Path) -> None:

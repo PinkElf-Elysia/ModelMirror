@@ -51,6 +51,24 @@ def test_recursive_and_parent_child_splitters_preserve_offsets() -> None:
     assert all(text[item.start_char : item.end_char] == item.text for item in children)
 
 
+def test_short_english_segments_are_not_fragmented_by_large_overlap() -> None:
+    text = "MDR-44 backups begin at 02:30 UTC."
+    recursive = TextSplitter(400, 50)
+    parent_child = ParentChildTextSplitter(
+        parent_chunk_size=1500,
+        parent_chunk_overlap=100,
+        child_chunk_size=400,
+        child_chunk_overlap=50,
+    )
+
+    assert [item.text for item in recursive.split_segments(text)] == [text]
+    children = parent_child.split_segments(text)
+    assert len(children) == 1
+    assert children[0].text == text
+    assert children[0].start_char == 0
+    assert children[0].end_char == len(text)
+
+
 def test_sqlite_fts5_indexes_mixed_chinese_and_english(tmp_path: Path) -> None:
     store = SqliteLexicalStore(tmp_path / "lexical.sqlite3")
     store.add_chunks(

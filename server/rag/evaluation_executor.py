@@ -114,6 +114,7 @@ class KnowledgeEvaluationExecutor:
                             ks=list(run["ks"]),
                             latency_ms=(time.perf_counter() - started) * 1000,
                             warnings=list(retrieval.get("warnings") or []),
+                            expected_no_result=bool(case.get("expected_no_result")),
                         )
                     except asyncio.CancelledError:
                         raise
@@ -132,6 +133,7 @@ class KnowledgeEvaluationExecutor:
                             "source_count": 0,
                             "expected_count": len(case.get("expected_refs") or []),
                             "matched_expected_count": 0,
+                            "expected_no_result": bool(case.get("expected_no_result")),
                             "no_result": True,
                             "warning_count": 0,
                             "warnings": [],

@@ -46,7 +46,7 @@ class BenchmarkJobStore:
         self._data = self._load()
 
     def create_job(self, *, kind: str, request: dict[str, Any]) -> dict[str, Any]:
-        if kind not in {"generation", "calibration"}:
+        if kind not in {"generation", "calibration", "knowledge_instantiation"}:
             raise BenchmarkJobStateError("Unsupported Benchmark job kind.")
         now = time.time()
         job = {
@@ -62,6 +62,7 @@ class BenchmarkJobStore:
             "dataset_revision": None,
             "evaluation_run_id": None,
             "calibration": {},
+            "provisioning": {},
             "warnings": [],
             "error": None,
             "cancel_requested": False,
@@ -107,7 +108,7 @@ class BenchmarkJobStore:
                 return None
             item = min(queued, key=lambda value: float(value.get("created_at") or 0))
             item["status"] = (
-                "generating" if item.get("kind") == "generation" else "validating"
+                "validating" if item.get("kind") == "calibration" else "generating"
             )
             item["attempts"] = int(item.get("attempts") or 0) + 1
             item["updated_at"] = time.time()
@@ -125,6 +126,7 @@ class BenchmarkJobStore:
             "dataset_revision",
             "evaluation_run_id",
             "calibration",
+            "provisioning",
             "warnings",
             "error",
         }

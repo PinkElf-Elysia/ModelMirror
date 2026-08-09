@@ -27,12 +27,14 @@ class BenchmarkManifest(BaseModel):
     source: str = Field(min_length=1, max_length=500)
     license: str = Field(min_length=1, max_length=120)
     case_count: int = Field(ge=1, le=500)
+    document_count: int = Field(default=0, ge=0, le=100)
     checksum: str = Field(min_length=64, max_length=64)
 
 
 class BenchmarkPack(BaseModel):
     manifest: BenchmarkManifest
     cases: list[dict[str, Any]] = Field(min_length=1, max_length=500)
+    documents: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
 
 
 class InstantiateBenchmarkRequest(BaseModel):

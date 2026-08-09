@@ -138,6 +138,55 @@ def test_evaluation_metrics_match_stable_references_and_rankings() -> None:
     assert gate["passed"] is True
 
 
+def test_source_block_and_no_result_metrics_are_aggregated_separately() -> None:
+    positive = evaluate_retrieval_case(
+        [
+            {
+                "chunk_id": "candidate-v2-child",
+                "source_document_id": "doc-a",
+                "source_block_id": "block-stable",
+                "score": 0.9,
+            }
+        ],
+        [
+            {
+                "reference_id": "ref-a",
+                "document_id": "doc-a",
+                "chunk_id": "initial-v1-child",
+                "source_block_id": "block-stable",
+                "match_mode": "source_block",
+                "relevance": 3,
+            }
+        ],
+        ks=[1, 5],
+    )
+    abstention = evaluate_retrieval_case(
+        [],
+        [],
+        ks=[1, 5],
+        expected_no_result=True,
+    )
+    false_positive = evaluate_retrieval_case(
+        [{"chunk_id": "noise", "source_document_id": "doc-z", "score": 0.4}],
+        [],
+        ks=[1, 5],
+        expected_no_result=True,
+    )
+
+    assert positive["metrics"]["recall_at_1"] == 1.0
+    assert abstention["metrics"]["no_result_accuracy"] == 1.0
+    assert false_positive["metrics"]["false_positive_rate"] == 1.0
+    aggregate = aggregate_target_metrics(
+        [positive, abstention, false_positive],
+        ks=[1, 5],
+    )
+    assert aggregate["positive_case_count"] == 1
+    assert aggregate["no_result_case_count"] == 2
+    assert aggregate["recall_at_1"] == 1.0
+    assert aggregate["no_result_accuracy"] == 0.5
+    assert aggregate["false_positive_rate"] == 0.5
+
+
 def test_evaluation_store_persists_revisions_runs_and_recovery(tmp_path: Path) -> None:
     path = tmp_path / "evaluations.json"
     store = KnowledgeEvaluationStore(path)
@@ -172,6 +221,99 @@ def test_evaluation_store_persists_revisions_runs_and_recovery(tmp_path: Path) -
     assert reloaded.get_set(evaluation_set["eval_set_id"])["cases"][0]["query"].startswith("Where")
     assert reloaded.recover_runs() == 1
     assert reloaded.get_run(run["run_id"])["status"] == "queued"
+
+
+def test_evaluation_set_versions_are_immutable_and_pin_run_snapshot(tmp_path: Path) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    draft = store.create_set(
+        "kb-a",
+        "Benchmark",
+        origin="benchmark_catalog",
+        catalog_ref={"pack_id": "pack-a", "version": 1, "checksum": "a" * 64},
+    )
+    draft = store.add_cases(
+        draft["eval_set_id"],
+        expected_revision=draft["revision"],
+        cases=[
+            {
+                "query": "Known fact?",
+                "expected_refs": [
+                    {
+                        "document_id": "doc-a",
+                        "chunk_id": "chunk-v1",
+                        "source_block_id": "block-a",
+                        "match_mode": "source_block",
+                    }
+                ],
+            },
+            {
+                "query": "Unknown fact?",
+                "expected_no_result": True,
+                "expected_refs": [],
+            },
+        ],
+    )
+    version = store.publish_set(
+        draft["eval_set_id"],
+        expected_revision=draft["revision"],
+        release_notes="v1",
+    )
+    changed = store.update_case(
+        draft["eval_set_id"],
+        draft["cases"][0]["case_id"],
+        expected_revision=draft["revision"],
+        values={"query": "Changed draft?"},
+    )
+    pinned = store.get_set_version(draft["eval_set_id"], 1)
+    assert pinned["cases"][0]["query"] == "Known fact?"
+    assert changed["cases"][0]["query"] == "Changed draft?"
+
+    run = store.create_run(
+        evaluation_set=store.get_set(draft["eval_set_id"]),
+        evaluation_set_version=version,
+        targets=[{"target_id": "v1", "version_id": "v1"}],
+        baseline_version_id=None,
+        ks=[1, 5],
+        gate_policy=store.get_gate_policy("kb-a"),
+    )
+    assert run["eval_set_version"] == 1
+    assert run["eval_set_snapshot"]["cases"][0]["query"] == "Known fact?"
+
+
+def test_published_evaluation_version_remains_available_after_draft_archive(
+    tmp_path: Path,
+) -> None:
+    store = KnowledgeEvaluationStore(tmp_path / "evaluations.json")
+    dataset = store.create_set("kb", "Stable benchmark")
+    dataset = store.add_cases(
+        dataset["eval_set_id"],
+        expected_revision=dataset["revision"],
+        cases=[
+            {
+                "query": "Which fixed source is expected?",
+                "expected_refs": [
+                    {
+                        "document_id": "doc-1",
+                        "source_block_id": "block-1",
+                        "match_mode": "source_block",
+                        "relevance": 3,
+                    }
+                ],
+            }
+        ],
+    )
+    version = store.publish_set(
+        dataset["eval_set_id"], expected_revision=dataset["revision"]
+    )
+    store.update_set(
+        dataset["eval_set_id"],
+        expected_revision=dataset["revision"],
+        status="archived",
+    )
+
+    persisted = store.get_set_version(dataset["eval_set_id"], version["version"])
+    assert persisted["checksum"] == version["checksum"]
+    assert len(persisted["cases"]) == 1
 
 
 @pytest.mark.asyncio
@@ -222,11 +364,26 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
         },
     )
     assert case_response.status_code == 200, case_response.text
+    published_response = await client.post(
+        f"/api/rag/evaluation-sets/{evaluation_set['eval_set_id']}/publish",
+        json={
+            "expected_revision": case_response.json()["revision"],
+            "release_notes": "fixed regression v1",
+        },
+    )
+    assert published_response.status_code == 200, published_response.text
+    assert published_response.json()["version"] == 1
+    versions_response = await client.get(
+        f"/api/rag/evaluation-sets/{evaluation_set['eval_set_id']}/versions"
+    )
+    assert versions_response.status_code == 200
+    assert versions_response.json()["version_count"] == 1
 
     run_response = await client.post(
         "/api/rag/evaluation-runs",
         json={
             "eval_set_id": evaluation_set["eval_set_id"],
+            "eval_set_version": 1,
             "targets": [
                 {"version_id": baseline_version, "label": "baseline"},
                 {"version_id": candidate_version, "label": "candidate"},
@@ -237,6 +394,7 @@ async def test_evaluation_api_runs_versions_and_enforces_required_gate(
     )
     assert run_response.status_code == 200, run_response.text
     assert run_response.json()["ks"] == [1, 3, 5, 10]
+    assert run_response.json()["eval_set_version"] == 1
     assert await evaluation_executor.run_once() is True
 
     completed = (await client.get(f"/api/rag/evaluation-runs/{run_response.json()['run_id']}")).json()

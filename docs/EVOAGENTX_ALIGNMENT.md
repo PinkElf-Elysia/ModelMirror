@@ -206,8 +206,8 @@ Xpert 标准数据与针对性生成也已补齐。当前按以下独立轮次�
 
 1. 已完成标准 Xpert Benchmark 目录。
 2. 已完成 Xpert/Prompt/Profile/结构目标的一键生成与受限校准。
-3. 下一轮实现标准 RAG Pack 与版本化 Gold 引用。
-4. 再实现知识库定向 Benchmark 生成。
+3. 已完成 RAG 引擎标准 Pack 与版本化 Gold 引用；该 Pack 仅用于检索一致性和回归。
+4. 下一轮锁定 `XPERT-RAG-BENCHMARK-GENERATOR-04`，实现具体知识库的定向 Gold 生成与校准。
 5. 最后只对 General Agent Workspace 做目录和运行摘要适配，不替换 Penguin Runtime。
 
 每轮在共享栈空闲并完成 Docker 人工验收后独立提交。完整共享契约见
