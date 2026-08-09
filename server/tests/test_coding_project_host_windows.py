@@ -23,9 +23,11 @@ from server.coding_project_host.windows_helper import (
     ProjectHostRegistry,
     ProjectHostTransport,
     inspect_git_project,
+    inspect_git_project_for_recovery,
     public_project,
     validate_server_url,
 )
+from server.coding_runtime.projects import build_safe_git_environment
 
 
 class XorProtector:
@@ -151,6 +153,92 @@ def test_git_inspection_accepts_remote_without_reading_or_returning_it(tmp_path:
     assert "path" not in encoded.casefold()
     assert "remote" not in encoded.casefold()
     assert "example.invalid" not in encoded
+
+
+@pytest.mark.parametrize("inspection", ["initial", "recovery"])
+@pytest.mark.parametrize(
+    ("config_name", "config_value"),
+    [
+        ("extensions.partialClone", "origin"),
+        ("remote.origin.promisor", "true"),
+        ("remote..promisor", "true"),
+        ("remote.origin.partialCloneFilter", "blob:none"),
+    ],
+)
+def test_git_inspection_rejects_lazy_fetch_config_before_object_resolution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inspection: str,
+    config_name: str,
+    config_value: str,
+) -> None:
+    project = _repository(tmp_path)
+    baseline = inspect_git_project(project, b"k" * 32, enforce_windows=False)
+    _git(project, "config", config_name, config_value)
+    original_run = subprocess.run
+    commands: list[tuple[str, ...]] = []
+    environments: list[dict[str, str]] = []
+
+    def traced_run(command, **kwargs):
+        commands.append(tuple(command))
+        environments.append(dict(kwargs["env"]))
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(windows_helper_module.subprocess, "run", traced_run)
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        if inspection == "initial":
+            inspect_git_project(project, b"k" * 32, enforce_windows=False)
+        else:
+            inspect_git_project_for_recovery(
+                project,
+                b"k" * 32,
+                expected_project_id=baseline["project_id"],
+                expected_branch=baseline["branch"],
+                expected_head=baseline["head"],
+                enforce_windows=False,
+            )
+
+    assert rejected.value.code == "git_config_unsafe"
+    assert commands
+    assert all("config" in command for command in commands)
+    object_commands = {"rev-parse", "ls-tree", "cat-file", "diff", "status"}
+    assert all(object_commands.isdisjoint(command) for command in commands)
+    assert all(env["GIT_NO_LAZY_FETCH"] == "1" for env in environments)
+    assert build_safe_git_environment()["GIT_NO_LAZY_FETCH"] == "1"
+    assert (project / "README.md").read_bytes() == b"marker: q7m4\n"
+
+
+@pytest.mark.parametrize("inspection", ["initial", "recovery"])
+def test_git_inspection_rejects_http_alternates_without_running_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    inspection: str,
+) -> None:
+    project = _repository(tmp_path)
+    baseline = inspect_git_project(project, b"k" * 32, enforce_windows=False)
+    alternate = project / ".git" / "objects" / "info" / "http-alternates"
+    alternate.write_text("https://example.invalid/objects\n", encoding="utf-8")
+    monkeypatch.setattr(
+        windows_helper_module,
+        "_run_git",
+        lambda *_args, **_kwargs: pytest.fail("Git must not run before rejecting http-alternates"),
+    )
+
+    with pytest.raises(ProjectHostHelperError) as rejected:
+        if inspection == "initial":
+            inspect_git_project(project, b"k" * 32, enforce_windows=False)
+        else:
+            inspect_git_project_for_recovery(
+                project,
+                b"k" * 32,
+                expected_project_id=baseline["project_id"],
+                expected_branch=baseline["branch"],
+                expected_head=baseline["head"],
+                enforce_windows=False,
+            )
+
+    assert rejected.value.code == "git_alternates_not_allowed"
+    assert (project / "README.md").read_bytes() == b"marker: q7m4\n"
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows helper safety gate")

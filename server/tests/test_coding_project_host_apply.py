@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import server.coding_project_host.host_apply_engine as host_apply_engine_module
+
 from server.coding_project_host.host_apply_engine import (
     HostApplyError,
     HostGitApplyEngine,
@@ -18,6 +20,7 @@ from server.coding_project_host.host_file_transaction import (
 )
 from server.coding_project_host.operation_log import HostOperationJournal
 from server.coding_runtime.draft_workspace import DraftWorkspace
+from server.coding_runtime.projects import build_safe_git_environment
 
 
 PROJECT_ID = "hostgit_0123456789abcdef0123456789abcdef"
@@ -1287,6 +1290,64 @@ def test_local_include_configuration_is_rejected(tmp_path: Path) -> None:
         )
     assert unsafe.value.code == "git_config_unsafe"
     assert (root / "safe.txt").read_bytes() == b"safe\n"
+
+
+@pytest.mark.parametrize(
+    ("unsafe_kind", "expected_code"),
+    [
+        ("extensions.partialClone", "git_config_unsafe"),
+        ("remote.origin.promisor", "git_config_unsafe"),
+        ("remote..promisor", "git_config_unsafe"),
+        ("remote.origin.partialCloneFilter", "git_config_unsafe"),
+        ("http-alternates", "git_alternates_not_allowed"),
+    ],
+)
+def test_apply_rejects_lazy_fetch_sources_before_object_commands_or_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_kind: str,
+    expected_code: str,
+) -> None:
+    root, branch, head = _repository(tmp_path, {"safe.txt": b"safe\n"})
+    engine = _engine(tmp_path, root)
+    if unsafe_kind == "http-alternates":
+        (root / ".git" / "objects" / "info" / "http-alternates").write_text(
+            "https://example.invalid/objects\n",
+            encoding="utf-8",
+        )
+    else:
+        value = "blob:none" if unsafe_kind.endswith("Filter") else "true"
+        _git(root, "config", unsafe_kind, value)
+    patch, paths = _patch(("safe.txt", b"safe\n", b"changed\n"))
+    original_run = subprocess.run
+    commands: list[tuple[str, ...]] = []
+    environments: list[dict[str, str]] = []
+
+    def traced_run(command, **kwargs):
+        commands.append(tuple(command))
+        environments.append(dict(kwargs["env"]))
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(host_apply_engine_module.subprocess, "run", traced_run)
+    with pytest.raises(HostApplyError) as rejected:
+        engine.apply(
+            operation_id="apply_v13_lazy_fetch_p8r2",
+            revision=1,
+            branch=branch,
+            expected_head=head,
+            snapshot_fingerprint=FINGERPRINT,
+            patch=patch,
+            paths=paths,
+        )
+
+    assert rejected.value.code == expected_code
+    object_commands = {"rev-parse", "ls-tree", "cat-file", "diff", "status"}
+    assert all(object_commands.isdisjoint(command) for command in commands)
+    assert all(env["GIT_NO_LAZY_FETCH"] == "1" for env in environments)
+    assert build_safe_git_environment()["GIT_NO_LAZY_FETCH"] == "1"
+    assert (root / "safe.txt").read_bytes() == b"safe\n"
+    assert not (root / ".git" / "modelmirror-transactions").exists()
+    assert not (tmp_path / "operations.bin").exists()
 
 
 def test_reconcile_cannot_replace_stored_snapshot_fingerprint(tmp_path: Path) -> None:

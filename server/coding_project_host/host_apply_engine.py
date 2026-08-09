@@ -5,6 +5,7 @@ import ctypes
 import hashlib
 import functools
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -35,6 +36,12 @@ from .operation_log import HostOperationJournal, HostOperationLogError
 GIT_TIMEOUT_SECONDS = 30
 FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
 MutationHook = Callable[[str, int, str], None]
+_DANGEROUS_CONFIG = re.compile(
+    r"^(?:include(?:if)?\..+|filter\..+|credential\..+|"
+    r"diff\..*\.textconv|core\.worktree|extensions\.worktreeconfig|"
+    r"extensions\.partialclone|remote\..*\.(?:promisor|partialclonefilter))$",
+    re.IGNORECASE,
+)
 
 
 class HostApplyError(RuntimeError):
@@ -51,14 +58,21 @@ def _serialize_project_operation(method):
         # project lock or any other host-side artifact in production mode.
         if self.enforce_windows and os.name != "nt":
             raise HostApplyError("windows_required")
-        with _project_process_lock(self.root):
+        with _project_process_lock(
+            self.root,
+            preflight=self._validate_repository_layout,
+        ):
             return method(self, *args, **kwargs)
 
     return wrapped
 
 
 @contextlib.contextmanager
-def _project_process_lock(root: Path):
+def _project_process_lock(
+    root: Path,
+    *,
+    preflight: Callable[[], None] | None = None,
+):
     git = root / ".git"
     if (
         _is_link_or_reparse(root)
@@ -68,6 +82,8 @@ def _project_process_lock(root: Path):
     ):
         raise HostApplyError("git_metadata_unsafe")
     with _guard_directories((root, git)):
+        if preflight is not None:
+            preflight()
         directory = git / "modelmirror-transactions"
         if directory.exists():
             if _is_link_or_reparse(directory) or not directory.is_dir():
@@ -885,19 +901,6 @@ class HostGitApplyEngine:
             raise HostApplyError("git_index_dirty")
         if staged.returncode != 0:
             raise HostApplyError("git_inspection_failed")
-        forbidden = self._git(
-            "config",
-            "--local",
-            "--no-includes",
-            "--name-only",
-            "--get-regexp",
-            r"^(include\.|includeif\.|core\.worktree$|extensions\.worktreeconfig$|filter\.|credential\.|diff\..*\.textconv$)",
-        )
-        if forbidden.returncode == 0 and forbidden.stdout.strip():
-            raise HostApplyError("git_config_unsafe")
-        if forbidden.returncode not in {0, 1}:
-            raise HostApplyError("git_inspection_failed")
-
     def _git_stamp(
         self,
         branch: str,
@@ -934,12 +937,33 @@ class HostGitApplyEngine:
             raise HostApplyError("git_repository_required")
         if (git / "commondir").exists():
             raise HostApplyError("git_shared_directory_not_allowed")
-        alternates = git / "objects" / "info" / "alternates"
-        if _is_link_or_reparse(alternates) or (alternates.is_file() and alternates.stat().st_size):
+        for name in ("alternates", "http-alternates"):
+            alternate = git / "objects" / "info" / name
+            try:
+                alternate.lstat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise HostApplyError("git_inspection_failed") from exc
             raise HostApplyError("git_alternates_not_allowed")
         for metadata in (git / "config", git / "HEAD", git / "index"):
             if metadata.exists() and _is_link_or_reparse(metadata):
                 raise HostApplyError("git_metadata_unsafe")
+        configured = self._git(
+            "config",
+            "--local",
+            "--no-includes",
+            "--name-only",
+            "--list",
+        )
+        if configured.returncode != 0:
+            raise HostApplyError("git_inspection_failed")
+        try:
+            names = configured.stdout.decode("utf-8", errors="strict").splitlines()
+        except UnicodeError as exc:
+            raise HostApplyError("git_encoding_not_supported") from exc
+        if any(_DANGEROUS_CONFIG.fullmatch(name) for name in names):
+            raise HostApplyError("git_config_unsafe")
 
     def _assert_path_chain(self, relative: str) -> None:
         current = self.root

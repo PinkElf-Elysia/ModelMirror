@@ -61,6 +61,10 @@ MAX_OPERATION_PAYLOAD_BYTES = 1200 * 1024
 OPERATION_ACTIONS = frozenset({"apply", "revert", "commit", "undo", "reconcile"})
 OPERATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
 PAYLOAD_ID_PATTERN = re.compile(r"^phop_[a-f0-9]{32}$")
+_LAZY_FETCH_CONFIG_PATTERN = re.compile(
+    r"^(?:extensions\.partialclone|remote\..*\.(?:promisor|partialclonefilter))$",
+    re.IGNORECASE,
+)
 DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
 HEARTBEAT_INTERVAL_SECONDS = 20.0
 FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
@@ -446,9 +450,7 @@ def inspect_git_project(
         raise ProjectHostHelperError("git_repository_required")
     if (git_path / "commondir").exists():
         raise ProjectHostHelperError("git_shared_directory_not_allowed")
-    alternates = git_path / "objects" / "info" / "alternates"
-    if alternates.is_symlink() or (alternates.is_file() and alternates.stat().st_size > 0):
-        raise ProjectHostHelperError("git_alternates_not_allowed")
+    _assert_no_lazy_fetch_sources(resolved, git_path)
 
     inside = _git_text(
         resolved,
@@ -532,12 +534,7 @@ def inspect_git_project_for_recovery(
         raise ProjectHostHelperError("git_worktree_not_allowed")
     if not git_path.is_dir() or (git_path / "commondir").exists():
         raise ProjectHostHelperError("git_shared_directory_not_allowed")
-    for name in ("alternates", "http-alternates"):
-        alternate = git_path / "objects" / "info" / name
-        if alternate.is_symlink() or (
-            alternate.is_file() and alternate.stat().st_size > 0
-        ):
-            raise ProjectHostHelperError("git_alternates_not_allowed")
+    _assert_no_lazy_fetch_sources(resolved, git_path)
     branch = _git_text(
         resolved,
         "symbolic-ref",
@@ -1640,6 +1637,35 @@ def _run_git(path: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ProjectHostHelperError("git_inspection_failed") from exc
+
+
+def _assert_no_lazy_fetch_sources(path: Path, git_path: Path) -> None:
+    for name in ("alternates", "http-alternates"):
+        alternate = git_path / "objects" / "info" / name
+        try:
+            alternate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise ProjectHostHelperError("git_inspection_failed") from exc
+        raise ProjectHostHelperError("git_alternates_not_allowed")
+
+    configured = _run_git(
+        path,
+        "config",
+        "--local",
+        "--no-includes",
+        "--name-only",
+        "--list",
+    )
+    if configured.returncode != 0:
+        raise ProjectHostHelperError("git_inspection_failed")
+    try:
+        names = configured.stdout.decode("utf-8", errors="strict").splitlines()
+    except UnicodeError as exc:
+        raise ProjectHostHelperError("git_encoding_not_supported") from exc
+    if any(_LAZY_FETCH_CONFIG_PATTERN.fullmatch(name) for name in names):
+        raise ProjectHostHelperError("git_config_unsafe")
 
 
 def _git_text(
