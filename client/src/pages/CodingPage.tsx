@@ -30,6 +30,7 @@ import CodingRecoveryCard, {
   type CodingRecoveryAction,
 } from "../components/CodingRecoveryCard";
 import PageContainer from "../components/PageContainer";
+import CodingWorkerConsole from "../components/CodingWorkerConsole";
 import type {
   CodingApplyResult,
   CodingCapabilities,
@@ -81,6 +82,7 @@ import {
   undoCodingCommit,
   validateCodingChanges,
 } from "../utils/codingApi";
+import { getCodingWorkerStatus } from "../utils/codingWorkerApi";
 
 type RunState = "idle" | "starting" | "running" | "stopping" | "error";
 type CapabilityState = "loading" | "ready" | "error";
@@ -465,7 +467,7 @@ function CodingCommandConfirmation({
   );
 }
 
-export default function CodingPage() {
+function LegacyCodingPage() {
   const restoredSessionRef = useRef<StoredCodingSession | null>(
     readStoredCodingSession(),
   );
@@ -2860,4 +2862,29 @@ export default function CodingPage() {
       </div>
     </PageContainer>
   );
+}
+
+export default function CodingPage() {
+  const hasLegacySession = readStoredCodingSession() !== null;
+  const [surface, setSurface] = useState<"loading" | "legacy" | "worker">(
+    hasLegacySession ? "legacy" : "loading",
+  );
+
+  useEffect(() => {
+    if (hasLegacySession) return;
+    let active = true;
+    void Promise.all([getCodingWorkerStatus(), getCodingRecovery()])
+      .then(([status, recovery]) => {
+        if (active) setSurface(status.enabled && status.available && !recovery.pending ? "worker" : "legacy");
+      })
+      .catch(() => { if (active) setSurface("legacy"); });
+    return () => { active = false; };
+  }, [hasLegacySession]);
+
+  if (surface === "loading") {
+    return <div className="mx-auto mt-10 min-h-[60vh] max-w-7xl animate-pulse rounded-xl bg-white/5" aria-label="正在选择 Coding 执行面" />;
+  }
+  return surface === "worker"
+    ? <CodingWorkerConsole context="coding" />
+    : <LegacyCodingPage />;
 }
