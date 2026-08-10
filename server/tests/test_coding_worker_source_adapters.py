@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import subprocess
 
 import pytest
 
 from server.coding_worker.contracts import WorkspaceSource
 from server.coding_worker.source_adapters import (
+    BuiltinGitWorkspaceSourceAdapter,
     ProjectSnapshotWorkspaceSourceAdapter,
 )
 from server.coding_worker.workspace import WorkspaceError
@@ -131,3 +133,57 @@ async def test_project_snapshot_adapter_fails_closed_when_release_is_uncertain(
         ).acquire(source)
 
     assert caught.value.code == "source_release_failed"
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+
+
+@pytest.mark.asyncio
+async def test_builtin_adapter_reads_only_tracked_blobs_from_exact_revision(
+    tmp_path: Path,
+) -> None:
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.name", "ModelMirror Test")
+    _git(tmp_path, "config", "user.email", "test@modelmirror.local")
+    (tmp_path / "app.py").write_text("print('tracked')\n", encoding="utf-8")
+    _git(tmp_path, "add", "app.py")
+    _git(tmp_path, "commit", "-m", "baseline")
+    revision = _git(tmp_path, "rev-parse", "HEAD")
+    (tmp_path / "secret.env").write_text("TOKEN=do-not-copy\n", encoding="utf-8")
+    source = WorkspaceSource(
+        kind="builtin", source_id="modelmirror", revision=revision
+    )
+
+    snapshot = await BuiltinGitWorkspaceSourceAdapter(
+        tmp_path, source_id="modelmirror", revision=revision
+    ).acquire(source)
+
+    assert [(item.path, item.content) for item in snapshot.files] == [
+        ("app.py", b"print('tracked')\n")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_builtin_adapter_rejects_unregistered_revision_before_reading(
+    tmp_path: Path,
+) -> None:
+    _git(tmp_path, "init")
+    source = WorkspaceSource(
+        kind="builtin", source_id="modelmirror", revision="b" * 40
+    )
+    adapter = BuiltinGitWorkspaceSourceAdapter(
+        tmp_path, source_id="modelmirror", revision="a" * 40
+    )
+
+    with pytest.raises(WorkspaceError) as caught:
+        await adapter.acquire(source)
+
+    assert caught.value.code == "source_not_found"

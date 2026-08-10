@@ -21,6 +21,9 @@ services:
       CODING_WORKER_EGRESS_PROXY_URL: http://coding-worker-egress:8080
       CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}
       CODING_WORKER_PROJECT_SNAPSHOT_ROOT: /project-snapshots
+      CODING_WORKER_BUILTIN_SOURCE_ROOT: /builtin-source
+      CODING_WORKER_BUILTIN_SOURCE_ID: modelmirror
+      CODING_WORKER_BUILTIN_REVISION: ${CODING_WORKER_BUILTIN_REVISION:?set the full ModelMirror source commit}
     volumes:
       - coding_worker_state:/var/lib/modelmirror/coding-worker
       - coding_worker_slot_a:/worker-slots/slot-a
@@ -31,6 +34,12 @@ services:
       - coding_worker_executor_b:/run/modelmirror-coding-executor-b
       - coding_worker_broker:/run/modelmirror-coding-broker
       - coding_project_snapshot:/project-snapshots:ro
+      - type: bind
+        source: ${CODING_IMPLEMENTATION_WORKTREE:?set the absolute ModelMirror implementation worktree}
+        target: /builtin-source
+        read_only: true
+        bind:
+          create_host_path: false
 
   coding-worker-provider-a:
     image: modelmirror-coding-worker-v14:local

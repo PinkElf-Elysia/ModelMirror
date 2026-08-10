@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import stat
+import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
@@ -24,6 +26,223 @@ class ProjectSnapshotClient(Protocol):
     ) -> dict[str, Any]: ...
 
     async def release(self, project_id: str, lease_id: str) -> bool: ...
+
+
+_DANGEROUS_CONFIG = re.compile(
+    r"^(?:include(?:if)?\.|filter\.|credential\.|url\.|diff\..*\.textconv$|"
+    r"core\.worktree$|core\.excludesfile$|extensions\.(?:worktreeconfig|partialclone|refstorage)$|"
+    r"remote\..*\.(?:promisor|partialclonefilter)$)",
+    re.IGNORECASE,
+)
+
+
+class BuiltinGitWorkspaceSourceAdapter:
+    """Read tracked blobs from one deployment-fixed ModelMirror revision."""
+
+    def __init__(self, root: Path, *, source_id: str, revision: str) -> None:
+        self._root = Path(root)
+        self._source_id = source_id
+        self._revision = revision.lower()
+        if re.fullmatch(r"[a-f0-9]{40}", self._revision) is None:
+            raise ValueError("builtin revision must be a full commit id")
+
+    async def acquire(self, source: WorkspaceSource) -> SourceSnapshot:
+        if (
+            source.kind != "builtin"
+            or source.source_id != self._source_id
+            or source.revision != self._revision
+        ):
+            raise WorkspaceError(
+                "Builtin source is not registered at this revision.",
+                code="source_not_found",
+            )
+        return await asyncio.to_thread(self._read_revision, source)
+
+    def _read_revision(self, source: WorkspaceSource) -> SourceSnapshot:
+        try:
+            root_metadata = self._root.lstat()
+            git_metadata = (self._root / ".git").lstat()
+        except OSError as exc:
+            raise WorkspaceError(
+                "Builtin source is unavailable.", code="source_not_found"
+            ) from exc
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or stat.S_ISLNK(root_metadata.st_mode)
+            or stat.S_ISLNK(git_metadata.st_mode)
+            or not (
+                stat.S_ISDIR(git_metadata.st_mode)
+                or stat.S_ISREG(git_metadata.st_mode)
+            )
+        ):
+            raise WorkspaceError(
+                "Builtin source repository is unsafe.",
+                code="source_snapshot_unsafe",
+            )
+        config = self._git("config", "--local", "--no-includes", "--name-only", "--list")
+        names = config.stdout.decode("utf-8", errors="strict").splitlines()
+        if any(_DANGEROUS_CONFIG.search(name.strip()) for name in names):
+            raise WorkspaceError(
+                "Builtin source configuration is unsafe.",
+                code="source_snapshot_unsafe",
+            )
+        resolved = self._git("rev-parse", "--verify", f"{self._revision}^{{commit}}")
+        if resolved.stdout.decode("ascii", errors="strict").strip().lower() != self._revision:
+            raise WorkspaceError(
+                "Builtin revision changed.", code="source_revision_changed"
+            )
+        tree = self._git("ls-tree", "-r", "-z", "-l", self._revision)
+        if len(tree.stdout) > 16 * 1024 * 1024:
+            raise WorkspaceError(
+                "Builtin tree metadata is too large.", code="source_limit_exceeded"
+            )
+        entries: list[tuple[str, str, int, bool]] = []
+        total_bytes = 0
+        for raw in tree.stdout.split(b"\0"):
+            if not raw:
+                continue
+            try:
+                header, encoded_path = raw.split(b"\t", 1)
+                mode, object_type, object_id, encoded_size = header.split()
+                relative = encoded_path.decode("utf-8", errors="strict")
+                size = int(encoded_size)
+            except (ValueError, UnicodeError) as exc:
+                raise WorkspaceError(
+                    "Builtin tree is invalid.", code="source_snapshot_unsafe"
+                ) from exc
+            pure = PurePosixPath(relative)
+            if (
+                object_type != b"blob"
+                or mode not in {b"100644", b"100755"}
+                or pure.is_absolute()
+                or ".." in pure.parts
+                or not pure.parts
+                or pure.parts[0] == ".git"
+                or size < 0
+                or size > MAX_SOURCE_FILE_BYTES
+            ):
+                raise WorkspaceError(
+                    "Builtin tree contains an unsupported entry.",
+                    code="source_snapshot_unsafe",
+                )
+            total_bytes += size
+            if len(entries) >= MAX_SOURCE_FILES or total_bytes > MAX_SOURCE_BYTES:
+                raise WorkspaceError(
+                    "Builtin tree exceeds Worker limits.",
+                    code="source_limit_exceeded",
+                )
+            entries.append(
+                (
+                    relative,
+                    object_id.decode("ascii", errors="strict"),
+                    size,
+                    mode == b"100755",
+                )
+            )
+        contents = self._read_blobs(entries)
+        return SourceSnapshot(
+            source=source,
+            files=tuple(
+                SourceFile(path=path, content=content, executable=executable)
+                for (path, _object_id, _size, executable), content in zip(
+                    entries, contents, strict=True
+                )
+            ),
+        )
+
+    def _read_blobs(
+        self, entries: list[tuple[str, str, int, bool]]
+    ) -> list[bytes]:
+        command = self._git_command("cat-file", "--batch")
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=self._root,
+                env=self._git_environment(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except OSError as exc:
+            raise WorkspaceError(
+                "Builtin object reader is unavailable.", code="source_not_found"
+            ) from exc
+        assert process.stdin is not None and process.stdout is not None
+        result: list[bytes] = []
+        try:
+            for _path, object_id, expected_size, _executable in entries:
+                process.stdin.write(object_id.encode("ascii") + b"\n")
+                process.stdin.flush()
+                header = process.stdout.readline()
+                parts = header.rstrip(b"\n").split(b" ")
+                if (
+                    len(parts) != 3
+                    or parts[0].decode("ascii", errors="strict") != object_id
+                    or parts[1] != b"blob"
+                    or int(parts[2]) != expected_size
+                ):
+                    raise WorkspaceError(
+                        "Builtin object response is invalid.",
+                        code="source_revision_changed",
+                    )
+                content = process.stdout.read(expected_size)
+                if len(content) != expected_size or process.stdout.read(1) != b"\n":
+                    raise WorkspaceError(
+                        "Builtin object response is truncated.",
+                        code="source_revision_changed",
+                    )
+                result.append(content)
+            process.stdin.close()
+            if process.wait(timeout=15) != 0:
+                raise WorkspaceError(
+                    "Builtin object reader failed.", code="source_revision_changed"
+                )
+            return result
+        except Exception:
+            process.kill()
+            process.wait(timeout=5)
+            raise
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess[bytes]:
+        try:
+            return subprocess.run(
+                self._git_command(*args),
+                cwd=self._root,
+                env=self._git_environment(),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+                timeout=20,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise WorkspaceError(
+                "Builtin repository could not be inspected.",
+                code="source_snapshot_unsafe",
+            ) from exc
+
+    def _git_command(self, *args: str) -> list[str]:
+        null = os.devnull
+        return [
+            "git", "-c", f"core.hooksPath={null}", "-c", f"core.attributesFile={null}",
+            "-c", f"core.excludesFile={null}", "-c", "credential.helper=", "-c", "protocol.file.allow=never",
+            "-c", "protocol.ext.allow=never", *args,
+        ]
+
+    @staticmethod
+    def _git_environment() -> dict[str, str]:
+        keep = {key: value for key, value in os.environ.items() if key.upper() in {"PATH", "SYSTEMROOT", "WINDIR"}}
+        return {
+            **keep,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": "",
+            "GIT_SSH_COMMAND": "false",
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
 
 
 class ProjectSnapshotWorkspaceSourceAdapter:

@@ -13,7 +13,10 @@ from .service import CodingWorkerService
 from .store import CodingWorkerStore, DEFAULT_RETENTION_SECONDS
 from .tool_broker import FrozenCheck, ToolBroker
 from .workspace import WorkspaceBroker, WorkspaceSourceAdapter
-from .source_adapters import ProjectSnapshotWorkspaceSourceAdapter
+from .source_adapters import (
+    BuiltinGitWorkspaceSourceAdapter,
+    ProjectSnapshotWorkspaceSourceAdapter,
+)
 
 
 class CodingWorkerRuntimeError(RuntimeError):
@@ -238,6 +241,22 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         if value.strip()
     )
     source_adapters = dict(_SOURCE_ADAPTERS)
+    builtin_root = os.getenv("CODING_WORKER_BUILTIN_SOURCE_ROOT")
+    builtin_revision = os.getenv("CODING_WORKER_BUILTIN_REVISION")
+    if bool(builtin_root) != bool(builtin_revision):
+        raise CodingWorkerRuntimeError(
+            "Builtin Worker source configuration is incomplete.",
+            code="coding_worker_config_invalid",
+        )
+    if builtin_root and builtin_revision:
+        source_adapters.setdefault(
+            "builtin",
+            BuiltinGitWorkspaceSourceAdapter(
+                Path(builtin_root),
+                source_id=os.getenv("CODING_WORKER_BUILTIN_SOURCE_ID", "modelmirror"),
+                revision=builtin_revision,
+            ),
+        )
     project_source_socket = os.getenv("CODING_PROJECT_SOURCE_SOCKET_PATH")
     if project_source_socket:
         try:
