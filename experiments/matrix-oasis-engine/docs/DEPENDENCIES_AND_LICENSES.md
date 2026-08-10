@@ -70,6 +70,12 @@ Ajv 8.20.0 的传递依赖已按模块 lockfile 盘点：
 
 ## 变更流程
 
+## R5 依赖状态
+
+R5 不新增 npm、Godot addon、GDExtension 或其他第三方运行依赖。Godot Runtime Pack 适配器、第三执行器、差分 harness 与调试 HUD 均使用现有 Node 24、Godot 4.6.3、GDScript、内建 `HashingContext` 和已冻结的 GdUnit4；R4 的 vendored 字节与来源锁保持不变。
+
+任何新增 addon、原生扩展或 vendored 源码都必须先提交依赖变更申请并取得人工批准，不能混入 R5 功能批次。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；

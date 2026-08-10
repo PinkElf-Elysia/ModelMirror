@@ -1,7 +1,7 @@
 export const MODULE_PREFIX = "experiments/matrix-oasis-engine";
-export const ACTIVE_ROUND = "R4";
+export const ACTIVE_ROUND = "R5";
 export const ACTIVE_ROUND_BASELINE_SHA =
-  "df4a4b53e1f03f81fbf5a041065dc1443158c472";
+  "d47f1b15e5610f41d4d9f3e5fe91966530a1a4be";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "AGENTS.md",
@@ -14,25 +14,29 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "docs/ARCHITECTURE.md",
   "docs/BOUNDARIES.md",
   "docs/DEPENDENCIES_AND_LICENSES.md",
-  "docs/GODOT_FOUNDATION.md",
-  "docs/GODOT_THREAT_MODEL.md",
+  "docs/GODOT_RUNTIME_ADAPTER.md",
+  "docs/GODOT_RUNTIME_THREAT_MODEL.md",
   "docs/KNOWN_LIMITATIONS.md",
-  "docs/MCP_QUALIFICATION.md",
-  "docs/adr/0005-r4-godot-foundation-governance.md",
-  "docs/rounds/R4_ACCEPTANCE.md",
+  "docs/adr/0006-r5-godot-runtime-adapter-governance.md",
+  "docs/rounds/R5_ACCEPTANCE.md",
   "scripts/check-round-scope.mjs",
   "scripts/check-godot-boundary.mjs",
   "scripts/capture-godot.mjs",
+  "scripts/preview-godot-runtime.mjs",
+  "scripts/prepare-godot-runtime.mjs",
   "scripts/doctor.mjs",
   "scripts/lib/boundary-core.mjs",
   "scripts/lib/doctor-core.mjs",
   "scripts/lib/godot-core.mjs",
+  "scripts/lib/godot-runtime-core.mjs",
   "scripts/lib/parent-scope-core.mjs",
   "scripts/lib/scope-policy.mjs",
   "scripts/lib/vendor-core.mjs",
   "scripts/qualify-godot-mcp.mjs",
   "scripts/run-godot.mjs",
   "scripts/run-verify.mjs",
+  "scripts/verify-godot-runtime-adapter.mjs",
+  "scripts/verify-godot-runtime-parity.mjs",
   "scripts/verify-godot-vendor.mjs",
   "scripts/verify-extraction.mjs",
   "tests/boundary.test.mjs",
@@ -40,17 +44,27 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "tests/extraction-contract.test.mjs",
   "tests/godot-boundary.test.mjs",
   "tests/godot-harness.test.mjs",
+  "tests/godot-runtime-adapter.test.mjs",
+  "tests/godot-runtime-parity.test.mjs",
+  "tests/godot-runtime-preview.test.mjs",
   "tests/round-scope.test.mjs",
   "tests/vendor.test.mjs",
 ]);
 
 export const ROUND_ALLOWED_MODULE_PREFIXES = Object.freeze([
-  "apps/runtime-godot",
-  "third-party",
+  "apps/runtime-godot/runtime",
+  "apps/runtime-godot/test/r5",
 ]);
 
 export const ROUND_FROZEN_MODULE_PATHS = Object.freeze([
   "apps/creator-web",
+  "apps/runtime-godot/addons/gdUnit4",
+  "apps/runtime-godot/project.godot",
+  "apps/runtime-godot/scenes/bootstrap.tscn",
+  "apps/runtime-godot/scripts/bootstrap.gd",
+  "apps/runtime-godot/scripts/bootstrap.gd.uid",
+  "apps/runtime-godot/test/test_foundation.gd",
+  "apps/runtime-godot/test/test_foundation.gd.uid",
   "docs/AUTHORING_GAME_PACK.md",
   "docs/RUNTIME_GAME_PACK.md",
   "docs/RUNTIME_PACK_THREAT_MODEL.md",
@@ -58,10 +72,15 @@ export const ROUND_FROZEN_MODULE_PATHS = Object.freeze([
   "docs/adr/0002-r1-active-round-governance.md",
   "docs/adr/0003-r2-reference-simulator-governance.md",
   "docs/adr/0004-r3-runtime-pack-governance.md",
+  "docs/adr/0005-r4-godot-foundation-governance.md",
   "docs/rounds/R0_ACCEPTANCE.md",
   "docs/rounds/R1_ACCEPTANCE.md",
   "docs/rounds/R2_ACCEPTANCE.md",
   "docs/rounds/R3_ACCEPTANCE.md",
+  "docs/rounds/R4_ACCEPTANCE.md",
+  "docs/GODOT_FOUNDATION.md",
+  "docs/GODOT_THREAT_MODEL.md",
+  "docs/MCP_QUALIFICATION.md",
   "examples",
   "packages",
   "scripts/compile-pack.mjs",
@@ -82,4 +101,5 @@ export const ROUND_FROZEN_MODULE_PATHS = Object.freeze([
   "tests/pack-cli.test.mjs",
   "tests/runtime-pack-cli.test.mjs",
   "tests/runtime-pack-simulator-semantics.test.mjs",
+  "third-party",
 ]);
