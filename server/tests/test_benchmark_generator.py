@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 from pathlib import Path
@@ -33,6 +34,72 @@ class _MissingResourceStore:
 class _NoKnowledgeService:
     def get_active_pipeline_version(self, _kb_id: str) -> None:
         return None
+
+
+@pytest.mark.asyncio
+async def test_generator_timeout_fails_job_without_repair_or_leaked_task(
+    tmp_path: Path,
+) -> None:
+    evaluation_store = XpertEvaluationStore(tmp_path / "evaluations")
+    job_store = BenchmarkJobStore(tmp_path / "jobs")
+    service = _FakeGeneratorService(evaluation_store)
+    calls = 0
+    cancelled = asyncio.Event()
+
+    async def hanging_generator(
+        _model_id: str,
+        _system: str,
+        _user: str,
+        _temperature: float,
+        _max_tokens: int,
+    ) -> str:
+        nonlocal calls
+        calls += 1
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    executor = BenchmarkJobExecutor(
+        job_store,
+        service=service,  # type: ignore[arg-type]
+        generator_runner=hanging_generator,
+        evaluation_store=evaluation_store,
+        evaluation_service=_FakeEvaluationService(evaluation_store),
+        evaluation_executor=_WakeOnlyExecutor(),
+        poll_seconds=0.01,
+        generator_timeout_seconds=0.01,
+    )
+    created = job_store.create_job(
+        kind="generation",
+        request={
+            "target": {
+                "kind": "xpert_draft",
+                "xpert_id": "xpert-one",
+                "draft_revision": 1,
+            },
+            "generator_model_id": "planner",
+            "case_count": 1,
+            "coverage": ["instruction_following"],
+            "locales": ["en-US"],
+        },
+    )
+
+    executor.start()
+    try:
+        for _ in range(100):
+            current = job_store.require_job(created["job_id"])
+            if current["status"] == "failed":
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        await executor.stop()
+
+    current = job_store.require_job(created["job_id"])
+    assert current["status"] == "failed"
+    assert current["error"] == "Benchmark generator timed out after 0.01 seconds."
+    assert calls == 1
+    assert cancelled.is_set()
 
 
 def _generated_case(case_id: str = "generated-one") -> dict[str, Any]:

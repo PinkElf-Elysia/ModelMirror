@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -86,6 +87,7 @@ class BenchmarkJobExecutor:
         rag_evaluation_store: Any | None = None,
         rag_evaluation_executor: Any | None = None,
         poll_seconds: float = 0.5,
+        generator_timeout_seconds: float | None = None,
     ) -> None:
         self.store = store
         self.service = service
@@ -98,6 +100,12 @@ class BenchmarkJobExecutor:
         self.rag_evaluation_store = rag_evaluation_store
         self.rag_evaluation_executor = rag_evaluation_executor
         self.poll_seconds = max(0.1, float(poll_seconds))
+        configured_timeout = (
+            generator_timeout_seconds
+            if generator_timeout_seconds is not None
+            else os.getenv("BENCHMARK_GENERATOR_TIMEOUT_SECONDS", "180")
+        )
+        self.generator_timeout_seconds = max(0.01, float(configured_timeout))
         self._task: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
         self._stopping = False
@@ -120,6 +128,32 @@ class BenchmarkJobExecutor:
 
     def wake(self) -> None:
         self._wake.set()
+
+    async def _invoke_generator(
+        self,
+        model_id: str,
+        system: str,
+        user: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> BenchmarkGeneratorOutput:
+        try:
+            output = await asyncio.wait_for(
+                self.generator_runner(
+                    model_id,
+                    system,
+                    user,
+                    temperature,
+                    max_tokens,
+                ),
+                timeout=self.generator_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            timeout = f"{self.generator_timeout_seconds:g}"
+            raise BenchmarkGenerationError(
+                f"Benchmark generator timed out after {timeout} seconds."
+            ) from exc
+        return _normalize_generator_output(output)
 
     async def _loop(self) -> None:
         while not self._stopping:
@@ -213,13 +247,13 @@ class BenchmarkJobExecutor:
             coverage=coverage,
             warnings=target_warnings,
         )
-        initial_output = _normalize_generator_output(await self.generator_runner(
+        initial_output = await self._invoke_generator(
             str(request.get("generator_model_id") or ""),
             system,
             user,
             0.2,
             12_000,
-        ))
+        )
         raw = initial_output.text
         generation_attempts = [
             {
@@ -272,13 +306,13 @@ class BenchmarkJobExecutor:
                     coverage.get("prompt_command_aliases") or []
                 ),
             )
-            repaired_output = _normalize_generator_output(await self.generator_runner(
+            repaired_output = await self._invoke_generator(
                 str(request.get("generator_model_id") or ""),
                 repair_system,
                 repair_user,
                 0.0,
                 12_000,
-            ))
+            )
             generation_attempts.append(
                 {
                     "attempt": "repair",
@@ -676,14 +710,12 @@ class BenchmarkJobExecutor:
             },
             warnings=target_warnings,
         )
-        initial = _normalize_generator_output(
-            await self.generator_runner(
-                str(request.get("generator_model_id") or ""),
-                system,
-                user,
-                0.2,
-                12_000,
-            )
+        initial = await self._invoke_generator(
+            str(request.get("generator_model_id") or ""),
+            system,
+            user,
+            0.2,
+            12_000,
         )
         attempts = [{
             "attempt": "initial",
@@ -718,14 +750,12 @@ class BenchmarkJobExecutor:
                 locales=list(request.get("locales") or ["zh-CN", "en-US"]),
                 seed=int(request.get("seed") or 0),
             )
-            repaired = _normalize_generator_output(
-                await self.generator_runner(
-                    str(request.get("generator_model_id") or ""),
-                    repair_system,
-                    repair_user,
-                    0.0,
-                    12_000,
-                )
+            repaired = await self._invoke_generator(
+                str(request.get("generator_model_id") or ""),
+                repair_system,
+                repair_user,
+                0.0,
+                12_000,
             )
             attempts.append({
                 "attempt": "repair",
