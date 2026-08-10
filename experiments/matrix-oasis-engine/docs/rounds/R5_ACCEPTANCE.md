@@ -1,6 +1,6 @@
 # R5 验收记录
 
-状态：R5.1 已验证，等待本地提交；尚未达到人工验收门。
+状态：R5.2 已验证，等待本地提交；尚未达到人工验收门。
 
 固定 `R5_BASE_SHA`：`d47f1b15e5610f41d4d9f3e5fe91966530a1a4be`
 
@@ -8,8 +8,8 @@
 
 | 批次 | 状态 | 本地提交 |
 | --- | --- | --- |
-| R5.1 治理与适配合同 | 已验证 | 本批提交；SHA 在 R5.2 记录 |
-| R5.2 严格 Runtime Pack 载入器 | 未开始 | 待记录 |
+| R5.1 治理与适配合同 | 已完成 | `f3dae37` |
+| R5.2 严格 Runtime Pack 载入器 | 已验证 | 本批提交；SHA 在 R5.3 记录 |
 | R5.3 独立 GDScript 执行器 | 未开始 | 待记录 |
 | R5.4 跨运行时差分 Harness | 未开始 | 待记录 |
 | R5.5 最小 Runtime 调试 HUD | 未开始 | 待记录 |
@@ -32,6 +32,23 @@ R5.1 只修改治理、合同、范围门、测试名称与模块根版本，不
 - `git diff --check`：通过；未暂存、未提交、未 push，未运行父后端、Docker 或共享栈。
 
 本批回退为单独 revert 治理提交；它不修改 R4 Bootstrap、GdUnit vendor、Creator、R1–R3 包、示例或父仓文件。
+
+## R5.2 证据
+
+R5.2 新增独立 GDScript 严格 JSON 解码、Runtime Pack/Receipt 固定合同与语义检查、只读载入器、opaque prepared handle、Godot probe、GdUnit 测试及 Node 临时编译验证。生成的 Runtime Pack 与 Receipt 只写 `C:\\tmp` 一次性目录，不提交产物。
+
+- 精确变更为 15 个模块内文件；新增源码仅位于 `apps/runtime-godot/runtime/**`、测试仅位于 `apps/runtime-godot/test/r5/**` 及 R5 allowlist 中的 Node harness/文档；R1–R4 冻结路径和父仓路径零差异。
+- 严格入口在解码前执行 16 MiB/16 KiB 限额、BOM 与字节级 UTF-8 检查；随后拒绝非规范键序、重复/未知字段、空白、注释、尾逗号、浮点、指数、越界整数、非规范转义、深度 257 和孤立 UTF-16 代理项。
+- Runtime Pack 0.1.0 与 Receipt 0.1.0 的固定格式、union、ID、typed index、变量类型、condition depth、图可达性、compiler/profile、UTF-8 byteLength 与 SHA-256 均在 Godot 内独立检查；Receipt 明确不是签名。
+- 公开失败结果只含只读静态 `phase/severity/code/path/message`；成功结果只含只读 result 与 opaque prepared handle，调用方取得的 Pack 副本不会污染内部数据。
+- `npm.cmd run verify:godot:adapter`：退出 0，Godot 4.6.3 下 9/9 用例通过；两个冻结样例合法载入，非规范 JSON、非法 UTF-8、坏 hash、非法 index、未知字段、孤立代理项和越界整数均按稳定代码拒绝。
+- `npm.cmd run test:godot`：退出 0，R5 adapter 7 项与冻结 R4 foundation 4 项合计 11/11 通过；GdUnit harness 读取最终总汇总，拒绝任一 suite/case 计数或失败状态不一致。
+- `npm.cmd run check:godot-boundary`：`GODOT_BOUNDARY_OK checked=8`；动态文件读取只允许严格载入器以 `FileAccess.READ` 读取已批准参数路径，其他第一方脚本仍拒绝网络、进程、环境变量、动态脚本、文件写入和本机绝对路径字面量。
+- `npm.cmd test`：407/407 通过；`npm.cmd run verify`：12/12 通过，包含完整 Godot 门、冻结 R1–R3 门、247-module Creator build 与 HTTP 200 smoke。
+- `npm.cmd run check:round-scope`、`npm.cmd run check:parent-scope -- --base d47f1b15e5610f41d4d9f3e5fe91966530a1a4be`、`npm.cmd run check:boundary` 与 `git diff --check` 全部退出 0；boundary 为 `checked=774 tracked=765`。
+- 本批未运行父后端、Docker、共享栈或父路由；未创建 scene、HUD、执行器、玩法、存档、网络或正式资产。
+
+本批可单独 revert 回到 R5.1 治理状态；R4 Bootstrap、GdUnit vendor、Creator、R1–R3 实现与冻结样例保持不变。
 
 ## 最终仓外标识
 
