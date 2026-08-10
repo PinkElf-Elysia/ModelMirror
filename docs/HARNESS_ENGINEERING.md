@@ -381,3 +381,27 @@ curl http://localhost:5173/models
     任何 build/up/recreate 前都要取得用户确认的独占窗口；若 `origin/main` 前进，应在新验收
     集成工作树定向引入批次并 range-diff。人工验收后还要再次核对主线、全 Diff、敏感信息
     和禁止产物，才允许 push 或 PR。
+42. **通用 Coding Worker 只接受供应商中立任务。** 模块只能提交目标、opaque 来源、上下文引用、
+    冻结验收 ID 和低于系统上限的预算；`origin` 由 Server 写入。物理路径、环境变量、remote URL、
+    凭据、供应商名和原始执行端点不得进入 `TaskSpec`。领域适配放在调用模块，不进入 Worker 内核。
+43. **Provider、Executor 与网络出口必须分层隔离。** Provider 可以访问受控模型网络，但不能直接执行
+    Workspace 命令；Executor 只能加入内部工具网络，不能访问 Server/newAPI。网络动作必须经绑定任务、
+    用途、域名和 TTL 的租约以及独立 egress proxy；IP 字面量、私网和重定向越界保持拒绝。
+44. **任务完成由冻结验收和当前树证据决定。** 模型停止调用工具只进入 `testing`。必需检查的 argv、
+    timeout 和交付物由后端注册，Agent 与调用模块不能删除、替换或降级；Workspace tree hash 改变后旧
+    Evidence 必须失效，未全部通过不得进入 `completed`。
+45. **双槽任务和进程必须按任务归属。** 两个任务可并行，第三个持久排队；取消、输入、输出、服务、
+    审批和 Artifact 都要绑定 `task_id` 与 slot。取消一个任务不得终止另一个任务的进程，也不得把其
+    Workspace、事件或 Artifact 读给另一个调用方。
+46. **恢复只重放控制意图，不重放未知副作用。** Server 或 Worker 重启后，运行中进程停止并把任务
+    标记 `interrupted`。只有 provider checkpoint 与当前 tree hash 精确匹配才可由显式 resume 恢复；
+    副作用工具使用稳定 operation ID，未知结果先 reconcile，禁止换 ID 盲重放。
+47. **来源租约应尽可能晚取得并及时释放。** `host_snapshot` 只在任务真正出队时请求 Windows Helper，
+    导入并校验 project/head/fingerprint 后立即释放 Project Source 租约；排队任务不能占用单槽快照。
+    Server、Provider、Executor 和模型始终只看 opaque ID 或隔离 Workspace，不得获得宿主物理路径。
+48. **宿主写回继续由 v13 执行。** Worker 在合成 Git H0 内生成 Diff，不在用户仓库原地运行。只有
+    completed、必需检查通过且仍绑定原 Host Snapshot 的文本变更，才可由用户显式交给 v13
+    apply/commit/undo/publish 链；Worker 不新增第二套宿主写事务。
+49. **共享 Console 必须区分展示与能力。** `/coding` 和 `/agents/workbench` 可复用任务、对话、文件、
+    Diff、审批、Evidence、Artifact 与终端组件；只有 Coding 上下文展示 v13 领域动作。开关关闭、Provider
+    不可用或 legacy 活动会话存在时必须清晰降级，不能把 Mock/静态状态误报为真实引擎就绪。

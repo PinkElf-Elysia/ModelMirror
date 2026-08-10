@@ -27,8 +27,44 @@ V14 不在宿主仓库原地执行，不开放 Git remote/push、自动 PR、任
 
 关闭 `CODING_WORKER_V14_ENABLED` 后，新任务继续走 legacy；不得删除 Worker Store、Workspace、Coding Recovery 或 Agent Workspace 数据。已有活动 legacy 会话不迁移。
 
-## PR A 当前接口
+## 顺序 PR 状态
 
-`/api/coding-worker/v1` 默认关闭。Kernel 阶段提供任务幂等创建、状态、SSE 事件补发、消息、暂停/继续/取消/pin，以及用 opaque `entry_id` 读取的 Workspace tree、文本预览与 Diff。`origin` 始终由 Server 写入；模型路由必须命中 `CODING_WORKER_MODEL_ROUTES`。
+| PR | 范围 | 当前状态 |
+| --- | --- | --- |
+| PR A `#122` | 契约、加密任务 Store、事件补发、Workspace Broker、双槽调度与 Fake Provider | 已完成并作为后续堆叠基线 |
+| PR B `#125` | OpenCode Provider、Tool Broker、审批/网络/服务租约、Evidence Ledger、checkpoint 恢复 | 已完成并作为 PR C 基线 |
+| PR C `#130` | 模块 SDK、共享 Console、三类来源、冻结验收、v13 写回桥、部署与文档 | Draft；自动门禁尚未全部完成 |
 
-PR A 使用 Fake Provider 验证状态机，模型停止后只进入 `testing` 并以 `acceptance_runner_pending` 阻断，绝不伪造完成。OpenCode、Tool Broker、Harness Runner 和 legacy 转发在后续顺序 PR 接入；未配置真实 Provider 时即使误开开关，API 也返回 503，而不会回退到未隔离执行。
+每个实现提交继续限制在不超过五个文件。PR C 不迁移已有活动 legacy 会话；只有新会话在开关开启且 Worker 可用时进入 V14。
+
+## 当前公共能力
+
+`/api/coding-worker/v1` 默认关闭，提供：
+
+- 幂等创建与查询任务、SSE 事件补发、消息 steering、审批、暂停、继续、取消、pin 和删除；
+- 使用 opaque `entry_id` 的 Workspace tree、文本预览、Diff、Evidence、Artifact 与安全预览；
+- `builtin`、`manifest`、`host_snapshot` 三种受控来源；来源适配器和冻结检查只能由 Server 模块注册；
+- 两个固定任务槽；第三个任务持久排队，重启后的运行中任务进入 `interrupted`；
+- 供应商中立的 Provider 契约。首个真实实现固定为 OpenCode 1.18.9，ACP 保留回退，公共 API 不暴露两者；
+- 通过 Tool Broker 执行文件、命令、服务与网络动作。Executor 默认只在内部工具网络，只有带批准租约且启用专用 profile 时才经 egress proxy 访问允许域名；
+- 后端冻结的 `python-compile`、`python-pytest`、`react-test`、`react-build` 检查。调用方只能选择公开 ID，不能改写 argv 或降低验收；
+- `/coding` 与 `/agents/workbench` 共用 Worker Console；Coding 场景中的已完成 `host_snapshot` 任务可显式转入 v13 apply/commit/undo/publish 确认链。
+
+## 当前自动验证证据
+
+- V14 Worker 17 个专项文件：`96 passed`；
+- Project Host API：`19 passed`；
+- 前端：`29` 个文件、`134 passed`；
+- 前端 production build 通过，`CodingPage` gzip `37.60 kB`；
+- V14 Compose 组合 `config --quiet` 与部署静态测试通过；
+- 分支已推送至 Draft PR `#130`。
+
+这些结果不等同于完整发布验收。全部 Coding + Agent Workspace、后端全量、真实 OpenCode headless、真实 Windows Helper、共享栈重建和用户项目写回仍须分别完成并记录。
+
+## 发布与人工验收门禁
+
+1. 运行新增专项、全部 Agent Workspace、全部 Coding、后端全量、前端测试/build、Compose config、敏感信息与禁止产物扫描。
+2. 在独立临时环境验证真实 OpenCode 1.18.9、两个任务并行、第三个排队、失败后自动修复复测、SSE 补发与逐个重启。
+3. 取得用户确认的共享栈独占窗口后，重新 fetch 最新主线、核对堆叠 PR 和环境变量，再重建；不得停止仍在运行的独立预览器。
+4. 使用用户明确选择的测试项目验证 Host Snapshot → Worker → v13 apply/commit/undo；真实写入前再次确认项目、分支与 Diff。
+5. 只有以上证据齐全且人工验收通过，PR C 才可由 Draft 转为 Ready。

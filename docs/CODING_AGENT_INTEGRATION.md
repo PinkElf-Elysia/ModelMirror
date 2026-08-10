@@ -702,3 +702,43 @@ docker compose -p modelmirror --profile coding stop coding-runtime
 恢复 SQLite 是 Coding 专用、可选的单槽存储，不迁移其他业务数据库。需要整轮
 回退时，省略恢复 overlay 并按独立提交逆序撤销；已有外部文件和本地提交不会被
 自动删除。
+
+## V14 平台 Coding Worker 契约
+
+V14 的公共入口是版本化 `/api/coding-worker/v1`。OpenCode、ACP、sidecar socket、端口和 session ID 均为内部实现，不进入浏览器或模块契约。
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /api/coding-worker/v1` | 功能开关、并发、保留期与可选择的冻结检查 ID |
+| `POST /api/coding-worker/v1/tasks` | 使用 `client_task_id` 幂等创建任务；`origin` 由 Server 写入 |
+| `GET /tasks`、`GET /tasks/{id}` | 列表与任务状态 |
+| `GET /tasks/{id}/events?after=` | 可补发事件流；断线后从最后 event ID 继续 |
+| `POST /tasks/{id}/messages` | 追加指令或运行中 steering |
+| `GET/POST /tasks/{id}/approvals` | 查询和签发一次性或任务级能力租约 |
+| `POST /tasks/{id}/pause|resume|cancel|pin` | 显式生命周期控制 |
+| `GET /tasks/{id}/workspace/tree` | 获取 opaque `entry_id` 文件树 |
+| `GET /tasks/{id}/workspace/entries/{entry_id}` | 受限文本预览 |
+| `GET /tasks/{id}/workspace/diff` | 当前合成 Git 基线 Diff |
+| `GET /tasks/{id}/evidence` | 绑定当前 tree hash 的必需检查证据 |
+| `GET /tasks/{id}/artifacts/{artifact_id}` | 下载任务绑定 Artifact |
+| `GET /tasks/{id}/services/{service_id}/preview/{path}` | 短期安全预览 |
+
+`TaskSpec` 固定包含调用方幂等键、Server origin、目标、opaque Workspace 来源与 revision、冻结 AcceptanceContract、policy profile、平台模型路由、低于系统上限的预算和受控 context refs。浏览器或模块提交物理路径、环境变量、供应商名、remote URL、凭据或原始执行端点时必须拒绝。
+
+模块集成使用 `server/coding_worker/sdk.py`：
+
+- 模块可注册 `builtin`、`manifest`、`host_snapshot` 范围内的来源适配器、上下文和冻结检查；
+- 模块只能通过内部客户端创建/查询/steer 任务，不能直接取得 Provider、Executor、进程或权限对象；
+- AcceptanceContract 创建后不可删除或降级；当前公开基础检查为 `python-compile`、`python-pytest`、`react-test`、`react-build`；
+- 新增 Skill/MCP 创建、AI 应用或 3D 引擎适配时，只增加模块侧来源、上下文与验收，不修改 Worker 内核的领域逻辑。
+
+来源语义：
+
+- `builtin` 从部署时固定的只读 ModelMirror source commit 构造合成 Git `H0`；
+- `manifest` 复用 Project Source 单槽快照，模块只持 opaque project/revision；
+- `host_snapshot` 在任务出队后惰性请求 v13 Windows Helper 快照，复核 project/head/fingerprint，导入完成即释放租约；
+- 每个任务的 Workspace、进程、事件、审批、checkpoint、Evidence 和 Artifact 按 `task_id` 隔离，二进制 Diff 只记录身份与元数据。
+
+`/coding` 与 `/agents/workbench` 的新会话可渐进使用同一 `CodingWorkerConsole`；已有活动会话仍走 legacy。Coding 场景中的 completed `host_snapshot` 任务可调用 `POST /api/coding/worker-tasks/{task_id}/handoff`，把严格 UTF-8 文本 Diff 交给 v13 Recovery，然后由用户确认 apply/commit/undo/publish。二进制变更、未通过验收、Workspace 变化或 Host 身份变化均不得进入写回。
+
+模型停止输出不代表完成。服务端先进入 `testing`，Harness Runner 运行冻结检查并写 Evidence Ledger；只有全部必需检查对当前 tree hash 为 passed，任务才进入 `completed`。运行中命令在重启时停止，任务标记 `interrupted`；resume 只恢复确定 checkpoint，不恢复旧进程或盲重放未知 operation ID。
