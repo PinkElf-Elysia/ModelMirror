@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mcp.types import CallToolResult, Tool
 
 try:
+    from server.mcp.catalog_expansion_v2 import CATALOG_EXPANSION_V2_ADAPTERS
     from server.mcp.manager import (
         MCPClientManager,
         MCPClientError,
@@ -54,6 +55,7 @@ try:
         MCPCatalogWorkspaceStore,
     )
 except ModuleNotFoundError:
+    from mcp.catalog_expansion_v2 import CATALOG_EXPANSION_V2_ADAPTERS
     from mcp.manager import (
         MCPClientError,
         MCPClientManager,
@@ -2495,8 +2497,25 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
                 limitations=limitations,
             )
 
-    if len(manifests) != 100:
-        raise RuntimeError(f"MCP catalog must contain 100 adapters, got {len(manifests)}")
+    for adapter in CATALOG_EXPANSION_V2_ADAPTERS:
+        if adapter.project_id in manifests:
+            raise RuntimeError(
+                f"duplicate approved catalog expansion id: {adapter.project_id}"
+            )
+        manifests[adapter.project_id] = CatalogAdapterManifest(
+            project_id=adapter.project_id,
+            wave=12,
+            availability="planned",
+            connection_kind=adapter.connection_kind,  # type: ignore[arg-type]
+            risk=adapter.risk,  # type: ignore[arg-type]
+            required_capabilities=adapter.required_capabilities,
+            limitations=adapter.limitations,
+            network_policy="planned:no-runtime",
+            filesystem_policy="planned:no-runtime",
+        )
+
+    if len(manifests) != 200:
+        raise RuntimeError(f"MCP catalog must contain 200 adapters, got {len(manifests)}")
     return manifests
 
 

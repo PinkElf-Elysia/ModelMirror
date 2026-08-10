@@ -83,7 +83,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **45 ready / 14 planned / 41 blocked**；批次 10 的 14 项继续 planned，批次 11 的 13 项已完成门槛判定并全部 blocked。planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **45 ready / 114 planned / 41 blocked**。第二阶段新增 100 项全部属于批次 12，只提供展示资料和非执行 manifest；批次 10 的 14 项继续 planned，批次 11 的 13 项全部 blocked。planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 第一阶段的完整状态表、已交付边界与阶段二准入条件见 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
@@ -194,12 +194,14 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 
 ## 2. 如何适配冻结目录中的 MCP Server
 
-适配期间目录冻结为 100 项，不新增条目。中文展示数据与后端执行清单分别位于：
+目录总数固定为 200 项；第二阶段新增 100 项在逐项目安全适配前不再改变状态。中文展示数据与后端执行清单分别位于：
 
 ```text
 client/src/data/mcpProjects.ts
 client/src/data/mcpAdaptationPlan.ts
+client/src/data/mcpCatalogExpansionV2.generated.ts
 server/mcp/catalog.py
+server/mcp/catalog_expansion_v2.py
 ```
 
 接入检查清单：
@@ -225,7 +227,7 @@ npm view @example/mcp-server version
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/mcp/catalog/adapters` | 返回 100 项安全状态，不返回命令、端点或 Secret |
+| GET | `/api/mcp/catalog/adapters` | 返回 200 项安全状态，不返回命令、端点或 Secret |
 | GET/POST | `/api/mcp/catalog/{project_id}/credentials` | 列出当前卡片的脱敏凭据，或创建绑定当前项目与固定槽位的加密凭据 |
 | DELETE | `/api/mcp/catalog/{project_id}/credentials/{credential_id}` | 撤销当前卡片凭据，并立即断开关联会话、清除失效配置 |
 | POST | `/api/mcp/catalog/{project_id}/prepare` | 使用后端固定安装配置准备已验收适配器 |
@@ -527,7 +529,7 @@ python server/mcp/test_manager.py
 | `server/tests/mock_mcp_server.py` | 本地 mock MCP Server。 |
 | `server/tests/test_mcp_integration.py` | FastAPI MCP 端点集成测试。 |
 | `server/tests/test_mcp_multisession.py` | 多 session、TTL 与 ToolRegistry 集成测试。 |
-| `server/tests/test_mcp_catalog.py` | 100 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
+| `server/tests/test_mcp_catalog.py` | 200 项契约、前后端 ID、服务端配置来源与 fail-closed 测试。 |
 | `server/tests/test_mcp_compute_adapters.py` | 批次 1 工具契约、输入上限、URL 拒绝与沙箱配置测试。 |
 | `server/tests/test_mcp_public_adapters.py` | 批次 2 SSRF、DNS、robots、响应上限、工具契约与容器隔离测试。 |
 | `server/tests/test_mcp_file_workspaces.py` | 批次 3 路径/ZIP、租户隔离、产物越权和一次性审批安全测试。 |

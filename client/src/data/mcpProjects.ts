@@ -4,6 +4,7 @@ import {
   type McpConnectionKind,
   type McpRiskLevel,
 } from "./mcpAdaptationPlan";
+import { mcpCatalogExpansionV2 } from "./mcpCatalogExpansionV2.generated";
 
 export const mcpCategories = [
   "浏览器与网页",
@@ -625,7 +626,9 @@ interface ExpandedProjectInput {
   category: McpCategory;
   description: string;
   readmeSummary: string;
+  stars?: number;
   language: string;
+  verifiedAt?: string;
   tags: string[];
   requirements: McpRequirement[];
   usageExamples: string[];
@@ -633,13 +636,18 @@ interface ExpandedProjectInput {
 }
 
 function plannedMcp(input: ExpandedProjectInput): McpProjectSeed {
+  const {
+    stars = 0,
+    verifiedAt = "2026-08-02",
+    ...project
+  } = input;
   const requirementText = input.requirements
     .map((requirement) => mcpRequirementLabels[requirement])
     .join("、");
   return {
-    ...input,
-    stars: 0,
-    verifiedAt: "2026-08-02",
+    ...project,
+    stars,
+    verifiedAt,
     installMode: "manual",
     installCommand: "当前版本仅收录资料，不提供本地 stdio 安装或外站认证入口。",
     installNote: `${requirementText}。本轮不配置这些依赖，条目等待后续安全适配。`,
@@ -1690,6 +1698,18 @@ const expandedMcpProjectSeeds: McpProjectSeed[] = [
   }),
 ];
 
+const approvedCatalogExpansionV2Seeds: McpProjectSeed[] =
+  mcpCatalogExpansionV2.map(
+    ({ adaptation: _adaptation, requirements, tags, usageExamples, sources, ...input }) =>
+      plannedMcp({
+        ...input,
+        requirements: [...requirements],
+        tags: [...tags],
+        usageExamples: [...usageExamples],
+        sources: [...sources],
+      }),
+  );
+
 const originalRequirements: Partial<Record<string, McpRequirement[]>> = {
   "playwright-mcp": ["external-runtime", "system-permission"],
   "chrome-devtools-mcp": ["external-runtime", "system-permission"],
@@ -1870,4 +1890,5 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
 export const mcpProjects: McpProject[] = [
   ...originalMcpProjectSeeds,
   ...expandedMcpProjectSeeds,
+  ...approvedCatalogExpansionV2Seeds,
 ].map(normalizeMcpProject);
