@@ -1,7 +1,8 @@
 # MCP 双源目录审计数据
 
-本目录保存第二阶段目录扩充的人工门禁数据，不是运行时配置。当前提交只生成候选清单，
-不会改变 `/api/mcp/catalog/adapters`、前端 100 项目录、后端 manifest、功能开关或共享栈。
+本目录保存第二阶段目录扩充的审查与批准快照。100 项候选已经批准进入产品目录，
+但全部保持 `planned`：只增加前端展示资料和后端非执行 manifest，不增加命令、端点、
+凭据槽、工具策略、Sidecar、功能开关默认启用或共享栈服务。
 
 ## 固定来源
 
@@ -35,14 +36,25 @@ python scripts/mcp_catalog_github_enrich.py `
 第二条命令使用已认证的 `gh api graphql` 只读查询公开仓库元数据。CI 不运行网络查询；
 测试只验证解析器、筛选规则和已提交审查清单的静态契约。
 
+人工批准后，执行完全离线的目录集成生成器：
+
+```powershell
+python scripts/mcp_catalog_integrate_approved.py
+python scripts/mcp_catalog_integrate_approved.py --check
+```
+
+生成器固定产出 `client/src/data/mcpCatalogExpansionV2.generated.ts`、
+`server/mcp/catalog_expansion_v2.py` 和批准报告，并把人工决定写回审查快照。生成结果不含
+运行命令、MCP 端点、凭据字段或工具 Schema。
+
 ## 人工门禁
 
 `review-candidates.json` 中每项当前均为：
 
-- `decision: pending-human-review`
+- `decision: approved`
 - `proposed_availability: planned`
-- 无命令、端点、凭据字段或 `executable` 标记
+- 固定 `catalog_id`，且无命令、端点、凭据字段或 `executable` 标记
 
-下一步必须逐项核对 MCP Server 身份、安装与传输契约、用途、分类及安全前置条件。
-失败项从同一候补池按原评分与配额规则递补。只有人工确认后的 100 项才能进入单独的目录
-集成 PR，且仍只能是 `planned` 或有固定原因的 `blocked`。
+后续从 `planned` 进入适配时，仍必须逐项核对 MCP Server 身份、锁定版本、安装与传输
+契约、工具副作用和安全前置条件。只有固定工具契约及相应隔离、凭据、审批、限流和真实
+代表调用全部通过，单个条目才可以在独立适配 PR 中变为 `ready`。
