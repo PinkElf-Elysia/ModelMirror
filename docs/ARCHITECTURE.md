@@ -1,6 +1,8 @@
-# 项目整体架构
+# ModelMirror 当前系统架构
 
-最后更新日期：2026-08-01
+> **文档范围：Current State。** 本文只描述当前主分支中能够由代码、配置和测试定位的已合并实现。AI Capability Compiler、Router Federation、统一 Capability Graph / Evaluation 与自演进闭环属于[目标架构](./architecture/ai-capability-compiler.md)，不能由本文件中的局部 Router、Runtime 或 Evaluation 入口外推为已经完成的平台能力。
+
+最后更新日期：2026-08-09
 维护人：模镜团队
 
 ## 当前定位
@@ -18,8 +20,8 @@
   提交、恢复最近一份安全草稿，并把固定任务发布为 GitHub Draft PR。
 
 Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
-`server/api/dify_proxy.py` 和旧 iframe 组件作为历史兼容代码，但默认前端路由
-与 Docker Compose 均不依赖 Dify。历史方案见
+`server/api/dify_proxy.py` 和旧 iframe 组件作为历史兼容与可选集成代码，但默认前端路由
+与 Docker Compose 均不依赖 Dify；除非形成新的产品决策，它不会恢复为主路由。历史方案见
 [INTEGRATION_DIFY.md](./INTEGRATION_DIFY.md)。
 
 ## 技术组成
@@ -288,3 +290,9 @@ flowchart LR
   远端合并、目录操作、多 Agent、分布式
   Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。
+
+## Current-State 与 Target-State 的边界
+
+当前主分支已经提供资源目录、原生 Model Router、Classic Workflow、本地 RAG、MCP Runtime、Agent Studio 与轻量 Runtime 观测。Workflow Agent 的 Agent Strategy V2 还提供 `auto`、`function_calling` 和 `react` 三种策略，并可通过 `WORKFLOW_AGENT_STRATEGY_V2_ENABLED` 回退到旧执行路径。这些是当前执行底座和渐进式策略能力，不等同于完整的 Capability Graph、Router Federation、统一 Evaluation Engine 或自演进能力内核。
+
+目标分层、非目标、反馈回路和成熟度要求见 [AI Capability Compiler 目标架构](./architecture/ai-capability-compiler.md)。后续文档不得把目标架构中的层级名称直接当作已交付事实；新增成熟度结论仍需回到主分支代码、配置、测试和真实运行验收。

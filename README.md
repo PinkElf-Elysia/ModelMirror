@@ -1,9 +1,32 @@
 # 模镜 ModelMirror
 
-模镜是一个 AI 资源浏览与协作平台，面向模型、智能体、MCP、Skill、提示词、工作流、RAG 和聊天场景。项目主题是“AI 牛马招聘会”：把模型与智能体看成候选人，把工具和能力看成岗位技能，让用户可以快速发现、比较、调用和组合 AI 能力。
+> 从寻找一个模型，到编译一套智能。<br>
+> From choosing a model to compiling intelligence.
 
-最后更新日期：2026-07-28
+ModelMirror 当前是一个可本地部署的 AI 资源发现、比较、调用与组合工作台，面向模型、Agent、MCP、Skill、Prompt、知识库、Data X 和工作流。主分支已经提供原生模型路由、多模态聊天、MCP Runtime、经典工作流、本地知识流水线、Data X 与 Agent Studio 等模块。
+
+“AI 牛马招聘会”是帮助用户理解和试用 AI 资源的产品入口。项目下一阶段探索 **AI Capability Compiler（AI 能力编译器）**：把用户目标转换为结构化能力需求，再映射到可执行、可观察和可评测的模型、工具、知识与 Agent 组合。
+
+最后更新日期：2026-08-09
 维护人：模镜团队
+
+## 一眼看懂项目阶段
+
+| 视角 | ModelMirror 的定位 | 状态 |
+| --- | --- | --- |
+| 用户入口 | “AI 牛马招聘会”：发现、比较和试用 AI 资源 | **Available Today** |
+| 当前能力基线 | 可本地部署的 AI 资源与协作工作台 | **Available（含 Experimental 子模块）** |
+| 目标产品引擎 | AI Capability Compiler：把目标编译为能力需求与执行组合 | **Target Architecture** |
+| 商业方向 | Agent 经济中的中立 AI 能力控制平面与智能分配层 | **Strategic Direction** |
+| 长期愿景 | AI Capability OS / Self-Evolving Meta-System | **Research Direction** |
+
+这些标签用于区分当前能力、目标设计和研究方向；`Available` 不代表生产 SLA、真实供应商验收或完整企业级能力。事实边界见[当前系统架构](docs/ARCHITECTURE.md)，目标分层见[AI Capability Compiler 架构](docs/architecture/ai-capability-compiler.md)。
+
+## Why ModelMirror
+
+AI 供给正在从少数通用模型，扩展为由模型、工具、知识库、Skill、MCP、垂类 Agent 和工作流组成的异构生态。新的困难逐渐从“有没有模型”转向：一个任务需要哪些能力，如何在质量、成本、时延、可靠性和数据边界之间选择与组合，以及如何验证结果。
+
+模型网关、Agent 框架、MCP Registry、工作流平台和资源目录分别解决局部问题。ModelMirror 当前先把发现、试用、路由、组合与本地运行闭环放到一个工作台中；目标是进一步用统一能力描述、策略路由和执行反馈，把用户目标编译为可评测的能力组合。
 
 ## 当前能力
 
@@ -21,6 +44,23 @@
 - Agent Studio：创建智能体草稿、发布不可变版本，并通过 Goal、Handoff、文件、记忆与 Knowledge Pipeline 组合执行。
 - Agent App/API：把已发布版本固定部署为未列出分享 App，并提供带密钥、配额和回滚的 OpenAI 兼容接口。
 - newAPI：`/settings` 以内嵌 iframe 接入 newAPI 控制台，后端可优先走 OpenAI 兼容网关。
+
+## 目标架构
+
+![ModelMirror AI Capability Compiler 八层目标架构与反馈回路](docs/assets/modelmirror-ai-capability-compiler-architecture.png)
+
+> 该图描述目标架构和长期研究边界，不表示所有层级已经交付。当前主分支映射、状态证据和 Non-Goals 见[详细目标架构](docs/architecture/ai-capability-compiler.md)。
+
+目标主链路是：生态资源进入统一 Registry 与 Capability Graph，用户目标由 Classifier 转换为 Capability IR，Meta Router 再协调各 Domain Router 生成执行计划；Runtime 负责安全执行，Evaluation 记录质量、成本、时延与可靠性信号，经过门禁的反馈再用于改进 Registry、策略和元能力。
+
+长期希望沉淀四类可复用资产：
+
+- **Capability Graph**：任务、能力、资源、约束、兼容关系与有效组合。
+- **Execution Trace Dataset**：经过授权、脱敏和评测的执行轨迹，而不是日志堆积。
+- **Routing Policy Intelligence**：不同质量、成本、时延和风险约束下的选择经验。
+- **Meta Capability Evolution**：在测试、评测、审批和发布门禁下改进 Prompt、Skill、MCP、Agent 与 Workflow。
+
+市场判断、品牌故事和生态飞轮见[产品愿景](docs/VISION.md)。
 
 ## 技术栈
 
@@ -110,11 +150,18 @@ curl -N -X POST http://localhost:8000/api/chat ^
 
 预期：SSE 中出现 `image_url` 或 `data:image/...`，前端 `/chat/<modelId>` 中显示至少一张可点击图片。
 
+真实结果取决于已配置网关和模型；本地 mock、测试通过或 UI 标签不能替代真实供应商验收。
+
 ## 文档
 
-项目文档入口见 [docs/README.md](docs/README.md)。原生调度的状态、门禁和回退见
-[docs/MODEL_ROUTER_NATIVE.md](docs/MODEL_ROUTER_NATIVE.md)。开发前请先阅读
-[AGENTS.md](AGENTS.md) 和 [docs/HARNESS_ENGINEERING.md](docs/HARNESS_ENGINEERING.md)。
+- [文档中心](docs/README.md)
+- [产品愿景](docs/VISION.md)
+- [当前系统架构](docs/ARCHITECTURE.md)
+- [AI Capability Compiler 目标架构](docs/architecture/ai-capability-compiler.md)
+- [术语表](docs/GLOSSARY.md)
+- [原生 Model Router](docs/MODEL_ROUTER_NATIVE.md)
+- [Harness Engineering](docs/HARNESS_ENGINEERING.md)
+- [Agent 协作规范](AGENTS.md)
 
 当前 `/workflow` 与 `/rag` 均为 ModelMirror 原生主路径；旧 Dify 方案已归档为
 compatibility 参考，不是启动或部署前提。
