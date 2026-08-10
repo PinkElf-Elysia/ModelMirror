@@ -4,8 +4,10 @@ from pathlib import Path
 def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     root = Path(__file__).parents[2]
     dockerfile = (root / "server/coding_worker/Dockerfile.v14").read_text()
+    server_dockerfile = (root / "server/Dockerfile").read_text()
     compose = (root / "docker-compose.coding-worker-v14.yml").read_text()
 
+    assert "COPY coding_worker ./coding_worker" in server_dockerfile
     assert "USER 65532:65532" in dockerfile
     assert 'CMD ["python", "-m", "coding_worker.sidecar"]' in dockerfile
     assert "OPENCODE_VERSION=1.18.9" in dockerfile
