@@ -21,6 +21,7 @@ from server.skills.creator_resource_build_runtime import (
 from server.skills.creator_resource_runtime import (
     WorkflowCreatorResourcePlanner,
     build_resource_planner_invocation,
+    parse_resource_plan_output,
 )
 from server.skills.creator_resource_service import (
     ResourcePlanningRequest,
@@ -321,6 +322,41 @@ async def test_workflow_resource_planner_accepts_only_versioned_json() -> None:
     with pytest.raises(SkillCreatorValidationError) as caught:
         await invalid.plan(request)
     assert caught.value.code == "skill_creator_resource_planner_invalid"
+
+
+def test_resource_planner_extracts_one_versioned_json_from_model_narration() -> None:
+    payload = {
+        "resource_plan_version": RESOURCE_PLAN_VERSION,
+        **_plan_payload(),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+
+    assert parse_resource_plan_output(f"<think>plan first</think>\n{encoded}\nDone.") == payload
+    assert parse_resource_plan_output(f"Here is the plan:\n```json\n{encoded}\n```\n") == payload
+
+
+def test_resource_planner_rejects_ambiguous_or_syntax_repaired_output() -> None:
+    first = {
+        "resource_plan_version": RESOURCE_PLAN_VERSION,
+        **_plan_payload(),
+    }
+    second = {
+        **first,
+        "skill_name": "different-plan",
+    }
+
+    with pytest.raises(SkillCreatorValidationError) as ambiguous:
+        parse_resource_plan_output(
+            f"{json.dumps(first, ensure_ascii=False)}\n"
+            f"{json.dumps(second, ensure_ascii=False)}"
+        )
+    assert ambiguous.value.code == "skill_creator_resource_planner_invalid"
+
+    with pytest.raises(SkillCreatorValidationError) as invalid_python:
+        parse_resource_plan_output(
+            "{'resource_plan_version':'skill-resource-plan-v1'}"
+        )
+    assert invalid_python.value.code == "skill_creator_resource_planner_invalid"
 
 
 @pytest.mark.asyncio

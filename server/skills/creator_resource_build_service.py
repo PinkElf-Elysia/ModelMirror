@@ -13,6 +13,7 @@ from .creator_quality import (
     evaluate_creator_payload,
 )
 from .creator_resource_build import (
+    MAX_SEGMENT_BYTES,
     SkillResourceBuild,
     SkillResourceBuildStore,
 )
@@ -135,10 +136,20 @@ class SkillCreatorResourceBuildService:
             self._require_plan(plan, session=session, draft=draft, expected_revision=expected_plan_revision, expected_digest=expected_plan_digest)
             if plan.state != "confirmed":
                 raise SkillCreatorConflictError("Confirm the resource plan before starting generation.")
+            previous_build = self.build_store.current_for_session(session_id)
+            if previous_build is not None and (
+                previous_build.plan_id != plan.plan_id
+                or previous_build.plan_revision != plan.revision
+                or previous_build.plan_digest != plan.digest
+            ):
+                # A newly confirmed immutable plan supersedes every in-flight
+                # artifact from the prior plan. Preserve the old build for
+                # audit/reuse, but never let it block the replacement build.
+                previous_build = self.build_store.mark_stale(previous_build.build_id)
             return self.build_store.create(
                 plan=plan,
                 existing_files=(draft.files if draft else {}),
-                previous_build=self.build_store.current_for_session(session_id),
+                previous_build=previous_build,
             )
 
     async def next(
@@ -195,23 +206,45 @@ class SkillCreatorResourceBuildService:
                             segment_index=segment_index,
                         )
                     )
+                except asyncio.CancelledError:
+                    # Client disconnects and task cancellation must not strand
+                    # the immutable target in a permanent generating state.
+                    self.build_store.requeue_interrupted(
+                        current.build_id,
+                        expected_revision=current.revision,
+                        expected_digest=current.digest,
+                    )
+                    raise
                 except (SkillCreatorConflictError, SkillCreatorValidationError):
                     raise
                 except Exception as exc:
+                    self.build_store.requeue_interrupted(
+                        current.build_id,
+                        expected_revision=current.revision,
+                        expected_digest=current.digest,
+                    )
                     raise SkillCreatorValidationError(
                         "The Skill Creator resource builder failed.",
                         code="skill_creator_resource_builder_failed",
                     ) from exc
-                current = self.build_store.append_segment(
-                    current.build_id,
-                    expected_revision=current.revision,
-                    expected_digest=current.digest,
-                    target_id=segment.target_id,
-                    segment_index=segment.segment_index,
-                    content=segment.content,
-                    complete=segment.complete,
-                    script_tests=segment.script_tests,
-                )
+                parts = self._split_utf8_segments(segment.content)
+                if segment.segment_index + len(parts) > 3:
+                    raise SkillCreatorValidationError(
+                        "The generated target exceeded the three-segment limit.",
+                        code="skill_creator_resource_segment_limit",
+                    )
+                for part_offset, part in enumerate(parts):
+                    final_part = part_offset == len(parts) - 1
+                    current = self.build_store.append_segment(
+                        current.build_id,
+                        expected_revision=current.revision,
+                        expected_digest=current.digest,
+                        target_id=segment.target_id,
+                        segment_index=segment.segment_index + part_offset,
+                        content=part,
+                        complete=segment.complete and final_part,
+                        script_tests=(segment.script_tests if final_part else []),
+                    )
                 if segment.complete:
                     return await self._validate_current(current)
             raise SkillCreatorValidationError(
@@ -499,6 +532,25 @@ class SkillCreatorResourceBuildService:
             if item.resource_id == target_id:
                 return target_id, len(item.chunks)
         raise SkillCreatorConflictError("Resource build has no active target.")
+
+    @staticmethod
+    def _split_utf8_segments(content: str) -> list[str]:
+        """Mechanically split one complete model response without changing its bytes."""
+
+        parts: list[str] = []
+        current: list[str] = []
+        current_bytes = 0
+        for character in content:
+            character_bytes = len(character.encode("utf-8"))
+            if current and current_bytes + character_bytes > MAX_SEGMENT_BYTES:
+                parts.append("".join(current))
+                current = []
+                current_bytes = 0
+            current.append(character)
+            current_bytes += character_bytes
+        if current:
+            parts.append("".join(current))
+        return parts
 
     @staticmethod
     def _is_stale(build: SkillResourceBuild, *, session: SkillCreatorSession, draft: WorkspaceSkillDraft | None) -> bool:

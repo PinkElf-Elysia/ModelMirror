@@ -152,6 +152,89 @@ def test_zero_resource_build_moves_directly_to_skill_markdown(tmp_path: Path) ->
     assert generated.skill_markdown_digest
 
 
+def test_stale_proposal_build_remains_loadable(tmp_path: Path) -> None:
+    plan = _confirmed_plan(tmp_path)
+    store = SkillResourceBuildStore(tmp_path / "build")
+    generated = _append_complete(
+        store,
+        store.create(plan=plan),
+        target_id="SKILL.md",
+        content=(
+            "---\nname: review-incidents\ndescription: "
+            + plan.skill_description
+            + "\n---\n\n# Review incidents\n"
+        ),
+    )
+    validated = store.record_validation(
+        generated.build_id,
+        expected_revision=generated.revision,
+        expected_digest=generated.digest,
+        target_id="SKILL.md",
+        issues=[],
+    )
+    accepted = store.review_skill_markdown(
+        validated.build_id,
+        expected_revision=validated.revision,
+        expected_digest=validated.digest,
+        decision="accept",
+    )
+
+    stale = store.mark_stale(accepted.build_id)
+
+    assert stale.phase == "proposal"
+    assert stale.state == "stale"
+    assert SkillResourceBuildStore(tmp_path / "build").require(stale.build_id) == stale
+
+
+def test_skill_markdown_revision_feedback_is_cumulative(tmp_path: Path) -> None:
+    plan = _confirmed_plan(tmp_path)
+    store = SkillResourceBuildStore(tmp_path / "build")
+    generated = _append_complete(
+        store,
+        store.create(plan=plan),
+        target_id="SKILL.md",
+        content="---\nname: review-incidents\ndescription: Use when reviewing incidents.\n---\n# Review\n",
+    )
+    validated = store.record_validation(
+        generated.build_id,
+        expected_revision=generated.revision,
+        expected_digest=generated.digest,
+        target_id="SKILL.md",
+        issues=[],
+    )
+    first = store.review_skill_markdown(
+        validated.build_id,
+        expected_revision=validated.revision,
+        expected_digest=validated.digest,
+        decision="revise",
+        feedback="Keep the trigger boundary explicit.",
+    )
+    second_generated = _append_complete(
+        store,
+        first,
+        target_id="SKILL.md",
+        content="---\nname: review-incidents\ndescription: Use when reviewing incidents.\n---\n# Review again\n",
+    )
+    second_validated = store.record_validation(
+        second_generated.build_id,
+        expected_revision=second_generated.revision,
+        expected_digest=second_generated.digest,
+        target_id="SKILL.md",
+        issues=[],
+    )
+    second = store.review_skill_markdown(
+        second_validated.build_id,
+        expected_revision=second_validated.revision,
+        expected_digest=second_validated.digest,
+        decision="revise",
+        feedback="Explain exactly when the script is executed.",
+    )
+
+    assert "Keep the trigger boundary explicit." in second.skill_feedback
+    assert "Explain exactly when the script is executed." in second.skill_feedback
+    assert "Additional revision requirements:" in second.skill_feedback
+
+
 def test_dependencies_review_and_script_receipt_are_digest_bound(tmp_path: Path) -> None:
     plan = _confirmed_plan(tmp_path, resources=_complex_resources())
     store = SkillResourceBuildStore(tmp_path / "build")
@@ -482,6 +565,32 @@ def test_recovery_restarts_only_unconfirmed_resource(tmp_path: Path) -> None:
     assert current.resources[0].state == "accepted"
     assert current.resources[0].content == "# Policy\n\nRules.\n"
     assert current.current_resource_id is None
+
+
+def test_targeted_requeue_preserves_repair_budget(tmp_path: Path) -> None:
+    plan = _confirmed_plan(
+        tmp_path,
+        resources=[{**_complex_resources()[0], "depends_on": []}],
+    )
+    store = SkillResourceBuildStore(tmp_path / "build-requeue")
+    created = store.create(plan=plan)
+    claimed = store.claim_next(
+        created.build_id,
+        expected_revision=created.revision,
+        expected_digest=created.digest,
+    )
+
+    requeued = store.requeue_interrupted(
+        claimed.build_id,
+        expected_revision=claimed.revision,
+        expected_digest=claimed.digest,
+    )
+
+    assert requeued.state == "planned"
+    assert requeued.current_resource_id is None
+    assert requeued.resources[0].state == "planned"
+    assert requeued.resources[0].repair_count == 0
+    assert requeued.resources[0].attempt == 1
 
 
 def test_atomic_failure_secret_block_and_top_level_corruption(tmp_path: Path, monkeypatch) -> None:

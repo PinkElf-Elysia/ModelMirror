@@ -22,6 +22,7 @@ from server.skills.creator_resource_build_runtime import (
     SandboxCreatorScriptRunner,
     build_resource_builder_invocation,
     parse_resource_build_segment,
+    validate_final_resource_package,
     validate_resource_content,
 )
 from server.skills.creator_resource_plan import SkillResourcePlanStore
@@ -157,6 +158,171 @@ def test_segment_parser_and_invocation_freeze_target(tmp_path: Path) -> None:
             expected_target_id="SKILL.md",
             expected_segment_index=0,
         )
+
+    invocation = build_resource_builder_invocation(
+        ResourceBuildGenerationRequest(
+            build=build,
+            target_id="SKILL.md",
+            segment_index=0,
+        ),
+        model_id="test-model",
+    )
+    role_prompt = invocation.workflow["nodes"][1]["data"]["rolePrompt"]
+    assert "one to three tests" in role_prompt
+    assert "at most ten" in role_prompt
+    assert "stdout_contains" in role_prompt
+    assert "copy skill.name and skill.description" in role_prompt
+
+
+def test_segment_parser_accepts_one_versioned_object_with_narration() -> None:
+    payload = {
+        "resource_build_version": "skill-resource-build-v1",
+        "target_id": "resource_1",
+        "segment_index": 0,
+        "content": "generated content",
+        "complete": True,
+        "script_tests": [],
+    }
+    parsed = parse_resource_build_segment(
+        "Generated result follows:\n```json\n"
+        + json.dumps(payload)
+        + "\n```\nNo other resource was generated.",
+        expected_target_id="resource_1",
+        expected_segment_index=0,
+    )
+
+    assert parsed.content == "generated content"
+
+
+def test_segment_parser_rejects_ambiguous_versioned_objects() -> None:
+    first = {
+        "resource_build_version": "skill-resource-build-v1",
+        "target_id": "resource_1",
+        "segment_index": 0,
+        "content": "first",
+        "complete": True,
+        "script_tests": [],
+    }
+    second = {**first, "content": "second"}
+
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        parse_resource_build_segment(
+            json.dumps(first) + "\n" + json.dumps(second),
+            expected_target_id="resource_1",
+            expected_segment_index=0,
+        )
+
+    assert caught.value.code == "skill_creator_resource_builder_invalid"
+
+
+def test_complete_skill_output_can_be_mechanically_segmented() -> None:
+    content = "资源化 Skill 正文。\n" * 700
+    assert len(content.encode("utf-8")) > 8 * 1024
+    payload = {
+        "resource_build_version": "skill-resource-build-v1",
+        "target_id": "SKILL.md",
+        "segment_index": 0,
+        "content": content,
+        "complete": True,
+        "script_tests": [],
+    }
+
+    parsed = parse_resource_build_segment(
+        json.dumps(payload, ensure_ascii=False),
+        expected_target_id="SKILL.md",
+        expected_segment_index=0,
+    )
+    parts = SkillCreatorResourceBuildService._split_utf8_segments(parsed.content)
+
+    assert "".join(parts) == content
+    assert 2 <= len(parts) <= 3
+    assert all(len(part.encode("utf-8")) <= 8 * 1024 for part in parts)
+
+
+def test_skill_output_still_rejects_the_total_target_budget() -> None:
+    payload = {
+        "resource_build_version": "skill-resource-build-v1",
+        "target_id": "SKILL.md",
+        "segment_index": 0,
+        "content": "x" * (20 * 1024 + 1),
+        "complete": True,
+        "script_tests": [],
+    }
+
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        parse_resource_build_segment(
+            json.dumps(payload),
+            expected_target_id="SKILL.md",
+            expected_segment_index=0,
+        )
+
+    assert caught.value.code == "skill_creator_resource_segment_invalid"
+
+
+def test_script_builder_prompt_freezes_fixture_transport(tmp_path: Path) -> None:
+    plan = _plan(
+        SkillResourcePlanStore(tmp_path),
+        resources=[
+            {
+                "kind": "script",
+                "action": "create",
+                "path": "scripts/normalize.py",
+                "purpose": "Normalize timeline rows deterministically.",
+                "source_ids": ["positive_example:0"],
+                "used_by_steps": ["normalize"],
+                "depends_on": [],
+                "acceptance_checks": ["Returns non-zero for invalid input."],
+            }
+        ],
+    )
+    store = SkillResourceBuildStore(tmp_path / "script-build")
+    created = store.create(plan=plan)
+    claimed = store.claim_next(
+        created.build_id,
+        expected_revision=created.revision,
+        expected_digest=created.digest,
+    )
+    invocation = build_resource_builder_invocation(
+        ResourceBuildGenerationRequest(
+            build=claimed,
+            target_id=claimed.current_resource_id or "",
+            segment_index=0,
+        ),
+        model_id="test-model",
+    )
+
+    role_prompt = invocation.workflow["nodes"][1]["data"]["rolePrompt"]
+    assert "does not pipe fixture content to stdin" in role_prompt
+    assert "file-path argument" in role_prompt
+
+
+def test_final_package_rejects_frontmatter_metadata_drift(tmp_path: Path) -> None:
+    plan = _plan(SkillResourcePlanStore(tmp_path), resources=[])
+    store = SkillResourceBuildStore(tmp_path / "build-store")
+    generated = store.claim_next(
+        (build := store.create(plan=plan)).build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+    )
+    assembled = store.append_segment(
+        generated.build_id,
+        expected_revision=generated.revision,
+        expected_digest=generated.digest,
+        target_id="SKILL.md",
+        segment_index=0,
+        content=(
+            "---\nname: incident-review\n"
+            "description: A rewritten description. Use when reviewing incidents; "
+            "do not use for fiction.\n---\n\n# Incident review\n"
+        ),
+        complete=True,
+    )
+
+    issues = validate_final_resource_package(assembled)
+
+    assert "skill_package_description_mismatch" in {
+        issue["code"] for issue in issues
+    }
 
 
 def test_resource_invocation_only_loads_direct_dependency_content(
@@ -302,6 +468,16 @@ console.log(value.toUpperCase());
             "const value = ;\nprocess.argv; process.exit(2);\n",
             "javascript_syntax_invalid",
         ),
+        (
+            "scripts/duplicated.py",
+            (
+                "#!/usr/bin/env python3\nimport sys\n"
+                "if __name__ == '__main__':\n    raise SystemExit(0)\n"
+                "#!/usr/bin/env python3\n"
+                "if __name__ == '__main__':\n    raise SystemExit(0)\n"
+            ),
+            "skill_creator_script_duplicate_entrypoint",
+        ),
     ],
 )
 def test_resource_validation_rejects_script_syntax_errors(
@@ -378,6 +554,289 @@ class _InvalidFirstScriptBuilder(_Builder):
                 ]
                 return replace(segment, script_tests=invalid)
         return await super().generate(request)
+
+
+class _TransientFirstBuilder(_Builder):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(
+        self, request: ResourceBuildGenerationRequest
+    ) -> ResourceBuildSegment:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("temporary provider failure")
+        return await super().generate(request)
+
+
+class _CancelledFirstBuilder(_Builder):
+    async def generate(
+        self, request: ResourceBuildGenerationRequest
+    ) -> ResourceBuildSegment:
+        raise asyncio.CancelledError
+
+
+@pytest.mark.asyncio
+async def test_service_requeues_transient_builder_failure_without_repair_budget(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime-transient"
+    plan_store = SkillResourcePlanStore(runtime)
+    plan = _plan(
+        plan_store,
+        resources=[
+            {
+                "kind": "reference",
+                "action": "create",
+                "path": "references/evidence-policy.md",
+                "purpose": "Keep evidence rules separate from the workflow.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "depends_on": [],
+                "acceptance_checks": ["Defines supported evidence boundaries."],
+            }
+        ],
+    )
+    session = SkillCreatorSession(
+        session_id=plan.session_id,
+        session_revision=1,
+        intent="Create an evidence-bound incident review.",
+        positive_examples=["Review an incident timeline."],
+        near_miss_examples=["Rewrite this paragraph."],
+        expected_output="Return a Chinese Markdown incident review.",
+        success_criteria=["Never invent a root cause."],
+        evidence_confirmed=True,
+        state="editing_draft",
+    )
+    creator = SimpleNamespace(
+        authoring_service=None,
+        get_session=lambda _id: (session, None),
+        require_enabled=lambda: None,
+    )
+    planning = SimpleNamespace(plan_store=plan_store, require_enabled=lambda: None)
+    store = SkillResourceBuildStore(runtime)
+    builder = _TransientFirstBuilder()
+    service = SkillCreatorResourceBuildService(
+        creator,
+        planning,
+        store,
+        builder=builder,
+        enabled=True,
+    )
+    build = await service.start(
+        session.session_id,
+        plan_id=plan.plan_id,
+        expected_session_revision=1,
+        expected_plan_revision=plan.revision,
+        expected_plan_digest=plan.digest,
+    )
+
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        await service.next(
+            build.build_id,
+            expected_session_revision=1,
+            expected_revision=build.revision,
+            expected_digest=build.digest,
+        )
+    assert caught.value.code == "skill_creator_resource_builder_failed"
+    requeued = store.require(build.build_id)
+    assert requeued.state == "planned"
+    assert requeued.resources[0].state == "planned"
+    assert requeued.resources[0].repair_count == 0
+    assert requeued.resources[0].attempt == 1
+
+    generated = await service.next(
+        build.build_id,
+        expected_session_revision=1,
+        expected_revision=requeued.revision,
+        expected_digest=requeued.digest,
+    )
+    assert generated.state == "awaiting_review"
+    assert builder.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_service_requeues_cancelled_builder_without_stranding_target(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime-cancelled"
+    plan_store = SkillResourcePlanStore(runtime)
+    plan = _plan(
+        plan_store,
+        resources=[
+            {
+                "kind": "reference",
+                "action": "create",
+                "path": "references/evidence-policy.md",
+                "purpose": "Keep evidence rules separate from the workflow.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "depends_on": [],
+                "acceptance_checks": ["Defines supported evidence boundaries."],
+            }
+        ],
+    )
+    session = SkillCreatorSession(
+        session_id=plan.session_id,
+        session_revision=1,
+        intent="Create an evidence-bound incident review.",
+        positive_examples=["Review an incident timeline."],
+        near_miss_examples=["Rewrite this paragraph."],
+        expected_output="Return a Chinese Markdown incident review.",
+        success_criteria=["Never invent a root cause."],
+        evidence_confirmed=True,
+        state="editing_draft",
+    )
+    creator = SimpleNamespace(
+        authoring_service=None,
+        get_session=lambda _id: (session, None),
+        require_enabled=lambda: None,
+    )
+    planning = SimpleNamespace(plan_store=plan_store, require_enabled=lambda: None)
+    store = SkillResourceBuildStore(runtime)
+    service = SkillCreatorResourceBuildService(
+        creator,
+        planning,
+        store,
+        builder=_CancelledFirstBuilder(),
+        enabled=True,
+    )
+    build = await service.start(
+        session.session_id,
+        plan_id=plan.plan_id,
+        expected_session_revision=1,
+        expected_plan_revision=plan.revision,
+        expected_plan_digest=plan.digest,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.next(
+            build.build_id,
+            expected_session_revision=1,
+            expected_revision=build.revision,
+            expected_digest=build.digest,
+        )
+
+    requeued = store.require(build.build_id)
+    assert requeued.state == "planned"
+    assert requeued.resources[0].state == "planned"
+    assert requeued.resources[0].attempt == 1
+    assert requeued.resources[0].repair_count == 0
+
+
+@pytest.mark.asyncio
+async def test_new_confirmed_plan_supersedes_active_prior_build(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime-plan-revision"
+    plan_store = SkillResourcePlanStore(runtime)
+    plan = _plan(
+        plan_store,
+        resources=[
+            {
+                "kind": "reference",
+                "action": "create",
+                "path": "references/evidence-policy.md",
+                "purpose": "Keep evidence rules separate from the workflow.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "depends_on": [],
+                "acceptance_checks": ["Defines supported evidence boundaries."],
+            }
+        ],
+    )
+    session = SkillCreatorSession(
+        session_id=plan.session_id,
+        session_revision=1,
+        intent="Create an evidence-bound incident review.",
+        positive_examples=["Review an incident timeline."],
+        near_miss_examples=["Rewrite this paragraph."],
+        expected_output="Return a Chinese Markdown incident review.",
+        success_criteria=["Never invent a root cause."],
+        evidence_confirmed=True,
+        state="editing_draft",
+    )
+    creator = SimpleNamespace(
+        authoring_service=None,
+        get_session=lambda _id: (session, None),
+        require_enabled=lambda: None,
+    )
+    planning = SimpleNamespace(plan_store=plan_store, require_enabled=lambda: None)
+    store = SkillResourceBuildStore(runtime)
+    service = SkillCreatorResourceBuildService(
+        creator,
+        planning,
+        store,
+        builder=_Builder(),
+        enabled=True,
+    )
+    first = await service.start(
+        session.session_id,
+        plan_id=plan.plan_id,
+        expected_session_revision=1,
+        expected_plan_revision=plan.revision,
+        expected_plan_digest=plan.digest,
+    )
+    awaiting_review = await service.next(
+        first.build_id,
+        expected_session_revision=1,
+        expected_revision=first.revision,
+        expected_digest=first.digest,
+    )
+    assert awaiting_review.state == "awaiting_review"
+
+    resource = plan.resources[0]
+    revised = plan_store.patch(
+        plan.plan_id,
+        expected_revision=plan.revision,
+        expected_digest=plan.digest,
+        allowed_source_ids={
+            "intent",
+            "positive_example:0",
+            "near_miss:0",
+            "expected_output",
+            "success_criterion:0",
+        },
+        changes={
+            "resources": [
+                {
+                    "kind": resource.kind,
+                    "action": resource.action,
+                    "generation_cost": resource.generation_cost,
+                    "path": resource.path,
+                    "purpose": resource.purpose,
+                    "source_ids": resource.source_ids,
+                    "used_by_steps": resource.used_by_steps,
+                    "depends_on": [],
+                    "acceptance_checks": [
+                        "Defines supported evidence boundaries and explicit failure behavior."
+                    ],
+                }
+            ]
+        },
+    )
+    revised = plan_store.confirm(
+        revised.plan_id,
+        expected_revision=revised.revision,
+        expected_digest=revised.digest,
+        session_revision=1,
+        draft_revision=None,
+        draft_digest=None,
+    )
+
+    replacement = await service.start(
+        session.session_id,
+        plan_id=revised.plan_id,
+        expected_session_revision=1,
+        expected_plan_revision=revised.revision,
+        expected_plan_digest=revised.digest,
+    )
+
+    assert replacement.build_id != first.build_id
+    assert replacement.plan_revision == revised.revision
+    assert replacement.plan_digest == revised.digest
+    assert replacement.resources[0].state == "planned"
+    assert store.require(first.build_id).state == "stale"
 
 
 def test_service_repairs_a_generated_script_contract_once(tmp_path: Path) -> None:

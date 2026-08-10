@@ -10,7 +10,9 @@ from pathlib import PurePosixPath
 from typing import Any, Awaitable, Callable
 
 from .creator_resource_build import (
+    MAX_RESOURCE_BYTES,
     MAX_SEGMENT_BYTES,
+    MAX_SKILL_MARKDOWN_BYTES,
     RESOURCE_BUILD_VERSION,
     ResourceScriptTestReceipt,
     ResourceScriptTestResult,
@@ -200,14 +202,8 @@ def parse_resource_build_segment(
     if not isinstance(value, str):
         raise SkillCreatorValidationError("Resource builder returned non-text output.", code="skill_creator_resource_builder_invalid")
     text = value.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if len(lines) >= 3 and lines[-1].strip() == "```":
-            text = "\n".join(lines[1:-1]).strip()
-            if text.startswith("json\n"):
-                text = text[5:].strip()
     try:
-        payload = json.loads(text)
+        payload = _decode_resource_build_json(text)
     except (ValueError, json.JSONDecodeError) as exc:
         raise SkillCreatorValidationError("Resource builder did not return valid JSON.", code="skill_creator_resource_builder_invalid") from exc
     if not isinstance(payload, dict) or payload.get("resource_build_version") != RESOURCE_BUILD_VERSION:
@@ -215,8 +211,16 @@ def parse_resource_build_segment(
     if payload.get("target_id") != expected_target_id or payload.get("segment_index") != expected_segment_index:
         raise SkillCreatorValidationError("Resource builder changed the frozen target.", code="skill_creator_resource_builder_target_changed")
     content = payload.get("content")
-    if not isinstance(content, str) or not content or len(content.encode("utf-8")) > MAX_SEGMENT_BYTES:
-        raise SkillCreatorValidationError("Resource builder segment is empty or exceeds 8 KiB.", code="skill_creator_resource_segment_invalid")
+    target_budget = (
+        MAX_SKILL_MARKDOWN_BYTES
+        if expected_target_id == "SKILL.md"
+        else MAX_RESOURCE_BYTES
+    )
+    if not isinstance(content, str) or not content or len(content.encode("utf-8")) > target_budget:
+        raise SkillCreatorValidationError(
+            "Resource builder output is empty or exceeds the frozen target budget.",
+            code="skill_creator_resource_segment_invalid",
+        )
     tests = payload.get("script_tests") or []
     if not isinstance(tests, list):
         raise SkillCreatorValidationError("Resource builder returned invalid script tests.", code="skill_creator_resource_builder_invalid")
@@ -227,6 +231,42 @@ def parse_resource_build_segment(
         complete=bool(payload.get("complete")),
         script_tests=[dict(item) for item in tests if isinstance(item, dict)],
     )
+
+
+def _decode_resource_build_json(text: str) -> Any:
+    """Decode one versioned segment without repairing or guessing model output."""
+
+    if not text:
+        raise ValueError("empty resource builder output")
+    try:
+        return json.loads(text)
+    except (ValueError, json.JSONDecodeError):
+        pass
+
+    decoder = json.JSONDecoder()
+    candidates: dict[str, dict[str, Any]] = {}
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            candidate, _end = decoder.raw_decode(text[index:])
+        except (ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("resource_build_version") != RESOURCE_BUILD_VERSION:
+            continue
+        fingerprint = json.dumps(
+            candidate,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        candidates[fingerprint] = candidate
+
+    if len(candidates) != 1:
+        raise ValueError("resource builder output must contain one versioned JSON object")
+    return next(iter(candidates.values()))
 
 
 def validate_resource_content(item: SkillResourceBuildItem) -> list[dict[str, Any]]:
@@ -240,6 +280,22 @@ def validate_resource_content(item: SkillResourceBuildItem) -> list[dict[str, An
         suffix = PurePosixPath(item.path).suffix.lower()
         if suffix not in _SCRIPT_SUFFIXES:
             issues.append(_issue("skill_creator_script_language_unsupported", "Generated scripts must be Python or JavaScript.", item.path))
+        duplicate_entrypoint = len(re.findall(r"(?m)^#!", content)) > 1
+        if suffix == ".py":
+            duplicate_entrypoint = duplicate_entrypoint or len(
+                re.findall(
+                    r"(?m)^\s*if\s+__name__\s*==\s*['\"]__main__['\"]\s*:",
+                    content,
+                )
+            ) > 1
+        if duplicate_entrypoint:
+            issues.append(
+                _issue(
+                    "skill_creator_script_duplicate_entrypoint",
+                    "Generated scripts must contain exactly one complete program, not concatenated revisions.",
+                    item.path,
+                )
+            )
         if not re.search(r"(?i)(usage|argparse|process\.argv|sys\.argv)", content):
             issues.append(_issue("skill_creator_script_cli_missing", "Generated scripts require an explicit command-line interface.", item.path))
         if not re.search(r"(?i)(sys\.exit|process\.exit|raise\s+SystemExit|returncode|exit code|catch\s*\(|except\s+)", content):
@@ -328,6 +384,19 @@ def validate_final_resource_package(build: SkillResourceBuild) -> list[dict[str,
         files=files,
     )
     issues.extend(issue.to_dict() for issue in validation.issues)
+    if validation.valid and validation.package is not None:
+        if validation.package.name != build.skill_name:
+            issues.append(_issue(
+                "skill_package_name_mismatch",
+                "SKILL.md frontmatter name must exactly match the confirmed resource plan.",
+                "SKILL.md",
+            ))
+        if validation.package.description != build.skill_description:
+            issues.append(_issue(
+                "skill_package_description_mismatch",
+                "SKILL.md frontmatter description must exactly match the confirmed resource plan.",
+                "SKILL.md",
+            ))
     return issues[:40]
 
 
@@ -448,7 +517,9 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
     )
     if target_id == "SKILL.md":
         specifics = (
-            " Write SKILL.md last with strict frontmatter name and description, then canonical "
+            " Write SKILL.md last with strict frontmatter, then copy skill.name and "
+            "skill.description from the frozen input context verbatim into "
+            "frontmatter; never paraphrase, fold, or otherwise rewrite either value. Then write "
             "sections: Purpose and scope, Inputs and preconditions, Workflow with at least four "
             "numbered executable steps, Output contract, Failure and degradation, Quality checks, "
             "and Resources. Reference every accepted resource by exact path. For multiple or long "
@@ -461,7 +532,12 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
         specifics = (
             " Write a deterministic Python or JavaScript CLI with explicit arguments, stable "
             "UTF-8 output, conservative validation, and non-zero failure exit. On the final "
+            "response return exactly one complete program: never append a prior draft, repeat "
+            "a shebang, or repeat a main entry point. "
             "segment include one to three offline script_tests in the required JSON field. "
+            "The Sidecar does not pipe fixture content to stdin: a script may support stdin, "
+            "but every generated offline test must pass its fixture through an explicit UTF-8 "
+            "file-path argument that the script actually reads. "
             "Each test uses fixtures as a JSON array of at most eight objects shaped exactly "
             "{\"path\":\"case.txt\",\"content\":\"UTF-8 text\"}. Fixture paths are rooted "
             "under inputs/; arguments run from work/, so refer to a fixture as "
@@ -478,7 +554,10 @@ def _builder_prompt(target_id: str, target: dict[str, Any]) -> str:
         '"fixtures":[{"path":"case.txt","content":"UTF-8 text"}],'
         '"expected_exit_code":0,"stdout_contains":["expected text"],'
         '"stderr_contains":[]}. args, fixtures, stdout_contains, and stderr_contains are always '
-        "JSON arrays, including when empty."
+        "JSON arrays, including when empty. A completed script defines one to three tests; "
+        "each test has at most 16 non-empty args, at most eight fixtures, and at most ten "
+        "non-empty strings in each stdout_contains or stderr_contains array. Keep assertions "
+        "minimal and observable instead of listing every output line."
     )
     return common + specifics + schema
 

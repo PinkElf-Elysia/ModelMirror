@@ -760,13 +760,24 @@ class SkillResourceBuildStore:
                 )
                 values["skill_feedback"] = ""
             else:
+                prior_feedback = current.skill_feedback.strip()
+                cumulative_feedback = (
+                    f"{prior_feedback}\n\nAdditional revision requirements:\n{clean_feedback}"
+                    if prior_feedback and clean_feedback not in prior_feedback
+                    else (prior_feedback or clean_feedback)
+                )
+                if len(cumulative_feedback) > 12_000:
+                    raise SkillCreatorValidationError(
+                        "Cumulative SKILL.md revision feedback is too large.",
+                        code="skill_creator_resource_feedback_too_large",
+                    )
                 values["skill_attempt"] = current.skill_attempt + 1
                 values["skill_repair_count"] = 0
                 values["skill_chunks"] = []
                 values["skill_markdown"] = None
                 values["skill_markdown_digest"] = None
                 values["skill_validation_issues"] = []
-                values["skill_feedback"] = clean_feedback[:4_000]
+                values["skill_feedback"] = cumulative_feedback
                 values["state"] = "revision_requested"
             values["revision"] = current.revision + 1
             values["updated_at"] = time.time()
@@ -842,6 +853,43 @@ class SkillResourceBuildStore:
                     self._builds = previous
                     raise
         return recovered
+
+    def requeue_interrupted(
+        self,
+        build_id: str,
+        *,
+        expected_revision: int,
+        expected_digest: str,
+    ) -> SkillResourceBuild:
+        """Release one transiently failed generation claim without consuming repair budget."""
+
+        with self._lock:
+            current = self._require_match_unlocked(
+                build_id,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if current.state != "generating":
+                return copy.deepcopy(current)
+            values = asdict(current)
+            values["revision"] = current.revision + 1
+            values["state"] = "planned"
+            values["updated_at"] = time.time()
+            if current.phase == "resources" and current.current_resource_id:
+                resource = self._resource_dict(values, current.current_resource_id)
+                if resource["state"] == "generating":
+                    resource["state"] = "planned"
+                    resource["chunks"] = []
+                    resource["content"] = None
+                    resource["content_digest"] = None
+                    resource["script_tests"] = []
+                    resource["script_receipt"] = None
+                values["current_resource_id"] = None
+            elif current.phase == "skill_markdown":
+                values["skill_chunks"] = []
+                values["skill_markdown"] = None
+                values["skill_markdown_digest"] = None
+            return self._publish_unlocked(self._decode(values, verify_digest=False))
 
     @staticmethod
     def serialize(item: SkillResourceBuild) -> dict[str, Any]:
@@ -1052,7 +1100,7 @@ class SkillResourceBuildStore:
             if any(resource.state != "accepted" for resource in item.resources):
                 raise ValueError("final phases require accepted resources")
         if item.phase == "proposal" and (
-            item.state != "accepted" or item.skill_markdown is None
+            item.state not in {"accepted", "stale"} or item.skill_markdown is None
         ):
             raise ValueError("proposal phase is incomplete")
         build_fixture_bytes = sum(
