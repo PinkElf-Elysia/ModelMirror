@@ -7,6 +7,7 @@ import { assertGodotOutputClean, runGodotCommand } from "./godot-core.mjs";
 
 export const GODOT_ADAPTER_MARKER = "MATRIX_OASIS_R5_ADAPTER_JSON:";
 export const GODOT_TRACE_MARKER = "MATRIX_OASIS_R5_TRACE_JSON:";
+export const GODOT_RUNTIME_READY_MARKER = "MATRIX_OASIS_R5_GODOT_RUNTIME_READY";
 
 const PUBLIC_DIAGNOSTIC_CODES = new Set([
   "GODOT_RUNTIME_INPUT_INVALID",
@@ -564,5 +565,82 @@ export function runGodotParityCases({
       throw error;
     }
     fail("GODOT_PARITY_HARNESS_INTERNAL_ERROR");
+  }
+}
+
+export function runGodotRuntimeLabSmokes({
+  moduleRoot,
+  sourceProjectRoot,
+  godotCommand,
+  cases,
+  spawn = spawnSync,
+}) {
+  const smokeCases = [
+    cases?.find((item) => item.name === "mechanics-complete-with-failures"),
+    cases?.find((item) => item.name === "last-train-return"),
+  ];
+  if (smokeCases.some((item) => !item)) {
+    fail("GODOT_RUNTIME_LAB_CASE_INPUT_INVALID");
+  }
+  const base = temporaryBase(moduleRoot);
+  fs.mkdirSync(base, { recursive: true });
+  const temporaryRoot = fs.mkdtempSync(path.join(base, "matrix-oasis-r5-runtime-lab-"));
+  const projectRoot = path.join(temporaryRoot, "runtime-godot");
+  const inputsRoot = path.join(temporaryRoot, "inputs");
+  try {
+    fs.cpSync(sourceProjectRoot, projectRoot, {
+      recursive: true,
+      filter: (source) => path.basename(source) !== ".godot",
+    });
+    fs.mkdirSync(inputsRoot);
+    const importOutput = runGodotCommand({
+      command: godotCommand,
+      args: ["--headless", "--editor", "--path", projectRoot, "--quit"],
+      cwd: moduleRoot,
+      timeout: 120_000,
+      spawn,
+    });
+    assertGodotOutputClean(importOutput);
+    for (let index = 0; index < smokeCases.length; index += 1) {
+      const item = smokeCases[index];
+      const caseRoot = path.join(inputsRoot, String(index));
+      fs.mkdirSync(caseRoot);
+      const runtimePath = path.join(caseRoot, "runtime.json");
+      const receiptPath = path.join(caseRoot, "receipt.json");
+      fs.writeFileSync(runtimePath, item.runtimeText, { encoding: "utf8", flag: "wx" });
+      fs.writeFileSync(receiptPath, item.receiptText, { encoding: "utf8", flag: "wx" });
+      const processResult = spawn(godotCommand, [
+        "--headless",
+        "--path",
+        projectRoot,
+        "res://runtime/runtime_lab.tscn",
+        "--",
+        `--matrix-oasis-runtime-pack=${runtimePath}`,
+        `--matrix-oasis-runtime-receipt=${receiptPath}`,
+        "--matrix-oasis-runtime-smoke",
+      ], {
+        cwd: moduleRoot,
+        encoding: "utf8",
+        maxBuffer: 8 * 1024 * 1024,
+        shell: false,
+        timeout: 30_000,
+        windowsHide: true,
+      });
+      if (processResult.error || processResult.status !== 0) {
+        fail("GODOT_RUNTIME_LAB_COMMAND_FAILED");
+      }
+      const output = `${processResult.stdout ?? ""}${processResult.stderr ?? ""}`;
+      assertGodotOutputClean(output);
+      if (output.split(GODOT_RUNTIME_READY_MARKER).length - 1 !== 1) {
+        fail("GODOT_RUNTIME_LAB_MARKER_INVALID");
+      }
+    }
+    removeTemporaryRoot(temporaryRoot, base, "matrix-oasis-r5-runtime-lab-");
+    return smokeCases.length;
+  } catch (error) {
+    if (error instanceof GodotRuntimeHarnessError) {
+      throw error;
+    }
+    fail("GODOT_RUNTIME_LAB_HARNESS_INTERNAL_ERROR");
   }
 }

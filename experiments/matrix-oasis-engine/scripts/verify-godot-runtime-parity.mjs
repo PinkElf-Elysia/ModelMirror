@@ -13,6 +13,7 @@ import {
   buildGodotParityCases,
   GodotRuntimeHarnessError,
   runGodotParityCases,
+  runGodotRuntimeLabSmokes,
 } from "./lib/godot-runtime-core.mjs";
 
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -53,8 +54,16 @@ try {
     godotCommand: godot.command,
     cases,
   });
+  const labSmokes = runGodotRuntimeLabSmokes({
+    moduleRoot,
+    sourceProjectRoot: projectPath(moduleRoot),
+    godotCommand: godot.command,
+    cases,
+  });
   const runs = results.reduce((total, item) => total + item.repetitions, 0);
-  console.log(`GODOT_PARITY_OK version=${godot.version} cases=${results.length} runs=${runs}`);
+  console.log(
+    `GODOT_PARITY_OK version=${godot.version} cases=${results.length} runs=${runs} labs=${labSmokes}`,
+  );
 } catch (error) {
   const code = error instanceof GodotRuntimeHarnessError &&
       /^[A-Z][A-Z0-9_]+$/u.test(error.code)

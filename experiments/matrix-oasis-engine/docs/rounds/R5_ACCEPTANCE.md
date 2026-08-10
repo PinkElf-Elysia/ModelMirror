@@ -1,6 +1,6 @@
 # R5 验收记录
 
-状态：R5.4 已验证，等待本地提交；尚未达到人工验收门。
+状态：R5.5 已验证，等待本地提交；尚未达到人工验收门。
 
 固定 `R5_BASE_SHA`：`d47f1b15e5610f41d4d9f3e5fe91966530a1a4be`
 
@@ -11,8 +11,8 @@
 | R5.1 治理与适配合同 | 已完成 | `f3dae37` |
 | R5.2 严格 Runtime Pack 载入器 | 已完成 | `21ed3b3` |
 | R5.3 独立 GDScript 执行器 | 已完成 | `578d46b` |
-| R5.4 跨运行时差分 Harness | 已验证 | 本批提交；SHA 在 R5.5 记录 |
-| R5.5 最小 Runtime 调试 HUD | 未开始 | 待记录 |
+| R5.4 跨运行时差分 Harness | 已完成 | `cffa4fa` |
+| R5.5 最小 Runtime 调试 HUD | 已验证 | 本批提交；SHA 在 R5.6 记录 |
 | R5.6 拆分与验收收口 | 未开始 | 待记录 |
 
 ## R5.1 证据
@@ -84,6 +84,25 @@ R5.4 新增独立 Godot trace runner 与 Node 差分 harness。Node 从冻结 Au
 - 本批未运行父后端、Docker、共享栈或父路由；未实现 runtime scene、HUD、玩法、存档、网络、Marble、AI 或正式资产。
 
 本批可单独 revert 回到 R5.3 独立执行器状态；临时工件不形成需要迁移或回滚的运行数据。
+
+## R5.5 证据
+
+R5.5 新增独立 `runtime_lab` scene、最小原生 Control HUD、受控样例预览器与 Runtime Lab smoke；它复用冻结 R4 primitive 场景但不修改 R4 主场景，不接父路由、网络、存储、正式资产或题材专用逻辑。
+
+- 精确变更为 10 个模块内文件：Runtime Lab scene/script、3 项 GdUnit UI 测试、预览工件与进程脚本、7 项 Node 预览合同测试、Godot Runtime harness/parity 接线、模块命令及本验收记录；R1–R4 冻结路径、Creator、examples 与父仓路径零差异。
+- HUD 从 Runtime Pack inspection 显示 Pack、位置、正文、变量、步数、当前 Cue、最新 transition 与按声明顺序排列的 action；不可用 action 使用原生 `disabled`，可用 action、重置均使用原生 Button、44 px 最小目标和键盘焦点。
+- action 与 reset 只调用 R5 GDScript 执行器；成功后以同一返回结果更新 snapshot/inspection/transition/Cue，失败时保留当前会话并显示静态 code。没有编辑、保存、回放、自动运行或 stepLimit UI。
+- scene 在宽屏保留 primitive 世界和 420 px 不透明工具面板；视口小于 720 px 时隐藏装饰性 world spacer、面板占满可用宽度。动态标题、正文、变量、Cue、transition 与 action 文案均来自 Pack；源码不含冻结样例 ID 或题材分支。
+- `npm.cmd run preview:godot:runtime -- --example mechanics-conformance` 与 `--example last-train-r1` 只接受两个冻结样例选择器；Node 将 Pack/Receipt 编译到 `C:\tmp` 的唯一临时目录，Godot 只读加载，进程退出后按 realpath、前缀及 bigint dev/ino 身份精确清理。同名替换目录不会被删除。
+- `node --test tests/godot-runtime-preview.test.mjs tests/godot-runtime-parity.test.mjs`：14/14 通过；覆盖参数、scene 启动参数、两个 canonical 临时工件、公开 Runtime Validator、静态失败、窄清理、同名替换防护及题材无关 UI 结构。
+- `npm.cmd run verify:godot:parity`：`GODOT_PARITY_OK version=4.6.3 cases=7 runs=26 labs=2`；两个冻结样例均额外完成 Runtime Lab scene headless smoke，readiness marker `MATRIX_OASIS_R5_GODOT_RUNTIME_READY` 各精确出现一次。
+- `npm.cmd run test:godot`：Godot 4.6.3 下 22/22 通过（冻结 R4 foundation 4、R5 adapter 7、R5 session 8、R5 Runtime Lab 3）；测试覆盖 Pack 派生内容、原生可用/禁用 action、焦点和 44 px 目标、pressed signal、Cue/transition、重置及失败后会话保持。
+- `npm.cmd run verify`：12/12 通过；包含 423/423 Node 测试、22 项 GdUnit、Godot import/adapter/parity/lab smoke、冻结 R1–R3 门、247-module Creator build 与 HTTP 200 smoke。
+- `npm.cmd run check:boundary`：`BOUNDARY_OK checked=785 tracked=779`；`npm.cmd run check:godot-boundary`：`GODOT_BOUNDARY_OK checked=13`；`npm.cmd run check:round-scope`：`ROUND_SCOPE_OK checked=46 changed=42`；`git diff --check` 通过。
+- Windows computer-use 插件在本机因 Codex 安装目录 `lstat` 权限错误无法初始化，因此本批没有伪称已完成原生窗口点击或截图验收；桌面/窄窗、鼠标/Enter/Space、控制台与网络面板人工检查，以及仓外固定帧证据明确留在 R5.6 最终验收门。
+- 本批未运行父后端、Docker、共享栈或父路由；没有玩法、角色控制、Marble、AI、资产管线、存档、网络或正式导出。
+
+本批可单独 revert 回到 R5.4 纯 headless 差分状态；临时预览工件在关闭后精确清理，不形成数据库、服务或运行数据迁移。
 
 ## 最终仓外标识
 
