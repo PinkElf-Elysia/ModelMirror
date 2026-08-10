@@ -41,6 +41,7 @@ from server.mcp.catalog import (
     CatalogUnbindRequest,
     MCPCatalogService,
 )
+from server.mcp.catalog_expansion_v2 import CATALOG_EXPANSION_V2_ADAPTERS
 from server.sandbox_sidecar.saas_contracts import SAAS_SCHEMA_SHA256
 from server.sandbox_sidecar.browser_contracts import (
     BROWSER_ADAPTERS,
@@ -312,15 +313,20 @@ def make_service(
     return service, manager, installer, registry
 
 
-def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
+def test_catalog_freezes_200_projects_and_maps_all_waves_once() -> None:
     phased = [project for projects in WAVE_PROJECTS.values() for project in projects]
+    expansion_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
 
-    assert len(CATALOG_ADAPTERS) == 100
+    assert len(CATALOG_ADAPTERS) == 200
     assert len(LOCAL_STDIO_ADAPTERS) == 7
     assert len(phased) == 93
+    assert len(expansion_ids) == 100
     assert len(set(phased)) == 93
     assert set(phased).isdisjoint(LOCAL_STDIO_ADAPTERS)
-    assert set(CATALOG_ADAPTERS) == set(phased) | set(LOCAL_STDIO_ADAPTERS)
+    assert expansion_ids.isdisjoint(set(phased) | set(LOCAL_STDIO_ADAPTERS))
+    assert set(CATALOG_ADAPTERS) == (
+        set(phased) | set(LOCAL_STDIO_ADAPTERS) | expansion_ids
+    )
     assert set(WAVE_ONE_ADAPTERS) == set(WAVE_PROJECTS[1])
     assert set(WAVE_TWO_ADAPTERS) == set(WAVE_PROJECTS[2]) - {
         "bibigpt-mcp",
@@ -347,7 +353,7 @@ def test_catalog_freezes_100_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 14
+    ) == 114
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
@@ -370,6 +376,16 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
     frontend_ids = set(
         re.findall(r'^\s{4}id: "([a-z0-9.-]+)"', seed_source, flags=re.MULTILINE)
     )
+    expansion_source = (
+        PROJECT_ROOT
+        / "client"
+        / "src"
+        / "data"
+        / "mcpCatalogExpansionV2.generated.ts"
+    ).read_text(encoding="utf-8")
+    expansion_frontend_ids = set(
+        re.findall(r'^\s{4}"id": "([a-z0-9.-]+)"', expansion_source, flags=re.MULTILINE)
+    )
     card_source = (
         PROJECT_ROOT / "client" / "src" / "components" / "McpServerCard.tsx"
     ).read_text(encoding="utf-8")
@@ -377,8 +393,13 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
         PROJECT_ROOT / "client" / "src" / "components" / "McpCredentialPanel.tsx"
     ).read_text(encoding="utf-8")
 
-    assert frontend_ids == set(CATALOG_ADAPTERS)
+    assert len(expansion_frontend_ids) == 100
+    assert frontend_ids | expansion_frontend_ids == set(CATALOG_ADAPTERS)
+    assert frontend_ids.isdisjoint(expansion_frontend_ids)
     assert not re.search(r"^\s+command:", seed_source, flags=re.MULTILINE)
+    assert "server_command" not in expansion_source
+    assert '"endpoint"' not in expansion_source
+    assert '"availability": "ready"' not in expansion_source
     assert 'fetch("/api/mcp/connect"' not in card_source
     assert 'fetch("/api/mcp/install"' not in card_source
     assert not re.search(
@@ -402,6 +423,28 @@ def test_planned_adapter_cannot_be_enabled_by_environment(
     assert manifest.executable is False
     assert not manifest.server_command
     assert not manifest.endpoint
+
+
+def test_approved_catalog_expansion_is_manifest_only_and_non_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expansion_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
+    assert len(expansion_ids) == 100
+    for project_id in expansion_ids:
+        manifest = CATALOG_ADAPTERS[project_id]
+        monkeypatch.setenv(manifest.feature_flag, "true")
+        assert manifest.wave == 12
+        assert manifest.availability == "planned"
+        assert manifest.executable is False
+        assert manifest.server_command == ()
+        assert manifest.endpoint == ""
+        assert manifest.install_command == ""
+        assert manifest.allowed_settings == ()
+        assert manifest.credential_slots == ()
+        assert manifest.tool_policies == {}
+        assert manifest.runtime_image == ""
+        assert manifest.network_policy == "planned:no-runtime"
+        assert manifest.filesystem_policy == "planned:no-runtime"
 
 
 def test_wave_seven_manifest_freezes_ready_blocked_and_public_policy() -> None:
@@ -1518,9 +1561,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             response = await client.get("/api/mcp/catalog/adapters")
             assert response.status_code == 200
             payload = response.json()
-            assert payload["total"] == 100
+            assert payload["total"] == 200
             assert payload["ready"] == 45
-            assert payload["planned"] == 14
+            assert payload["planned"] == 114
             assert payload["blocked"] == 41
             serialized = response.text.lower()
             assert "server_command" not in serialized
@@ -1547,7 +1590,7 @@ async def test_main_app_registers_catalog_status_endpoint() -> None:
         response = await client.get("/api/mcp/catalog/adapters")
 
     assert response.status_code == 200
-    assert response.json()["total"] == 100
+    assert response.json()["total"] == 200
 
 
 @pytest.mark.asyncio
