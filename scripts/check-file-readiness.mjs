@@ -5,14 +5,15 @@ const REPORT_PATH = path.resolve(process.argv[2] || "docs/file-readiness.json");
 const ROOT = path.resolve(".");
 
 const MODULES = new Set(["chat", "rag", "datax", "agent", "workflow"]);
-const INPUT_KINDS = new Set(["document", "data_source"]);
+const INPUT_KINDS = new Set(["document", "data_source", "visual_analysis"]);
 const FAMILIES = new Set([
   "text", "structured", "document", "spreadsheet", "presentation",
   "email", "ebook", "archive", "image", "audio", "video", "legacy_office",
 ]);
 const OPERATIONS = new Set([
   "extract_text", "extract_structure", "visual_extract",
-  "native_attachment", "structured_analysis", "batch_import",
+  "visual_analysis", "provider_ocr", "native_attachment",
+  "structured_analysis", "batch_import",
 ]);
 const INTERACTION_STATUSES = new Set(["ready", "planned", "disabled", "not_applicable"]);
 const VERIFICATION_STATUSES = new Set([

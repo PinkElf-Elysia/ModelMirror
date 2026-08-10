@@ -7,6 +7,8 @@ from typing import Iterable, Mapping
 
 from .contracts import (
     FileCapabilitiesResponse,
+    FileAnalysisMode,
+    FileAnalysisOption,
     FileFamily,
     FileFormatCapability,
     FileHandling,
@@ -20,10 +22,11 @@ from .contracts import (
     FileSizeMeasure,
     FileSupportLevel,
     FileTransport,
+    file_analysis_mode_canary_verified,
 )
 
 
-FILE_FORMAT_REGISTRY_VERSION = "modelmirror-file-formats-v4"
+FILE_FORMAT_REGISTRY_VERSION = "modelmirror-file-formats-v5"
 MIB = 1024 * 1024
 
 _CHAT_RUNTIME_GATES: dict[FileInputKind, tuple[str, bool, str]] = {
@@ -66,6 +69,11 @@ _CHAT_RUNTIME_GATES: dict[FileInputKind, tuple[str, bool, str]] = {
         "MULTIMODAL_VIDEO_GENERATION_ENABLED",
         False,
         "视频生成参考图当前未启用。",
+    ),
+    FileInputKind.VISUAL_ANALYSIS: (
+        "CHAT_ONE_SHOT_VISION_ENABLED",
+        False,
+        "Chat 一次性视觉/OCR 当前未启用。",
     ),
 }
 
@@ -239,6 +247,10 @@ class FileFormatRegistry:
                             else None
                         ),
                     ),
+                    analysis_options=self._analysis_options(
+                        policy,
+                        interaction_status=interaction_status,
+                    ),
                     formats=formats,
                 )
             )
@@ -290,10 +302,121 @@ class FileFormatRegistry:
             )
         return tuple(options)
 
+    def _analysis_options(
+        self,
+        policy: FileInputPolicy,
+        *,
+        interaction_status: FileInteractionStatus,
+    ) -> tuple[FileAnalysisOption, ...]:
+        if not (
+            policy.purpose == FilePurpose.CHAT
+            and policy.input_kind == FileInputKind.VISUAL_ANALYSIS
+        ):
+            return ()
+        vision_enabled = self._env_enabled("CHAT_ONE_SHOT_VISION_ENABLED", False)
+        ocr_enabled = self._env_enabled("CHAT_OPENROUTER_OCR_ENABLED", False)
+        vision_verified = file_analysis_mode_canary_verified(FileAnalysisMode.VISION)
+        ocr_verified = file_analysis_mode_canary_verified(
+            FileAnalysisMode.PROVIDER_OCR
+        )
+        vision_ready = (
+            interaction_status == FileInteractionStatus.READY
+            and vision_enabled
+            and vision_verified
+        )
+        ocr_ready = (
+            interaction_status == FileInteractionStatus.READY
+            and ocr_enabled
+            and ocr_verified
+        )
+        return (
+            FileAnalysisOption(
+                mode=FileAnalysisMode.VISION,
+                format_ids=("jpeg", "pdf", "png", "webp"),
+                provider="explicit_openai_compatible_vlm",
+                paid=False,
+                max_pages=20,
+                max_prompt_chars=2_000,
+                interaction_status=(
+                    FileInteractionStatus.READY
+                    if vision_ready
+                    else (
+                        FileInteractionStatus.PLANNED
+                        if vision_enabled and not vision_verified
+                        else FileInteractionStatus.DISABLED
+                    )
+                ),
+                status_reason=(
+                    None
+                    if vision_ready
+                    else (
+                        "Chat 一次性视觉理解真实金丝雀尚未通过。"
+                        if vision_enabled and not vision_verified
+                        else "Chat 一次性视觉理解当前未启用。"
+                    )
+                ),
+            ),
+            FileAnalysisOption(
+                mode=FileAnalysisMode.PROVIDER_OCR,
+                format_ids=("pdf",),
+                provider="openrouter_mistral_ocr",
+                paid=True,
+                max_pages=20,
+                max_prompt_chars=2_000,
+                interaction_status=(
+                    FileInteractionStatus.READY
+                    if ocr_ready
+                    else (
+                        FileInteractionStatus.PLANNED
+                        if ocr_enabled and not ocr_verified
+                        else FileInteractionStatus.DISABLED
+                    )
+                ),
+                status_reason=(
+                    None
+                    if ocr_ready
+                    else (
+                        "OpenRouter 供应商 OCR 修复后真实金丝雀尚未通过。"
+                        if ocr_enabled and not ocr_verified
+                        else "OpenRouter 供应商 OCR 当前未启用。"
+                    )
+                ),
+            ),
+        )
+
     def _effective_interaction(
         self,
         policy: FileInputPolicy,
     ) -> tuple[FileInteractionStatus, str | None]:
+        if (
+            policy.purpose == FilePurpose.CHAT
+            and policy.input_kind == FileInputKind.VISUAL_ANALYSIS
+        ):
+            vision_enabled = self._env_enabled(
+                "CHAT_ONE_SHOT_VISION_ENABLED", False
+            )
+            ocr_enabled = self._env_enabled(
+                "CHAT_OPENROUTER_OCR_ENABLED", False
+            )
+            if not (vision_enabled or ocr_enabled):
+                return (
+                    FileInteractionStatus.DISABLED,
+                    "Chat 一次性视觉理解与供应商 OCR 当前均未启用。",
+                )
+            if not (
+                vision_enabled
+                and file_analysis_mode_canary_verified(FileAnalysisMode.VISION)
+            ) and not (
+                ocr_enabled
+                and file_analysis_mode_canary_verified(
+                    FileAnalysisMode.PROVIDER_OCR
+                )
+            ):
+                return (
+                    FileInteractionStatus.PLANNED,
+                    "已启用的分析方式尚未通过对应的真实金丝雀。",
+                )
+            return policy.interaction_status, policy.status_reason
         gate = (
             _CHAT_RUNTIME_GATES.get(policy.input_kind)
             if policy.purpose == FilePurpose.CHAT
@@ -511,6 +634,18 @@ _POLICIES = (
         retention=FileRetention.TEMPORARY,
         max_files_per_request=5,
         max_total_bytes_per_request=25 * MIB,
+    ),
+    _policy(
+        FilePurpose.CHAT,
+        FileInputKind.VISUAL_ANALYSIS,
+        ("pdf", "jpeg", "png", "webp"),
+        10,
+        FileSupportLevel.SPECIALIZED,
+        FileInteractionStatus.READY,
+        "chat.one_shot_visual_analysis",
+        "/chat/:modelId",
+        retention=FileRetention.TEMPORARY,
+        max_files_per_request=1,
     ),
     _policy(
         FilePurpose.CHAT,

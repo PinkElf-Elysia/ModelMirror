@@ -4,14 +4,16 @@ import csv
 import io
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 try:
+    from server.file_assets.service import FileAssetServiceError
     from server.file_assets.validation import FileValidationError
 except ModuleNotFoundError:
+    from file_assets.service import FileAssetServiceError
     from file_assets.validation import FileValidationError
 
 from .rag_service import (
@@ -31,6 +33,7 @@ from .rag_service import (
     UnsupportedDocumentError,
 )
 from .document_parser import DocumentParseError
+from .embedder import EmbeddingError
 from .pipeline_graph import PipelineGraphValidationError
 from .pipeline_executor import KnowledgePipelineExecutor
 from .source_metadata import MAX_HEADING_PATH_LEVELS, normalize_heading_path
@@ -77,6 +80,24 @@ class KnowledgeBaseListResponse(BaseModel):
     knowledge_bases: list[KnowledgeBasePayload]
 
 
+class FileAnalysisSourcePayload(BaseModel):
+    source_filename: str = Field(min_length=1, max_length=255)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    selected_pages: list[int] = Field(min_length=1, max_length=20)
+    mode: Literal["vision", "provider_ocr"]
+    connection_name: str = Field(min_length=1, max_length=160)
+    model_id: str = Field(min_length=1, max_length=256)
+    failed_pages: list[int] = Field(default_factory=list, max_length=20)
+    truncated: bool = False
+
+    @field_validator("selected_pages", "failed_pages")
+    @classmethod
+    def validate_pages(cls, value: list[int]) -> list[int]:
+        if any(isinstance(page, bool) or page < 1 for page in value):
+            raise ValueError("analysis source pages must be positive integers")
+        return value
+
+
 class DocumentPayload(BaseModel):
     id: str
     kb_id: str
@@ -87,11 +108,23 @@ class DocumentPayload(BaseModel):
     ingestion_status: str = "indexed_legacy"
     visual_candidate: bool = False
     warnings: list[str] = Field(default_factory=list, max_length=20)
+    analysis_artifact_id: str | None = None
+    analysis_source: FileAnalysisSourcePayload | None = None
     created_at: float
 
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentPayload]
+
+
+class FileAnalysisDocumentRequest(BaseModel):
+    asset_id: str = Field(min_length=1, max_length=256)
+    analysis_artifact_id: str = Field(min_length=1, max_length=256)
+    chat_scope_id: str = Field(
+        min_length=1,
+        max_length=256,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
 
 
 class PendingDocumentDeletionPayload(BaseModel):
@@ -829,6 +862,46 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)) -> dict[str,
         ) from exc
     except UnsupportedDocumentError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/knowledge_bases/{kb_id}/documents/from-file-analysis",
+    response_model=DocumentPayload,
+)
+async def create_document_from_file_analysis(
+    kb_id: str,
+    payload: FileAnalysisDocumentRequest,
+) -> dict[str, Any]:
+    try:
+        return await get_rag_service().import_file_analysis(
+            kb_id,
+            asset_id=payload.asset_id,
+            analysis_artifact_id=payload.analysis_artifact_id,
+            chat_scope_id=payload.chat_scope_id,
+        )
+    except KnowledgeBaseDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rag_knowledge_base_deleting",
+                "message": str(exc),
+            },
+        ) from exc
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileAssetServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.error_code, "message": exc.message},
+        ) from exc
+    except (EmbeddingError, UnsupportedDocumentError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "rag_file_analysis_import_failed",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 @router.get("/knowledge_bases/{kb_id}/documents", response_model=DocumentListResponse)

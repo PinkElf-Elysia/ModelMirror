@@ -27,6 +27,8 @@ export interface ChatInputFilePart {
   asset_id: string;
   handling: "native" | "extract";
   confirmation_revision: number;
+  analysis_artifact_id?: string;
+  analysis_prompt?: string;
 }
 
 export type ChatMessageContent =

@@ -25,6 +25,9 @@ import ChatFileComposer, {
   formatFileFormatLabel,
   type ChatFileComposerState,
 } from "../components/ChatFileComposer";
+import ChatVisualAnalysisPanel, {
+  type ChatVisualAnalysisState,
+} from "../components/ChatVisualAnalysisPanel";
 import ChatVideoComposer, {
   analyzeChatVideo,
   deleteChatVideoAttachment,
@@ -1182,6 +1185,15 @@ function ChatConversationPage() {
   });
   const [chatFileResetVersion, setChatFileResetVersion] = useState(0);
   const [chatFileDiscardVersion, setChatFileDiscardVersion] = useState(0);
+  const [visualAnalysisState, setVisualAnalysisState] =
+    useState<ChatVisualAnalysisState>({
+      files: [],
+      count: 0,
+      busy: false,
+      allConfirmed: false,
+    });
+  const [visualAnalysisResetVersion, setVisualAnalysisResetVersion] = useState(0);
+  const [visualAnalysisDiscardVersion, setVisualAnalysisDiscardVersion] = useState(0);
   const [chatFileScope, setChatFileScope] = useState(() => ({
     modelId: decodedModelId,
     scopeId: createChatFileScopeId(),
@@ -1424,6 +1436,7 @@ function ChatConversationPage() {
     }
     setChatFileScope({ modelId: decodedModelId, scopeId: nextScope.scopeId });
     setChatFileDiscardVersion((current) => current + 1);
+    setVisualAnalysisDiscardVersion((current) => current + 1);
   }, [chatFileScope.modelId, chatFileScope.scopeId, decodedModelId]);
 
   useEffect(() => {
@@ -1677,9 +1690,14 @@ function ChatConversationPage() {
   async function addImageFiles(files: File[]) {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
-    if (chatFileState.count > 0 || audioComposerOpen || videoComposerOpen) {
+    if (
+      chatFileState.count > 0 ||
+      visualAnalysisState.count > 0 ||
+      audioComposerOpen ||
+      videoComposerOpen
+    ) {
       setError(
-        chatFileState.count > 0
+        chatFileState.count > 0 || visualAnalysisState.count > 0
           ? "本轮只能选择文件、图片、音频或视频中的一种附件，请先移除文件。"
           : videoComposerOpen
           ? "本轮只能选择图片、音频或视频中的一种附件，请先关闭视频输入。"
@@ -1971,7 +1989,9 @@ function ChatConversationPage() {
   ): Promise<boolean> {
     const directAudio = options.directAudio;
     const directVideo = options.directVideo;
-    const selectedFiles = directAudio || directVideo ? [] : chatFileState.files;
+    const selectedFiles = directAudio || directVideo
+      ? []
+      : [...chatFileState.files, ...visualAnalysisState.files];
     const requestedText = (overrideText ?? input).trim();
     const rawText =
       !requestedText && directAudio
@@ -1995,14 +2015,19 @@ function ChatConversationPage() {
       return false;
     }
 
-    if (chatFileState.count > 0) {
+    if (chatFileState.count > 0 || visualAnalysisState.count > 0) {
       if (selectedKnowledgeBaseId) {
         setError(
           "文件发送暂不与知识库检索组合。请取消知识库选择，或前往资料库上传文件。",
         );
         return false;
       }
-      if (chatFileState.busy || !chatFileState.allConfirmed) {
+      if (
+        chatFileState.busy ||
+        visualAnalysisState.busy ||
+        (chatFileState.count > 0 && !chatFileState.allConfirmed) ||
+        (visualAnalysisState.count > 0 && !visualAnalysisState.allConfirmed)
+      ) {
         setError("请等待文件处理完成，并在预览中逐个确认后再发送。");
         return false;
       }
@@ -2108,12 +2133,24 @@ function ChatConversationPage() {
             type: "text" as const,
             text: superPromptMode ? wrapWithSuperPrompt(rawText) : rawText,
           },
-          ...selectedFiles.map((file) => ({
-            type: "input_file" as const,
-            asset_id: file.assetId,
-            handling: file.handling,
-            confirmation_revision: file.confirmationRevision,
-          })),
+          ...selectedFiles.map((file) => {
+            const analysis = file as Partial<{
+              analysisArtifactId: string;
+              analysisPrompt: string;
+            }>;
+            return {
+              type: "input_file" as const,
+              asset_id: file.assetId,
+              handling: file.handling,
+              confirmation_revision: file.confirmationRevision,
+              ...(analysis.analysisArtifactId
+                ? {
+                    analysis_artifact_id: analysis.analysisArtifactId,
+                    analysis_prompt: analysis.analysisPrompt ?? "",
+                  }
+                : {}),
+            };
+          }),
         ]
       : "";
     const userContent: ChatMessageContent = directAudio
@@ -2516,7 +2553,12 @@ function ChatConversationPage() {
         );
       }
       if (selectedFiles.length > 0) {
-        setChatFileResetVersion((current) => current + 1);
+        if (chatFileState.count > 0) {
+          setChatFileResetVersion((current) => current + 1);
+        }
+        if (visualAnalysisState.count > 0) {
+          setVisualAnalysisResetVersion((current) => current + 1);
+        }
       }
       completed = true;
     } catch (streamError) {
@@ -2603,11 +2645,12 @@ function ChatConversationPage() {
   function openAudioComposer(source: "upload" | "record") {
     if (
       chatFileState.count > 0 ||
+      visualAnalysisState.count > 0 ||
       uploadedImages.length > 0 ||
       videoComposerOpen
     ) {
       setError(
-        chatFileState.count > 0
+        chatFileState.count > 0 || visualAnalysisState.count > 0
           ? "本轮只能选择文件、图片、音频或视频中的一种附件，请先移除文件。"
           : videoComposerOpen
           ? "本轮只能选择图片、音频或视频中的一种附件，请先关闭视频输入。"
@@ -2631,11 +2674,12 @@ function ChatConversationPage() {
   function openVideoComposer() {
     if (
       chatFileState.count > 0 ||
+      visualAnalysisState.count > 0 ||
       uploadedImages.length > 0 ||
       audioComposerOpen
     ) {
       setError(
-        chatFileState.count > 0
+        chatFileState.count > 0 || visualAnalysisState.count > 0
           ? "本轮只能选择文件、图片、音频或视频中的一种附件，请先移除文件。"
           : audioComposerOpen
           ? "本轮只能选择图片、音频或视频中的一种附件，请先关闭语音输入。"
@@ -2834,6 +2878,7 @@ function ChatConversationPage() {
     void purgeChatFileScope(chatFileScope.scopeId);
     setPreferredModelId(nextModelId);
     setChatFileDiscardVersion((current) => current + 1);
+    setVisualAnalysisDiscardVersion((current) => current + 1);
     setModelSwitchNotice("已切换当前使用模型；切换模型后对话上下文可能不兼容。");
     setError("");
 
@@ -2875,6 +2920,7 @@ function ChatConversationPage() {
     setMessages([]);
     setUploadedImages([]);
     setChatFileDiscardVersion((current) => current + 1);
+    setVisualAnalysisDiscardVersion((current) => current + 1);
     setError("");
     setAgentDefaultModelNotice("");
     setRuntimeMeta(null);
@@ -2936,13 +2982,16 @@ function ChatConversationPage() {
       input.trim().length > 0 ||
       uploadedImages.length > 0 ||
       Boolean(videoSelection) ||
-      (chatFileState.count > 0 && chatFileState.allConfirmed)
+      (chatFileState.count > 0 && chatFileState.allConfirmed) ||
+      (visualAnalysisState.count > 0 && visualAnalysisState.allConfirmed)
     ) &&
     !isSending &&
     !isPreparingVideo &&
     !isUploadingImage &&
     !chatFileState.busy &&
-    (chatFileState.count === 0 || chatFileState.allConfirmed);
+    !visualAnalysisState.busy &&
+    (chatFileState.count === 0 || chatFileState.allConfirmed) &&
+    (visualAnalysisState.count === 0 || visualAnalysisState.allConfirmed);
   const supportsImageInput =
     omniRouteSupportsImage || imageAnalysisModelIds?.has(model.id) === true;
   const directAudioBlockedReason = selectedKnowledgeBaseId
@@ -2958,7 +3007,18 @@ function ChatConversationPage() {
       ? "本轮已打开语音输入，请先关闭后再添加文件。"
       : videoComposerOpen || Boolean(videoSelection)
         ? "本轮已打开视频输入，请先关闭后再添加文件。"
+        : visualAnalysisState.count > 0
+          ? "本轮已选择一次性视觉/OCR 文件，请先移除后再添加普通文件。"
         : undefined;
+  const visualAnalysisBlockedReason = uploadedImages.length > 0
+    ? "本轮已选择图片，请先移除后再使用一次性视觉/OCR。"
+    : audioComposerOpen
+      ? "本轮已打开语音输入，请先关闭后再使用一次性视觉/OCR。"
+      : videoComposerOpen || Boolean(videoSelection)
+        ? "本轮已打开视频输入，请先关闭后再使用一次性视觉/OCR。"
+        : chatFileState.count > 0
+          ? "本轮已选择普通文件，请先移除后再使用一次性视觉/OCR。"
+          : undefined;
   const providerName = isOmniAutoRoute
     ? "智能调度"
     : deriveProviderFromModel(model);
@@ -3838,7 +3898,12 @@ function ChatConversationPage() {
                   <div className="flex flex-col gap-3 px-2 pb-1 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
                       <ChatFileComposer
-                        disabled={isSending || isPreparingVideo || isUploadingImage}
+                        disabled={
+                          isSending ||
+                          isPreparingVideo ||
+                          isUploadingImage ||
+                          visualAnalysisState.count > 0
+                        }
                         discardVersion={chatFileDiscardVersion}
                         drawerHost={messageViewportRef.current}
                         inputBoundary={messageInputRef.current}
@@ -3849,6 +3914,22 @@ function ChatConversationPage() {
                         onError={setError}
                         onStateChange={handleChatFileStateChange}
                         resetVersion={chatFileResetVersion}
+                        scopeId={chatFileScopeId}
+                      />
+                      <ChatVisualAnalysisPanel
+                        blockedReason={visualAnalysisBlockedReason}
+                        disabled={isSending || isPreparingVideo || isUploadingImage}
+                        discardVersion={visualAnalysisDiscardVersion}
+                        drawerHost={messageViewportRef.current}
+                        inputBoundary={messageInputRef.current}
+                        knowledgeBases={knowledgeBases.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                        }))}
+                        modelId={isOmniAutoRoute ? decodedModelId : model.id}
+                        onError={setError}
+                        onStateChange={setVisualAnalysisState}
+                        resetVersion={visualAnalysisResetVersion}
                         scopeId={chatFileScopeId}
                       />
                       <input
@@ -3869,7 +3950,8 @@ function ChatConversationPage() {
                           isUploadingImage ||
                           audioComposerOpen ||
                           videoComposerOpen ||
-                          chatFileState.count > 0
+                          chatFileState.count > 0 ||
+                          visualAnalysisState.count > 0
                         }
                         onClick={() => fileInputRef.current?.click()}
                         title="上传图片"
@@ -3889,7 +3971,8 @@ function ChatConversationPage() {
                           isUploadingImage ||
                           uploadedImages.length > 0 ||
                           videoComposerOpen ||
-                          chatFileState.count > 0
+                          chatFileState.count > 0 ||
+                          visualAnalysisState.count > 0
                         }
                         onClick={() => openAudioComposer("upload")}
                         type="button"
@@ -3909,7 +3992,8 @@ function ChatConversationPage() {
                             isUploadingImage ||
                             uploadedImages.length > 0 ||
                             audioComposerOpen ||
-                            chatFileState.count > 0
+                            chatFileState.count > 0 ||
+                            visualAnalysisState.count > 0
                           }
                           onClick={openVideoComposer}
                           type="button"
@@ -3928,7 +4012,8 @@ function ChatConversationPage() {
                             isUploadingImage ||
                             uploadedImages.length > 0 ||
                             videoComposerOpen ||
-                            chatFileState.count > 0
+                            chatFileState.count > 0 ||
+                            visualAnalysisState.count > 0
                           }
                           enabled
                           isAutoRoute={isOmniAutoRoute}
@@ -3956,7 +4041,13 @@ function ChatConversationPage() {
                         </Link>
                       ) : null}
                       <p className="text-xs text-slate-400">
-                        {chatFileState.busy
+                        {visualAnalysisState.busy
+                          ? "视觉/OCR 正在处理；不会自动重试"
+                          : visualAnalysisState.count > 0
+                            ? visualAnalysisState.allConfirmed
+                              ? "识别结果已确认，可用于本轮发送"
+                              : "请在视觉/OCR 面板预览并选择用途"
+                        : chatFileState.busy
                           ? "正在本地提取文件内容..."
                           : chatFileState.count > 0
                             ? chatFileState.allConfirmed

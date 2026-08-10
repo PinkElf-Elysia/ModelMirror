@@ -43,6 +43,7 @@ function capability(
             },
           ]
         : [],
+    analysis_options: [],
     formats: [
       {
         format_id: "plain_text",
@@ -112,8 +113,8 @@ describe("file capability truth", () => {
 
   it("keeps a planned Chat declaration separate from a ready Agent entry", () => {
     const parsed = parseFileCapabilities({
-      version: "modelmirror-file-capabilities-v1",
-      registry_version: "modelmirror-file-formats-v4",
+    version: "modelmirror-file-capabilities-v2",
+    registry_version: "modelmirror-file-formats-v5",
       requested_purpose: null,
       requested_model_id: null,
       model_specific: false,
@@ -132,8 +133,8 @@ describe("file capability truth", () => {
     invalid.status_reason = null;
     expect(
       parseFileCapabilities({
-        version: "modelmirror-file-capabilities-v1",
-        registry_version: "modelmirror-file-formats-v4",
+        version: "modelmirror-file-capabilities-v2",
+        registry_version: "modelmirror-file-formats-v5",
         requested_purpose: null,
         requested_model_id: null,
         model_specific: false,
@@ -143,14 +144,14 @@ describe("file capability truth", () => {
     expect(deriveFileSurfaceSummary(null).registryAvailable).toBe(false);
   });
 
-  it("fails closed when v4 format readiness evidence is missing", () => {
+  it("fails closed when v5 format readiness evidence is missing", () => {
     const invalid = capability("agent", "ready");
     delete (invalid.formats[0] as Partial<(typeof invalid.formats)[number]>)
       .interaction_status;
     expect(
       parseFileCapabilities({
-        version: "modelmirror-file-capabilities-v1",
-        registry_version: "modelmirror-file-formats-v4",
+        version: "modelmirror-file-capabilities-v2",
+        registry_version: "modelmirror-file-formats-v5",
         requested_purpose: null,
         requested_model_id: null,
         model_specific: false,
@@ -161,19 +162,20 @@ describe("file capability truth", () => {
 
   it("fails closed for an unknown wire or registry version", () => {
     const base = {
-      version: "modelmirror-file-capabilities-v1",
-      registry_version: "modelmirror-file-formats-v4",
+      version: "modelmirror-file-capabilities-v2",
+      registry_version: "modelmirror-file-formats-v5",
       requested_purpose: null,
       requested_model_id: null,
       model_specific: false,
       capabilities: [capability("agent", "ready")],
     };
     expect(parseFileCapabilities(base)).not.toBeNull();
-    expect(parseFileCapabilities({ ...base, version: "future-v2" })).toBeNull();
+    expect(parseFileCapabilities({ ...base, version: "modelmirror-file-capabilities-v1" })).toBeNull();
+    expect(parseFileCapabilities({ ...base, version: "future-v3" })).toBeNull();
     expect(
       parseFileCapabilities({
         ...base,
-        registry_version: "modelmirror-file-formats-v3",
+        registry_version: "modelmirror-file-formats-v4",
       }),
     ).toBeNull();
     expect(
@@ -189,7 +191,7 @@ describe("file capability truth", () => {
       }),
     ).toBeNull();
     expect(
-      parseFileCapabilities({ ...base, registry_version: "future-formats-v5" }),
+      parseFileCapabilities({ ...base, registry_version: "future-formats-v6" }),
     ).toBeNull();
   });
 
@@ -211,8 +213,8 @@ describe("file capability truth", () => {
       status_reason: null,
     });
     const parsed = parseFileCapabilities({
-      version: "modelmirror-file-capabilities-v1",
-      registry_version: "modelmirror-file-formats-v4",
+      version: "modelmirror-file-capabilities-v2",
+      registry_version: "modelmirror-file-formats-v5",
       requested_purpose: "chat",
       requested_model_id: "openai/file-model",
       model_specific: true,

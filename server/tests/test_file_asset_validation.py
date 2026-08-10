@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import struct
+import time
 import zipfile
 from pathlib import Path
 
@@ -31,6 +32,18 @@ CONTENT_TYPES = b"""<?xml version="1.0" encoding="UTF-8"?>
 </Types>"""
 WORKBOOK = b"""<?xml version="1.0" encoding="UTF-8"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"/>"""
+
+
+def _slow_pdf_validation_worker(
+    _content: bytes,
+    _max_pages: int,
+    sender,
+    _timeout_seconds: float,
+) -> None:
+    try:
+        time.sleep(1)
+    finally:
+        sender.close()
 
 
 def _expect_error(
@@ -496,6 +509,19 @@ def test_pdf_signature_corruption_encryption_and_page_limit_are_distinct() -> No
         code="pdf_page_limit_exceeded",
         status=422,
     )
+
+
+def test_pdf_upload_validation_is_killable_on_resource_timeout() -> None:
+    started = time.monotonic()
+    with pytest.raises(FileValidationError) as failure:
+        validation_module._validate_pdf_in_worker(
+            _pdf(),
+            max_pages=1_000,
+            timeout_seconds=0.05,
+            worker_target=_slow_pdf_validation_worker,
+        )
+    assert failure.value.error_code == "pdf_validation_resource_limit"
+    assert time.monotonic() - started < 2
 
 
 @pytest.mark.parametrize(

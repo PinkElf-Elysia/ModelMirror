@@ -4,14 +4,18 @@ import codecs
 import csv
 import io
 import json
+import multiprocessing
 import os
 import re
+import signal
 import struct
 import tempfile
 import threading
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from multiprocessing.connection import Connection
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 from xml.etree import ElementTree
@@ -24,6 +28,9 @@ from .registry import FileFormatRegistry, get_file_format_registry
 
 MIB = 1024 * 1024
 DEFAULT_MAX_PDF_PAGES = 1_000
+DEFAULT_PDF_VALIDATION_TIMEOUT_SECONDS = 10.0
+PDF_VALIDATION_MEMORY_BUDGET_BYTES = 512 * MIB
+MAX_VISUAL_ANALYSIS_IMAGE_PIXELS = 40_000_000
 DEFAULT_MAX_PARQUET_FIELDS = 2_000
 DEFAULT_MAX_PARQUET_DEPTH = 64
 DEFAULT_MAX_PARQUET_ROW_GROUPS = 10_000
@@ -54,6 +61,7 @@ _CHUNK_BYTES = 1024 * 1024
 
 _ALLOWED_INPUTS = {
     (FilePurpose.CHAT, FileInputKind.DOCUMENT),
+    (FilePurpose.CHAT, FileInputKind.VISUAL_ANALYSIS),
     (FilePurpose.RAG, FileInputKind.DOCUMENT),
     (FilePurpose.AGENT, FileInputKind.DOCUMENT),
     (FilePurpose.DATAX, FileInputKind.DATA_SOURCE),
@@ -118,6 +126,7 @@ class FileUploadValidator:
         registry: FileFormatRegistry | None = None,
         *,
         max_pdf_pages: int = DEFAULT_MAX_PDF_PAGES,
+        pdf_validation_timeout_seconds: float = DEFAULT_PDF_VALIDATION_TIMEOUT_SECONDS,
         max_parquet_fields: int = DEFAULT_MAX_PARQUET_FIELDS,
         max_parquet_depth: int = DEFAULT_MAX_PARQUET_DEPTH,
         max_parquet_row_groups: int = DEFAULT_MAX_PARQUET_ROW_GROUPS,
@@ -131,6 +140,10 @@ class FileUploadValidator:
     ) -> None:
         self.registry = registry or get_file_format_registry()
         self.max_pdf_pages = _positive(max_pdf_pages, "max_pdf_pages")
+        self.pdf_validation_timeout_seconds = _positive_float(
+            pdf_validation_timeout_seconds,
+            "pdf_validation_timeout_seconds",
+        )
         self.max_parquet_fields = _positive(
             max_parquet_fields, "max_parquet_fields"
         )
@@ -336,6 +349,9 @@ class FileUploadValidator:
         if format_id == "pdf":
             self._validate_pdf(stream)
             return
+        if format_id in {"jpeg", "png", "webp"}:
+            _validate_visual_image(stream, expected_format=format_id)
+            return
         if format_id == "parquet":
             _validate_parquet(
                 stream,
@@ -365,35 +381,13 @@ class FileUploadValidator:
         if stream.read(5) != b"%PDF-":
             raise _signature_mismatch("PDF")
         stream.seek(0)
-        try:
-            from PyPDF2 import PdfReader
-            from PyPDF2.errors import PdfReadError
-
-            reader = PdfReader(stream, strict=True)
-            if reader.is_encrypted:
-                raise _error(
-                    "encrypted_pdf",
-                    422,
-                    "暂不支持加密 PDF，请先移除密码保护。",
-                )
-            page_count = len(reader.pages)
-            if page_count < 1:
-                raise _error("invalid_pdf", 422, "PDF 中没有可读取的页面。")
-            if page_count > self.max_pdf_pages:
-                raise _error(
-                    "pdf_page_limit_exceeded",
-                    422,
-                    f"PDF 超过 {self.max_pdf_pages} 页，请拆分后上传。",
-                )
-            _validate_pdf_catalog(reader)
-        except FileValidationError:
-            raise
-        except (PdfReadError, OSError, ValueError, TypeError, KeyError) as exc:
-            raise _error(
-                "invalid_pdf",
-                422,
-                "PDF 已损坏或结构无效，请重新导出后再试。",
-            ) from exc
+        content = stream.read()
+        stream.seek(0)
+        _validate_pdf_in_worker(
+            content,
+            max_pages=self.max_pdf_pages,
+            timeout_seconds=self.pdf_validation_timeout_seconds,
+        )
     def _validate_xlsx(self, stream: BinaryIO) -> None:
         stream.seek(0)
         if stream.read(4) != b"PK\x03\x04":
@@ -610,6 +604,258 @@ class FileUploadValidator:
                 422,
                 f"{label} 已损坏或容器结构无效，请重新导出后再试。",
             ) from exc
+
+
+def _validate_visual_image(stream: BinaryIO, *, expected_format: str) -> None:
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError as exc:  # pragma: no cover - production dependency guard
+        raise _error(
+            "image_validation_unavailable",
+            422,
+            "Image validation is not available on this server.",
+        ) from exc
+    try:
+        stream.seek(0)
+        with Image.open(stream) as image:
+            detected = str(image.format or "").strip().lower()
+            expected = "jpeg" if expected_format == "jpeg" else expected_format
+            if detected != expected:
+                raise _signature_mismatch(expected_format.upper())
+            width, height = image.size
+            pixels = int(width) * int(height)
+            if width < 1 or height < 1 or pixels > MAX_VISUAL_ANALYSIS_IMAGE_PIXELS:
+                raise _error(
+                    "image_pixel_limit_exceeded",
+                    422,
+                    "Image dimensions exceed the 40,000,000-pixel safety limit.",
+                )
+            image.verify()
+    except FileValidationError:
+        raise
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        SyntaxError,
+    ) as exc:
+        raise _error(
+            "invalid_image",
+            422,
+            "The image is damaged or cannot be decoded safely.",
+        ) from exc
+    finally:
+        try:
+            stream.seek(0)
+        except (OSError, ValueError):
+            pass
+
+
+PdfValidationWorkerTarget = Callable[
+    [bytes, int, Connection, float], None
+]
+
+
+def _validate_pdf_in_worker(
+    content: bytes,
+    *,
+    max_pages: int,
+    timeout_seconds: float,
+    worker_target: PdfValidationWorkerTarget | None = None,
+) -> None:
+    """Validate PDF structure in a killable subprocess before persistence."""
+
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    worker = context.Process(
+        target=worker_target or _pdf_validation_worker,
+        args=(content, max_pages, sender, timeout_seconds),
+        daemon=True,
+    )
+    try:
+        worker.start()
+    except Exception as exc:
+        receiver.close()
+        sender.close()
+        raise _error(
+            "pdf_validation_unavailable",
+            503,
+            "PDF 安全校验进程无法启动，请稍后重试。",
+        ) from exc
+    sender.close()
+    message: tuple[str, object] | None = None
+    try:
+        if not receiver.poll(timeout_seconds):
+            _stop_pdf_validation_worker(worker)
+            raise _error(
+                "pdf_validation_resource_limit",
+                422,
+                "PDF 安全校验超过时间或资源限制，请拆分后重试。",
+            )
+        try:
+            message = receiver.recv()
+        except (EOFError, OSError) as exc:
+            worker.join(timeout=0.5)
+            code = (
+                "pdf_validation_resource_limit"
+                if _pdf_validation_worker_was_resource_limited(worker.exitcode)
+                else "invalid_pdf"
+            )
+            raise _error(
+                code,
+                422,
+                "PDF 无法在安全资源限制内完成校验。",
+            ) from exc
+    finally:
+        receiver.close()
+        worker.join(timeout=0.5)
+        if worker.is_alive():
+            _stop_pdf_validation_worker(worker)
+        worker.close()
+    if message == ("ok", None):
+        return
+    if (
+        isinstance(message, tuple)
+        and len(message) == 2
+        and message[0] == "error"
+        and isinstance(message[1], dict)
+    ):
+        payload = message[1]
+        raise _error(
+            str(payload.get("code") or "invalid_pdf"),
+            int(payload.get("status") or 422),
+            str(payload.get("message") or "PDF 已损坏或结构无效。"),
+        )
+    raise _error(
+        "invalid_pdf",
+        422,
+        "PDF 安全校验返回了无效结果。",
+    )
+
+
+def _pdf_validation_worker(
+    content: bytes,
+    max_pages: int,
+    sender: Connection,
+    timeout_seconds: float,
+) -> None:
+    try:
+        from PyPDF2 import PdfReader
+        from PyPDF2.errors import PdfReadError
+
+        _apply_pdf_validation_resource_limits(timeout_seconds)
+        reader = PdfReader(io.BytesIO(content), strict=True)
+        if reader.is_encrypted:
+            raise _error(
+                "encrypted_pdf",
+                422,
+                "暂不支持加密 PDF，请先移除密码保护。",
+            )
+        page_count = len(reader.pages)
+        if page_count < 1:
+            raise _error("invalid_pdf", 422, "PDF 中没有可读取的页面。")
+        if page_count > max_pages:
+            raise _error(
+                "pdf_page_limit_exceeded",
+                422,
+                f"PDF 超过 {max_pages} 页，请拆分后上传。",
+            )
+        _validate_pdf_catalog(reader)
+        sender.send(("ok", None))
+    except FileValidationError as exc:
+        _send_pdf_validation_error(
+            sender,
+            exc.error_code,
+            exc.status_code,
+            exc.message,
+        )
+    except MemoryError:
+        _send_pdf_validation_error(
+            sender,
+            "pdf_validation_resource_limit",
+            422,
+            "PDF 安全校验超过资源限制，请拆分后重试。",
+        )
+    except (PdfReadError, OSError, ValueError, TypeError, KeyError):
+        _send_pdf_validation_error(
+            sender,
+            "invalid_pdf",
+            422,
+            "PDF 已损坏或结构无效，请重新导出后再试。",
+        )
+    except Exception:
+        _send_pdf_validation_error(
+            sender,
+            "invalid_pdf",
+            422,
+            "PDF 已损坏或结构无效，请重新导出后再试。",
+        )
+    finally:
+        sender.close()
+
+
+def _send_pdf_validation_error(
+    sender: Connection,
+    code: str,
+    status: int,
+    message: str,
+) -> None:
+    try:
+        sender.send(
+            (
+                "error",
+                {"code": code, "status": status, "message": message[:500]},
+            )
+        )
+    except (BrokenPipeError, EOFError, OSError):
+        pass
+
+
+def _stop_pdf_validation_worker(worker: multiprocessing.Process) -> None:
+    if worker.is_alive():
+        worker.terminate()
+        worker.join(timeout=1)
+    if worker.is_alive() and hasattr(worker, "kill"):
+        worker.kill()
+        worker.join(timeout=1)
+
+
+def _pdf_validation_worker_was_resource_limited(exit_code: int | None) -> bool:
+    if exit_code is None or exit_code >= 0:
+        return False
+    resource_signals = {
+        int(value)
+        for name in ("SIGABRT", "SIGKILL", "SIGXCPU")
+        if (value := getattr(signal, name, None)) is not None
+    }
+    return -exit_code in resource_signals
+
+
+def _apply_pdf_validation_resource_limits(timeout_seconds: float) -> None:
+    try:
+        import resource
+
+        baseline = _pdf_validation_virtual_memory_bytes() or 0
+        address_limit = max(0, baseline) + PDF_VALIDATION_MEMORY_BUDGET_BYTES
+        resource.setrlimit(resource.RLIMIT_AS, (address_limit, address_limit))
+        cpu_seconds = max(1, int(timeout_seconds) + 1)
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
+    except (ImportError, OSError, ValueError):
+        return
+
+
+def _pdf_validation_virtual_memory_bytes() -> int | None:
+    try:
+        pages = int(Path("/proc/self/statm").read_text(encoding="ascii").split()[0])
+        page_size = int(os.sysconf("SC_PAGE_SIZE"))
+    except (IndexError, OSError, TypeError, ValueError):
+        return None
+    if pages <= 0 or page_size <= 0:
+        return None
+    return pages * page_size
 
 
 def _validate_pdf_catalog(reader: object) -> None:

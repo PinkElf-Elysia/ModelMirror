@@ -93,6 +93,13 @@ interface ChatFileItem {
   errorCode: string | null;
 }
 
+export interface ChatVisualAnalysisHandoff {
+  assetId: string;
+  displayName: string;
+  format: string;
+  byteSize: number;
+}
+
 export interface PreparedChatFile {
   assetId: string;
   displayName: string;
@@ -666,6 +673,30 @@ export default function ChatFileComposer({
     }
   }
 
+  function handoffToVisualAnalysis(item: ChatFileItem) {
+    if (!item.asset || item.errorCode !== "scanned_pdf_requires_ocr") return;
+    requestControllersRef.current.get(item.localId)?.abort();
+    requestControllersRef.current.delete(item.localId);
+    trackedAssetsRef.current.delete(item.localId);
+    setItems((current) =>
+      current.filter((candidate) => candidate.localId !== item.localId),
+    );
+    setActiveId(null);
+    window.dispatchEvent(
+      new CustomEvent<ChatVisualAnalysisHandoff>(
+        "modelmirror:open-chat-visual-analysis",
+        {
+          detail: {
+            assetId: item.asset.asset_id,
+            displayName: item.asset.display_name,
+            format: item.asset.format,
+            byteSize: item.asset.byte_size,
+          },
+        },
+      ),
+    );
+  }
+
   function removeItem(item: ChatFileItem) {
     requestControllersRef.current.get(item.localId)?.abort();
     requestControllersRef.current.delete(item.localId);
@@ -967,7 +998,7 @@ export default function ChatFileComposer({
                       <p>{activeItem.error}</p>
                       {activeItem.errorCode === "scanned_pdf_requires_ocr" ? (
                         <p className="mt-3 border-l-2 border-amber-200/50 pl-3 text-amber-100">
-                          扫描 PDF 可前往资料库使用视觉流水线；本批次不会静默调用付费 OCR。
+                          扫描 PDF 可改用一次性视觉/OCR；仍需明确选择连接、页码并确认外发与费用。
                         </p>
                       ) : null}
                       <div className="mt-4 flex flex-wrap gap-2">
@@ -979,6 +1010,15 @@ export default function ChatFileComposer({
                             type="button"
                           >
                             重试提取
+                          </button>
+                        ) : null}
+                        {activeItem.errorCode === "scanned_pdf_requires_ocr" ? (
+                          <button
+                            className="min-h-11 border border-cyan-300/30 px-4 text-xs font-semibold text-cyan-100 transition hover:bg-cyan-300/10"
+                            onClick={() => handoffToVisualAnalysis(activeItem)}
+                            type="button"
+                          >
+                            打开一次性视觉/OCR
                           </button>
                         ) : null}
                         <Link

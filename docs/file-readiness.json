@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-08-08",
+  "reviewed_at": "2026-08-09",
   "summary_unit": "module_format_operation",
   "scope": {
     "modules": [
@@ -12,7 +12,8 @@
     ],
     "input_kinds": [
       "document",
-      "data_source"
+      "data_source",
+      "visual_analysis"
     ],
     "multimodal_readiness": "docs/multimodal-readiness.json",
     "audit_only": true,
@@ -22,7 +23,7 @@
     {
       "module": "chat",
       "interaction_status": "ready",
-      "status_reason": "TXT、Markdown、文本型 PDF、XLSX、DOCX、PPTX 及常用文本、结构化、字幕和源码格式已开放本地提取与会话级预览；Office 由断网隔离 sidecar 处理，PDF 原生读取仍须实时模型能力确认。"
+      "status_reason": "普通文件提取、Office 隔离解析与 PDF 原生读取保持可用；一次性视觉/OCR实现已完成，但两个开关默认关闭，须分别通过真实视觉模型与 OpenRouter OCR 金丝雀后才可标记 ready。"
     },
     {
       "module": "rag",
@@ -595,9 +596,100 @@
             ]
           },
           "known_gaps": [
-            "chat_one_shot_vision_ocr"
+            "windows_pdf_worker_resource_parity"
           ],
-          "status_reason": "文本型 PDF 已支持本地逐页提取；Chat 扫描件的一次性视觉/OCR入口明确延期，当前不会调用付费 OCR。"
+          "status_reason": "文本型 PDF 本地逐页提取保持可用；一次性视觉/OCR使用独立操作与显式确认，不改变此路径。PDF 资源 worker 已在 Linux 容器验证，Windows 资源限制仍依赖可终止 spawn 路径。"
+        },
+        {
+          "module": "chat",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "specialized",
+          "parser_id": "chat.one_shot_visual_analysis",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_pages": 20,
+            "timeout_seconds": 180
+          },
+          "security_controls": [
+            "explicit_connection_and_model",
+            "selected_page_render_only",
+            "no_provider_fallback",
+            "no_automatic_retry",
+            "server_confirmation_revision",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/analysis.py",
+              "server/file_assets/service.py",
+              "server/file_assets/api.py"
+            ],
+            "ui": [
+              "client/src/components/ChatVisualAnalysisPanel.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_analysis_engine.py",
+              "server/tests/test_file_analysis_api.py",
+              "client/src/components/ChatVisualAnalysisPanel.test.tsx"
+            ],
+            "security_tests": [
+              "server/tests/test_file_analysis_engine.py",
+              "server/tests/test_file_analysis_api.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "CHAT_ONE_SHOT_VISION_ENABLED 默认关闭；经再次授权后，公开合成单页样本已由 OpenRouter 精确调用 google/gemini-3.5-flash-lite 完成真实视觉金丝雀，单次请求、无重试、无 fallback。"
+        },
+        {
+          "module": "chat",
+          "operation": "provider_ocr",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "specialized",
+          "parser_id": "chat.openrouter_mistral_ocr",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_pages": 20,
+            "timeout_seconds": 180
+          },
+          "security_controls": [
+            "official_openrouter_endpoint_only",
+            "explicit_paid_confirmation",
+            "local_pdf_page_subset",
+            "forced_mistral_ocr_plugin",
+            "embedded_annotation_images_discarded",
+            "no_automatic_retry",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/file_assets/analysis.py",
+              "server/file_assets/service.py",
+              "server/file_assets/api.py"
+            ],
+            "ui": [
+              "client/src/components/ChatVisualAnalysisPanel.tsx"
+            ],
+            "tests": [
+              "server/tests/test_file_analysis_engine.py",
+              "server/tests/test_file_analysis_api.py",
+              "client/src/components/ChatVisualAnalysisPanel.test.tsx"
+            ],
+            "security_tests": [
+              "server/tests/test_file_analysis_engine.py",
+              "server/tests/test_file_analysis_api.py"
+            ]
+          },
+          "known_gaps": [],
+          "status_reason": "CHAT_OPENROUTER_OCR_ENABLED 默认关闭；经再次付费授权后，公开合成单页样本已由 OpenRouter file-parser/mistral-ocr 与 google/gemini-3.5-flash-lite 完成最终真实金丝雀。结果页数为 1，无文件包装或内嵌图片，实际成本 $0.0020246，单次请求、无重试、无 fallback。"
         },
         {
           "module": "workflow",
@@ -646,6 +738,117 @@
             "single_process_runtime_claim"
           ],
           "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        }
+      ]
+    },
+    {
+      "format_id": "jpeg",
+      "label": "JPEG 图像",
+      "family": "image",
+      "extensions": [
+        ".jpg",
+        ".jpeg"
+      ],
+      "mime_types": [
+        "image/jpeg"
+      ],
+      "container_kind": "image",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "chat",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "specialized",
+          "parser_id": "chat.one_shot_visual_analysis",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_pixels": 40000000,
+            "timeout_seconds": 180
+          },
+          "security_controls": [
+            "image_decode_validation",
+            "pixel_limit",
+            "explicit_connection_and_model",
+            "no_provider_fallback",
+            "feature_flag_default_off"
+          ],
+          "evidence": {
+            "implementation": ["server/file_assets/analysis.py"],
+            "ui": ["client/src/components/ChatVisualAnalysisPanel.tsx"],
+            "tests": ["server/tests/test_file_analysis_engine.py"],
+            "security_tests": ["server/tests/test_file_analysis_engine.py"]
+          },
+          "known_gaps": [],
+          "status_reason": "图片本地安全解码后统一转为有界 JPEG；同一发送路径已通过公开合成单页真实视觉模型金丝雀，功能开关默认关闭。"
+        }
+      ]
+    },
+    {
+      "format_id": "png",
+      "label": "PNG 图像",
+      "family": "image",
+      "extensions": [".png"],
+      "mime_types": ["image/png"],
+      "container_kind": "image",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "chat",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "specialized",
+          "parser_id": "chat.one_shot_visual_analysis",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {"max_input_bytes": 10485760, "max_pixels": 40000000, "timeout_seconds": 180},
+          "security_controls": ["image_decode_validation", "pixel_limit", "explicit_connection_and_model", "no_provider_fallback", "feature_flag_default_off"],
+          "evidence": {
+            "implementation": ["server/file_assets/analysis.py"],
+            "ui": ["client/src/components/ChatVisualAnalysisPanel.tsx"],
+            "tests": ["server/tests/test_file_analysis_engine.py"],
+            "security_tests": ["server/tests/test_file_analysis_engine.py"]
+          },
+          "known_gaps": [],
+          "status_reason": "图片本地安全解码后统一转为有界 JPEG；同一发送路径已通过公开合成单页真实视觉模型金丝雀，功能开关默认关闭。"
+        }
+      ]
+    },
+    {
+      "format_id": "webp",
+      "label": "WebP 图像",
+      "family": "image",
+      "extensions": [".webp"],
+      "mime_types": ["image/webp"],
+      "container_kind": "image",
+      "signature_policy": "required",
+      "module_readiness": [
+        {
+          "module": "chat",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "verified",
+          "support_level": "specialized",
+          "parser_id": "chat.one_shot_visual_analysis",
+          "isolation": "in_process",
+          "ui_entrypoint": "/chat/:modelId",
+          "limits": {"max_input_bytes": 10485760, "max_pixels": 40000000, "timeout_seconds": 180},
+          "security_controls": ["image_decode_validation", "pixel_limit", "explicit_connection_and_model", "no_provider_fallback", "feature_flag_default_off"],
+          "evidence": {
+            "implementation": ["server/file_assets/analysis.py"],
+            "ui": ["client/src/components/ChatVisualAnalysisPanel.tsx"],
+            "tests": ["server/tests/test_file_analysis_engine.py"],
+            "security_tests": ["server/tests/test_file_analysis_engine.py"]
+          },
+          "known_gaps": [],
+          "status_reason": "图片本地安全解码后统一转为有界 JPEG；同一发送路径已通过公开合成单页真实视觉模型金丝雀，功能开关默认关闭。"
         }
       ]
     },
@@ -4039,10 +4242,10 @@
     }
   ],
   "summary": {
-    "format_count": 29,
-    "module_operation_count": 84,
-    "ready_count": 73,
-    "verified_count": 28,
+    "format_count": 32,
+    "module_operation_count": 89,
+    "ready_count": 78,
+    "verified_count": 33,
     "contract_verified_count": 45,
     "planned_count": 9,
     "disabled_count": 2

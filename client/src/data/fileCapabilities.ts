@@ -7,8 +7,8 @@ export const filePurposes = [
 ] as const;
 
 export const FILE_CAPABILITIES_VERSION =
-  "modelmirror-file-capabilities-v1";
-export const FILE_FORMAT_REGISTRY_VERSION = "modelmirror-file-formats-v4";
+  "modelmirror-file-capabilities-v2";
+export const FILE_FORMAT_REGISTRY_VERSION = "modelmirror-file-formats-v5";
 
 export type FilePurpose = (typeof filePurposes)[number];
 
@@ -22,6 +22,7 @@ export const fileInputKinds = [
   "audio_generation_image",
   "video_generation_frame",
   "video_generation_reference",
+  "visual_analysis",
 ] as const;
 
 export type FileInputKind = (typeof fileInputKinds)[number];
@@ -33,6 +34,19 @@ type FileRetention = "request" | "temporary" | "persistent";
 type FileSupportLevel = "native" | "converted" | "specialized" | "unsupported";
 type FileInteractionStatus = "ready" | "planned" | "disabled";
 export type FileHandling = "native" | "extract";
+export type FileAnalysisMode = "vision" | "provider_ocr";
+
+export interface FileAnalysisOption {
+  mode: FileAnalysisMode;
+  format_ids: string[];
+  provider: string;
+  paid: boolean;
+  max_pages: number;
+  max_prompt_chars: number;
+  requires_explicit_target: boolean;
+  interaction_status: FileInteractionStatus;
+  status_reason: string | null;
+}
 
 export interface FileHandlingOption {
   handling: FileHandling;
@@ -67,6 +81,7 @@ export interface FileInputCapability {
   ui_entrypoint: string | null;
   status_reason: string | null;
   handling_options: FileHandlingOption[];
+  analysis_options: FileAnalysisOption[];
   formats: FileFormatCapability[];
 }
 
@@ -128,6 +143,86 @@ export interface ChatFileConfirmation {
   handling: FileHandling;
   confirmation_revision: number;
   confirmed_at: string;
+  analysis_artifact_id?: string | null;
+}
+
+export interface FileAnalysisTarget {
+  target_id: string;
+  mode: FileAnalysisMode;
+  connection_id: string;
+  connection_name: string;
+  model_id: string;
+  model_name: string;
+  provider: string;
+  paid: boolean;
+  cost_disclosure: string;
+}
+
+export interface FileAnalysisPreflight {
+  asset_id: string;
+  mode: FileAnalysisMode;
+  target: FileAnalysisTarget;
+  format: string;
+  page_count: number;
+  selected_pages: number[];
+  prompt_sha256: string;
+  config_digest: string;
+  paid_confirmation_required: boolean;
+  cost_disclosure: string;
+  privacy_disclosure: string;
+}
+
+export interface FileAnalysisSection {
+  kind: "ocr_text" | "visual_summary" | "visual_table" | "visual_chart";
+  text: string;
+  page: number;
+}
+
+export interface FileAnalysisArtifact {
+  version: "modelmirror-file-analysis-artifact-v1";
+  asset_id: string;
+  source_filename: string;
+  source_sha256: string;
+  format: string;
+  mode: FileAnalysisMode;
+  target_id: string;
+  connection_name: string;
+  model_id: string;
+  selected_pages: number[];
+  sections: FileAnalysisSection[];
+  warnings: string[];
+  processed_pages: number;
+  failed_pages: number[];
+  extracted_chars: number;
+  truncated: boolean;
+}
+
+export type FileAnalysisStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancel_requested"
+  | "cancelled"
+  | "interrupted";
+
+export interface FileAnalysisJob {
+  analysis_id: string;
+  asset_id: string;
+  scope_id: string;
+  mode: FileAnalysisMode;
+  target_id: string;
+  selected_pages: number[];
+  page_count: number;
+  processed_pages: number;
+  status: FileAnalysisStatus;
+  result_artifact_id: string | null;
+  result: FileAnalysisArtifact | null;
+  actual_cost_usd: string | null;
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
 }
 
 export class FileAssetApiError extends Error {
@@ -190,6 +285,7 @@ const fileInteractionStatusSet = new Set<string>([
   "disabled",
 ]);
 const fileHandlingSet = new Set<string>(["native", "extract"]);
+const fileAnalysisModeSet = new Set<string>(["vision", "provider_ocr"]);
 const fileAssetStatusSet = new Set<string>([
   "validating",
   "processing",
@@ -273,6 +369,43 @@ function parseHandlingOption(value: unknown): FileHandlingOption | null {
   };
 }
 
+function parseAnalysisOption(value: unknown): FileAnalysisOption | null {
+  if (
+    !isRecord(value) ||
+    !isEnumValue<FileAnalysisMode>(value.mode, fileAnalysisModeSet) ||
+    !isStringArray(value.format_ids) ||
+    value.format_ids.length === 0 ||
+    typeof value.provider !== "string" ||
+    typeof value.paid !== "boolean" ||
+    !Number.isInteger(value.max_pages) ||
+    Number(value.max_pages) < 1 ||
+    Number(value.max_pages) > 20 ||
+    !Number.isInteger(value.max_prompt_chars) ||
+    Number(value.max_prompt_chars) < 1 ||
+    Number(value.max_prompt_chars) > 2_000 ||
+    typeof value.requires_explicit_target !== "boolean" ||
+    !isEnumValue<FileInteractionStatus>(
+      value.interaction_status,
+      fileInteractionStatusSet,
+    ) ||
+    !(value.status_reason === null || typeof value.status_reason === "string")
+  ) {
+    return null;
+  }
+  if (value.interaction_status !== "ready" && !value.status_reason) return null;
+  return {
+    mode: value.mode,
+    format_ids: [...value.format_ids],
+    provider: value.provider,
+    paid: value.paid,
+    max_pages: Number(value.max_pages),
+    max_prompt_chars: Number(value.max_prompt_chars),
+    requires_explicit_target: value.requires_explicit_target,
+    interaction_status: value.interaction_status,
+    status_reason: value.status_reason,
+  };
+}
+
 function parseCapability(value: unknown): FileInputCapability | null {
   if (
     !isRecord(value) ||
@@ -297,6 +430,7 @@ function parseCapability(value: unknown): FileInputCapability | null {
     !(value.ui_entrypoint === null || typeof value.ui_entrypoint === "string") ||
     !(value.status_reason === null || typeof value.status_reason === "string") ||
     !Array.isArray(value.handling_options) ||
+    !Array.isArray(value.analysis_options) ||
     !Array.isArray(value.formats)
   ) {
     return null;
@@ -310,9 +444,11 @@ function parseCapability(value: unknown): FileInputCapability | null {
   }
   const formats = value.formats.map(parseFormat);
   const handlingOptions = value.handling_options.map(parseHandlingOption);
+  const analysisOptions = value.analysis_options.map(parseAnalysisOption);
   if (
     formats.some((format) => format === null) ||
-    handlingOptions.some((option) => option === null)
+    handlingOptions.some((option) => option === null) ||
+    analysisOptions.some((option) => option === null)
   ) {
     return null;
   }
@@ -333,6 +469,7 @@ function parseCapability(value: unknown): FileInputCapability | null {
     ui_entrypoint: value.ui_entrypoint,
     status_reason: value.status_reason,
     handling_options: handlingOptions as FileHandlingOption[],
+    analysis_options: analysisOptions as FileAnalysisOption[],
     formats: formats as FileFormatCapability[],
   };
 }
@@ -540,6 +677,330 @@ export async function uploadChatFile(
   return asset;
 }
 
+export async function uploadChatAnalysisFile(
+  file: File,
+  scopeId: string,
+  signal?: AbortSignal,
+): Promise<FileAssetResponse> {
+  const form = new FormData();
+  form.append("purpose", "chat");
+  form.append("scope_id", scopeId);
+  form.append("input_kind", "visual_analysis");
+  form.append("file", file);
+  const response = await fetch("/api/files", {
+    method: "POST",
+    body: form,
+    signal,
+  });
+  if (!response.ok) throw await apiError(response);
+  const asset = parseFileAsset(await response.json());
+  if (!asset) {
+    throw new FileAssetApiError(
+      "视觉/OCR 文件服务返回了无法识别的数据，请重试。",
+      502,
+      "invalid_file_asset_response",
+    );
+  }
+  return asset;
+}
+
+function isPositiveIntegerArray(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => Number.isInteger(item) && Number(item) > 0)
+  );
+}
+
+function parseAnalysisTarget(value: unknown): FileAnalysisTarget | null {
+  if (
+    !isRecord(value) ||
+    typeof value.target_id !== "string" ||
+    !isEnumValue<FileAnalysisMode>(value.mode, fileAnalysisModeSet) ||
+    typeof value.connection_id !== "string" ||
+    typeof value.connection_name !== "string" ||
+    typeof value.model_id !== "string" ||
+    typeof value.model_name !== "string" ||
+    typeof value.provider !== "string" ||
+    typeof value.paid !== "boolean" ||
+    typeof value.cost_disclosure !== "string"
+  ) {
+    return null;
+  }
+  return value as unknown as FileAnalysisTarget;
+}
+
+function parseAnalysisArtifact(value: unknown): FileAnalysisArtifact | null {
+  if (
+    !isRecord(value) ||
+    value.version !== "modelmirror-file-analysis-artifact-v1" ||
+    typeof value.asset_id !== "string" ||
+    typeof value.source_filename !== "string" ||
+    typeof value.source_sha256 !== "string" ||
+    typeof value.format !== "string" ||
+    !isEnumValue<FileAnalysisMode>(value.mode, fileAnalysisModeSet) ||
+    typeof value.target_id !== "string" ||
+    typeof value.connection_name !== "string" ||
+    typeof value.model_id !== "string" ||
+    !isPositiveIntegerArray(value.selected_pages) ||
+    !Array.isArray(value.sections) ||
+    !isStringArray(value.warnings) ||
+    !Number.isInteger(value.processed_pages) ||
+    !isPositiveIntegerArray(value.failed_pages) ||
+    !Number.isInteger(value.extracted_chars) ||
+    typeof value.truncated !== "boolean"
+  ) {
+    return null;
+  }
+  const sections: FileAnalysisSection[] = [];
+  for (const section of value.sections) {
+    if (
+      !isRecord(section) ||
+      ![
+        "ocr_text",
+        "visual_summary",
+        "visual_table",
+        "visual_chart",
+      ].includes(String(section.kind)) ||
+      typeof section.text !== "string" ||
+      !Number.isInteger(section.page) ||
+      Number(section.page) < 1
+    ) {
+      return null;
+    }
+    sections.push(section as unknown as FileAnalysisSection);
+  }
+  return { ...(value as unknown as FileAnalysisArtifact), sections };
+}
+
+function parseAnalysisJob(value: unknown): FileAnalysisJob | null {
+  if (
+    !isRecord(value) ||
+    typeof value.analysis_id !== "string" ||
+    typeof value.asset_id !== "string" ||
+    typeof value.scope_id !== "string" ||
+    !isEnumValue<FileAnalysisMode>(value.mode, fileAnalysisModeSet) ||
+    typeof value.target_id !== "string" ||
+    !isPositiveIntegerArray(value.selected_pages) ||
+    !Number.isInteger(value.page_count) ||
+    !Number.isInteger(value.processed_pages) ||
+    ![
+      "queued",
+      "running",
+      "completed",
+      "failed",
+      "cancel_requested",
+      "cancelled",
+      "interrupted",
+    ].includes(String(value.status)) ||
+    !(
+      value.result_artifact_id === null ||
+      typeof value.result_artifact_id === "string"
+    ) ||
+    !(value.actual_cost_usd === null || typeof value.actual_cost_usd === "string") ||
+    !(value.error_code === null || typeof value.error_code === "string") ||
+    typeof value.created_at !== "string" ||
+    typeof value.updated_at !== "string" ||
+    !(value.completed_at === null || typeof value.completed_at === "string")
+  ) {
+    return null;
+  }
+  const result = value.result === null ? null : parseAnalysisArtifact(value.result);
+  if (value.result !== null && result === null) return null;
+  return { ...(value as unknown as FileAnalysisJob), result };
+}
+
+export async function fetchFileAnalysisTargets(
+  signal?: AbortSignal,
+): Promise<FileAnalysisTarget[]> {
+  const response = await fetch("/api/files/analysis-targets", { signal });
+  if (!response.ok) throw await apiError(response);
+  const payload = (await response.json()) as unknown;
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new FileAssetApiError(
+      "视觉/OCR 目标清单无效，请刷新后重试。",
+      502,
+      "invalid_analysis_targets_response",
+    );
+  }
+  const items = payload.items.map(parseAnalysisTarget);
+  if (items.some((item) => item === null)) {
+    throw new FileAssetApiError(
+      "视觉/OCR 目标清单无效，请刷新后重试。",
+      502,
+      "invalid_analysis_targets_response",
+    );
+  }
+  return items as FileAnalysisTarget[];
+}
+
+interface AnalysisRequestInput {
+  scope_id: string;
+  mode: FileAnalysisMode;
+  target_id: string;
+  selected_pages: number[];
+  prompt: string;
+}
+
+async function analysisJsonRequest(
+  path: string,
+  body: object,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) throw await apiError(response);
+  return response.json() as Promise<unknown>;
+}
+
+export async function preflightChatFileAnalysis(
+  assetId: string,
+  input: AnalysisRequestInput,
+  signal?: AbortSignal,
+): Promise<FileAnalysisPreflight> {
+  const payload = await analysisJsonRequest(
+    `/api/files/${encodeURIComponent(assetId)}/analysis-preflight`,
+    {
+      scope_id: input.scope_id,
+      mode: input.mode,
+      target_id: input.target_id,
+      selected_pages: input.selected_pages,
+      prompt: input.prompt,
+    },
+    signal,
+  );
+  if (
+    !isRecord(payload) ||
+    payload.asset_id !== assetId ||
+    !isEnumValue<FileAnalysisMode>(payload.mode, fileAnalysisModeSet) ||
+    !parseAnalysisTarget(payload.target) ||
+    typeof payload.format !== "string" ||
+    !Number.isInteger(payload.page_count) ||
+    !isPositiveIntegerArray(payload.selected_pages) ||
+    typeof payload.prompt_sha256 !== "string" ||
+    typeof payload.config_digest !== "string" ||
+    typeof payload.paid_confirmation_required !== "boolean" ||
+    typeof payload.cost_disclosure !== "string" ||
+    typeof payload.privacy_disclosure !== "string"
+  ) {
+    throw new FileAssetApiError(
+      "视觉/OCR 预检响应无效，请重试。",
+      502,
+      "invalid_analysis_preflight_response",
+    );
+  }
+  return payload as unknown as FileAnalysisPreflight;
+}
+
+export async function confirmChatFileAnalysis(
+  assetId: string,
+  input: AnalysisRequestInput & { paid_acknowledged: boolean },
+  signal?: AbortSignal,
+) {
+  const payload = await analysisJsonRequest(
+    `/api/files/${encodeURIComponent(assetId)}/analysis-confirm`,
+    input,
+    signal,
+  );
+  if (
+    !isRecord(payload) ||
+    payload.asset_id !== assetId ||
+    !Number.isInteger(payload.confirmation_revision) ||
+    Number(payload.confirmation_revision) < 1 ||
+    typeof payload.config_digest !== "string" ||
+    typeof payload.prompt_sha256 !== "string"
+  ) {
+    throw new FileAssetApiError(
+      "视觉/OCR 确认响应无效，请重试。",
+      502,
+      "invalid_analysis_confirmation_response",
+    );
+  }
+  return payload as unknown as {
+    confirmation_revision: number;
+    config_digest: string;
+    prompt_sha256: string;
+  };
+}
+
+export async function createChatFileAnalysis(
+  assetId: string,
+  input: AnalysisRequestInput & {
+    paid_acknowledged: boolean;
+    confirmation_revision: number;
+  },
+  signal?: AbortSignal,
+): Promise<FileAnalysisJob> {
+  const payload = await analysisJsonRequest(
+    `/api/files/${encodeURIComponent(assetId)}/analyses`,
+    input,
+    signal,
+  );
+  const job = parseAnalysisJob(payload);
+  if (!job) {
+    throw new FileAssetApiError(
+      "视觉/OCR 任务响应无效，请刷新后重试。",
+      502,
+      "invalid_analysis_job_response",
+    );
+  }
+  return job;
+}
+
+export async function fetchChatFileAnalysis(
+  assetId: string,
+  analysisId: string,
+  scopeId: string,
+  signal?: AbortSignal,
+): Promise<FileAnalysisJob> {
+  const params = new URLSearchParams({ scope_id: scopeId });
+  const response = await fetch(
+    `/api/files/${encodeURIComponent(assetId)}/analyses/${encodeURIComponent(analysisId)}?${params}`,
+    { signal },
+  );
+  if (!response.ok) throw await apiError(response);
+  const job = parseAnalysisJob(await response.json());
+  if (!job) throw new FileAssetApiError("视觉/OCR 任务响应无效。", 502, "invalid_analysis_job_response");
+  return job;
+}
+
+export async function listChatFileAnalyses(
+  scopeId: string,
+  signal?: AbortSignal,
+): Promise<FileAnalysisJob[]> {
+  const params = new URLSearchParams({ purpose: "chat", scope_id: scopeId });
+  const response = await fetch(`/api/files/analyses?${params}`, { signal });
+  if (!response.ok) throw await apiError(response);
+  const payload = (await response.json()) as unknown;
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new FileAssetApiError("视觉/OCR 任务列表无效。", 502, "invalid_analysis_job_list");
+  }
+  const items = payload.items.map(parseAnalysisJob);
+  if (items.some((item) => item === null)) {
+    throw new FileAssetApiError("视觉/OCR 任务列表无效。", 502, "invalid_analysis_job_list");
+  }
+  return items as FileAnalysisJob[];
+}
+
+export async function cancelChatFileAnalysis(
+  assetId: string,
+  analysisId: string,
+  scopeId: string,
+): Promise<FileAnalysisJob> {
+  const params = new URLSearchParams({ scope_id: scopeId });
+  const response = await fetch(
+    `/api/files/${encodeURIComponent(assetId)}/analyses/${encodeURIComponent(analysisId)}?${params}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw await apiError(response);
+  const job = parseAnalysisJob(await response.json());
+  if (!job) throw new FileAssetApiError("取消响应无效。", 502, "invalid_analysis_job_response");
+  return job;
+}
+
 async function requestPreview(
   assetId: string,
   scopeId: string,
@@ -595,6 +1056,7 @@ export async function confirmChatFile(
   scopeId: string,
   handling: FileHandling,
   signal?: AbortSignal,
+  analysis?: { artifactId: string; prompt: string },
 ): Promise<ChatFileConfirmation> {
   const params = new URLSearchParams({ purpose: "chat", scope_id: scopeId });
   const response = await fetch(
@@ -602,7 +1064,11 @@ export async function confirmChatFile(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ handling }),
+      body: JSON.stringify({
+        handling,
+        analysis_artifact_id: analysis?.artifactId,
+        analysis_prompt: analysis?.prompt,
+      }),
       signal,
     },
   );
@@ -619,6 +1085,16 @@ export async function confirmChatFile(
       "文件确认响应无效，请重试。",
       502,
       "file_confirmation_invalid",
+    );
+  }
+  if (
+    analysis &&
+    payload.analysis_artifact_id !== analysis.artifactId
+  ) {
+    throw new FileAssetApiError(
+      "识别结果确认响应与当前任务不一致，请重新确认。",
+      409,
+      "analysis_confirmation_mismatch",
     );
   }
   return payload as ChatFileConfirmation;

@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-FILE_CAPABILITIES_VERSION = "modelmirror-file-capabilities-v1"
+FILE_CAPABILITIES_VERSION = "modelmirror-file-capabilities-v2"
 
 
 class FileFamily(str, Enum):
@@ -35,6 +35,7 @@ class FileInputKind(str, Enum):
     AUDIO_GENERATION_IMAGE = "audio_generation_image"
     VIDEO_GENERATION_FRAME = "video_generation_frame"
     VIDEO_GENERATION_REFERENCE = "video_generation_reference"
+    VISUAL_ANALYSIS = "visual_analysis"
 
 
 class FileTransport(str, Enum):
@@ -69,6 +70,55 @@ class FileInteractionStatus(str, Enum):
 class FileHandling(str, Enum):
     NATIVE = "native"
     EXTRACT = "extract"
+
+
+class FileAnalysisMode(str, Enum):
+    VISION = "vision"
+    PROVIDER_OCR = "provider_ocr"
+
+
+FILE_ANALYSIS_CANARY_VERIFIED_MODES = frozenset(
+    {FileAnalysisMode.VISION, FileAnalysisMode.PROVIDER_OCR}
+)
+
+
+def file_analysis_mode_canary_verified(mode: FileAnalysisMode) -> bool:
+    """Release only modes whose separately authorized real canary passed."""
+
+    return mode in FILE_ANALYSIS_CANARY_VERIFIED_MODES
+
+
+class FileAnalysisOption(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    mode: FileAnalysisMode
+    format_ids: tuple[str, ...] = Field(min_length=1)
+    provider: str = Field(min_length=1, max_length=80)
+    paid: bool = False
+    max_pages: int = Field(ge=1, le=20)
+    max_prompt_chars: int = Field(ge=1, le=2_000)
+    requires_explicit_target: bool = True
+    interaction_status: FileInteractionStatus
+    status_reason: str | None = Field(default=None, max_length=500)
+
+    @field_validator("format_ids", mode="before")
+    @classmethod
+    def normalize_format_ids(cls, value: object) -> tuple[str, ...]:
+        if isinstance(value, (str, bytes)):
+            raise ValueError("Format IDs must be a collection.")
+        items = tuple(str(item or "").strip().lower() for item in value)  # type: ignore[arg-type]
+        if not all(items) or len(items) != len(set(items)):
+            raise ValueError("Format IDs must be non-empty and unique.")
+        return tuple(sorted(items))
+
+    @model_validator(mode="after")
+    def validate_status_reason(self) -> "FileAnalysisOption":
+        if (
+            self.interaction_status != FileInteractionStatus.READY
+            and not str(self.status_reason or "").strip()
+        ):
+            raise ValueError("Unready analysis options require status_reason.")
+        return self
 
 
 class FileHandlingOption(BaseModel):
@@ -249,6 +299,7 @@ class FileInputCapability(BaseModel):
     ui_entrypoint: str | None = Field(default=None, pattern=r"^/", max_length=256)
     status_reason: str | None = Field(default=None, max_length=500)
     handling_options: tuple[FileHandlingOption, ...] = ()
+    analysis_options: tuple[FileAnalysisOption, ...] = ()
     formats: tuple[FileFormatCapability, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -266,7 +317,7 @@ class FileInputCapability(BaseModel):
 class FileCapabilitiesResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    version: Literal["modelmirror-file-capabilities-v1"] = FILE_CAPABILITIES_VERSION
+    version: Literal["modelmirror-file-capabilities-v2"] = FILE_CAPABILITIES_VERSION
     registry_version: str
     requested_purpose: FilePurpose | None = None
     requested_model_id: str | None = Field(default=None, max_length=256)
