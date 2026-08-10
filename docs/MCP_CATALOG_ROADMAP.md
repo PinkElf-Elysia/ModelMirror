@@ -15,9 +15,11 @@
 - [Awesome-MCP-ZH](https://github.com/yzfly/Awesome-MCP-ZH)
 - [awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers)
 
-截至 2026-08-09，目录仍冻结为 100 个 MCP 条目、18 个分类。批次 8 的两个 Python 执行上游均未通过门槛；批次 9 仅 Terraform 公共 Registry 只读子集通过；批次 10 暂缓到多租户主体边界完善后；批次 11 的 13 个桌面/宿主条目因缺少可信本机桥接、宿主实例证明和逐应用授权而全部受阻。当前状态精确为 **45 ready / 14 planned / 41 blocked**。
+截至 2026-08-09，产品目录为 200 个 MCP 条目、18 个分类。第一阶段原有 100 项保持不变：批次 8 的两个 Python 执行上游均未通过门槛；批次 9 仅 Terraform 公共 Registry 只读子集通过；批次 10 暂缓到多租户主体边界完善后；批次 11 的 13 个桌面/宿主条目因缺少可信本机桥接、宿主实例证明和逐应用授权而全部受阻。第二阶段新增 100 项全部为不可执行的 `planned` 目录资料。当前状态精确为 **45 ready / 114 planned / 41 blocked**。
 
 批次 0—11 的第一阶段交付边界、状态分布、阶段二准入条件和可复现验收命令统一记录在 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
+
+第二阶段已完成独立的双源目录审计与人工批准，固定解析两个上游清单的服务器实现章节，并对仓库身份、重复项、归档状态、许可证和最近维护时间执行 fail-closed 筛选。[100 项批准清单](./MCP_CATALOG_EXPANSION_REVIEW.md) 已写入前端发现目录与后端非执行 manifest，**没有新增可执行适配器**。所有新增项都没有命令、端点、凭据槽、工具策略或 Sidecar，环境功能开关不能使其可执行。
 
 ## 2. 当前边界与明确不实现
 
@@ -37,6 +39,7 @@
 - 批次 9 的 Terraform 适配器不接收 Token、组织、工作区、状态文件、变量、Terraform CLI 路径或任意 Registry URL；仅匿名访问固定 `registry.terraform.io`。HCP Terraform、Terraform Enterprise、私有 Registry、plan、apply、destroy、run 与资源变更能力全部不可发现、不可调用。
 - 批次 10 保持 `planned`，待不可伪造的逐请求用户主体、租户隔离和 OAuth 生命周期完成后再恢复；本轮不引入其暂缓改动。
 - 批次 11 不接收本机端口、LAN 主机、宿主路径、Docker Socket、浏览器登录态、IDE/DAW/逆向工具实例、设备 ID、USB、Xcode 工程、API Key 或插件配置。13 项均无镜像、命令、端点、配置/凭据字段和工具策略。
+- 批次 12 的 100 项只提供经双源与 GitHub 仓库硬门禁核验的展示资料；在逐项目冻结上游版本、工具 Schema 和对应安全边界前，全部保持 `planned`、`executable=false`。
 - 不接管 Blender、Zotero、Obsidian、JetBrains、Xcode、Ghidra 等桌面宿主。
 - 不提供用户自定义 MCP 连接。
 - 不提供 MCP Builder、可视化生成器或发布市场流程。
@@ -80,11 +83,11 @@
 
 ## 5. 固定批次
 
-目录数量在适配期间冻结为 100；以下 93 项必须且只能属于一个批次。
+第一阶段 100 项继续冻结在批次 0—11；第二阶段批准的 100 项统一进入批次 12，目录总数固定为 200。
 
 | 批次 | 能力与条目 | 数量 | 主要退出门槛 |
 | --- | --- | ---: | --- |
-| 0 | 现有 Node stdio 基线与适配 Harness | 7 | 100 项契约、服务端清单、功能开关、状态 API、现有行为回归 |
+| 0 | 现有 Node stdio 基线与适配 Harness | 7 | 第一阶段 100 项契约、服务端清单、功能开关、状态 API、现有行为回归 |
 | 1 | `calculator-mcp`、`time-mcp`、`vegalite-mcp` | 3 | **已实现**：非 root Python 沙箱、默认断网、只读文件、CPU/内存/时间/输出上限 |
 | 2 | `bibigpt-mcp`、`fetch-mcp`、`quickchart-mcp`、`airbnb-mcp`、`geowire-mcp` | 5 | **已完成门槛判定**：Fetch、QuickChart、GeoWire 可用；BibiGPT 因 OAuth、Airbnb 因上游 schema 漂移受阻 |
 | 3 | `basic-memory-mcp`、`excel-mcp-server`、`git-mcp`、`manim-mcp`、`markitdown-mcp` | 5 | **已完成门槛判定**：Basic Memory、Excel、Git、MarkItDown 可用；Manim 因任意 Python 场景执行依赖第 8 批隔离而阻断 |
@@ -96,6 +99,7 @@
 | 9 | Apify、Bright Data、Browserbase、E2B、Stripe、Terraform、Aiven、Alpaca、AWS KB、ElevenLabs、MiniMax、S3、Kubernetes、Semgrep | 14 | **已完成门槛判定**：Terraform 公共 Registry 六项只读工具可用；其余 13 项因凭据出站未批准、费用无法对账、归档运行时、真实金融/云资源写入或本机/集群范围受阻 |
 | 10 | Gmail、Atlassian、Google Calendar、Google Drive、Microsoft 365、OneDrive、Sentry、Azure、Box、Cloudflare、GitHub、Linear、Neon、Slack | 14 | PKCE、state、最小 scope、刷新、撤销与解绑 |
 | 11 | 小红书、Ableton、Binary Ninja、Blender、Ghidra、JetBrains、ChatCrystal、Obsidian、OpenTabs、Zotero、Docker、Mobile、XcodeBuild | 13 | **已完成门槛判定**：全部依赖真实本机宿主、登录态、目录、设备或 Docker daemon；缺少版本化桥接、宿主实例证明、会话主体绑定和逐应用授权，13 项均受阻 |
+| 12 | 双源批准扩充清单 | 100 | **目录已集成、运行时未适配**：前后端 ID 一致；全部 planned、无命令/端点/凭据/工具/Sidecar，逐项目适配后才能改变状态 |
 
 每批在前一批验收完成后单独建分支和 PR；批内可以逐项开启功能开关，但不能绕过整批共享的安全门槛。
 

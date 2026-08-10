@@ -253,6 +253,7 @@ def test_ephemeral_cleanup_removes_expired_workspace_but_keeps_memory(tmp_path: 
 class FakeManager:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
+        self.retry_on_failure: list[bool] = []
         self.sessions: set[str] = set()
         self.session_owner = ""
 
@@ -277,11 +278,13 @@ class FakeManager:
         tool_name: str,
         arguments: dict[str, Any],
         *,
+        retry_on_failure: bool = True,
         session_owner: str = "",
     ) -> CallToolResult:
         assert session_id in self.sessions
         assert session_owner == self.session_owner
         self.calls.append((session_id, tool_name, arguments))
+        self.retry_on_failure.append(retry_on_failure)
         return CallToolResult(content=[TextContent(type="text", text="ok")])
 
     async def disconnect(
@@ -355,6 +358,7 @@ async def test_state_write_requires_bound_one_time_approval(tmp_path: Path) -> N
             {"content": "Keep inputs read-only.", "title": "Decision"},
         )
     ]
+    assert manager.retry_on_failure == [False]
     with pytest.raises(CatalogAdapterPolicyError):
         await service.confirm_approval(
             "basic-memory-mcp",
