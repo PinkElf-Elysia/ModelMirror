@@ -2885,6 +2885,12 @@ export default function CodingPage() {
     return <div className="mx-auto mt-10 min-h-[60vh] max-w-7xl animate-pulse rounded-xl bg-white/5" aria-label="正在选择 Coding 执行面" />;
   }
   return surface === "worker"
-    ? <CodingWorkerConsole context="coding" />
+    ? <CodingWorkerConsole
+        context="coding"
+        onCodingHandoff={(result) => {
+          storeCodingSession(result.id, 0, result.project.id);
+          setSurface("legacy");
+        }}
+      />
     : <LegacyCodingPage />;
 }

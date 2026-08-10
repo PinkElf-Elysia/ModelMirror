@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   getCodingWorkerStatus: vi.fn(),
   listCodingWorkerTasks: vi.fn(),
   getCodingWorkerTask: vi.fn(),
+  handoffCodingWorkerTask: vi.fn(),
   listCodingWorkerApprovals: vi.fn(),
   listCodingWorkerEvidence: vi.fn(),
   listCodingWorkerArtifacts: vi.fn(),
@@ -87,5 +88,26 @@ describe("CodingWorkerConsole", () => {
     render(<CodingWorkerConsole context="agent" />);
     expect((await screen.findAllByText("修复失败测试并生成证据")).length).toBe(2);
     expect(screen.queryByText("宿主写回")).not.toBeInTheDocument();
+  });
+
+  it("hands a completed Host Snapshot task to the v13 confirmation chain", async () => {
+    const completed = { ...task, state: "completed" as const };
+    api.listCodingWorkerTasks.mockResolvedValue([completed]);
+    api.getCodingWorkerTask.mockResolvedValue(completed);
+    api.handoffCodingWorkerTask.mockResolvedValue({
+      id: "session_1234567890abcdef1234567890abcdef",
+      status: "ready",
+      project: { id: "hostgit_1234567890abcdef1234567890abcdef" },
+      revision: 1,
+      task_id: task.task_id,
+    });
+    const onCodingHandoff = vi.fn();
+    const user = userEvent.setup();
+    render(<CodingWorkerConsole context="coding" onCodingHandoff={onCodingHandoff} />);
+
+    await user.click(await screen.findByRole("button", { name: "进入 v13 写回确认" }));
+
+    await waitFor(() => expect(api.handoffCodingWorkerTask).toHaveBeenCalledWith(task.task_id));
+    expect(onCodingHandoff).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }));
   });
 });

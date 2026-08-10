@@ -11,6 +11,14 @@ import type {
 
 const API_ROOT = "/api/coding-worker/v1";
 
+export interface CodingWorkerHandoffResult {
+  id: string;
+  status: string;
+  project: { id: string; [key: string]: unknown };
+  revision: number;
+  task_id: string;
+}
+
 export class CodingWorkerApiError extends Error {
   status: number;
   code: string | null;
@@ -69,6 +77,12 @@ export const createCodingWorkerTask = (spec: CodingWorkerTaskSpec) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(spec),
   });
+
+export const handoffCodingWorkerTask = (taskId: string) =>
+  request<CodingWorkerHandoffResult>(
+    `/api/coding/worker-tasks/${encodeURIComponent(taskId)}/handoff`,
+    { method: "POST" },
+  );
 
 export const sendCodingWorkerMessage = (taskId: string, message: string) =>
   request<CodingWorkerTask>(`${API_ROOT}/tasks/${encodeURIComponent(taskId)}/messages`, {

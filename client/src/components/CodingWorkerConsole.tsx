@@ -32,6 +32,7 @@ import {
   decideCodingWorkerApproval,
   getCodingWorkerTask,
   getCodingWorkerStatus,
+  handoffCodingWorkerTask,
   listCodingWorkerApprovals,
   listCodingWorkerArtifacts,
   listCodingWorkerEvidence,
@@ -40,6 +41,7 @@ import {
   readCodingWorkerDiff,
   readCodingWorkerEntry,
   sendCodingWorkerMessage,
+  type CodingWorkerHandoffResult,
 } from "../utils/codingWorkerApi";
 
 type ConsoleContext = "coding" | "agent";
@@ -68,9 +70,10 @@ function payloadText(event: CodingWorkerEvent) {
 
 interface CodingWorkerConsoleProps {
   context: ConsoleContext;
+  onCodingHandoff?: (result: CodingWorkerHandoffResult) => void;
 }
 
-export default function CodingWorkerConsole({ context }: CodingWorkerConsoleProps) {
+export default function CodingWorkerConsole({ context, onCodingHandoff }: CodingWorkerConsoleProps) {
   const [status, setStatus] = useState<CodingWorkerStatus | null>(null);
   const [tasks, setTasks] = useState<CodingWorkerTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -227,6 +230,12 @@ export default function CodingWorkerConsole({ context }: CodingWorkerConsoleProp
     setPreview({ path: entry.display_path, content });
   });
 
+  const handoffToWriteback = () => run(async () => {
+    if (!selectedTask || selectedTask.state !== "completed") return;
+    const result = await handoffCodingWorkerTask(selectedTask.task_id);
+    onCodingHandoff?.(result);
+  });
+
   if (loading) return <div className="min-h-[60vh] animate-pulse rounded-xl bg-white/5" aria-label="正在加载 Coding Worker" />;
 
   if (!status?.enabled || !status.available) {
@@ -326,7 +335,7 @@ export default function CodingWorkerConsole({ context }: CodingWorkerConsoleProp
             {tab === "evidence" && <div className="space-y-4"><section><h3 className="font-semibold text-white">审批</h3>{approvals.filter((item) => item.status === "pending").map((item) => <div key={item.approval_id} className="mt-2 rounded-lg bg-amber-300/10 p-3"><p className="text-amber-100">{item.capability}</p><p className="mt-1 break-words text-xs text-slate-300">{JSON.stringify(item.request)}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "approve_once")} className="min-h-11 rounded-lg bg-cyan-400 px-3 font-semibold text-slate-950">批准一次</button><button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "approve_task")} className="min-h-11 rounded-lg border border-cyan-300/40 px-3 text-cyan-100">本任务批准</button><button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "reject")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200">拒绝</button></div></div>)}</section><section><h3 className="font-semibold text-white">检查证据</h3><ul className="mt-2 space-y-2">{evidence.map((item) => <li key={item.evidence_id} className="rounded-lg bg-white/5 p-3"><span className={item.status === "passed" ? "text-emerald-300" : item.status === "failed" ? "text-rose-300" : "text-amber-300"}>{item.status}</span><span className="ml-2 break-all text-slate-200">{item.check_id}</span><span className="mt-1 block text-xs text-slate-400">exit {item.exit_code}</span></li>)}</ul></section><section><h3 className="font-semibold text-white">Artifacts</h3><ul className="mt-2 space-y-1">{artifacts.map((item) => <li key={item.artifact_id}><a className="block min-h-10 break-all rounded-md px-2 py-2 text-cyan-200 hover:bg-white/5" href={codingWorkerArtifactUrl(item.task_id, item.artifact_id)}>{item.artifact_id} · {item.media_type}</a></li>)}</ul></section></div>}
             {tab === "terminal" && <div><p className="mb-2 text-xs text-slate-400">命令归属和输出只来自 Tool Broker 公开事件。</p><pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-3 text-xs text-slate-200">{events.filter((event) => event.type === "tool_operation" || event.type === "provider_event").map((event) => `#${event.sequence} ${event.type}\n${payloadText(event) ?? JSON.stringify(event.payload)}`).join("\n\n") || "尚无工具输出。"}</pre></div>}
           </div>
-          {context === "coding" && selectedTask && <section className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center gap-2"><GitCompareArrows className="h-4 w-4 text-cyan-300" /><h3 className="font-semibold text-white">宿主写回</h3></div><p className="mt-1 text-xs text-slate-400">完成后继续使用 v13 的应用、提交、撤销和发布确认链。Worker 不直接写用户仓库。</p><div className="mt-3 flex flex-wrap gap-2" aria-label="Coding 领域动作"><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">应用</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">提交</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">撤销</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">发布</span></div></section>}
+          {context === "coding" && selectedTask && <section className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center gap-2"><GitCompareArrows className="h-4 w-4 text-cyan-300" /><h3 className="font-semibold text-white">宿主写回</h3></div><p className="mt-1 text-xs text-slate-400">完成后继续使用 v13 的应用、提交、撤销和发布确认链。Worker 不直接写用户仓库。</p>{selectedTask.state === "completed" && selectedTask.spec.workspace_source.kind === "host_snapshot" ? <button type="button" onClick={() => void handoffToWriteback()} disabled={busy} className="mt-3 min-h-11 w-full rounded-lg bg-cyan-400 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50">进入 v13 写回确认</button> : <p className="mt-3 text-xs text-slate-500">Host Snapshot 任务通过全部必需检查后，才会开放写回确认。</p>}<div className="mt-3 flex flex-wrap gap-2" aria-label="Coding 领域动作"><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">应用</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">提交</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">撤销</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">发布</span></div></section>}
         </aside>
       </div>
     </div>
