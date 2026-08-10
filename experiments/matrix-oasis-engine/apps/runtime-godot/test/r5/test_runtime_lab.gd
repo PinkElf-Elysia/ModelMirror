@@ -18,6 +18,10 @@ func test_lab_renders_pack_content_and_native_action_states() -> void:
 	assert_bool(buttons[1].disabled).is_true()
 	assert_int(buttons[0].focus_mode).is_equal(Control.FOCUS_ALL)
 	assert_float(buttons[0].custom_minimum_size.y).is_greater_equal(44.0)
+	assert_bool(buttons[0].is_visible_in_tree()).is_true()
+	assert_bool(
+		buttons[0].get_global_rect().end.y <= lab.get_viewport().get_visible_rect().end.y,
+	).is_true()
 
 
 func test_native_button_signal_advances_once_and_reset_restores_session() -> void:

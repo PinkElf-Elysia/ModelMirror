@@ -140,14 +140,23 @@ theme_override_font_sizes/font_size = 13
 text = "No transition yet."
 autowrap_mode = 3
 
-[node name="ActionsHeading" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+[node name="ActionsDivider" type="HSeparator" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+
+[node name="ActionsHeading" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.82, 0.87, 0.94, 1)
 theme_override_font_sizes/font_size = 14
 text = "Actions"
 
-[node name="Actions" type="VBoxContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+[node name="ActionsScroll" type="ScrollContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+custom_minimum_size = Vector2(0, 106)
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Actions" type="VBoxContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/ActionsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 6
 
 [node name="Reset" type="Button" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]

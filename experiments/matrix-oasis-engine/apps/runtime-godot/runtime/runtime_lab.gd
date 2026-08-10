@@ -18,7 +18,7 @@ const ERROR_COLOR := Color(1.0, 0.58, 0.58, 1.0)
 @onready var variables_list: VBoxContainer = $Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content/Variables
 @onready var cues_list: VBoxContainer = $Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content/Cues
 @onready var transition_label: Label = $Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content/Transition
-@onready var actions_list: VBoxContainer = $Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content/Actions
+@onready var actions_list: VBoxContainer = $Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/ActionsScroll/Actions
 @onready var reset_button: Button = $Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Reset
 
 var _prepared_override: MatrixOasisPreparedRuntimePack

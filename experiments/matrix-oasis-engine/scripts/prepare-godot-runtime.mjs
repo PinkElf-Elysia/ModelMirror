@@ -6,6 +6,8 @@ export const RUNTIME_PREVIEW_EXAMPLES = Object.freeze([
   "mechanics-conformance",
   "last-train-r1",
 ]);
+const PREVIEW_ARTIFACT_PREFIX = "matrix-oasis-r5-preview-";
+const PREVIEW_PROJECT_PREFIX = "matrix-oasis-r5-preview-project-";
 
 export class GodotRuntimePreviewError extends Error {
   constructor(code) {
@@ -26,6 +28,31 @@ function temporaryBase(moduleRoot) {
 function isContained(root, candidate) {
   const relative = path.relative(root, candidate);
   return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+function temporaryIdentity(temporaryRoot) {
+  const initialStat = fs.lstatSync(temporaryRoot, { bigint: true });
+  return Object.freeze({ dev: initialStat.dev, ino: initialStat.ino });
+}
+
+function removeOwnedTemporaryRoot(temporaryRoot, {
+  moduleRoot,
+  identity,
+  prefix,
+}) {
+  if (typeof temporaryRoot !== "string" || typeof moduleRoot !== "string" ||
+      !identity || typeof identity.dev !== "bigint" || typeof identity.ino !== "bigint") {
+    fail("GODOT_RUNTIME_PREVIEW_CLEANUP_INVALID");
+  }
+  const base = fs.realpathSync(temporaryBase(moduleRoot));
+  const candidate = fs.realpathSync(temporaryRoot);
+  const currentStat = fs.lstatSync(candidate, { bigint: true });
+  if (!isContained(base, candidate) || currentStat.isSymbolicLink() ||
+      currentStat.dev !== identity.dev || currentStat.ino !== identity.ino ||
+      !path.basename(candidate).startsWith(prefix)) {
+    fail("GODOT_RUNTIME_PREVIEW_CLEANUP_INVALID");
+  }
+  fs.rmSync(candidate, { recursive: true });
 }
 
 export function parseRuntimePreviewArguments(args) {
@@ -98,9 +125,8 @@ export async function createRuntimePreviewArtifacts({
   }
   const base = temporaryBase(moduleRoot);
   fs.mkdirSync(base, { recursive: true });
-  const temporaryRoot = fs.mkdtempSync(path.join(base, "matrix-oasis-r5-preview-"));
-  const initialStat = fs.lstatSync(temporaryRoot, { bigint: true });
-  const identity = Object.freeze({ dev: initialStat.dev, ino: initialStat.ino });
+  const temporaryRoot = fs.mkdtempSync(path.join(base, PREVIEW_ARTIFACT_PREFIX));
+  const identity = temporaryIdentity(temporaryRoot);
   const runtimePath = path.join(temporaryRoot, "runtime.json");
   const receiptPath = path.join(temporaryRoot, "receipt.json");
   try {
@@ -126,17 +152,43 @@ export async function createRuntimePreviewArtifacts({
 }
 
 export function removeRuntimePreviewArtifacts(temporaryRoot, { moduleRoot, identity }) {
-  if (typeof temporaryRoot !== "string" || typeof moduleRoot !== "string" ||
-      !identity || typeof identity.dev !== "bigint" || typeof identity.ino !== "bigint") {
-    fail("GODOT_RUNTIME_PREVIEW_CLEANUP_INVALID");
+  removeOwnedTemporaryRoot(temporaryRoot, {
+    moduleRoot,
+    identity,
+    prefix: PREVIEW_ARTIFACT_PREFIX,
+  });
+}
+
+export function createRuntimePreviewProject({ moduleRoot }) {
+  if (typeof moduleRoot !== "string" || !path.isAbsolute(moduleRoot)) {
+    fail("GODOT_RUNTIME_PREVIEW_INPUT_INVALID");
   }
-  const base = fs.realpathSync(temporaryBase(moduleRoot));
-  const candidate = fs.realpathSync(temporaryRoot);
-  const currentStat = fs.lstatSync(candidate, { bigint: true });
-  if (!isContained(base, candidate) || currentStat.isSymbolicLink() ||
-      currentStat.dev !== identity.dev || currentStat.ino !== identity.ino ||
-      !path.basename(candidate).startsWith("matrix-oasis-r5-preview-")) {
-    fail("GODOT_RUNTIME_PREVIEW_CLEANUP_INVALID");
+  const sourceProjectRoot = path.join(moduleRoot, "apps", "runtime-godot");
+  const base = temporaryBase(moduleRoot);
+  fs.mkdirSync(base, { recursive: true });
+  const temporaryRoot = fs.mkdtempSync(path.join(base, PREVIEW_PROJECT_PREFIX));
+  const identity = temporaryIdentity(temporaryRoot);
+  const projectRoot = path.join(temporaryRoot, "runtime-godot");
+  try {
+    fs.cpSync(sourceProjectRoot, projectRoot, {
+      recursive: true,
+      filter: (source) => path.basename(source) !== ".godot",
+    });
+  } catch {
+    removeOwnedTemporaryRoot(temporaryRoot, {
+      moduleRoot,
+      identity,
+      prefix: PREVIEW_PROJECT_PREFIX,
+    });
+    fail("GODOT_RUNTIME_PREVIEW_PROJECT_FAILED");
   }
-  fs.rmSync(candidate, { recursive: true });
+  return Object.freeze({ temporaryRoot, projectRoot, identity });
+}
+
+export function removeRuntimePreviewProject(temporaryRoot, { moduleRoot, identity }) {
+  removeOwnedTemporaryRoot(temporaryRoot, {
+    moduleRoot,
+    identity,
+    prefix: PREVIEW_PROJECT_PREFIX,
+  });
 }

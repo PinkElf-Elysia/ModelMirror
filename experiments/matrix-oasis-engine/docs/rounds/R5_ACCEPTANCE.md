@@ -1,6 +1,6 @@
 # R5 验收记录
 
-状态：R5.5 已验证，等待本地提交；尚未达到人工验收门。
+状态：R5.6 自动门已验证，等待本地提交与最终人工验收。
 
 固定 `R5_BASE_SHA`：`d47f1b15e5610f41d4d9f3e5fe91966530a1a4be`
 
@@ -12,8 +12,8 @@
 | R5.2 严格 Runtime Pack 载入器 | 已完成 | `21ed3b3` |
 | R5.3 独立 GDScript 执行器 | 已完成 | `578d46b` |
 | R5.4 跨运行时差分 Harness | 已完成 | `cffa4fa` |
-| R5.5 最小 Runtime 调试 HUD | 已验证 | 本批提交；SHA 在 R5.6 记录 |
-| R5.6 拆分与验收收口 | 未开始 | 待记录 |
+| R5.5 最小 Runtime 调试 HUD | 已完成 | `e0f3b56` |
+| R5.6 拆分与验收收口 | 自动门已验证 | 本批提交；最终 SHA 在仓外交付清单记录 |
 
 ## R5.1 证据
 
@@ -103,6 +103,27 @@ R5.5 新增独立 `runtime_lab` scene、最小原生 Control HUD、受控样例�
 - 本批未运行父后端、Docker、共享栈或父路由；没有玩法、角色控制、Marble、AI、资产管线、存档、网络或正式导出。
 
 本批可单独 revert 回到 R5.4 纯 headless 差分状态；临时预览工件在关闭后精确清理，不形成数据库、服务或运行数据迁移。
+
+## R5.6 证据
+
+R5.6 在不改变 R4 正式主场景和 960×540 项目设置的前提下收口固定帧、窄屏、父前端与最终拆分门；验收发现 action 首屏不可见后，仅调整 R5 Runtime Lab 自身布局及测试，使 action 与 reset 在桌面和窄屏都保持可见。
+
+- 精确变更为 9 个模块内文件：Runtime Lab scene/script、1 项 GdUnit 布局断言、既有固定帧 harness、预览器与一次性工程 helper、2 项 Node capture/preview 合同测试及本验收记录。R1–R4 冻结路径、Creator、examples、GdUnit vendor 与父仓源码零差异。
+- `capture:godot` 保留 R4 原命令，并新增受控 `--example mechanics-conformance|last-train-r1` 与固定 `--narrow`；Pack/Receipt 和工程副本均位于仓外临时目录，640 viewport 只写一次性工程副本，正式 `apps/runtime-godot/project.godot` 字节不变。
+- 中性样例 960×540：12/12 PNG，单帧 31,441 bytes，SHA-256 `269775d0c42b61f245e421282b78f096ff2524b4938bba20f2a4d82594956691`。
+- 末班地铁 960×540：12/12 PNG，单帧 44,275 bytes，SHA-256 `3f680feaac2381c58368642fdc901758c4a6c9a7eba6c161c75bfd0998a4d33f`；末班地铁 640×540：12/12 PNG，单帧 41,269 bytes，SHA-256 `4b38d8f6415769d1985cc361839a915f08d82bf4557345a11529afefad5d6b42`。三个 capture manifest 与 PNG 均只保存在 `C:\tmp` 仓外目录。
+- 固定帧人工目视确认：无解析错误或空白帧；primitive 世界、Pack 派生标题/正文/状态、可用 action 与 reset 均清晰；640 宽度不横向溢出，面板占满安全区。首版布局中 action 仅露出边缘的问题已修复并重新生成全部最终证据。
+- `npm.cmd run test:godot`：22/22 通过；`node --test tests/godot-harness.test.mjs`：11/11 通过，额外锁定 R4 命令兼容、两个冻结样例、960/640 尺寸和一次性 viewport 修改。
+- 模块根 `npm.cmd ci --offline --no-audit --no-fund`：84 packages；`npm.cmd prefix` 精确指向模块根；`npm.cmd ls --all` 退出 0，无 missing/extraneous，仅平台 optional dependency 提示。
+- 可见预览首次直跑暴露正式工程没有 `.godot` class cache 时的类型解析错误；最终预览器已改为“复制工程到 `C:\tmp` → headless editor import → 打开一次性副本 → 按 bigint 身份精确清理”，正式工程不生成缓存。8/8 preview 合同测试通过，真实窗口输出 R4/R5 marker 各一次且无解析错误。
+- 最新树 `npm.cmd run verify`：12/12 通过；包含 425/425 Node、22 项 GdUnit、9 项 adapter、7 cases/26 runs/2 labs parity、Creator 247 modules build 与 HTTP 200 smoke。
+- 父 `client` 在独立 R5 worktree 执行 `npm.cmd ci --no-audit --no-fund && npm.cmd run build`：384 packages、3064 modules、退出 0；仅既有 esbuild allowScripts 与大 chunk 提示，`git status --short -- client` 为空。
+- `npm.cmd run check:round-scope`、`npm.cmd run check:parent-scope -- --base d47f1b15e5610f41d4d9f3e5fe91966530a1a4be`、`npm.cmd run check:boundary`、`npm.cmd run check:godot-boundary` 与 `git diff --check` 均通过；父仓、冻结路径和生成物均无 tracked 差异。
+- R5.6 文档提交后的最终 `verify`、`verify:extraction`、split tree、source archive SHA-256 与最终 HEAD 只记录在仓外交付清单，避免本文件自引用；任一最终命令失败都会使本记录的自动门结论失效。
+- computer-use 插件仍因本机 Codex 安装目录权限错误不可用，因此没有伪称完成真实鼠标、Enter/Space、三个 ending 或网络面板人工操作；自动 parity 已覆盖三个 ending/循环/失败语义，GdUnit 已覆盖 pressed/reset/focus/disabled。最终 PR 批准前仍需用户在独立预览器手工确认这些可见交互。
+- 未运行父后端、Docker、共享栈、父路由或部署；未实现角色控制、3D 玩法、Marble、资产管线、AI、存档或网络。
+
+R5.6 可单独 revert 回到 R5.5 初始 Runtime Lab；逆序 revert 六个 R5 提交可回到已合并 R4。无数据库、服务、父路由、共享容器或正式运行数据需要恢复。
 
 ## 最终仓外标识
 

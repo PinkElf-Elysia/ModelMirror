@@ -9,9 +9,11 @@ import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { validateRuntimeGamePackJson } from "@matrix-oasis/runtime-pack-validator";
 import {
   createRuntimePreviewArtifacts,
+  createRuntimePreviewProject,
   GodotRuntimePreviewError,
   parseRuntimePreviewArguments,
   removeRuntimePreviewArtifacts,
+  removeRuntimePreviewProject,
   runtimePreviewGodotArguments,
 } from "../scripts/prepare-godot-runtime.mjs";
 
@@ -89,6 +91,31 @@ test("both frozen examples compile to temporary canonical pairs and clean narrow
     });
     assert.equal(fs.existsSync(artifacts.temporaryRoot), false);
   }
+});
+
+test("interactive preview imports and runs only a disposable project copy", () => {
+  const previewProject = createRuntimePreviewProject({ moduleRoot });
+  assert.equal(
+    path.basename(previewProject.temporaryRoot).startsWith("matrix-oasis-r5-preview-project-"),
+    true,
+  );
+  assert.equal(fs.existsSync(path.join(previewProject.projectRoot, "project.godot")), true);
+  assert.equal(fs.existsSync(path.join(previewProject.projectRoot, ".godot")), false);
+  assert.notEqual(fs.realpathSync(previewProject.projectRoot), fs.realpathSync(projectRoot));
+  removeRuntimePreviewProject(previewProject.temporaryRoot, {
+    moduleRoot,
+    identity: previewProject.identity,
+  });
+  assert.equal(fs.existsSync(previewProject.temporaryRoot), false);
+
+  const previewSource = fs.readFileSync(
+    path.join(moduleRoot, "scripts", "preview-godot-runtime.mjs"),
+    "utf8",
+  );
+  assert.match(previewSource, /createRuntimePreviewProject\(\{ moduleRoot \}\)/u);
+  assert.match(previewSource, /\["--headless", "--editor", "--path", previewProject\.projectRoot, "--quit"\]/u);
+  assert.match(previewSource, /projectRoot: previewProject\.projectRoot/u);
+  assert.doesNotMatch(previewSource, /projectPath\(moduleRoot\)/u);
 });
 
 test("compile faults stay static and never expose dynamic error text", async () => {

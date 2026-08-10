@@ -3,12 +3,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileAuthoringGamePackJson } from "@matrix-oasis/game-pack-compiler";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
-import { projectPath, resolveGodotBinary } from "./lib/godot-core.mjs";
+import {
+  assertGodotOutputClean,
+  resolveGodotBinary,
+  runGodotCommand,
+} from "./lib/godot-core.mjs";
 import {
   createRuntimePreviewArtifacts,
+  createRuntimePreviewProject,
   GodotRuntimePreviewError,
   parseRuntimePreviewArguments,
   removeRuntimePreviewArtifacts,
+  removeRuntimePreviewProject,
   runtimePreviewGodotArguments,
 } from "./prepare-godot-runtime.mjs";
 
@@ -34,6 +40,7 @@ function runInteractive(command, args) {
 }
 
 let artifacts = null;
+let previewProject = null;
 try {
   const example = parseRuntimePreviewArguments(process.argv.slice(2));
   artifacts = await createRuntimePreviewArtifacts({
@@ -43,11 +50,28 @@ try {
     canonicalizeJsonValue,
   });
   const godot = resolveGodotBinary();
+  previewProject = createRuntimePreviewProject({ moduleRoot });
+  try {
+    const importOutput = runGodotCommand({
+      command: godot.command,
+      args: ["--headless", "--editor", "--path", previewProject.projectRoot, "--quit"],
+      cwd: moduleRoot,
+      timeout: 120_000,
+    });
+    assertGodotOutputClean(importOutput);
+  } catch {
+    throw new GodotRuntimePreviewError("GODOT_RUNTIME_PREVIEW_IMPORT_FAILED");
+  }
   await runInteractive(godot.command, runtimePreviewGodotArguments({
-    projectRoot: projectPath(moduleRoot),
+    projectRoot: previewProject.projectRoot,
     runtimePath: artifacts.runtimePath,
     receiptPath: artifacts.receiptPath,
   }));
+  removeRuntimePreviewProject(previewProject.temporaryRoot, {
+    moduleRoot,
+    identity: previewProject.identity,
+  });
+  previewProject = null;
   removeRuntimePreviewArtifacts(artifacts.temporaryRoot, {
     moduleRoot,
     identity: artifacts.identity,
@@ -56,6 +80,17 @@ try {
   console.log(`GODOT_RUNTIME_PREVIEW_CLOSED version=${godot.version} example=${example}`);
 } catch (error) {
   let finalError = error;
+  if (previewProject) {
+    try {
+      removeRuntimePreviewProject(previewProject.temporaryRoot, {
+        moduleRoot,
+        identity: previewProject.identity,
+      });
+      previewProject = null;
+    } catch (cleanupError) {
+      finalError = cleanupError;
+    }
+  }
   if (artifacts) {
     try {
       removeRuntimePreviewArtifacts(artifacts.temporaryRoot, {
