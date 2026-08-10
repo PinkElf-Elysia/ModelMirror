@@ -61,9 +61,11 @@ V14 不在宿主仓库原地执行，不开放 Git remote/push、自动 PR、任
 - 前端：`29` 个文件、`134 passed`；
 - 前端 production build 通过，`CodingPage` gzip `37.60 kB`；
 - V14 Compose 组合 `config --quiet` 与部署静态测试通过；
+- 真实 Worker 镜像中的 OpenCode `1.18.9` 已在非 root、只读根、无网络、无宿主端口的
+  临时容器中完成 Basic Auth `serve` 与 `/global/health` 冒烟；这不等同于带真实模型的修复循环；
 - 分支已推送至 Draft PR `#130`。
 
-这些结果不等同于完整发布验收。后端全量仍需在支持 TypeScript strip 的正式 Node 镜像复跑；真实 OpenCode headless、真实 Windows Helper、共享栈重建和用户项目写回仍须分别完成并记录。
+这些结果不等同于完整发布验收。后端全量仍需在支持 TypeScript strip 的正式 Node 镜像复跑；真实 OpenCode 模型任务循环、真实 Windows Helper、共享栈重建和用户项目写回仍须分别完成并记录。
 
 ## 发布与人工验收门禁
 
