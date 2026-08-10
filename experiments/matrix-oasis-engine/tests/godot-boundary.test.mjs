@@ -36,6 +36,21 @@ test("approved static res reads pass and vendored source is excluded", (context)
   assert.deepEqual(auditGodotBoundary({ root }), { ok: true, checked: 1, violations: [] });
 });
 
+test("fixed runtime diagnostic pointers pass without allowing arbitrary absolute paths", (context) => {
+  const root = fixture([
+    "extends Node",
+    "const DIAGNOSTIC_PATHS = [\"/prepared\", \"/snapshot/pack\", \"/actionId\"]",
+  ].join("\n"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.equal(auditGodotBoundary({ root }).ok, true);
+  fs.writeFileSync(
+    path.join(root, "scripts", "case.gd"),
+    "extends Node\nconst OUTSIDE = \"/opt/outside\"\n",
+    "utf8",
+  );
+  assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_ABSOLUTE_PATH"), true);
+});
+
 test("only the R5 artifact loader may open a validated dynamic path read-only", (context) => {
   const root = fixture("extends Node\n");
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));

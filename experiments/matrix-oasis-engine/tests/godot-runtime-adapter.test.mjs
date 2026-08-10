@@ -107,3 +107,20 @@ test("Godot adapter sources remain independent from JavaScript evaluators and to
     assert.equal(source.includes(forbidden), false);
   }
 });
+
+test("Godot runtime exposes only synchronous create, inspect, and one-step apply entrypoints", () => {
+  const source = fs.readFileSync(
+    path.join(moduleRoot, "apps", "runtime-godot", "runtime", "runtime_session.gd"),
+    "utf8",
+  );
+  for (const signature of [
+    "static func create_game_session(",
+    "static func inspect_game_session(",
+    "static func apply_game_session_action(",
+  ]) {
+    assert.equal(source.includes(signature), true);
+  }
+  assert.equal(source.includes("await "), false);
+  assert.equal(source.includes("PACK_GODOT_RUNTIME_INTERNAL_ERROR"), true);
+  assert.equal(source.includes("_deep_read_only(result)"), true);
+});

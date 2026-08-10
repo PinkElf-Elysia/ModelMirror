@@ -70,6 +70,8 @@ function hasUnsafeAbsoluteLiteral(source) {
     const value = match[2];
     const prefix = source.slice(Math.max(0, match.index - 32), match.index);
     const safeJsonPointer = /^\/(?:runtimePack|receipt)(?:\/[^\r\n]*)?$/u.test(value) ||
+      /^\/(?:prepared|options|actionId|runtime)$/u.test(value) ||
+      /^\/snapshot(?:\/(?:pack|status|stepCount|variables))?$/u.test(value) ||
       (/\b(?:path|action_path)\s*\+\s*$/u.test(prefix) && /^(?:\/[A-Za-z][A-Za-z0-9]*)+$/u.test(value));
     if (safeJsonPointer) {
       continue;
