@@ -15,6 +15,7 @@ from .tool_broker import FrozenCheck, ToolBroker
 from .workspace import WorkspaceBroker, WorkspaceSourceAdapter
 from .source_adapters import (
     BuiltinGitWorkspaceSourceAdapter,
+    HostSnapshotWorkspaceSourceAdapter,
     ProjectSnapshotWorkspaceSourceAdapter,
 )
 
@@ -265,12 +266,31 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
             )
         except ModuleNotFoundError:
             from coding_runtime.project_source_client import CodingProjectSourceClient
+        project_source_client = CodingProjectSourceClient(project_source_socket)
         project_adapter = ProjectSnapshotWorkspaceSourceAdapter(
-            CodingProjectSourceClient(project_source_socket),
+            project_source_client,
             Path(os.getenv("CODING_WORKER_PROJECT_SNAPSHOT_ROOT", "/project-snapshots")),
         )
         source_adapters.setdefault("manifest", project_adapter)
-        source_adapters.setdefault("host_snapshot", project_adapter)
+        try:
+            from server.coding_runtime.api import get_coding_service
+        except ModuleNotFoundError:
+            from coding_runtime.api import get_coding_service
+        coding_service = get_coding_service()
+        if coding_service.project_host is not None:
+            source_adapters.setdefault(
+                "host_snapshot",
+                HostSnapshotWorkspaceSourceAdapter(
+                    coding_service.project_host,
+                    project_source_client,
+                    Path(
+                        os.getenv(
+                            "CODING_WORKER_PROJECT_SNAPSHOT_ROOT",
+                            "/project-snapshots",
+                        )
+                    ),
+                ),
+            )
     return CodingWorkerRuntime(
         storage_root=root,
         slot_roots=slot_roots,

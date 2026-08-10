@@ -27,6 +27,30 @@ class ProjectSnapshotClient(Protocol):
 
     async def release(self, project_id: str, lease_id: str) -> bool: ...
 
+    async def import_uploaded(
+        self,
+        *,
+        upload_id: str,
+        archive_sha256: str,
+        project_id: str,
+        name: str,
+        branch: str,
+        head: str,
+    ) -> dict[str, Any]: ...
+
+
+class ProjectHostSnapshotClient(Protocol):
+    async def request_snapshot(
+        self,
+        project_id: str,
+        *,
+        expected_head: str | None = None,
+        expected_branch: str | None = None,
+        managed_operation_id: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    def finish_transfer(self, transfer_id: str) -> None: ...
+
 
 _DANGEROUS_CONFIG = re.compile(
     r"^(?:include(?:if)?\.|filter\.|credential\.|url\.|diff\..*\.textconv$|"
@@ -252,7 +276,7 @@ class ProjectSnapshotWorkspaceSourceAdapter:
     snapshot volume and Project Source socket stay behind this trusted adapter.
     """
 
-    _KINDS = {"manifest": "local_clone", "host_snapshot": "host_git"}
+    _KINDS = {"manifest": "local_clone"}
 
     def __init__(self, client: ProjectSnapshotClient, snapshot_root: Path) -> None:
         self._client = client
@@ -267,6 +291,15 @@ class ProjectSnapshotWorkspaceSourceAdapter:
         lease = await self._client.acquire(
             source.source_id, expected_head=source.revision
         )
+        return await self.consume_lease(source, lease, expected_kind=expected_kind)
+
+    async def consume_lease(
+        self,
+        source: WorkspaceSource,
+        lease: dict[str, Any],
+        *,
+        expected_kind: str,
+    ) -> SourceSnapshot:
         lease_id = lease.get("lease_id")
         if (
             lease.get("kind") != expected_kind
@@ -424,3 +457,75 @@ class ProjectSnapshotWorkspaceSourceAdapter:
                 for relative, content, executable in records
             ),
         )
+
+
+class HostSnapshotWorkspaceSourceAdapter:
+    """Lazily transfer one exact Windows Helper snapshot into the Worker.
+
+    Queued tasks do not occupy the single Project Source lease. The physical
+    path remains in the Helper; this adapter sees only the opaque project id,
+    revision, transfer metadata, and the fixed Project Source snapshot mount.
+    """
+
+    def __init__(
+        self,
+        host: ProjectHostSnapshotClient,
+        project_source: ProjectSnapshotClient,
+        snapshot_root: Path,
+    ) -> None:
+        self._host = host
+        self._project_source = project_source
+        self._reader = ProjectSnapshotWorkspaceSourceAdapter(
+            project_source, snapshot_root
+        )
+
+    async def acquire(self, source: WorkspaceSource) -> SourceSnapshot:
+        if source.kind != "host_snapshot":
+            raise WorkspaceError(
+                "Workspace source kind is unsupported.", code="source_not_found"
+            )
+        transfer_id: str | None = None
+        try:
+            transfer = await self._host.request_snapshot(
+                source.source_id,
+                expected_head=source.revision,
+            )
+            project = transfer.get("project")
+            transfer_id = transfer.get("upload_id")
+            archive_sha256 = transfer.get("archive_sha256")
+            if (
+                not isinstance(project, dict)
+                or project.get("id") != source.source_id
+                or project.get("head") != source.revision
+                or not isinstance(project.get("name"), str)
+                or not isinstance(project.get("branch"), str)
+                or not isinstance(transfer_id, str)
+                or re.fullmatch(r"[a-f0-9]{32}", transfer_id) is None
+                or not isinstance(archive_sha256, str)
+                or re.fullmatch(r"[a-f0-9]{64}", archive_sha256) is None
+            ):
+                raise WorkspaceError(
+                    "Host snapshot response is inconsistent.",
+                    code="source_revision_changed",
+                )
+            lease = await self._project_source.import_uploaded(
+                upload_id=transfer_id,
+                archive_sha256=archive_sha256,
+                project_id=source.source_id,
+                name=project["name"],
+                branch=project["branch"],
+                head=source.revision,
+            )
+            return await self._reader.consume_lease(
+                source, lease, expected_kind="host_git"
+            )
+        except WorkspaceError:
+            raise
+        except Exception as exc:
+            raise WorkspaceError(
+                "Host snapshot is unavailable.",
+                code=str(getattr(exc, "code", "source_unavailable")),
+            ) from exc
+        finally:
+            if transfer_id is not None:
+                self._host.finish_transfer(transfer_id)

@@ -3,15 +3,18 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
 from server.coding_worker.contracts import WorkspaceSource
 from server.coding_worker.source_adapters import (
     BuiltinGitWorkspaceSourceAdapter,
+    HostSnapshotWorkspaceSourceAdapter,
     ProjectSnapshotWorkspaceSourceAdapter,
 )
 from server.coding_worker.workspace import WorkspaceError
+from server.coding_worker.runtime import build_runtime_from_environment
 
 
 class FakeProjectSource:
@@ -20,6 +23,7 @@ class FakeProjectSource:
         self.acquired: list[tuple[str, str | None]] = []
         self.released: list[tuple[str, str]] = []
         self.release_result = True
+        self.imports: list[dict[str, str]] = []
 
     async def acquire(
         self, project_id: str, *, expected_head: str | None = None
@@ -30,6 +34,35 @@ class FakeProjectSource:
     async def release(self, project_id: str, lease_id: str) -> bool:
         self.released.append((project_id, lease_id))
         return self.release_result
+
+    async def import_uploaded(self, **payload: str) -> dict[str, object]:
+        self.imports.append(payload)
+        return dict(self.lease)
+
+
+class FakeProjectHost:
+    def __init__(self, project: dict[str, object]) -> None:
+        self.project = project
+        self.requests: list[tuple[str, str | None]] = []
+        self.finished: list[str] = []
+
+    async def request_snapshot(
+        self,
+        project_id: str,
+        *,
+        expected_head: str | None = None,
+        expected_branch: str | None = None,
+        managed_operation_id: str | None = None,
+    ) -> dict[str, object]:
+        self.requests.append((project_id, expected_head))
+        return {
+            "upload_id": "1" * 32,
+            "archive_sha256": "2" * 64,
+            "project": dict(self.project),
+        }
+
+    def finish_transfer(self, transfer_id: str) -> None:
+        self.finished.append(transfer_id)
 
 
 def _fingerprint(files: dict[str, bytes]) -> str:
@@ -66,18 +99,14 @@ def _lease(kind: str, files: dict[str, bytes]) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("source_kind", "lease_kind"),
-    (("manifest", "local_clone"), ("host_snapshot", "host_git")),
-)
 async def test_project_snapshot_adapter_copies_exact_lease_and_releases(
-    tmp_path: Path, source_kind: str, lease_kind: str
+    tmp_path: Path,
 ) -> None:
     files = {"README.md": b"hello\n", "src/app.py": b"print('ok')\n"}
-    lease = _lease(lease_kind, files)
+    lease = _lease("local_clone", files)
     client = FakeProjectSource(lease)
     source = WorkspaceSource(
-        kind=source_kind,
+        kind="manifest",
         source_id=str(lease["project_id"]),
         revision=str(lease["head"]),
     )
@@ -89,6 +118,87 @@ async def test_project_snapshot_adapter_copies_exact_lease_and_releases(
     assert [(item.path, item.content) for item in snapshot.files] == sorted(files.items())
     assert client.acquired == [(source.source_id, source.revision)]
     assert client.released == [(source.source_id, "lease_1")]
+
+
+@pytest.mark.asyncio
+async def test_host_snapshot_adapter_requests_imports_and_releases_exact_transfer(
+    tmp_path: Path,
+) -> None:
+    files = {"README.md": b"hello\n", "src/app.py": b"print('ok')\n"}
+    lease = _lease("host_git", files)
+    project = {
+        "id": lease["project_id"],
+        "name": "中文 Host Project",
+        "branch": "feature/v14",
+        "head": lease["head"],
+    }
+    client = FakeProjectSource(lease)
+    host = FakeProjectHost(project)
+    source = WorkspaceSource(
+        kind="host_snapshot",
+        source_id=str(lease["project_id"]),
+        revision=str(lease["head"]),
+    )
+
+    snapshot = await HostSnapshotWorkspaceSourceAdapter(
+        host, client, _source_root(tmp_path, files)
+    ).acquire(source)
+
+    assert [(item.path, item.content) for item in snapshot.files] == sorted(files.items())
+    assert host.requests == [(source.source_id, source.revision)]
+    assert client.acquired == []
+    assert client.imports == [
+        {
+            "upload_id": "1" * 32,
+            "archive_sha256": "2" * 64,
+            "project_id": source.source_id,
+            "name": "中文 Host Project",
+            "branch": "feature/v14",
+            "head": source.revision,
+        }
+    ]
+    assert client.released == [(source.source_id, "lease_1")]
+    assert host.finished == ["1" * 32]
+
+
+def test_runtime_wires_host_snapshot_to_live_project_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = FakeProjectHost({})
+    import server.coding_runtime.api as coding_api
+
+    monkeypatch.setattr(
+        coding_api,
+        "get_coding_service",
+        lambda: SimpleNamespace(project_host=host),
+    )
+    environment = {
+        "CODING_WORKER_STATE_ROOT": str(tmp_path / "state"),
+        "CODING_WORKER_SLOT_A_ROOT": str(tmp_path / "slot-a"),
+        "CODING_WORKER_SLOT_B_ROOT": str(tmp_path / "slot-b"),
+        "CODING_WORKER_SLOT_A_TOKEN": "a" * 32,
+        "CODING_WORKER_SLOT_B_TOKEN": "b" * 32,
+        "CODING_WORKER_EXECUTOR_A_TOKEN": "c" * 32,
+        "CODING_WORKER_EXECUTOR_B_TOKEN": "d" * 32,
+        "CODING_PROJECT_SOURCE_SOCKET_PATH": str(tmp_path / "source.sock"),
+        "CODING_WORKER_PROJECT_SNAPSHOT_ROOT": str(tmp_path / "snapshots"),
+        "CODING_WORKER_BROKER_SOCKET": str(tmp_path / "broker.sock"),
+    }
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("CODING_WORKER_BUILTIN_SOURCE_ROOT", raising=False)
+    monkeypatch.delenv("CODING_WORKER_BUILTIN_REVISION", raising=False)
+
+    runtime = build_runtime_from_environment()
+
+    assert isinstance(
+        runtime.workspace_broker._adapters["host_snapshot"],
+        HostSnapshotWorkspaceSourceAdapter,
+    )
+    assert isinstance(
+        runtime.workspace_broker._adapters["manifest"],
+        ProjectSnapshotWorkspaceSourceAdapter,
+    )
 
 
 @pytest.mark.asyncio
@@ -104,13 +214,21 @@ async def test_project_snapshot_adapter_rejects_changed_fingerprint_and_releases
         revision=str(lease["head"]),
     )
 
+    project = {
+        "id": lease["project_id"],
+        "name": "Host Project",
+        "branch": "feature/v14",
+        "head": lease["head"],
+    }
+    host = FakeProjectHost(project)
     with pytest.raises(WorkspaceError, match="does not match") as caught:
-        await ProjectSnapshotWorkspaceSourceAdapter(
-            client, _source_root(tmp_path, files)
+        await HostSnapshotWorkspaceSourceAdapter(
+            host, client, _source_root(tmp_path, files)
         ).acquire(source)
 
     assert caught.value.code == "source_revision_changed"
     assert client.released == [(source.source_id, "lease_1")]
+    assert host.finished == ["1" * 32]
 
 
 @pytest.mark.asyncio
