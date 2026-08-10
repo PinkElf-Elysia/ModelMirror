@@ -151,6 +151,11 @@ async def coding_worker_status() -> dict[str, Any]:
             _service.store.retention_seconds if _service is not None else 604800
         ),
         "network_enabled": _runtime.network_enabled if _runtime is not None else False,
+        "acceptance_checks": (
+            sorted(_service.tool_broker.frozen_checks)
+            if _service is not None and _service.tool_broker is not None
+            else []
+        ),
         "reason": _startup_error,
     }
 

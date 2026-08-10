@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from .contracts import (
     EvidenceStatus,
@@ -96,12 +96,13 @@ class CodingWorkerService:
         self._started = False
 
     async def create_task(self, origin: Origin, request: TaskCreateRequest) -> TaskRecord:
-        if self.tool_broker is not None:
+        frozen_checks = getattr(self.tool_broker, "frozen_checks", None)
+        if isinstance(frozen_checks, Mapping):
             unknown = [
                 check.check_id
                 for check in request.acceptance.required_checks
                 if check.kind == "command"
-                and check.check_id not in self.tool_broker.frozen_checks
+                and check.check_id not in frozen_checks
             ]
             if unknown:
                 raise WorkerConflictError(
