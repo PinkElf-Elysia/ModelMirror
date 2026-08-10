@@ -137,7 +137,13 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     let active = true;
     setLoading(true);
     void Promise.all([getCodingWorkerStatus(), refreshTasks()])
-      .then(([nextStatus]) => { if (active) setStatus(nextStatus); })
+      .then(([nextStatus]) => {
+        if (!active) return;
+        setStatus(nextStatus);
+        setCheckId((current) => nextStatus.acceptance_checks.includes(current)
+          ? current
+          : nextStatus.acceptance_checks[0] ?? "");
+      })
       .catch((caught) => { if (active) setError(errorMessage(caught, "Coding Worker 加载失败")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -269,8 +275,8 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
           </label>
           <label className="text-sm text-slate-200">不透明来源 ID<input value={sourceId} onChange={(event) => setSourceId(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white" /></label>
           <label className="text-sm text-slate-200">基准 revision<input value={revision} onChange={(event) => setRevision(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white" /></label>
-          <label className="text-sm text-slate-200">必需检查 ID<input value={checkId} onChange={(event) => setCheckId(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white" /></label>
-          <div className="flex items-end md:col-span-2 xl:col-span-5"><button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-cyan-400 px-5 text-sm font-semibold text-slate-950 disabled:opacity-50">提交到队列</button></div>
+          <label className="text-sm text-slate-200">冻结验收检查<select value={checkId} onChange={(event) => setCheckId(event.target.value)} disabled={!status.acceptance_checks.length} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white disabled:opacity-60">{status.acceptance_checks.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <div className="flex items-end md:col-span-2 xl:col-span-5"><button type="submit" disabled={busy || !checkId} className="min-h-11 rounded-lg bg-cyan-400 px-5 text-sm font-semibold text-slate-950 disabled:opacity-50">提交到队列</button></div>
         </form>
       )}
 

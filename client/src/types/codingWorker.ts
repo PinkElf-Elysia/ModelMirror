@@ -86,6 +86,7 @@ export interface CodingWorkerStatus {
   max_active_tasks: number;
   retention_seconds: number;
   network_enabled: boolean;
+  acceptance_checks: string[];
   reason: string | null;
 }
 

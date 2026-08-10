@@ -54,7 +54,7 @@ const task = {
 beforeEach(() => {
   Object.values(api).forEach((mock) => "mockReset" in mock && mock.mockReset());
   api.codingWorkerArtifactUrl.mockImplementation((taskId: string, artifactId: string) => `/artifact/${taskId}/${artifactId}`);
-  api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, reason: null });
+  api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, acceptance_checks: ["python-pytest", "react-build"], reason: null });
   api.listCodingWorkerTasks.mockResolvedValue([task]);
   api.getCodingWorkerTask.mockResolvedValue(task);
   api.listCodingWorkerApprovals.mockResolvedValue([{ approval_id: "approval_1234567890abcdef1234567890abcdef", task_id: task.task_id, operation_id: "operation_1", capability: "command", status: "pending", request: { command: "pytest" }, lease: null, created_at: 1, decided_at: null }]);
