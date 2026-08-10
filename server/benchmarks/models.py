@@ -47,6 +47,7 @@ BenchmarkTargetKind = Literal[
     "xpert_version",
     "proposal",
     "prompt_profile",
+    "knowledge_version",
 ]
 
 
@@ -61,6 +62,9 @@ class BenchmarkTargetRequest(BaseModel):
     prompt_profile_revision: int | None = Field(default=None, ge=1)
     host_xpert_id: str | None = Field(default=None, max_length=200)
     host_xpert_version: int | None = Field(default=None, ge=1)
+    kb_id: str | None = Field(default=None, max_length=200)
+    pipeline_version_id: str | None = Field(default=None, max_length=200)
+    document_ids: list[str] = Field(default_factory=list, max_length=100)
     label: str = Field(default="", max_length=160)
 
     @model_validator(mode="after")
@@ -87,6 +91,10 @@ class BenchmarkTargetRequest(BaseModel):
                 "prompt_profile_id, prompt_profile_revision, host_xpert_id, and "
                 "host_xpert_version are required."
             )
+        if self.kind == "knowledge_version" and (
+            not self.kb_id or not self.pipeline_version_id
+        ):
+            raise ValueError("kb_id and pipeline_version_id are required.")
         return self
 
 
@@ -104,12 +112,29 @@ class BenchmarkGenerationRequest(BaseModel):
         default_factory=list,
         max_length=20,
     )
+    no_result_count: int = Field(default=0, ge=0, le=5)
     seed: int = Field(default=0, ge=0, le=2_147_483_647)
+
+    @model_validator(mode="after")
+    def validate_no_result_count(self) -> "BenchmarkGenerationRequest":
+        limit = min(5, self.case_count // 5)
+        if self.no_result_count > limit:
+            raise ValueError(
+                f"no_result_count cannot exceed {limit} for {self.case_count} cases."
+            )
+        if self.target.kind != "knowledge_version" and self.no_result_count:
+            raise ValueError("no_result_count is only supported for knowledge targets.")
+        return self
 
 
 class BenchmarkGenerationPreflightRequest(BaseModel):
     target: BenchmarkTargetRequest
     coverage: list[str] = Field(default_factory=list, max_length=10)
+    locales: list[Literal["zh-CN", "en-US"]] = Field(
+        default_factory=lambda: ["zh-CN", "en-US"],
+        min_length=1,
+        max_length=2,
+    )
     conversation_selections: list[ConversationImportSelection] = Field(
         default_factory=list,
         max_length=20,

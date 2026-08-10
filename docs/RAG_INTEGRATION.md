@@ -9,6 +9,24 @@
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
 
+## 2026-08-09 增量：知识库定向 Gold 生成与校准
+
+`/rag/:kbId/evaluation` 可以针对一个固定 `ready / active` 索引版本生成待审核评测集。
+用户可限制文档范围、语言、覆盖矩阵、数量与 seed；预检会显示稳定 source block 数量、
+抽样规模、预计发送字符数和外部模型数据提示。
+
+生成器最多向已选择模型发送 40 个受限证据块，每块最多 1,200 字符、合计最多 48,000
+字符。服务端先固定 Blueprint、Gold evidence 和 query marker，再验证模型返回的 exact
+anchor quote。最终 Gold 以 `source_block` 为评分主依据并保留初始 chunk ID 诊断；未知、
+跨库或跨版本引用，以及不能关联固定证据标记的通用问题都会被拒绝。
+
+生成后会自动对固定索引运行一次真实检索校准。校准只记录 Gold rank、难度分桶和错误摘要，
+不会用 Top-K 结果改写 Gold。`warning` 发布需要人工确认；无答案题还必须逐题确认。任何用例
+编辑都会使校准 `stale`。任务重启后复用已有草稿继续校准，不会再次调用生成模型。
+
+该能力用于具体知识库的业务质量证据；标准双语 RAG Pack 仍只承担检索引擎回归。生成和
+校准不会重建、激活或推广知识版本，也不会返回路径、embedding、完整正文或密钥。
+
 ## 2026-08-09 增量：RAG 引擎标准 Benchmark 与版本化评测
 
 Benchmark Catalog 新增 `modelmirror-rag-foundation-bilingual-v1`。它使用 12 份
@@ -18,8 +36,8 @@ Parent-child + hash embedding + 向量/FTS5 双索引的托管知识库。实例
 
 该 Pack 是检索引擎的一致性与回归基准，只能证明分块、双索引、引用、无答案处理和版本
 切换在固定合成语料上的行为。它不代表任意业务知识库的真实质量，也不应替代针对目标
-知识库、固定索引版本和实际问题分布生成并人工审核的 Gold 评测集。下一轮固定进入
-`XPERT-RAG-BENCHMARK-GENERATOR-04`，补齐这项业务质量门禁。
+知识库、固定索引版本和实际问题分布生成并人工审核的 Gold 评测集；该能力已由上方定向
+Gold 生成闭环补齐。
 
 托管 Benchmark KB 使用 `origin=benchmark_catalog`、`corpus_locked=true`：语料上传、
 文档删除和 Knowledge Inbox 写入返回 409；流水线草稿、候选构建、固定评测、激活、回滚

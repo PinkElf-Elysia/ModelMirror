@@ -380,6 +380,13 @@ npm.cmd run build
   固定版本评测、激活、回滚和删除整个 KB。内部 provisioner 的绕过能力不得暴露给普通 API。
 - RAG Gold Pack 只能保存稳定逻辑 anchor；实例化时必须唯一解析真实 document/chunk/source
   block。跨分块比较优先使用 `match_mode=source_block`，不得用当前 Top-K 结果重写 Gold。
+- 知识库定向生成必须固定 `kb_id + pipeline_version_id`、文档 hash 和处理/分块/检索 Profile。
+  只允许向生成模型发送分层抽样的受限证据；Job 不得持久化正文或完整生成 Prompt。
+- 知识 Gold Blueprint 必须由服务端固定 evidence、source block、query marker 和题型。模型
+  返回的 anchor quote 必须能在固定 evidence 中验证，问题必须包含每个 Gold block 的目标
+  marker；未知、跨库、跨版本引用和无针对性的通用问题必须 fail-closed。
+- 知识校准只能读取固定索引并报告 Gold rank、无答案误召回和错误，不得根据 Top-K 改写
+  Gold。warning 必须显式确认；生成的无答案题必须逐题确认；任何编辑都必须使校准 stale。
 - 无答案样例必须显式 `expected_no_result=true` 且引用为空；Recall/MRR/nDCG/Citation 仅聚合
   正样例，No-result Accuracy 与 False-positive Rate 单独报告。
 - Published EvaluationSetVersion 不可变，草稿编辑不得使固定版本报告 stale；未固定版本的
@@ -433,7 +440,7 @@ npm.cmd run build
 
 ```bash
 python -m pytest server/tests/test_benchmark_catalog.py server/tests/test_benchmark_generator.py server/tests/test_xpert_evaluations.py -q
-python -m pytest server/tests/test_rag_benchmark_standard.py server/tests/test_rag_evaluation.py server/tests/test_rag_retrieval_v2.py -q
+python -m pytest server/tests/test_rag_benchmark_generator.py server/tests/test_rag_benchmark_standard.py server/tests/test_rag_evaluation.py server/tests/test_rag_retrieval_v2.py -q
 cd client
 npm.cmd run build
 ```

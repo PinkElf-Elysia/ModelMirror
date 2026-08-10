@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import KnowledgeBenchmarkGenerator from "../components/evaluations/KnowledgeBenchmarkGenerator";
 
 interface KnowledgeBase {
   id: string;
@@ -26,6 +27,7 @@ interface PipelineVersion {
 }
 
 interface ExpectedReference {
+  reference_id?: string;
   document_id: string;
   chunk_id?: string | null;
   source_block_id?: string | null;
@@ -41,6 +43,8 @@ interface EvaluationCase {
   query: string;
   expected_refs: ExpectedReference[];
   expected_no_result?: boolean;
+  review_status?: "not_required" | "pending" | "approved";
+  targeting?: Record<string, unknown>;
   tags: string[];
   notes: string;
 }
@@ -57,7 +61,7 @@ interface EvaluationSet {
   origin?: string;
   catalog_ref?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
-  coverage?: Record<string, number>;
+  coverage?: Record<string, unknown>;
   calibration?: Record<string, unknown>;
   latest_version?: number | null;
 }
@@ -179,6 +183,9 @@ export default function KnowledgeEvaluationPage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [acknowledgeCalibrationWarnings, setAcknowledgeCalibrationWarnings] = useState(false);
+  const [caseEvidence, setCaseEvidence] = useState<Record<string, Array<Record<string, unknown>>>>({});
+  const [calibrationJob, setCalibrationJob] = useState<{ job_id: string; status: string; error?: string | null } | null>(null);
 
   const selectedSet = useMemo(
     () => evaluationSets.find((item) => item.eval_set_id === selectedSetId) ?? null,
@@ -214,6 +221,18 @@ export default function KnowledgeEvaluationPage() {
     const timer = window.setInterval(() => void refreshRun(selectedRun.run_id), 900);
     return () => window.clearInterval(timer);
   }, [selectedRun?.run_id, selectedRun?.status]);
+
+  useEffect(() => {
+    if (!calibrationJob || ["completed", "failed", "cancelled"].includes(calibrationJob.status)) return;
+    const timer = window.setInterval(async () => {
+      const response = await fetch(`/api/benchmarks/calibrations/${encodeURIComponent(calibrationJob.job_id)}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setCalibrationJob(data);
+      if (["completed", "failed", "cancelled"].includes(data.status)) await reloadSets(selectedSetId);
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [calibrationJob?.job_id, calibrationJob?.status, selectedSetId]);
 
   async function loadWorkspace() {
     setBusy("load");
@@ -405,7 +424,11 @@ export default function KnowledgeEvaluationPage() {
     const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ expected_revision: selectedSet.revision, release_notes: "Published from Knowledge Evaluation workspace" }),
+      body: JSON.stringify({
+        expected_revision: selectedSet.revision,
+        release_notes: "Published from Knowledge Evaluation workspace",
+        acknowledge_calibration_warnings: acknowledgeCalibrationWarnings,
+      }),
     });
     const data = await response.json().catch(() => null);
     setBusy("");
@@ -414,6 +437,66 @@ export default function KnowledgeEvaluationPage() {
     await loadEvaluationSetVersions(selectedSet.eval_set_id);
     setSelectedEvaluationVersion(String(data.version));
     setNotice(`评测集 v${data.version} 已发布；后续草稿编辑不会改变该版本。`);
+  }
+
+  async function loadCaseEvidence(caseId: string) {
+    if (!selectedSet) return;
+    if (caseEvidence[caseId]) {
+      setCaseEvidence((current) => {
+        const next = { ...current };
+        delete next[caseId];
+        return next;
+      });
+      return;
+    }
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/cases/${encodeURIComponent(caseId)}/evidence`);
+    const data = await response.json().catch(() => null);
+    if (!response.ok) return setError(errorMessage(data, "Gold 证据加载失败。"));
+    setCaseEvidence((current) => ({ ...current, [caseId]: data.evidence ?? [] }));
+  }
+
+  async function approveNoResultCase(item: EvaluationCase) {
+    if (!selectedSet || !item.expected_no_result) return;
+    const response = await fetch(`/api/rag/evaluation-sets/${encodeURIComponent(selectedSet.eval_set_id)}/cases/${encodeURIComponent(item.case_id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expected_revision: selectedSet.revision,
+        case: {
+          query: item.query,
+          expected_no_result: true,
+          expected_refs: [],
+          review_status: "approved",
+          tags: item.tags,
+          notes: item.notes,
+        },
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) return setError(errorMessage(data, "无答案样例确认失败。"));
+    await reloadSets(selectedSet.eval_set_id);
+    setNotice("无答案样例已确认；评测集已变更，需要重新校准。" );
+  }
+
+  async function recalibrateGeneratedSet() {
+    if (!selectedSet || selectedSet.origin !== "generated") return;
+    const target = selectedSet.provenance?.target_reference;
+    if (!target || typeof target !== "object") return setError("该评测集缺少固定知识版本，无法重新校准。" );
+    setBusy("calibration");
+    const response = await fetch("/api/benchmarks/calibrations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dataset_id: selectedSet.eval_set_id,
+        dataset_revision: selectedSet.revision,
+        target,
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    setBusy("");
+    if (!response.ok) return setError(errorMessage(data, "重新校准失败。"));
+    setCalibrationJob(data);
+    setNotice("重新校准已启动，Gold 不会被检索结果改写。" );
   }
 
   async function refreshRun(runId: string, refreshList = true) {
@@ -490,6 +573,17 @@ export default function KnowledgeEvaluationPage() {
           </div>
         ) : null}
 
+        <KnowledgeBenchmarkGenerator
+          kbId={kbId}
+          versions={versions}
+          documents={documents}
+          onDatasetReady={async (evalSetId) => {
+            await reloadSets(evalSetId);
+            setSelectedSetId(evalSetId);
+            setNotice("定向评测集已生成并完成校准，请逐题审核 Gold 后再发布。" );
+          }}
+        />
+
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(480px,0.95fr)]">
           <section className="surface-panel rounded-lg border border-white/10 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
@@ -503,7 +597,9 @@ export default function KnowledgeEvaluationPage() {
                   {evaluationSets.map((item) => <option key={item.eval_set_id} value={item.eval_set_id}>{item.name} ({item.cases.length})</option>)}
                 </select>
                 <button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 disabled:opacity-40" disabled={!selectedSet} onClick={() => importRef.current?.click()} type="button">导入</button>
-                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set"} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
+                {selectedSet?.origin === "generated" && selectedSet.calibration?.status === "warning" ? <label className="flex items-center gap-2 text-xs text-amber-100"><input checked={acknowledgeCalibrationWarnings} onChange={(event) => setAcknowledgeCalibrationWarnings(event.target.checked)} type="checkbox" />确认校准警告</label> : null}
+                {selectedSet?.origin === "generated" ? <button className="rounded-lg border border-cyan-300/25 px-3 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-40" disabled={busy === "calibration" || Boolean(calibrationJob && !["completed", "failed", "cancelled"].includes(calibrationJob.status))} onClick={() => void recalibrateGeneratedSet()} type="button">重新校准</button> : null}
+                <button className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-40" disabled={!selectedSet?.cases.length || busy === "publish-set" || (selectedSet?.origin === "generated" && selectedSet.calibration?.status === "warning" && !acknowledgeCalibrationWarnings)} onClick={() => void publishEvaluationSet()} type="button">发布版本</button>
                 <input accept=".json,.csv,application/json,text/csv" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importCases(file); event.target.value = ""; }} ref={importRef} type="file" />
               </div>
             </div>
@@ -563,8 +659,9 @@ export default function KnowledgeEvaluationPage() {
             <div className="mt-5 max-h-[360px] divide-y divide-white/10 overflow-y-auto border-t border-white/10">
               {selectedSet?.cases.length ? selectedSet.cases.map((item, index) => (
                 <div className="py-3" key={item.case_id}>
-                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p><button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
+                  <div className="flex gap-3"><span className="text-xs font-semibold text-slate-500">{index + 1}</span><p className="min-w-0 flex-1 text-sm text-slate-100">{item.query}</p>{selectedSet.origin === "generated" && !item.expected_no_result ? <button className="text-xs text-cyan-100" onClick={() => void loadCaseEvidence(item.case_id)} type="button">{caseEvidence[item.case_id] ? "收起证据" : "查看 Gold"}</button> : null}{selectedSet.origin === "generated" && item.expected_no_result && item.review_status !== "approved" ? <button className="text-xs text-amber-100" onClick={() => void approveNoResultCase(item)} type="button">确认无答案</button> : null}<button className="text-xs text-rose-200" onClick={() => void deleteCase(item.case_id)} type="button">删除</button></div>
                   <p className="mt-2 pl-7 text-xs text-slate-500">{item.expected_no_result ? "期望无结果" : `${item.expected_refs.length} 个期望引用 · ${[...new Set(item.expected_refs.map((ref) => ref.match_mode || "legacy"))].join(" / ")}`} · {item.tags.join(" · ") || "未标记"}</p>
+                  {caseEvidence[item.case_id] ? <div className="mt-2 ml-7 space-y-2 border-l border-cyan-300/20 pl-3">{caseEvidence[item.case_id].map((evidence, evidenceIndex) => <div className="text-xs" key={`${item.case_id}:${evidenceIndex}`}><p className="font-semibold text-slate-200">{String(evidence.document_name || evidence.document_id || "Gold evidence")}{evidence.page_number ? ` · p${evidence.page_number}` : ""}</p><p className="mt-1 whitespace-pre-wrap text-slate-500">{String(evidence.text || "")}</p></div>)}</div> : null}
                 </div>
               )) : <p className="py-10 text-center text-sm text-slate-500">尚无评估问题</p>}
             </div>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -12,6 +13,7 @@ from .store import BenchmarkJobStore
 
 if False:  # pragma: no cover - type-only import without a runtime cycle.
     from .knowledge_executor import KnowledgeBenchmarkProvisioner
+    from .knowledge_generation import KnowledgeBenchmarkGenerationService
 
 
 @dataclass(frozen=True)
@@ -81,7 +83,11 @@ class BenchmarkJobExecutor:
         evaluation_service: Any,
         evaluation_executor: Any,
         knowledge_provisioner: "KnowledgeBenchmarkProvisioner | None" = None,
+        knowledge_service: "KnowledgeBenchmarkGenerationService | None" = None,
+        rag_evaluation_store: Any | None = None,
+        rag_evaluation_executor: Any | None = None,
         poll_seconds: float = 0.5,
+        generator_timeout_seconds: float | None = None,
     ) -> None:
         self.store = store
         self.service = service
@@ -90,7 +96,16 @@ class BenchmarkJobExecutor:
         self.evaluation_service = evaluation_service
         self.evaluation_executor = evaluation_executor
         self.knowledge_provisioner = knowledge_provisioner
+        self.knowledge_service = knowledge_service
+        self.rag_evaluation_store = rag_evaluation_store
+        self.rag_evaluation_executor = rag_evaluation_executor
         self.poll_seconds = max(0.1, float(poll_seconds))
+        configured_timeout = (
+            generator_timeout_seconds
+            if generator_timeout_seconds is not None
+            else os.getenv("BENCHMARK_GENERATOR_TIMEOUT_SECONDS", "180")
+        )
+        self.generator_timeout_seconds = max(0.01, float(configured_timeout))
         self._task: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
         self._stopping = False
@@ -113,6 +128,32 @@ class BenchmarkJobExecutor:
 
     def wake(self) -> None:
         self._wake.set()
+
+    async def _invoke_generator(
+        self,
+        model_id: str,
+        system: str,
+        user: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> BenchmarkGeneratorOutput:
+        try:
+            output = await asyncio.wait_for(
+                self.generator_runner(
+                    model_id,
+                    system,
+                    user,
+                    temperature,
+                    max_tokens,
+                ),
+                timeout=self.generator_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            timeout = f"{self.generator_timeout_seconds:g}"
+            raise BenchmarkGenerationError(
+                f"Benchmark generator timed out after {timeout} seconds."
+            ) from exc
+        return _normalize_generator_output(output)
 
     async def _loop(self) -> None:
         while not self._stopping:
@@ -149,6 +190,9 @@ class BenchmarkJobExecutor:
     async def _run_generation(self, job: dict[str, Any]) -> None:
         request = dict(job.get("request") or {})
         reference = dict(request.get("target") or {})
+        if reference.get("kind") == "knowledge_version":
+            await self._run_knowledge_generation(job)
+            return
         snapshot, target_warnings = await asyncio.to_thread(
             self.service.snapshot_target, reference
         )
@@ -203,13 +247,13 @@ class BenchmarkJobExecutor:
             coverage=coverage,
             warnings=target_warnings,
         )
-        initial_output = _normalize_generator_output(await self.generator_runner(
+        initial_output = await self._invoke_generator(
             str(request.get("generator_model_id") or ""),
             system,
             user,
             0.2,
             12_000,
-        ))
+        )
         raw = initial_output.text
         generation_attempts = [
             {
@@ -262,13 +306,13 @@ class BenchmarkJobExecutor:
                     coverage.get("prompt_command_aliases") or []
                 ),
             )
-            repaired_output = _normalize_generator_output(await self.generator_runner(
+            repaired_output = await self._invoke_generator(
                 str(request.get("generator_model_id") or ""),
                 repair_system,
                 repair_user,
                 0.0,
                 12_000,
-            ))
+            )
             generation_attempts.append(
                 {
                     "attempt": "repair",
@@ -379,6 +423,11 @@ class BenchmarkJobExecutor:
 
     async def _run_calibration(self, job: dict[str, Any]) -> None:
         request = dict(job.get("request") or {})
+        if request.get("calibration_runtime") == "knowledge" or dict(
+            request.get("target") or {}
+        ).get("kind") == "knowledge_version":
+            await self._run_knowledge_calibration(job)
+            return
         dataset = await asyncio.to_thread(
             self.service.evaluation_store.require_dataset,
             str(request.get("dataset_id") or ""),
@@ -490,6 +539,10 @@ class BenchmarkJobExecutor:
             self.store.list_jobs, status="calibrating", limit=200
         )
         for job in jobs:
+            if str(job.get("calibration_runtime") or "") == "knowledge":
+                if await self._poll_knowledge_calibration(job):
+                    progressed = True
+                continue
             run_id = str(job.get("evaluation_run_id") or "")
             if not run_id:
                 await self._fail_job(job, BenchmarkGenerationError("Calibration run missing."))
@@ -541,6 +594,30 @@ class BenchmarkJobExecutor:
         error = str(exc)[:1_000]
         dataset_id = str(job.get("dataset_id") or "")
         revision = int(job.get("dataset_revision") or 0)
+        request = dict(job.get("request") or {})
+        knowledge_job = (
+            str(job.get("calibration_runtime") or "") == "knowledge"
+            or dict(request.get("target") or {}).get("kind") == "knowledge_version"
+        )
+        if knowledge_job and dataset_id and revision and self.rag_evaluation_store is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(
+                    self.rag_evaluation_store.set_calibration,
+                    dataset_id,
+                    expected_revision=revision,
+                    calibration={
+                        "status": "failed",
+                        "dataset_revision": revision,
+                        "reason": error,
+                    },
+                )
+            await asyncio.to_thread(
+                self.store.update_job,
+                job["job_id"],
+                status="failed",
+                error=error,
+            )
+            return
         if dataset_id and revision:
             with contextlib.suppress(Exception):
                 await asyncio.to_thread(
@@ -565,4 +642,432 @@ class BenchmarkJobExecutor:
                 return self.service.evaluation_store.require_dataset(
                     str(item["dataset_id"])
                 )
+        return None
+
+    async def _run_knowledge_generation(self, job: dict[str, Any]) -> None:
+        if (
+            self.knowledge_service is None
+            or self.rag_evaluation_store is None
+            or self.rag_evaluation_executor is None
+        ):
+            raise BenchmarkGenerationError("Knowledge Benchmark generation is not configured.")
+        request = dict(job.get("request") or {})
+        reference = dict(request.get("target") or {})
+        snapshot, target_warnings = await asyncio.to_thread(
+            self.knowledge_service.snapshot_target, reference
+        )
+        existing = await asyncio.to_thread(
+            self._find_knowledge_generation_set,
+            job["job_id"],
+            str(snapshot["kb_id"]),
+        )
+        if existing is not None:
+            await asyncio.to_thread(
+                self.store.update_job,
+                job["job_id"],
+                status="validating",
+                target=self.knowledge_service.public_target(snapshot),
+                dataset_id=existing["eval_set_id"],
+                dataset_revision=existing["revision"],
+                warnings=target_warnings,
+            )
+            await self._start_knowledge_evaluation(
+                job_id=job["job_id"],
+                dataset=existing,
+                snapshot=snapshot,
+                reference=reference,
+            )
+            return
+
+        context = await asyncio.to_thread(
+            self.knowledge_service.prepare_generation,
+            snapshot=snapshot,
+            case_count=int(request.get("case_count") or 12),
+            locales=list(request.get("locales") or ["zh-CN", "en-US"]),
+            requested_coverage=list(request.get("coverage") or []),
+            no_result_count=int(request.get("no_result_count") or 0),
+            seed=int(request.get("seed") or 0),
+        )
+        system, user = await asyncio.to_thread(
+            self.knowledge_service.generation_prompt,
+            snapshot=snapshot,
+            context=context,
+            case_count=int(request.get("case_count") or 12),
+            locales=list(request.get("locales") or ["zh-CN", "en-US"]),
+            seed=int(request.get("seed") or 0),
+        )
+        await asyncio.to_thread(
+            self.store.update_job,
+            job["job_id"],
+            status="generating",
+            target=self.knowledge_service.public_target(snapshot),
+            coverage={
+                "selected": list(context["selected_coverage"]),
+                "available": list(context["available_coverage"]),
+                "locales": list(request.get("locales") or ["zh-CN", "en-US"]),
+                "sampled_evidence_count": len(context["evidence"]),
+                "estimated_context_chars": sum(len(item["text"]) for item in context["evidence"]),
+            },
+            warnings=target_warnings,
+        )
+        initial = await self._invoke_generator(
+            str(request.get("generator_model_id") or ""),
+            system,
+            user,
+            0.2,
+            12_000,
+        )
+        attempts = [{
+            "attempt": "initial",
+            "error_code": initial.error_code,
+            "diagnostics": _safe_generator_diagnostics(initial.diagnostics),
+        }]
+        await asyncio.to_thread(
+            self.store.update_job,
+            job["job_id"],
+            generation_attempts=attempts,
+        )
+        repair_used = False
+        try:
+            if initial.error_code:
+                raise BenchmarkGenerationError(
+                    initial.error_message or "Knowledge Benchmark generation failed."
+                )
+            generated = self.knowledge_service.parse_generated_cases(
+                initial.text,
+                snapshot=snapshot,
+                context=context,
+                expected_count=int(request.get("case_count") or 12),
+            )
+        except BenchmarkGenerationError as exc:
+            repair_used = True
+            repair_system, repair_user = self.knowledge_service.repair_prompt(
+                initial.text,
+                str(exc),
+                snapshot=snapshot,
+                context=context,
+                case_count=int(request.get("case_count") or 12),
+                locales=list(request.get("locales") or ["zh-CN", "en-US"]),
+                seed=int(request.get("seed") or 0),
+            )
+            repaired = await self._invoke_generator(
+                str(request.get("generator_model_id") or ""),
+                repair_system,
+                repair_user,
+                0.0,
+                12_000,
+            )
+            attempts.append({
+                "attempt": "repair",
+                "error_code": repaired.error_code,
+                "diagnostics": _safe_generator_diagnostics(repaired.diagnostics),
+            })
+            await asyncio.to_thread(
+                self.store.update_job,
+                job["job_id"],
+                generation_attempts=attempts,
+            )
+            if repaired.error_code:
+                raise BenchmarkGenerationError(
+                    repaired.error_message or "Knowledge Benchmark repair failed."
+                )
+            generated = self.knowledge_service.parse_generated_cases(
+                repaired.text,
+                snapshot=snapshot,
+                context=context,
+                expected_count=int(request.get("case_count") or 12),
+            )
+        current = await asyncio.to_thread(self.store.require_job, job["job_id"])
+        if current.get("cancel_requested"):
+            await asyncio.to_thread(self.store.update_job, job["job_id"], status="cancelled")
+            return
+        dataset = await asyncio.to_thread(
+            self.rag_evaluation_store.create_generated_set,
+            str(snapshot["kb_id"]),
+            generated["name"],
+            generated["description"],
+            cases=generated["cases"],
+            provenance={
+                "generator": "modelmirror-targeted-rag-benchmark-v1",
+                "generation_job_id": job["job_id"],
+                "generator_model_id": str(request.get("generator_model_id") or "")[:300],
+                "target_reference": copy.deepcopy(reference),
+                "target_checksum": snapshot["checksum"],
+                "pipeline_version_id": snapshot["pipeline_version_id"],
+                "document_ids": [item["document_id"] for item in snapshot["documents"]],
+                "source_summary_hash": snapshot["source_summary_hash"],
+                "evidence_hash": context["evidence_hash"],
+                "blueprint_hash": context["blueprint_hash"],
+                "seed": int(request.get("seed") or 0),
+                "repair_used": repair_used,
+                "generation_attempts": copy.deepcopy(attempts),
+            },
+            coverage={
+                "selected": list(context["selected_coverage"]),
+                "available": list(context["available_coverage"]),
+                "locales": list(request.get("locales") or ["zh-CN", "en-US"]),
+                "targeting": copy.deepcopy(generated.get("targeting") or []),
+            },
+            calibration={
+                "status": "pending",
+                "dataset_revision": 1,
+                "target_reference": copy.deepcopy(reference),
+                "target_checksum": snapshot["checksum"],
+            },
+        )
+        await asyncio.to_thread(
+            self.store.update_job,
+            job["job_id"],
+            status="validating",
+            generation={
+                "case_count": len(generated["cases"]),
+                "repair_used": repair_used,
+                "attempt_diagnostics": copy.deepcopy(attempts),
+                "assumptions": generated["assumptions"],
+                "targeting": copy.deepcopy(generated.get("targeting") or []),
+            },
+            dataset_id=dataset["eval_set_id"],
+            dataset_revision=dataset["revision"],
+        )
+        await self._start_knowledge_evaluation(
+            job_id=job["job_id"],
+            dataset=dataset,
+            snapshot=snapshot,
+            reference=reference,
+        )
+
+    async def _run_knowledge_calibration(self, job: dict[str, Any]) -> None:
+        if self.knowledge_service is None or self.rag_evaluation_store is None:
+            raise BenchmarkGenerationError("Knowledge Benchmark calibration is not configured.")
+        request = dict(job.get("request") or {})
+        dataset = await asyncio.to_thread(
+            self.rag_evaluation_store.get_set,
+            str(request.get("dataset_id") or ""),
+        )
+        revision = int(request.get("dataset_revision") or 0)
+        if int(dataset.get("revision") or 0) != revision:
+            raise BenchmarkGenerationError("Evaluation set changed before calibration started.")
+        reference = dict(request.get("target") or {}) or dict(
+            (dataset.get("provenance") or {}).get("target_reference") or {}
+        )
+        snapshot, warnings = await asyncio.to_thread(
+            self.knowledge_service.snapshot_target, reference
+        )
+        await asyncio.to_thread(
+            self.store.update_job,
+            job["job_id"],
+            target=self.knowledge_service.public_target(snapshot),
+            warnings=warnings,
+        )
+        await self._start_knowledge_evaluation(
+            job_id=job["job_id"],
+            dataset=dataset,
+            snapshot=snapshot,
+            reference=reference,
+        )
+
+    async def _start_knowledge_evaluation(
+        self,
+        *,
+        job_id: str,
+        dataset: dict[str, Any],
+        snapshot: dict[str, Any],
+        reference: dict[str, Any],
+    ) -> None:
+        revision = int(dataset["revision"])
+        version_id = str(snapshot["pipeline_version_id"])
+        run = await asyncio.to_thread(
+            self.rag_evaluation_store.create_run,
+            evaluation_set=dataset,
+            targets=[{
+                "target_id": version_id,
+                "version_id": version_id,
+                "version": int(snapshot["version"]),
+                "label": snapshot["label"],
+                "retrieval": copy.deepcopy(snapshot.get("retrieval_profile") or {}),
+            }],
+            baseline_version_id=None,
+            ks=[1, 3, 5, 10],
+            gate_policy=self.rag_evaluation_store.get_gate_policy(str(snapshot["kb_id"])),
+        )
+        await asyncio.to_thread(
+            self.rag_evaluation_store.set_calibration,
+            dataset["eval_set_id"],
+            expected_revision=revision,
+            calibration={
+                "status": "pending",
+                "dataset_revision": revision,
+                "target_reference": copy.deepcopy(reference),
+                "target_checksum": snapshot["checksum"],
+                "evaluation_run_id": run["run_id"],
+            },
+        )
+        await asyncio.to_thread(
+            self.store.update_job,
+            job_id,
+            status="calibrating",
+            dataset_id=dataset["eval_set_id"],
+            dataset_revision=revision,
+            evaluation_run_id=run["run_id"],
+            target=self.knowledge_service.public_target(snapshot),
+            calibration_runtime="knowledge",
+        )
+        self.rag_evaluation_executor.notify()
+
+    async def _poll_knowledge_calibration(self, job: dict[str, Any]) -> bool:
+        run_id = str(job.get("evaluation_run_id") or "")
+        if not run_id:
+            await self._fail_job(job, BenchmarkGenerationError("Knowledge calibration run missing."))
+            return True
+        current_job = await asyncio.to_thread(self.store.require_job, job["job_id"])
+        if current_job.get("cancel_requested"):
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(self.rag_evaluation_store.request_cancel, run_id)
+            dataset_id = str(job.get("dataset_id") or "")
+            revision = int(job.get("dataset_revision") or 0)
+            if dataset_id and revision:
+                await asyncio.to_thread(
+                    self.rag_evaluation_store.set_calibration,
+                    dataset_id,
+                    expected_revision=revision,
+                    calibration={
+                        "status": "failed",
+                        "dataset_revision": revision,
+                        "reason": "Calibration cancelled; run calibration again before publishing.",
+                    },
+                )
+            await asyncio.to_thread(self.store.update_job, job["job_id"], status="cancelled")
+            return True
+        run = await asyncio.to_thread(self.rag_evaluation_store.get_run, run_id)
+        if run.get("status") not in {"succeeded", "failed", "cancelled"}:
+            return False
+        dataset = await asyncio.to_thread(
+            self.rag_evaluation_store.get_set,
+            str(job.get("dataset_id") or ""),
+        )
+        expected_revision = int(job.get("dataset_revision") or 0)
+        if int(dataset.get("revision") or 0) != expected_revision:
+            result = {
+                "status": "stale",
+                "dataset_revision": int(dataset.get("revision") or 0),
+                "evaluation_run_id": run.get("run_id"),
+                "reason": "Evaluation set changed while calibration was running.",
+            }
+            await asyncio.to_thread(
+                self.store.update_job,
+                job["job_id"],
+                status="completed",
+                calibration=result,
+            )
+            return True
+        result = self._knowledge_calibration_result(dataset=dataset, run=run, job=job)
+        await asyncio.to_thread(
+            self.rag_evaluation_store.set_calibration,
+            dataset["eval_set_id"],
+            expected_revision=int(job.get("dataset_revision") or 0),
+            calibration=result,
+        )
+        await asyncio.to_thread(
+            self.store.update_job,
+            job["job_id"],
+            status="failed" if result["status"] == "failed" else "completed",
+            calibration=result,
+            error=result.get("reason") if result["status"] == "failed" else None,
+        )
+        return True
+
+    @staticmethod
+    def _knowledge_calibration_result(
+        *, dataset: dict[str, Any], run: dict[str, Any], job: dict[str, Any]
+    ) -> dict[str, Any]:
+        revision = int(job.get("dataset_revision") or 0)
+        if run.get("status") != "succeeded":
+            return {
+                "status": "failed",
+                "dataset_revision": revision,
+                "evaluation_run_id": run.get("run_id"),
+                "reason": str(run.get("error") or f"Calibration run {run.get('status')}.")[:500],
+            }
+        target_id = str(dict(job.get("target") or {}).get("pipeline_version_id") or "")
+        case_map = dict((run.get("case_results") or {}).get(target_id) or {})
+        diagnostics: list[dict[str, Any]] = []
+        easy = missed = no_result_false_positive = failures = positive_count = no_result_count = 0
+        for case in dataset.get("cases") or []:
+            case_id = str(case.get("case_id") or "")
+            item = dict(case_map.get(case_id) or {})
+            if item.get("status") != "completed":
+                failures += 1
+                bucket = "failed"
+                rank = None
+            elif case.get("expected_no_result"):
+                no_result_count += 1
+                false_positive = float(item.get("metrics", {}).get("false_positive_rate", 0.0)) > 0
+                no_result_false_positive += int(false_positive)
+                bucket = "false_positive" if false_positive else "valid"
+                rank = None
+            else:
+                positive_count += 1
+                ranks = [
+                    int(row.get("rank") or 0)
+                    for row in item.get("ranking") or []
+                    if int(row.get("relevance") or 0) > 0
+                ]
+                rank = min(ranks) if ranks else None
+                if rank == 1:
+                    easy += 1
+                    bucket = "too_easy"
+                elif rank is not None and rank <= 5:
+                    bucket = "effective"
+                elif rank is not None and rank <= 10:
+                    bucket = "difficult"
+                else:
+                    missed += 1
+                    bucket = "needs_review"
+            diagnostics.append({"case_id": case_id, "best_gold_rank": rank, "bucket": bucket})
+        if failures:
+            status = "failed"
+            reason = f"{failures} calibration cases failed to execute."
+        else:
+            easy_ratio = easy / positive_count if positive_count else 0.0
+            missed_ratio = missed / positive_count if positive_count else 0.0
+            no_result_fp_ratio = (
+                no_result_false_positive / no_result_count if no_result_count else 0.0
+            )
+            warning_reasons = []
+            if easy_ratio >= 0.8:
+                warning_reasons.append("At least 80% of positive cases rank Gold first.")
+            if missed_ratio > 0.4:
+                warning_reasons.append("More than 40% of positive cases miss Gold in Top-10.")
+            if no_result_fp_ratio > 0.2:
+                warning_reasons.append("More than 20% of no-result cases return false positives.")
+            status = "warning" if warning_reasons else "calibrated"
+            reason = " ".join(warning_reasons)
+        return {
+            "status": status,
+            "dataset_revision": revision,
+            "evaluation_run_id": run.get("run_id"),
+            "target_checksum": str(dict(job.get("target") or {}).get("checksum") or ""),
+            "reason": reason,
+            "counts": {
+                "positive": positive_count,
+                "no_result": no_result_count,
+                "too_easy": easy,
+                "top_10_missed": missed,
+                "no_result_false_positive": no_result_false_positive,
+                "failed": failures,
+            },
+            "case_diagnostics": diagnostics,
+        }
+
+    def _find_knowledge_generation_set(
+        self, job_id: str, kb_id: str
+    ) -> dict[str, Any] | None:
+        if self.rag_evaluation_store is None:
+            return None
+        for item in self.rag_evaluation_store.list_sets(kb_id):
+            if str(item.get("origin") or "") != "generated":
+                continue
+            provenance = dict(item.get("provenance") or {})
+            if str(provenance.get("generation_job_id") or "") == job_id:
+                return self.rag_evaluation_store.get_set(str(item["eval_set_id"]))
         return None

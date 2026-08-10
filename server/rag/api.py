@@ -601,6 +601,9 @@ class EvaluationCaseInput(BaseModel):
     query: str = Field(min_length=1, max_length=20_000)
     expected_refs: list[EvaluationReferenceInput] = Field(default_factory=list, max_length=50)
     expected_no_result: bool = False
+    review_status: str = Field(
+        default="not_required", pattern="^(not_required|pending|approved)$"
+    )
     tags: list[str] = Field(default_factory=list, max_length=20)
     notes: str = Field(default="", max_length=1000)
 
@@ -610,6 +613,8 @@ class EvaluationCaseInput(BaseModel):
             raise ValueError("No-result cases cannot define expected references.")
         if not self.expected_no_result and not self.expected_refs:
             raise ValueError("Answerable cases require expected references.")
+        if not self.expected_no_result and self.review_status != "not_required":
+            raise ValueError("Only no-result cases can require manual review.")
         return self
 
 
@@ -629,6 +634,7 @@ class EvaluationSetUpdateRequest(BaseModel):
 class EvaluationSetPublishRequest(BaseModel):
     expected_revision: int = Field(ge=1)
     release_notes: str = Field(default="", max_length=1000)
+    acknowledge_calibration_warnings: bool = False
 
 
 class EvaluationCasesRequest(BaseModel):
@@ -1504,6 +1510,7 @@ async def publish_evaluation_set(
             eval_set_id,
             expected_revision=payload.expected_revision,
             release_notes=payload.release_notes,
+            acknowledge_calibration_warnings=payload.acknowledge_calibration_warnings,
         )
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1565,6 +1572,73 @@ async def update_evaluation_case(
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationRevisionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/evaluation-sets/{eval_set_id}/cases/{case_id}/evidence")
+async def get_evaluation_case_evidence(
+    eval_set_id: str,
+    case_id: str,
+) -> dict[str, Any]:
+    try:
+        evaluation_set = get_evaluation_store().get_set(eval_set_id)
+        if str(evaluation_set.get("origin") or "manual") != "generated":
+            raise ValueError("Evidence review is available for generated sets only.")
+        case = next(
+            (
+                item
+                for item in evaluation_set.get("cases", [])
+                if str(item.get("case_id") or "") == case_id
+            ),
+            None,
+        )
+        if not isinstance(case, dict):
+            raise EvaluationSetNotFoundError("Knowledge evaluation case not found.")
+        provenance = dict(evaluation_set.get("provenance") or {})
+        version_id = str(provenance.get("pipeline_version_id") or "")
+        if not version_id:
+            raise ValueError("Generated evaluation set has no fixed knowledge version.")
+        evidence: list[dict[str, Any]] = []
+        for reference in case.get("expected_refs") or []:
+            chunk = get_rag_service().get_knowledge_chunk(
+                str(evaluation_set["kb_id"]),
+                str(reference.get("chunk_id") or ""),
+                version_id=version_id,
+            )
+            if str(chunk.get("document_id") or "") != str(
+                reference.get("document_id") or ""
+            ) or str(chunk.get("source_block_id") or "") != str(
+                reference.get("source_block_id") or ""
+            ):
+                raise ValueError("Fixed Gold evidence no longer matches the target version.")
+            text = str(chunk.get("text") or "")
+            evidence.append(
+                {
+                    "reference_id": reference.get("reference_id"),
+                    "document_id": chunk.get("document_id"),
+                    "document_name": chunk.get("document_name"),
+                    "chunk_id": chunk.get("chunk_id"),
+                    "source_block_id": chunk.get("source_block_id"),
+                    "page_number": chunk.get("page_number"),
+                    "heading_path": chunk.get("heading_path") or [],
+                    "visual_kind": chunk.get("visual_kind"),
+                    "text": text[:2000],
+                    "text_length": len(text),
+                    "truncated": len(text) > 2000,
+                }
+            )
+        return {
+            "eval_set_id": eval_set_id,
+            "case_id": case_id,
+            "pipeline_version_id": version_id,
+            "evidence": evidence,
+            "evidence_count": len(evidence),
+        }
+    except EvaluationSetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (DocumentNotFoundError, PipelineVersionNotFoundError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

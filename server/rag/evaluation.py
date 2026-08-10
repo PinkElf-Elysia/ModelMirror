@@ -379,6 +379,47 @@ class KnowledgeEvaluationStore:
             self._write_unlocked(data)
         return _copy(item)
 
+    def create_generated_set(
+        self,
+        kb_id: str,
+        name: str,
+        description: str,
+        *,
+        cases: list[dict[str, Any]],
+        provenance: dict[str, Any],
+        coverage: dict[str, Any],
+        calibration: dict[str, Any],
+    ) -> dict[str, Any]:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("Evaluation set name is required.")
+        if not cases or len(cases) > 500:
+            raise ValueError("Generated evaluation set needs 1-500 cases.")
+        normalized_cases = [self._normalize_case(case) for case in cases]
+        now = time.time()
+        item = {
+            "eval_set_id": f"evalset_{uuid.uuid4().hex}",
+            "kb_id": kb_id,
+            "name": clean_name[:160],
+            "description": description.strip()[:1000],
+            "revision": 1,
+            "status": "active",
+            "cases": normalized_cases,
+            "origin": "generated",
+            "catalog_ref": {},
+            "provenance": _copy(provenance),
+            "coverage": _copy(coverage),
+            "calibration": _copy(calibration),
+            "latest_version": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._lock:
+            data = self._read_unlocked()
+            data["sets"][item["eval_set_id"]] = item
+            self._write_unlocked(data)
+        return _copy(item)
+
     def list_sets(self, kb_id: str) -> list[dict[str, Any]]:
         data = self._read()
         items = [item for item in data["sets"].values() if item.get("kb_id") == kb_id]
@@ -397,6 +438,7 @@ class KnowledgeEvaluationStore:
         *,
         expected_revision: int,
         release_notes: str = "",
+        acknowledge_calibration_warnings: bool = False,
     ) -> dict[str, Any]:
         with self._lock:
             data = self._read_unlocked()
@@ -406,6 +448,33 @@ class KnowledgeEvaluationStore:
                 raise EvaluationStateError(
                     "Only active evaluation sets with cases can be published."
                 )
+            if str(item.get("origin") or "manual") == "generated":
+                calibration = dict(item.get("calibration") or {})
+                calibration_status = str(calibration.get("status") or "pending")
+                if int(calibration.get("dataset_revision") or 0) != int(
+                    item.get("revision") or 0
+                ):
+                    raise EvaluationStateError(
+                        "Generated evaluation set must be recalibrated after editing."
+                    )
+                if calibration_status not in {"calibrated", "warning"}:
+                    raise EvaluationStateError(
+                        "Generated evaluation set must complete calibration before publishing."
+                    )
+                if calibration_status == "warning" and not acknowledge_calibration_warnings:
+                    raise EvaluationStateError(
+                        "Calibration warnings must be explicitly acknowledged before publishing."
+                    )
+                pending_reviews = [
+                    case
+                    for case in item.get("cases", [])
+                    if case.get("expected_no_result")
+                    and str(case.get("review_status") or "pending") != "approved"
+                ]
+                if pending_reviews:
+                    raise EvaluationStateError(
+                        "Generated no-result cases require explicit review before publishing."
+                    )
             cases = [self._normalize_case(case, preserve_id=True) for case in item["cases"]]
             current = [
                 version
@@ -441,6 +510,22 @@ class KnowledgeEvaluationStore:
             item["updated_at"] = now
             self._write_unlocked(data)
             return _copy(version)
+
+    def set_calibration(
+        self,
+        eval_set_id: str,
+        *,
+        expected_revision: int,
+        calibration: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self._lock:
+            data = self._read_unlocked()
+            item = self._set_or_raise(data, eval_set_id)
+            self._check_revision(item, expected_revision)
+            item["calibration"] = _copy(calibration)
+            item["updated_at"] = time.time()
+            self._write_unlocked(data)
+            return self._set_payload(item)
 
     def list_set_versions(self, eval_set_id: str) -> list[dict[str, Any]]:
         data = self._read()
@@ -826,13 +911,25 @@ class KnowledgeEvaluationStore:
             "query": query,
             "expected_refs": normalized_refs,
             "expected_no_result": expected_no_result,
+            "review_status": _normalize_review_status(
+                raw.get("review_status"), expected_no_result=expected_no_result
+            ),
             "tags": [str(item)[:80] for item in raw.get("tags", []) if str(item).strip()][:20],
             "notes": str(raw.get("notes") or "")[:1000],
+            "targeting": _safe_targeting(raw.get("targeting")),
         }
 
     def _touch_set(self, item: dict[str, Any]) -> None:
         item["revision"] = int(item.get("revision", 0)) + 1
         item["updated_at"] = time.time()
+        if str(item.get("origin") or "manual") == "generated":
+            calibration = dict(item.get("calibration") or {})
+            item["calibration"] = {
+                **calibration,
+                "status": "stale",
+                "reason": "Evaluation set changed after calibration.",
+                "dataset_revision": int(item["revision"]),
+            }
 
     def _set_payload(self, item: dict[str, Any]) -> dict[str, Any]:
         payload = _copy(item)
@@ -845,6 +942,8 @@ class KnowledgeEvaluationStore:
         for case in payload.get("cases", []):
             if isinstance(case, dict):
                 case.setdefault("expected_no_result", False)
+                case.setdefault("review_status", "not_required")
+                case.setdefault("targeting", {})
         return payload
 
     def _check_revision(self, item: dict[str, Any], expected_revision: int) -> None:
@@ -916,6 +1015,33 @@ def _source_matches_reference(source: dict[str, Any], reference: dict[str, Any])
     if expected_page is not None:
         return _optional_int(source.get("page_number")) == int(expected_page)
     return True
+
+
+def _normalize_review_status(value: Any, *, expected_no_result: bool) -> str:
+    status = str(value or ("pending" if expected_no_result else "not_required")).strip()
+    allowed = {"not_required", "pending", "approved"}
+    if status not in allowed:
+        raise ValueError("Evaluation case review_status is invalid.")
+    if not expected_no_result and status != "not_required":
+        raise ValueError("Only no-result cases can require manual review.")
+    return status
+
+
+def _safe_targeting(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    evidence_ids = value.get("evidence_ids")
+    return {
+        "blueprint_id": _optional_string(value.get("blueprint_id"), 160),
+        "query_type": _optional_string(value.get("query_type"), 80),
+        "locale": _optional_string(value.get("locale"), 16),
+        "difficulty": _optional_string(value.get("difficulty"), 40),
+        "evidence_ids": [
+            str(item)[:160]
+            for item in evidence_ids
+            if str(item).strip()
+        ][:3] if isinstance(evidence_ids, list) else [],
+    }
 
 
 def _ndcg_at_k(
