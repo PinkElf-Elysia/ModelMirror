@@ -165,6 +165,27 @@ class CodingWorkerRuntime:
 
 _SOURCE_ADAPTERS: dict[str, WorkspaceSourceAdapter] = {}
 _FROZEN_CHECKS: dict[str, FrozenCheck] = {}
+_DEFAULT_FROZEN_CHECKS = {
+    "python-compile": FrozenCheck(
+        check_id="python-compile",
+        argv=("python", "-m", "compileall", "-q", "."),
+    ),
+    "python-pytest": FrozenCheck(
+        check_id="python-pytest",
+        argv=("python", "-m", "pytest", "-q"),
+        timeout_seconds=900,
+    ),
+    "react-test": FrozenCheck(
+        check_id="react-test",
+        argv=("npm", "test", "--", "--run"),
+        timeout_seconds=900,
+    ),
+    "react-build": FrozenCheck(
+        check_id="react-build",
+        argv=("npm", "run", "build"),
+        timeout_seconds=900,
+    ),
+}
 
 
 def register_workspace_source_adapter(
@@ -179,7 +200,9 @@ def register_workspace_source_adapter(
 
 
 def register_frozen_check(check: FrozenCheck) -> None:
-    existing = _FROZEN_CHECKS.get(check.check_id)
+    existing = _DEFAULT_FROZEN_CHECKS.get(check.check_id) or _FROZEN_CHECKS.get(
+        check.check_id
+    )
     if existing is not None and existing != check:
         raise CodingWorkerRuntimeError(
             "Frozen check is already registered.",
@@ -295,7 +318,7 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         storage_root=root,
         slot_roots=slot_roots,
         source_adapters=source_adapters,
-        frozen_checks=_FROZEN_CHECKS,
+        frozen_checks={**_DEFAULT_FROZEN_CHECKS, **_FROZEN_CHECKS},
         provider_endpoints=endpoints,
         provider_tokens=tokens,
         executor_endpoints=executor_endpoints,

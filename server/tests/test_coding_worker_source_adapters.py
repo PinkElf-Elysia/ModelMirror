@@ -199,6 +199,12 @@ def test_runtime_wires_host_snapshot_to_live_project_host(
         runtime.workspace_broker._adapters["manifest"],
         ProjectSnapshotWorkspaceSourceAdapter,
     )
+    assert set(runtime.tool_broker.frozen_checks) >= {
+        "python-compile",
+        "python-pytest",
+        "react-test",
+        "react-build",
+    }
 
 
 @pytest.mark.asyncio
