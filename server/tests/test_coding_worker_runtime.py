@@ -16,6 +16,7 @@ from server.coding_worker.contracts import (
 from server.coding_worker.provider import FakeCodingAgentProvider
 from server.coding_worker.provider_rpc import ProviderRPCServer
 from server.coding_worker.runtime import CodingWorkerRuntime
+from server.coding_worker.tool_broker import FrozenCheck
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter
 
 
@@ -42,7 +43,11 @@ async def test_runtime_connects_two_dedicated_provider_slots(tmp_path: Path) -> 
                 {("source", "h0"): {"main.py": b"print('ok')\n"}}
             )
         },
-        frozen_checks={},
+        frozen_checks={
+            "syntax": FrozenCheck(
+                check_id="syntax", argv=("python", "-m", "py_compile", "main.py")
+            )
+        },
         provider_endpoints=endpoints,
         provider_tokens={"slot-a": "a" * 48, "slot-b": "b" * 48},
         broker_socket_path=None,
