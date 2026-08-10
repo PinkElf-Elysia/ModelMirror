@@ -25,6 +25,12 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     assert "CODING_WORKER_MODE: executor" in compose
     assert "CODING_WORKER_ROUTE_KEY" not in compose.split("coding-worker-slot-a:", 1)[1].split("coding-worker-egress:", 1)[0]
     assert "coding_worker_slot_a:/worker-data:ro" in compose
+    executor = compose.split("coding-worker-slot-a:", 1)[1].split(
+        "coding-worker-slot-b:", 1
+    )[0]
+    assert "coding_worker_tools" in executor
+    assert "coding_internal" not in executor
+    assert "coding_worker_tools:" in compose and "internal: true" in compose
     assert "coding-worker-network" in compose
     assert 'command: ["python", "-m", "coding_worker.egress_proxy"]' in compose
     assert "CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}" in compose

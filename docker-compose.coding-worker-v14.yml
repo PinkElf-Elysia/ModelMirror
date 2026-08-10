@@ -108,7 +108,7 @@ services:
       dockerfile: server/coding_worker/Dockerfile.v14
     container_name: modelmirror-coding-worker-slot-a
     networks:
-      - coding_internal
+      - coding_worker_tools
     user: "65532:65532"
     read_only: true
     cap_drop:
@@ -159,7 +159,7 @@ services:
     container_name: modelmirror-coding-worker-egress
     command: ["python", "-m", "coding_worker.egress_proxy"]
     networks:
-      - coding_internal
+      - coding_worker_tools
       - coding_worker_egress
     user: "65532:65532"
     read_only: true
@@ -189,5 +189,8 @@ volumes:
   coding_worker_broker:
 
 networks:
+  coding_worker_tools:
+    driver: bridge
+    internal: true
   coding_worker_egress:
     driver: bridge
