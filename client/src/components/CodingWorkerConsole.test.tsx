@@ -32,7 +32,7 @@ const task = {
     workspace_source: { kind: "host_snapshot", source_id: "source_1", revision: "rev_1" },
     acceptance: {
       contract_id: "contract_1",
-      required_checks: [{ check_id: "tests", kind: "command", label: "运行测试" }],
+      required_checks: [{ check_id: "tests", kind: "command", label: "运行测试", required: true }],
       required_artifacts: [],
     },
     policy_profile: "develop",

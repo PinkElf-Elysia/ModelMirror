@@ -189,7 +189,7 @@ export default function CodingWorkerConsole({ context }: CodingWorkerConsoleProp
       workspace_source: { kind: context === "coding" ? "host_snapshot" : "builtin", source_id: sourceId.trim(), revision: revision.trim() },
       acceptance: {
         contract_id: `contract_${suffix}`,
-        required_checks: [{ check_id: checkId.trim(), kind: "command", label: "必需检查" }],
+        required_checks: [{ check_id: checkId.trim(), kind: "command", label: "必需检查", required: true }],
         required_artifacts: [],
       },
       policy_profile: "develop",

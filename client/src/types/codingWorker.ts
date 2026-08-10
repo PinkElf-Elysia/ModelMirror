@@ -23,14 +23,20 @@ export interface CodingWorkerSource {
 
 export interface CodingWorkerAcceptanceCheck {
   check_id: string;
-  kind: "command" | "artifact" | "policy";
+  kind: "command" | "diff" | "artifact" | "custom";
   label: string;
+  required: true;
 }
 
 export interface CodingWorkerAcceptanceContract {
   contract_id: string;
   required_checks: CodingWorkerAcceptanceCheck[];
-  required_artifacts: Array<{ artifact_id: string; label: string }>;
+  required_artifacts: Array<{
+    artifact_id: string;
+    media_type: string;
+    label: string;
+    required: true;
+  }>;
 }
 
 export interface CodingWorkerTaskSpec {
