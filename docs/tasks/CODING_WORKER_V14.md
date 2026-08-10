@@ -54,12 +54,16 @@ V14 不在宿主仓库原地执行，不开放 Git remote/push、自动 PR、任
 
 - V14 Worker 17 个专项文件：`96 passed`；
 - Project Host API：`19 passed`；
+- 全部 Coding + Agent Workspace：`762 passed, 9 skipped`；
+- 后端全量：`2131 passed, 21 skipped, 1 failed`。唯一失败是现有 `modelmirror-server`
+  测试镜像内 Node `20.20.2` 无法直接导入 TypeScript；该节点及数据未被 PR C 修改，使用本机
+  Node `24.18.0` 单独复跑为 `1 passed`，因此记录为测试镜像环境门禁而非绿色全量；
 - 前端：`29` 个文件、`134 passed`；
 - 前端 production build 通过，`CodingPage` gzip `37.60 kB`；
 - V14 Compose 组合 `config --quiet` 与部署静态测试通过；
 - 分支已推送至 Draft PR `#130`。
 
-这些结果不等同于完整发布验收。全部 Coding + Agent Workspace、后端全量、真实 OpenCode headless、真实 Windows Helper、共享栈重建和用户项目写回仍须分别完成并记录。
+这些结果不等同于完整发布验收。后端全量仍需在支持 TypeScript strip 的正式 Node 镜像复跑；真实 OpenCode headless、真实 Windows Helper、共享栈重建和用户项目写回仍须分别完成并记录。
 
 ## 发布与人工验收门禁
 
