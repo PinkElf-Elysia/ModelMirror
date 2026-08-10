@@ -1,6 +1,8 @@
 # 模镜项目文档中心
 
-最后更新日期：2026-08-07
+这里集中记录 ModelMirror 的产品叙事、当前实现、目标架构、模块契约和历史决策。阅读时应先区分“今天怎样运行”和“未来希望怎样设计”。
+
+最后更新日期：2026-08-09
 维护人：模镜团队
 
 ## 文档状态规则
@@ -9,11 +11,24 @@
 | --- | --- | --- |
 | 当前 | 已按当前代码、路由和测试校准 | 可以 |
 | 冻结 | 描述已完成能力基线，只接受兼容维护 | 可以，但新增路线需另立方案 |
+| 目标/研究 | 描述目标架构、战略方向或长期研究边界 | 不可以，必须结合成熟度矩阵 |
 | 历史/归档 | 保留决策、失败复盘或旧集成方法 | 不可以 |
 
 遇到冲突时，以代码和测试为最高事实，其次为
 [REPOSITORY_FACTS.md](./REPOSITORY_FACTS.md) 与“当前”文档。历史文档中的
 “稳定”“主路径”“下一步”只代表当时背景。
+
+## 首次了解 ModelMirror
+
+| 文档 | 状态 | 回答的问题 |
+| --- | --- | --- |
+| [根 README](../README.md) | 当前 + 方向概览 | ModelMirror 是什么、今天能做什么、目标产品引擎是什么？ |
+| [VISION.md](./VISION.md) | 战略/目标 | 为什么需要 AI Capability Compiler，品牌、生态与商业方向是什么？ |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 当前 | 当前主分支真实运行的路由、数据流、存储和外部依赖是什么？ |
+| [AI Capability Compiler 目标架构](./architecture/ai-capability-compiler.md) | 目标/研究 | 八层架构、Capability IR、Router Federation、反馈回路和成熟度如何设计？ |
+| [GLOSSARY.md](./GLOSSARY.md) | 当前 + 目标术语 | 当前产品词汇与目标架构术语怎样统一？ |
+
+`VISION.md` 解释“为什么与去哪里”，`ARCHITECTURE.md` 记录“今天怎样运行”，目标架构文档说明“未来系统如何分层”。三者职责不同，不能互相替代。
 
 ## 当前入口文档
 
@@ -67,7 +82,9 @@
 
 ## 推荐阅读路径
 
+- 首次访问者：根 README → Vision → Architecture。
 - 新成员：Facts → Quick Start → Architecture → Harness。
+- 生态伙伴：Vision → AI Capability Compiler 目标架构 → Glossary。
 - 前端：Frontend → Multimodal → 相关页面模块文档。
 - 后端：Backend → Database → 相关领域模块文档。
 - 运维：Deployment → Database → Model Router / OmniRoute。
