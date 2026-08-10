@@ -15,16 +15,46 @@ const IDENTITY_FIELDS := [
 ]
 
 const FAILURE_DEFINITIONS := {
-	"PACK_RUNTIME_PREPARED_PACK_INVALID": "/prepared",
-	"PACK_RUNTIME_OPTIONS_INVALID": "/options",
-	"PACK_RUNTIME_INVALID_SNAPSHOT": "/snapshot",
-	"PACK_RUNTIME_PACK_MISMATCH": "/snapshot/pack",
-	"PACK_RUNTIME_SESSION_ENDED": "/snapshot/status",
-	"PACK_RUNTIME_STEP_LIMIT": "/snapshot/stepCount",
-	"PACK_RUNTIME_ACTION_UNKNOWN": "/actionId",
-	"PACK_RUNTIME_ACTION_UNAVAILABLE": "/actionId",
-	"PACK_RUNTIME_INTEGER_OVERFLOW": "/snapshot/variables",
-	"PACK_GODOT_RUNTIME_INTERNAL_ERROR": "/runtime",
+	"PACK_RUNTIME_PREPARED_PACK_INVALID": {
+		"path": "/prepared",
+		"message": "The prepared game pack handle is invalid.",
+	},
+	"PACK_RUNTIME_OPTIONS_INVALID": {
+		"path": "/options",
+		"message": "The session options are invalid.",
+	},
+	"PACK_RUNTIME_INVALID_SNAPSHOT": {
+		"path": "/snapshot",
+		"message": "The game session snapshot is invalid.",
+	},
+	"PACK_RUNTIME_PACK_MISMATCH": {
+		"path": "/snapshot/pack",
+		"message": "The game session snapshot belongs to a different pack.",
+	},
+	"PACK_RUNTIME_SESSION_ENDED": {
+		"path": "/snapshot/status",
+		"message": "The game session has already ended.",
+	},
+	"PACK_RUNTIME_STEP_LIMIT": {
+		"path": "/snapshot/stepCount",
+		"message": "The game session step limit has been reached.",
+	},
+	"PACK_RUNTIME_ACTION_UNKNOWN": {
+		"path": "/actionId",
+		"message": "The requested action is not declared at the current node.",
+	},
+	"PACK_RUNTIME_ACTION_UNAVAILABLE": {
+		"path": "/actionId",
+		"message": "The requested action is not currently available.",
+	},
+	"PACK_RUNTIME_INTEGER_OVERFLOW": {
+		"path": "/snapshot/variables",
+		"message": "The action would produce an integer outside the safe range.",
+	},
+	"PACK_GODOT_RUNTIME_INTERNAL_ERROR": {
+		"path": "/runtime",
+		"message": "PACK_GODOT_RUNTIME_INTERNAL_ERROR",
+	},
 }
 
 
@@ -410,12 +440,13 @@ static func _has_exact_fields(value: Variant, fields: Array) -> bool:
 static func _failure(code: String) -> Dictionary:
 	if not FAILURE_DEFINITIONS.has(code):
 		code = "PACK_GODOT_RUNTIME_INTERNAL_ERROR"
+	var definition: Dictionary = FAILURE_DEFINITIONS[code]
 	var diagnostic := {
 		"phase": "runtime",
 		"severity": "error",
 		"code": code,
-		"path": FAILURE_DEFINITIONS[code],
-		"message": code,
+		"path": definition["path"],
+		"message": definition["message"],
 	}
 	var result := {"ok": false, "diagnostics": [diagnostic]}
 	_deep_read_only(result)

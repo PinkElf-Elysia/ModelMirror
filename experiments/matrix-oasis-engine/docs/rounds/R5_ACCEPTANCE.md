@@ -1,6 +1,6 @@
 # R5 验收记录
 
-状态：R5.3 已验证，等待本地提交；尚未达到人工验收门。
+状态：R5.4 已验证，等待本地提交；尚未达到人工验收门。
 
 固定 `R5_BASE_SHA`：`d47f1b15e5610f41d4d9f3e5fe91966530a1a4be`
 
@@ -10,8 +10,8 @@
 | --- | --- | --- |
 | R5.1 治理与适配合同 | 已完成 | `f3dae37` |
 | R5.2 严格 Runtime Pack 载入器 | 已完成 | `21ed3b3` |
-| R5.3 独立 GDScript 执行器 | 已验证 | 本批提交；SHA 在 R5.4 记录 |
-| R5.4 跨运行时差分 Harness | 未开始 | 待记录 |
+| R5.3 独立 GDScript 执行器 | 已完成 | `578d46b` |
+| R5.4 跨运行时差分 Harness | 已验证 | 本批提交；SHA 在 R5.5 记录 |
 | R5.5 最小 Runtime 调试 HUD | 未开始 | 待记录 |
 | R5.6 拆分与验收收口 | 未开始 | 待记录 |
 
@@ -66,6 +66,24 @@ R5.3 新增独立、同步、纯内存的 GDScript Runtime 执行器，公开 cr
 - 本批未运行父后端、Docker、共享栈或父路由；未实现跨运行时 trace/parity、runtime scene、HUD、玩法、存档、网络或正式资产。
 
 本批可单独 revert 回到 R5.2 严格载入器状态；它不修改 R4 Bootstrap、GdUnit vendor、Creator、R1–R3 包或冻结样例。
+
+## R5.4 证据
+
+R5.4 新增独立 Godot trace runner 与 Node 差分 harness。Node 从冻结 Authoring 样例及两个中性溢出变体编译临时 Runtime Pack/Receipt，以冻结 R3 Runtime Simulator 生成权威 trace，再驱动 Godot 独立执行器逐字段比较；临时工件和复制工程只位于 `C:\tmp`，成功后精确清理且不提交。
+
+- 精确变更为 8 个模块内文件：trace runner、差分 core/CLI/测试、Runtime 静态诊断 message 对齐、根验证脚本及本验收记录；R1–R4 冻结路径、Creator、示例和父仓路径零差异。
+- `MATRIX_OASIS_R5_TRACE_JSON:` 输出固定包含 create 与有序 steps；Node 对 snapshot、inspection、transition、Cue 及失败诊断的全部公开字段做深度严格比较，不共享或导入 R3 evaluator 内部源码。
+- 中性 mechanics 轨迹覆盖九种 condition、三种 effect、两种 target、Cue 顺序/重复，以及 unknown、unavailable、ended；同一工件从全新会话重复 20 次并要求字节稳定。
+- 末班地铁仅作为可替换集成夹具，覆盖三个 ending 和显式循环；stepLimit=4 的第五步固定拒绝。Godot 源码不含夹具 ID、题材文案或题材分支。
+- 两个由中性 Authoring 夹具编译的变体覆盖正负安全整数溢出；R3 与 Godot 均返回 `PACK_RUNTIME_INTEGER_OVERFLOW`，且不推进 snapshot、step 或 Cue。
+- `npm.cmd run verify:godot:parity`：`GODOT_PARITY_OK version=4.6.3 cases=7 runs=26`；所有 trace 与冻结 R3 Runtime Simulator 完全一致。
+- `npm.cmd run test:godot`：Godot 4.6.3 下 19/19 通过；`npm.cmd run check:godot-boundary`：`GODOT_BOUNDARY_OK checked=11`。
+- `npm.cmd test`：416/416 通过；`npm.cmd run verify`：12/12 通过，包含新增 parity 门、完整 Godot 门、冻结 R1–R3 门、247-module Creator build 与 HTTP 200 smoke。
+- `npm.cmd run check:round-scope`：`checked=41 changed=36`；`npm.cmd run check:boundary`：`checked=779 tracked=776`；父范围、冻结路径与 `git diff --check` 均通过。
+- 根 `verify:godot` 已纳入严格 parity 门；本批未修改 R3 package exports、snapshot v1、Compiler、Runtime Pack、Receipt 或 Creator。
+- 本批未运行父后端、Docker、共享栈或父路由；未实现 runtime scene、HUD、玩法、存档、网络、Marble、AI 或正式资产。
+
+本批可单独 revert 回到 R5.3 独立执行器状态；临时工件不形成需要迁移或回滚的运行数据。
 
 ## 最终仓外标识
 

@@ -109,7 +109,9 @@ func test_expected_failures_preserve_static_codes_and_paths() -> void:
 	var failure := MatrixOasisGodotRuntime.apply_game_session_action(prepared, created["snapshot"], "missing")
 	assert_bool(failure.is_read_only()).is_true()
 	assert_bool(failure["diagnostics"].is_read_only()).is_true()
-	assert_str(failure["diagnostics"][0]["message"]).is_equal(failure["diagnostics"][0]["code"])
+	assert_str(failure["diagnostics"][0]["message"]).is_equal(
+		"The requested action is not declared at the current node.",
+	)
 
 
 func test_snapshot_validation_copies_input_and_binds_source_and_artifact() -> void:
