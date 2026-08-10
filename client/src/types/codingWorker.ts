@@ -52,7 +52,9 @@ export interface CodingWorkerTaskSpec {
 
 export interface CodingWorkerTask {
   task_id: string;
-  spec: CodingWorkerTaskSpec & { origin: { module: string; object_id: string } };
+  spec: Omit<CodingWorkerTaskSpec, "origin"> & {
+    origin: { module: string; object_id: string };
+  };
   state: CodingWorkerTaskState;
   workspace_id: string | null;
   created_at: number;
@@ -79,4 +81,51 @@ export interface CodingWorkerStatus {
   retention_seconds: number;
   network_enabled: boolean;
   reason: string | null;
+}
+
+export interface CodingWorkerApproval {
+  approval_id: string;
+  task_id: string;
+  operation_id: string;
+  capability: string;
+  status: "pending" | "approved" | "rejected" | "cancelled" | "expired";
+  request: Record<string, unknown>;
+  lease: {
+    lease_id: string;
+    expires_at: number;
+    operation_limit: number;
+  } | null;
+  created_at: number;
+  decided_at: number | null;
+}
+
+export interface CodingWorkerEvidence {
+  evidence_id: string;
+  task_id: string;
+  check_id: string;
+  operation_id: string;
+  workspace_tree_hash: string;
+  status: "passed" | "failed" | "invalidated";
+  exit_code: number;
+  artifact_id: string;
+  created_at: number;
+}
+
+export interface CodingWorkerArtifact {
+  artifact_id: string;
+  task_id: string;
+  media_type: string;
+  sha256: string;
+  size: number;
+  metadata: Record<string, unknown>;
+  created_at: number;
+}
+
+export interface CodingWorkerEntry {
+  entry_id: string;
+  name: string;
+  display_path: string;
+  kind: string;
+  size: number;
+  sha256: string | null;
 }
