@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -37,12 +38,21 @@ def _upload(
     media_type: str = "text/plain",
     purpose: str = "rag",
     scope_id: str = "kb-1",
+    input_kind: str | None = None,
 ):
+    data = {"purpose": purpose, "scope_id": scope_id}
+    if input_kind is not None:
+        data["input_kind"] = input_kind
     return client.post(
         "/api/files",
-        data={"purpose": purpose, "scope_id": scope_id},
+        data=data,
         files={"file": (filename, body, media_type)},
     )
+
+
+_ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 class _UnexpectedUploadService:
@@ -379,6 +389,42 @@ def test_chat_upload_requires_explicit_feature_gate(
     )
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "file_input_not_ready"
+
+
+def test_chat_visual_analysis_upload_has_an_independent_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FILE_ASSET_STORE_MODE", "shadow")
+    monkeypatch.setenv("CHAT_FILE_INPUT_ENABLED", "false")
+    monkeypatch.setenv("CHAT_ONE_SHOT_VISION_ENABLED", "false")
+    client, service = _client(tmp_path, mode="shadow")
+    disabled = _upload(
+        client,
+        body=_ONE_PIXEL_PNG,
+        filename="scan.png",
+        media_type="image/png",
+        purpose="chat",
+        scope_id="chat-vision",
+        input_kind="visual_analysis",
+    )
+    assert disabled.status_code == 422
+    assert disabled.json()["detail"]["code"] == "file_input_not_ready"
+    assert service.blob_store.list_storage_keys() == ()
+
+    monkeypatch.setenv("CHAT_ONE_SHOT_VISION_ENABLED", "true")
+    uploaded = _upload(
+        client,
+        body=_ONE_PIXEL_PNG,
+        filename="scan.png",
+        media_type="image/png",
+        purpose="chat",
+        scope_id="chat-vision",
+        input_kind="visual_analysis",
+    )
+    assert uploaded.status_code == 201
+    assert uploaded.json()["format"] == "png"
+    assert uploaded.json()["expires_at"] is not None
 
 
 def test_expiry_conflict_startup_gc_and_database_are_body_free(tmp_path: Path) -> None:

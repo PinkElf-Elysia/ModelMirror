@@ -22,7 +22,7 @@ FileAssetStatus = Literal[
     "deleted",
 ]
 
-FILE_ASSET_SCHEMA_VERSION = 3
+FILE_ASSET_SCHEMA_VERSION = 5
 
 _ASSET_STATUSES = {
     "validating",
@@ -83,6 +83,56 @@ class GarbageCollectionClaim:
     claim_id: str
     asset: FileAssetRecord
     storage_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FileAnalysisConfirmationRecord:
+    tenant_id: str
+    asset_id: str
+    scope_id: str
+    mode: str
+    target_id: str
+    config_digest: str
+    prompt_sha256: str
+    paid_acknowledged: bool
+    revision: int
+    expires_at: str
+    confirmed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class FileAnalysisJobRecord:
+    id: str
+    tenant_id: str
+    asset_id: str
+    scope_id: str
+    mode: str
+    target_id: str
+    config_digest: str
+    prompt_sha256: str
+    confirmation_revision: int
+    selected_pages: str
+    page_count: int
+    processed_pages: int
+    status: str
+    cancel_requested: bool
+    result_artifact_id: str | None
+    actual_cost_usd: str | None
+    error_code: str | None
+    created_at: str
+    updated_at: str
+    completed_at: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FileAnalysisSendConfirmationRecord:
+    tenant_id: str
+    asset_id: str
+    scope_id: str
+    artifact_id: str
+    prompt_sha256: str
+    revision: int
+    confirmed_at: str
 
 
 def utc_now() -> str:
@@ -199,6 +249,65 @@ class SQLiteFileAssetRepository:
             created_at TEXT NOT NULL,
             PRIMARY KEY (tenant_id, purpose, scope_id, asset_id)
         );
+        CREATE TABLE IF NOT EXISTS file_analysis_confirmations (
+            tenant_id TEXT NOT NULL,
+            asset_id TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK (mode IN ('vision','provider_ocr')),
+            target_id TEXT NOT NULL,
+            config_digest TEXT NOT NULL,
+            prompt_sha256 TEXT NOT NULL,
+            paid_acknowledged INTEGER NOT NULL DEFAULT 0
+                CHECK (paid_acknowledged IN (0, 1)),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            expires_at TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, asset_id, scope_id),
+            FOREIGN KEY (tenant_id, asset_id)
+                REFERENCES file_assets (tenant_id, id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS file_analysis_jobs (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            asset_id TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK (mode IN ('vision','provider_ocr')),
+            target_id TEXT NOT NULL,
+            config_digest TEXT NOT NULL,
+            prompt_sha256 TEXT NOT NULL,
+            confirmation_revision INTEGER NOT NULL CHECK (confirmation_revision >= 1),
+            selected_pages TEXT NOT NULL,
+            page_count INTEGER NOT NULL CHECK (page_count >= 1 AND page_count <= 20),
+            processed_pages INTEGER NOT NULL DEFAULT 0
+                CHECK (processed_pages >= 0 AND processed_pages <= page_count),
+            status TEXT NOT NULL CHECK (
+                status IN ('queued','running','completed','failed',
+                           'cancel_requested','cancelled','interrupted')
+            ),
+            cancel_requested INTEGER NOT NULL DEFAULT 0
+                CHECK (cancel_requested IN (0, 1)),
+            result_artifact_id TEXT,
+            actual_cost_usd TEXT,
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            FOREIGN KEY (tenant_id, asset_id)
+                REFERENCES file_assets (tenant_id, id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS file_analysis_send_confirmations (
+            tenant_id TEXT NOT NULL,
+            asset_id TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            artifact_id TEXT NOT NULL,
+            prompt_sha256 TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            confirmed_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, asset_id, scope_id),
+            FOREIGN KEY (tenant_id, asset_id)
+                REFERENCES file_assets (tenant_id, id) ON DELETE CASCADE
+        );
         CREATE INDEX IF NOT EXISTS idx_file_assets_tenant_scope
             ON file_assets (tenant_id, purpose, scope_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_file_assets_tenant_expiry
@@ -211,6 +320,16 @@ class SQLiteFileAssetRepository:
             ON file_audit_events (tenant_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_file_scope_cleanup
             ON file_scope_cleanup_assets (tenant_id, purpose, scope_id);
+        CREATE INDEX IF NOT EXISTS idx_file_analysis_scope
+            ON file_analysis_jobs (tenant_id, scope_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_file_analysis_status
+            ON file_analysis_jobs (tenant_id, status, updated_at);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_file_analysis_confirmation_once
+            ON file_analysis_jobs (
+                tenant_id, asset_id, scope_id, confirmation_revision
+            );
+        CREATE INDEX IF NOT EXISTS idx_file_analysis_send_scope
+            ON file_analysis_send_confirmations (tenant_id, scope_id);
         """
         with self._lock, self._connect() as connection:
             current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
@@ -235,6 +354,19 @@ class SQLiteFileAssetRepository:
                 connection.execute(
                     "ALTER TABLE file_bindings ADD COLUMN confirmation_revision "
                     "INTEGER NOT NULL DEFAULT 0"
+                )
+            analysis_job_columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(file_analysis_jobs)"
+                ).fetchall()
+            }
+            if "prompt_sha256" not in analysis_job_columns:
+                connection.execute(
+                    "ALTER TABLE file_analysis_jobs ADD COLUMN prompt_sha256 TEXT "
+                    "NOT NULL DEFAULT '"
+                    + ("0" * 64)
+                    + "'"
                 )
             connection.execute(f"PRAGMA user_version = {FILE_ASSET_SCHEMA_VERSION}")
 
@@ -488,6 +620,652 @@ class SQLiteFileAssetRepository:
                 ),
             )
         return cursor.rowcount == 1
+
+    def confirm_analysis_send(
+        self,
+        tenant_id: str,
+        asset_id: str,
+        *,
+        scope_id: str,
+        artifact_id: str,
+        prompt_sha256: str,
+    ) -> FileAnalysisSendConfirmationRecord | None:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_asset = _identifier(asset_id, "asset_id")
+        clean_scope = _identifier(scope_id, "scope_id")
+        clean_artifact = _identifier(artifact_id, "artifact_id")
+        clean_prompt = _sha256(prompt_sha256)
+        confirmed_at = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            binding = connection.execute(
+                """
+                SELECT 1 FROM file_bindings
+                WHERE tenant_id = ? AND asset_id = ?
+                  AND purpose = 'chat' AND scope_id = ?
+                """,
+                (clean_tenant, clean_asset, clean_scope),
+            ).fetchone()
+            artifact = connection.execute(
+                """
+                SELECT 1 FROM file_artifacts
+                WHERE tenant_id = ? AND asset_id = ? AND id = ?
+                  AND kind = 'chat_visual_analysis_v1' AND status = 'ready'
+                """,
+                (clean_tenant, clean_asset, clean_artifact),
+            ).fetchone()
+            if binding is None or artifact is None:
+                return None
+            prior = connection.execute(
+                """
+                SELECT revision FROM file_analysis_send_confirmations
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                """,
+                (clean_tenant, clean_asset, clean_scope),
+            ).fetchone()
+            revision = int(prior["revision"]) + 1 if prior is not None else 1
+            connection.execute(
+                """
+                INSERT INTO file_analysis_send_confirmations (
+                    tenant_id, asset_id, scope_id, artifact_id,
+                    prompt_sha256, revision, confirmed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (tenant_id, asset_id, scope_id) DO UPDATE SET
+                    artifact_id = excluded.artifact_id,
+                    prompt_sha256 = excluded.prompt_sha256,
+                    revision = excluded.revision,
+                    confirmed_at = excluded.confirmed_at
+                """,
+                (
+                    clean_tenant,
+                    clean_asset,
+                    clean_scope,
+                    clean_artifact,
+                    clean_prompt,
+                    revision,
+                    confirmed_at,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM file_analysis_send_confirmations
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                """,
+                (clean_tenant, clean_asset, clean_scope),
+            ).fetchone()
+        return _analysis_send_confirmation_record(row) if row is not None else None
+
+    def analysis_send_confirmation_matches(
+        self,
+        tenant_id: str,
+        asset_id: str,
+        *,
+        scope_id: str,
+        artifact_id: str,
+        prompt_sha256: str,
+        revision: int,
+    ) -> bool:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM file_analysis_send_confirmations AS confirmation
+                INNER JOIN file_bindings AS binding
+                  ON binding.tenant_id = confirmation.tenant_id
+                 AND binding.asset_id = confirmation.asset_id
+                 AND binding.scope_id = confirmation.scope_id
+                 AND binding.purpose = 'chat'
+                INNER JOIN file_artifacts AS artifact
+                  ON artifact.tenant_id = confirmation.tenant_id
+                 AND artifact.asset_id = confirmation.asset_id
+                 AND artifact.id = confirmation.artifact_id
+                 AND artifact.kind = 'chat_visual_analysis_v1'
+                 AND artifact.status = 'ready'
+                WHERE confirmation.tenant_id = ?
+                  AND confirmation.asset_id = ?
+                  AND confirmation.scope_id = ?
+                  AND confirmation.artifact_id = ?
+                  AND confirmation.prompt_sha256 = ?
+                  AND confirmation.revision = ?
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(asset_id, "asset_id"),
+                    _identifier(scope_id, "scope_id"),
+                    _identifier(artifact_id, "artifact_id"),
+                    _sha256(prompt_sha256),
+                    _positive_int(revision, "confirmation_revision"),
+                ),
+            ).fetchone()
+        return row is not None
+
+    def clear_analysis_send_confirmation(
+        self, tenant_id: str, asset_id: str, *, scope_id: str
+    ) -> bool:
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM file_analysis_send_confirmations
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(asset_id, "asset_id"),
+                    _identifier(scope_id, "scope_id"),
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def confirm_analysis(
+        self,
+        tenant_id: str,
+        asset_id: str,
+        *,
+        scope_id: str,
+        mode: str,
+        target_id: str,
+        config_digest: str,
+        prompt_sha256: str,
+        paid_acknowledged: bool,
+        expires_at: datetime | str,
+    ) -> FileAnalysisConfirmationRecord | None:
+        """Bind an explicit one-shot analysis choice to one Chat asset revision."""
+
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_asset = _identifier(asset_id, "asset_id")
+        clean_scope = _identifier(scope_id, "scope_id")
+        clean_mode = _analysis_mode(mode)
+        clean_target = _identifier(target_id, "target_id")
+        clean_config_digest = _sha256(config_digest)
+        clean_prompt_sha256 = _sha256(prompt_sha256)
+        clean_expires_at = _timestamp(expires_at)
+        if clean_expires_at is None:  # pragma: no cover - required by signature
+            raise ValueError("expires_at is required")
+        confirmed_at = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_mutable_asset(connection, clean_tenant, clean_asset)
+            binding = connection.execute(
+                """
+                SELECT 1 FROM file_bindings
+                WHERE tenant_id = ? AND asset_id = ?
+                  AND purpose = 'chat' AND scope_id = ?
+                """,
+                (clean_tenant, clean_asset, clean_scope),
+            ).fetchone()
+            if binding is None:
+                return None
+            prior = connection.execute(
+                """
+                SELECT revision FROM file_analysis_confirmations
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                """,
+                (clean_tenant, clean_asset, clean_scope),
+            ).fetchone()
+            revision = int(prior["revision"]) + 1 if prior is not None else 1
+            connection.execute(
+                """
+                INSERT INTO file_analysis_confirmations (
+                    tenant_id, asset_id, scope_id, mode, target_id,
+                    config_digest, prompt_sha256, paid_acknowledged,
+                    revision, expires_at, confirmed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (tenant_id, asset_id, scope_id) DO UPDATE SET
+                    mode = excluded.mode,
+                    target_id = excluded.target_id,
+                    config_digest = excluded.config_digest,
+                    prompt_sha256 = excluded.prompt_sha256,
+                    paid_acknowledged = excluded.paid_acknowledged,
+                    revision = excluded.revision,
+                    expires_at = excluded.expires_at,
+                    confirmed_at = excluded.confirmed_at
+                """,
+                (
+                    clean_tenant,
+                    clean_asset,
+                    clean_scope,
+                    clean_mode,
+                    clean_target,
+                    clean_config_digest,
+                    clean_prompt_sha256,
+                    int(bool(paid_acknowledged)),
+                    revision,
+                    clean_expires_at,
+                    confirmed_at,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM file_analysis_confirmations
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                """,
+                (clean_tenant, clean_asset, clean_scope),
+            ).fetchone()
+        return _analysis_confirmation_record(row) if row is not None else None
+
+    def analysis_confirmation_matches(
+        self,
+        tenant_id: str,
+        asset_id: str,
+        *,
+        scope_id: str,
+        mode: str,
+        target_id: str,
+        config_digest: str,
+        prompt_sha256: str,
+        paid_acknowledged: bool,
+        revision: int,
+        now: datetime | None = None,
+    ) -> bool:
+        current = _timestamp(now or datetime.now(UTC))
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM file_analysis_confirmations AS confirmation
+                INNER JOIN file_bindings AS binding
+                  ON binding.tenant_id = confirmation.tenant_id
+                 AND binding.asset_id = confirmation.asset_id
+                 AND binding.scope_id = confirmation.scope_id
+                 AND binding.purpose = 'chat'
+                WHERE confirmation.tenant_id = ?
+                  AND confirmation.asset_id = ?
+                  AND confirmation.scope_id = ?
+                  AND confirmation.mode = ?
+                  AND confirmation.target_id = ?
+                  AND confirmation.config_digest = ?
+                  AND confirmation.prompt_sha256 = ?
+                  AND confirmation.paid_acknowledged = ?
+                  AND confirmation.revision = ?
+                  AND confirmation.expires_at > ?
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(asset_id, "asset_id"),
+                    _identifier(scope_id, "scope_id"),
+                    _analysis_mode(mode),
+                    _identifier(target_id, "target_id"),
+                    _sha256(config_digest),
+                    _sha256(prompt_sha256),
+                    int(bool(paid_acknowledged)),
+                    _positive_int(revision, "confirmation_revision"),
+                    current,
+                ),
+            ).fetchone()
+        return row is not None
+
+    def create_analysis_job(
+        self,
+        tenant_id: str,
+        asset_id: str,
+        *,
+        scope_id: str,
+        mode: str,
+        target_id: str,
+        config_digest: str,
+        prompt_sha256: str,
+        paid_acknowledged: bool,
+        confirmation_revision: int,
+        selected_pages: tuple[int, ...],
+        analysis_id: str | None = None,
+        now: datetime | None = None,
+    ) -> FileAnalysisJobRecord | None:
+        """Create one queued job only while the exact confirmation is live."""
+
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_asset = _identifier(asset_id, "asset_id")
+        clean_scope = _identifier(scope_id, "scope_id")
+        clean_mode = _analysis_mode(mode)
+        clean_target = _identifier(target_id, "target_id")
+        clean_config_digest = _sha256(config_digest)
+        clean_prompt_sha256 = _sha256(prompt_sha256)
+        clean_revision = _positive_int(
+            confirmation_revision, "confirmation_revision"
+        )
+        clean_pages = _selected_pages(selected_pages)
+        identifier = _identifier(
+            analysis_id or f"analysis_{uuid.uuid4().hex}", "analysis_id"
+        )
+        created_at = _timestamp(now or datetime.now(UTC))
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            confirmation = connection.execute(
+                """
+                SELECT 1 FROM file_analysis_confirmations AS confirmation
+                INNER JOIN file_bindings AS binding
+                  ON binding.tenant_id = confirmation.tenant_id
+                 AND binding.asset_id = confirmation.asset_id
+                 AND binding.scope_id = confirmation.scope_id
+                 AND binding.purpose = 'chat'
+                WHERE confirmation.tenant_id = ?
+                  AND confirmation.asset_id = ?
+                  AND confirmation.scope_id = ?
+                  AND confirmation.mode = ?
+                  AND confirmation.target_id = ?
+                  AND confirmation.config_digest = ?
+                  AND confirmation.prompt_sha256 = ?
+                  AND confirmation.paid_acknowledged = ?
+                  AND confirmation.revision = ?
+                  AND confirmation.expires_at > ?
+                """,
+                (
+                    clean_tenant,
+                    clean_asset,
+                    clean_scope,
+                    clean_mode,
+                    clean_target,
+                    clean_config_digest,
+                    clean_prompt_sha256,
+                    int(bool(paid_acknowledged)),
+                    clean_revision,
+                    created_at,
+                ),
+            ).fetchone()
+            if confirmation is None:
+                return None
+            existing = connection.execute(
+                """
+                SELECT * FROM file_analysis_jobs
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                  AND confirmation_revision = ?
+                LIMIT 1
+                """,
+                (clean_tenant, clean_asset, clean_scope, clean_revision),
+            ).fetchone()
+            if existing is not None:
+                return _analysis_job_record(existing)
+            active = connection.execute(
+                """
+                SELECT 1 FROM file_analysis_jobs
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                  AND status IN ('queued','running','cancel_requested')
+                LIMIT 1
+                """,
+                (clean_tenant, clean_asset, clean_scope),
+            ).fetchone()
+            if active is not None:
+                raise FileAssetRepositoryError("analysis_job_already_active")
+            connection.execute(
+                """
+                INSERT INTO file_analysis_jobs (
+                    id, tenant_id, asset_id, scope_id, mode, target_id,
+                    config_digest, prompt_sha256, confirmation_revision, selected_pages,
+                    page_count, processed_pages, status, cancel_requested,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'queued', 0, ?, ?)
+                """,
+                (
+                    identifier,
+                    clean_tenant,
+                    clean_asset,
+                    clean_scope,
+                    clean_mode,
+                    clean_target,
+                    clean_config_digest,
+                    clean_prompt_sha256,
+                    clean_revision,
+                    _encode_pages(clean_pages),
+                    len(clean_pages),
+                    created_at,
+                    created_at,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM file_analysis_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, identifier),
+            ).fetchone()
+        return _analysis_job_record(row) if row is not None else None
+
+    def get_analysis_job(
+        self, tenant_id: str, analysis_id: str, *, scope_id: str | None = None
+    ) -> FileAnalysisJobRecord | None:
+        parameters: list[object] = [
+            _identifier(tenant_id, "tenant_id"),
+            _identifier(analysis_id, "analysis_id"),
+        ]
+        scope_clause = ""
+        if scope_id is not None:
+            scope_clause = " AND scope_id = ?"
+            parameters.append(_identifier(scope_id, "scope_id"))
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM file_analysis_jobs "
+                "WHERE tenant_id = ? AND id = ?" + scope_clause,
+                parameters,
+            ).fetchone()
+        return _analysis_job_record(row) if row is not None else None
+
+    def list_analysis_jobs(
+        self, tenant_id: str, *, scope_id: str
+    ) -> tuple[FileAnalysisJobRecord, ...]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM file_analysis_jobs
+                WHERE tenant_id = ? AND scope_id = ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(scope_id, "scope_id"),
+                ),
+            ).fetchall()
+        return tuple(_analysis_job_record(row) for row in rows)
+
+    def analysis_job_for_artifact(
+        self,
+        tenant_id: str,
+        asset_id: str,
+        *,
+        scope_id: str,
+        artifact_id: str,
+    ) -> FileAnalysisJobRecord | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM file_analysis_jobs
+                WHERE tenant_id = ? AND asset_id = ? AND scope_id = ?
+                  AND result_artifact_id = ? AND status = 'completed'
+                ORDER BY completed_at DESC, id DESC
+                LIMIT 1
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(asset_id, "asset_id"),
+                    _identifier(scope_id, "scope_id"),
+                    _identifier(artifact_id, "artifact_id"),
+                ),
+            ).fetchone()
+        return _analysis_job_record(row) if row is not None else None
+
+    def claim_analysis_job(
+        self, tenant_id: str, analysis_id: str
+    ) -> FileAnalysisJobRecord | None:
+        return self._transition_analysis_job(
+            tenant_id,
+            analysis_id,
+            from_statuses=("queued",),
+            status="running",
+        )
+
+    def update_analysis_progress(
+        self,
+        tenant_id: str,
+        analysis_id: str,
+        *,
+        processed_pages: int,
+    ) -> FileAnalysisJobRecord | None:
+        clean_processed = _non_negative_int(processed_pages, "processed_pages")
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE file_analysis_jobs
+                SET processed_pages = ?, updated_at = ?
+                WHERE tenant_id = ? AND id = ?
+                  AND status IN ('running','cancel_requested')
+                  AND ? <= page_count
+                """,
+                (
+                    clean_processed,
+                    utc_now(),
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(analysis_id, "analysis_id"),
+                    clean_processed,
+                ),
+            )
+        if cursor.rowcount != 1:
+            return None
+        return self.get_analysis_job(tenant_id, analysis_id)
+
+    def complete_analysis_job(
+        self,
+        tenant_id: str,
+        analysis_id: str,
+        *,
+        result_artifact_id: str,
+        actual_cost_usd: str | None = None,
+    ) -> FileAnalysisJobRecord | None:
+        return self._transition_analysis_job(
+            tenant_id,
+            analysis_id,
+            from_statuses=("running",),
+            status="completed",
+            result_artifact_id=_identifier(result_artifact_id, "result_artifact_id"),
+            actual_cost_usd=_optional_cost(actual_cost_usd),
+            completed=True,
+        )
+
+    def fail_analysis_job(
+        self,
+        tenant_id: str,
+        analysis_id: str,
+        *,
+        error_code: str,
+    ) -> FileAnalysisJobRecord | None:
+        return self._transition_analysis_job(
+            tenant_id,
+            analysis_id,
+            from_statuses=("queued", "running", "cancel_requested"),
+            status="failed",
+            error_code=_optional_code(error_code),
+            completed=True,
+        )
+
+    def request_analysis_cancel(
+        self, tenant_id: str, analysis_id: str
+    ) -> FileAnalysisJobRecord | None:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_analysis = _identifier(analysis_id, "analysis_id")
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                UPDATE file_analysis_jobs
+                SET status = CASE
+                        WHEN status = 'queued' THEN 'cancelled'
+                        ELSE 'cancel_requested'
+                    END,
+                    cancel_requested = 1,
+                    completed_at = CASE WHEN status = 'queued' THEN ? ELSE completed_at END,
+                    updated_at = ?
+                WHERE tenant_id = ? AND id = ?
+                  AND status IN ('queued','running')
+                """,
+                (now, now, clean_tenant, clean_analysis),
+            )
+            row = connection.execute(
+                "SELECT * FROM file_analysis_jobs WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, clean_analysis),
+            ).fetchone()
+        return _analysis_job_record(row) if row is not None else None
+
+    def acknowledge_analysis_cancel(
+        self, tenant_id: str, analysis_id: str
+    ) -> FileAnalysisJobRecord | None:
+        return self._transition_analysis_job(
+            tenant_id,
+            analysis_id,
+            from_statuses=("cancel_requested",),
+            status="cancelled",
+            completed=True,
+        )
+
+    def interrupt_stale_analysis_jobs(
+        self,
+        *,
+        stale_before: datetime,
+    ) -> int:
+        """Mark abandoned billable work interrupted without replaying it."""
+
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE file_analysis_jobs
+                SET status = 'interrupted', error_code = 'analysis_interrupted',
+                    updated_at = ?, completed_at = ?
+                WHERE status IN ('queued','running','cancel_requested')
+                  AND updated_at <= ?
+                """,
+                (now, now, _timestamp(stale_before)),
+            )
+        return int(cursor.rowcount)
+
+    def interrupt_analysis_job(
+        self,
+        tenant_id: str,
+        analysis_id: str,
+    ) -> FileAnalysisJobRecord | None:
+        return self._transition_analysis_job(
+            tenant_id,
+            analysis_id,
+            from_statuses=("queued", "running"),
+            status="interrupted",
+            error_code="analysis_interrupted",
+            completed=True,
+        )
+
+    def _transition_analysis_job(
+        self,
+        tenant_id: str,
+        analysis_id: str,
+        *,
+        from_statuses: tuple[str, ...],
+        status: str,
+        result_artifact_id: str | None = None,
+        actual_cost_usd: str | None = None,
+        error_code: str | None = None,
+        completed: bool = False,
+    ) -> FileAnalysisJobRecord | None:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_analysis = _identifier(analysis_id, "analysis_id")
+        clean_status = _analysis_status(status)
+        clean_from = tuple(_analysis_status(item) for item in from_statuses)
+        placeholders = ",".join("?" for _ in clean_from)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                f"""
+                UPDATE file_analysis_jobs
+                SET status = ?, result_artifact_id = ?, actual_cost_usd = ?,
+                    error_code = ?, updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ?
+                  AND status IN ({placeholders})
+                """,
+                (
+                    clean_status,
+                    result_artifact_id,
+                    actual_cost_usd,
+                    error_code,
+                    now,
+                    now if completed else None,
+                    clean_tenant,
+                    clean_analysis,
+                    *clean_from,
+                ),
+            )
+        if cursor.rowcount != 1:
+            return None
+        return self.get_analysis_job(clean_tenant, clean_analysis)
 
     def get_bound_asset(
         self,
@@ -956,6 +1734,26 @@ class SQLiteFileAssetRepository:
             ).fetchall()
         return tuple(_artifact_record(row) for row in rows)
 
+    def get_artifact(
+        self,
+        tenant_id: str,
+        asset_id: str,
+        artifact_id: str,
+    ) -> FileArtifactRecord | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM file_artifacts
+                WHERE tenant_id = ? AND asset_id = ? AND id = ?
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(asset_id, "asset_id"),
+                    _identifier(artifact_id, "artifact_id"),
+                ),
+            ).fetchone()
+        return _artifact_record(row) if row is not None else None
+
     def latest_artifact(
         self, tenant_id: str, asset_id: str, *, kind: str
     ) -> FileArtifactRecord | None:
@@ -1311,6 +2109,9 @@ class SQLiteFileAssetRepository:
             "file_bindings",
             "file_artifacts",
             "file_audit_events",
+            "file_analysis_confirmations",
+            "file_analysis_jobs",
+            "file_analysis_send_confirmations",
         )
         with self._lock, self._connect() as connection:
             return {
@@ -1374,6 +2175,63 @@ def _artifact_record(row: sqlite3.Row) -> FileArtifactRecord:
         expires_at=row["expires_at"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+    )
+
+
+def _analysis_confirmation_record(
+    row: sqlite3.Row,
+) -> FileAnalysisConfirmationRecord:
+    return FileAnalysisConfirmationRecord(
+        tenant_id=row["tenant_id"],
+        asset_id=row["asset_id"],
+        scope_id=row["scope_id"],
+        mode=row["mode"],
+        target_id=row["target_id"],
+        config_digest=row["config_digest"],
+        prompt_sha256=row["prompt_sha256"],
+        paid_acknowledged=bool(row["paid_acknowledged"]),
+        revision=int(row["revision"]),
+        expires_at=row["expires_at"],
+        confirmed_at=row["confirmed_at"],
+    )
+
+
+def _analysis_job_record(row: sqlite3.Row) -> FileAnalysisJobRecord:
+    return FileAnalysisJobRecord(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        asset_id=row["asset_id"],
+        scope_id=row["scope_id"],
+        mode=row["mode"],
+        target_id=row["target_id"],
+        config_digest=row["config_digest"],
+        prompt_sha256=row["prompt_sha256"],
+        confirmation_revision=int(row["confirmation_revision"]),
+        selected_pages=row["selected_pages"],
+        page_count=int(row["page_count"]),
+        processed_pages=int(row["processed_pages"]),
+        status=row["status"],
+        cancel_requested=bool(row["cancel_requested"]),
+        result_artifact_id=row["result_artifact_id"],
+        actual_cost_usd=row["actual_cost_usd"],
+        error_code=row["error_code"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        completed_at=row["completed_at"],
+    )
+
+
+def _analysis_send_confirmation_record(
+    row: sqlite3.Row,
+) -> FileAnalysisSendConfirmationRecord:
+    return FileAnalysisSendConfirmationRecord(
+        tenant_id=row["tenant_id"],
+        asset_id=row["asset_id"],
+        scope_id=row["scope_id"],
+        artifact_id=row["artifact_id"],
+        prompt_sha256=row["prompt_sha256"],
+        revision=int(row["revision"]),
+        confirmed_at=row["confirmed_at"],
     )
 
 
@@ -1443,6 +2301,61 @@ def _file_handling(value: object) -> Literal["native", "extract"]:
     if clean not in {"native", "extract"}:
         raise ValueError("file handling is invalid")
     return clean  # type: ignore[return-value]
+
+
+def _analysis_mode(value: object) -> Literal["vision", "provider_ocr"]:
+    clean = str(value or "").strip().lower()
+    if clean not in {"vision", "provider_ocr"}:
+        raise ValueError("analysis mode is invalid")
+    return clean  # type: ignore[return-value]
+
+
+def _analysis_status(value: object) -> str:
+    clean = str(value or "").strip().lower()
+    if clean not in {
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "cancel_requested",
+        "cancelled",
+        "interrupted",
+    }:
+        raise ValueError("analysis status is invalid")
+    return clean
+
+
+def _selected_pages(value: object) -> tuple[int, ...]:
+    if isinstance(value, (str, bytes)):
+        raise ValueError("selected_pages is invalid")
+    try:
+        pages = tuple(_positive_int(item, "selected_page") for item in value)  # type: ignore[arg-type]
+    except TypeError as exc:
+        raise ValueError("selected_pages is invalid") from exc
+    if not pages or len(pages) > 20 or len(pages) != len(set(pages)):
+        raise ValueError("selected_pages is invalid")
+    if pages != tuple(sorted(pages)):
+        raise ValueError("selected_pages must be sorted")
+    return pages
+
+
+def _encode_pages(value: tuple[int, ...]) -> str:
+    return ",".join(str(page) for page in value)
+
+
+def _optional_cost(value: object | None) -> str | None:
+    if value is None:
+        return None
+    clean = str(value).strip()
+    if not clean or len(clean) > 64:
+        raise ValueError("actual_cost_usd is invalid")
+    try:
+        numeric = float(clean)
+    except ValueError as exc:
+        raise ValueError("actual_cost_usd is invalid") from exc
+    if numeric < 0 or numeric == float("inf") or numeric != numeric:
+        raise ValueError("actual_cost_usd is invalid")
+    return clean
 
 
 def _timestamp(value: datetime | str | None) -> str | None:

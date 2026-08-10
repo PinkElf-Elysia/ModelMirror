@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
 import re
@@ -10,9 +12,26 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO, Iterator, Literal, Sequence
+from typing import Any, BinaryIO, Iterator, Literal, Sequence
 
 from .blob_store import BlobValidationError, BlobWriteReceipt, FileBlobStore
+from .analysis import (
+    FileAnalysisArtifact,
+    FileAnalysisConfirmRequest,
+    FileAnalysisConfirmResponse,
+    FileAnalysisCreateRequest,
+    FileAnalysisError,
+    FileAnalysisExecutor,
+    FileAnalysisJobListResponse,
+    FileAnalysisJobResponse,
+    FileAnalysisMode,
+    FileAnalysisPreflightRequest,
+    FileAnalysisPreflightResponse,
+    FileAnalysisTargetResolver,
+    FileAnalysisTargetsResponse,
+    analysis_digests,
+    inspect_analysis_source,
+)
 from .contracts import (
     FileAssetListResponse,
     FileAssetResponse,
@@ -30,6 +49,7 @@ from .lifecycle import FileAssetLifecycle
 from .registry import FileFormatRegistry, get_file_format_registry
 from .repository import (
     FileArtifactRecord,
+    FileAnalysisJobRecord,
     FileAssetRecord,
     FileAssetRepositoryError,
     SQLiteFileAssetRepository,
@@ -45,6 +65,9 @@ _CHAT_ORIGINAL_TTL_SECONDS = 30 * 60
 _PARSED_ARTIFACT_IDLE_TTL_SECONDS = 2 * 60 * 60
 _PARSED_ARTIFACT_HARD_TTL_SECONDS = 24 * 60 * 60
 _PARSED_DOCUMENT_ARTIFACT_KIND = "chat_parsed_document_v1"
+_ANALYSIS_ARTIFACT_KIND = "chat_visual_analysis_v1"
+_ANALYSIS_CONFIRMATION_TTL_SECONDS = 5 * 60
+_ANALYSIS_EXECUTION_CONCURRENCY = 2
 _PURPOSE_INPUT_KIND = {
     FilePurpose.CHAT: FileInputKind.DOCUMENT,
     FilePurpose.RAG: FileInputKind.DOCUMENT,
@@ -69,6 +92,8 @@ class ChatFileSelection:
     asset_id: str
     handling: Literal["native", "extract"]
     confirmation_revision: int
+    analysis_artifact_id: str | None = None
+    analysis_prompt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +107,8 @@ class ResolvedChatFile:
     handling: Literal["native", "extract"]
     native_content: bytes | None = None
     parsed_document: ParsedDocument | None = None
+    analysis_artifact: FileAnalysisArtifact | None = None
+    analysis_prompt: str | None = None
 
 
 class FileAssetService:
@@ -95,6 +122,9 @@ class FileAssetService:
         repository: SQLiteFileAssetRepository | None = None,
         blob_store: FileBlobStore | None = None,
         validator: FileUploadValidator | None = None,
+        analysis_target_resolver: FileAnalysisTargetResolver | None = None,
+        analysis_executor: FileAnalysisExecutor | None = None,
+        analysis_concurrency_limit: int = _ANALYSIS_EXECUTION_CONCURRENCY,
     ) -> None:
         self.storage_dir = Path(storage_dir)
         self.mode = str(mode or "legacy").strip().lower()
@@ -103,6 +133,13 @@ class FileAssetService:
         self._repository = repository
         self._blob_store = blob_store
         self._validator = validator or FileUploadValidator(self.registry)
+        self._analysis_target_resolver = (
+            analysis_target_resolver or FileAnalysisTargetResolver()
+        )
+        self._analysis_executor = analysis_executor or FileAnalysisExecutor()
+        self._analysis_execution_slots = threading.BoundedSemaphore(
+            max(1, int(analysis_concurrency_limit))
+        )
         self._lifecycle: FileAssetLifecycle | None = None
         self._startup_lock = threading.Lock()
         self._maintenance_lock = threading.Lock()
@@ -146,12 +183,15 @@ class FileAssetService:
         scope_id: str,
         filename: str,
         declared_media_type: str | None,
+        input_kind: FileInputKind | str | None = None,
     ) -> FileAssetResponse:
         self._ensure_ready()
         self._run_maintenance_if_due()
         clean_purpose = FilePurpose(purpose)
         clean_scope = _identifier(scope_id, "scope_id")
-        input_kind, max_bytes = self._ready_upload_policy(clean_purpose)
+        input_kind, max_bytes = self._ready_upload_policy(
+            clean_purpose, input_kind=input_kind
+        )
         asset_id = f"file_{uuid.uuid4().hex}"
         receipt: BlobWriteReceipt | None = None
         validated: ValidatedFile | None = None
@@ -294,6 +334,499 @@ class FileAssetService:
                 ready.append(_public_asset(reconciled))
         return FileAssetListResponse(items=tuple(ready), total=len(ready))
 
+    async def list_analysis_targets(self) -> FileAnalysisTargetsResponse:
+        self._ensure_ready()
+        self._ready_upload_policy(
+            FilePurpose.CHAT, input_kind=FileInputKind.VISUAL_ANALYSIS
+        )
+        return FileAnalysisTargetsResponse(
+            items=await self._analysis_target_resolver.list_targets()
+        )
+
+    async def preflight_analysis(
+        self,
+        asset_id: str,
+        request: FileAnalysisPreflightRequest,
+    ) -> FileAnalysisPreflightResponse:
+        self._ensure_ready()
+        self._ready_upload_policy(
+            FilePurpose.CHAT, input_kind=FileInputKind.VISUAL_ANALYSIS
+        )
+        record = self._scoped_record(
+            asset_id,
+            purpose=FilePurpose.CHAT,
+            scope_id=request.scope_id,
+        )
+        target = next(
+            (
+                item
+                for item in await self._analysis_target_resolver.list_targets()
+                if item.target_id == request.target_id and item.mode == request.mode
+            ),
+            None,
+        )
+        if target is None:
+            raise FileAssetServiceError(
+                409,
+                "analysis_target_unavailable",
+                "The selected analysis connection or model is not currently available.",
+            )
+        if request.mode == FileAnalysisMode.PROVIDER_OCR and record.format_id != "pdf":
+            raise FileAssetServiceError(
+                422,
+                "ocr_requires_pdf",
+                "OpenRouter mistral-ocr is only available for PDF files.",
+            )
+        try:
+            content = self.blob_store.read_bytes(record.storage_key)
+            page_count, selected_pages = await _to_thread_analysis(
+                inspect_analysis_source,
+                content,
+                format_id=record.format_id,
+                selected_pages=request.selected_pages,
+            )
+        except FileAnalysisError as exc:
+            raise _analysis_service_error(exc) from exc
+        except Exception as exc:
+            raise FileAssetServiceError(
+                409,
+                "analysis_source_unavailable",
+                "The selected file cannot be inspected for one-shot analysis.",
+            ) from exc
+        config_digest, prompt_sha256 = analysis_digests(
+            asset_sha256=record.sha256,
+            format_id=record.format_id,
+            mode=request.mode,
+            target_id=request.target_id,
+            selected_pages=selected_pages,
+            prompt=request.prompt,
+        )
+        return FileAnalysisPreflightResponse(
+            asset_id=record.id,
+            mode=request.mode,
+            target=target,
+            format=record.format_id,
+            page_count=page_count,
+            selected_pages=selected_pages,
+            prompt_sha256=prompt_sha256,
+            config_digest=config_digest,
+            paid_confirmation_required=target.paid,
+            cost_disclosure=target.cost_disclosure,
+            privacy_disclosure=(
+                "Only the selected rendered pages are sent to the exact connection and model."
+                if request.mode == FileAnalysisMode.VISION
+                else (
+                    "Only the locally selected PDF pages are sent to the official OpenRouter "
+                    "endpoint with mistral-ocr. Embedded annotation images are discarded."
+                )
+            ),
+        )
+
+    async def confirm_analysis(
+        self,
+        asset_id: str,
+        request: FileAnalysisConfirmRequest,
+    ) -> FileAnalysisConfirmResponse:
+        preflight = await self.preflight_analysis(asset_id, request)
+        if preflight.paid_confirmation_required and not request.paid_acknowledged:
+            raise FileAssetServiceError(
+                422,
+                "analysis_paid_confirmation_required",
+                "Confirm the OpenRouter OCR charge before continuing.",
+            )
+        expires_at = datetime.now(UTC) + timedelta(
+            seconds=_ANALYSIS_CONFIRMATION_TTL_SECONDS
+        )
+        try:
+            confirmation = self.repository.confirm_analysis(
+                self.tenant_id,
+                asset_id,
+                scope_id=request.scope_id,
+                mode=request.mode.value,
+                target_id=request.target_id,
+                config_digest=preflight.config_digest,
+                prompt_sha256=preflight.prompt_sha256,
+                paid_acknowledged=request.paid_acknowledged,
+                expires_at=expires_at,
+            )
+        except FileAssetRepositoryError as exc:
+            raise FileAssetServiceError(
+                409,
+                "analysis_confirmation_conflict",
+                "The file changed before analysis confirmation. Review it again.",
+            ) from exc
+        if confirmation is None:
+            raise _not_found()
+        return FileAnalysisConfirmResponse(
+            asset_id=asset_id,
+            mode=request.mode,
+            target_id=request.target_id,
+            config_digest=preflight.config_digest,
+            prompt_sha256=preflight.prompt_sha256,
+            confirmation_revision=confirmation.revision,
+            confirmed_at=confirmation.confirmed_at,
+            expires_at=confirmation.expires_at,
+        )
+
+    async def create_analysis(
+        self,
+        asset_id: str,
+        request: FileAnalysisCreateRequest,
+    ) -> FileAnalysisJobResponse:
+        preflight = await self.preflight_analysis(asset_id, request)
+        try:
+            job = self.repository.create_analysis_job(
+                self.tenant_id,
+                asset_id,
+                scope_id=request.scope_id,
+                mode=request.mode.value,
+                target_id=request.target_id,
+                config_digest=preflight.config_digest,
+                prompt_sha256=preflight.prompt_sha256,
+                paid_acknowledged=request.paid_acknowledged,
+                confirmation_revision=request.confirmation_revision,
+                selected_pages=preflight.selected_pages,
+            )
+        except FileAssetRepositoryError as exc:
+            if str(exc) == "analysis_job_already_active":
+                raise FileAssetServiceError(
+                    409,
+                    "analysis_job_already_active",
+                    "This file already has an unfinished analysis task.",
+                ) from exc
+            raise
+        if job is None:
+            raise FileAssetServiceError(
+                409,
+                "analysis_confirmation_invalid",
+                "The analysis confirmation expired or no longer matches this request.",
+            )
+        return self._analysis_job_response(job, include_result=False)
+
+    async def run_analysis(
+        self,
+        analysis_id: str,
+        *,
+        prompt: str,
+    ) -> None:
+        slot_acquired = False
+        try:
+            slot_acquired = await self._wait_for_analysis_slot(analysis_id)
+            if not slot_acquired:
+                return
+            job = self.repository.claim_analysis_job(self.tenant_id, analysis_id)
+            if job is None:
+                return
+            record = self._scoped_record(
+                job.asset_id,
+                purpose=FilePurpose.CHAT,
+                scope_id=job.scope_id,
+            )
+            target = await self._analysis_target_resolver.resolve(job.target_id)
+            if target.public.mode.value != job.mode:
+                raise FileAnalysisError(
+                    409,
+                    "analysis_target_mismatch",
+                    "The selected analysis target no longer matches this task.",
+                )
+            selected_pages = _decode_analysis_pages(job.selected_pages)
+            content = self.blob_store.read_bytes(record.storage_key)
+
+            def progress(processed_pages: int) -> None:
+                self.repository.update_analysis_progress(
+                    self.tenant_id,
+                    analysis_id,
+                    processed_pages=processed_pages,
+                )
+
+            def cancelled() -> bool:
+                current = self.repository.get_analysis_job(
+                    self.tenant_id, analysis_id
+                )
+                return bool(
+                    current is None
+                    or current.status in {"cancel_requested", "cancelled"}
+                )
+
+            artifact, actual_cost = await self._analysis_executor.execute(
+                content=content,
+                format_id=record.format_id,
+                source_filename=record.display_name,
+                source_sha256=record.sha256,
+                selected_pages=selected_pages,
+                prompt=prompt,
+                target=target,
+                asset_id=record.id,
+                progress=progress,
+                cancelled=cancelled,
+            )
+            if cancelled():
+                self.repository.acknowledge_analysis_cancel(
+                    self.tenant_id, analysis_id
+                )
+                return
+            encoded = artifact.model_dump_json().encode("utf-8")
+            receipt = self.blob_store.write_bytes(encoded, namespace="artifacts")
+            try:
+                stored = self.repository.create_artifact(
+                    self.tenant_id,
+                    record.id,
+                    kind=_ANALYSIS_ARTIFACT_KIND,
+                    storage_key=receipt.storage_key,
+                    sha256=receipt.sha256,
+                    byte_size=receipt.byte_size,
+                    status="ready",
+                    expires_at=datetime.now(UTC)
+                    + timedelta(seconds=_PARSED_ARTIFACT_IDLE_TTL_SECONDS),
+                )
+            except Exception:
+                try:
+                    self.blob_store.delete(receipt.storage_key)
+                except Exception:
+                    self._maintenance_due = True
+                raise
+            completed = self.repository.complete_analysis_job(
+                self.tenant_id,
+                analysis_id,
+                result_artifact_id=stored.id,
+                actual_cost_usd=actual_cost,
+            )
+            if completed is None:
+                self._maintenance_due = True
+                self.repository.acknowledge_analysis_cancel(
+                    self.tenant_id, analysis_id
+                )
+        except asyncio.CancelledError:
+            current = self.repository.get_analysis_job(self.tenant_id, analysis_id)
+            if current is not None and current.status == "cancel_requested":
+                self.repository.acknowledge_analysis_cancel(
+                    self.tenant_id, analysis_id
+                )
+            else:
+                self.repository.interrupt_analysis_job(
+                    self.tenant_id, analysis_id
+                )
+        except asyncio.TimeoutError:
+            self.repository.fail_analysis_job(
+                self.tenant_id,
+                analysis_id,
+                error_code="analysis_timeout",
+            )
+        except FileAnalysisError as exc:
+            self.repository.fail_analysis_job(
+                self.tenant_id,
+                analysis_id,
+                error_code=exc.error_code,
+            )
+        except FileAssetServiceError as exc:
+            self.repository.fail_analysis_job(
+                self.tenant_id,
+                analysis_id,
+                error_code=exc.error_code,
+            )
+        except Exception:
+            self.repository.fail_analysis_job(
+                self.tenant_id,
+                analysis_id,
+                error_code="analysis_internal_error",
+            )
+        finally:
+            if slot_acquired:
+                self._analysis_execution_slots.release()
+
+    async def _wait_for_analysis_slot(self, analysis_id: str) -> bool:
+        """Bound billable provider concurrency without binding to one event loop."""
+
+        while not self._analysis_execution_slots.acquire(blocking=False):
+            current = self.repository.get_analysis_job(self.tenant_id, analysis_id)
+            if current is None:
+                return False
+            if current.status == "cancel_requested":
+                self.repository.acknowledge_analysis_cancel(
+                    self.tenant_id, analysis_id
+                )
+                return False
+            if current.status not in {"queued", "running"}:
+                return False
+            await asyncio.sleep(0.05)
+        return True
+
+    def get_analysis(
+        self,
+        asset_id: str,
+        analysis_id: str,
+        *,
+        scope_id: str,
+    ) -> FileAnalysisJobResponse:
+        self._ensure_ready()
+        job = self.repository.get_analysis_job(
+            self.tenant_id,
+            analysis_id,
+            scope_id=_identifier(scope_id, "scope_id"),
+        )
+        if job is None or job.asset_id != _identifier(asset_id, "asset_id"):
+            raise _not_found()
+        if not self.repository.binding_exists(
+            self.tenant_id,
+            job.asset_id,
+            purpose=FilePurpose.CHAT,
+            scope_id=job.scope_id,
+        ):
+            raise _not_found()
+        return self._analysis_job_response(job, include_result=True)
+
+    def list_analyses(self, *, scope_id: str) -> FileAnalysisJobListResponse:
+        self._ensure_ready()
+        clean_scope = _identifier(scope_id, "scope_id")
+        items = tuple(
+            self._analysis_job_response(item, include_result=True)
+            for item in self.repository.list_analysis_jobs(
+                self.tenant_id, scope_id=clean_scope
+            )
+            if self.repository.binding_exists(
+                self.tenant_id,
+                item.asset_id,
+                purpose=FilePurpose.CHAT,
+                scope_id=clean_scope,
+            )
+        )
+        return FileAnalysisJobListResponse(items=items, total=len(items))
+
+    def resolve_analysis_artifact(
+        self,
+        asset_id: str,
+        artifact_id: str,
+        *,
+        scope_id: str,
+    ) -> FileAnalysisArtifact:
+        """Read a completed Chat analysis result without exposing blob keys."""
+
+        clean_asset = _identifier(asset_id, "asset_id")
+        clean_artifact = _identifier(artifact_id, "artifact_id")
+        clean_scope = _identifier(scope_id, "scope_id")
+        self._artifact_scoped_record(
+            clean_asset,
+            purpose=FilePurpose.CHAT,
+            scope_id=clean_scope,
+        )
+        job = self.repository.analysis_job_for_artifact(
+            self.tenant_id,
+            clean_asset,
+            scope_id=clean_scope,
+            artifact_id=clean_artifact,
+        )
+        if job is None:
+            raise _not_found()
+        artifact = self.repository.get_artifact(
+            self.tenant_id,
+            clean_asset,
+            clean_artifact,
+        )
+        if artifact is None or artifact.kind != _ANALYSIS_ARTIFACT_KIND:
+            raise _not_found()
+        artifact = self.repository.touch_artifact(
+            self.tenant_id,
+            clean_asset,
+            clean_artifact,
+            idle_seconds=_PARSED_ARTIFACT_IDLE_TTL_SECONDS,
+            hard_seconds=_PARSED_ARTIFACT_HARD_TTL_SECONDS,
+        )
+        if artifact is None or artifact.status != "ready":
+            raise FileAssetServiceError(
+                410,
+                "analysis_artifact_expired",
+                "识别结果已过期，请重新处理文件。",
+            )
+        try:
+            result = FileAnalysisArtifact.model_validate_json(
+                self.blob_store.read_bytes(artifact.storage_key)
+            )
+        except Exception as exc:
+            raise FileAssetServiceError(
+                409,
+                "analysis_artifact_unavailable",
+                "识别结果暂时不可用，请重新处理文件。",
+            ) from exc
+        if result.asset_id != clean_asset:
+            raise FileAssetServiceError(
+                409,
+                "analysis_artifact_mismatch",
+                "识别结果与当前文件不一致。",
+            )
+        return result
+
+    def cancel_analysis(
+        self,
+        asset_id: str,
+        analysis_id: str,
+        *,
+        scope_id: str,
+    ) -> FileAnalysisJobResponse:
+        current = self.get_analysis(
+            asset_id, analysis_id, scope_id=scope_id
+        )
+        if current.status in {"completed", "failed", "cancelled", "interrupted"}:
+            return current
+        job = self.repository.request_analysis_cancel(
+            self.tenant_id, analysis_id
+        )
+        if job is None:
+            raise _not_found()
+        return self._analysis_job_response(job, include_result=False)
+
+    def interrupt_stale_analyses(self, *, stale_seconds: int = 300) -> int:
+        self._ensure_ready()
+        return self.repository.interrupt_stale_analysis_jobs(
+            stale_before=datetime.now(UTC)
+            - timedelta(seconds=max(1, int(stale_seconds)))
+        )
+
+    def _analysis_job_response(
+        self,
+        job: FileAnalysisJobRecord,
+        *,
+        include_result: bool,
+    ) -> FileAnalysisJobResponse:
+        result: FileAnalysisArtifact | None = None
+        artifact_id = job.result_artifact_id
+        if include_result and artifact_id:
+            artifact = self.repository.get_artifact(
+                self.tenant_id, job.asset_id, artifact_id
+            )
+            if artifact is not None and artifact.status == "ready":
+                artifact = self.repository.touch_artifact(
+                    self.tenant_id,
+                    job.asset_id,
+                    artifact.id,
+                    idle_seconds=_PARSED_ARTIFACT_IDLE_TTL_SECONDS,
+                    hard_seconds=_PARSED_ARTIFACT_HARD_TTL_SECONDS,
+                )
+            if artifact is not None:
+                try:
+                    result = FileAnalysisArtifact.model_validate_json(
+                        self.blob_store.read_bytes(artifact.storage_key)
+                    )
+                except Exception:
+                    result = None
+        return FileAnalysisJobResponse(
+            analysis_id=job.id,
+            asset_id=job.asset_id,
+            scope_id=job.scope_id,
+            mode=FileAnalysisMode(job.mode),
+            target_id=job.target_id,
+            selected_pages=_decode_analysis_pages(job.selected_pages),
+            page_count=job.page_count,
+            processed_pages=job.processed_pages,
+            status=job.status,  # type: ignore[arg-type]
+            result_artifact_id=artifact_id,
+            result=result,
+            actual_cost_usd=job.actual_cost_usd,
+            error_code=job.error_code,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            completed_at=job.completed_at,
+        )
+
     def parse_asset(
         self,
         asset_id: str,
@@ -426,9 +959,26 @@ class FileAssetService:
         """Resolve 1..5 Chat files without exposing storage paths to /api/chat."""
 
         self._ensure_ready()
-        self._ready_upload_policy(FilePurpose.CHAT)
         clean_scope = _identifier(scope_id, "scope_id")
         requested = tuple(selections)
+        analysis_requested = any(
+            item.analysis_artifact_id is not None for item in requested
+        )
+        if analysis_requested:
+            if len(requested) != 1 or any(
+                item.analysis_artifact_id is None for item in requested
+            ):
+                raise FileAssetServiceError(
+                    422,
+                    "analysis_file_count_invalid",
+                    "Each one-shot visual or OCR task sends exactly one file result.",
+                )
+            self._ready_upload_policy(
+                FilePurpose.CHAT,
+                input_kind=FileInputKind.VISUAL_ANALYSIS,
+            )
+        else:
+            self._ready_upload_policy(FilePurpose.CHAT)
         if not 1 <= len(requested) <= 5:
             raise FileAssetServiceError(
                 422,
@@ -452,14 +1002,28 @@ class FileAssetService:
             for asset_id in asset_ids
         ]
         for selection, record in zip(requested, records, strict=True):
-            if not self.repository.binding_confirmation_matches(
-                self.tenant_id,
-                record.id,
-                purpose=FilePurpose.CHAT,
-                scope_id=clean_scope,
-                handling=selection.handling,
-                revision=selection.confirmation_revision,
-            ):
+            if selection.analysis_artifact_id:
+                prompt_sha256 = hashlib.sha256(
+                    str(selection.analysis_prompt or "").encode("utf-8")
+                ).hexdigest()
+                confirmed = self.repository.analysis_send_confirmation_matches(
+                    self.tenant_id,
+                    record.id,
+                    scope_id=clean_scope,
+                    artifact_id=selection.analysis_artifact_id,
+                    prompt_sha256=prompt_sha256,
+                    revision=selection.confirmation_revision,
+                )
+            else:
+                confirmed = self.repository.binding_confirmation_matches(
+                    self.tenant_id,
+                    record.id,
+                    purpose=FilePurpose.CHAT,
+                    scope_id=clean_scope,
+                    handling=selection.handling,
+                    revision=selection.confirmation_revision,
+                )
+            if not confirmed:
                 raise FileAssetServiceError(
                     409,
                     "chat_file_confirmation_required",
@@ -475,6 +1039,61 @@ class FileAssetService:
         resolved: list[ResolvedChatFile] = []
         for selection, record in zip(requested, records, strict=True):
             handling = str(selection.handling or "").strip().lower()
+            if selection.analysis_artifact_id:
+                if handling != "extract":
+                    raise FileAssetServiceError(
+                        422,
+                        "analysis_file_handling_invalid",
+                        "Analysis results must be sent as extracted user data.",
+                    )
+                artifact = self.repository.get_artifact(
+                    self.tenant_id,
+                    record.id,
+                    selection.analysis_artifact_id,
+                )
+                if artifact is None or artifact.kind != _ANALYSIS_ARTIFACT_KIND:
+                    raise FileAssetServiceError(
+                        409,
+                        "analysis_artifact_unavailable",
+                        "The confirmed analysis result is no longer available.",
+                    )
+                artifact = self.repository.touch_artifact(
+                    self.tenant_id,
+                    record.id,
+                    artifact.id,
+                    idle_seconds=_PARSED_ARTIFACT_IDLE_TTL_SECONDS,
+                    hard_seconds=_PARSED_ARTIFACT_HARD_TTL_SECONDS,
+                )
+                if artifact is None:
+                    raise FileAssetServiceError(
+                        410,
+                        "analysis_artifact_expired",
+                        "The analysis result expired. Run the analysis again.",
+                    )
+                try:
+                    analyzed = FileAnalysisArtifact.model_validate_json(
+                        self.blob_store.read_bytes(artifact.storage_key)
+                    )
+                except Exception as exc:
+                    raise FileAssetServiceError(
+                        409,
+                        "analysis_artifact_unavailable",
+                        "The confirmed analysis result cannot be read.",
+                    ) from exc
+                resolved.append(
+                    ResolvedChatFile(
+                        asset_id=record.id,
+                        scope_id=clean_scope,
+                        display_name=record.display_name,
+                        format_id=record.format_id,
+                        media_type=record.media_type,
+                        byte_size=record.byte_size,
+                        handling="extract",
+                        analysis_artifact=analyzed,
+                        analysis_prompt=str(selection.analysis_prompt or ""),
+                    )
+                )
+                continue
             if handling == "native":
                 if not native_pdf_verified or record.format_id != "pdf":
                     raise FileAssetServiceError(
@@ -561,6 +1180,8 @@ class FileAssetService:
         *,
         scope_id: str,
         handling: Literal["native", "extract"],
+        analysis_artifact_id: str | None = None,
+        analysis_prompt: str | None = None,
     ) -> tuple[int, str]:
         """Persist a user confirmation on the tenant-scoped Chat binding."""
 
@@ -577,6 +1198,59 @@ class FileAssetService:
             purpose=FilePurpose.CHAT,
             scope_id=clean_scope,
         )
+        if analysis_artifact_id is not None:
+            if clean_handling != "extract":
+                raise FileAssetServiceError(
+                    422,
+                    "analysis_file_handling_invalid",
+                    "Analysis results must be sent as extracted user data.",
+                )
+            clean_artifact = _identifier(
+                analysis_artifact_id, "artifact_id"
+            )
+            prompt = str(analysis_prompt or "")
+            if len(prompt) > 2_000 or "\x00" in prompt:
+                raise FileAssetServiceError(
+                    422,
+                    "analysis_prompt_invalid",
+                    "The one-shot prompt exceeds the 2,000-character limit.",
+                )
+            job = self.repository.analysis_job_for_artifact(
+                self.tenant_id,
+                record.id,
+                scope_id=clean_scope,
+                artifact_id=clean_artifact,
+            )
+            prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+            if job is None or job.prompt_sha256 != prompt_sha256:
+                raise FileAssetServiceError(
+                    409,
+                    "analysis_artifact_confirmation_required",
+                    "The analysis result or one-shot prompt changed. Review it again.",
+                )
+            artifact = self.repository.touch_artifact(
+                self.tenant_id,
+                record.id,
+                clean_artifact,
+                idle_seconds=_PARSED_ARTIFACT_IDLE_TTL_SECONDS,
+                hard_seconds=_PARSED_ARTIFACT_HARD_TTL_SECONDS,
+            )
+            if artifact is None or artifact.kind != _ANALYSIS_ARTIFACT_KIND:
+                raise FileAssetServiceError(
+                    410,
+                    "analysis_artifact_expired",
+                    "The analysis result expired. Run the analysis again.",
+                )
+            confirmed = self.repository.confirm_analysis_send(
+                self.tenant_id,
+                record.id,
+                scope_id=clean_scope,
+                artifact_id=clean_artifact,
+                prompt_sha256=prompt_sha256,
+            )
+            if confirmed is None:
+                raise _not_found()
+            return confirmed.revision, confirmed.confirmed_at
         if self._ready_parsed_artifact(record.id, touch=True) is None:
             raise FileAssetServiceError(
                 409,
@@ -622,6 +1296,11 @@ class FileAssetService:
                 self.tenant_id,
                 item.asset_id,
                 purpose=FilePurpose.CHAT,
+                scope_id=item.scope_id,
+            )
+            self.repository.clear_analysis_send_confirmation(
+                self.tenant_id,
+                item.asset_id,
                 scope_id=item.scope_id,
             )
             record = self.repository.get_asset(self.tenant_id, item.asset_id)
@@ -1040,7 +1719,10 @@ class FileAssetService:
             pass
 
     def _ready_upload_policy(
-        self, purpose: FilePurpose
+        self,
+        purpose: FilePurpose,
+        *,
+        input_kind: FileInputKind | str | None = None,
     ) -> tuple[FileInputKind, int]:
         if purpose == FilePurpose.AGENT:
             raise FileAssetServiceError(
@@ -1048,18 +1730,30 @@ class FileAssetService:
                 "file_input_not_ready",
                 "Agent 现有文件入口仍使用 Xpert 会话存储；统一文件资产 binding 尚未接通。",
             )
-        input_kind = _PURPOSE_INPUT_KIND.get(purpose)
-        if input_kind is None:
+        default_input_kind = _PURPOSE_INPUT_KIND.get(purpose)
+        if default_input_kind is None:
             raise FileAssetServiceError(
                 422,
                 "file_input_not_supported",
                 "本批文件入口仅开放资料库、Data X 和智能体的既有安全格式。",
             )
+        requested_input_kind = (
+            FileInputKind(input_kind) if input_kind is not None else default_input_kind
+        )
+        if input_kind is not None and not (
+            purpose == FilePurpose.CHAT
+            and requested_input_kind == FileInputKind.VISUAL_ANALYSIS
+        ):
+            raise FileAssetServiceError(
+                422,
+                "file_input_not_supported",
+                "The requested file input type is not available on this upload route.",
+            )
         policy = next(
             (
                 item
                 for item in self.registry.policies_for(purpose)
-                if item.input_kind == input_kind
+                if item.input_kind == requested_input_kind
             ),
             None,
         )
@@ -1069,7 +1763,7 @@ class FileAssetService:
                 for item in self.registry.capabilities_response(
                     purpose=purpose
                 ).capabilities
-                if item.input_kind == input_kind
+                if item.input_kind == requested_input_kind
             ),
             None,
         )
@@ -1083,7 +1777,7 @@ class FileAssetService:
                 "file_input_not_ready",
                 "当前模块的文件入口尚未启用。",
             )
-        return input_kind, policy.max_bytes_per_file
+        return requested_input_kind, policy.max_bytes_per_file
 
     def _ensure_ready(self) -> None:
         if self.mode not in _ENABLED_MODES:
@@ -1100,6 +1794,11 @@ class FileAssetService:
             self._blob_store = self._blob_store or FileBlobStore(self.storage_dir)
             self._repository = self._repository or SQLiteFileAssetRepository(
                 self.storage_dir
+            )
+            # Billable one-shot jobs are never replayed after a process restart.
+            # Persisted non-terminal rows are made visibly interrupted instead.
+            self._repository.interrupt_stale_analysis_jobs(
+                stale_before=datetime.now(UTC) + timedelta(seconds=1)
             )
             self._lifecycle = FileAssetLifecycle(
                 self._repository, self._blob_store
@@ -1298,6 +1997,34 @@ def _not_found() -> FileAssetServiceError:
         "file_asset_not_found",
         "未找到当前范围内的文件。",
     )
+
+
+async def _to_thread_analysis(
+    function: Any, *args: Any, **kwargs: Any
+) -> Any:
+    return await asyncio.to_thread(function, *args, **kwargs)
+
+
+def _analysis_service_error(exc: FileAnalysisError) -> FileAssetServiceError:
+    return FileAssetServiceError(exc.status_code, exc.error_code, exc.message)
+
+
+def _decode_analysis_pages(value: str) -> tuple[int, ...]:
+    try:
+        pages = tuple(int(item) for item in value.split(",") if item)
+    except ValueError as exc:  # pragma: no cover - repository invariant
+        raise FileAssetServiceError(
+            409,
+            "analysis_state_invalid",
+            "The saved analysis page selection is invalid.",
+        ) from exc
+    if not pages or len(pages) > 20 or pages != tuple(sorted(set(pages))):
+        raise FileAssetServiceError(
+            409,
+            "analysis_state_invalid",
+            "The saved analysis page selection is invalid.",
+        )
+    return pages
 
 
 def _identifier(value: object, field: str) -> str:

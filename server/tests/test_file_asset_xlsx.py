@@ -137,7 +137,7 @@ def _validate(
 
 def test_registry_exposes_xlsx_to_chat_rag_datax_and_workflow() -> None:
     registry = get_file_format_registry()
-    assert registry.version == "modelmirror-file-formats-v4"
+    assert registry.version == "modelmirror-file-formats-v5"
 
     for purpose in (FilePurpose.CHAT, FilePurpose.RAG):
         policy = next(

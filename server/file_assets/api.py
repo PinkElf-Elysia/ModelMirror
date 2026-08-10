@@ -17,7 +17,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartException
 from starlette.requests import Request
@@ -28,8 +28,19 @@ from .contracts import (
     FileAssetListResponse,
     FileAssetResponse,
     FileCapabilitiesResponse,
+    FileInputKind,
     FileInteractionStatus,
     FilePurpose,
+)
+from .analysis import (
+    FileAnalysisConfirmRequest,
+    FileAnalysisConfirmResponse,
+    FileAnalysisCreateRequest,
+    FileAnalysisJobListResponse,
+    FileAnalysisJobResponse,
+    FileAnalysisPreflightRequest,
+    FileAnalysisPreflightResponse,
+    FileAnalysisTargetsResponse,
 )
 from .document_parser import ParsedDocumentPreview
 from .registry import get_file_format_registry
@@ -51,6 +62,7 @@ MAX_MULTIPART_OVERHEAD_BYTES = 1 * MIB
 MAX_FILE_UPLOAD_REQUEST_BYTES = (
     MAX_FILE_UPLOAD_BYTES + MAX_MULTIPART_OVERHEAD_BYTES
 )
+_analysis_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 class FileUploadSizeLimitRoute(APIRoute):
@@ -112,6 +124,16 @@ router = APIRouter(
 
 class ChatFileConfirmationRequest(BaseModel):
     handling: Literal["native", "extract"]
+    analysis_artifact_id: str | None = Field(default=None, min_length=1, max_length=256)
+    analysis_prompt: str | None = Field(default=None, max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_analysis_fields(self) -> "ChatFileConfirmationRequest":
+        if self.analysis_artifact_id is None and self.analysis_prompt is not None:
+            raise ValueError("analysis_prompt requires analysis_artifact_id")
+        if self.analysis_artifact_id is not None and self.handling != "extract":
+            raise ValueError("analysis artifacts require extract handling")
+        return self
 
 
 class ChatFileConfirmationResponse(BaseModel):
@@ -119,6 +141,7 @@ class ChatFileConfirmationResponse(BaseModel):
     handling: Literal["native", "extract"]
     confirmation_revision: int = Field(ge=1)
     confirmed_at: str
+    analysis_artifact_id: str | None = None
 
 
 @router.get("/capabilities", response_model=FileCapabilitiesResponse)
@@ -211,6 +234,7 @@ async def upload_file_asset(
     ],
     file: Annotated[UploadFile, File()],
     service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+    input_kind: Annotated[FileInputKind | None, Form()] = None,
 ) -> FileAssetResponse:
     try:
         return await asyncio.to_thread(
@@ -220,7 +244,150 @@ async def upload_file_asset(
             scope_id=scope_id,
             filename=file.filename or "",
             declared_media_type=file.content_type,
+            input_kind=input_kind,
         )
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/analysis-targets", response_model=FileAnalysisTargetsResponse)
+async def list_file_analysis_targets(
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+) -> FileAnalysisTargetsResponse:
+    try:
+        return await service.list_analysis_targets()
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/analyses", response_model=FileAnalysisJobListResponse)
+def list_file_analyses(
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    purpose: Annotated[Literal["chat"], Query()] = "chat",
+) -> FileAnalysisJobListResponse:
+    del purpose
+    try:
+        return service.list_analyses(scope_id=scope_id)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/{asset_id}/analysis-preflight",
+    response_model=FileAnalysisPreflightResponse,
+)
+async def preflight_file_analysis(
+    asset_id: Annotated[str, Path(min_length=1, max_length=256)],
+    payload: FileAnalysisPreflightRequest,
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+) -> FileAnalysisPreflightResponse:
+    try:
+        return await service.preflight_analysis(asset_id, payload)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/{asset_id}/analysis-confirm",
+    response_model=FileAnalysisConfirmResponse,
+)
+async def confirm_file_analysis(
+    asset_id: Annotated[str, Path(min_length=1, max_length=256)],
+    payload: FileAnalysisConfirmRequest,
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+) -> FileAnalysisConfirmResponse:
+    try:
+        return await service.confirm_analysis(asset_id, payload)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/{asset_id}/analyses",
+    response_model=FileAnalysisJobResponse,
+    status_code=202,
+)
+async def create_file_analysis(
+    asset_id: Annotated[str, Path(min_length=1, max_length=256)],
+    payload: FileAnalysisCreateRequest,
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+) -> FileAnalysisJobResponse:
+    try:
+        created = await service.create_analysis(asset_id, payload)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+    if created.status == "queued" and created.analysis_id not in _analysis_tasks:
+        task = asyncio.create_task(
+            service.run_analysis(created.analysis_id, prompt=payload.prompt),
+            name=f"file-analysis:{created.analysis_id}",
+        )
+        _analysis_tasks[created.analysis_id] = task
+        task.add_done_callback(
+            lambda completed, analysis_id=created.analysis_id: (
+                _analysis_tasks.pop(analysis_id, None)
+                if _analysis_tasks.get(analysis_id) is completed
+                else None
+            )
+        )
+    return created
+
+
+@router.get(
+    "/{asset_id}/analyses/{analysis_id}",
+    response_model=FileAnalysisJobResponse,
+)
+def get_file_analysis(
+    asset_id: Annotated[str, Path(min_length=1, max_length=256)],
+    analysis_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+) -> FileAnalysisJobResponse:
+    try:
+        return service.get_analysis(
+            asset_id, analysis_id, scope_id=scope_id
+        )
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.delete(
+    "/{asset_id}/analyses/{analysis_id}",
+    response_model=FileAnalysisJobResponse,
+)
+async def cancel_file_analysis(
+    asset_id: Annotated[str, Path(min_length=1, max_length=256)],
+    analysis_id: Annotated[str, Path(min_length=1, max_length=256)],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileAssetService, Depends(get_file_asset_service)],
+) -> FileAnalysisJobResponse:
+    try:
+        response = service.cancel_analysis(
+            asset_id, analysis_id, scope_id=scope_id
+        )
+        task = _analysis_tasks.get(analysis_id)
+        if task is not None and response.status in {
+            "cancel_requested",
+            "cancelled",
+        }:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            response = service.get_analysis(
+                asset_id, analysis_id, scope_id=scope_id
+            )
+        return response
     except FileAssetServiceError as exc:
         raise _http_error(exc) from exc
 
@@ -353,6 +520,8 @@ def confirm_chat_file_asset(
             asset_id,
             scope_id=scope_id,
             handling=payload.handling,
+            analysis_artifact_id=payload.analysis_artifact_id,
+            analysis_prompt=payload.analysis_prompt,
         )
     except FileAssetServiceError as exc:
         raise _http_error(exc) from exc
@@ -361,6 +530,7 @@ def confirm_chat_file_asset(
         handling=payload.handling,
         confirmation_revision=revision,
         confirmed_at=confirmed_at,
+        analysis_artifact_id=payload.analysis_artifact_id,
     )
 
 

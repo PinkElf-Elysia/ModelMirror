@@ -9,6 +9,10 @@ from httpx import ASGITransport, AsyncClient
 from server import main as main_module
 from server.file_assets import api as file_api
 from server.file_assets.document_parser import ParsedDocument, ParsedSection
+from server.file_assets.analysis import (
+    FileAnalysisArtifact,
+    FileAnalysisSection,
+)
 from server.file_assets.service import ResolvedChatFile
 from server.file_assets.service import FileAssetServiceError
 from server.main import (
@@ -89,6 +93,70 @@ def test_chat_file_contract_rejects_missing_confirmation_revision() -> None:
 
     with pytest.raises(ValueError):
         ChatRequest.model_validate(payload)
+
+
+def test_chat_analysis_artifact_is_explicit_and_rendered_as_untrusted_user_data() -> None:
+    asset_id = _asset_id()
+    payload = ChatRequest.model_validate(
+        {
+            "model_id": "current/chat-model",
+            "file_scope_id": "chat-session-1",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Use the reviewed result."},
+                        {
+                            "type": "input_file",
+                            "asset_id": asset_id,
+                            "handling": "extract",
+                            "confirmation_revision": 2,
+                            "analysis_artifact_id": "artifact_" + "a" * 32,
+                            "analysis_prompt": "Compare the recognized totals.",
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+    resolved = ResolvedChatFile(
+        asset_id=asset_id,
+        scope_id="chat-session-1",
+        display_name="scan.pdf",
+        format_id="pdf",
+        media_type="application/pdf",
+        byte_size=100,
+        handling="extract",
+        analysis_prompt="Compare the recognized totals.",
+        analysis_artifact=FileAnalysisArtifact(
+            asset_id=asset_id,
+            source_filename="scan.pdf",
+            source_sha256="b" * 64,
+            format="pdf",
+            mode="provider_ocr",
+            target_id="target",
+            connection_name="OpenRouter",
+            model_id="exact/downstream-model",
+            selected_pages=(1,),
+            sections=(
+                FileAnalysisSection(kind="ocr_text", text="Total: 42", page=1),
+            ),
+            processed_pages=1,
+            extracted_chars=9,
+        ),
+    )
+
+    prepared = prepare_chat_file_messages(payload, (resolved,))
+    content = prepared.messages[0].content
+    assert isinstance(content, list)
+    rendered = "\n".join(
+        part.text for part in content if getattr(part, "type", None) == "text"
+    )
+    assert "Compare the recognized totals." in rendered
+    assert "untrusted user data" in rendered
+    assert "Total: 42" in rendered
+    assert "provider_ocr" in rendered
+    assert not any(getattr(part, "type", None) == "input_file" for part in content)
 
 
 def test_chat_file_scope_is_required() -> None:

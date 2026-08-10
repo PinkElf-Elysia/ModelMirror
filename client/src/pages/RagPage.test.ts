@@ -20,8 +20,8 @@ function jsonResponse(payload: unknown, status = 200) {
 }
 
 const officeCapabilities = {
-  version: "modelmirror-file-capabilities-v1",
-  registry_version: "modelmirror-file-formats-v4",
+  version: "modelmirror-file-capabilities-v2",
+  registry_version: "modelmirror-file-formats-v5",
   requested_purpose: null,
   requested_model_id: null,
   model_specific: false,
@@ -42,6 +42,7 @@ const officeCapabilities = {
       ui_entrypoint: "/rag",
       status_reason: null,
       handling_options: [],
+      analysis_options: [],
       formats: [
         {
           format_id: "docx",

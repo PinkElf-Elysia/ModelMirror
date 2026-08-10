@@ -38,7 +38,7 @@ from .document_parser import (
 )
 from .document_processor import ProcessedDocument, StructuredDocumentProcessor
 from .embedder import EmbeddingClient, EmbeddingError
-from .lexical_store import LexicalSearchResult, SqliteLexicalStore
+from .lexical_store import LexicalChunk, LexicalSearchResult, SqliteLexicalStore
 from .reranker import RerankDocument, RerankService
 from .retrieval import RetrievalCandidate, RetrievalConfig, fuse_rankings
 from .source_metadata import normalize_heading_path
@@ -218,6 +218,7 @@ class RagService:
         self._document_delete_claims: set[str] = set()
         self._knowledge_base_delete_claims: set[str] = set()
         self._knowledge_base_write_claims: dict[str, int] = {}
+        self._analysis_import_claims: set[tuple[str, str]] = set()
         self.embedder = embedder or EmbeddingClient()
         self.vector_store = vector_store or create_vector_store(self.storage_dir)
         self.lexical_store = lexical_store or SqliteLexicalStore(
@@ -853,6 +854,203 @@ class RagService:
             knowledge_base["updated_at"] = time.time()
             self._write_metadata_unlocked(latest)
         return self._document_payload(document)
+
+    async def import_file_analysis(
+        self,
+        kb_id: str,
+        *,
+        asset_id: str,
+        analysis_artifact_id: str,
+        chat_scope_id: str,
+    ) -> dict[str, Any]:
+        """Persist one confirmed Chat analysis result without copying its original."""
+
+        clean_artifact = str(analysis_artifact_id or "").strip()
+        if not clean_artifact:
+            raise UnsupportedDocumentError("识别结果标识无效。")
+        claim = (kb_id, clean_artifact)
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            self._ensure_kb_exists(metadata, kb_id)
+            existing = next(
+                (
+                    document
+                    for document in metadata["documents"].values()
+                    if isinstance(document, dict)
+                    and str(document.get("kb_id")) == kb_id
+                    and str(document.get("analysis_artifact_id")) == clean_artifact
+                    and not document.get("deletion_status")
+                ),
+                None,
+            )
+            if existing is not None:
+                return self._document_payload(existing)
+            if claim in self._analysis_import_claims:
+                raise KnowledgeBaseDeletionError(
+                    "The same analysis result is already being saved; retry shortly."
+                )
+            self._analysis_import_claims.add(claim)
+            self._knowledge_base_write_claims[kb_id] = (
+                self._knowledge_base_write_claims.get(kb_id, 0) + 1
+            )
+
+        doc_id = "doc_analysis_" + hashlib.sha256(
+            f"{kb_id}\0{clean_artifact}".encode("utf-8")
+        ).hexdigest()[:24]
+        stored_path: Path | None = None
+        derived_asset_id: str | None = None
+        indexed = False
+        try:
+            analysis = await asyncio.to_thread(
+                get_file_asset_service().resolve_analysis_artifact,
+                asset_id,
+                clean_artifact,
+                scope_id=chat_scope_id,
+            )
+            if not analysis.sections:
+                raise UnsupportedDocumentError("识别结果没有可保存的文字内容。")
+
+            filename = _safe_filename(analysis.source_filename or "analysis.txt")
+            derived_name = f"{Path(filename).stem or 'analysis'}.analysis.txt"
+            chunks: list[str] = []
+            sources: list[tuple[int, str]] = []
+            persistent_sections: list[str] = []
+            for section in analysis.sections:
+                source_label = (
+                    f"识别来源：第 {section.page} 页 · {analysis.mode.value} · "
+                    f"{analysis.connection_name}/{analysis.model_id}"
+                )
+                persistent_sections.append(f"[{source_label}]\n{section.text}")
+                section_chunks = self.splitter.split_text(section.text)
+                chunks.extend(section_chunks)
+                sources.extend((section.page, section.kind) for _ in section_chunks)
+            if not chunks:
+                raise UnsupportedDocumentError("识别结果没有可索引的文字片段。")
+
+            embeddings = await self.embedder.embed_texts(chunks)
+            vector_chunks = [
+                VectorChunk(
+                    id=f"{doc_id}_chunk_{index}",
+                    kb_id=kb_id,
+                    doc_id=doc_id,
+                    document_name=filename,
+                    text=text,
+                    embedding=embeddings[index],
+                    chunk_index=index,
+                    chunk_type="visual_analysis",
+                    page_number=sources[index][0],
+                    visual_kind=sources[index][1],
+                    source_block_id=clean_artifact,
+                )
+                for index, text in enumerate(chunks)
+            ]
+            lexical_chunks = [
+                LexicalChunk(
+                    chunk_id=item.id,
+                    namespace=kb_id,
+                    doc_id=doc_id,
+                    document_name=filename,
+                    text=item.text,
+                    chunk_index=item.chunk_index,
+                    chunk_type=item.chunk_type,
+                    page_number=item.page_number,
+                    visual_kind=item.visual_kind,
+                    source_block_id=item.source_block_id,
+                )
+                for item in vector_chunks
+            ]
+            derived_bytes = "\n\n".join(persistent_sections).encode("utf-8")
+            target_dir = self.uploads_dir / kb_id
+            target_dir.mkdir(parents=True, exist_ok=True)
+            stored_path = target_dir / f"{doc_id}_{derived_name}"
+            stored_path.write_bytes(derived_bytes)
+
+            registered = await asyncio.to_thread(
+                get_file_asset_service().upload,
+                io.BytesIO(derived_bytes),
+                purpose=FilePurpose.RAG,
+                scope_id=kb_id,
+                filename=derived_name,
+                declared_media_type="text/plain",
+            )
+            derived_asset_id = registered.asset_id
+            self.vector_store.add_chunks(vector_chunks)
+            self.lexical_store.add_chunks(lexical_chunks)
+            indexed = True
+
+            now = time.time()
+            document = {
+                "id": doc_id,
+                "kb_id": kb_id,
+                "filename": filename,
+                "stored_path": str(stored_path),
+                "size": len(derived_bytes),
+                "chunk_count": len(chunks),
+                "content_type": "text/plain",
+                "ingestion_status": "indexed_file_analysis",
+                "visual_candidate": False,
+                "warnings": _bounded_document_warnings(analysis.warnings),
+                "content_hash": hashlib.sha256(derived_bytes).hexdigest(),
+                "asset_id": derived_asset_id,
+                "analysis_artifact_id": clean_artifact,
+                "analysis_source": {
+                    "source_filename": filename,
+                    "source_sha256": analysis.source_sha256,
+                    "selected_pages": list(analysis.selected_pages),
+                    "mode": analysis.mode.value,
+                    "connection_name": analysis.connection_name,
+                    "model_id": analysis.model_id,
+                    "failed_pages": list(analysis.failed_pages),
+                    "truncated": analysis.truncated,
+                },
+                "created_at": now,
+            }
+            with self._metadata_lock:
+                latest = self._read_metadata_unlocked()
+                self._ensure_kb_exists(latest, kb_id)
+                existing = next(
+                    (
+                        item
+                        for item in latest["documents"].values()
+                        if isinstance(item, dict)
+                        and str(item.get("kb_id")) == kb_id
+                        and str(item.get("analysis_artifact_id")) == clean_artifact
+                        and not item.get("deletion_status")
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    raise KnowledgeBaseDeletionError(
+                        "The analysis result was saved concurrently; retry to read it."
+                    )
+                latest["documents"][doc_id] = document
+                latest["knowledge_bases"][kb_id]["updated_at"] = now
+                self._write_metadata_unlocked(latest)
+            return self._document_payload(document)
+        except Exception:
+            if indexed:
+                self.vector_store.delete_document(doc_id)
+                self.lexical_store.delete_document(doc_id)
+            if stored_path is not None:
+                stored_path.unlink(missing_ok=True)
+            if derived_asset_id:
+                try:
+                    get_file_asset_service().delete_asset(
+                        derived_asset_id,
+                        purpose=FilePurpose.RAG,
+                        scope_id=kb_id,
+                    )
+                except Exception:
+                    pass
+            raise
+        finally:
+            with self._metadata_lock:
+                self._analysis_import_claims.discard(claim)
+                remaining = self._knowledge_base_write_claims.get(kb_id, 0) - 1
+                if remaining > 0:
+                    self._knowledge_base_write_claims[kb_id] = remaining
+                else:
+                    self._knowledge_base_write_claims.pop(kb_id, None)
 
     def list_documents(self, kb_id: str) -> list[dict[str, Any]]:
         """List documents belonging to a knowledge base."""
@@ -4867,6 +5065,11 @@ class RagService:
             "ingestion_status": document.get("ingestion_status", "indexed_legacy"),
             "visual_candidate": bool(document.get("visual_candidate", False)),
             "warnings": _bounded_document_warnings(document.get("warnings", [])),
+            "analysis_artifact_id": str(document.get("analysis_artifact_id") or "")
+            or None,
+            "analysis_source": document.get("analysis_source")
+            if isinstance(document.get("analysis_source"), dict)
+            else None,
             "created_at": document["created_at"],
         }
 

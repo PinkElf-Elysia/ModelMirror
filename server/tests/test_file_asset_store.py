@@ -72,13 +72,16 @@ def test_blob_store_is_atomic_path_confined_and_filename_free(tmp_path: Path) ->
     assert not list((tmp_path / ".staging").iterdir())
 
 
-def test_repository_creates_four_tenant_scoped_metadata_tables(tmp_path: Path) -> None:
+def test_repository_creates_tenant_scoped_metadata_tables(tmp_path: Path) -> None:
     repository = SQLiteFileAssetRepository(tmp_path)
     assert repository.count_schema_tenant_columns() == {
         "file_assets": True,
         "file_bindings": True,
         "file_artifacts": True,
         "file_audit_events": True,
+        "file_analysis_confirmations": True,
+        "file_analysis_jobs": True,
+        "file_analysis_send_confirmations": True,
     }
 
     with sqlite3.connect(repository.database_path) as connection:
@@ -155,6 +158,9 @@ def test_repository_migrates_v1_bindings_to_confirmation_schema(
     assert {
         "file_scope_tombstones",
         "file_scope_cleanup_assets",
+        "file_analysis_confirmations",
+        "file_analysis_jobs",
+        "file_analysis_send_confirmations",
     } <= table_names
 
 

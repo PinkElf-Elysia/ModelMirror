@@ -116,8 +116,8 @@ describe("Data X import task refresh", () => {
       if (url === "/api/files/capabilities") {
         return new Response(
           JSON.stringify({
-            version: "modelmirror-file-capabilities-v1",
-            registry_version: "modelmirror-file-formats-v4",
+            version: "modelmirror-file-capabilities-v2",
+            registry_version: "modelmirror-file-formats-v5",
             requested_purpose: null,
             requested_model_id: null,
             model_specific: false,
@@ -138,6 +138,7 @@ describe("Data X import task refresh", () => {
                 ui_entrypoint: "/datax",
                 status_reason: null,
                 handling_options: [],
+                analysis_options: [],
                 formats: [
                   {
                     format_id: "xlsx",

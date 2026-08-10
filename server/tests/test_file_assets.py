@@ -211,6 +211,7 @@ def test_chat_capabilities_follow_runtime_feature_gates(monkeypatch) -> None:
         "audio_generation_image": ("MULTIMODAL_AUDIO_GENERATION_ENABLED", False),
         "video_generation_frame": ("MULTIMODAL_VIDEO_GENERATION_ENABLED", False),
         "video_generation_reference": ("MULTIMODAL_VIDEO_GENERATION_ENABLED", False),
+        "visual_analysis": ("CHAT_ONE_SHOT_VISION_ENABLED", False),
     }
     for name, _default in gates.values():
         monkeypatch.delenv(name, raising=False)
@@ -254,6 +255,7 @@ def test_chat_capabilities_follow_runtime_feature_gates(monkeypatch) -> None:
 
     for name, _default in gates.values():
         monkeypatch.setenv(name, "true")
+    monkeypatch.setenv("CHAT_OPENROUTER_OCR_ENABLED", "true")
     monkeypatch.setenv("FILE_ASSET_STORE_MODE", "shadow")
     enabled = registry.capabilities_response(
         purpose=FilePurpose.CHAT
@@ -267,6 +269,44 @@ def test_chat_capabilities_follow_runtime_feature_gates(monkeypatch) -> None:
         registry.extensions_for(FilePurpose.CHAT, input_kind)
         for input_kind in gates
     )
+    visual = next(
+        item for item in enabled if item.input_kind == FileInputKind.VISUAL_ANALYSIS
+    )
+    assert [option.mode.value for option in visual.analysis_options] == [
+        "vision",
+        "provider_ocr",
+    ]
+    assert [
+        option.interaction_status for option in visual.analysis_options
+    ] == [FileInteractionStatus.READY, FileInteractionStatus.READY]
+
+    monkeypatch.setenv("CHAT_ONE_SHOT_VISION_ENABLED", "true")
+    monkeypatch.setenv("CHAT_OPENROUTER_OCR_ENABLED", "false")
+    vision_only = next(
+        item
+        for item in registry.capabilities_response(
+            purpose=FilePurpose.CHAT
+        ).capabilities
+        if item.input_kind == FileInputKind.VISUAL_ANALYSIS
+    )
+    assert vision_only.interaction_status == FileInteractionStatus.READY
+    assert [
+        option.interaction_status for option in vision_only.analysis_options
+    ] == [FileInteractionStatus.READY, FileInteractionStatus.DISABLED]
+
+    monkeypatch.setenv("CHAT_ONE_SHOT_VISION_ENABLED", "false")
+    monkeypatch.setenv("CHAT_OPENROUTER_OCR_ENABLED", "true")
+    ocr_only = next(
+        item
+        for item in registry.capabilities_response(
+            purpose=FilePurpose.CHAT
+        ).capabilities
+        if item.input_kind == FileInputKind.VISUAL_ANALYSIS
+    )
+    assert ocr_only.interaction_status == FileInteractionStatus.READY
+    assert [
+        option.interaction_status for option in ocr_only.analysis_options
+    ] == [FileInteractionStatus.DISABLED, FileInteractionStatus.READY]
 
 
 def test_capabilities_api_filters_fail_closed_for_unverified_model(

@@ -197,7 +197,7 @@ def test_office_formats_are_ready_for_chat_rag_and_workflow_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     registry = get_file_format_registry()
-    assert registry.version == "modelmirror-file-formats-v4"
+    assert registry.version == "modelmirror-file-formats-v5"
 
     monkeypatch.setenv("WORKFLOW_FILE_ASSETS_ENABLED", "true")
     for purpose in (FilePurpose.CHAT, FilePurpose.RAG, FilePurpose.WORKFLOW):

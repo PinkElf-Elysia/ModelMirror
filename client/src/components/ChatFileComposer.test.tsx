@@ -26,8 +26,8 @@ function response(payload: unknown, status = 200) {
 
 function capability(interactionStatus: "ready" | "disabled" = "ready") {
   return {
-    version: "modelmirror-file-capabilities-v1",
-    registry_version: "modelmirror-file-formats-v4",
+    version: "modelmirror-file-capabilities-v2",
+    registry_version: "modelmirror-file-formats-v5",
     requested_purpose: "chat",
     requested_model_id: "openai/file-model",
     model_specific: true,
@@ -64,6 +64,7 @@ function capability(interactionStatus: "ready" | "disabled" = "ready") {
             status_reason: null,
           },
         ],
+        analysis_options: [],
         formats: [
           {
             format_id: "plain_text",
@@ -580,6 +581,85 @@ describe("ChatFileComposer", () => {
     expect(onStateChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ count: 1, allConfirmed: false }),
     );
+  });
+
+  it("hands a scanned PDF asset to visual analysis without reupload or delete", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith("/api/files/capabilities")) {
+          return response(capability());
+        }
+        if (url === "/api/files" && init?.method === "POST") {
+          return response(
+            {
+              ...asset("scan.pdf"),
+              format: "pdf",
+              media_type: "application/pdf",
+            },
+            201,
+          );
+        }
+        if (url.includes("/parse?")) {
+          return response(
+            {
+              detail: {
+                code: "scanned_pdf_requires_ocr",
+                message: "扫描 PDF 没有可提取文字。",
+              },
+            },
+            422,
+          );
+        }
+        if (init?.method === "DELETE") return response(null, 204);
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const onStateChange = vi.fn<(state: ChatFileComposerState) => void>();
+    const handoff = vi.fn<(event: Event) => void>();
+    window.addEventListener("modelmirror:open-chat-visual-analysis", handoff);
+    try {
+      const { container } = renderComposer({ onStateChange });
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "添加文件" })).toBeEnabled(),
+      );
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: {
+          files: [new File(["%PDF-scan"], "scan.pdf", { type: "application/pdf" })],
+        },
+      });
+      await screen.findByText("扫描 PDF 没有可提取文字。");
+      expect(onStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ count: 1, allConfirmed: false }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "打开一次性视觉/OCR" }),
+      );
+      await waitFor(() => expect(handoff).toHaveBeenCalledTimes(1));
+      const event = handoff.mock.calls[0][0] as CustomEvent;
+      expect(event.detail).toEqual({
+        assetId: "file_12345678901234567890123456789012",
+        displayName: "scan.pdf",
+        format: "pdf",
+        byteSize: 12,
+      });
+      await waitFor(() =>
+        expect(onStateChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({ count: 0, files: [] }),
+        ),
+      );
+      expect(
+        fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
+      ).toBe(false);
+      expect(
+        fetchMock.mock.calls.filter(
+          ([url, init]) => String(url) === "/api/files" && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      window.removeEventListener("modelmirror:open-chat-visual-analysis", handoff);
+    }
   });
 
   it("aborts discard in flight and deletes an asset that arrives late", async () => {
