@@ -13,6 +13,7 @@ from .service import CodingWorkerService
 from .store import CodingWorkerStore, DEFAULT_RETENTION_SECONDS
 from .tool_broker import FrozenCheck, ToolBroker
 from .workspace import WorkspaceBroker, WorkspaceSourceAdapter
+from .source_adapters import ProjectSnapshotWorkspaceSourceAdapter
 
 
 class CodingWorkerRuntimeError(RuntimeError):
@@ -236,10 +237,25 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         for value in os.getenv("CODING_WORKER_NETWORK_DOMAINS", "").split(",")
         if value.strip()
     )
+    source_adapters = dict(_SOURCE_ADAPTERS)
+    project_source_socket = os.getenv("CODING_PROJECT_SOURCE_SOCKET_PATH")
+    if project_source_socket:
+        try:
+            from server.coding_runtime.project_source_client import (
+                CodingProjectSourceClient,
+            )
+        except ModuleNotFoundError:
+            from coding_runtime.project_source_client import CodingProjectSourceClient
+        project_adapter = ProjectSnapshotWorkspaceSourceAdapter(
+            CodingProjectSourceClient(project_source_socket),
+            Path(os.getenv("CODING_WORKER_PROJECT_SNAPSHOT_ROOT", "/project-snapshots")),
+        )
+        source_adapters.setdefault("manifest", project_adapter)
+        source_adapters.setdefault("host_snapshot", project_adapter)
     return CodingWorkerRuntime(
         storage_root=root,
         slot_roots=slot_roots,
-        source_adapters=_SOURCE_ADAPTERS,
+        source_adapters=source_adapters,
         frozen_checks=_FROZEN_CHECKS,
         provider_endpoints=endpoints,
         provider_tokens=tokens,

@@ -20,6 +20,7 @@ services:
       CODING_WORKER_NETWORK_DOMAINS: ${CODING_WORKER_NETWORK_DOMAINS:-registry.npmjs.org}
       CODING_WORKER_EGRESS_PROXY_URL: http://coding-worker-egress:8080
       CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}
+      CODING_WORKER_PROJECT_SNAPSHOT_ROOT: /project-snapshots
     volumes:
       - coding_worker_state:/var/lib/modelmirror/coding-worker
       - coding_worker_slot_a:/worker-slots/slot-a
@@ -29,6 +30,7 @@ services:
       - coding_worker_executor_a:/run/modelmirror-coding-executor-a
       - coding_worker_executor_b:/run/modelmirror-coding-executor-b
       - coding_worker_broker:/run/modelmirror-coding-broker
+      - coding_project_snapshot:/project-snapshots:ro
 
   coding-worker-provider-a:
     image: modelmirror-coding-worker-v14:local
@@ -167,6 +169,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  coding_project_snapshot:
   coding_worker_state:
   coding_worker_slot_a:
   coding_worker_slot_b:
