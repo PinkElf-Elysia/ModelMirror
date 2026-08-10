@@ -157,7 +157,12 @@ def main() -> int:
     separator_index = 2
     while separator_index < len(sys.argv) and sys.argv[separator_index] != "--":
         option = sys.argv[separator_index]
-        if option not in {"--read-only", "--compute-limits", "--skill-evaluation"}:
+        if option not in {
+            "--read-only",
+            "--compute-limits",
+            "--skill-evaluation",
+            "--skill-authoring",
+        }:
             print(f"unsupported sandbox option: {option}", file=sys.stderr)
             return 64
         options.add(option)
@@ -165,7 +170,7 @@ def main() -> int:
     if len(sys.argv) <= separator_index or sys.argv[separator_index] != "--":
         print(
             "usage: landlock_exec.py WORKSPACE [--read-only] "
-            "[--compute-limits] [--skill-evaluation] -- COMMAND [ARGS...]",
+            "[--compute-limits] [--skill-evaluation|--skill-authoring] -- COMMAND [ARGS...]",
             file=sys.stderr,
         )
         return 64
@@ -180,7 +185,9 @@ def main() -> int:
         _apply_landlock(
             workspace,
             workspace_writable="--read-only" not in options,
-            skill_evaluation="--skill-evaluation" in options,
+            skill_evaluation=bool(
+                {"--skill-evaluation", "--skill-authoring"} & options
+            ),
         )
     except Exception as exc:
         print(f"sandbox isolation failed: {exc}", file=sys.stderr)

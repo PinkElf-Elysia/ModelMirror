@@ -13,9 +13,15 @@ from server.skills.creator_resource_plan import (
     RESOURCE_PLAN_VERSION,
     SkillResourcePlanStore,
 )
+from server.skills.creator_resource_build import SkillResourceBuildStore
+from server.skills.creator_resource_build_runtime import (
+    ResourceBuildGenerationRequest,
+    build_resource_builder_invocation,
+)
 from server.skills.creator_resource_runtime import (
     WorkflowCreatorResourcePlanner,
     build_resource_planner_invocation,
+    parse_resource_plan_output,
 )
 from server.skills.creator_resource_service import (
     ResourcePlanningRequest,
@@ -318,6 +324,41 @@ async def test_workflow_resource_planner_accepts_only_versioned_json() -> None:
     assert caught.value.code == "skill_creator_resource_planner_invalid"
 
 
+def test_resource_planner_extracts_one_versioned_json_from_model_narration() -> None:
+    payload = {
+        "resource_plan_version": RESOURCE_PLAN_VERSION,
+        **_plan_payload(),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+
+    assert parse_resource_plan_output(f"<think>plan first</think>\n{encoded}\nDone.") == payload
+    assert parse_resource_plan_output(f"Here is the plan:\n```json\n{encoded}\n```\n") == payload
+
+
+def test_resource_planner_rejects_ambiguous_or_syntax_repaired_output() -> None:
+    first = {
+        "resource_plan_version": RESOURCE_PLAN_VERSION,
+        **_plan_payload(),
+    }
+    second = {
+        **first,
+        "skill_name": "different-plan",
+    }
+
+    with pytest.raises(SkillCreatorValidationError) as ambiguous:
+        parse_resource_plan_output(
+            f"{json.dumps(first, ensure_ascii=False)}\n"
+            f"{json.dumps(second, ensure_ascii=False)}"
+        )
+    assert ambiguous.value.code == "skill_creator_resource_planner_invalid"
+
+    with pytest.raises(SkillCreatorValidationError) as invalid_python:
+        parse_resource_plan_output(
+            "{'resource_plan_version':'skill-resource-plan-v1'}"
+        )
+    assert invalid_python.value.code == "skill_creator_resource_planner_invalid"
+
+
 @pytest.mark.asyncio
 async def test_resource_planner_direct_runtime_uses_creator_token_budget(
     tmp_path: Path,
@@ -338,6 +379,7 @@ async def test_resource_planner_direct_runtime_uses_creator_token_budget(
         current_plan=None,
         allowed_source_ids=["intent", "expected_output"],
     )
+
     invocation = build_resource_planner_invocation(
         request, model_id="gateway/default-text"
     )
@@ -402,6 +444,91 @@ async def test_resource_planner_direct_runtime_uses_creator_token_budget(
         )
         == main_module.SKILL_CREATOR_AGENT_MAX_TOKENS
     )
+
+
+@pytest.mark.asyncio
+async def test_resource_builder_direct_runtime_uses_frozen_budget_and_temperature(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan_store = SkillResourcePlanStore(tmp_path / "plans")
+    plan = plan_store.save_generated(
+        session_id="skillcreator_resource_builder_budget",
+        session_revision=1,
+        draft_id=None,
+        draft_revision=None,
+        draft_digest=None,
+        payload=_plan_payload(),
+        allowed_source_ids={"intent"},
+    )
+    plan = plan_store.confirm(
+        plan.plan_id,
+        expected_revision=plan.revision,
+        expected_digest=plan.digest,
+        session_revision=1,
+        draft_revision=None,
+        draft_digest=None,
+    )
+    build_store = SkillResourceBuildStore(tmp_path / "builds")
+    build = build_store.create(plan=plan)
+    build = build_store.claim_next(
+        build.build_id,
+        expected_revision=build.revision,
+        expected_digest=build.digest,
+    )
+    invocation = build_resource_builder_invocation(
+        ResourceBuildGenerationRequest(
+            build=build,
+            target_id="SKILL.md",
+            segment_index=0,
+        ),
+        model_id="gateway/default-text",
+    )
+    observed: dict[str, object] = {}
+
+    async def fake_stream_messages(
+        model_id,
+        messages,
+        *,
+        temperature=0.7,
+        max_tokens=2048,
+    ):
+        observed.update(
+            model_id=model_id,
+            message_count=len(messages),
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        yield json.dumps(
+            {
+                "resource_build_version": "skill-resource-build-v1",
+                "target_id": "SKILL.md",
+                "segment_index": 0,
+                "content": "segment",
+                "complete": True,
+                "script_tests": [],
+            }
+        )
+
+    monkeypatch.setattr(main_module, "stream_workflow_llm_messages", fake_stream_messages)
+    monkeypatch.setattr(
+        main_module,
+        "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "run_registry", RunRegistry())
+    monkeypatch.setattr(
+        main_module,
+        "workflow_execution_store",
+        WorkflowExecutionStore(tmp_path / "executions-builder"),
+    )
+    monkeypatch.setattr(main_module, "workflow_task_store", {})
+
+    output = await main_module.run_skill_creator_resource_build(invocation)
+
+    assert json.loads(output)["resource_build_version"] == "skill-resource-build-v1"
+    assert observed["temperature"] == main_module.SKILL_CREATOR_RESOURCE_BUILDER_TEMPERATURE
+    assert observed["max_tokens"] == main_module.SKILL_CREATOR_RESOURCE_BUILDER_MAX_TOKENS
 
 
 def test_resource_authoring_flag_fails_closed(tmp_path: Path) -> None:

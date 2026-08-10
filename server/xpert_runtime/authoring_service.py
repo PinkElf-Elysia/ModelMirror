@@ -443,9 +443,18 @@ class AuthoringService:
             "base_digest": target_draft.content_digest if target_draft else None,
         }
         if proposal.source_type == "skill_creator":
+            resource_receipt = payload.get("creator_resource_build")
+            trusted_resource_build = bool(
+                isinstance(resource_receipt, dict)
+                and proposal.actor_kind == "workflow_agent"
+                and proposal.actor_id == "skill-creator-assistant-v1"
+                and proposal.source_id
+                == str(resource_receipt.get("build_id") or "").strip()
+            )
             report = evaluate_creator_payload(
                 payload,
                 requirement_ids=payload.get("creator_requirement_ids") or (),
+                resource_build=trusted_resource_build,
             )
             details["creator_quality"] = report.to_dict()
         return details

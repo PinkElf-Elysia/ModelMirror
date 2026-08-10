@@ -17,6 +17,10 @@ MAX_CREATOR_SKILL_MARKDOWN_CHARS = 6_000
 MAX_CREATOR_RESOURCES = 6
 MAX_CREATOR_RESOURCE_CHARS = 6_000
 MAX_CREATOR_PAYLOAD_BYTES = 24_000
+MAX_RESOURCE_BUILD_SKILL_MARKDOWN_CHARS = 20 * 1024
+MAX_RESOURCE_BUILD_RESOURCES = 20
+MAX_RESOURCE_BUILD_RESOURCE_CHARS = 24 * 1024
+MAX_RESOURCE_BUILD_PAYLOAD_BYTES = 180 * 1024
 
 _REFERENCE_DIR = Path(__file__).resolve().parent / "creator_reference"
 _PLAYBOOK_PATH = _REFERENCE_DIR / "authoring-playbook-v1.md"
@@ -217,6 +221,7 @@ def evaluate_creator_payload(
     *,
     requirements: Sequence[CreatorRequirement] = (),
     requirement_ids: Sequence[str] = (),
+    resource_build: bool = False,
 ) -> CreatorDraftQualityReport:
     """Evaluate a workflow-agent Creator draft without affecting generic Skills.
 
@@ -240,7 +245,7 @@ def evaluate_creator_payload(
         )
         return _report(issues, checks, expected_ids, contract_version)
 
-    _validate_generation_budget(payload, issues)
+    _validate_generation_budget(payload, issues, resource_build=resource_build)
 
     raw_contract = payload.get("creator_contract_version")
     if isinstance(raw_contract, str):
@@ -600,16 +605,37 @@ def _validate_wrapped_skill(
 
 
 def _validate_generation_budget(
-    payload: Mapping[str, Any], issues: list[CreatorQualityIssue]
+    payload: Mapping[str, Any],
+    issues: list[CreatorQualityIssue],
+    *,
+    resource_build: bool,
 ) -> None:
+    skill_markdown_limit = (
+        MAX_RESOURCE_BUILD_SKILL_MARKDOWN_CHARS
+        if resource_build
+        else MAX_CREATOR_SKILL_MARKDOWN_CHARS
+    )
+    resource_count_limit = (
+        MAX_RESOURCE_BUILD_RESOURCES if resource_build else MAX_CREATOR_RESOURCES
+    )
+    resource_size_limit = (
+        MAX_RESOURCE_BUILD_RESOURCE_CHARS
+        if resource_build
+        else MAX_CREATOR_RESOURCE_CHARS
+    )
+    payload_limit = (
+        MAX_RESOURCE_BUILD_PAYLOAD_BYTES
+        if resource_build
+        else MAX_CREATOR_PAYLOAD_BYTES
+    )
     raw_skill = payload.get("skill")
     if isinstance(raw_skill, Mapping):
         markdown = raw_skill.get("skill_markdown")
-        if isinstance(markdown, str) and len(markdown) > MAX_CREATOR_SKILL_MARKDOWN_CHARS:
+        if isinstance(markdown, str) and len(markdown) > skill_markdown_limit:
             issues.append(
                 CreatorQualityIssue(
                     code="creator_skill_markdown_budget_exceeded",
-                    message=f"Creator SKILL.md is limited to {MAX_CREATOR_SKILL_MARKDOWN_CHARS} characters per generation.",
+                    message=f"Creator SKILL.md is limited to {skill_markdown_limit} characters per generation.",
                     path="SKILL.md",
                 )
             )
@@ -620,21 +646,21 @@ def _validate_generation_budget(
                 for path in files
                 if isinstance(path, str) and not path.startswith("agents/")
             ]
-            if len(resource_paths) > MAX_CREATOR_RESOURCES:
+            if len(resource_paths) > resource_count_limit:
                 issues.append(
                     CreatorQualityIssue(
                         code="creator_resource_count_budget_exceeded",
-                        message=f"Creator generation is limited to {MAX_CREATOR_RESOURCES} bundled resources.",
+                        message=f"Creator generation is limited to {resource_count_limit} bundled resources.",
                         field="skill.files",
                     )
                 )
             for path in resource_paths:
                 content = files.get(path)
-                if isinstance(content, str) and len(content) > MAX_CREATOR_RESOURCE_CHARS:
+                if isinstance(content, str) and len(content) > resource_size_limit:
                     issues.append(
                         CreatorQualityIssue(
                             code="creator_resource_budget_exceeded",
-                            message=f"Each generated resource is limited to {MAX_CREATOR_RESOURCE_CHARS} characters.",
+                            message=f"Each generated resource is limited to {resource_size_limit} characters.",
                             path=path,
                         )
                     )
@@ -649,11 +675,11 @@ def _validate_generation_budget(
         )
     except (TypeError, ValueError, OverflowError):
         return
-    if payload_bytes > MAX_CREATOR_PAYLOAD_BYTES:
+    if payload_bytes > payload_limit:
         issues.append(
             CreatorQualityIssue(
                 code="creator_payload_budget_exceeded",
-                message=f"Creator generation is limited to {MAX_CREATOR_PAYLOAD_BYTES} UTF-8 bytes.",
+                message=f"Creator generation is limited to {payload_limit} UTF-8 bytes.",
                 field="payload",
             )
         )
