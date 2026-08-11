@@ -20,6 +20,8 @@ VALID_SETTINGS = {
     "stack_slug": "smoke-stack",
     "assistant_host": "smoke.svc.pinecone.io",
     "assistant_name": "smoke-assistant",
+    "pipeline_id": "smoke-pipeline",
+    "workspace": "smoke-workspace",
 }
 
 

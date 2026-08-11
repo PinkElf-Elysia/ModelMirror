@@ -430,6 +430,27 @@ class CatalogDatabasePolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class CatalogPublicPolicy:
+    """Public guardrails for a credential-free fixed-host adapter facade."""
+
+    provider: str
+    upstream_repository: str
+    upstream_version: str
+    upstream_commit: str
+    upstream_license: str
+    fixed_hosts: tuple[str, ...]
+    tool_schema_sha256: str
+    anonymous_only: bool = True
+    read_only: bool = True
+    read_retry_limit: int = 1
+    rate_limit_per_minute: int = 30
+    max_results: int = 25
+
+    def to_public(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class CatalogSaaSPolicy:
     """Public guardrails for a fixed, stateful SaaS account adapter."""
 
@@ -523,6 +544,7 @@ class CatalogAdapterManifest:
     tool_policies: dict[str, CatalogToolPolicy] = field(default_factory=dict)
     workspace_policy: CatalogWorkspacePolicy | None = None
     database_policy: CatalogDatabasePolicy | None = None
+    public_policy: CatalogPublicPolicy | None = None
     saas_policy: CatalogSaaSPolicy | None = None
     browser_policy: CatalogBrowserPolicy | None = None
     legacy_unrestricted_calls: bool = False
@@ -617,6 +639,11 @@ class CatalogAdapterManifest:
             "database_policy": (
                 self.database_policy.to_public()
                 if self.database_policy is not None
+                else None
+            ),
+            "public_policy": (
+                self.public_policy.to_public()
+                if self.public_policy is not None
                 else None
             ),
             "saas_policy": (
@@ -727,6 +754,325 @@ WAVE_TWO_ADAPTERS: dict[str, tuple[str, tuple[str, ...], str]] = {
         "allowlist:nominatim.openstreetmap.org,router.project-osrm.org",
     ),
 }
+
+WAVE_SIXTEEN_PUBLIC_ADAPTERS: dict[
+    str,
+    tuple[
+        str,
+        tuple[str, ...],
+        CatalogPublicPolicy,
+        tuple[str, ...],
+    ],
+] = {
+    "nickclyde-duckduckgo-mcp-server": (
+        "0.6.1-compatible-native-v1",
+        ("search",),
+        CatalogPublicPolicy(
+            provider="DuckDuckGo",
+            upstream_repository="nickclyde/duckduckgo-mcp-server",
+            upstream_version="v0.6.1",
+            upstream_commit="ad2e681bfb4461c969d3032b47ac5b3cd513f0a9",
+            upstream_license="MIT",
+            fixed_hosts=("html.duckduckgo.com",),
+            tool_schema_sha256=(
+                "9a10fcfb68759337ab6af5fcfe76f5a7ebc87f3724e34a2017ea25807e4cc197"
+            ),
+            rate_limit_per_minute=30,
+            max_results=20,
+        ),
+        (
+            "仅开放 DuckDuckGo 搜索结果元数据；网页抓取、任意 URL、关闭安全搜索和自定义 Header 均不可发现。",
+            "固定 Strict SafeSearch、最多 20 条结果、2 秒请求间隔；标题、摘要与链接均按不可信公网内容返回。",
+        ),
+    ),
+    "jpisnice-shadcn-ui-mcp-server": (
+        "2.0.0-compatible-native-v1",
+        ("list_components", "get_component_metadata"),
+        CatalogPublicPolicy(
+            provider="shadcn/ui",
+            upstream_repository="Jpisnice/shadcn-ui-mcp-server",
+            upstream_version="v2.0.0",
+            upstream_commit="d750f1645bb0fe10c6fbf5e246bc3b12d3807c05",
+            upstream_license="MIT",
+            fixed_hosts=("api.github.com",),
+            tool_schema_sha256=(
+                "8a04ba4e5da26f151bc0a563e63d9567e2932e0450d08565bc64f2498e39336f"
+            ),
+            rate_limit_per_minute=1,
+            max_results=100,
+        ),
+        (
+            "仅列出固定 shadcn-ui/ui 提交中的 v4 组件并读取单组件 Git 元数据；源码、Demo、Block、主题和目录遍历均关闭。",
+            "不接受 GitHub Token、仓库、分支、路径或写入目标；上游 apply_theme 及任何本地项目修改工具不可发现。",
+        ),
+    ),
+    "docker-hub-mcp": (
+        "0.18.0-compatible-native-v1",
+        ("search", "getRepositoryInfo", "listRepositoryTags"),
+        CatalogPublicPolicy(
+            provider="Docker Hub",
+            upstream_repository="docker/hub-mcp",
+            upstream_version="dockerhub-mcp/v0.18.0",
+            upstream_commit="98cf1b9cbec64316ea2b465462468a2d2204a406",
+            upstream_license="Apache-2.0",
+            fixed_hosts=("hub.docker.com",),
+            tool_schema_sha256=(
+                "e8ce120ed943ee25aaa0d67218e4ce8e408dc42592251e9eec108daa1065d35d"
+            ),
+            rate_limit_per_minute=60,
+            max_results=25,
+        ),
+        (
+            "仅开放匿名仓库搜索、仓库元数据与标签元数据；账号、命名空间、Docker Hardened Images 组织数据及认证均关闭。",
+            "创建/更新仓库、状态变更、PAT、任意 Registry/Host/Header 和镜像执行或拉取工具均不可发现。",
+        ),
+    ),
+    "genomoncology-biomcp": (
+        "0.8.25-compatible-native-v1",
+        ("search", "get"),
+        CatalogPublicPolicy(
+            provider="BioMCP public data sources",
+            upstream_repository="genomoncology/biomcp",
+            upstream_version="v0.8.25",
+            upstream_commit="b5337826dbf06db6d6409f36ead7a4d6a70c710e",
+            upstream_license="MIT",
+            fixed_hosts=(
+                "www.ebi.ac.uk",
+                "clinicaltrials.gov",
+                "myvariant.info",
+            ),
+            tool_schema_sha256=(
+                "24c2ca66ce7643bdb91323912a73956c1adbd93c82c246c55fe773afa95f1c31"
+            ),
+            rate_limit_per_minute=30,
+            max_results=10,
+        ),
+        (
+            "仅开放匿名公共文章、临床试验和变异元数据的 search/get；原始 biomcp 查询、研究文件、诊断上传和任意 URL 均不可发现。",
+            "出口固定为 Europe PMC、ClinicalTrials.gov 与 MyVariant.info；结果仅供研究检索，不构成医疗建议。",
+        ),
+    ),
+    "safedep-vet": (
+        "1.18.1-compatible-native-v1",
+        (
+            "get_package_version_vulnerabilities",
+            "get_package_version_popularity",
+            "get_package_version_license_info",
+            "get_package_version_malware_report",
+            "get_package_latest_version",
+            "get_package_available_versions",
+        ),
+        CatalogPublicPolicy(
+            provider="SafeDep community insights and public registries",
+            upstream_repository="safedep/vet",
+            upstream_version="v1.18.1",
+            upstream_commit="67abab1b0ec915713edb50e5e5b36687fd4cd86a",
+            upstream_license="Apache-2.0",
+            fixed_hosts=(
+                "community-api.safedep.io",
+                "registry.npmjs.org",
+                "pypi.org",
+            ),
+            tool_schema_sha256=(
+                "52be50ad2e6b7c53e2b6e76799a9083f3892ae49e2b0f2bfccee4ca8262be652"
+            ),
+            rate_limit_per_minute=30,
+            max_results=100,
+        ),
+        (
+            "仅接受规范化 npm/PyPI PURL，并开放已存在的漏洞、流行度、许可证、恶意软件报告及公共版本元数据；不下载、不解包、不执行包。",
+            "扫描、上传、SQL、认证租户、任意 Registry/Endpoint/Header 与诊断回传均不可发现。",
+        ),
+    ),
+    "aas-ee-open-websearch": (
+        "2.1.9-compatible-native-v1",
+        ("search",),
+        CatalogPublicPolicy(
+            provider="open-webSearch fixed request engines",
+            upstream_repository="Aas-ee/open-webSearch",
+            upstream_version="v2.1.9",
+            upstream_commit="84695b392ca03ffc68fbd406f1d7937b7151e4b6",
+            upstream_license="Apache-2.0",
+            fixed_hosts=("cn.bing.com", "html.duckduckgo.com"),
+            tool_schema_sha256=(
+                "cf695f0f1d6a9fb3fe08ae454f3729367f28103bc85d1c893737f42ad706fe99"
+            ),
+            rate_limit_per_minute=30,
+            max_results=10,
+        ),
+        (
+            "仅开放 Bing RSS 与 DuckDuckGo Strict SafeSearch 的固定 request-only 搜索；结果标题、摘要和链接均按不可信公网内容返回。",
+            "网页抓取、Playwright、代理、任意 URL/Header/env、动态搜索引擎和关闭 TLS 校验均不可发现。",
+        ),
+    ),
+    "mnemox-ai-idea-reality-mcp": (
+        "0.5.0-compatible-native-v1",
+        ("idea_check",),
+        CatalogPublicPolicy(
+            provider="Idea Reality public research indexes",
+            upstream_repository="mnemox-ai/idea-reality-mcp",
+            upstream_version="v0.5.0",
+            upstream_commit="755e1859c1f7d1d017c67f615c67ec595c8edb66",
+            upstream_license="MIT",
+            fixed_hosts=(
+                "api.github.com",
+                "hn.algolia.com",
+                "registry.npmjs.org",
+                "pypi.org",
+            ),
+            tool_schema_sha256=(
+                "65b4b069bcb5faa961341576f452e72faa49b4deae214a6f840da2521a010c24"
+            ),
+            rate_limit_per_minute=30,
+            max_results=20,
+        ),
+        (
+            "仅以确定性关键词查询 GitHub、Hacker News、npm 与 PyPI 公共索引；相似性指标只用于研究发现，不构成投资或产品建议。",
+            "Product Hunt Token、LLM 调用、账号数据、诊断上传、动态 endpoint 和任意 Header 均关闭。",
+        ),
+    ),
+    "idosal-git-mcp": (
+        "c487a298-compatible-native-v1",
+        (
+            "fetch_repository_documentation",
+            "search_repository_documentation",
+            "search_repository_code",
+        ),
+        CatalogPublicPolicy(
+            provider="GitHub public repository metadata",
+            upstream_repository="idosal/git-mcp",
+            upstream_version="reviewed-commit-c487a298",
+            upstream_commit="c487a29895dcfcb5b672247e646426a56e2051c1",
+            upstream_license="Apache-2.0",
+            fixed_hosts=("api.github.com",),
+            tool_schema_sha256=(
+                "56a8c84a969a4beaca16bf905be83899bb497d19a4e95cef5135ad4465ef4811"
+            ),
+            rate_limit_per_minute=60,
+            max_results=20,
+        ),
+        (
+            "仅接受规范 GitHub owner/repository slug，读取有限 README、文档路径与仓库路径索引；代码搜索不克隆仓库。",
+            "动态 GitMCP endpoint、通用 URL 抓取、Token、clone、代码执行、私有仓库和仓库写入均不可发现。",
+        ),
+    ),
+}
+
+WAVE_EIGHTEEN_FILE_ADAPTERS: dict[
+    str,
+    tuple[str, dict[str, CatalogToolPolicy], tuple[str, ...]],
+] = {
+    "zcaceres-markdownify-mcp": (
+        "1.1.0-compatible-native-v1",
+        {
+            name: CatalogToolPolicy(read_only=False, effect="artifact-create")
+            for name in (
+                "pdf-to-markdown",
+                "docx-to-markdown",
+                "xlsx-to-markdown",
+                "pptx-to-markdown",
+            )
+        },
+        (
+            "仅接受当前受控工作区中的 PDF、DOCX、XLSX 或 PPTX 文件标识；输入始终只读且完全断网。",
+            "只生成服务端登记的 Markdown 产物；网页、图片、音频、Git、URI、宿主路径和插件均不开放。",
+        ),
+    ),
+    "vivekvells-mcp-pandoc": (
+        "0.11.0-compatible-native-v1",
+        {
+            "convert-contents": CatalogToolPolicy(
+                read_only=False,
+                effect="artifact-create",
+            ),
+        },
+        (
+            "仅接受封存工作区中的 Markdown、HTML 或纯文本，并使用固定 Pandoc 3.10.1 生成 Markdown、HTML 或 DOCX 副本。",
+            "filter、defaults、template、reference、PDF、任意参数和宿主路径均不开放；输入始终只读且完全断网。",
+        ),
+    ),
+    "antvis-mcp-server-chart": (
+        "0.9.10-compatible-native-v1",
+        {
+            name: CatalogToolPolicy(read_only=False, effect="artifact-create")
+            for name in (
+                "generate_line_chart",
+                "generate_bar_chart",
+                "generate_pie_chart",
+            )
+        },
+        (
+            "仅接受有界结构化数据并生成确定性 PNG 产物；不读取工作区文件，也不连接任何网络。",
+            "官方远程 antv-studio 服务、地图、动态图表、任意端点、远程 URL、脚本与自定义渲染器均不开放。",
+        ),
+    ),
+    "cyberchitta-llm-context-py": (
+        "0.6.4-reviewed-commit-6de16c22-compatible-native-v1",
+        {
+            "lc_preview": CatalogToolPolicy(read_only=True, effect="read"),
+            "lc_outlines": CatalogToolPolicy(read_only=False, effect="artifact-create"),
+        },
+        (
+            "仅遍历当前封存工作区中的有界 UTF-8 代码/文本文件；root_path、动态规则、缺失文件读取和剪贴板均不开放。",
+            "预览保持只读，outline 只生成服务端登记的 Markdown 产物；输入始终只读且完全断网。",
+        ),
+    ),
+    "haris-musa-excel-mcp-server": (
+        "0.1.8-compatible-native-v1",
+        {
+            "get_workbook_metadata": CatalogToolPolicy(read_only=True, effect="read"),
+            "read_data_from_excel": CatalogToolPolicy(read_only=True, effect="read"),
+            "write_data_to_excel": CatalogToolPolicy(read_only=False, effect="artifact-create"),
+        },
+        (
+            "仅接受当前封存工作区中的 XLSX；宏、外部关系、活动内容和输出副本中的公式均 fail closed。",
+            "写入只创建服务端登记的新副本且绝不覆盖输入；filepath、URI、图表、透视表、格式和原地修改均不开放。",
+        ),
+    ),
+    "dataeval-dingo": (
+        "2.5.0-rule-compatible-native-v1",
+        {
+            "list_dingo_components": CatalogToolPolicy(read_only=True, effect="read"),
+            "run_dingo_evaluation": CatalogToolPolicy(read_only=False, effect="artifact-create"),
+        },
+        (
+            "仅接受封存工作区中的 JSONL、JSON、CSV 或 TXT，并运行三个固定本地规则。",
+            "LLM、Agent、Prompt、Hugging Face、S3、SQL、API Key、自定义规则和动态 kwargs 均不开放。",
+        ),
+    ),
+}
+
+
+WAVE_TWENTY_FILE_ADAPTERS: dict[
+    str,
+    tuple[str, dict[str, CatalogToolPolicy], tuple[str, ...]],
+] = {
+    "ozgurcd-gograph": (
+        "1.5.6-reviewed-commit-aa4d6d54-compatible-native-v1",
+        {
+            "index_repository": CatalogToolPolicy(
+                read_only=False,
+                requires_approval=True,
+                effect="state-write",
+            ),
+            **{
+                name: CatalogToolPolicy(read_only=True, effect="read")
+                for name in (
+                    "search_symbols",
+                    "get_symbol_context",
+                    "get_source",
+                    "get_callers",
+                    "get_repository_summary",
+                )
+            },
+        },
+        (
+            "仅索引当前封存 Go 工作区并在单次上游进程内保存临时图；输入只读且完全断网。",
+            "任意路径、Git baseline、持久化刷新、边界配置、会话遥测、Wiki、doc、工具链下载和其余上游工具均不开放。",
+        ),
+    ),
+}
+
 
 WAVE_THREE_ADAPTERS: dict[str, tuple[str, dict[str, CatalogToolPolicy]]] = {
     "basic-memory-mcp": (
@@ -1028,6 +1374,7 @@ class WaveFiveAdapterSpec:
     limitations: tuple[str, ...] = ()
     network_policy: str = "database-egress:validated-host,admin-private-allowlist"
     workspace_extensions: tuple[str, ...] = ()
+    wave: int = 5
 
 
 def _database_host() -> CatalogSettingPolicy:
@@ -1230,6 +1577,129 @@ WAVE_FIVE_ADAPTERS: dict[str, WaveFiveAdapterSpec] = {
             "远程 OAuth、迁移、函数、分支、项目管理和其他修改操作继续保留到后续批次。",
         ),
         network_policy="allowlist:api.supabase.com,supabase.com",
+    ),
+}
+
+
+WAVE_NINETEEN_DATABASE_ADAPTERS: dict[str, WaveFiveAdapterSpec] = {
+    "pab1it0-prometheus-mcp-server": WaveFiveAdapterSpec(
+        "1.6.2-compatible-native-read-only-v1",
+        (
+            "execute_query",
+            "execute_range_query",
+            "list_metrics",
+            "get_metric_metadata",
+            "get_targets",
+        ),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="prometheus",
+            max_rows_default=100,
+            max_rows_hard=200,
+            statement_timeout_seconds=12,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "build-info",
+                "query-limits",
+            ),
+        ),
+        (
+            CatalogCredentialSlotPolicy(
+                "bearer_token",
+                "Prometheus Bearer Token",
+                "可选；仅用于已有只读 HTTP 认证代理或 Prometheus 服务。",
+                required=False,
+            ),
+        ),
+        (_database_host(), _database_port(9090), _database_tls()),
+        (
+            "只开放 instant/range PromQL、指标名称/元数据和 active targets；规则、告警、配置、管理与写入入口不存在。",
+            "范围最多 24 小时、每序列最多 1000 点、最多返回 200 个序列或目录项。",
+        ),
+        wave=19,
+    ),
+    "qdrant-mcp-server-qdrant": WaveFiveAdapterSpec(
+        "0.8.1-compatible-native-read-only-v1",
+        ("get_collection_info", "scroll_points", "query_points"),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="qdrant",
+            max_rows_default=50,
+            max_rows_hard=100,
+            statement_timeout_seconds=12,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "authentication",
+                "collection-scope",
+                "native-read-only-key",
+                "query-limits",
+            ),
+        ),
+        (_credential("api_key", "Qdrant 只读 API Key", "必须使用 Qdrant 原生只读 Key。"),),
+        (
+            _database_host(),
+            _database_port(6333),
+            _database_tls(),
+            CatalogSettingPolicy(
+                "collection",
+                "Qdrant Collection",
+                "只绑定一个既有 collection，不接受别名或动态资源选择。",
+                required=True,
+                pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+            ),
+        ),
+        (
+            "qdrant-store、写入、删除、索引和 collection 管理工具不可发现。",
+            "分页和向量查询最多 100 点、向量最多 4096 维，结果不返回向量正文。",
+        ),
+        wave=19,
+    ),
+    "cr7258-elasticsearch-mcp-server": WaveFiveAdapterSpec(
+        "2.1.2-compatible-native-read-only-v1",
+        ("get_cluster_health", "get_index", "search_documents", "get_document"),
+        CatalogDatabasePolicy(
+            mode="remote-read-only",
+            engine="elasticsearch",
+            max_rows_default=50,
+            max_rows_hard=100,
+            statement_timeout_seconds=12,
+            preflight_checks=(
+                "dns-policy",
+                "tls-verification",
+                "authentication",
+                "index-scope",
+                "native-read-only-role",
+                "query-limits",
+            ),
+        ),
+        (_credential("password", "Elasticsearch 只读密码", "仅用于固定原生只读用户。"),),
+        (
+            _database_host(),
+            _database_port(9200),
+            _database_tls(),
+            CatalogSettingPolicy(
+                "index",
+                "Elasticsearch Index",
+                "只绑定一个既有索引；系统索引、通配符和动态切换均关闭。",
+                required=True,
+                pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+            ),
+            CatalogSettingPolicy(
+                "search_field",
+                "搜索字段",
+                "服务端只在该固定字段构造 match 查询。",
+                required=True,
+                pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$",
+            ),
+            _database_username(),
+        ),
+        (
+            "仅开放索引健康、mapping、固定字段 match 查询和单文档读取；任意 DSL、通用 API、写入、删除与管理全部关闭。",
+            "原生角色仅允许 cluster monitor 与目标索引 read/view_index_metadata，最多返回 100 条。",
+        ),
+        wave=19,
     ),
 }
 
@@ -2101,7 +2571,7 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             filesystem_policy = "sealed-database-input-read-only,no-artifact-write"
         manifests[project_id] = CatalogAdapterManifest(
             project_id=project_id,
-            wave=5,
+            wave=spec.wave,
             availability="ready",
             connection_kind="sandboxed-stdio",
             risk="high",
@@ -2586,6 +3056,180 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
                 f"duplicate approved catalog expansion id: {adapter.project_id}"
             )
         if adapter.availability == "ready":
+            database_spec = WAVE_NINETEEN_DATABASE_ADAPTERS.get(adapter.project_id)
+            if database_spec is not None:
+                manifests[adapter.project_id] = CatalogAdapterManifest(
+                    project_id=adapter.project_id,
+                    wave=adapter.adaptation_wave,
+                    availability="ready",
+                    connection_kind="sandboxed-stdio",
+                    risk="high",
+                    required_capabilities=(
+                        "tenant-scoped-credential-binding",
+                        "structured-database-configuration",
+                        "native-read-only-mode",
+                        "query-row-timeout-limits",
+                        "database-preflight",
+                        "schema-drift-recovery",
+                    ),
+                    limitations=(
+                        *database_spec.limitations,
+                        "当前仅支持部署时固定 tenant/owner 的单租户本地实例；多用户共享部署保持关闭。",
+                    ),
+                    adapter_version=database_spec.adapter_version,
+                    runtime_image="modelmirror-mcp-database:wave5-v1",
+                    network_policy=database_spec.network_policy,
+                    filesystem_policy="read-only-empty-workspace",
+                    resource_limits=(
+                        ("cpu", "1.5 cores / 60 CPU seconds per session process"),
+                        ("memory", "1 GiB sidecar"),
+                        ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                        ("statement_timeout", "15 seconds"),
+                        ("operation_timeout", "20 seconds"),
+                        ("rows", "200 default / 1000 hard maximum"),
+                        ("tool_output", "256 KiB"),
+                    ),
+                    server_command=(*DATABASE_SANDBOX_PROXY, adapter.project_id),
+                    preparation_kind="bundled",
+                    allowed_settings=tuple(
+                        item.key for item in database_spec.setting_policies
+                    ),
+                    credential_slots=tuple(
+                        item.key for item in database_spec.credential_policies
+                    ),
+                    setting_policies=database_spec.setting_policies,
+                    credential_policies=database_spec.credential_policies,
+                    tool_policies={
+                        name: CatalogToolPolicy(read_only=True, effect="read")
+                        for name in database_spec.tools
+                    },
+                    database_policy=database_spec.database_policy,
+                    enabled_by_default=True,
+                    operation_timeout=20.0,
+                    max_output_bytes=256 * 1024,
+                )
+                continue
+            code_index_spec = WAVE_TWENTY_FILE_ADAPTERS.get(adapter.project_id)
+            if code_index_spec is not None:
+                adapter_version, tool_policies, limitations = code_index_spec
+                accepted = PROJECT_EXTENSIONS.get(adapter.project_id)
+                manifests[adapter.project_id] = CatalogAdapterManifest(
+                    project_id=adapter.project_id,
+                    wave=adapter.adaptation_wave,
+                    availability="ready",
+                    connection_kind="sandboxed-stdio",
+                    risk="medium",
+                    required_capabilities=(
+                        "scoped-filesystem",
+                        "ephemeral-code-index",
+                        "resource-limits",
+                        "one-shot-write-approval",
+                    ),
+                    limitations=limitations,
+                    adapter_version=adapter_version,
+                    runtime_image="modelmirror-mcp-files:wave3-v1",
+                    network_policy="disabled",
+                    filesystem_policy="sealed-input-read-only,ephemeral-index",
+                    resource_limits=(
+                        ("cpu", "1.5 cores / 60 CPU seconds per session process"),
+                        ("memory", "1 GiB sidecar cgroup"),
+                        ("processes", "maximum 4 sessions / 128 sidecar PIDs"),
+                        ("index_timeout", "55 seconds"),
+                        ("query_timeout", "12 seconds"),
+                        ("tool_output", "240 KiB"),
+                        ("workspace", "5000 files / 512 MiB"),
+                    ),
+                    server_command=(*FILE_SANDBOX_PROXY, adapter.project_id),
+                    preparation_kind="bundled",
+                    tool_policies=tool_policies,
+                    workspace_policy=CatalogWorkspacePolicy(
+                        persistent=False,
+                        idle_ttl_seconds=24 * 60 * 60,
+                        accepted_extensions=tuple(sorted(accepted or ())),
+                    ),
+                    enabled_by_default=True,
+                    operation_timeout=60.0,
+                    max_output_bytes=240 * 1024,
+                )
+                continue
+            file_spec = WAVE_EIGHTEEN_FILE_ADAPTERS.get(adapter.project_id)
+            if file_spec is not None:
+                adapter_version, tool_policies, limitations = file_spec
+                accepted = PROJECT_EXTENSIONS.get(adapter.project_id)
+                manifests[adapter.project_id] = CatalogAdapterManifest(
+                    project_id=adapter.project_id,
+                    wave=adapter.adaptation_wave,
+                    availability="ready",
+                    connection_kind="sandboxed-stdio",
+                    risk="medium",
+                    required_capabilities=(
+                        "scoped-filesystem",
+                        "artifact-cleanup",
+                        "path-symlink-protection",
+                        "deterministic-artifact-generation",
+                    ),
+                    limitations=limitations,
+                    adapter_version=adapter_version,
+                    runtime_image="modelmirror-mcp-files:wave3-v1",
+                    network_policy="disabled",
+                    filesystem_policy="sealed-input-read-only,artifact-write",
+                    resource_limits=(
+                        ("cpu", "1.5 cores / 60 CPU seconds per call"),
+                        ("memory", "1 GiB sidecar cgroup"),
+                        ("processes", "maximum 4 sessions / 128 sidecar PIDs"),
+                        ("operation_timeout", "60 seconds"),
+                        ("inline_output", "256 KiB"),
+                        ("workspace", "5000 files / 512 MiB"),
+                    ),
+                    server_command=(*FILE_SANDBOX_PROXY, adapter.project_id),
+                    preparation_kind="bundled",
+                    tool_policies=tool_policies,
+                    workspace_policy=CatalogWorkspacePolicy(
+                        persistent=False,
+                        idle_ttl_seconds=24 * 60 * 60,
+                        accepted_extensions=tuple(sorted(accepted or ())),
+                    ),
+                    enabled_by_default=True,
+                    operation_timeout=60.0,
+                    max_output_bytes=256 * 1024,
+                )
+                continue
+            public_spec = WAVE_SIXTEEN_PUBLIC_ADAPTERS.get(adapter.project_id)
+            if public_spec is not None:
+                adapter_version, tool_names, public_policy, limitations = public_spec
+                manifests[adapter.project_id] = CatalogAdapterManifest(
+                    project_id=adapter.project_id,
+                    wave=adapter.adaptation_wave,
+                    availability="ready",
+                    connection_kind="sandboxed-stdio",
+                    risk="medium",
+                    required_capabilities=adapter.required_capabilities,
+                    limitations=limitations,
+                    adapter_version=adapter_version,
+                    runtime_image="modelmirror-mcp-public:wave17a-v1",
+                    network_policy="allowlist:" + ",".join(public_policy.fixed_hosts),
+                    filesystem_policy="read-only-empty-workspace",
+                    resource_limits=(
+                        ("cpu", "1 core / 60 CPU seconds per session process"),
+                        ("memory", "512 MiB sidecar"),
+                        ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                        ("request_timeout", "20 seconds per HTTPS request"),
+                        ("operation_timeout", "30 seconds"),
+                        ("raw_response", "maximum 1 MiB"),
+                        ("tool_output", "128 KiB"),
+                    ),
+                    server_command=(*PUBLIC_SANDBOX_PROXY, adapter.project_id),
+                    preparation_kind="bundled",
+                    tool_policies={
+                        name: CatalogToolPolicy(read_only=True, effect="read")
+                        for name in tool_names
+                    },
+                    public_policy=public_policy,
+                    enabled_by_default=False,
+                    operation_timeout=30.0,
+                    max_output_bytes=128 * 1024,
+                )
+                continue
             spec = (
                 WAVE_THIRTEEN_TOKEN_ADAPTERS
                 | WAVE_FOURTEEN_TOKEN_ADAPTERS
@@ -2631,6 +3275,10 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             WAVE_THIRTEEN_TOKEN_ADAPTERS
             | WAVE_FOURTEEN_TOKEN_ADAPTERS
             | WAVE_FIFTEEN_TOKEN_ADAPTERS
+            | WAVE_SIXTEEN_PUBLIC_ADAPTERS
+            | WAVE_EIGHTEEN_FILE_ADAPTERS
+            | WAVE_NINETEEN_DATABASE_ADAPTERS
+            | WAVE_TWENTY_FILE_ADAPTERS
         ):
             raise RuntimeError(
                 f"non-ready catalog expansion has runtime contract: {adapter.project_id}"

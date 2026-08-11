@@ -205,7 +205,70 @@ TOKEN_ADAPTERS: dict[str, TokenAdapterContract] = {
         allowed_hosts=frozenset({"registry.terraform.io"}),
         builtin=True,
     ),
+    "cablate-mcp-google-map": TokenAdapterContract(
+        (
+            "python",
+            "-m",
+            "sandbox_sidecar.token_builtin",
+            "cablate-mcp-google-map",
+        ),
+        frozenset({"maps_search_places", "maps_place_details"}),
+        (("api_key", "GOOGLE_MAPS_API_KEY"),),
+        allowed_hosts=frozenset({"places.googleapis.com"}),
+        builtin=True,
+    ),
+    "vectorize-io-vectorize-mcp-server": TokenAdapterContract(
+        (
+            "python",
+            "-m",
+            "sandbox_sidecar.token_builtin",
+            "vectorize-io-vectorize-mcp-server",
+        ),
+        frozenset({"retrieve"}),
+        (("api_token", "VECTORIZE_TOKEN"),),
+        (
+            ("organization_id", "VECTORIZE_ORG_ID"),
+            ("pipeline_id", "VECTORIZE_PIPELINE_ID"),
+        ),
+        frozenset({"api.vectorize.io"}),
+        True,
+    ),
+    "comet-ml-opik-mcp": TokenAdapterContract(
+        (
+            "python",
+            "-m",
+            "sandbox_sidecar.token_builtin",
+            "comet-ml-opik-mcp",
+        ),
+        frozenset({"list", "read"}),
+        (("api_key", "OPIK_API_KEY"),),
+        (("workspace", "OPIK_WORKSPACE"),),
+        frozenset({"www.comet.com"}),
+        True,
+    ),
+    "keboola-keboola-mcp-server": TokenAdapterContract(
+        (
+            "python",
+            "-m",
+            "sandbox_sidecar.token_builtin",
+            "keboola-keboola-mcp-server",
+        ),
+        frozenset({"get_project_info", "get_buckets", "get_tables"}),
+        (("storage_token", "KEBOOLA_STORAGE_TOKEN"),),
+        allowed_hosts=frozenset({"connection.keboola.com"}),
+        builtin=True,
+    ),
 }
+
+
+STAGED_TOKEN_ADAPTERS = frozenset(
+    {
+        "cablate-mcp-google-map",
+        "vectorize-io-vectorize-mcp-server",
+        "comet-ml-opik-mcp",
+        "keboola-keboola-mcp-server",
+    }
+)
 
 
 TOKEN_SCHEMA_SHA256: dict[str, str] = {
@@ -230,6 +293,10 @@ TOKEN_SCHEMA_SHA256: dict[str, str] = {
     "tavily-mcp": "01ca28e4482a06c12ef88bf26e1ddb96e2aae83ec65c5234365a8555854d7710",
     "virustotal-mcp": "c66291ebfcfb5ccf9cd23608cbfca9760031f3215271448249959927f843c234",
     "terraform-mcp": "73a2b116bcaa257dbf158d1ab8a778d067dac2d969db7dff160372d1617e3445",
+    "cablate-mcp-google-map": "186785bce37ec786aa86bfa2b3fdfeb6918633eb309e0000de8d291d7a7650a6",
+    "vectorize-io-vectorize-mcp-server": "b04acf174a49c2c123805ce96ea1d220604e80d5dd56c448f03e494572ada993",
+    "comet-ml-opik-mcp": "084588762fe49f9cc6be8c82e4e1b6a4eb2fc361cbf9156b792465a49d7d50b9",
+    "keboola-keboola-mcp-server": "fc72f9c337b51f7ae45c6bb566256e6a7e163f98635df6bc406f15d11f027f3c",
 }
 
 
@@ -264,9 +331,18 @@ def validate_configuration(
         if "://" in value or "/" in value or "@" in value:
             raise ValueError("invalid_setting")
         settings[key] = value
-    for key in ("organization_id", "environment_id", "assistant_name"):
+    for key in (
+        "organization_id",
+        "environment_id",
+        "assistant_name",
+        "pipeline_id",
+    ):
         if key in settings and not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", settings[key]):
             raise ValueError("invalid_setting")
+    if "workspace" in settings and not re.fullmatch(
+        r"[A-Za-z0-9_.-]{1,120}", settings["workspace"]
+    ):
+        raise ValueError("invalid_setting")
     if "stack_slug" in settings and not re.fullmatch(
         r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", settings["stack_slug"]
     ):

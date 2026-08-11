@@ -38,6 +38,22 @@ from .database_contracts import (
     validate_document,
     validate_readonly_sql,
 )
+from .database_data_services import (
+    build_elasticsearch,
+    build_prometheus,
+    build_qdrant,
+    preflight_elasticsearch,
+    preflight_prometheus,
+    preflight_qdrant,
+)
+from .database_graph_services import (
+    build_arcadedb,
+    build_milvus,
+    build_neo4j,
+    preflight_arcadedb,
+    preflight_milvus,
+    preflight_neo4j,
+)
 
 
 READ_ONLY = ToolAnnotations(
@@ -1042,6 +1058,12 @@ BUILDERS = {
     "redis-mcp": build_redis,
     "duckdb-mcp": build_duckdb,
     "supabase-mcp": build_supabase,
+    "pab1it0-prometheus-mcp-server": build_prometheus,
+    "qdrant-mcp-server-qdrant": build_qdrant,
+    "cr7258-elasticsearch-mcp-server": build_elasticsearch,
+    "zilliztech-mcp-server-milvus": build_milvus,
+    "neo4j-contrib-mcp-neo4j": build_neo4j,
+    "arcadedata-arcadedb": build_arcadedb,
 }
 
 PREFLIGHTS = {
@@ -1051,6 +1073,12 @@ PREFLIGHTS = {
     "redis-mcp": _preflight_redis,
     "duckdb-mcp": _preflight_duckdb,
     "supabase-mcp": _preflight_supabase,
+    "pab1it0-prometheus-mcp-server": preflight_prometheus,
+    "qdrant-mcp-server-qdrant": preflight_qdrant,
+    "cr7258-elasticsearch-mcp-server": preflight_elasticsearch,
+    "zilliztech-mcp-server-milvus": preflight_milvus,
+    "neo4j-contrib-mcp-neo4j": preflight_neo4j,
+    "arcadedata-arcadedb": preflight_arcadedb,
 }
 
 

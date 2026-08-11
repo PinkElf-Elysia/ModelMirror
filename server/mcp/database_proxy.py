@@ -24,6 +24,12 @@ ALLOWED_ADAPTERS = {
     "redis-mcp",
     "duckdb-mcp",
     "supabase-mcp",
+    "pab1it0-prometheus-mcp-server",
+    "qdrant-mcp-server-qdrant",
+    "cr7258-elasticsearch-mcp-server",
+    "zilliztech-mcp-server-milvus",
+    "neo4j-contrib-mcp-neo4j",
+    "arcadedata-arcadedb",
 }
 REMOTE_SOCKET_PATH = Path(
     os.getenv(

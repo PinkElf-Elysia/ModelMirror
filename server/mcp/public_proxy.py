@@ -14,6 +14,14 @@ ALLOWED_ADAPTERS = {
     "fetch-mcp",
     "quickchart-mcp",
     "geowire-mcp",
+    "nickclyde-duckduckgo-mcp-server",
+    "jpisnice-shadcn-ui-mcp-server",
+    "docker-hub-mcp",
+    "genomoncology-biomcp",
+    "safedep-vet",
+    "aas-ee-open-websearch",
+    "mnemox-ai-idea-reality-mcp",
+    "idosal-git-mcp",
 }
 SOCKET_PATH = Path(
     os.getenv(

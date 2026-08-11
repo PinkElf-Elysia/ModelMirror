@@ -1,14 +1,64 @@
+FROM python:3.12-slim AS pandoc-fetch
+
+ARG TARGETARCH
+ARG PANDOC_VERSION=3.10.1
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && case "$TARGETARCH" in \
+         amd64) PANDOC_ARCH=amd64; PANDOC_SHA256=72948bf5784f560d5ad1876709daca27e0667f262da727bb33f77b58e52df2f5 ;; \
+         arm64) PANDOC_ARCH=arm64; PANDOC_SHA256=cd3963da375793a4804c65ae538b4f7b9c23f87cac7f6c74a1cf5e2fff7e8d59 ;; \
+         *) echo "Unsupported Pandoc architecture: $TARGETARCH" >&2; exit 1 ;; \
+       esac \
+    && curl --fail --location --proto '=https' --tlsv1.2 \
+         --output /tmp/pandoc.tar.gz \
+         "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-${PANDOC_ARCH}.tar.gz" \
+    && echo "${PANDOC_SHA256}  /tmp/pandoc.tar.gz" | sha256sum --check --strict \
+    && curl --fail --location --proto '=https' --tlsv1.2 \
+         --output /tmp/PANDOC-COPYING.md \
+         "https://raw.githubusercontent.com/jgm/pandoc/${PANDOC_VERSION}/COPYING.md" \
+    && echo "3ebfbf9235b049d384cdba5a66a1a3434bb544391e720b76faa8e1b3ee61a4e5  /tmp/PANDOC-COPYING.md" \
+         | sha256sum --check --strict \
+    && tar -xzf /tmp/pandoc.tar.gz -C /tmp \
+    && install -D -m 0755 "/tmp/pandoc-${PANDOC_VERSION}/bin/pandoc" /pandoc-bin/pandoc \
+    && install -D -m 0644 /tmp/PANDOC-COPYING.md /pandoc-bin/COPYING.md
+
+FROM golang:1.26.5-bookworm@sha256:53eeac89074db483fdf0ab3be1df32bf6e47562263d2d0d6baa7f26acb4957dd AS go-toolchain
+
+FROM python:3.12-slim AS gograph-fetch
+
+ARG TARGETARCH
+ARG GOGRAPH_VERSION=1.5.6
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && case "$TARGETARCH" in \
+         amd64) GOGRAPH_ARCH=x86_64; GOGRAPH_SHA256=1ef375a88cc8825ca7879b1170720352702e59723d1e3b06d33101a50a6f7030 ;; \
+         arm64) GOGRAPH_ARCH=arm64; GOGRAPH_SHA256=c8b6d8a42326264858f14c7819200f47d00d0fcd58520b6c6d1e1b16b022a6b5 ;; \
+         *) echo "Unsupported GoGraph architecture: $TARGETARCH" >&2; exit 1 ;; \
+       esac \
+    && curl --fail --location --proto '=https' --tlsv1.2 \
+         --output /tmp/gograph.tar.gz \
+         "https://github.com/ozgurcd/gograph/releases/download/v${GOGRAPH_VERSION}/gograph_Linux_${GOGRAPH_ARCH}.tar.gz" \
+    && echo "${GOGRAPH_SHA256}  /tmp/gograph.tar.gz" | sha256sum --check --strict \
+    && mkdir -p /tmp/gograph /gograph-bin \
+    && tar -xzf /tmp/gograph.tar.gz -C /tmp/gograph \
+    && test "$(/tmp/gograph/gograph version)" = "gograph version v${GOGRAPH_VERSION}" \
+    && install -m 0755 /tmp/gograph/gograph /gograph-bin/gograph \
+    && install -m 0644 /tmp/gograph/LICENSE /gograph-bin/LICENSE
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     MCP_FILES_SOCKET_PATH=/run/modelmirror-files-mcp/files-mcp.sock \
     MCP_FILE_INPUT_ROOT=/inputs \
     MCP_FILE_OUTPUT_ROOT=/outputs \
     MCP_FILE_MEMORY_ROOT=/memory
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git fonts-dejavu-core fonts-noto-cjk \
+    && apt-get install -y --no-install-recommends ca-certificates git fonts-dejavu-core fonts-noto-cjk passwd \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 65532 sandbox \
     && useradd --uid 65532 --gid 65532 --home-dir /tmp --no-create-home sandbox \
@@ -16,10 +66,23 @@ RUN apt-get update \
     && chown -R sandbox:sandbox /outputs /memory /run/modelmirror-files-mcp
 
 WORKDIR /opt/modelmirror
+COPY --from=pandoc-fetch /pandoc-bin/pandoc /usr/local/bin/pandoc
+COPY --from=pandoc-fetch /pandoc-bin/COPYING.md /usr/share/doc/pandoc/COPYING.md
+COPY --from=go-toolchain /usr/local/go /usr/local/go
+COPY --from=gograph-fetch /gograph-bin/gograph /usr/local/bin/gograph
+COPY --from=gograph-fetch /gograph-bin/LICENSE /usr/share/doc/gograph/LICENSE
+COPY --from=go-toolchain /usr/local/go/LICENSE /usr/share/doc/go/LICENSE
 COPY file-requirements.txt file-requirements.lock ./
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r file-requirements.lock
-COPY __init__.py engine.py landlock_exec.py file_landlock_exec.py file_mcp.py file_server.py ./sandbox_sidecar/
+RUN test "$(pandoc --version | sed -n '1s/^pandoc //p')" = "3.10.1"
+RUN test "$(gograph version)" = "gograph version v1.5.6"
+RUN test "$(go env GOVERSION)" = "go1.26.5"
+COPY __init__.py engine.py landlock_exec.py file_landlock_exec.py file_artifacts.py file_analysis.py file_code_index.py file_mcp.py file_server.py smoke_file_artifacts.py smoke_file_analysis.py smoke_file_code_index.py ./sandbox_sidecar/
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-mcp-files/THIRD_PARTY_NOTICES.md
+
+RUN python -m sandbox_sidecar.smoke_file_artifacts --contract-only
+RUN python -m sandbox_sidecar.smoke_file_analysis --contract-only
+RUN python -m sandbox_sidecar.smoke_file_code_index --contract-only
 
 USER 65532:65532
 CMD ["python", "-m", "sandbox_sidecar.file_server"]

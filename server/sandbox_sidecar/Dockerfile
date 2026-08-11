@@ -22,8 +22,9 @@ RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 WORKDIR /opt/modelmirror
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
-COPY __init__.py compute_mcp.py engine.py landlock_exec.py public_mcp.py public_server.py safe_http.py server.py smoke_child.py ./sandbox_sidecar/
+COPY __init__.py compute_mcp.py engine.py landlock_exec.py public_mcp.py public_server.py safe_http.py server.py smoke_child.py smoke_public_adapters.py ./sandbox_sidecar/
 COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-sandbox/THIRD_PARTY_NOTICES.md
+RUN python -m sandbox_sidecar.smoke_public_adapters --contract-only
 
 USER 65532:65532
 

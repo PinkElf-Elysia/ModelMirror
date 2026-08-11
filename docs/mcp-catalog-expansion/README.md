@@ -1,10 +1,15 @@
 # MCP 双源目录审计数据
 
 本目录保存第二阶段目录扩充的审查、批准与适配判定快照。100 项候选已经逐项归入
-`ready`、`planned` 或 `blocked`，当前精确为 **5 ready / 51 planned / 44 blocked**。
-Brave Search v2.1.0、Kagi v1.0.2 与 arxiv-mcp-server v0.6.2 的固定只读子集进入
-`ready`；运行契约在后端固定并复用 Token Sidecar。其余 97 项仍只有展示资料和非执行
-manifest，不含命令、端点、凭据槽、工具策略或功能开关绕过路径。
+`ready`、`planned` 或 `blocked`，当前精确为 **23 ready / 17 planned / 60 blocked**。
+批次 14—15 的五项固定只读子集复用 Token Sidecar；批次 16A 的 DuckDuckGo、shadcn/ui
+与 Docker Hub、批次 16B 的 BioMCP 与 SafeDep Vet、批次 17A 的 open-webSearch、Idea Reality 与
+GitMCP 复用匿名公共读取 sidecar。批次 18A—18B 的六个确定性文件产物/分析兼容层已通过
+隔离镜像与人工验收并进入文件 sidecar 精确 allowlist；批次 19A 的 Prometheus、Qdrant 与
+Elasticsearch 已通过真实只读服务验收和用户验收并进入数据库 sidecar 精确 allowlist。
+批次 17B 的四个 Token 数据适配器与批次 19B 的三个图与向量库，共七项仍为默认关闭的
+staged 候选；其余 70 项只有展示资料和非执行 manifest，不含命令、
+端点、凭据槽、工具策略或功能开关绕过路径。
 
 ## 固定来源
 
@@ -47,14 +52,14 @@ python scripts/mcp_catalog_integrate_approved.py --check
 
 生成器固定产出 `client/src/data/mcpCatalogExpansionV2.generated.ts`、
 `server/mcp/catalog_expansion_v2.py` 和适配判定报告，并把人工决定写回审查快照。生成结果
-本身不含运行命令、MCP 端点、凭据字段或工具 Schema；三个 ready 项的私有执行契约由
-`server/mcp/catalog.py` 与 Token Sidecar 单独维护。
+本身不含运行命令、MCP 端点、凭据字段或工具 Schema；22 个 ready 项的私有执行契约由
+`server/mcp/catalog.py` 与对应公共、Token、文件或数据库 Sidecar 单独维护。
 
 ## 人工门禁
 
 `review-candidates.json` 中每项均有固定 `catalog_id`、`decision: approved`、明确的
 `proposed_availability` 与 `decision_reason_code`。快照不保存命令、端点、凭据字段或
-`executable` 标记；当前分布由生成器强制断言为 3/53/44。
+`executable` 标记；当前分布由生成器强制断言为 22/20/58。
 
 后续从 `planned` 进入适配时，仍必须逐项核对 MCP Server 身份、锁定版本、安装与传输
 契约、工具副作用和安全前置条件。只有固定工具契约及相应隔离、凭据、审批、限流和真实

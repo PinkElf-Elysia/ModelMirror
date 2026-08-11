@@ -60,6 +60,21 @@ def _body(value: object) -> bytes:
     return encoded
 
 
+def _opaque_identifier(value: object, name: str, maximum: int = 240) -> str:
+    clean = _text(value, name, maximum)
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]+", clean):
+        raise ValueError(f"{name} contains unsupported characters.")
+    return clean
+
+
+def _bounded_sequence(value: object, name: str, maximum: int = 20) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > maximum:
+        raise ValueError(f"{name} must be a bounded list.")
+    return [_opaque_identifier(item, name) for item in value]
+
+
 def _bounded_text_response(response: object, provider: str) -> str:
     status = int(getattr(response, "status", 500))
     if not 200 <= status < 300:
@@ -1241,6 +1256,261 @@ def build_terraform() -> FastMCP:
     return mcp
 
 
+def build_google_map_readonly() -> FastMCP:
+    """Expose the reviewed read-only subset of cablate/mcp-google-map v0.0.53."""
+    api_key = _required_environment("GOOGLE_MAPS_API_KEY")
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({"places.googleapis.com"}),
+        max_response_bytes=MAX_RESULT_BYTES,
+        minimum_intervals={"places.googleapis.com": 0.25},
+        additional_allowed_headers=frozenset({"x-goog-api-key", "x-goog-fieldmask"}),
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+    }
+    mcp = FastMCP("ModelMirror Google Maps Read Only")
+
+    @mcp.tool(annotations=READ_ONLY)
+    def maps_search_places(
+        query: str,
+        locationBias: dict[str, float] | None = None,
+        openNow: bool | None = None,
+        minRating: float | None = None,
+        includedType: str | None = None,
+    ) -> Any:
+        """Search at most ten Google Places using a fixed response field mask."""
+        payload: dict[str, object] = {
+            "textQuery": _text(query, "query", 500),
+            "maxResultCount": 10,
+        }
+        if locationBias is not None:
+            if set(locationBias) - {"latitude", "longitude", "radius"}:
+                raise ValueError("locationBias contains unsupported fields.")
+            latitude = float(locationBias.get("latitude", 999))
+            longitude = float(locationBias.get("longitude", 999))
+            radius = float(locationBias.get("radius", 5_000))
+            if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+                raise ValueError("locationBias coordinates are invalid.")
+            if not 1 <= radius <= 50_000:
+                raise ValueError("locationBias radius is invalid.")
+            payload["locationBias"] = {
+                "circle": {
+                    "center": {"latitude": latitude, "longitude": longitude},
+                    "radius": radius,
+                }
+            }
+        if openNow is not None:
+            payload["openNow"] = bool(openNow)
+        if minRating is not None:
+            rating = float(minRating)
+            if not 1 <= rating <= 5:
+                raise ValueError("minRating must be between 1 and 5.")
+            payload["minRating"] = rating
+        if includedType is not None:
+            payload["includedType"] = _opaque_identifier(includedType, "includedType", 120)
+        response = client.request(
+            "https://places.googleapis.com/v1/places:searchText",
+            method="POST",
+            headers={
+                **headers,
+                "X-Goog-FieldMask": (
+                    "places.id,places.displayName,places.formattedAddress,"
+                    "places.location,places.types,places.googleMapsUri"
+                ),
+            },
+            body=_body(payload),
+        )
+        result = _json(response, "Google Places")
+        if not isinstance(result, dict):
+            raise ValueError("Google Places returned an invalid response.")
+        places = result.get("places")
+        return {"places": places[:10] if isinstance(places, list) else []}
+
+    @mcp.tool(annotations=READ_ONLY)
+    def maps_place_details(placeId: str) -> Any:
+        """Read bounded metadata for one Google Places place ID; photos and reviews are excluded."""
+        place_id = quote(_opaque_identifier(placeId, "placeId", 240), safe="")
+        response = client.request(
+            f"https://places.googleapis.com/v1/places/{place_id}",
+            headers={
+                **headers,
+                "X-Goog-FieldMask": (
+                    "id,displayName,formattedAddress,location,types,googleMapsUri,"
+                    "primaryType,primaryTypeDisplayName"
+                ),
+            },
+        )
+        return _json(response, "Google Places")
+
+    return mcp
+
+
+def build_vectorize_retrieval_readonly() -> FastMCP:
+    """Expose only Vectorize 0.4.3 document retrieval; uploads and research jobs stay disabled."""
+    token = _required_environment("VECTORIZE_TOKEN")
+    organization_id = _opaque_identifier(
+        _required_environment("VECTORIZE_ORG_ID", 120), "organization_id", 120
+    )
+    pipeline_id = _opaque_identifier(
+        _required_environment("VECTORIZE_PIPELINE_ID", 120), "pipeline_id", 120
+    )
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({"api.vectorize.io"}),
+        max_response_bytes=MAX_RESULT_BYTES,
+        additional_allowed_headers=frozenset({"authorization"}),
+    )
+    mcp = FastMCP("ModelMirror Vectorize Retrieval Read Only")
+
+    @mcp.tool(annotations=READ_ONLY)
+    def retrieve(question: str, k: int = 4) -> Any:
+        """Retrieve at most twenty documents from the configured Vectorize pipeline."""
+        count = int(k)
+        if not 1 <= count <= 20:
+            raise ValueError("k must be between 1 and 20.")
+        url = (
+            "https://api.vectorize.io/v1/org/"
+            f"{quote(organization_id, safe='')}/pipelines/{quote(pipeline_id, safe='')}/retrieve"
+        )
+        response = client.request(
+            url,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            body=_body({"question": _text(question, "question", 2_000), "numResults": count}),
+        )
+        return _json(response, "Vectorize")
+
+    return mcp
+
+
+def build_opik_readonly() -> FastMCP:
+    """Expose Opik 0.2.15's universal list/read identity without write or Ollie tools."""
+    api_key = _required_environment("OPIK_API_KEY")
+    workspace = _required_environment("OPIK_WORKSPACE", 120)
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({"www.comet.com"}),
+        max_response_bytes=MAX_RESULT_BYTES,
+        additional_allowed_headers=frozenset({"authorization", "comet-workspace"}),
+    )
+    headers = {"Authorization": api_key, "Comet-Workspace": workspace}
+    mcp = FastMCP("ModelMirror Opik Read Only")
+    list_paths = {
+        "project": "/opik/api/v1/private/projects",
+        "trace": "/opik/api/v1/private/traces",
+        "test_suite": "/opik/api/v1/private/datasets",
+        "experiment": "/opik/api/v1/private/experiments",
+        "prompt": "/opik/api/v1/private/prompts",
+    }
+    read_paths = {
+        "project": "/opik/api/v1/private/projects/{id}",
+        "trace": "/opik/api/v1/private/traces/{id}",
+        "test_suite": "/opik/api/v1/private/datasets/{id}",
+        "experiment": "/opik/api/v1/private/experiments/{id}",
+        "prompt": "/opik/api/v1/private/prompts/{id}",
+    }
+
+    @mcp.tool(name="list", annotations=READ_ONLY)
+    def list_entities(
+        entity_type: str,
+        name: str | None = None,
+        page: int = 1,
+        size: int = 25,
+        project_id: str | None = None,
+    ) -> Any:
+        """List a bounded page of reviewed Opik entity types."""
+        entity = _text(entity_type, "entity_type", 40)
+        if entity not in list_paths:
+            raise ValueError("entity_type is not available in the read-only facade.")
+        page_number = int(page)
+        page_size = int(size)
+        if not 1 <= page_number <= 10_000 or not 1 <= page_size <= 100:
+            raise ValueError("page or size is outside the allowed range.")
+        params: list[tuple[str, str]] = [("page", str(page_number)), ("size", str(page_size))]
+        if name is not None:
+            params.append(("name", _text(name, "name", 240)))
+        if entity == "trace":
+            params.append(("project_id", _opaque_identifier(project_id, "project_id")))
+        url = f"https://www.comet.com{list_paths[entity]}?{urlencode(params)}"
+        return _json(client.request(url, headers=headers), "Opik")
+
+    @mcp.tool(name="read", annotations=READ_ONLY)
+    def read_entity(entity_type: str, id: str) -> Any:
+        """Read one reviewed Opik entity by its opaque ID."""
+        entity = _text(entity_type, "entity_type", 40)
+        if entity not in read_paths:
+            raise ValueError("entity_type is not available in the read-only facade.")
+        entity_id = quote(_opaque_identifier(id, "id"), safe="")
+        path = read_paths[entity].format(id=entity_id)
+        return _json(client.request(f"https://www.comet.com{path}", headers=headers), "Opik")
+
+    return mcp
+
+
+def build_keboola_metadata_readonly() -> FastMCP:
+    """Expose the metadata-only portion of Keboola MCP 1.75.2 on the fixed US stack."""
+    token = _required_environment("KEBOOLA_STORAGE_TOKEN")
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({"connection.keboola.com"}),
+        max_response_bytes=MAX_RESULT_BYTES,
+        additional_allowed_headers=frozenset({"x-storageapi-token"}),
+    )
+    headers = {"X-StorageAPI-Token": token}
+    base = "https://connection.keboola.com/v2/storage"
+    mcp = FastMCP("ModelMirror Keboola Metadata Read Only")
+
+    def get(path: str) -> Any:
+        return _json(client.request(f"{base}/{path}", headers=headers), "Keboola")
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_project_info() -> Any:
+        """Verify the fixed Storage token and return bounded project metadata."""
+        payload = get("tokens/verify")
+        if not isinstance(payload, dict):
+            raise ValueError("Keboola returned invalid project metadata.")
+        owner = payload.get("owner") if isinstance(payload.get("owner"), dict) else {}
+        return {
+            "token_id": str(payload.get("id") or "")[:120],
+            "description": str(payload.get("description") or "")[:500],
+            "owner": {
+                "id": str(owner.get("id") or "")[:120],
+                "name": str(owner.get("name") or "")[:240],
+            },
+        }
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_buckets(bucket_ids: list[str] | None = None) -> Any:
+        """List at most one hundred buckets or read at most twenty explicit bucket IDs."""
+        ids = _bounded_sequence(bucket_ids, "bucket_ids")
+        if ids:
+            return {"buckets": [get(f"branch/default/buckets/{quote(item, safe='')}") for item in ids]}
+        payload = get("branch/default/buckets")
+        return {"buckets": payload[:100] if isinstance(payload, list) else []}
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_tables(
+        bucket_ids: list[str] | None = None,
+        table_ids: list[str] | None = None,
+    ) -> Any:
+        """Read table metadata for at most twenty buckets or explicit table IDs."""
+        buckets = _bounded_sequence(bucket_ids, "bucket_ids")
+        tables = _bounded_sequence(table_ids, "table_ids")
+        if not buckets and not tables:
+            raise ValueError("bucket_ids or table_ids is required.")
+        output: list[object] = []
+        for table_id in tables:
+            output.append(get(f"branch/default/tables/{quote(table_id, safe='')}"))
+        for bucket_id in buckets:
+            payload = get(f"branch/default/buckets/{quote(bucket_id, safe='')}/tables")
+            if isinstance(payload, list):
+                output.extend(payload[:100])
+        return {"tables": output[:100]}
+
+    return mcp
+
+
 BUILDERS = {
     "axiom-mcp": build_axiom,
     "blazickjp-arxiv-mcp-server": build_arxiv_readonly,
@@ -1251,6 +1521,10 @@ BUILDERS = {
     "livetennisapi-livetennisapi-mcp": build_livetennisapi_readonly,
     "pinecone-assistant-mcp": build_pinecone,
     "terraform-mcp": build_terraform,
+    "cablate-mcp-google-map": build_google_map_readonly,
+    "vectorize-io-vectorize-mcp-server": build_vectorize_retrieval_readonly,
+    "comet-ml-opik-mcp": build_opik_readonly,
+    "keboola-keboola-mcp-server": build_keboola_metadata_readonly,
 }
 
 

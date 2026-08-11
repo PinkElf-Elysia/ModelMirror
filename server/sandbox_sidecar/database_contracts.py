@@ -32,6 +32,8 @@ HOST_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9_$][A-Za-z0-9_$.-]{0,127}")
 SAFE_USERNAME = re.compile(r"[A-Za-z0-9_$][A-Za-z0-9_$.+@-]{0,253}")
 PROJECT_REF = re.compile(r"[a-z]{20}")
+DATA_SERVICE_RESOURCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+ELASTIC_SEARCH_FIELD = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 
 ADMIN_PRIVATE_NETWORKS = (
     ipaddress.ip_network("10.0.0.0/8"),
@@ -41,6 +43,22 @@ ADMIN_PRIVATE_NETWORKS = (
 )
 
 TLS_MODES = frozenset({"verify-full"})
+GRAPH_DATA_SERVICE_ADAPTERS = frozenset(
+    {
+        "zilliztech-mcp-server-milvus",
+        "neo4j-contrib-mcp-neo4j",
+        "arcadedata-arcadedb",
+    }
+)
+REMOTE_DATA_SERVICE_ADAPTERS = frozenset(
+    {
+        "pab1it0-prometheus-mcp-server",
+        "qdrant-mcp-server-qdrant",
+        "cr7258-elasticsearch-mcp-server",
+        *GRAPH_DATA_SERVICE_ADAPTERS,
+    }
+)
+STAGED_DATABASE_ADAPTERS = GRAPH_DATA_SERVICE_ADAPTERS
 FORBIDDEN_CONFIGURATION_KEYS = frozenset(
     {
         "command",
@@ -136,6 +154,68 @@ DATABASE_ADAPTERS: dict[str, DatabaseAdapterContract] = {
         frozenset({"project_ref"}),
         frozenset(),
         frozenset({"access_token"}),
+    ),
+    "pab1it0-prometheus-mcp-server": DatabaseAdapterContract(
+        "pab1it0-prometheus-mcp-server",
+        frozenset(
+            {
+                "execute_query",
+                "execute_range_query",
+                "list_metrics",
+                "get_metric_metadata",
+                "get_targets",
+            }
+        ),
+        frozenset({"host", "port", "tls_mode"}),
+        frozenset(),
+        frozenset(),
+        frozenset({"bearer_token"}),
+    ),
+    "qdrant-mcp-server-qdrant": DatabaseAdapterContract(
+        "qdrant-mcp-server-qdrant",
+        frozenset({"get_collection_info", "scroll_points", "query_points"}),
+        frozenset({"host", "port", "tls_mode", "collection"}),
+        frozenset(),
+        frozenset({"api_key"}),
+    ),
+    "cr7258-elasticsearch-mcp-server": DatabaseAdapterContract(
+        "cr7258-elasticsearch-mcp-server",
+        frozenset({"get_cluster_health", "get_index", "search_documents", "get_document"}),
+        frozenset({"host", "port", "tls_mode", "index", "search_field", "username"}),
+        frozenset(),
+        frozenset({"password"}),
+    ),
+    "zilliztech-mcp-server-milvus": DatabaseAdapterContract(
+        "zilliztech-mcp-server-milvus",
+        frozenset({"list_collections", "describe_collection", "get_entities", "search_vectors"}),
+        frozenset(
+            {
+                "host",
+                "port",
+                "tls_mode",
+                "database",
+                "collection",
+                "vector_field",
+                "output_fields",
+                "username",
+            }
+        ),
+        frozenset(),
+        frozenset({"password"}),
+    ),
+    "neo4j-contrib-mcp-neo4j": DatabaseAdapterContract(
+        "neo4j-contrib-mcp-neo4j",
+        frozenset({"get_schema", "read_cypher"}),
+        frozenset({"host", "port", "tls_mode", "database", "username"}),
+        frozenset(),
+        frozenset({"password"}),
+    ),
+    "arcadedata-arcadedb": DatabaseAdapterContract(
+        "arcadedata-arcadedb",
+        frozenset({"list_types", "describe_type", "read_query"}),
+        frozenset({"host", "port", "tls_mode", "database", "username"}),
+        frozenset(),
+        frozenset({"password"}),
     ),
 }
 
@@ -240,11 +320,22 @@ def validate_configuration(adapter_id: str, configuration: object) -> ValidatedC
         credentials[str(key)] = value
 
     settings: dict[str, str | int] = {}
-    if adapter_id in {"dbhub", "mongodb-mcp", "clickhouse-mcp", "redis-mcp"}:
+    if adapter_id in {
+        "dbhub",
+        "mongodb-mcp",
+        "clickhouse-mcp",
+        "redis-mcp",
+        *REMOTE_DATA_SERVICE_ADAPTERS,
+    }:
         settings["host"] = _normalize_host(raw_settings.get("host"))
         settings["port"] = _integer(raw_settings.get("port"), minimum=1, maximum=65535, code="invalid_port")
         tls_mode = str(raw_settings.get("tls_mode") or "").strip().lower()
-        if tls_mode not in TLS_MODES:
+        test_plaintext = (
+            adapter_id in REMOTE_DATA_SERVICE_ADAPTERS
+            and tls_mode == "test-only-plaintext"
+            and os.getenv("MCP_DATABASE_TEST_ALLOW_PLAINTEXT") == "true"
+        )
+        if tls_mode not in TLS_MODES and not test_plaintext:
             raise ValueError("invalid_tls_mode")
         settings["tls_mode"] = tls_mode
 
@@ -276,6 +367,58 @@ def validate_configuration(adapter_id: str, configuration: object) -> ValidatedC
     elif adapter_id == "supabase-mcp":
         settings["project_ref"] = _safe_text(
             raw_settings.get("project_ref"), pattern=PROJECT_REF, code="invalid_project_ref"
+        )
+    elif adapter_id == "qdrant-mcp-server-qdrant":
+        settings["collection"] = _safe_text(
+            raw_settings.get("collection"),
+            pattern=DATA_SERVICE_RESOURCE,
+            code="invalid_collection",
+        )
+    elif adapter_id == "cr7258-elasticsearch-mcp-server":
+        index = _safe_text(
+            raw_settings.get("index"),
+            pattern=DATA_SERVICE_RESOURCE,
+            code="invalid_index",
+        )
+        if index.startswith(("_", ".")):
+            raise ValueError("invalid_index")
+        settings["index"] = index
+        settings["search_field"] = _safe_text(
+            raw_settings.get("search_field"),
+            pattern=ELASTIC_SEARCH_FIELD,
+            code="invalid_search_field",
+        )
+        settings["username"] = _safe_text(
+            raw_settings.get("username"),
+            pattern=SAFE_USERNAME,
+            code="invalid_username",
+        )
+    elif adapter_id == "zilliztech-mcp-server-milvus":
+        settings["database"] = _safe_text(
+            raw_settings.get("database"), pattern=DATA_SERVICE_RESOURCE, code="invalid_database"
+        )
+        settings["collection"] = _safe_text(
+            raw_settings.get("collection"), pattern=DATA_SERVICE_RESOURCE, code="invalid_collection"
+        )
+        settings["vector_field"] = _safe_text(
+            raw_settings.get("vector_field"), pattern=SAFE_IDENTIFIER, code="invalid_vector_field"
+        )
+        output_fields = str(raw_settings.get("output_fields") or "").strip()
+        fields = [field.strip() for field in output_fields.split(",") if field.strip()]
+        if not 1 <= len(fields) <= 32 or len(set(fields)) != len(fields):
+            raise ValueError("invalid_output_fields")
+        if any(not SAFE_IDENTIFIER.fullmatch(field) for field in fields):
+            raise ValueError("invalid_output_fields")
+        settings["output_fields"] = ",".join(fields)
+        settings["username"] = _safe_text(
+            raw_settings.get("username"), pattern=SAFE_USERNAME, code="invalid_username"
+        )
+    elif adapter_id in {"neo4j-contrib-mcp-neo4j", "arcadedata-arcadedb"}:
+        settings["database"] = _safe_text(
+            raw_settings.get("database"), pattern=DATA_SERVICE_RESOURCE, code="invalid_database"
+        )
+        settings["username"] = _safe_text(
+            raw_settings.get("username"), pattern=SAFE_USERNAME, code="invalid_username"
         )
 
     workspace_raw = str(configuration.get("workspace_id") or "").strip()
@@ -370,7 +513,16 @@ def install_pinned_getaddrinfo(host: str | None, addresses: tuple[str, ...]) -> 
         flags: int = 0,
     ) -> list[tuple[int, int, int, str, tuple[Any, ...]]]:
         del flags
-        requested = str(requested_host or "").strip().rstrip(".").lower()
+        if isinstance(requested_host, (bytes, bytearray)):
+            try:
+                requested = bytes(requested_host).decode("ascii", "strict")
+            except UnicodeDecodeError as exc:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "database DNS target denied"
+                ) from exc
+        else:
+            requested = str(requested_host or "")
+        requested = requested.strip().rstrip(".").lower()
         allowed_ip = False
         try:
             requested_address = ipaddress.ip_address(requested.strip("[]"))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -10,13 +11,18 @@ from server.mcp import database_proxy
 from server.sandbox_sidecar import database_contracts
 from server.sandbox_sidecar.database_contracts import (
     DATABASE_ADAPTERS,
+    GRAPH_DATA_SERVICE_ADAPTERS,
+    REMOTE_DATA_SERVICE_ADAPTERS,
+    STAGED_DATABASE_ADAPTERS,
     bounded_rows,
+    install_pinned_getaddrinfo,
     resolve_allowed_addresses,
     validate_configuration,
     validate_document,
     validate_readonly_sql,
 )
 from server.sandbox_sidecar.database_mcp import ADAPTER_TOOL_NAMES
+from server.sandbox_sidecar import database_server
 
 
 EXPECTED_TOOLS = {
@@ -42,6 +48,32 @@ EXPECTED_TOOLS = {
     },
     "duckdb-mcp": {"list_schemas", "list_tables", "describe_table", "query"},
     "supabase-mcp": {"list_tables", "list_extensions", "execute_sql"},
+    "pab1it0-prometheus-mcp-server": {
+        "execute_query",
+        "execute_range_query",
+        "list_metrics",
+        "get_metric_metadata",
+        "get_targets",
+    },
+    "qdrant-mcp-server-qdrant": {
+        "get_collection_info",
+        "scroll_points",
+        "query_points",
+    },
+    "cr7258-elasticsearch-mcp-server": {
+        "get_cluster_health",
+        "get_index",
+        "search_documents",
+        "get_document",
+    },
+    "zilliztech-mcp-server-milvus": {
+        "list_collections",
+        "describe_collection",
+        "get_entities",
+        "search_vectors",
+    },
+    "neo4j-contrib-mcp-neo4j": {"get_schema", "read_cypher"},
+    "arcadedata-arcadedb": {"list_types", "describe_type", "read_query"},
 }
 
 
@@ -67,6 +99,19 @@ def test_database_contract_and_proxy_allowlists_are_exact() -> None:
         adapter_id: set(tool_names)
         for adapter_id, tool_names in ADAPTER_TOOL_NAMES.items()
     } == EXPECTED_TOOLS
+    assert STAGED_DATABASE_ADAPTERS == GRAPH_DATA_SERVICE_ADAPTERS == {
+        "zilliztech-mcp-server-milvus",
+        "neo4j-contrib-mcp-neo4j",
+        "arcadedata-arcadedb",
+    }
+    assert REMOTE_DATA_SERVICE_ADAPTERS == {
+        "pab1it0-prometheus-mcp-server",
+        "qdrant-mcp-server-qdrant",
+        "cr7258-elasticsearch-mcp-server",
+        *GRAPH_DATA_SERVICE_ADAPTERS,
+    }
+    assert REMOTE_DATA_SERVICE_ADAPTERS - STAGED_DATABASE_ADAPTERS <= database_server.ALLOWED_ADAPTERS
+    assert STAGED_DATABASE_ADAPTERS.isdisjoint(database_server.ALLOWED_ADAPTERS)
 
 
 def test_database_configuration_is_structured_and_tls_is_strict() -> None:
@@ -125,6 +170,41 @@ def test_database_configuration_rejects_ip_literals_and_private_dns(
         "database.internal",
     )
     assert resolve_allowed_addresses("database.internal", 5432) == ("10.20.30.40",)
+
+
+def test_pinned_dns_accepts_ascii_byte_hosts_used_by_http_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = socket.getaddrinfo
+    monkeypatch.setattr(socket, "getaddrinfo", original)
+    install_pinned_getaddrinfo("data.example.com", ("203.0.113.20",))
+
+    records = socket.getaddrinfo(b"data.example.com", 443, type=socket.SOCK_STREAM)
+    assert records[0][4] == ("203.0.113.20", 443)
+    with pytest.raises(socket.gaierror, match="database DNS target denied"):
+        socket.getaddrinfo(b"other.example.com", 443, type=socket.SOCK_STREAM)
+    with pytest.raises(socket.gaierror, match="database DNS target denied"):
+        socket.getaddrinfo(b"data.example.com\xff", 443, type=socket.SOCK_STREAM)
+
+
+def test_database_landlock_does_not_apply_cross_container_nproc_limit() -> None:
+    server_root = Path(__file__).parents[1]
+    source = (
+        server_root
+        / "sandbox_sidecar"
+        / "database_landlock_exec.py"
+    ).read_text(encoding="utf-8")
+    assert "setrlimit(resource.RLIMIT_NPROC" not in source
+    assert "Docker pids cgroup is the authoritative per-container limit" in source
+    compose = (server_root.parent / "docker-compose.yml").read_text(encoding="utf-8")
+    remote_service = compose.split("  mcp-database:\n", 1)[1].split(
+        "  mcp-database-local:\n", 1
+    )[0]
+    local_service = compose.split("  mcp-database-local:\n", 1)[1].split(
+        "  omniroute:\n", 1
+    )[0]
+    assert "pids_limit: 128" in remote_service
+    assert "pids_limit: 96" in local_service
 
 
 @pytest.mark.parametrize(

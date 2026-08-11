@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 import shutil
 import sys
 import tempfile
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from .engine import SandboxEngineError
+from .file_artifacts import WAVE18A_BUILDERS
+from .file_analysis import WAVE18B_BUILDERS
 from .file_mcp import BUILDERS, WORKSPACE_PATTERN
 
 
@@ -24,6 +27,21 @@ MAX_MCP_MESSAGE_BYTES = 16 * 1024 * 1024
 MAX_SESSIONS = max(1, min(int(os.getenv("MCP_FILES_MAX_SESSIONS", "4")), 8))
 SEMAPHORE = asyncio.Semaphore(MAX_SESSIONS)
 OFFICE_PARSER_SEMAPHORE = asyncio.Semaphore(1)
+STAGED_FILE_ADAPTERS = frozenset()
+DEFAULT_ALLOWED_ADAPTERS = frozenset(BUILDERS)
+
+
+def _allowed_adapters() -> frozenset[str]:
+    raw = os.getenv("MCP_FILE_ALLOWED_ADAPTERS", "").strip()
+    if not raw:
+        return DEFAULT_ALLOWED_ADAPTERS
+    requested = frozenset(item.strip() for item in raw.split(",") if item.strip())
+    if not requested or not requested.issubset(BUILDERS):
+        raise RuntimeError("MCP_FILE_ALLOWED_ADAPTERS contains an unknown adapter.")
+    return requested
+
+
+ALLOWED_ADAPTERS = _allowed_adapters()
 
 
 async def _pump(source: asyncio.StreamReader, destination: asyncio.StreamWriter) -> None:
@@ -44,10 +62,29 @@ async def _drain(stream: asyncio.StreamReader | None) -> None:
         pass
 
 
+async def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        await asyncio.wait_for(process.wait(), timeout=2)
+        return
+    except asyncio.TimeoutError:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    await process.wait()
+
+
 async def _stdio(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, request: dict[str, Any]) -> None:
     adapter_id = str(request.get("adapter_id") or "").strip()
     workspace_id = str(request.get("workspace_id") or "").strip()
-    if adapter_id not in BUILDERS:
+    if adapter_id not in ALLOWED_ADAPTERS:
         raise SandboxEngineError("MCP file adapter is not allowed.", code="mcp_adapter_denied")
     if not WORKSPACE_PATTERN.fullmatch(workspace_id):
         raise SandboxEngineError("MCP file workspace identifier is invalid.", code="workspace_denied")
@@ -121,11 +158,8 @@ async def _stdio(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, req
             for task in tasks:
                 if not task.done(): task.cancel()
             if tasks: await asyncio.gather(*tasks, return_exceptions=True)
-            if process is not None and process.returncode is None:
-                process.terminate()
-                try: await asyncio.wait_for(process.wait(), timeout=2)
-                except asyncio.TimeoutError:
-                    process.kill(); await process.wait()
+            if process is not None:
+                await _terminate_process_group(process)
             shutil.rmtree(temp_root, ignore_errors=True)
             if handshake:
                 writer.close()
@@ -150,7 +184,7 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             raise SandboxEngineError("File sidecar action denied.", code="action_denied")
         response = {
             "ok": True,
-            "mcp_file_adapters": sorted(BUILDERS),
+            "mcp_file_adapters": sorted(ALLOWED_ADAPTERS),
             "mcp_file_max_sessions": MAX_SESSIONS,
             "office_parser_max_sessions": 1,
             "network": "none",

@@ -27,11 +27,15 @@ from server.mcp.catalog import (
     WAVE_THREE_ADAPTERS,
     WAVE_FOUR_ADAPTERS,
     WAVE_FIVE_ADAPTERS,
+    WAVE_NINETEEN_DATABASE_ADAPTERS,
     WAVE_SIX_ADAPTERS,
     WAVE_SEVEN_ADAPTERS,
     WAVE_THIRTEEN_TOKEN_ADAPTERS,
     WAVE_FOURTEEN_TOKEN_ADAPTERS,
     WAVE_FIFTEEN_TOKEN_ADAPTERS,
+    WAVE_SIXTEEN_PUBLIC_ADAPTERS,
+    WAVE_EIGHTEEN_FILE_ADAPTERS,
+    WAVE_TWENTY_FILE_ADAPTERS,
     WAVE_ELEVEN_BLOCKED_ADAPTERS,
     WAVE_NINE_BLOCKED_ADAPTERS,
     WAVE_NINE_READY_ADAPTERS,
@@ -46,6 +50,7 @@ from server.mcp.catalog import (
 )
 from server.mcp.catalog_expansion_v2 import CATALOG_EXPANSION_V2_ADAPTERS
 from server.sandbox_sidecar.saas_contracts import SAAS_SCHEMA_SHA256
+from server.sandbox_sidecar.public_mcp import BUILDERS as PUBLIC_BUILDERS
 from server.sandbox_sidecar.browser_contracts import (
     BROWSER_ADAPTERS,
     BROWSER_SCHEMA_SHA256,
@@ -345,6 +350,11 @@ def test_catalog_freezes_200_projects_and_maps_all_waves_once() -> None:
         "duckdb-mcp",
         "supabase-mcp",
     }
+    assert set(WAVE_NINETEEN_DATABASE_ADAPTERS) == {
+        "pab1it0-prometheus-mcp-server",
+        "qdrant-mcp-server-qdrant",
+        "cr7258-elasticsearch-mcp-server",
+    }
     assert set(WAVE_SEVEN_ADAPTERS) == {
         "chrome-devtools-mcp",
         "playwright-mcp",
@@ -352,15 +362,15 @@ def test_catalog_freezes_200_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 50
+    ) == 68
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 65
+    ) == 31
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 85
+    ) == 101
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -402,7 +412,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
     assert not re.search(r"^\s+command:", seed_source, flags=re.MULTILINE)
     assert "server_command" not in expansion_source
     assert '"endpoint"' not in expansion_source
-    assert expansion_source.count('"availability": "ready"') == 5
+    assert expansion_source.count('"availability": "ready"') == 23
     assert 'fetch("/api/mcp/connect"' not in card_source
     assert 'fetch("/api/mcp/install"' not in card_source
     assert not re.search(
@@ -442,20 +452,42 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         for status in ("ready", "planned", "blocked")
     }
     assert {status: len(ids) for status, ids in by_status.items()} == {
-        "ready": 5,
-        "planned": 51,
-        "blocked": 44,
+        "ready": 23,
+        "planned": 17,
+        "blocked": 60,
     }
     assert by_status["ready"] == (
         set(WAVE_THIRTEEN_TOKEN_ADAPTERS)
         | set(WAVE_FOURTEEN_TOKEN_ADAPTERS)
         | set(WAVE_FIFTEEN_TOKEN_ADAPTERS)
+        | set(WAVE_SIXTEEN_PUBLIC_ADAPTERS)
+        | set(WAVE_EIGHTEEN_FILE_ADAPTERS)
+        | set(WAVE_NINETEEN_DATABASE_ADAPTERS)
+        | set(WAVE_TWENTY_FILE_ADAPTERS)
     ) == {
         "brave-brave-search-mcp-server",
         "blazickjp-arxiv-mcp-server",
         "kagisearch-kagimcp",
         "fatwang2-search1api-mcp",
         "livetennisapi-livetennisapi-mcp",
+        "nickclyde-duckduckgo-mcp-server",
+        "jpisnice-shadcn-ui-mcp-server",
+        "docker-hub-mcp",
+        "genomoncology-biomcp",
+        "safedep-vet",
+        "aas-ee-open-websearch",
+        "mnemox-ai-idea-reality-mcp",
+        "idosal-git-mcp",
+        "zcaceres-markdownify-mcp",
+        "vivekvells-mcp-pandoc",
+        "antvis-mcp-server-chart",
+        "cyberchitta-llm-context-py",
+        "haris-musa-excel-mcp-server",
+        "dataeval-dingo",
+        "pab1it0-prometheus-mcp-server",
+        "qdrant-mcp-server-qdrant",
+        "cr7258-elasticsearch-mcp-server",
+        "ozgurcd-gograph",
     }
     ready_manifest = CATALOG_ADAPTERS["brave-brave-search-mcp-server"]
     assert ready_manifest.wave == 13
@@ -505,10 +537,176 @@ def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
         "search_tournaments",
         "get_tournament",
     }
+    expected_public = {
+        "nickclyde-duckduckgo-mcp-server": (
+            {"search"},
+            ("html.duckduckgo.com",),
+            "9a10fcfb68759337ab6af5fcfe76f5a7ebc87f3724e34a2017ea25807e4cc197",
+        ),
+        "jpisnice-shadcn-ui-mcp-server": (
+            {"list_components", "get_component_metadata"},
+            ("api.github.com",),
+            "8a04ba4e5da26f151bc0a563e63d9567e2932e0450d08565bc64f2498e39336f",
+        ),
+        "docker-hub-mcp": (
+            {"search", "getRepositoryInfo", "listRepositoryTags"},
+            ("hub.docker.com",),
+            "e8ce120ed943ee25aaa0d67218e4ce8e408dc42592251e9eec108daa1065d35d",
+        ),
+        "genomoncology-biomcp": (
+            {"search", "get"},
+            ("www.ebi.ac.uk", "clinicaltrials.gov", "myvariant.info"),
+            "24c2ca66ce7643bdb91323912a73956c1adbd93c82c246c55fe773afa95f1c31",
+        ),
+        "safedep-vet": (
+            {
+                "get_package_version_vulnerabilities",
+                "get_package_version_popularity",
+                "get_package_version_license_info",
+                "get_package_version_malware_report",
+                "get_package_latest_version",
+                "get_package_available_versions",
+            },
+            ("community-api.safedep.io", "registry.npmjs.org", "pypi.org"),
+            "52be50ad2e6b7c53e2b6e76799a9083f3892ae49e2b0f2bfccee4ca8262be652",
+        ),
+        "aas-ee-open-websearch": (
+            {"search"},
+            ("cn.bing.com", "html.duckduckgo.com"),
+            "cf695f0f1d6a9fb3fe08ae454f3729367f28103bc85d1c893737f42ad706fe99",
+        ),
+        "mnemox-ai-idea-reality-mcp": (
+            {"idea_check"},
+            ("api.github.com", "hn.algolia.com", "registry.npmjs.org", "pypi.org"),
+            "65b4b069bcb5faa961341576f452e72faa49b4deae214a6f840da2521a010c24",
+        ),
+        "idosal-git-mcp": (
+            {
+                "fetch_repository_documentation",
+                "search_repository_documentation",
+                "search_repository_code",
+            },
+            ("api.github.com",),
+            "56a8c84a969a4beaca16bf905be83899bb497d19a4e95cef5135ad4465ef4811",
+        ),
+    }
+    for project_id, (tools, hosts, schema_digest) in expected_public.items():
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.wave == (17 if project_id in {
+            "aas-ee-open-websearch",
+            "mnemox-ai-idea-reality-mcp",
+            "idosal-git-mcp",
+        } else 16)
+        assert manifest.availability == "ready"
+        assert manifest.enabled_by_default is False
+        assert manifest.executable is False
+        assert manifest.runtime_image == "modelmirror-mcp-public:wave17a-v1"
+        assert set(manifest.tool_policies) == tools
+        assert all(policy.read_only for policy in manifest.tool_policies.values())
+        assert manifest.public_policy is not None
+        assert manifest.public_policy.anonymous_only is True
+        assert manifest.public_policy.fixed_hosts == hosts
+        assert manifest.public_policy.tool_schema_sha256 == schema_digest
+        monkeypatch.setenv(manifest.feature_flag, "true")
+        assert manifest.executable is True
+
+    expected_files = {
+        "zcaceres-markdownify-mcp": {
+            "pdf-to-markdown": "artifact-create",
+            "docx-to-markdown": "artifact-create",
+            "xlsx-to-markdown": "artifact-create",
+            "pptx-to-markdown": "artifact-create",
+        },
+        "vivekvells-mcp-pandoc": {"convert-contents": "artifact-create"},
+        "antvis-mcp-server-chart": {
+            "generate_line_chart": "artifact-create",
+            "generate_bar_chart": "artifact-create",
+            "generate_pie_chart": "artifact-create",
+        },
+        "cyberchitta-llm-context-py": {
+            "lc_preview": "read",
+            "lc_outlines": "artifact-create",
+        },
+        "haris-musa-excel-mcp-server": {
+            "get_workbook_metadata": "read",
+            "read_data_from_excel": "read",
+            "write_data_to_excel": "artifact-create",
+        },
+        "dataeval-dingo": {
+            "list_dingo_components": "read",
+            "run_dingo_evaluation": "artifact-create",
+        },
+    }
+    for project_id, tools in expected_files.items():
+        manifest = CATALOG_ADAPTERS[project_id]
+        assert manifest.wave == 18
+        assert manifest.availability == "ready"
+        assert manifest.enabled_by_default is True
+        assert manifest.executable is True
+        assert manifest.runtime_image == "modelmirror-mcp-files:wave3-v1"
+        assert manifest.network_policy == "disabled"
+        assert manifest.filesystem_policy == "sealed-input-read-only,artifact-write"
+        assert set(manifest.tool_policies) == set(tools)
+        assert {
+            name: policy.effect for name, policy in manifest.tool_policies.items()
+        } == tools
+        assert all(
+            policy.read_only == (policy.effect == "read")
+            for policy in manifest.tool_policies.values()
+        )
+        assert manifest.workspace_policy is not None
+        assert manifest.workspace_policy.persistent is False
+
+    converged_blocked = {
+        "ihor-sokoliuk-mcp-searxng",
+        "us-crw",
+        "bx33661-wireshark-mcp",
+        "markuspfundstein-mcp-obsidian",
+        "quarkiverse-quarkus-mcp-servers-filesystem",
+        "benborla-mcp-server-mysql",
+        "designcomputer-mysql-mcp-server",
+        "freepeak-db-mcp-server",
+        "quarkiverse-quarkus-mcp-servers-jdbc",
+        "runekaagaard-mcp-alchemy",
+        "kiliczsh-mcp-mongo-server",
+        "googleapis-genai-toolbox",
+        "anypost-emailmd",
+        "ferdousbhai-investor-agent",
+    }
+    assert converged_blocked <= by_status["blocked"]
+    staged_wave_seventeen = {
+        "cablate-mcp-google-map",
+        "vectorize-io-vectorize-mcp-server",
+        "comet-ml-opik-mcp",
+        "keboola-keboola-mcp-server",
+    }
+    staged_wave_twenty_one = {
+        "chopratejas-headroom",
+        "samvallad33-vestige",
+        "goldentrii-agentrecall",
+        "juyterman1000-entroly",
+        "patdolitse-piia-engram",
+        "beever-ai-beever-atlas",
+        "pv-bhat-vibe-check-mcp-server",
+    }
+    staged_wave_twenty_two = {
+        "r-huijts-strava-mcp",
+        "tiberriver256-mcp-server-azure-devops",
+        "tacticlaunch-mcp-linear",
+    }
     for project_id in by_status["planned"] | by_status["blocked"]:
         manifest = CATALOG_ADAPTERS[project_id]
         monkeypatch.setenv(manifest.feature_flag, "true")
-        assert manifest.wave == 13
+        expected_wave = (
+            17
+            if project_id in staged_wave_seventeen
+            else 21
+            if project_id in staged_wave_twenty_one
+            else 22
+            if project_id in staged_wave_twenty_two
+            else 13
+        )
+        assert manifest.wave == expected_wave
         assert manifest.availability in {"planned", "blocked"}
         assert manifest.executable is False
         assert manifest.server_command == ()
@@ -1637,9 +1835,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 200
-            assert payload["ready"] == 50
-            assert payload["planned"] == 65
-            assert payload["blocked"] == 85
+            assert payload["ready"] == 68
+            assert payload["planned"] == 31
+            assert payload["blocked"] == 101
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized
@@ -1782,6 +1980,49 @@ async def test_wave_two_adapter_uses_fixed_public_sidecar_profile() -> None:
     assert public["executable"] is True
     assert public["connection_kind"] == "sandboxed-stdio"
     assert set(public["tool_policies"]) == {"fetch"}
+
+
+@pytest.mark.asyncio
+async def test_wave_sixteen_public_adapter_is_flag_gated_and_owner_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_id = "nickclyde-duckduckgo-mcp-server"
+    manifest = CATALOG_ADAPTERS[project_id]
+    assert manifest.enabled_by_default is False
+    service, manager, installer, _ = make_service()
+    manager.tools = list(await PUBLIC_BUILDERS[project_id]().list_tools())
+
+    with pytest.raises(catalog.CatalogAdapterUnavailableError):
+        await service.connect(project_id)
+
+    monkeypatch.setenv(manifest.feature_flag, "true")
+    prepared = await service.prepare(project_id)
+    assert prepared["prepared"] is True
+    assert prepared["metadata"]["runtime_image"] == "modelmirror-mcp-public:wave17a-v1"
+    assert installer.calls == []
+
+    connected = await service.connect(project_id)
+    assert connected["tools_count"] == 1
+    assert manager.profiles == [
+        {
+            "transport": "stdio",
+            "server_command": list(manifest.server_command),
+            "network_policy": "allowlist:html.duckduckgo.com",
+            "reconnect_attempts": 1,
+            "operation_timeout": 30.0,
+            "session_owner": f"catalog:local:local:{project_id}",
+        }
+    ]
+    with pytest.raises(catalog.MCPSessionNotFoundError):
+        await manager.list_tools(connected["session_id"])
+
+    result = await service.call_tool(
+        project_id,
+        "search",
+        {"query": "Model Context Protocol", "max_results": 3},
+    )
+    assert result["content"][0]["text"] == "ok"
+    assert manager.retry_on_failure == [True]
 
 
 @pytest.mark.asyncio

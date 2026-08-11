@@ -63,6 +63,21 @@ EXPECTED_TOOLS = {
     },
     "duckdb-mcp": {"list_schemas", "list_tables", "describe_table", "query"},
     "supabase-mcp": {"list_tables", "list_extensions", "execute_sql"},
+    "pab1it0-prometheus-mcp-server": {
+        "execute_query", "execute_range_query", "list_metrics",
+        "get_metric_metadata", "get_targets",
+    },
+    "qdrant-mcp-server-qdrant": {
+        "get_collection_info", "scroll_points", "query_points",
+    },
+    "cr7258-elasticsearch-mcp-server": {
+        "get_cluster_health", "get_index", "search_documents", "get_document",
+    },
+    "zilliztech-mcp-server-milvus": {
+        "list_collections", "describe_collection", "get_entities", "search_vectors",
+    },
+    "neo4j-contrib-mcp-neo4j": {"get_schema", "read_cypher"},
+    "arcadedata-arcadedb": {"list_types", "describe_type", "read_query"},
 }
 
 EXPECTED_SCHEMA_SHA256 = {
@@ -72,6 +87,9 @@ EXPECTED_SCHEMA_SHA256 = {
     "redis-mcp": "c92964bae88277fbd6b007afcacd42813db5f98ac44efe82389613870fb89b9f",
     "duckdb-mcp": "bcbc5ab6f79efe935694536b71e6558c7dce1e06a594ddb654c1b1b06bb13285",
     "supabase-mcp": "18bb488393b8a255825639a1dbbf4b77e70fca2398f6838210869caca172bbba",
+    "pab1it0-prometheus-mcp-server": "44265e2144474e895d58010f2a80cb61efb381112978db81b180f2a960e46ff4",
+    "qdrant-mcp-server-qdrant": "45b1380288c0f842e4a1487b1470f3231cbdb7158bae5829d8b3aadacdf53e44",
+    "cr7258-elasticsearch-mcp-server": "d1ed0ec28c75c7faeb16ba461c07a508b5a4f7ecf0711b8f83ac2a4c29d09064",
 }
 
 
@@ -126,6 +144,67 @@ VALID_CONFIGURATIONS = {
         "settings": {"project_ref": "abcdefghijklmnopqrst"},
         "credentials": {"access_token": "dummy"},
     },
+    "pab1it0-prometheus-mcp-server": {
+        "settings": {
+            "host": "prometheus.example.com",
+            "port": 443,
+            "tls_mode": "verify-full",
+        },
+        "credentials": {"bearer_token": "dummy"},
+    },
+    "qdrant-mcp-server-qdrant": {
+        "settings": {
+            "host": "qdrant.example.com",
+            "port": 443,
+            "tls_mode": "verify-full",
+            "collection": "reviewed_vectors",
+        },
+        "credentials": {"api_key": "dummy"},
+    },
+    "cr7258-elasticsearch-mcp-server": {
+        "settings": {
+            "host": "elasticsearch.example.com",
+            "port": 443,
+            "tls_mode": "verify-full",
+            "index": "reviewed-events",
+            "search_field": "message",
+            "username": "readonly",
+        },
+        "credentials": {"password": "dummy"},
+    },
+    "zilliztech-mcp-server-milvus": {
+        "settings": {
+            "host": "milvus.example.com",
+            "port": 443,
+            "tls_mode": "verify-full",
+            "database": "project_graph",
+            "collection": "project_vectors",
+            "vector_field": "embedding",
+            "output_fields": "id,title,category",
+            "username": "readonly",
+        },
+        "credentials": {"password": "dummy"},
+    },
+    "neo4j-contrib-mcp-neo4j": {
+        "settings": {
+            "host": "neo4j.example.com",
+            "port": 443,
+            "tls_mode": "verify-full",
+            "database": "project_graph",
+            "username": "readonly",
+        },
+        "credentials": {"password": "dummy"},
+    },
+    "arcadedata-arcadedb": {
+        "settings": {
+            "host": "arcadedb.example.com",
+            "port": 443,
+            "tls_mode": "verify-full",
+            "database": "project_graph",
+            "username": "readonly",
+        },
+        "credentials": {"password": "dummy"},
+    },
 }
 
 
@@ -140,21 +219,34 @@ def _must_reject(function: object, *args: object, **kwargs: object) -> None:
 async def _schema_smoke() -> None:
     try:
         from server.sandbox_sidecar.database_mcp import BUILDERS
+        from server.sandbox_sidecar.database_graph_services import WAVE19B_SCHEMA_SHA256
     except ModuleNotFoundError as error:
         if error.name != "server":
             raise
         from sandbox_sidecar.database_mcp import BUILDERS
+        from sandbox_sidecar.database_graph_services import WAVE19B_SCHEMA_SHA256
 
     for adapter_id, builder in BUILDERS.items():
         tools = await builder(None).list_tools()
-        schemas = {tool.name: tool.inputSchema for tool in tools}
-        digest = hashlib.sha256(
-            json.dumps(schemas, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        if digest != EXPECTED_SCHEMA_SHA256[adapter_id]:
+        if adapter_id in WAVE19B_SCHEMA_SHA256:
+            reviewed = [
+                {"name": tool.name, "inputSchema": tool.inputSchema}
+                for tool in sorted(tools, key=lambda item: item.name)
+            ]
+            digest = hashlib.sha256(
+                json.dumps(reviewed, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            expected_digest = WAVE19B_SCHEMA_SHA256[adapter_id]
+        else:
+            schemas = {tool.name: tool.inputSchema for tool in tools}
+            digest = hashlib.sha256(
+                json.dumps(schemas, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            expected_digest = EXPECTED_SCHEMA_SHA256[adapter_id]
+        if digest != expected_digest:
             raise RuntimeError(
                 f"inputSchema drift for {adapter_id}: expected "
-                f"{EXPECTED_SCHEMA_SHA256[adapter_id]}, got {digest}"
+                f"{expected_digest}, got {digest}"
             )
         for tool in tools:
             annotations = tool.annotations
@@ -446,7 +538,18 @@ def main() -> None:
     sqlserver_configuration["settings"]["engine"] = "sqlserver"
     _must_reject(validate_configuration, "dbhub", sqlserver_configuration)
 
-    for adapter_id in ("dbhub", "mongodb-mcp", "clickhouse-mcp", "redis-mcp"):
+    for adapter_id in (
+        "dbhub",
+        "mongodb-mcp",
+        "clickhouse-mcp",
+        "redis-mcp",
+        "pab1it0-prometheus-mcp-server",
+        "qdrant-mcp-server-qdrant",
+        "cr7258-elasticsearch-mcp-server",
+        "zilliztech-mcp-server-milvus",
+        "neo4j-contrib-mcp-neo4j",
+        "arcadedata-arcadedb",
+    ):
         unsafe_tls = json.loads(json.dumps(VALID_CONFIGURATIONS[adapter_id]))
         unsafe_tls["settings"]["tls_mode"] = "require"
         _must_reject(validate_configuration, adapter_id, unsafe_tls)

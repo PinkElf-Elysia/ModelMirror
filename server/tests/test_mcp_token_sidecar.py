@@ -19,6 +19,7 @@ from server.mcp.catalog import (
 from server.sandbox_sidecar import token_builtin, token_server
 from server.sandbox_sidecar.safe_http import NetworkPolicyError
 from server.sandbox_sidecar.token_contracts import (
+    STAGED_TOKEN_ADAPTERS,
     TOKEN_ADAPTERS,
     TOKEN_SCHEMA_SHA256,
     validate_configuration,
@@ -71,11 +72,12 @@ def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
         | set(WAVE_FOURTEEN_TOKEN_ADAPTERS)
         | set(WAVE_FIFTEEN_TOKEN_ADAPTERS)
     )
-    assert set(TOKEN_ADAPTERS) == expected
+    assert set(TOKEN_ADAPTERS) == expected | set(STAGED_TOKEN_ADAPTERS)
     assert set(TOKEN_SCHEMA_SHA256) == set(TOKEN_ADAPTERS)
-    assert set(token_proxy.ALLOWED_ADAPTERS) == expected
+    assert set(token_proxy.ALLOWED_ADAPTERS) == expected | set(STAGED_TOKEN_ADAPTERS)
     assert "snyk-mcp" not in TOKEN_ADAPTERS
-    for project_id, contract in TOKEN_ADAPTERS.items():
+    for project_id in expected:
+        contract = TOKEN_ADAPTERS[project_id]
         assert contract.tools == frozenset(CATALOG_ADAPTERS[project_id].tool_policies)
         assert contract.command
         assert all("npx" not in item for item in contract.command)
@@ -128,6 +130,36 @@ def test_runtime_contracts_match_catalog_and_never_include_snyk() -> None:
     assert tennis.credential_environment == (("api_key", "LIVE_TENNIS_API_KEY"),)
     assert tennis.builtin is True
 
+    assert STAGED_TOKEN_ADAPTERS == {
+        "cablate-mcp-google-map",
+        "vectorize-io-vectorize-mcp-server",
+        "comet-ml-opik-mcp",
+        "keboola-keboola-mcp-server",
+    }
+    assert not (set(token_server.ALLOWED_ADAPTERS) & set(STAGED_TOKEN_ADAPTERS))
+
+    google = TOKEN_ADAPTERS["cablate-mcp-google-map"]
+    assert google.tools == frozenset({"maps_search_places", "maps_place_details"})
+    assert google.allowed_hosts == frozenset({"places.googleapis.com"})
+    assert google.credential_environment == (("api_key", "GOOGLE_MAPS_API_KEY"),)
+
+    vectorize = TOKEN_ADAPTERS["vectorize-io-vectorize-mcp-server"]
+    assert vectorize.tools == frozenset({"retrieve"})
+    assert vectorize.allowed_hosts == frozenset({"api.vectorize.io"})
+    assert vectorize.setting_environment == (
+        ("organization_id", "VECTORIZE_ORG_ID"),
+        ("pipeline_id", "VECTORIZE_PIPELINE_ID"),
+    )
+
+    opik = TOKEN_ADAPTERS["comet-ml-opik-mcp"]
+    assert opik.tools == frozenset({"list", "read"})
+    assert opik.allowed_hosts == frozenset({"www.comet.com"})
+    assert opik.setting_environment == (("workspace", "OPIK_WORKSPACE"),)
+
+    keboola = TOKEN_ADAPTERS["keboola-keboola-mcp-server"]
+    assert keboola.tools == frozenset({"get_project_info", "get_buckets", "get_tables"})
+    assert keboola.allowed_hosts == frozenset({"connection.keboola.com"})
+
 
 def test_compose_token_allowlist_contains_every_non_registry_contract() -> None:
     source = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -144,13 +176,18 @@ def test_compose_token_allowlist_contains_every_non_registry_contract() -> None:
         for item in allowlist_line.split(":", 1)[1].split(",")
         if item.strip()
     }
-    expected = set(TOKEN_ADAPTERS) - set(WAVE_NINE_READY_ADAPTERS)
+    expected = (
+        set(TOKEN_ADAPTERS)
+        - set(WAVE_NINE_READY_ADAPTERS)
+        - set(STAGED_TOKEN_ADAPTERS)
+    )
     assert configured == expected
     assert "blazickjp-arxiv-mcp-server" in configured
     assert "brave-brave-search-mcp-server" in configured
     assert "kagisearch-kagimcp" in configured
     assert "fatwang2-search1api-mcp" in configured
     assert "livetennisapi-livetennisapi-mcp" in configured
+    assert not (configured & set(STAGED_TOKEN_ADAPTERS))
 
 
 def test_official_brave_runtime_is_independently_integrity_locked() -> None:
@@ -225,6 +262,29 @@ def test_configuration_contract_rejects_missing_and_extra_fields() -> None:
     assert tennis.builtin is True
     assert credentials == {"api_key": "secret"}
     assert settings == {}
+
+    _, credentials, settings = validate_configuration(
+        "vectorize-io-vectorize-mcp-server",
+        {
+            "credentials": {"api_token": "secret"},
+            "settings": {
+                "organization_id": "org_123",
+                "pipeline_id": "pipe-456",
+            },
+        },
+    )
+    assert credentials == {"api_token": "secret"}
+    assert settings == {"organization_id": "org_123", "pipeline_id": "pipe-456"}
+
+    _, credentials, settings = validate_configuration(
+        "comet-ml-opik-mcp",
+        {
+            "credentials": {"api_key": "secret"},
+            "settings": {"workspace": "team.workspace"},
+        },
+    )
+    assert credentials == {"api_key": "secret"}
+    assert settings == {"workspace": "team.workspace"}
 
     with pytest.raises(ValueError, match="configuration_contract_mismatch"):
         validate_configuration(
@@ -338,6 +398,135 @@ def test_kagi_extract_url_rejects_credentials_and_non_https() -> None:
     ):
         with pytest.raises((ValueError, NetworkPolicyError)):
             token_builtin._public_extract_url(url)
+
+
+@pytest.mark.asyncio
+async def test_wave_seventeen_google_map_facade_uses_fixed_places_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = RecordingHttpClient(
+        [
+            FakeHttpResponse(json.dumps({"places": [{"id": "place-1"}]}).encode()),
+            FakeHttpResponse(json.dumps({"id": "place-1"}).encode()),
+        ]
+    )
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "private-google-key")
+    monkeypatch.setattr(token_builtin, "SafeHttpClient", lambda **_: client)
+    mcp = token_builtin.build_google_map_readonly()
+
+    await mcp.call_tool(
+        "maps_search_places",
+        {
+            "query": "coffee near Phoenix",
+            "locationBias": {"latitude": 33.45, "longitude": -112.07, "radius": 5000},
+            "openNow": True,
+            "minRating": 4.0,
+            "includedType": "cafe",
+        },
+    )
+    await mcp.call_tool("maps_place_details", {"placeId": "place-1"})
+
+    assert [item[0] for item in client.calls] == [
+        "https://places.googleapis.com/v1/places:searchText",
+        "https://places.googleapis.com/v1/places/place-1",
+    ]
+    search = client.calls[0][1]
+    assert search["method"] == "POST"
+    body = json.loads(search["body"])
+    assert body["maxResultCount"] == 10
+    assert body["textQuery"] == "coffee near Phoenix"
+    headers = search["headers"]
+    assert headers["X-Goog-Api-Key"] == "private-google-key"
+    assert "reviews" not in headers["X-Goog-FieldMask"]
+    assert "photos" not in headers["X-Goog-FieldMask"]
+
+
+@pytest.mark.asyncio
+async def test_wave_seventeen_vectorize_facade_is_retrieval_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = RecordingHttpClient([FakeHttpResponse(b'{"documents":[]}')])
+    monkeypatch.setenv("VECTORIZE_TOKEN", "private-vectorize-token")
+    monkeypatch.setenv("VECTORIZE_ORG_ID", "org_123")
+    monkeypatch.setenv("VECTORIZE_PIPELINE_ID", "pipe-456")
+    monkeypatch.setattr(token_builtin, "SafeHttpClient", lambda **_: client)
+    mcp = token_builtin.build_vectorize_retrieval_readonly()
+
+    await mcp.call_tool("retrieve", {"question": "release notes", "k": 5})
+
+    assert client.calls[0][0] == (
+        "https://api.vectorize.io/v1/org/org_123/pipelines/pipe-456/retrieve"
+    )
+    request = client.calls[0][1]
+    assert request["method"] == "POST"
+    assert json.loads(request["body"]) == {
+        "question": "release notes",
+        "numResults": 5,
+    }
+    assert request["headers"]["Authorization"] == "Bearer private-vectorize-token"
+    assert TOKEN_ADAPTERS["vectorize-io-vectorize-mcp-server"].tools == {"retrieve"}
+
+
+@pytest.mark.asyncio
+async def test_wave_seventeen_opik_facade_is_bounded_list_and_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = RecordingHttpClient(
+        [
+            FakeHttpResponse(b'{"content":[],"total":0}'),
+            FakeHttpResponse(b'{"id":"project-1"}'),
+        ]
+    )
+    monkeypatch.setenv("OPIK_API_KEY", "private-opik-key")
+    monkeypatch.setenv("OPIK_WORKSPACE", "team.workspace")
+    monkeypatch.setattr(token_builtin, "SafeHttpClient", lambda **_: client)
+    mcp = token_builtin.build_opik_readonly()
+
+    await mcp.call_tool("list", {"entity_type": "project", "name": "demo", "size": 20})
+    await mcp.call_tool("read", {"entity_type": "project", "id": "project-1"})
+
+    assert client.calls[0][0] == (
+        "https://www.comet.com/opik/api/v1/private/projects?page=1&size=20&name=demo"
+    )
+    assert client.calls[1][0] == (
+        "https://www.comet.com/opik/api/v1/private/projects/project-1"
+    )
+    for _, request in client.calls:
+        assert request["headers"] == {
+            "Authorization": "private-opik-key",
+            "Comet-Workspace": "team.workspace",
+        }
+    assert TOKEN_ADAPTERS["comet-ml-opik-mcp"].tools == {"list", "read"}
+
+
+@pytest.mark.asyncio
+async def test_wave_seventeen_keboola_facade_reads_fixed_us_storage_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = RecordingHttpClient(
+        [
+            FakeHttpResponse(b'{"id":"token-1","owner":{"id":"1","name":"Demo"}}'),
+            FakeHttpResponse(b'[{"id":"in.c-demo"}]'),
+            FakeHttpResponse(b'[{"id":"in.c-demo.table"}]'),
+        ]
+    )
+    monkeypatch.setenv("KEBOOLA_STORAGE_TOKEN", "private-storage-token")
+    monkeypatch.setattr(token_builtin, "SafeHttpClient", lambda **_: client)
+    mcp = token_builtin.build_keboola_metadata_readonly()
+
+    await mcp.call_tool("get_project_info", {})
+    await mcp.call_tool("get_buckets", {})
+    await mcp.call_tool("get_tables", {"bucket_ids": ["in.c-demo"]})
+
+    assert [item[0] for item in client.calls] == [
+        "https://connection.keboola.com/v2/storage/tokens/verify",
+        "https://connection.keboola.com/v2/storage/branch/default/buckets",
+        "https://connection.keboola.com/v2/storage/branch/default/buckets/in.c-demo/tables",
+    ]
+    assert all(
+        request["headers"] == {"X-StorageAPI-Token": "private-storage-token"}
+        for _, request in client.calls
+    )
 
 
 @pytest.mark.asyncio
