@@ -130,7 +130,7 @@ export interface AgentMessage {
 export interface AgentTask {
   task_id: string;
   session_id: string;
-  kind: "chat" | "generate_agent";
+  kind: "chat" | "generate_agent" | "app_engine_shadow";
   prompt: string;
   model_id: string;
   thinking_level: AgentThinkingLevel;
@@ -142,6 +142,58 @@ export interface AgentTask {
   updated_at: number;
   started_at: number | null;
   finished_at: number | null;
+}
+
+export type EngineShadowStatus =
+  | "pending"
+  | "running"
+  | "candidate_ready"
+  | "blocked"
+  | "budget_limited"
+  | "stopped"
+  | "interrupted"
+  | "failed";
+
+export interface EngineShadowRun {
+  run_id: string;
+  session_id: string;
+  status: EngineShadowStatus;
+  objective: string;
+  model_base_id: string;
+  resolved_model_id: string;
+  thinking_level: AgentThinkingLevel;
+  token_budget: number;
+  max_goal_rounds: number;
+  max_task_turns: number;
+  goal_round: number;
+  model_turns: number;
+  retry_count: number;
+  token_total: number;
+  usage_source: "provider" | "estimated" | "none";
+  tool_calls: number;
+  tool_failures: number;
+  candidate_sha256: string;
+  error_code: string;
+  public_error: string;
+  upstream_revision: string;
+  protocol: string;
+  created_at: number;
+  updated_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+}
+
+export interface EngineShadowRunDetail {
+  run: EngineShadowRun;
+  last_event_sequence: number;
+}
+
+export interface EngineShadowEvent {
+  sequence: number;
+  run_id: string;
+  type: string;
+  payload: Record<string, unknown>;
+  created_at: number;
 }
 
 export interface AgentApproval {

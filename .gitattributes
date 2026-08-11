@@ -1,2 +1,5 @@
 # Built-in Skill digests are calculated from the vendored upstream LF bytes.
 server/skills/builtin/*/SKILL.md text eol=lf
+
+# Generated provenance reports must remain stable across Windows and Linux.
+server/agent_upstream/provenance/*.json text eol=lf

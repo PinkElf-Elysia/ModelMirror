@@ -1,0 +1,992 @@
+{
+  "schema_version": 1,
+  "repository": "Prism-Shadow/penguin-harness",
+  "revision": "047505dccc0cc16ad92be11011347d635f33ceb0",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "upstream_path": "LICENSE",
+      "upstream_blob_sha1": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/LICENSE",
+      "modified": false
+    },
+    {
+      "upstream_path": "package.json",
+      "upstream_blob_sha1": "fc7bbec743f5bdde88d283c79a868bb731364ebd",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/package.json",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/package.json",
+      "upstream_blob_sha1": "536671988cd71937181e727cb5ca3aab2b38f485",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/package.json",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/README.md",
+      "upstream_blob_sha1": "5d18cc52a62cbddd3dbd35861a3089125539e3d9",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/README.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/agent.ts",
+      "upstream_blob_sha1": "1872e82b57dab4656ab91f26e6f1e2b34bf03005",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/agent.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/engine/context-engine.ts",
+      "upstream_blob_sha1": "ac68bee642543ea94ba70b29054b854609e29c7a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/engine/context-engine.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/environment.ts",
+      "upstream_blob_sha1": "bdcb1edebbe33ec11f0f46430b35656ff10d5619",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/environment.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/index.ts",
+      "upstream_blob_sha1": "646ed3b4f0779d60a1bb456b8ea99c555a6cef2d",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/background/capped-buffer.ts",
+      "upstream_blob_sha1": "ba25d92cbbff264b88db822d63ccb3ce70259919",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/background/capped-buffer.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/background/index.ts",
+      "upstream_blob_sha1": "6f55a7da05a7d676f648ac0d4117abb803291260",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/background/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/background/limits.ts",
+      "upstream_blob_sha1": "2e7a745d0ef2bd39f9d40f14297b87b3d5fa2786",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/background/limits.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/background/registry.ts",
+      "upstream_blob_sha1": "f7820f00673250fd3a770274d0decef21da3214a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/background/registry.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/background/wake-signal.ts",
+      "upstream_blob_sha1": "fabbb4dd7eabaf4771c9e9012bec0a0ac2823c5c",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/background/wake-signal.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/command/index.ts",
+      "upstream_blob_sha1": "7c55bf4c0bd8fbdf01fcdb717a626563e63342b4",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/command/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/command/limits.ts",
+      "upstream_blob_sha1": "cc338ec8b588c46f3e19b7de4cd48c76f7f8699a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/command/limits.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/command/session-manager.ts",
+      "upstream_blob_sha1": "39a251820189df5ff7a5659a8cab717518d15e34",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/command/session-manager.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/command/session.ts",
+      "upstream_blob_sha1": "64c7b13caa867c418b268be940364d2cbe571b1f",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/command/session.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/command/shell.ts",
+      "upstream_blob_sha1": "82bdd44d39da8c31342a9a876a663864dda41d51",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/command/shell.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/describe-image.ts",
+      "upstream_blob_sha1": "ccfa503860601a233689b614dedecfbff3d98906",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/describe-image.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/diff.ts",
+      "upstream_blob_sha1": "7db1b84f6006a07a1af5444a3a9769908b632c81",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/diff.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/edit-file.ts",
+      "upstream_blob_sha1": "81c741440ee7908da5786df33886c93cbbea6533",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/edit-file.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/exec-command.ts",
+      "upstream_blob_sha1": "f4ec85e77d14cb14fd1c319ab9b084b2bbb2a3fa",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/exec-command.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/file-utils.ts",
+      "upstream_blob_sha1": "00341197cfec395abd0e1bdd85be10389ef4d423",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/file-utils.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/input-command.ts",
+      "upstream_blob_sha1": "8f5e3b5b8d0d1d7c8fbc1ed4ba690d294ab38102",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/input-command.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/input-subagent.ts",
+      "upstream_blob_sha1": "b7f84e7d973a4a43b335907bf097b4ddfccc3b78",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/input-subagent.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/path-hint.ts",
+      "upstream_blob_sha1": "394b78cb873da3bee7b455b4adeb3a9ce84ea7b8",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/path-hint.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/read-file.ts",
+      "upstream_blob_sha1": "160bc7ed1573aeea48c04f840054a0b11508063d",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/read-file.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/read-image.ts",
+      "upstream_blob_sha1": "ef63504ec95f94aff106604a574def88ab8eb628",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/read-image.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/registry.ts",
+      "upstream_blob_sha1": "f9cef06663f7810dc6c5733ddd8e5ed02648de05",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/registry.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/run-subagent.ts",
+      "upstream_blob_sha1": "fd21cdd7ae3c8e967db5ec53874da17869a1c9a3",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/run-subagent.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/subagent/collect.ts",
+      "upstream_blob_sha1": "e316e0ab5403fadfa486de06fc978734f3e00f9d",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/subagent/collect.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/subagent/index.ts",
+      "upstream_blob_sha1": "840b7a1a4fa82e70dfad89a86eb21e9bc4143473",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/subagent/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/subagent/limits.ts",
+      "upstream_blob_sha1": "9afd20a8798e2a1e207df1b9cd83927307184c56",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/subagent/limits.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/subagent/session-manager.ts",
+      "upstream_blob_sha1": "8da6630666633fa5e0cd0203b9ba51643c08f31a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/subagent/session-manager.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/subagent/session.ts",
+      "upstream_blob_sha1": "7c0e7dc4a18b1d18f17340168f1478154b12819b",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/subagent/session.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/types.ts",
+      "upstream_blob_sha1": "8a987553a665d1a3f092fcb7ceac13dbe6ff9472",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/types.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/tools/write-file.ts",
+      "upstream_blob_sha1": "2592f63556208ae32c8ed0bcff87dcf2452b4c8e",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/tools/write-file.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/environment/truncated-tool-output-archive.ts",
+      "upstream_blob_sha1": "4530c03e63fced626105faaf1ce1929b17710848",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/environment/truncated-tool-output-archive.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/goal/goal-file.ts",
+      "upstream_blob_sha1": "4b7768579da536a67759f403381666498da98581",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/goal/goal-file.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/goal/goal-loop.ts",
+      "upstream_blob_sha1": "6a594412da20c473541b6d8f6168c0aa26124c06",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/goal/goal-loop.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/goal/goal-prompts.ts",
+      "upstream_blob_sha1": "1bf7c8b8c74ac98c498d223202e9223c0a0fccd0",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/goal/goal-prompts.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/goal/goal-stream.ts",
+      "upstream_blob_sha1": "f5b7df699e5a860c8d807255bd25960be7bb967d",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/goal/goal-stream.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/goal/index.ts",
+      "upstream_blob_sha1": "307678901aed28a9da46b5b48e4e9e23bcd83166",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/goal/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/index.ts",
+      "upstream_blob_sha1": "31aa59d8c94b6c1ab196f1f10d4a662c4e5ac2d3",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/interfaces.ts",
+      "upstream_blob_sha1": "3a53c65f2fbcdf1a3139a1f8ad294fc99a82ae53",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/interfaces.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/internal/dates.ts",
+      "upstream_blob_sha1": "eef77b01de5c95bde4b9752705cbcd7116d79210",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/internal/dates.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/internal/model-visible-path.ts",
+      "upstream_blob_sha1": "5e41878def61ae801e37536ee5ad0970590d04aa",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/internal/model-visible-path.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/internal/ports.ts",
+      "upstream_blob_sha1": "1a9b6443cb78e6c7d1aa40260a0a29a369e22e81",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/internal/ports.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/internal/session-support.ts",
+      "upstream_blob_sha1": "5ffaac8d2d943e4654d237fbfd0b6ce40dc6a106",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/internal/session-support.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/internal/session-title.ts",
+      "upstream_blob_sha1": "c4c42cd43f9e97499c46c4a4639b63bad8d86b71",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/internal/session-title.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/internal/version.ts",
+      "upstream_blob_sha1": "190ffd35597dd96387a79a9e1cfeff8b3ba603f9",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/internal/version.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/llm/context-limits.ts",
+      "upstream_blob_sha1": "ea3f42d1e5662816df4cebff6834a5ffc2f3e295",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/llm/context-limits.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/llm/generative-model.ts",
+      "upstream_blob_sha1": "c2f4d40c23c8ba0f66471ecf44f9d9fcfaeb3f27",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/llm/generative-model.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/llm/index.ts",
+      "upstream_blob_sha1": "94d86dc72e05a6fae96038b0d876f2b08d06ee76",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/llm/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/llm/tool-call-ids.ts",
+      "upstream_blob_sha1": "69ffe67e12c3830bff01f7ca6db700841193fbc3",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/llm/tool-call-ids.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/aggregate.ts",
+      "upstream_blob_sha1": "862f0df9adb45d6a416eef47bc58da9a814fa03f",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/aggregate.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/builders.ts",
+      "upstream_blob_sha1": "ef9da976697d0d454c5af3f295394d8e429b6495",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/builders.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/index.ts",
+      "upstream_blob_sha1": "d96736b89a9a098e32e67b10c75a7c8d0073e988",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/attachment-lines.ts",
+      "upstream_blob_sha1": "683a9fc545d95a8d9724692f741453f8b4f39b98",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/attachment-lines.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/block.ts",
+      "upstream_blob_sha1": "d80b734a4c9c3c68038d453e75a7dd9056e32f8b",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/block.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/engine-blocks.ts",
+      "upstream_blob_sha1": "ebcd890066ab9e23e2465d95b0fdded731ed2ee2",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/engine-blocks.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/goal-block.ts",
+      "upstream_blob_sha1": "d01caa6e6b98eb07083417131c7f16e75726796e",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/goal-block.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/index.ts",
+      "upstream_blob_sha1": "73eccd89b2fe60de93de33700b9da88909fdeb11",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/origin-blocks.ts",
+      "upstream_blob_sha1": "fff5c4a19b4a15b6ec9870b8460716525a706138",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/origin-blocks.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/steering.ts",
+      "upstream_blob_sha1": "2ac18c485f47758e064fcfd6679e5db696a51a6c",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/steering.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/strip.ts",
+      "upstream_blob_sha1": "d35ae55d9891eafa743761ac737dec4dc5e7dd6a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/strip.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/markers/tags.ts",
+      "upstream_blob_sha1": "df5a79a8ff1314ef5748e647b815acafe4695374",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/markers/tags.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/omnimessage/types.ts",
+      "upstream_blob_sha1": "31e595c3a480df4539e09cfac46099e4b6ab14cd",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/omnimessage/types.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/session.ts",
+      "upstream_blob_sha1": "7717db25e0bfef6d124bedf851a1e8c09c2c986e",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/session.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/agent-state.ts",
+      "upstream_blob_sha1": "f3a95e8acfb4dbcefec6ce3df013c50e627095c3",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/agent-state.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/agent-vault.ts",
+      "upstream_blob_sha1": "9292a3f5ac8faced4f5504caa0ea6c17171895ae",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/agent-vault.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/builtin-agents.ts",
+      "upstream_blob_sha1": "bf76a41eb58726255af92928eef8778afb4bca7e",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/builtin-agents.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/default-config.ts",
+      "upstream_blob_sha1": "2766cadf76b98b5b20b83bbd29849fdb6eb47eb6",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/default-config.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/example-benchmark.ts",
+      "upstream_blob_sha1": "cd0f30dc4fb87871960928dc09ab3a45e0d6e6a3",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/example-benchmark.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/index.ts",
+      "upstream_blob_sha1": "aacd1c3a74e59e36adb2ceb24ce9d6751680904f",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/model-catalog.ts",
+      "upstream_blob_sha1": "7d5cdcba02458281aa67030c0ba17f96cbe0cd1f",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/model-catalog.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/paths.ts",
+      "upstream_blob_sha1": "25bf00993c7a06ab592c1a60a89c61041b413f78",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/paths.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/state/project-config.ts",
+      "upstream_blob_sha1": "c1fc4e3eda70b9f00fd3f935bb5a748d2a635617",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/state/project-config.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/trace/index.ts",
+      "upstream_blob_sha1": "0998981fb5bd8370d70ed1d419c06fb19744d56d",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/trace/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/trace/resume.ts",
+      "upstream_blob_sha1": "088c662534a40bcb16ac0928e507e31d77df3601",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/trace/resume.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/src/trace/writer.ts",
+      "upstream_blob_sha1": "c14d6e805d6b1511733512467370664621647970",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/src/trace/writer.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/agent-lifecycle.test.ts",
+      "upstream_blob_sha1": "0e347e6b54d467fdf758f02e2f234d8d91e45154",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/agent-lifecycle.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/agent-skills.test.ts",
+      "upstream_blob_sha1": "ca12f8d7d22a44d58ede9f2a7606d1cc6788331f",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/agent-skills.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/agent.test.ts",
+      "upstream_blob_sha1": "6fef970f504184de4ac57a701b9090136c4add38",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/agent.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/background-registry.test.ts",
+      "upstream_blob_sha1": "1396c1724bebdc1490bbb945e0d53f6ae60be461",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/background-registry.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/builtin-agents.test.ts",
+      "upstream_blob_sha1": "83a4446c571da5f05b6dea68dab01a2c36f7c63a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/builtin-agents.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/capped-buffer.test.ts",
+      "upstream_blob_sha1": "0608a7e20424e623bc95f92a3d272ba0d2d092ac",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/capped-buffer.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/compaction.test.ts",
+      "upstream_blob_sha1": "03f550d619a7f4918f191ffbfe1dd38266a4ccb9",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/compaction.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/context-limits.test.ts",
+      "upstream_blob_sha1": "817e17e87e508c4ca2de7650c08d4d2bb32d40ee",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/context-limits.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/describe-error.test.ts",
+      "upstream_blob_sha1": "a14257b71538d471f680a258141d9a590da65850",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/describe-error.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/describe-image.test.ts",
+      "upstream_blob_sha1": "687cb9a5f5200cfa023b4293be026eb27616f94b",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/describe-image.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/engine.test.ts",
+      "upstream_blob_sha1": "17974f1bd9ff06e9dae43206583858e61a0fde3c",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/engine.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/environment.test.ts",
+      "upstream_blob_sha1": "a92764f002e53bd558967fc1baf4185884410be1",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/environment.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/example-benchmark.test.ts",
+      "upstream_blob_sha1": "9ec8802dd0c09c9b5af6830f9b034bfb8e93300e",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/example-benchmark.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/exec-session.test.ts",
+      "upstream_blob_sha1": "894bd75823313a46fbcac549e08a752738b7da65",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/exec-session.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/file-tools.test.ts",
+      "upstream_blob_sha1": "9ffaad3b69add77630b29acab0a4603977c30169",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/file-tools.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/goal.test.ts",
+      "upstream_blob_sha1": "16937c14439e9f6d7fd1fe599dbeeabd9db458b4",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/goal.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/input-images.test.ts",
+      "upstream_blob_sha1": "58f0cf7a929c1a8c97c0bc6b31a6c34cdca92993",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/input-images.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/llm.e2e.test.ts",
+      "upstream_blob_sha1": "f894477e1f1a53646990afc4292007a973ef624b",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/llm.e2e.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/llm.test.ts",
+      "upstream_blob_sha1": "ac6d2916dbf5d92128c8074618eb9b723b15f5d3",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/llm.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/markers.test.ts",
+      "upstream_blob_sha1": "4f302c95067db42d12a219838397115021ce6f0c",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/markers.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/model-catalog.test.ts",
+      "upstream_blob_sha1": "cdbadaeee2795ea3ad0e4e966e2de617b8597f49",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/model-catalog.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/model-visible-path.test.ts",
+      "upstream_blob_sha1": "0f198932092dfa028a7f285d66f7abd6b86d4726",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/model-visible-path.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/omnimessage.test.ts",
+      "upstream_blob_sha1": "440151cd4f62a85fd888db07e164ea1c81228847",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/omnimessage.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/provider-keys.ts",
+      "upstream_blob_sha1": "db70233edd44855bf00f4867748a171f066c2c46",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/provider-keys.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/read-image.test.ts",
+      "upstream_blob_sha1": "70b0fee5179249949d8677aa7d5dce59271608f5",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/read-image.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/replay.test.ts",
+      "upstream_blob_sha1": "cbd5f5f29247ea9014a235b7254f490774ac1d01",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/replay.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/resume.test.ts",
+      "upstream_blob_sha1": "b69abfe6cc34e348a59a0a29d68165e91d896504",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/resume.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/session-title.test.ts",
+      "upstream_blob_sha1": "d2ee8d134074454b22c9b45b6285d9b73272a259",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/session-title.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/shell-resolver.test.ts",
+      "upstream_blob_sha1": "b45cdcdd96109f54747ccc9824189b273cc0a60a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/shell-resolver.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/state.test.ts",
+      "upstream_blob_sha1": "c9a026b806b7da8531c61d343fcf1749147ec598",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/state.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/subagent.test.ts",
+      "upstream_blob_sha1": "ee2adb7ac3286802e61c6987ce9eae5c80d25776",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/subagent.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/tool-call-ids.test.ts",
+      "upstream_blob_sha1": "5ee7535d59cc8df7959fb6f32b566f95d0a9e673",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/tool-call-ids.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/trace.test.ts",
+      "upstream_blob_sha1": "6c50c202d3952fee4fb656945ef5a1e2891523c8",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/trace.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/truncated-tool-output-archive.test.ts",
+      "upstream_blob_sha1": "8380b63a12afeb190dc4804072f975c054cbba06",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/truncated-tool-output-archive.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/validate-id.test.ts",
+      "upstream_blob_sha1": "a308c0854034f2ffdc655ab725d295d2223ec5c3",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/validate-id.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/wake-signal.test.ts",
+      "upstream_blob_sha1": "a25853a18c852dd067812a6d2d570de0376c9d1f",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/wake-signal.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/test/workspace.test.ts",
+      "upstream_blob_sha1": "44579b6338cc4ee0beb6e264cb6248415012b175",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/test/workspace.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/tsconfig.json",
+      "upstream_blob_sha1": "8cd1715ac55a5c255055bffbfc592d0fe0023e93",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/tsconfig.json",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/tsup.config.ts",
+      "upstream_blob_sha1": "aef753ec2eebfb90d9bafea7aacdbeb6aeaefedf",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/tsup.config.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/core/vitest.config.ts",
+      "upstream_blob_sha1": "93af27508b19df7b1e35f7fdd050e1edbd12ca9b",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/core/vitest.config.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/package.json",
+      "upstream_blob_sha1": "c2515f6d0cedaa7caacc0298db49510ae9ef6001",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/package.json",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/README.md",
+      "upstream_blob_sha1": "c8a877fad18ebb4821577c8340c2e3a82451417a",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/README.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agent-creation/icon.svg",
+      "upstream_blob_sha1": "22e4bbe0fcf155d75cb31b5e3bc419975e5a2da7",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agent-creation/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agent-creation/SKILL.md",
+      "upstream_blob_sha1": "d911eb81d87dfcfff9d69568502e2861a0dd5929",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agent-creation/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agent-evaluation/icon.svg",
+      "upstream_blob_sha1": "28ae6b593c44e3220608d8697407a70a0e4cccea",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agent-evaluation/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agent-evaluation/SKILL.md",
+      "upstream_blob_sha1": "0b084c25ddc22aeddb9a1289e61d76368400dffa",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agent-evaluation/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agent-optimization/icon.svg",
+      "upstream_blob_sha1": "a6a949d3b597a01ec5f2ac8b38b0913b47a47125",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agent-optimization/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agent-optimization/SKILL.md",
+      "upstream_blob_sha1": "747df4278e08bdad2d21a00bc2cdd3c93e2c1245",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agent-optimization/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agenthub-models/icon.svg",
+      "upstream_blob_sha1": "f026085e2cdd4c8331765acfbc96edf5c9d35edb",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agenthub-models/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/agenthub-models/SKILL.md",
+      "upstream_blob_sha1": "39aec0280698c0c3ab4af62318a11f16254f748c",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/agenthub-models/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/benchmark-design/icon.svg",
+      "upstream_blob_sha1": "ca4736042747b43f45527a3cafcc2ea1af792edd",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/benchmark-design/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/benchmark-design/SKILL.md",
+      "upstream_blob_sha1": "3ed641c47ab2072d3424a6863857ebe7e97459b5",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/benchmark-design/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/bento-slides/icon.svg",
+      "upstream_blob_sha1": "0e03f9b6d423c9da10b8b729c7fa2777a7968419",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/bento-slides/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/bento-slides/SKILL.md",
+      "upstream_blob_sha1": "d76a8a9feeff4c798374ef2e66b3bf3cd5e7bf0e",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/bento-slides/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/data-analysis/icon.svg",
+      "upstream_blob_sha1": "b8c92c88c65d5f22ff56734433c99fed212e97ed",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/data-analysis/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/data-analysis/SKILL.md",
+      "upstream_blob_sha1": "5d6679a3c8537f25e861abff02e98fb771718a07",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/data-analysis/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/firecrawl/icon.svg",
+      "upstream_blob_sha1": "c1318dd10613387b6ac81b0ae734374f938c7bef",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/firecrawl/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/firecrawl/SKILL.md",
+      "upstream_blob_sha1": "7aa343af05d81dd39350ffeb78ad2ff85361bd50",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/firecrawl/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/llamafactory/icon.svg",
+      "upstream_blob_sha1": "a9a55819ae3c79b99a1013127f2f6a91bebbf219",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/llamafactory/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/llamafactory/SKILL.md",
+      "upstream_blob_sha1": "5469aaa38bb0faced8c0ca4b21b2a110cc119caf",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/llamafactory/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/ollama/icon.svg",
+      "upstream_blob_sha1": "bdaa5b98d86990f617e9cc030a793f37fbc0ce41",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/ollama/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/ollama/SKILL.md",
+      "upstream_blob_sha1": "e4dac8ef37efbe255f8a465083cf3738182e5d75",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/ollama/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/penguin-cli/icon.svg",
+      "upstream_blob_sha1": "36e02fb3ee7541fd7698158e404c8332b74424da",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/penguin-cli/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/penguin-cli/SKILL.md",
+      "upstream_blob_sha1": "749c3c6e0150d016404f6e027f17f9fc0d7ab2d1",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/penguin-cli/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/penguin-sdk/icon.svg",
+      "upstream_blob_sha1": "acf796ba95e690bae8892d76b675d09b120578ba",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/penguin-sdk/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/penguin-sdk/SKILL.md",
+      "upstream_blob_sha1": "786d6d6a49ea6d4288348bf11080d053c0b7e074",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/penguin-sdk/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/skill-porting/icon.svg",
+      "upstream_blob_sha1": "f0f194507a4f4815c44325da739fb288f3cdfbf1",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/skill-porting/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/skill-porting/SKILL.md",
+      "upstream_blob_sha1": "f7d99c0b3ee04e0f206f48a66f9c94f5b1a138e0",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/skill-porting/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/software-engineering/icon.svg",
+      "upstream_blob_sha1": "e4a37598607f98bf4a8063f62622119ea10e4f20",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/software-engineering/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/software-engineering/SKILL.md",
+      "upstream_blob_sha1": "c4ee8de2117892a70114474c4404475e32a9d19e",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/software-engineering/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/vllm/icon.svg",
+      "upstream_blob_sha1": "c6c89b96e0fc522d811bdcfdd217f3c214d1fdea",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/vllm/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/vllm/SKILL.md",
+      "upstream_blob_sha1": "cbd367966689424180afb62910c3bf258d8c44db",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/vllm/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/web-design/icon.svg",
+      "upstream_blob_sha1": "40140d4d168083d6ede9698c481c14c184aa80d4",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/web-design/icon.svg",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/skills/web-design/SKILL.md",
+      "upstream_blob_sha1": "2c2584afbc1bfa217d3ddd9feb2ac117568d1f32",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/skills/web-design/SKILL.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/src/index.ts",
+      "upstream_blob_sha1": "d512a278579d7e3aed47484112cc5525793c60e2",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/src/index.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/test/skills.test.ts",
+      "upstream_blob_sha1": "7058115b46aadd9a7edfc8f6690c92860363d10f",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/test/skills.test.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/tsconfig.json",
+      "upstream_blob_sha1": "8cd1715ac55a5c255055bffbfc592d0fe0023e93",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/tsconfig.json",
+      "modified": false
+    },
+    {
+      "upstream_path": "packages/skills/tsup.config.ts",
+      "upstream_blob_sha1": "75bf9033d03874e7bfa998042044744778937097",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/packages/skills/tsup.config.ts",
+      "modified": false
+    },
+    {
+      "upstream_path": "pnpm-lock.yaml",
+      "upstream_blob_sha1": "d351a4ff276b06a176b044e5b471135ed7e81fe6",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/pnpm-lock.yaml",
+      "modified": false
+    },
+    {
+      "upstream_path": "pnpm-workspace.yaml",
+      "upstream_blob_sha1": "b159598c13cddcfb479c57d0d6f697a71fe83d50",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/pnpm-workspace.yaml",
+      "modified": false
+    },
+    {
+      "upstream_path": "THIRD-PARTY-NOTICES.md",
+      "upstream_blob_sha1": "40d0c4190371f0b6b1d8c16e155a7622c4bbcd32",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/THIRD-PARTY-NOTICES.md",
+      "modified": false
+    },
+    {
+      "upstream_path": "tsconfig.base.json",
+      "upstream_blob_sha1": "6b601c90c2fc1a2f134624b8c9f669a067172c38",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/tsconfig.base.json",
+      "modified": false
+    },
+    {
+      "upstream_path": "tsconfig.json",
+      "upstream_blob_sha1": "e6a5957a438773c2e7bcf27e53f79b390a7d83f8",
+      "local_path": "server/agent_upstream/vendor/penguin_harness/tsconfig.json",
+      "modified": false
+    }
+  ]
+}

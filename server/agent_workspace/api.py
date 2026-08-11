@@ -44,6 +44,11 @@ from .store import (
 )
 from .tools import BuiltinToolRunner, ToolExecutionError
 
+try:
+    from server.agent_upstream.api import is_engine_shadow_enabled
+except ModuleNotFoundError:  # pragma: no cover - container package layout
+    from agent_upstream.api import is_engine_shadow_enabled
+
 
 _store: AgentStateStore | None = None
 _runtime_service: AgentRuntimeService | None = None
@@ -135,10 +140,12 @@ def _raise_runtime_error(exc: Exception) -> None:
 
 @router.get("/status")
 async def get_agent_workspace_status() -> dict[str, object]:
+    workspace_enabled = is_agent_workspace_enabled()
     return {
-        "enabled": is_agent_workspace_enabled(),
+        "enabled": workspace_enabled,
         "version": "agent-workspace-r2",
-        "runtime_enabled": is_agent_workspace_enabled(),
+        "runtime_enabled": workspace_enabled,
+        "engine_shadow_enabled": workspace_enabled and is_engine_shadow_enabled(),
     }
 
 

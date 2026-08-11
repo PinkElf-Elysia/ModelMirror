@@ -45,3 +45,16 @@ orchestration_worker/dist/**
 **/*.pyo
 **/*.log
 **/*.err
+
+# The upstream engine is always installed and built from its pinned lockfile
+# inside the dedicated Node 24 image stage. Never import host pnpm state.
+agent_upstream/node_modules
+agent_upstream/node_modules/**
+agent_upstream/.pnpm-store
+agent_upstream/.pnpm-store/**
+agent_upstream/build
+agent_upstream/build/**
+agent_upstream/vendor/penguin_harness/packages/*/dist
+agent_upstream/vendor/penguin_harness/packages/*/dist/**
+agent_upstream/vendor/penguin_harness/packages/*/node_modules
+agent_upstream/vendor/penguin_harness/packages/*/node_modules/**

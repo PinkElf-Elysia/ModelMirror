@@ -1,0 +1,42 @@
+{
+  "advisories": {
+    "1119428": {
+      "findings": [
+        {
+          "version": "0.81.0",
+          "paths": [
+            "vendor__penguin_harness__packages__core>@prismshadow/agenthub>@anthropic-ai/bedrock-sdk>@anthropic-ai/sdk",
+            "vendor__penguin_harness__packages__core>@prismshadow/agenthub>@anthropic-ai/sdk",
+            "worker>@prismshadow/penguin-core>@prismshadow/agenthub>@anthropic-ai/bedrock-sdk>@anthropic-ai/sdk",
+            "worker>@prismshadow/penguin-core>@prismshadow/agenthub>@anthropic-ai/sdk"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1119428,
+      "title": "Claude SDK for TypeScript has Insecure Default File Permissions in Local Filesystem Memory Tool",
+      "module_name": "@anthropic-ai/sdk",
+      "vulnerable_versions": ">=0.79.0 <0.91.1",
+      "patched_versions": ">=0.91.1",
+      "severity": "moderate",
+      "cwe": "CWE-732",
+      "github_advisory_id": "GHSA-p7fg-763f-g4gf",
+      "url": "https://github.com/advisories/GHSA-p7fg-763f-g4gf"
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 1,
+      "high": 0,
+      "critical": 0
+    },
+    "dependencies": 186,
+    "devDependencies": 0,
+    "optionalDependencies": 0,
+    "totalDependencies": 186
+  }
+}

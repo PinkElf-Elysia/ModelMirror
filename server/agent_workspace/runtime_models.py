@@ -19,7 +19,7 @@ TaskStatus = Literal[
     "failed",
     "stopped",
 ]
-TaskKind = Literal["chat", "generate_agent"]
+TaskKind = Literal["chat", "generate_agent", "app_engine_shadow"]
 MessageRole = Literal["system", "user", "assistant", "tool"]
 ApprovalStatus = Literal["pending", "approved", "rejected", "cancelled"]
 

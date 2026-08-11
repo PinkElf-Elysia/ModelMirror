@@ -40,6 +40,7 @@ async def test_disabled_flag_hides_agent_api(tmp_path: Path) -> None:
         "enabled": False,
         "version": "agent-workspace-r2",
         "runtime_enabled": False,
+        "engine_shadow_enabled": False,
     }
     assert agents.status_code == 404
     assert not (tmp_path / "workspace").exists()

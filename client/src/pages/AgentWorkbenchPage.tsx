@@ -15,6 +15,7 @@ import { Link } from "react-router-dom";
 import ConversationPanel from "../components/agent-workspace/ConversationPanel";
 import SessionSidebar from "../components/agent-workspace/SessionSidebar";
 import WorkspacePanel from "../components/agent-workspace/WorkspacePanel";
+import EngineShadowPanel from "../components/agent-workspace/EngineShadowPanel";
 import CodingWorkerConsole from "../components/CodingWorkerConsole";
 import PageContainer from "../components/PageContainer";
 import { useModelPreference } from "../context/ModelPreferenceContext";
@@ -80,6 +81,7 @@ const workspaceEventTypes = new Set(["tool_output", "completed", "agent_generate
 function LegacyAgentWorkbenchPage() {
   const { preferredModelId, setPreferredModelId } = useModelPreference();
   const [enabled, setEnabled] = useState(true);
+  const [engineShadowEnabled, setEngineShadowEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
@@ -187,6 +189,7 @@ function LegacyAgentWorkbenchPage() {
     try {
       const status = await readAgentWorkspaceStatus();
       setEnabled(status.enabled && status.runtime_enabled);
+      setEngineShadowEnabled(status.engine_shadow_enabled);
       if (!status.enabled || !status.runtime_enabled) {
         setAgents([]);
         setSessions([]);
@@ -483,6 +486,7 @@ function LegacyAgentWorkbenchPage() {
       hideSidebar
       maxWidthClassName="max-w-[1880px]"
     >
+      {enabled && engineShadowEnabled ? <EngineShadowPanel /> : null}
       <header className="mb-4 flex flex-col gap-3 border-b border-white/10 pb-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <Link className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white" to="/agents">

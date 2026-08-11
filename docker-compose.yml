@@ -585,6 +585,7 @@ services:
       SKILL_INSTALLED_DIR: /app/skills/installed
       SKILL_TMP_DIR: /app/skills/tmp
       AGENT_WORKSPACE_ENABLED: ${AGENT_WORKSPACE_ENABLED:-true}
+      AGENT_APP_ENGINE_SHADOW_ENABLED: ${AGENT_APP_ENGINE_SHADOW_ENABLED:-false}
       AGENT_WORKSPACE_ROOT: /data/agent-workspace
       XPERT_STORAGE_DIR: /app/xperts/storage
       AGENT_TASK_STORAGE_DIR: /app/xpert_runtime/storage

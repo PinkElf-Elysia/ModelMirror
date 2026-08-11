@@ -218,3 +218,25 @@ and separate evaluation and installation gates. It excludes the
 upstream evaluator, graders, result viewer, description optimizer, packaging
 scripts and Claude-specific execution paths. Anthropic does not endorse
 ModelMirror; this notice uses the project name only to identify provenance.
+
+## PenguinHarness execution core (R3R-1)
+
+The server image contains a byte-identical PenguinHarness Core/Skills vendor at
+revision `047505dccc0cc16ad92be11011347d635f33ceb0`.
+
+- Project: <https://github.com/Prism-Shadow/penguin-harness>
+- License: Apache License 2.0
+- Source and upstream notices:
+  `/app/agent_upstream/vendor/penguin_harness/`
+- Blob manifest and supply-chain reports:
+  `/app/agent_upstream/provenance/`
+
+The server builds this vendor with pinned Node 24.19.0 and pnpm 11.18.0. The
+dedicated runtime license is stored at
+`/opt/modelmirror-upstream-node/LICENSE`. ModelMirror-owned IPC, process
+supervision, model gateway, filesystem policy, API, and UI adapters are outside
+the immutable vendor directory.
+
+This image does not include the PenguinHarness Server/Hono API, database,
+Vault, cost center, desktop application, CLI, installer, MinGit, release
+tooling, or Penguin branding.

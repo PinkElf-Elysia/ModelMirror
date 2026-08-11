@@ -1,0 +1,21 @@
+packages:
+  - "packages/*"
+# Dependency pins. pnpm 11 reads overrides ONLY from here — the package.json
+# "pnpm.overrides" block it used to honour is silently ignored, which resolved a second
+# copy of each of these.
+overrides:
+  "@anthropic-ai/sdk": "^0.91.1"
+  esbuild: "^0.28.1"
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build
+allowBuilds:
+  "@google/genai": true
+  esbuild: true
+  protobufjs: true
+  # electron's postinstall downloads the platform runtime binary; without this allow
+  # entry pnpm skips it and `electron .` has nothing to launch.
+  electron: true
+  # electron-winstaller's script fetches Squirrel.Windows binaries; the desktop package
+  # targets NSIS only, so the script is deliberately not run.
+  electron-winstaller: false

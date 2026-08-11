@@ -1,0 +1,11 @@
+packages:
+  - vendor/penguin_harness/packages/core
+  - vendor/penguin_harness/packages/skills
+  - worker
+
+allowBuilds:
+  '@google/genai': true
+  esbuild: true
+  protobufjs: true
+
+injectWorkspacePackages: true
