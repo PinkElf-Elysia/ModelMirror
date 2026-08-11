@@ -1,10 +1,25 @@
 # Xpert Knowledge Pipeline Runtime
 
-最后更新日期：2026-07-16
+最后更新日期：2026-08-11
 
 ## 目标
 
 Knowledge Pipeline 把安全草稿配置推进为可恢复的本地索引构建任务，同时保持现有上传和查询入口兼容。核心契约是：**构建候选、隔离预览、人工激活、随时回滚**。
+
+## Strategy Router 与 Auto Tuner
+
+- Router V1 使用经审阅的确定性规则和聚合语料画像，只把 Chunker/Retrieval 建议写入草稿。
+- Auto Tuner 固定知识版本、来源、评测版本与规则版本，在隔离 trial namespace 中搜索并验证参数。
+- 调优前必须通过 `RAG Strategy Tuning Readiness V1`：Catalog 标准 Pack 仅作回归护栏；正式检索选择至少需要 30 条正样例，阈值搜索另需 12 条已审核语料近邻困难负例。
+- `RAG Strategy Tuner V4` 保留 V3 的 Recall/nDCG/困难负例误召回 Pareto 和语义去重，并增加重复 Holdout 与配对统计；不安全的阈值改善会保留基线。
+- 定向 Gold 生成器的“策略调优证据”模式可生成 30–60 条用例，默认 30 条正样例与 12 条待审核困难负例；审核和重新校准仍是解锁 threshold 调优的必要条件。
+- 跨分块证据除了稳定 `source_block` Gold，还必须覆盖稀疏、单块密集和多块密集问题；真实索引与排序指纹无差异时自动退化为仅检索调优。
+- Processor、Vision 与 Embedding Profile 在本轮调优中固定，不参与候选变化。
+- 只有通过 Holdout、Evaluation Gate、Pareto 与有效改善门槛的胜者才会物化为普通候选版本。
+- Holdout finalist 每题重复检索 3 次并使用中位延迟；质量差异以固定 Holdout 内的 3 组分层重采样和 1,000 次配对 bootstrap 形成 90% 区间，统计非退化失败时禁止物化。
+- 物化版本始终是 `promotion_required`；完整评测通过后仍需用户显式 Promote，绝不自动激活。
+- 调优运行的直接检索和最终复跑都遵守候选 Profile 的 Top-K；普通 Evaluation API 保持既有最大 K 评测语义。
+- trial 索引不可激活、不可见于普通版本列表，终态后清理；持久 Coordinator 在重启后复用已完成工作。
 
 ## 数据模型
 

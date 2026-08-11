@@ -187,6 +187,42 @@ def test_source_block_and_no_result_metrics_are_aggregated_separately() -> None:
     assert aggregate["false_positive_rate"] == 0.5
 
 
+def test_promotion_gate_does_not_penalize_correct_no_result_abstention() -> None:
+    positive = evaluate_retrieval_case(
+        [{"chunk_id": "answer", "source_document_id": "doc-a", "score": 0.9}],
+        [{"document_id": "doc-a"}],
+        ks=[1, 5, 10],
+    )
+    noisy_no_result = evaluate_retrieval_case(
+        [{"chunk_id": "noise", "source_document_id": "doc-z", "score": 0.1}],
+        [],
+        ks=[1, 5, 10],
+        expected_no_result=True,
+    )
+    correct_no_result = evaluate_retrieval_case(
+        [],
+        [],
+        ks=[1, 5, 10],
+        expected_no_result=True,
+    )
+    baseline = aggregate_target_metrics([positive, noisy_no_result], ks=[1, 5, 10])
+    candidate = aggregate_target_metrics([positive, correct_no_result], ks=[1, 5, 10])
+
+    gate = evaluate_promotion_gate(
+        candidate,
+        baseline=baseline,
+        policy={
+            "min_recall_at_5": 1.0,
+            "min_no_result_accuracy": 1.0,
+            "max_no_result_increase": 0.0,
+        },
+    )
+
+    assert baseline["positive_no_result_rate"] == 0.0
+    assert candidate["positive_no_result_rate"] == 0.0
+    assert gate["passed"] is True
+
+
 def test_evaluation_store_persists_revisions_runs_and_recovery(tmp_path: Path) -> None:
     path = tmp_path / "evaluations.json"
     store = KnowledgeEvaluationStore(path)
@@ -258,6 +294,8 @@ def test_evaluation_set_versions_are_immutable_and_pin_run_snapshot(tmp_path: Pa
         expected_revision=draft["revision"],
         release_notes="v1",
     )
+    assert draft["benchmark_role"] == "regression_guard"
+    assert version["benchmark_role"] == "regression_guard"
     changed = store.update_case(
         draft["eval_set_id"],
         draft["cases"][0]["case_id"],

@@ -81,6 +81,7 @@ export default function KnowledgeBenchmarkGenerator({
   const [versionId, setVersionId] = useState("");
   const [documentIds, setDocumentIds] = useState<string[]>([]);
   const [generatorModelId, setGeneratorModelId] = useState(models[0]?.id ?? "");
+  const [generationPurpose, setGenerationPurpose] = useState<"general" | "strategy_tuning">("general");
   const [caseCount, setCaseCount] = useState(12);
   const [noResultCount, setNoResultCount] = useState(0);
   const [seed, setSeed] = useState(0);
@@ -143,6 +144,7 @@ export default function KnowledgeBenchmarkGenerator({
         postJson({
           target: target(),
           generator_model_id: generatorModelId,
+          generation_purpose: generationPurpose,
           case_count: caseCount,
           no_result_count: noResultCount,
           locales,
@@ -175,9 +177,13 @@ export default function KnowledgeBenchmarkGenerator({
     ));
   }
 
-  const maxNoResult = Math.min(5, Math.floor(caseCount / 5));
+  const tuningMode = generationPurpose === "strategy_tuning";
+  const maxNoResult = tuningMode ? Math.max(0, Math.min(20, caseCount - 30)) : Math.min(5, Math.floor(caseCount / 5));
+  const generationCountsValid = tuningMode
+    ? caseCount - noResultCount >= 30 && (noResultCount === 0 || noResultCount >= 12)
+    : caseCount <= 30 && noResultCount <= maxNoResult;
   const canGenerate = Boolean(
-    versionId && generatorModelId && coverage.length && preflight?.valid && !busy,
+    versionId && generatorModelId && coverage.length && preflight?.valid && generationCountsValid && !busy,
   );
 
   return (
@@ -208,6 +214,17 @@ export default function KnowledgeBenchmarkGenerator({
       </div>
 
       <div className="mt-4">
+        <span className="text-xs font-semibold text-slate-300">生成用途</span>
+        <div className="mt-2 inline-flex rounded-md border border-white/10 bg-surface-950 p-1">
+          <button className={`rounded px-3 py-2 text-xs ${!tuningMode ? "bg-white/10 text-white" : "text-slate-400"}`} onClick={() => { setGenerationPurpose("general"); setCaseCount(12); setNoResultCount(0); }} type="button">常规评测</button>
+          <button className={`rounded px-3 py-2 text-xs ${tuningMode ? "bg-cyan-300 text-surface-950" : "text-slate-400"}`} onClick={() => { setGenerationPurpose("strategy_tuning"); setCaseCount(42); setNoResultCount(12); }} type="button">策略调优证据</button>
+        </div>
+        <p className="mt-2 text-[11px] leading-5 text-slate-500">
+          {tuningMode ? "生成至少 30 个正样例和 12 个语料近邻负样例；负样例逐题确认并重新校准后，阈值调优才会解锁。" : "适合日常检索回归；保持 6–30 条和最多 5 条无答案题的兼容限制。"}
+        </p>
+      </div>
+
+      <div className="mt-4">
         <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-slate-300">文档范围</span><button className="text-xs text-cyan-100" onClick={() => setDocumentIds([])} type="button">全部文档</button></div>
         <div className="mt-2 grid max-h-36 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
           {documents.map((document) => <label className="flex items-center gap-2 rounded-md border border-white/10 px-3 py-2 text-xs text-slate-300" key={document.id}><input checked={documentIds.includes(document.id)} onChange={(event) => setDocumentIds((current) => event.target.checked ? [...current, document.id] : current.filter((item) => item !== document.id))} type="checkbox" /><span className="truncate">{document.filename}</span></label>)}
@@ -216,7 +233,7 @@ export default function KnowledgeBenchmarkGenerator({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="text-xs text-slate-400">用例数<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" max={30} min={6} onChange={(event) => { const value = Number(event.target.value); setCaseCount(value); setNoResultCount((current) => Math.min(current, Math.min(5, Math.floor(value / 5)))); }} type="number" value={caseCount} /></label>
+        <label className="text-xs text-slate-400">用例数<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" max={tuningMode ? 60 : 30} min={tuningMode ? 30 : 6} onChange={(event) => { const value = Number(event.target.value); setCaseCount(value); setNoResultCount((current) => Math.min(current, tuningMode ? Math.min(20, Math.max(0, value - 30)) : Math.min(5, Math.floor(value / 5)))); }} type="number" value={caseCount} /></label>
         <label className="text-xs text-slate-400">无答案题<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" max={maxNoResult} min={0} onChange={(event) => setNoResultCount(Number(event.target.value))} type="number" value={noResultCount} /></label>
         <label className="text-xs text-slate-400">Seed<input className="mt-1 h-9 w-full rounded-md border border-white/10 bg-surface-950 px-3 text-sm text-white" min={0} onChange={(event) => setSeed(Number(event.target.value))} type="number" value={seed} /></label>
         <div className="text-xs text-slate-400">语言<div className="mt-1 flex h-9 items-center gap-3 rounded-md border border-white/10 bg-surface-950 px-3">{["zh-CN", "en-US"].map((locale) => <label className="flex items-center gap-1" key={locale}><input checked={locales.includes(locale)} onChange={(event) => setLocales((current) => event.target.checked ? [...current, locale] : current.filter((item) => item !== locale))} type="checkbox" />{locale}</label>)}</div></div>

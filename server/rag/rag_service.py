@@ -2515,6 +2515,192 @@ class RagService:
             self._write_metadata_unlocked(metadata)
             return self.pipeline_job_payload(job)
 
+    def create_strategy_tuning_pipeline_job(
+        self,
+        kb_id: str,
+        *,
+        base_version_id: str,
+        chunker_profile: dict[str, Any],
+        retrieval_profile: dict[str, Any],
+        tuning_run_id: str,
+        trial: bool,
+    ) -> dict[str, Any]:
+        """Create an isolated tuning job from one immutable version snapshot.
+
+        This deliberately does not reuse the editable draft path. Only chunking
+        and retrieval fields may differ from the fixed base version.
+        """
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            self._ensure_kb_exists(metadata, kb_id)
+            base_version = metadata["pipeline_versions"].get(base_version_id)
+            if (
+                not isinstance(base_version, dict)
+                or base_version.get("kb_id") != kb_id
+                or base_version.get("status") not in {"ready", "active"}
+            ):
+                raise PipelineVersionNotFoundError(
+                    "A ready or active base knowledge version is required for tuning."
+                )
+            if int(base_version.get("index_schema_version") or 1) < 2:
+                raise PipelineDraftValidationError(
+                    "RAG strategy tuning requires an index schema v2 base version."
+                )
+            base_job = metadata["pipeline_jobs"].get(str(base_version.get("job_id") or ""))
+            if not isinstance(base_job, dict) or not base_job.get("sources"):
+                raise PipelineJobNotFoundError(
+                    "Base knowledge pipeline source snapshot is unavailable."
+                )
+
+            config_snapshot = json.loads(json.dumps(base_job.get("config_snapshot") or {}))
+            stages = config_snapshot.get("stages")
+            if not isinstance(stages, dict):
+                raise PipelineDraftValidationError(
+                    "Base knowledge pipeline configuration snapshot is unavailable."
+                )
+            if not isinstance(chunker_profile, dict) or not isinstance(retrieval_profile, dict):
+                raise PipelineDraftValidationError(
+                    "Tuning chunker and retrieval profiles must be objects."
+                )
+            stages["stage_chunker"] = self._validated_pipeline_stage_config(
+                "stage_chunker",
+                dict(stages.get("stage_chunker") or {}),
+                chunker_profile,
+            )
+            try:
+                config_snapshot["retrieval_profile"] = RetrievalConfig.from_mapping(
+                    retrieval_profile,
+                    base=RetrievalConfig.from_mapping(
+                        config_snapshot.get("retrieval_profile")
+                        if isinstance(config_snapshot.get("retrieval_profile"), dict)
+                        else None
+                    ),
+                ).payload()
+            except ValueError as exc:
+                raise PipelineDraftValidationError(str(exc)) from exc
+            processor_profile = json.loads(
+                json.dumps(stages.get("stage_processor") or {})
+            )
+            vision_profile = json.loads(
+                json.dumps(stages.get("stage_image_understanding") or {})
+            )
+            config_snapshot["processor_profile"] = processor_profile
+            config_snapshot["vision_profile"] = vision_profile
+
+            job_id = f"kpjob_{uuid.uuid4().hex}"
+            source_dir = self.pipeline_sources_dir / job_id
+            source_dir.mkdir(parents=True, exist_ok=True)
+            manifest: list[dict[str, Any]] = []
+            try:
+                for index, source in enumerate(base_job.get("sources", [])):
+                    if not isinstance(source, dict):
+                        continue
+                    source_id = str(source.get("source_id") or "")
+                    source_path = self.storage_dir / str(source.get("snapshot_key") or "")
+                    if not source_id or not source_path.is_file():
+                        raise DocumentNotFoundError(
+                            "Base knowledge pipeline source snapshot is unavailable."
+                        )
+                    snapshot = source_dir / f"base_{index}{(source_path.suffix or '.txt').lower()}"
+                    shutil.copyfile(source_path, snapshot)
+                    copied = json.loads(json.dumps(source))
+                    copied["snapshot_key"] = snapshot.relative_to(self.storage_dir).as_posix()
+                    copied["content_hash"] = self._file_sha256(snapshot)
+                    manifest.append(copied)
+                if not manifest:
+                    raise PipelineDraftValidationError(
+                        "A strategy tuning job requires a reusable source snapshot."
+                    )
+            except Exception:
+                shutil.rmtree(source_dir, ignore_errors=True)
+                raise
+
+            reserved_numbers = [
+                int(item.get("version", 0))
+                for item in metadata["pipeline_versions"].values()
+                if item.get("kb_id") == kb_id
+            ] + [
+                int(item.get("candidate_version", 0))
+                for item in metadata["pipeline_jobs"].values()
+                if item.get("kb_id") == kb_id
+            ]
+            candidate_version = max(reserved_numbers, default=0) + 1
+            candidate_version_id = f"kpv_{uuid.uuid4().hex}"
+            now = time.time()
+            processor_hash = self._mapping_sha256(processor_profile)
+            vision_hash = self._mapping_sha256(vision_profile)
+            document_results = [
+                {
+                    "source_id": str(source["source_id"]),
+                    "filename": str(source["filename"]),
+                    "status": "pending",
+                    "content_hash": str(source["content_hash"]),
+                    "processor_config_hash": processor_hash,
+                    "vision_config_hash": vision_hash,
+                    "attempt": 0,
+                    "block_count": 0,
+                    "generated_count": 0,
+                    "chunk_count": 0,
+                    "qa_count": 0,
+                    "summary_count": 0,
+                    "warnings": [],
+                    "error": None,
+                    "duration_ms": None,
+                    "vision_status": "pending" if vision_profile.get("enabled") else "skipped",
+                    "vision_page_count": 0,
+                    "vision_selected_page_count": 0,
+                    "vision_processed_page_count": 0,
+                    "vision_failed_page_count": 0,
+                    "vision_block_count": 0,
+                    "vision_warnings": [],
+                    "vision_error": None,
+                    "vision_artifact_key": (
+                        self.pipeline_vision_dir / job_id / f"source_{index}.json"
+                    ).relative_to(self.storage_dir).as_posix(),
+                    "artifact_key": (
+                        self.pipeline_processed_dir / job_id / f"source_{index}.json"
+                    ).relative_to(self.storage_dir).as_posix(),
+                }
+                for index, source in enumerate(manifest)
+            ]
+            origin = {
+                "kind": "rag_strategy_tuner_trial" if trial else "rag_strategy_tuner",
+                "promotion_required": True,
+                "source_run_id": str(tuning_run_id)[:200],
+            }
+            job = {
+                "job_id": job_id,
+                "kb_id": kb_id,
+                "draft_id": str(base_version.get("draft_id") or base_job.get("draft_id") or ""),
+                "draft_version": int(base_version.get("draft_version") or base_job.get("draft_version") or 1),
+                "graph_id": str(config_snapshot.get("graph_id") or base_job.get("graph_id") or ""),
+                "graph_revision": int(config_snapshot.get("graph_revision") or base_job.get("graph_revision") or 1),
+                "config_snapshot": config_snapshot,
+                "origin": origin,
+                "base_version_id": base_version_id,
+                "sources": manifest,
+                "document_results": document_results,
+                "status": "queued",
+                "stages": self._new_pipeline_job_stages(),
+                "candidate_version_id": candidate_version_id,
+                "candidate_version": candidate_version,
+                "candidate_namespace": f"{kb_id}::{candidate_version_id}",
+                "run_id": None,
+                "attempt": 0,
+                "cancel_requested": False,
+                "error": None,
+                "warnings": [],
+                "processor_error": None,
+                "created_at": now,
+                "updated_at": now,
+                "started_at": None,
+                "completed_at": None,
+            }
+            metadata["pipeline_jobs"][job_id] = job
+            self._write_metadata_unlocked(metadata)
+            return self.pipeline_job_payload(job)
+
     def list_pipeline_jobs(
         self,
         *,
@@ -3273,6 +3459,8 @@ class RagService:
             self.pipeline_version_payload(item, active_id=active_id)
             for item in metadata["pipeline_versions"].values()
             if item.get("kb_id") == kb_id
+            and str((item.get("origin") or {}).get("kind") or "")
+            != "rag_strategy_tuner_trial"
         ]
         items.sort(key=lambda item: int(item["version"]), reverse=True)
         return items
@@ -3305,6 +3493,10 @@ class RagService:
             version = metadata["pipeline_versions"].get(version_id)
             if not isinstance(version, dict):
                 raise PipelineVersionNotFoundError("Knowledge pipeline version not found.")
+            if str((version.get("origin") or {}).get("kind") or "") == "rag_strategy_tuner_trial":
+                raise PipelineJobStateError(
+                    "Strategy tuning trial versions cannot be activated."
+                )
             kb_id = str(version["kb_id"])
             self._ensure_kb_exists(metadata, kb_id)
             previous_id = metadata["pipeline_active_versions"].get(kb_id)
@@ -3316,6 +3508,117 @@ class RagService:
             metadata["knowledge_bases"][kb_id]["updated_at"] = time.time()
             self._write_metadata_unlocked(metadata)
             return self.pipeline_version_payload(version, active_id=version_id)
+
+    def pipeline_version_cost_summary(self, version_id: str) -> dict[str, Any]:
+        """Return deterministic, explicitly estimated index cost metadata."""
+
+        version = self.get_pipeline_version(version_id)
+        chunk_count = max(0, int(version.get("chunk_count") or 0))
+        embedding_profile = version.get("embedding_profile") or {}
+        dimension = max(1, int(embedding_profile.get("dimension") or 1))
+        estimated_vector_bytes = chunk_count * dimension * 4
+        estimated_lexical_bytes = chunk_count * 256
+        job = self.get_pipeline_job(str(version.get("job_id") or ""))
+        started_at = job.get("started_at")
+        completed_at = job.get("completed_at")
+        build_duration_ms = None
+        if isinstance(started_at, (int, float)) and isinstance(completed_at, (int, float)):
+            build_duration_ms = max(0.0, round((completed_at - started_at) * 1000, 2))
+        return {
+            "chunk_count": chunk_count,
+            "embedding_dimension": dimension,
+            "estimated_vector_bytes": estimated_vector_bytes,
+            "estimated_lexical_bytes": estimated_lexical_bytes,
+            "estimated_index_bytes": estimated_vector_bytes + estimated_lexical_bytes,
+            "build_duration_ms": build_duration_ms,
+            "size_is_estimated": True,
+        }
+
+    def cleanup_strategy_tuning_trial_version(self, version_id: str) -> None:
+        """Remove an isolated tuning trial after its safe statistics are persisted."""
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            version = metadata["pipeline_versions"].get(version_id)
+            if not isinstance(version, dict):
+                return
+            if str((version.get("origin") or {}).get("kind") or "") != "rag_strategy_tuner_trial":
+                raise PipelineJobStateError(
+                    "Only strategy tuning trial versions can be cleaned up here."
+                )
+            if metadata["pipeline_active_versions"].get(str(version.get("kb_id") or "")) == version_id:
+                raise PipelineJobStateError("An active knowledge version cannot be cleaned up.")
+            job_id = str(version.get("job_id") or "")
+            namespace = str(version.get("namespace") or "")
+            job = metadata["pipeline_jobs"].get(job_id)
+            if isinstance(job, dict) and str(job.get("status") or "") not in {
+                "succeeded",
+                "failed",
+                "cancelled",
+            }:
+                raise PipelineJobStateError(
+                    "A running strategy tuning trial cannot be cleaned up."
+                )
+
+        if namespace:
+            self.vector_store.delete_knowledge_base(namespace)
+            self.lexical_store.delete_namespace(namespace)
+        for path in (
+            self.pipeline_sources_dir / job_id,
+            self.pipeline_processed_dir / job_id,
+            self.pipeline_vision_dir / job_id,
+        ):
+            if path.exists():
+                shutil.rmtree(path)
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            current = metadata["pipeline_versions"].get(version_id)
+            if isinstance(current, dict):
+                metadata["pipeline_versions"].pop(version_id, None)
+                metadata["pipeline_jobs"].pop(job_id, None)
+                self._write_metadata_unlocked(metadata)
+
+    def cleanup_strategy_tuning_trial_job(self, job_id: str) -> None:
+        """Remove a terminal trial job that did not publish a version."""
+
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            job = metadata["pipeline_jobs"].get(job_id)
+            if not isinstance(job, dict):
+                return
+            if str((job.get("origin") or {}).get("kind") or "") != "rag_strategy_tuner_trial":
+                raise PipelineJobStateError(
+                    "Only strategy tuning trial jobs can be cleaned up here."
+                )
+            if str(job.get("status") or "") not in {"succeeded", "failed", "cancelled"}:
+                raise PipelineJobStateError(
+                    "A running strategy tuning trial cannot be cleaned up."
+                )
+            version_id = str(job.get("candidate_version_id") or "")
+            if isinstance(metadata["pipeline_versions"].get(version_id), dict):
+                pass
+            else:
+                namespace = str(job.get("candidate_namespace") or "")
+                version_id = ""
+
+        if version_id:
+            self.cleanup_strategy_tuning_trial_version(version_id)
+            return
+        if namespace:
+            self.vector_store.delete_knowledge_base(namespace)
+            self.lexical_store.delete_namespace(namespace)
+        for path in (
+            self.pipeline_sources_dir / job_id,
+            self.pipeline_processed_dir / job_id,
+            self.pipeline_vision_dir / job_id,
+        ):
+            if path.exists():
+                shutil.rmtree(path)
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            metadata["pipeline_jobs"].pop(job_id, None)
+            self._write_metadata_unlocked(metadata)
 
     async def query_pipeline_version(
         self,
@@ -4333,7 +4636,7 @@ class RagService:
         vector_candidates = [self._candidate_from_vector(item) for item in vector_results]
         lexical_candidates = [self._candidate_from_lexical(item) for item in lexical_results]
         effective_config = config
-        if config.mode == "fulltext" and not lexical_candidates:
+        if config.mode == "fulltext" and not lexical_candidates and not lexical_ready:
             effective_config = RetrievalConfig.from_mapping(
                 {**config.payload(), "mode": "vector", "rerank_enabled": config.rerank_enabled}
             )

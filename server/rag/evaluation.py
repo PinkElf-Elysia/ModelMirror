@@ -9,6 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .strategy_tuning_qualification import normalize_benchmark_role
+
 
 class EvaluationError(RuntimeError):
     """Base error for knowledge evaluation operations."""
@@ -208,6 +210,11 @@ def aggregate_target_metrics(
             )
             if completed
             else 1.0,
+            "positive_no_result_rate": round(
+                sum(1 for item in positive if item.get("no_result")) / len(positive), 6
+            )
+            if positive
+            else 0.0,
             "warning_rate": round(
                 sum(1 for item in completed if int(item.get("warning_count", 0)) > 0)
                 / len(completed),
@@ -304,15 +311,17 @@ def evaluate_promotion_gate(
             float(effective["max_citation_hit_regression"]),
             "Citation hit-rate regression must stay within tolerance.",
         )
-        no_result_increase = float(candidate.get("no_result_rate", 0.0)) - float(
-            baseline.get("no_result_rate", 0.0)
+        no_result_increase = float(
+            candidate.get("positive_no_result_rate", candidate.get("no_result_rate", 0.0))
+        ) - float(
+            baseline.get("positive_no_result_rate", baseline.get("no_result_rate", 0.0))
         )
         add_check(
             "max_no_result_increase",
             no_result_increase <= float(effective["max_no_result_increase"]),
             no_result_increase,
             float(effective["max_no_result_increase"]),
-            "No-result rate increase must stay within tolerance.",
+            "Positive-case no-result rate increase must stay within tolerance.",
         )
         baseline_p95 = float(baseline.get("p95_latency_ms", 0.0))
         candidate_p95 = float(candidate.get("p95_latency_ms", 0.0))
@@ -351,6 +360,7 @@ class KnowledgeEvaluationStore:
         provenance: dict[str, Any] | None = None,
         coverage: dict[str, Any] | None = None,
         calibration: dict[str, Any] | None = None,
+        benchmark_role: str | None = None,
     ) -> dict[str, Any]:
         clean_name = name.strip()
         if not clean_name:
@@ -369,6 +379,11 @@ class KnowledgeEvaluationStore:
             "provenance": _copy(provenance or {}),
             "coverage": _copy(coverage or {}),
             "calibration": _copy(calibration or {}),
+            "benchmark_role": normalize_benchmark_role(
+                benchmark_role,
+                origin=str(origin or "manual"),
+                catalog_ref=catalog_ref,
+            ),
             "latest_version": None,
             "created_at": now,
             "updated_at": now,
@@ -389,6 +404,7 @@ class KnowledgeEvaluationStore:
         provenance: dict[str, Any],
         coverage: dict[str, Any],
         calibration: dict[str, Any],
+        benchmark_role: str = "strategy_tuning",
     ) -> dict[str, Any]:
         clean_name = name.strip()
         if not clean_name:
@@ -410,6 +426,10 @@ class KnowledgeEvaluationStore:
             "provenance": _copy(provenance),
             "coverage": _copy(coverage),
             "calibration": _copy(calibration),
+            "benchmark_role": normalize_benchmark_role(
+                benchmark_role,
+                origin="generated",
+            ),
             "latest_version": None,
             "created_at": now,
             "updated_at": now,
@@ -501,6 +521,11 @@ class KnowledgeEvaluationStore:
                 "provenance": _copy(item.get("provenance") or {}),
                 "coverage": _copy(item.get("coverage") or {}),
                 "calibration": _copy(item.get("calibration") or {}),
+                "benchmark_role": normalize_benchmark_role(
+                    item.get("benchmark_role"),
+                    origin=str(item.get("origin") or "manual"),
+                    catalog_ref=dict(item.get("catalog_ref") or {}),
+                ),
                 "release_notes": str(release_notes or "")[:1000],
                 "checksum": _checksum({"cases": cases, "coverage": item.get("coverage") or {}}),
                 "published_at": now,
@@ -531,7 +556,7 @@ class KnowledgeEvaluationStore:
         data = self._read()
         self._set_or_raise(data, eval_set_id)
         items = [
-            _copy(version)
+            self._version_payload(version)
             for version in data["versions"].values()
             if version.get("eval_set_id") == eval_set_id
         ]
@@ -552,7 +577,7 @@ class KnowledgeEvaluationStore:
         )
         if not isinstance(item, dict):
             raise EvaluationSetNotFoundError("Knowledge evaluation set version not found.")
-        return _copy(item)
+        return self._version_payload(item)
 
     def update_set(
         self,
@@ -562,6 +587,7 @@ class KnowledgeEvaluationStore:
         name: str | None = None,
         description: str | None = None,
         status: str | None = None,
+        benchmark_role: str | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             data = self._read_unlocked()
@@ -578,9 +604,15 @@ class KnowledgeEvaluationStore:
                 if status not in {"active", "archived"}:
                     raise ValueError("Evaluation set status must be active or archived.")
                 item["status"] = status
+            if benchmark_role is not None:
+                item["benchmark_role"] = normalize_benchmark_role(
+                    benchmark_role,
+                    origin=str(item.get("origin") or "manual"),
+                    catalog_ref=dict(item.get("catalog_ref") or {}),
+                )
             self._touch_set(item)
             self._write_unlocked(data)
-            return _copy(item)
+            return self._set_payload(item)
 
     def add_cases(
         self,
@@ -655,8 +687,25 @@ class KnowledgeEvaluationStore:
         ks: list[int],
         gate_policy: dict[str, Any],
         evaluation_set_version: dict[str, Any] | None = None,
+        case_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         now = time.time()
+        snapshot = _copy(evaluation_set_version or evaluation_set)
+        if case_ids is not None:
+            requested = list(dict.fromkeys(str(item) for item in case_ids if str(item)))
+            by_id = {
+                str(case.get("case_id") or ""): case
+                for case in snapshot.get("cases", [])
+                if isinstance(case, dict)
+            }
+            missing = [case_id for case_id in requested if case_id not in by_id]
+            if missing:
+                raise EvaluationStateError(
+                    f"Evaluation case is unavailable in the fixed snapshot: {missing[0]}"
+                )
+            snapshot["cases"] = [_copy(by_id[case_id]) for case_id in requested]
+            if not snapshot["cases"]:
+                raise EvaluationStateError("Evaluation case subset cannot be empty.")
         run = {
             "run_id": f"evalrun_{uuid.uuid4().hex}",
             "kb_id": evaluation_set["kb_id"],
@@ -672,7 +721,10 @@ class KnowledgeEvaluationStore:
                 if evaluation_set_version is not None
                 else None
             ),
-            "eval_set_snapshot": _copy(evaluation_set_version or evaluation_set),
+            "eval_set_snapshot": snapshot,
+            "case_ids": [
+                str(case.get("case_id") or "") for case in snapshot.get("cases", [])
+            ],
             "targets": _copy(targets),
             "baseline_version_id": baseline_version_id,
             "ks": sorted(set(ks)),
@@ -939,11 +991,25 @@ class KnowledgeEvaluationStore:
         payload.setdefault("coverage", {})
         payload.setdefault("calibration", {})
         payload.setdefault("latest_version", None)
+        payload["benchmark_role"] = normalize_benchmark_role(
+            payload.get("benchmark_role"),
+            origin=str(payload.get("origin") or "manual"),
+            catalog_ref=dict(payload.get("catalog_ref") or {}),
+        )
         for case in payload.get("cases", []):
             if isinstance(case, dict):
                 case.setdefault("expected_no_result", False)
                 case.setdefault("review_status", "not_required")
                 case.setdefault("targeting", {})
+        return payload
+
+    def _version_payload(self, item: dict[str, Any]) -> dict[str, Any]:
+        payload = _copy(item)
+        payload["benchmark_role"] = normalize_benchmark_role(
+            payload.get("benchmark_role"),
+            origin=str(payload.get("origin") or "manual"),
+            catalog_ref=dict(payload.get("catalog_ref") or {}),
+        )
         return payload
 
     def _check_revision(self, item: dict[str, Any], expected_revision: int) -> None:

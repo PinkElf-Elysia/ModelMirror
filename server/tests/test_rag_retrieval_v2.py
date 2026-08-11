@@ -94,6 +94,39 @@ def test_sqlite_fts5_indexes_mixed_chinese_and_english(tmp_path: Path) -> None:
     assert store.query("other", "蓝鲸", 5) == []
 
 
+def test_sqlite_fts5_uses_query_confidence_without_reordering_bm25(
+    tmp_path: Path,
+) -> None:
+    store = SqliteLexicalStore(tmp_path / "lexical-confidence.sqlite3")
+    store.add_chunks(
+        [
+            LexicalChunk(
+                chunk_id="exact",
+                namespace="kb-v2",
+                doc_id="d1",
+                document_name="warranty.md",
+                text="ZEP-91 quantum battery warranty lasts eighteen months.",
+                chunk_index=0,
+            ),
+            LexicalChunk(
+                chunk_id="generic",
+                namespace="kb-v2",
+                doc_id="d2",
+                document_name="policy.md",
+                text="The policy defines a standard warranty period.",
+                chunk_index=1,
+            ),
+        ]
+    )
+
+    exact = store.query("kb-v2", "ZEP-91 quantum battery warranty", 5)
+    weak = store.query("kb-v2", "VTX-88 satellite warranty window", 5)
+
+    assert exact[0].chunk_id == "exact"
+    assert exact[0].score > weak[0].score
+    assert weak[0].score < 1.0
+
+
 def test_sqlite_fts5_migrates_old_source_schema_with_optional_defaults(
     tmp_path: Path,
 ) -> None:

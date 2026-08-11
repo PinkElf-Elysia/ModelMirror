@@ -21,6 +21,11 @@ Xpert 功能扩张已在
 多租户、远程市场、动态插件、更多 Provider 和 UI 像素对齐均进入延期清单。
 下一项功能增量固定为 `EVOAGENTX-META-PLANNER-01`。
 
+知识能力的冻结后维护增量已补齐可解释 Strategy Router 与 Benchmark Auto Tuner。
+它们复用既有 Pipeline、Evaluation Gate 和 Promotion，不改变 Xpert Runtime 协议：Router
+只更新草稿；Tuner 只生成 `promotion_required` 候选，活动索引仍由人工显式推广。完整
+执行契约见 [RAG_INTEGRATION.md](./RAG_INTEGRATION.md)。
+
 ## 2026-07-23 增量：XPERT-PLUGIN-PROMPT-03
 
 Xpert 冻结前最后一轮功能增量已进入真实闭环：
