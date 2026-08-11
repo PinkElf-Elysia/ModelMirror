@@ -9,6 +9,35 @@
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
 
+## 2026-08-10 增量：可解释 RAG Strategy Router V1
+
+知识流水线画布新增确定性策略路由。用户选择 `balanced / quality / low_latency`
+目标及精确术语、语义改写、跨语言、长上下文、易混淆内容和引用精度需求后，
+Router 复用现有结构解析器，对最多 100 个文档、500,000 字符生成聚合语料画像。
+
+推荐严格来自 `rag-strategy-rules-v1`，返回主方案、最多两个比较方案、置信度、
+规则/实验依据、warnings 与字段级配置差异。Hash Embedding 不被当作语义检索证据；
+Rerank Provider 未就绪时不会建议启用；`score_threshold` 固定为 `0`，留待固定
+评测集校准。
+
+推荐与语料 hash、活动索引 ID 和 Pipeline Draft version 绑定。语料、活动索引或
+草稿漂移后状态变为 `stale`；低置信方案必须显式确认；`insufficient_data` 不可应用。
+应用只更新 Chunker 与 Retrieval Profile，并同步已有 Pipeline Graph。它不会执行
+流水线、创建候选版本、修改 Processor/视觉/Embedding，或切换活动索引。
+
+接口：
+
+```text
+GET  /api/rag/strategy-router/capabilities
+POST /api/rag/strategy-router/recommendations
+GET  /api/rag/strategy-router/recommendations?kb_id=
+GET  /api/rag/strategy-router/recommendations/{recommendation_id}
+POST /api/rag/strategy-router/recommendations/{recommendation_id}/apply
+```
+
+研究证据、反例和延期策略见 `docs/RAG_STRATEGY_RESEARCH.md`。Router V1 不调用
+LLM，也不实现 Semantic Chunking、Contextual Retrieval、Late Chunking 或 RAPTOR。
+
 ## 2026-08-09 增量：知识库定向 Gold 生成与校准
 
 `/rag/:kbId/evaluation` 可以针对一个固定 `ready / active` 索引版本生成待审核评测集。

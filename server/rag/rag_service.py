@@ -504,6 +504,13 @@ class RagService:
             metadata["pipeline_drafts"].pop(kb_id, None)
             metadata["pipeline_graphs"].pop(kb_id, None)
             metadata["pipeline_active_versions"].pop(kb_id, None)
+            metadata["rag_strategy_recommendations"] = {
+                recommendation_id: item
+                for recommendation_id, item in metadata[
+                    "rag_strategy_recommendations"
+                ].items()
+                if not isinstance(item, dict) or str(item.get("kb_id")) != kb_id
+            }
             metadata["knowledge_write_proposals"] = {
                 proposal_id: item
                 for proposal_id, item in metadata["knowledge_write_proposals"].items()
@@ -4959,6 +4966,7 @@ class RagService:
             "pipeline_jobs": {},
             "pipeline_versions": {},
             "pipeline_active_versions": {},
+            "rag_strategy_recommendations": {},
             "knowledge_write_proposals": {},
         }
 
@@ -4985,6 +4993,7 @@ class RagService:
             "pipeline_jobs": data.get("pipeline_jobs") if isinstance(data.get("pipeline_jobs"), dict) else {},
             "pipeline_versions": data.get("pipeline_versions") if isinstance(data.get("pipeline_versions"), dict) else {},
             "pipeline_active_versions": data.get("pipeline_active_versions") if isinstance(data.get("pipeline_active_versions"), dict) else {},
+            "rag_strategy_recommendations": data.get("rag_strategy_recommendations") if isinstance(data.get("rag_strategy_recommendations"), dict) else {},
             "knowledge_write_proposals": data.get("knowledge_write_proposals") if isinstance(data.get("knowledge_write_proposals"), dict) else {},
         }
         for document in metadata["documents"].values():

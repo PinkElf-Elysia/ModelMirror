@@ -47,6 +47,13 @@ from .evaluation import (
     KnowledgeEvaluationStore,
 )
 from .evaluation_executor import KnowledgeEvaluationExecutor
+from .strategy_router import (
+    RagStrategyConflictError,
+    RagStrategyRecommendationNotFoundError,
+    RagStrategyService,
+    RagStrategyStateError,
+    RagStrategyValidationError,
+)
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -291,6 +298,29 @@ class PipelineDraftUpdateRequest(BaseModel):
     stages: dict[str, PipelineDraftStageUpdate] = Field(default_factory=dict)
     embedding_profile: dict[str, Any] | None = None
     retrieval_profile: RetrievalOptionsPayload | None = None
+
+
+class RagStrategyRequirementsPayload(BaseModel):
+    exact_terms: bool = False
+    semantic_rewrite: bool = False
+    cross_language: bool = False
+    long_context: bool = False
+    confusable_content: bool = False
+    citation_precision: bool = False
+
+
+class RagStrategyRecommendationRequest(BaseModel):
+    kb_id: str = Field(min_length=1, max_length=160)
+    objective: Literal["balanced", "quality", "low_latency"] = "balanced"
+    requirements: RagStrategyRequirementsPayload = Field(
+        default_factory=RagStrategyRequirementsPayload
+    )
+
+
+class RagStrategyApplyRequest(BaseModel):
+    expected_draft_version: int = Field(ge=1)
+    profile_id: str = Field(default="primary", min_length=1, max_length=80)
+    confirm_low_confidence: bool = False
 
 
 class PipelineGraphNodePayload(BaseModel):
@@ -770,6 +800,10 @@ def _require_knowledge_base(kb_id: str) -> None:
         raise HTTPException(status_code=404, detail="Knowledge base not found.")
 
 
+def get_rag_strategy_service() -> RagStrategyService:
+    return RagStrategyService(get_rag_service())
+
+
 @router.get("/retrieval-capabilities")
 async def get_retrieval_capabilities() -> dict[str, Any]:
     return get_rag_service().retrieval_capabilities()
@@ -783,6 +817,70 @@ async def get_processor_capabilities() -> dict[str, Any]:
 @router.get("/vision-capabilities")
 async def get_vision_capabilities() -> dict[str, Any]:
     return get_rag_service().vision_capabilities()
+
+
+@router.get("/strategy-router/capabilities")
+async def get_strategy_router_capabilities() -> dict[str, Any]:
+    return get_rag_strategy_service().capabilities()
+
+
+@router.post("/strategy-router/recommendations")
+async def create_strategy_router_recommendation(
+    payload: RagStrategyRecommendationRequest,
+) -> dict[str, Any]:
+    try:
+        return get_rag_strategy_service().create_recommendation(
+            payload.kb_id,
+            objective=payload.objective,
+            requirements=payload.requirements.model_dump(),
+        )
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagStrategyValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/strategy-router/recommendations")
+async def list_strategy_router_recommendations(kb_id: str) -> dict[str, Any]:
+    try:
+        recommendations = get_rag_strategy_service().list_recommendations(kb_id)
+        return {
+            "kb_id": kb_id,
+            "recommendations": recommendations,
+            "recommendation_count": len(recommendations),
+        }
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/strategy-router/recommendations/{recommendation_id}")
+async def get_strategy_router_recommendation(
+    recommendation_id: str,
+) -> dict[str, Any]:
+    try:
+        return get_rag_strategy_service().get_recommendation(recommendation_id)
+    except RagStrategyRecommendationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/strategy-router/recommendations/{recommendation_id}/apply")
+async def apply_strategy_router_recommendation(
+    recommendation_id: str,
+    payload: RagStrategyApplyRequest,
+) -> dict[str, Any]:
+    try:
+        return get_rag_strategy_service().apply_recommendation(
+            recommendation_id,
+            expected_draft_version=payload.expected_draft_version,
+            profile_id=payload.profile_id,
+            confirm_low_confidence=payload.confirm_low_confidence,
+        )
+    except RagStrategyRecommendationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagStrategyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RagStrategyStateError, RagStrategyValidationError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/knowledge_bases", response_model=KnowledgeBasePayload)

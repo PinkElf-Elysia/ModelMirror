@@ -694,6 +694,15 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 
 ## 24. Git 规范
 
+### RAG Strategy Router 护栏
+
+- Router V1 只能读取聚合语料画像并修改 Pipeline Draft 的 Chunker 与 Retrieval Profile；不得创建 Job/Version、切换活动索引或修改 Processor、视觉及 Embedding 模型。
+- 所有推荐必须记录 `rules_version`、语料 hash、活动版本、Draft version、证据分类、反例边界和配置 diff。规则变化必须先更新 `docs/RAG_STRATEGY_RESEARCH.md`。
+- Hash Embedding 不得作为语义或跨语言质量证据。Rerank Provider 未就绪时不得推荐启用；`score_threshold` 在 Auto Tuner 前固定为 `0`。
+- `insufficient_data` 禁止应用；低置信推荐必须显式确认；语料、活动版本或 Draft 漂移必须返回冲突并重新分析。
+- Router API、metadata、日志和前端不得返回完整文档、物理路径、embedding、Prompt、模型隐藏推理或密钥。
+- 修改该路径至少运行 `test_rag_strategy_router.py`、RAG Pipeline/Graph/Integration 回归、前端生产构建和敏感信息扫描。
+
 ### 自编写高风险路径
 
 - `xpert_authoring` 与 `skill_creator` 只能创建提案，不得加入发布、安装、删除或直接覆盖工具。
