@@ -17,8 +17,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Route } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import PageContainer from "../components/PageContainer";
+import RagStrategyRouterPanel from "../components/RagStrategyRouterPanel";
 import {
   DEFAULT_EMBEDDING_MODEL_ID,
   embeddingModelOptions,
@@ -296,6 +298,7 @@ export default function KnowledgePipelineCanvasPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [workbenchTab, setWorkbenchTab] = useState<"config" | "preview" | "run">("config");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [strategyOpen, setStrategyOpen] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState("");
   const [preview, setPreview] = useState<NodePreview | null>(null);
   const [jobs, setJobs] = useState<PipelineJob[]>([]);
@@ -594,6 +597,7 @@ export default function KnowledgePipelineCanvasPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link className="rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-300/15" to={`/rag/${encodeURIComponent(kbId)}/evaluation`}>质量评估</Link>
+            <button className="inline-flex items-center gap-2 rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-300/15" onClick={() => setStrategyOpen(true)} type="button"><Route size={15} />策略路由</button>
             <button className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/[0.09] disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void validateGraph()} type="button">校验</button>
             <button className="rounded-lg border border-hire-300/25 bg-hire-300/10 px-3 py-2 text-sm font-semibold text-hire-100 hover:bg-hire-300/15 disabled:opacity-50" disabled={Boolean(busy)} onClick={() => void saveGraph()} type="button">保存草稿</button>
             <button className="rounded-lg bg-hire-300 px-4 py-2 text-sm font-bold text-surface-950 hover:bg-hire-200 disabled:opacity-50" disabled={Boolean(busy) || documents.length === 0} onClick={() => void executeGraph()} type="button">执行流水线</button>
@@ -693,6 +697,7 @@ export default function KnowledgePipelineCanvasPage() {
           </section>
         ) : null}
       </div>
+      <RagStrategyRouterPanel kbId={kbId} onApplied={loadPage} onClose={() => setStrategyOpen(false)} open={strategyOpen} />
     </PageContainer>
   );
 }
