@@ -330,6 +330,72 @@ def test_dependencies_review_and_script_receipt_are_digest_bound(tmp_path: Path)
     ).script_receipt == receipt
 
 
+def test_direct_resource_edit_creates_revision_and_invalidates_final_skill(
+    tmp_path: Path,
+) -> None:
+    plan = _confirmed_plan(tmp_path, resources=[_complex_resources()[0]])
+    store = SkillResourceBuildStore(tmp_path / "direct-edit")
+    created = store.create(plan=plan)
+    resource_id = created.resources[0].resource_id
+    generated = _append_complete(
+        store,
+        created,
+        target_id=resource_id,
+        content="# Evidence policy\n\nUse explicit facts.\n",
+    )
+    validated = store.record_validation(
+        generated.build_id,
+        expected_revision=generated.revision,
+        expected_digest=generated.digest,
+        target_id=resource_id,
+        issues=[],
+    )
+    accepted = store.review_resource(
+        validated.build_id,
+        resource_id=resource_id,
+        expected_revision=validated.revision,
+        expected_digest=validated.digest,
+        decision="accept",
+    )
+    skill = _append_complete(
+        store,
+        accepted,
+        target_id="SKILL.md",
+        content="---\nname: review-incidents\ndescription: Use for incident review.\n---\n# Review\n",
+    )
+
+    edited = store.replace_resource_content(
+        skill.build_id,
+        resource_id=resource_id,
+        expected_revision=skill.revision,
+        expected_digest=skill.digest,
+        content="# Evidence policy\n\nUse explicit facts and mark gaps.\n",
+    )
+
+    item = edited.resources[0]
+    assert edited.revision == skill.revision + 1
+    assert edited.phase == "resources"
+    assert edited.state == "awaiting_review"
+    assert edited.current_resource_id == resource_id
+    assert edited.skill_markdown is None
+    assert edited.skill_markdown_digest is None
+    assert item.state == "awaiting_review"
+    assert item.content_digest != validated.resources[0].content_digest
+    assert item.script_receipt is None
+
+    persisted_invalid = store.record_validation(
+        edited.build_id,
+        expected_revision=edited.revision,
+        expected_digest=edited.digest,
+        target_id=resource_id,
+        issues=[{"code": "missing_policy", "message": "Policy is incomplete."}],
+        auto_repair=False,
+    )
+    assert persisted_invalid.state == "awaiting_review"
+    assert persisted_invalid.resources[0].content is not None
+    assert persisted_invalid.resources[0].validation_issues[0]["code"] == "missing_policy"
+
+
 def test_validation_failure_gets_one_internal_repair_then_fails(tmp_path: Path) -> None:
     plan = _confirmed_plan(tmp_path, resources=[_complex_resources()[0]])
     store = SkillResourceBuildStore(tmp_path / "build")

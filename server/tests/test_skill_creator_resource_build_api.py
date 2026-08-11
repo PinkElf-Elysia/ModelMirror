@@ -62,6 +62,10 @@ class _BuildService:
         self.calls.append("next")
         return self.build_store.item
 
+    async def edit_resource(self, *_args, **_kwargs):
+        self.calls.append("edit")
+        return self.build_store.item
+
     def review_resource(self, *_args, **_kwargs):
         self.calls.append("review")
         return self.build_store.item
@@ -114,13 +118,18 @@ async def test_resource_build_routes_use_versioned_optimistic_requests() -> None
                 json={**mutation, "decision": "accept", "feedback": ""},
             )
             assert reviewed.status_code == 200, reviewed.text
+            edited = await client.put(
+                "/api/skills/creator/resource-builds/skillbuild_api/resources/resource_one",
+                json={**mutation, "content": "# Edited resource\n"},
+            )
+            assert edited.status_code == 200, edited.text
             finalized = await client.post(
                 "/api/skills/creator/resource-builds/skillbuild_api/finalize",
                 json={**mutation, "decision": "revise", "feedback": "Clarify failure behavior."},
             )
             assert finalized.status_code == 200, finalized.text
             assert finalized.json()["proposal"] is None
-        assert build.calls == ["start", "next", "review", "finalize"]
+        assert build.calls == ["start", "next", "review", "edit", "finalize"]
     finally:
         creator_api.configure_skill_creator(previous_creator)
         creator_api.configure_skill_creator_resource_planning(previous_planning)

@@ -514,6 +514,7 @@ class SkillResourceBuildStore:
         target_id: str,
         issues: list[Mapping[str, Any]],
         script_receipt: ResourceScriptTestReceipt | None = None,
+        auto_repair: bool = True,
     ) -> SkillResourceBuild:
         clean_issues = self._issues(issues)
         with self._lock:
@@ -537,7 +538,7 @@ class SkillResourceBuildStore:
                 if valid:
                     resource["state"] = "awaiting_review"
                     values["state"] = "awaiting_review"
-                elif int(resource["repair_count"]) < 1:
+                elif auto_repair and int(resource["repair_count"]) < 1:
                     resource["repair_count"] = int(resource["repair_count"]) + 1
                     resource["attempt"] = int(resource["attempt"]) + 1
                     resource["chunks"] = []
@@ -548,29 +549,110 @@ class SkillResourceBuildStore:
                     resource["state"] = "planned"
                     values["state"] = "planned"
                     values["current_resource_id"] = None
-                else:
+                elif auto_repair:
                     resource["state"] = "failed"
                     values["state"] = "failed"
+                else:
+                    resource["state"] = "awaiting_review"
+                    values["state"] = "awaiting_review"
             elif current.phase == "skill_markdown":
                 if target_id != "SKILL.md":
                     raise SkillCreatorConflictError("SKILL.md validation target changed.")
                 values["skill_validation_issues"] = clean_issues
                 if valid:
                     values["state"] = "awaiting_review"
-                elif int(values["skill_repair_count"]) < 1:
+                elif auto_repair and int(values["skill_repair_count"]) < 1:
                     values["skill_repair_count"] = int(values["skill_repair_count"]) + 1
                     values["skill_attempt"] = int(values["skill_attempt"]) + 1
                     values["skill_chunks"] = []
                     values["skill_markdown"] = None
                     values["skill_markdown_digest"] = None
                     values["state"] = "planned"
-                else:
+                elif auto_repair:
                     values["state"] = "failed"
+                else:
+                    values["state"] = "awaiting_review"
             else:
                 raise SkillCreatorConflictError("The resource build is already finalized.")
             values["revision"] = current.revision + 1
             values["updated_at"] = time.time()
             return self._publish_unlocked(self._decode(values, verify_digest=False))
+
+    def replace_resource_content(
+        self,
+        build_id: str,
+        *,
+        resource_id: str,
+        expected_revision: int,
+        expected_digest: str,
+        content: str,
+    ) -> SkillResourceBuild:
+        """Create a new build revision for a user-edited, path-frozen resource."""
+
+        clean_content = str(content or "")
+        if not clean_content.strip():
+            raise SkillCreatorValidationError(
+                "Edited resource content is empty.",
+                code="skill_creator_resource_content_invalid",
+            )
+        with self._lock:
+            current = self._require_match_unlocked(
+                build_id,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+            )
+            if current.proposal_id or current.phase == "proposal":
+                raise SkillCreatorConflictError(
+                    "The finalized proposal is immutable. Start a new resource plan to change it."
+                )
+            if current.state == "generating":
+                raise SkillCreatorConflictError(
+                    "Wait for the active generation request before editing a resource."
+                )
+            if current.current_resource_id not in {None, resource_id} and current.state in {
+                "awaiting_review",
+                "failed",
+            }:
+                raise SkillCreatorConflictError(
+                    "Review the current generated resource before editing another one."
+                )
+            values = asdict(current)
+            resource = self._resource_dict(values, resource_id)
+            if resource["action"] not in {"create", "update"}:
+                raise SkillCreatorConflictError(
+                    "Only created or updated resources can be edited in this build."
+                )
+            self._reject_credentials(path=resource["path"], content=clean_content)
+            self._validate_resource_bytes(resource["path"], clean_content)
+            content_digest = self._sha256(clean_content)
+            if (
+                resource.get("content_digest") == content_digest
+                and resource.get("content") == clean_content
+            ):
+                return copy.deepcopy(current)
+            resource["attempt"] = int(resource["attempt"]) + 1
+            resource["repair_count"] = 0
+            resource["chunks"] = [clean_content]
+            resource["content"] = clean_content
+            resource["content_digest"] = content_digest
+            resource["script_receipt"] = None
+            resource["validation_issues"] = []
+            resource["feedback"] = ""
+            resource["state"] = "awaiting_review"
+            values["phase"] = "resources"
+            values["state"] = "awaiting_review"
+            values["current_resource_id"] = resource_id
+            values["skill_chunks"] = []
+            values["skill_markdown"] = None
+            values["skill_markdown_digest"] = None
+            values["skill_validation_issues"] = []
+            values["skill_feedback"] = ""
+            values["requirement_coverage"] = []
+            values["revision"] = current.revision + 1
+            values["updated_at"] = time.time()
+            candidate = self._decode(values, verify_digest=False)
+            self._ensure_package_budget(candidate.resources, skill_markdown=None)
+            return self._publish_unlocked(candidate)
 
     def record_generation_error(
         self,

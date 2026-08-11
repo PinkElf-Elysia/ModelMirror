@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from .creator_store import (
     CREATOR_ASSISTANT_AGENT_ID,
+    CreatorAuthoringFlow,
     CreatorMode,
     CreatorSourceKind,
     SkillCreatorConflictError,
@@ -179,6 +180,7 @@ class SkillCreatorService:
         source_xpert_id: str | None = None,
         source_conversation_id: str | None = None,
         source_message_id: str | None = None,
+        authoring_flow: CreatorAuthoringFlow = "legacy",
     ) -> SkillCreatorSession:
         self.require_enabled()
         if mode == "run":
@@ -210,6 +212,7 @@ class SkillCreatorService:
             source_xpert_id=source_xpert_id,
             source_conversation_id=source_conversation_id,
             source_message_id=source_message_id,
+            authoring_flow=authoring_flow,
         )
 
     def list_sessions(self, *, limit: int) -> list[SkillCreatorSession]:

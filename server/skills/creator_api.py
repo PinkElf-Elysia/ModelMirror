@@ -146,6 +146,10 @@ class CreatorResourceReviewRequest(CreatorResourceBuildMutationRequest):
     feedback: str = Field(default="", max_length=4_000)
 
 
+class CreatorResourceEditRequest(CreatorResourceBuildMutationRequest):
+    content: str = Field(min_length=1, max_length=24 * 1024)
+
+
 class CreatorResourceFinalizeRequest(CreatorResourceBuildMutationRequest):
     decision: Literal["accept", "revise"]
     feedback: str = Field(default="", max_length=4_000)
@@ -240,6 +244,25 @@ class CreatorEvaluationIterateRequest(CreatorEvaluationWriteRequest):
 
 def configure_skill_creator(service: SkillCreatorService | None) -> None:
     global _service
+    global _evaluation_service
+    global _resource_planning_service
+    global _resource_build_service
+    if service is not _service:
+        if (
+            _evaluation_service is not None
+            and getattr(_evaluation_service, "creator_service", None) is not service
+        ):
+            _evaluation_service = None
+        if (
+            _resource_planning_service is not None
+            and getattr(_resource_planning_service, "creator_service", None) is not service
+        ):
+            _resource_planning_service = None
+        if (
+            _resource_build_service is not None
+            and getattr(_resource_build_service, "creator_service", None) is not service
+        ):
+            _resource_build_service = None
     _service = service
 
 
@@ -508,8 +531,15 @@ async def list_creator_sessions(limit: int = Query(default=100, ge=1, le=500)):
 async def create_creator_session(payload: CreatorSessionCreateRequest):
     try:
         service = get_skill_creator_service()
+        values = payload.model_dump(mode="python")
+        values["authoring_flow"] = (
+            "resource"
+            if _resource_planning_service is not None
+            and _resource_planning_service.enabled
+            else "legacy"
+        )
         session = await asyncio.to_thread(
-            service.create_session, **payload.model_dump(mode="python")
+            service.create_session, **values
         )
         return _session_response(service, session)
     except (SkillCreatorError, SkillDraftError) as exc:
@@ -824,6 +854,30 @@ async def review_creator_resource(
             expected_digest=payload.expected_digest.lower(),
             decision=payload.decision,
             feedback=payload.feedback,
+        )
+        return {
+            "version": build_service.VERSION,
+            "resource_build": build_service.build_store.serialize(build),
+        }
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.put("/resource-builds/{build_id}/resources/{resource_id}")
+async def edit_creator_resource(
+    build_id: str,
+    resource_id: str,
+    payload: CreatorResourceEditRequest,
+):
+    try:
+        build_service = get_skill_creator_resource_build_service()
+        build = await build_service.edit_resource(
+            build_id,
+            resource_id=resource_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+            content=payload.content,
         )
         return {
             "version": build_service.VERSION,

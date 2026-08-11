@@ -225,6 +225,28 @@ def test_session_store_is_atomic_fail_closed_and_secret_safe(tmp_path: Path) -> 
     assert (corrupt_dir / "skill_creator_sessions.json").read_text() == "{not-json"
 
 
+def test_legacy_session_resource_authoring_opt_in_is_explicit_and_durable(
+    tmp_path: Path,
+) -> None:
+    store = SkillCreatorSessionStore(tmp_path / "resource-flow")
+    legacy = store.create(mode="blank", intent="Review incidents")
+    assert legacy.authoring_flow == "legacy"
+
+    migrated = store.activate_resource_authoring(
+        legacy.session_id,
+        expected_session_revision=legacy.session_revision,
+    )
+
+    assert migrated.authoring_flow == "resource"
+    assert migrated.session_revision == legacy.session_revision + 1
+    assert (
+        SkillCreatorSessionStore(tmp_path / "resource-flow")
+        .require(legacy.session_id)
+        .authoring_flow
+        == "resource"
+    )
+
+
 def test_selected_evidence_keeps_sanitized_title_across_reload(
     tmp_path: Path,
 ) -> None:
