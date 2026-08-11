@@ -63,7 +63,13 @@ def _syscall_numbers() -> tuple[int, int, int]:
     raise RuntimeError("shell_sandbox_architecture_unsupported")
 
 
-def _apply_landlock(repository: Path, home: Path, temporary: Path) -> None:
+def _apply_landlock(
+    repository: Path,
+    home: Path,
+    temporary: Path,
+    *,
+    repository_writable: bool,
+) -> None:
     create_nr, add_nr, restrict_nr = _syscall_numbers()
     libc = ctypes.CDLL(None, use_errno=True)
     abi = libc.syscall(create_nr, 0, 0, _LANDLOCK_CREATE_RULESET_VERSION)
@@ -113,7 +119,7 @@ def _apply_landlock(repository: Path, home: Path, temporary: Path) -> None:
             allow(path, _READ_EXECUTE)
         for path in (Path("/dev/null"), Path("/dev/urandom"), Path("/dev/random")):
             allow(path, _READ_FILE | _WRITE_FILE)
-        allow(repository, _WORKSPACE_ACCESS)
+        allow(repository, _WORKSPACE_ACCESS if repository_writable else _READ_EXECUTE)
         allow(home, _WORKSPACE_ACCESS)
         allow(temporary, _WORKSPACE_ACCESS)
         if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
@@ -140,6 +146,7 @@ def main() -> int:
     parser.add_argument("--home", required=True)
     parser.add_argument("--temporary", required=True)
     parser.add_argument("--cwd", required=True)
+    parser.add_argument("--repository-read-only", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     arguments = parser.parse_args()
     command = list(arguments.command)
@@ -155,7 +162,12 @@ def main() -> int:
         if not cwd.is_relative_to(repository):
             return 64
         _apply_limits()
-        _apply_landlock(repository, home, temporary)
+        _apply_landlock(
+            repository,
+            home,
+            temporary,
+            repository_writable=not arguments.repository_read_only,
+        )
         os.chdir(cwd)
         os.execvpe(command[0], command, os.environ)
     except Exception:

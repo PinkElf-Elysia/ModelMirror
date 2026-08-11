@@ -2,11 +2,25 @@ FROM node:22-bookworm-slim AS opencode_runtime
 
 ARG OPENCODE_VERSION=1.18.9
 ARG OPENCODE_INTEGRITY=sha512-tqvu/hJ26c2dBj/V/uTHaQI3bMSpLck0hIgGXO2z7b11s5mYfnaq+K1CBjsg8Pp6EirfzwUYGzi85K/SvOgkKg==
+ARG PYRIGHT_VERSION=1.1.411
+ARG PYRIGHT_INTEGRITY=sha512-03S/vmS5lF1S/tVbKc2WNXCMq8JWCwta/qIYjj1jvqbQhoy+N3NgBzHTSmUlbYD6DJwqQ5XHf108QujoqeURvw==
+ARG TYPESCRIPT_LANGUAGE_SERVER_VERSION=5.3.0
+ARG TYPESCRIPT_LANGUAGE_SERVER_INTEGRITY=sha512-5puofxZHgFdAYtfNpmwCAvgtaYgg8wrUnH30m7Ze3QuguId5RNRadKASpOpyDxTyUdAF51FjhTdjntLw/EuWcQ==
+ARG TYPESCRIPT_VERSION=5.9.3
+ARG TYPESCRIPT_INTEGRITY=sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==
 
 RUN npm pack "opencode-ai@${OPENCODE_VERSION}" --pack-destination /tmp \
     && node -e "const fs=require('fs');const crypto=require('crypto');const p='/tmp/opencode-ai-${OPENCODE_VERSION}.tgz';const actual='sha512-'+crypto.createHash('sha512').update(fs.readFileSync(p)).digest('base64');if(actual!=='${OPENCODE_INTEGRITY}'){throw new Error('OpenCode package integrity mismatch')}" \
     && npm install --global "/tmp/opencode-ai-${OPENCODE_VERSION}.tgz" \
     && test "$(opencode --version)" = "${OPENCODE_VERSION}"
+
+RUN npm pack "pyright@${PYRIGHT_VERSION}" --pack-destination /tmp \
+    && npm pack "typescript-language-server@${TYPESCRIPT_LANGUAGE_SERVER_VERSION}" --pack-destination /tmp \
+    && npm pack "typescript@${TYPESCRIPT_VERSION}" --pack-destination /tmp \
+    && node -e "const fs=require('fs'),crypto=require('crypto');for(const [p,want] of [['/tmp/pyright-${PYRIGHT_VERSION}.tgz','${PYRIGHT_INTEGRITY}'],['/tmp/typescript-language-server-${TYPESCRIPT_LANGUAGE_SERVER_VERSION}.tgz','${TYPESCRIPT_LANGUAGE_SERVER_INTEGRITY}'],['/tmp/typescript-${TYPESCRIPT_VERSION}.tgz','${TYPESCRIPT_INTEGRITY}']]){const got='sha512-'+crypto.createHash('sha512').update(fs.readFileSync(p)).digest('base64');if(got!==want)throw new Error('language server package integrity mismatch: '+p)}" \
+    && npm install --global "/tmp/pyright-${PYRIGHT_VERSION}.tgz" "/tmp/typescript-${TYPESCRIPT_VERSION}.tgz" "/tmp/typescript-language-server-${TYPESCRIPT_LANGUAGE_SERVER_VERSION}.tgz" \
+    && test "$(pyright --version | awk '{print $2}')" = "${PYRIGHT_VERSION}" \
+    && test "$(typescript-language-server --version)" = "${TYPESCRIPT_LANGUAGE_SERVER_VERSION}"
 
 FROM python:3.12-slim
 
@@ -24,6 +38,11 @@ RUN apt-get update \
     && ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && ln -s ../lib/node_modules/opencode-ai/bin/opencode.exe /usr/local/bin/opencode \
+    && ln -s ../lib/node_modules/pyright/index.js /usr/local/bin/pyright \
+    && ln -s ../lib/node_modules/pyright/langserver.index.js /usr/local/bin/pyright-langserver \
+    && ln -s ../lib/node_modules/typescript-language-server/lib/cli.mjs /usr/local/bin/typescript-language-server \
+    && ln -s ../lib/node_modules/typescript/bin/tsc /usr/local/bin/tsc \
+    && ln -s ../lib/node_modules/typescript/bin/tsserver /usr/local/bin/tsserver \
     && groupadd --gid 65532 coding \
     && useradd --uid 65532 --gid 65532 --home-dir /home/coding --no-create-home coding \
     && mkdir -p /opt/modelmirror /home/coding /worker-data /worker-runtime /run/modelmirror-coding \

@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .contracts import SAFE_ID
+from .code_intelligence import CodeIntelligenceError, query_code_intelligence
 
 
 MAX_EXECUTOR_RPC_BYTES = 8 * 1024 * 1024
@@ -78,8 +79,10 @@ class SidecarExecutor:
         self._services: dict[str, _Service] = {}
         self._shells: dict[str, _ShellProcess] = {}
         self._shell_reservations: set[str] = set()
+        self._intelligence_reservations: set[str] = set()
         self._lock = asyncio.Lock()
         self._remove_owned_runtime(self._runtime_root / "shell")
+        self._remove_owned_runtime(self._runtime_root / "lsp")
 
     async def run_process(
         self,
@@ -398,6 +401,83 @@ class SidecarExecutor:
             self._services[service.service_id] = service
             service.monitor = asyncio.create_task(self._monitor(service, ttl_seconds))
             return self._service_result(service, include_output=False)
+
+    async def code_intelligence(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        operation: str,
+        path: str,
+        line: int,
+        character: int,
+    ) -> dict[str, object]:
+        if (
+            SAFE_ID.fullmatch(task_id) is None
+            or SAFE_ID.fullmatch(operation_id) is None
+            or operation
+            not in {"symbols", "definition", "references", "hover", "diagnostics"}
+            or isinstance(line, bool)
+            or isinstance(character, bool)
+            or not isinstance(line, int)
+            or not isinstance(character, int)
+            or not 0 <= line <= 10_000_000
+            or not 0 <= character <= 10_000_000
+        ):
+            raise SidecarExecutionError(
+                "Code intelligence request is invalid.",
+                code="code_intelligence_input_invalid",
+            )
+        relative = self._relative_path(path)
+        repository = self._workspace_resolver(workspace_id)
+        before = self._snapshot_files(repository)
+        target = repository.joinpath(*relative.parts)
+        if not target.is_file() or self._is_link(target):
+            raise SidecarExecutionError(
+                "Code intelligence entry is unavailable.",
+                code="code_intelligence_input_invalid",
+            )
+        async with self._lock:
+            if task_id in self._intelligence_reservations:
+                raise SidecarExecutionError(
+                    "Code intelligence is already active for this task.",
+                    code="code_intelligence_capacity_exhausted",
+                )
+            self._intelligence_reservations.add(task_id)
+        runtime = self._runtime_root / "lsp" / task_id / operation_id
+        try:
+            runtime.parent.mkdir(parents=True, exist_ok=True)
+            runtime.mkdir()
+            result = await asyncio.wait_for(
+                query_code_intelligence(
+                    repository=repository,
+                    relative_path=relative.as_posix(),
+                    operation=operation,
+                    line=line,
+                    character=character,
+                    environment=self._environment(repository),
+                    runtime_root=runtime,
+                ),
+                timeout=30,
+            )
+            if self._snapshot_files(repository) != before:
+                raise SidecarExecutionError(
+                    "Workspace changed during code intelligence.",
+                    code="workspace_tree_changed",
+                )
+            return result
+        except TimeoutError as exc:
+            raise SidecarExecutionError(
+                "Code intelligence timed out.", code="code_intelligence_timeout"
+            ) from exc
+        finally:
+            async with self._lock:
+                self._intelligence_reservations.discard(task_id)
+            self._remove_owned_runtime(runtime)
+            if not self._is_link(runtime.parent):
+                with contextlib.suppress(OSError):
+                    runtime.parent.rmdir()
 
     def service_status(self, *, task_id: str, service_id: str) -> dict[str, object]:
         return self._service_result(self._require_service(task_id, service_id), include_output=True)
@@ -808,7 +888,15 @@ class ExecutorRPCServer:
                 "error": {
                     "code": getattr(exc, "code", "executor_failed"),
                     "message": str(exc)
-                    if isinstance(exc, (ExecutorRPCError, SidecarExecutionError, ValueError))
+                    if isinstance(
+                        exc,
+                        (
+                            ExecutorRPCError,
+                            SidecarExecutionError,
+                            CodeIntelligenceError,
+                            ValueError,
+                        ),
+                    )
                     else "Executor request failed.",
                 },
             }
@@ -863,6 +951,16 @@ class ExecutorRPCServer:
                 mode=str(payload.get("mode", "")),
                 timeout_seconds=int(payload.get("timeout_seconds", 0)),
                 output_callback=output_callback,
+            )
+        if action == "code_intelligence":
+            return await self.executor.code_intelligence(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=str(payload.get("operation_id", "")),
+                operation=str(payload.get("operation", "")),
+                path=str(payload.get("path", "")),
+                line=int(payload.get("line", 0)),
+                character=int(payload.get("character", 0)),
             )
         if action == "start_service":
             return await self.executor.start_service(
@@ -948,6 +1046,31 @@ class ExecutorSidecarClientPool:
                 "timeout_seconds": timeout_seconds,
             },
             output_callback=output_callback,
+        )
+
+    async def code_intelligence(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        operation: str,
+        path: str,
+        line: int,
+        character: int,
+    ) -> dict[str, Any]:
+        return await self._workspace_call(
+            workspace_id,
+            "code_intelligence",
+            {
+                "task_id": task_id,
+                "workspace_id": workspace_id,
+                "operation_id": operation_id,
+                "operation": operation,
+                "path": path,
+                "line": line,
+                "character": character,
+            },
         )
 
     async def start_service(self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int, preview_port: int | None = None) -> dict[str, Any]:
