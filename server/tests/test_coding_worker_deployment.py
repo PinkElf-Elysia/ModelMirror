@@ -11,11 +11,21 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     assert "USER 65532:65532" in dockerfile
     assert 'CMD ["python", "-m", "coding_worker.sidecar"]' in dockerfile
     assert "OPENCODE_VERSION=1.18.9" in dockerfile
+    assert "PYRIGHT_VERSION=1.1.411" in dockerfile
+    assert "TYPESCRIPT_LANGUAGE_SERVER_VERSION=5.3.0" in dockerfile
+    assert "TYPESCRIPT_VERSION=5.9.3" in dockerfile
     assert "coding-worker-provider-a:" in compose
     assert "coding-worker-provider-b:" in compose
     assert "coding-worker-slot-a:" in compose
     assert "coding-worker-slot-b:" in compose
     assert "CODING_WORKER_V14_ENABLED: ${CODING_WORKER_V14_ENABLED:-false}" in compose
+    assert "CODING_WORKER_V15_ENABLED: ${CODING_WORKER_V15_ENABLED:-false}" in compose
+    assert "CODING_WORKER_SHELL_ENABLED: ${CODING_WORKER_SHELL_ENABLED:-false}" in compose
+    assert (
+        "CODING_WORKER_CODE_INTELLIGENCE_ENABLED: "
+        "${CODING_WORKER_CODE_INTELLIGENCE_ENABLED:-false}"
+    ) in compose
+    assert "CODING_WORKER_CLAUDE_ENABLED: ${CODING_WORKER_CLAUDE_ENABLED:-false}" in compose
     assert "/var/run/docker.sock" not in compose
     assert ".ssh" not in compose
     assert "network_mode: host" not in compose
