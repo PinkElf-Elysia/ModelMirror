@@ -43,6 +43,8 @@ class _LspClient:
         self.language_id = language_id
         self._next_id = 1
         self.notifications: list[dict[str, Any]] = []
+        self._typescript_progress_tokens: set[str | int] = set()
+        self._typescript_project_ready = False
 
     async def initialize(self) -> None:
         root_uri = self.repository.as_uri()
@@ -65,6 +67,7 @@ class _LspClient:
                 "rootUri": root_uri,
                 "workspaceFolders": [{"uri": root_uri, "name": "workspace"}],
                 "capabilities": {
+                    "window": {"workDoneProgress": True},
                     "textDocument": {
                         "documentSymbol": {"hierarchicalDocumentSymbolSupport": True},
                         "definition": {"linkSupport": True},
@@ -134,6 +137,20 @@ class _LspClient:
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         await self._write({"jsonrpc": "2.0", "method": method, "params": params})
 
+    async def semantic_request(
+        self, method: str, params: dict[str, Any], *, timeout: float = 10
+    ) -> Any:
+        result = await self.request(method, params, timeout=timeout)
+        if (
+            self.language_id
+            in {"typescript", "typescriptreact", "javascript", "javascriptreact"}
+            and result in (None, [], {})
+            and not self._typescript_project_ready
+        ):
+            await self._wait_for_typescript_project(timeout=timeout)
+            result = await self.request(method, params, timeout=timeout)
+        return result
+
     async def collect_diagnostics(self, uri: str, *, timeout: float = 10) -> list[Any]:
         latest: list[Any] | None = None
         for message in reversed(self.notifications):
@@ -178,9 +195,40 @@ class _LspClient:
                 result = {"applied": False, "failureReason": "read-only LSP"}
             await self._write({"jsonrpc": "2.0", "id": message["id"], "result": result})
         elif isinstance(method, str):
+            self._record_progress(message)
             self.notifications.append(message)
             if len(self.notifications) > 256:
                 self.notifications.pop(0)
+
+    async def _wait_for_typescript_project(self, *, timeout: float) -> None:
+        deadline = monotonic() + timeout
+        while not self._typescript_project_ready and monotonic() < deadline:
+            try:
+                message = await asyncio.wait_for(
+                    self._read(), timeout=min(0.5, deadline - monotonic())
+                )
+            except TimeoutError:
+                continue
+            await self._handle_unsolicited(message)
+
+    def _record_progress(self, message: dict[str, Any]) -> None:
+        if message.get("method") != "$/progress":
+            return
+        params = message.get("params")
+        if not isinstance(params, dict):
+            return
+        token = params.get("token")
+        value = params.get("value")
+        if not isinstance(token, (str, int)) or not isinstance(value, dict):
+            return
+        kind = value.get("kind")
+        title = value.get("title")
+        if kind == "begin" and isinstance(title, str) and "JS/TS" in title:
+            self._typescript_progress_tokens.add(token)
+        elif kind == "end" and token in self._typescript_progress_tokens:
+            self._typescript_progress_tokens.remove(token)
+            if not self._typescript_progress_tokens:
+                self._typescript_project_ready = True
 
     @staticmethod
     def _published_diagnostics(
@@ -325,18 +373,18 @@ async def query_code_intelligence(
         document = {"uri": uri}
         position = {"line": line, "character": character}
         if operation == "symbols":
-            raw = await client.request(
+            raw = await client.semantic_request(
                 "textDocument/documentSymbol", {"textDocument": document}
             )
             result = {"symbols": _normalize_symbols(raw)}
         elif operation == "definition":
-            raw = await client.request(
+            raw = await client.semantic_request(
                 "textDocument/definition",
                 {"textDocument": document, "position": position},
             )
             result = {"locations": _normalize_locations(raw, repository)}
         elif operation == "references":
-            raw = await client.request(
+            raw = await client.semantic_request(
                 "textDocument/references",
                 {
                     "textDocument": document,
@@ -346,7 +394,7 @@ async def query_code_intelligence(
             )
             result = {"locations": _normalize_locations(raw, repository)}
         elif operation == "hover":
-            raw = await client.request(
+            raw = await client.semantic_request(
                 "textDocument/hover",
                 {"textDocument": document, "position": position},
             )

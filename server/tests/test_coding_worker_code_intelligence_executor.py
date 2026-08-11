@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from server.coding_worker.code_intelligence import _LspClient
 from server.coding_worker.executor import SidecarExecutor
 
 
@@ -149,6 +150,54 @@ async def test_typescript_server_definition_and_diagnostics_rebuild_after_restar
     assert any("string" in item["message"] for item in diagnostics["diagnostics"])
     assert any(item["name"] == "double" for item in symbols["symbols"])
     assert not runtime.joinpath("lsp", "task_lsp").exists()
+
+
+@pytest.mark.asyncio
+async def test_typescript_empty_semantic_result_waits_for_project_progress() -> None:
+    client = object.__new__(_LspClient)
+    client.language_id = "typescript"
+    client._typescript_progress_tokens = set()
+    client._typescript_project_ready = False
+    responses = iter([[], [{"name": "ready"}]])
+    calls: list[str] = []
+
+    async def request(method: str, _params: object, *, timeout: float) -> object:
+        calls.append(f"request:{method}:{timeout}")
+        return next(responses)
+
+    async def wait_for_project(*, timeout: float) -> None:
+        calls.append(f"wait:{timeout}")
+        client._record_progress(
+            {
+                "method": "$/progress",
+                "params": {
+                    "token": "ts-project",
+                    "value": {
+                        "kind": "begin",
+                        "title": "Initializing JS/TS language features…",
+                    },
+                },
+            }
+        )
+        client._record_progress(
+            {
+                "method": "$/progress",
+                "params": {"token": "ts-project", "value": {"kind": "end"}},
+            }
+        )
+
+    client.request = request
+    client._wait_for_typescript_project = wait_for_project
+
+    result = await client.semantic_request("textDocument/documentSymbol", {})
+
+    assert result == [{"name": "ready"}]
+    assert client._typescript_project_ready is True
+    assert calls == [
+        "request:textDocument/documentSymbol:10",
+        "wait:10",
+        "request:textDocument/documentSymbol:10",
+    ]
 
 
 def test_executor_image_pins_language_servers_with_integrity() -> None:
