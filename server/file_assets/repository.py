@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import threading
@@ -22,7 +23,7 @@ FileAssetStatus = Literal[
     "deleted",
 ]
 
-FILE_ASSET_SCHEMA_VERSION = 5
+FILE_ASSET_SCHEMA_VERSION = 7
 
 _ASSET_STATUSES = {
     "validating",
@@ -33,6 +34,27 @@ _ASSET_STATUSES = {
     "deleting",
     "deleted",
 }
+_OUTPUT_STATUSES = {
+    "queued",
+    "running",
+    "completed",
+    "failed",
+    "cancel_requested",
+    "cancelled",
+    "interrupted",
+    "deleting",
+    "deleted",
+    "expired",
+}
+_OUTPUT_TERMINAL_STATUSES = {
+    "completed",
+    "failed",
+    "cancelled",
+    "interrupted",
+    "deleted",
+    "expired",
+}
+_OUTPUT_PREVIEW_KINDS = {"text", "document", "image", "audio", "video", "none"}
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _STORAGE_KEY = re.compile(
     r"^(?:blobs|artifacts)/[0-9a-f]{2}/[0-9a-f]{32}\.(?:blob|artifact)$"
@@ -133,6 +155,62 @@ class FileAnalysisSendConfirmationRecord:
     prompt_sha256: str
     revision: int
     confirmed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class FileOutputRecord:
+    id: str
+    tenant_id: str
+    asset_id: str | None
+    purpose: str
+    scope_id: str
+    producer_kind: str
+    producer_artifact_id: str
+    source_run_id: str | None
+    source_message_id: str | None
+    source_node_id: str | None
+    display_name: str
+    format_id: str
+    media_type: str
+    byte_size: int
+    preview_kind: str
+    status: str
+    expires_at: str | None
+    warnings_json: str
+    error_code: str | None
+    created_at: str
+    updated_at: str
+    completed_at: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FileOutputConfirmationRecord:
+    tenant_id: str
+    output_id: str
+    purpose: str
+    scope_id: str
+    handling: str
+    target_id: str
+    config_digest: str
+    revision: int
+    expires_at: str
+    confirmed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class FileOutputTaskRecord:
+    id: str
+    tenant_id: str
+    output_id: str
+    status: str
+    spec_storage_key: str | None
+    spec_sha256: str | None
+    spec_byte_size: int
+    spec_expires_at: str | None
+    error_code: str | None
+    created_at: str
+    updated_at: str
+    completed_at: str | None
 
 
 def utc_now() -> str:
@@ -308,6 +386,73 @@ class SQLiteFileAssetRepository:
             FOREIGN KEY (tenant_id, asset_id)
                 REFERENCES file_assets (tenant_id, id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS file_output_records (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            asset_id TEXT,
+            purpose TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            producer_kind TEXT NOT NULL,
+            producer_artifact_id TEXT NOT NULL,
+            source_run_id TEXT,
+            source_message_id TEXT,
+            source_node_id TEXT,
+            display_name TEXT NOT NULL,
+            format_id TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            byte_size INTEGER NOT NULL DEFAULT 0 CHECK (byte_size >= 0),
+            preview_kind TEXT NOT NULL CHECK (
+                preview_kind IN ('text','document','image','audio','video','none')
+            ),
+            status TEXT NOT NULL CHECK (
+                status IN ('queued','running','completed','failed',
+                           'cancel_requested','cancelled','interrupted',
+                           'deleting','deleted','expired')
+            ),
+            expires_at TEXT,
+            warnings_json TEXT NOT NULL DEFAULT '[]',
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            UNIQUE (tenant_id, producer_kind, producer_artifact_id)
+        );
+        CREATE TABLE IF NOT EXISTS file_output_confirmations (
+            tenant_id TEXT NOT NULL,
+            output_id TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            handling TEXT NOT NULL CHECK (handling IN ('native','extract')),
+            target_id TEXT NOT NULL,
+            config_digest TEXT NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            expires_at TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL,
+            PRIMARY KEY (tenant_id, output_id, purpose, scope_id),
+            FOREIGN KEY (tenant_id, output_id)
+                REFERENCES file_output_records (tenant_id, id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS file_output_tasks (
+            id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            output_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (
+                status IN ('queued','running','completed','failed',
+                           'cancel_requested','cancelled','interrupted')
+            ),
+            spec_storage_key TEXT,
+            spec_sha256 TEXT,
+            spec_byte_size INTEGER NOT NULL DEFAULT 0 CHECK (spec_byte_size >= 0),
+            spec_expires_at TEXT,
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT,
+            PRIMARY KEY (tenant_id, id),
+            FOREIGN KEY (tenant_id, output_id)
+                REFERENCES file_output_records (tenant_id, id) ON DELETE CASCADE
+        );
         CREATE INDEX IF NOT EXISTS idx_file_assets_tenant_scope
             ON file_assets (tenant_id, purpose, scope_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_file_assets_tenant_expiry
@@ -330,6 +475,16 @@ class SQLiteFileAssetRepository:
             );
         CREATE INDEX IF NOT EXISTS idx_file_analysis_send_scope
             ON file_analysis_send_confirmations (tenant_id, scope_id);
+        CREATE INDEX IF NOT EXISTS idx_file_outputs_scope
+            ON file_output_records (tenant_id, purpose, scope_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_file_outputs_status
+            ON file_output_records (tenant_id, status, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_file_output_confirmations_scope
+            ON file_output_confirmations (tenant_id, purpose, scope_id);
+        CREATE INDEX IF NOT EXISTS idx_file_output_tasks_output
+            ON file_output_tasks (tenant_id, output_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_file_output_tasks_status
+            ON file_output_tasks (tenant_id, status, updated_at);
         """
         with self._lock, self._connect() as connection:
             current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
@@ -1434,19 +1589,35 @@ class SQLiteFileAssetRepository:
         purpose: FilePurpose | str,
         scope_id: str,
         expire_if_unreferenced: bool = False,
+        preserve_active_output_assets: bool = False,
     ) -> tuple[str, ...]:
         """Atomically detach one tenant scope and return affected asset IDs."""
 
         clean_tenant = _identifier(tenant_id, "tenant_id")
         clean_purpose = FilePurpose(purpose).value
         clean_scope = _identifier(scope_id, "scope_id")
+        output_filter = (
+            """
+            AND NOT EXISTS (
+                SELECT 1 FROM file_output_records AS output
+                WHERE output.tenant_id = file_bindings.tenant_id
+                  AND output.asset_id = file_bindings.asset_id
+                  AND output.purpose = file_bindings.purpose
+                  AND output.scope_id = file_bindings.scope_id
+                  AND output.status NOT IN ('deleting','deleted','expired')
+            )
+            """
+            if preserve_active_output_assets
+            else ""
+        )
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
-                """
+                f"""
                 SELECT asset_id, COUNT(*) AS binding_count
                 FROM file_bindings
                 WHERE tenant_id = ? AND purpose = ? AND scope_id = ?
+                {output_filter}
                 GROUP BY asset_id
                 ORDER BY asset_id
                 """,
@@ -1455,9 +1626,10 @@ class SQLiteFileAssetRepository:
             if not rows:
                 return ()
             connection.execute(
-                """
+                f"""
                 DELETE FROM file_bindings
                 WHERE tenant_id = ? AND purpose = ? AND scope_id = ?
+                {output_filter}
                 """,
                 (clean_tenant, clean_purpose, clean_scope),
             )
@@ -1942,6 +2114,9 @@ class SQLiteFileAssetRepository:
                 SELECT storage_key FROM file_assets
                 UNION
                 SELECT storage_key FROM file_artifacts
+                UNION
+                SELECT spec_storage_key FROM file_output_tasks
+                WHERE spec_storage_key IS NOT NULL
                 """
             ).fetchall()
         return frozenset(row["storage_key"] for row in rows)
@@ -2103,6 +2278,497 @@ class SQLiteFileAssetRepository:
             )
         return cursor.rowcount == 1
 
+    def create_output_record(
+        self,
+        tenant_id: str,
+        *,
+        purpose: FilePurpose | str,
+        scope_id: str,
+        producer_kind: str,
+        producer_artifact_id: str,
+        display_name: str,
+        format_id: str,
+        media_type: str,
+        preview_kind: str,
+        status: str = "queued",
+        asset_id: str | None = None,
+        byte_size: int = 0,
+        expires_at: datetime | str | None = None,
+        warnings: tuple[str, ...] = (),
+        error_code: str | None = None,
+        source_run_id: str | None = None,
+        source_message_id: str | None = None,
+        source_node_id: str | None = None,
+        output_id: str | None = None,
+    ) -> FileOutputRecord:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        identifier = _identifier(output_id or f"output_{uuid.uuid4().hex}", "output_id")
+        clean_status = _output_status(status)
+        now = utc_now()
+        completed_at = now if clean_status in _OUTPUT_TERMINAL_STATUSES else None
+        values = (
+            identifier,
+            clean_tenant,
+            _identifier(asset_id, "asset_id") if asset_id else None,
+            FilePurpose(purpose).value,
+            _identifier(scope_id, "scope_id"),
+            _identifier(producer_kind, "producer_kind"),
+            _identifier(producer_artifact_id, "producer_artifact_id"),
+            _optional_identifier(source_run_id, "source_run_id"),
+            _optional_identifier(source_message_id, "source_message_id"),
+            _optional_identifier(source_node_id, "source_node_id"),
+            _display_name(display_name),
+            _identifier(format_id, "format_id"),
+            _media_type(media_type),
+            _non_negative_int(byte_size, "byte_size"),
+            _preview_kind(preview_kind),
+            clean_status,
+            _timestamp(expires_at),
+            _warnings_json(warnings),
+            _optional_code(error_code),
+            now,
+            now,
+            completed_at,
+        )
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO file_output_records (
+                    id, tenant_id, asset_id, purpose, scope_id,
+                    producer_kind, producer_artifact_id, source_run_id,
+                    source_message_id, source_node_id, display_name,
+                    format_id, media_type, byte_size, preview_kind, status,
+                    expires_at, warnings_json, error_code, created_at,
+                    updated_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+            row = connection.execute(
+                "SELECT * FROM file_output_records WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, identifier),
+            ).fetchone()
+        assert row is not None
+        return _output_record(row)
+
+    def get_output_record(self, tenant_id: str, output_id: str) -> FileOutputRecord | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM file_output_records WHERE tenant_id = ? AND id = ?",
+                (_identifier(tenant_id, "tenant_id"), _identifier(output_id, "output_id")),
+            ).fetchone()
+        return _output_record(row) if row is not None else None
+
+    def get_output_by_producer(
+        self,
+        tenant_id: str,
+        *,
+        producer_kind: str,
+        producer_artifact_id: str,
+    ) -> FileOutputRecord | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM file_output_records
+                WHERE tenant_id = ? AND producer_kind = ? AND producer_artifact_id = ?
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(producer_kind, "producer_kind"),
+                    _identifier(producer_artifact_id, "producer_artifact_id"),
+                ),
+            ).fetchone()
+        return _output_record(row) if row is not None else None
+
+    def list_output_records(
+        self,
+        tenant_id: str,
+        *,
+        purpose: FilePurpose | str,
+        scope_id: str,
+    ) -> tuple[FileOutputRecord, ...]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM file_output_records
+                WHERE tenant_id = ? AND purpose = ? AND scope_id = ?
+                  AND status != 'deleted'
+                ORDER BY created_at DESC, id DESC
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    FilePurpose(purpose).value,
+                    _identifier(scope_id, "scope_id"),
+                ),
+            ).fetchall()
+        return tuple(_output_record(row) for row in rows)
+
+    def update_output_record(
+        self,
+        tenant_id: str,
+        output_id: str,
+        *,
+        status: str,
+        asset_id: str | None = None,
+        byte_size: int | None = None,
+        expires_at: datetime | str | None = None,
+        warnings: tuple[str, ...] | None = None,
+        error_code: str | None = None,
+    ) -> FileOutputRecord | None:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_output = _identifier(output_id, "output_id")
+        clean_status = _output_status(status)
+        now = utc_now()
+        completed_at = now if clean_status in _OUTPUT_TERMINAL_STATUSES else None
+        assignments = ["status = ?", "updated_at = ?", "completed_at = ?", "error_code = ?"]
+        values: list[object] = [clean_status, now, completed_at, _optional_code(error_code)]
+        if asset_id is not None:
+            assignments.append("asset_id = ?")
+            values.append(_identifier(asset_id, "asset_id"))
+        if byte_size is not None:
+            assignments.append("byte_size = ?")
+            values.append(_non_negative_int(byte_size, "byte_size"))
+        if expires_at is not None:
+            assignments.append("expires_at = ?")
+            values.append(_timestamp(expires_at))
+        if warnings is not None:
+            assignments.append("warnings_json = ?")
+            values.append(_warnings_json(warnings))
+        values.extend((clean_tenant, clean_output))
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                f"UPDATE file_output_records SET {', '.join(assignments)} WHERE tenant_id = ? AND id = ?",
+                tuple(values),
+            )
+            row = connection.execute(
+                "SELECT * FROM file_output_records WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, clean_output),
+            ).fetchone()
+        return _output_record(row) if row is not None else None
+
+    def interrupt_active_output_records(self) -> int:
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE file_output_records
+                SET status = 'interrupted', error_code = 'output_interrupted',
+                    updated_at = ?, completed_at = ?
+                WHERE status IN ('queued','running','cancel_requested')
+                """,
+                (now, now),
+            )
+            return int(cursor.rowcount)
+
+    def create_output_task(
+        self,
+        tenant_id: str,
+        output_id: str,
+        *,
+        status: str = "queued",
+        spec_storage_key: str,
+        spec_sha256: str,
+        spec_byte_size: int,
+        spec_expires_at: datetime | str,
+        task_id: str | None = None,
+    ) -> FileOutputTaskRecord:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_output = _identifier(output_id, "output_id")
+        identifier = _identifier(task_id or f"output_task_{uuid.uuid4().hex}", "task_id")
+        clean_status = _output_status(status)
+        if clean_status in {"deleting", "deleted", "expired"}:
+            raise ValueError("invalid output task status")
+        now = utc_now()
+        completed_at = now if clean_status in _OUTPUT_TERMINAL_STATUSES else None
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO file_output_tasks (
+                    id, tenant_id, output_id, status, spec_storage_key,
+                    spec_sha256, spec_byte_size, spec_expires_at, error_code,
+                    created_at, updated_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                """,
+                (
+                    identifier,
+                    clean_tenant,
+                    clean_output,
+                    clean_status,
+                    _storage_key(spec_storage_key, namespace="blobs"),
+                    _sha256(spec_sha256),
+                    _non_negative_int(spec_byte_size, "spec_byte_size"),
+                    _timestamp(spec_expires_at),
+                    now,
+                    now,
+                    completed_at,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM file_output_tasks WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, identifier),
+            ).fetchone()
+        assert row is not None
+        return _output_task_record(row)
+
+    def latest_output_task(
+        self, tenant_id: str, output_id: str
+    ) -> FileOutputTaskRecord | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM file_output_tasks
+                WHERE tenant_id = ? AND output_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(output_id, "output_id"),
+                ),
+            ).fetchone()
+        return _output_task_record(row) if row is not None else None
+
+    def update_output_task(
+        self,
+        tenant_id: str,
+        task_id: str,
+        *,
+        status: str,
+        error_code: str | None = None,
+        clear_spec: bool = False,
+    ) -> FileOutputTaskRecord | None:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_task = _identifier(task_id, "task_id")
+        clean_status = _output_status(status)
+        if clean_status in {"deleting", "deleted", "expired"}:
+            raise ValueError("invalid output task status")
+        now = utc_now()
+        completed_at = now if clean_status in _OUTPUT_TERMINAL_STATUSES else None
+        assignments = [
+            "status = ?",
+            "error_code = ?",
+            "updated_at = ?",
+            "completed_at = ?",
+        ]
+        values: list[object] = [
+            clean_status,
+            _optional_code(error_code),
+            now,
+            completed_at,
+        ]
+        if clear_spec:
+            assignments.extend(
+                [
+                    "spec_storage_key = NULL",
+                    "spec_sha256 = NULL",
+                    "spec_byte_size = 0",
+                    "spec_expires_at = NULL",
+                ]
+            )
+        values.extend((clean_tenant, clean_task))
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                f"UPDATE file_output_tasks SET {', '.join(assignments)} WHERE tenant_id = ? AND id = ?",
+                tuple(values),
+            )
+            row = connection.execute(
+                "SELECT * FROM file_output_tasks WHERE tenant_id = ? AND id = ?",
+                (clean_tenant, clean_task),
+            ).fetchone()
+        return _output_task_record(row) if row is not None else None
+
+    def interrupt_active_output_tasks(self) -> int:
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE file_output_tasks
+                SET status = 'interrupted', error_code = 'output_interrupted',
+                    updated_at = ?, completed_at = ?
+                WHERE status IN ('queued','running','cancel_requested')
+                """,
+                (now, now),
+            )
+            return int(cursor.rowcount)
+
+    def detach_expired_output_task_specs(
+        self,
+        tenant_id: str,
+        *,
+        now: datetime | str | None = None,
+    ) -> tuple[str, ...]:
+        """Atomically detach expired private retry blobs for best-effort deletion."""
+
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        threshold = _timestamp(now or datetime.now(UTC))
+        assert threshold is not None
+        updated = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT spec_storage_key FROM file_output_tasks
+                WHERE tenant_id = ? AND spec_storage_key IS NOT NULL
+                  AND spec_expires_at IS NOT NULL AND spec_expires_at <= ?
+                """,
+                (clean_tenant, threshold),
+            ).fetchall()
+            connection.execute(
+                """
+                UPDATE file_output_tasks
+                SET spec_storage_key = NULL, spec_sha256 = NULL,
+                    spec_byte_size = 0, spec_expires_at = NULL,
+                    updated_at = ?
+                WHERE tenant_id = ? AND spec_storage_key IS NOT NULL
+                  AND spec_expires_at IS NOT NULL AND spec_expires_at <= ?
+                """,
+                (updated, clean_tenant, threshold),
+            )
+        return tuple(str(row["spec_storage_key"]) for row in rows)
+
+    def expire_due_output_records(
+        self, *, now: datetime | str | None = None
+    ) -> tuple[FileOutputRecord, ...]:
+        threshold = _timestamp(now or datetime.now(UTC))
+        assert threshold is not None
+        updated = utc_now()
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM file_output_records
+                WHERE status = 'completed' AND expires_at IS NOT NULL AND expires_at <= ?
+                """,
+                (threshold,),
+            ).fetchall()
+            connection.execute(
+                """
+                UPDATE file_output_records
+                SET status = 'expired', updated_at = ?, completed_at = ?
+                WHERE status = 'completed' AND expires_at IS NOT NULL AND expires_at <= ?
+                """,
+                (updated, updated, threshold),
+            )
+        return tuple(_output_record(row) for row in rows)
+
+    def confirm_output_reuse(
+        self,
+        tenant_id: str,
+        output_id: str,
+        *,
+        purpose: FilePurpose | str,
+        scope_id: str,
+        handling: Literal["native", "extract"],
+        target_id: str,
+        config_digest: str,
+        expires_at: datetime | str,
+    ) -> FileOutputConfirmationRecord | None:
+        clean_tenant = _identifier(tenant_id, "tenant_id")
+        clean_output = _identifier(output_id, "output_id")
+        clean_purpose = FilePurpose(purpose).value
+        clean_scope = _identifier(scope_id, "scope_id")
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            output = connection.execute(
+                """
+                SELECT 1 FROM file_output_records
+                WHERE tenant_id = ? AND id = ? AND purpose = ?
+                  AND scope_id = ? AND status = 'completed'
+                """,
+                (clean_tenant, clean_output, clean_purpose, clean_scope),
+            ).fetchone()
+            if output is None:
+                return None
+            previous = connection.execute(
+                """
+                SELECT revision FROM file_output_confirmations
+                WHERE tenant_id = ? AND output_id = ? AND purpose = ? AND scope_id = ?
+                """,
+                (clean_tenant, clean_output, clean_purpose, clean_scope),
+            ).fetchone()
+            revision = int(previous["revision"]) + 1 if previous else 1
+            connection.execute(
+                """
+                INSERT INTO file_output_confirmations (
+                    tenant_id, output_id, purpose, scope_id, handling,
+                    target_id, config_digest, revision, expires_at, confirmed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tenant_id, output_id, purpose, scope_id)
+                DO UPDATE SET handling = excluded.handling,
+                              target_id = excluded.target_id,
+                              config_digest = excluded.config_digest,
+                              revision = excluded.revision,
+                              expires_at = excluded.expires_at,
+                              confirmed_at = excluded.confirmed_at
+                """,
+                (
+                    clean_tenant,
+                    clean_output,
+                    clean_purpose,
+                    clean_scope,
+                    _file_handling(handling),
+                    _identifier(target_id, "target_id"),
+                    _sha256(config_digest),
+                    revision,
+                    _timestamp(expires_at),
+                    now,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM file_output_confirmations
+                WHERE tenant_id = ? AND output_id = ? AND purpose = ? AND scope_id = ?
+                """,
+                (clean_tenant, clean_output, clean_purpose, clean_scope),
+            ).fetchone()
+        return _output_confirmation_record(row) if row is not None else None
+
+    def get_output_confirmation(
+        self,
+        tenant_id: str,
+        output_id: str,
+        *,
+        purpose: FilePurpose | str,
+        scope_id: str,
+    ) -> FileOutputConfirmationRecord | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM file_output_confirmations
+                WHERE tenant_id = ? AND output_id = ? AND purpose = ? AND scope_id = ?
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(output_id, "output_id"),
+                    FilePurpose(purpose).value,
+                    _identifier(scope_id, "scope_id"),
+                ),
+            ).fetchone()
+        return _output_confirmation_record(row) if row is not None else None
+
+    def clear_output_confirmation(
+        self,
+        tenant_id: str,
+        output_id: str,
+        *,
+        purpose: FilePurpose | str,
+        scope_id: str,
+    ) -> bool:
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM file_output_confirmations
+                WHERE tenant_id = ? AND output_id = ? AND purpose = ? AND scope_id = ?
+                """,
+                (
+                    _identifier(tenant_id, "tenant_id"),
+                    _identifier(output_id, "output_id"),
+                    FilePurpose(purpose).value,
+                    _identifier(scope_id, "scope_id"),
+                ),
+            )
+        return cursor.rowcount == 1
+
     def count_schema_tenant_columns(self) -> dict[str, bool]:
         tables = (
             "file_assets",
@@ -2112,6 +2778,9 @@ class SQLiteFileAssetRepository:
             "file_analysis_confirmations",
             "file_analysis_jobs",
             "file_analysis_send_confirmations",
+            "file_output_records",
+            "file_output_confirmations",
+            "file_output_tasks",
         )
         with self._lock, self._connect() as connection:
             return {
@@ -2235,11 +2904,77 @@ def _analysis_send_confirmation_record(
     )
 
 
+def _output_record(row: sqlite3.Row) -> FileOutputRecord:
+    return FileOutputRecord(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        asset_id=row["asset_id"],
+        purpose=row["purpose"],
+        scope_id=row["scope_id"],
+        producer_kind=row["producer_kind"],
+        producer_artifact_id=row["producer_artifact_id"],
+        source_run_id=row["source_run_id"],
+        source_message_id=row["source_message_id"],
+        source_node_id=row["source_node_id"],
+        display_name=row["display_name"],
+        format_id=row["format_id"],
+        media_type=row["media_type"],
+        byte_size=int(row["byte_size"]),
+        preview_kind=row["preview_kind"],
+        status=row["status"],
+        expires_at=row["expires_at"],
+        warnings_json=row["warnings_json"],
+        error_code=row["error_code"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        completed_at=row["completed_at"],
+    )
+
+
+def _output_confirmation_record(row: sqlite3.Row) -> FileOutputConfirmationRecord:
+    return FileOutputConfirmationRecord(
+        tenant_id=row["tenant_id"],
+        output_id=row["output_id"],
+        purpose=row["purpose"],
+        scope_id=row["scope_id"],
+        handling=row["handling"],
+        target_id=row["target_id"],
+        config_digest=row["config_digest"],
+        revision=int(row["revision"]),
+        expires_at=row["expires_at"],
+        confirmed_at=row["confirmed_at"],
+    )
+
+
+def _output_task_record(row: sqlite3.Row) -> FileOutputTaskRecord:
+    return FileOutputTaskRecord(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        output_id=row["output_id"],
+        status=row["status"],
+        spec_storage_key=row["spec_storage_key"],
+        spec_sha256=row["spec_sha256"],
+        spec_byte_size=int(row["spec_byte_size"]),
+        spec_expires_at=row["spec_expires_at"],
+        error_code=row["error_code"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        completed_at=row["completed_at"],
+    )
+
+
 def _identifier(value: object, field: str) -> str:
     clean = str(value or "").strip()
     if not clean or len(clean) > 256 or any(ord(character) < 32 for character in clean):
         raise ValueError(f"{field} is invalid")
     return clean
+
+
+def _optional_identifier(value: object | None, field: str) -> str | None:
+    if value is None:
+        return None
+    clean = str(value).strip()
+    return _identifier(clean, field) if clean else None
 
 
 def _display_name(value: object) -> str:
@@ -2323,6 +3058,34 @@ def _analysis_status(value: object) -> str:
     }:
         raise ValueError("analysis status is invalid")
     return clean
+
+
+def _output_status(value: object) -> str:
+    clean = str(value or "").strip().lower()
+    if clean not in _OUTPUT_STATUSES:
+        raise ValueError("output status is invalid")
+    return clean
+
+
+def _preview_kind(value: object) -> str:
+    clean = str(value or "").strip().lower()
+    if clean not in _OUTPUT_PREVIEW_KINDS:
+        raise ValueError("preview kind is invalid")
+    return clean
+
+
+def _warnings_json(value: tuple[str, ...]) -> str:
+    items: list[str] = []
+    total = 0
+    for item in value[:20]:
+        clean = str(item or "").strip()[:500]
+        if not clean or clean in items:
+            continue
+        if total + len(clean) > 4_000:
+            break
+        items.append(clean)
+        total += len(clean)
+    return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
 
 
 def _selected_pages(value: object) -> tuple[int, ...]:

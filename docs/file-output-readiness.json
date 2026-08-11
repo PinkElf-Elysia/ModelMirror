@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "reviewed_at": "2026-08-10",
+  "protocol_version": "modelmirror-file-output-capabilities-v1",
+  "input_protocol_version": "modelmirror-file-capabilities-v2",
+  "input_registry_version": "modelmirror-file-formats-v5",
+  "audit_only": true,
+  "feature_flags": {
+    "FILE_OUTPUT_ASSETS_ENABLED": false,
+    "CHAT_FILE_OUTPUT_TOOL_ENABLED": false
+  },
+  "verified_chat_targets": [
+    {
+      "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+      "model_id": "openai/gpt-5.6-luna",
+      "provider": "openai",
+      "verification_status": "provider_canary_verified",
+      "verified_at": "2026-08-10",
+      "fallback_allowed": false
+    }
+  ],
+  "limits": {
+    "max_outputs_per_turn": 5,
+    "max_bytes_per_output": 52428800,
+    "max_total_bytes_per_turn": 104857600,
+    "max_spec_chars": 500000,
+    "max_spec_bytes": 2097152,
+    "hard_ttl_seconds": 604800
+  },
+  "module_readiness": [
+    {
+      "purpose": "chat",
+      "interaction_status": "ready",
+      "verification_status": "provider_canary_verified",
+      "reason": "Only the exact OpenRouter + openai/gpt-5.6-luna + OpenAI standard provider target is ready; every other model remains canary-gated."
+    },
+    {
+      "purpose": "agent",
+      "interaction_status": "ready",
+      "verification_status": "contract_verified",
+      "reason": "Explicit Sandbox, Browser and MCP artifacts are copied into scoped output assets; URL-only results are not fetched."
+    },
+    {
+      "purpose": "workflow",
+      "interaction_status": "ready",
+      "verification_status": "contract_verified",
+      "reason": "Explicit run and node artifacts are recovered under the workflow scope; legacy workspace diagnostics remain available."
+    }
+  ],
+  "format_groups": [
+    {
+      "group": "locally_rendered",
+      "formats": ["plain_text", "markdown", "json", "csv"],
+      "preview": true,
+      "download": true,
+      "reuse": true,
+      "save_rag": true,
+      "verification_status": "verified"
+    },
+    {
+      "group": "isolated_rendered",
+      "formats": ["pdf", "docx", "xlsx", "pptx"],
+      "preview": true,
+      "download": true,
+      "reuse": true,
+      "save_rag": true,
+      "verification_status": "verified"
+    },
+    {
+      "group": "captured_images",
+      "formats": ["jpeg", "png", "webp"],
+      "preview": true,
+      "download": true,
+      "reuse": "chat_only",
+      "save_rag": false,
+      "verification_status": "contract_verified"
+    },
+    {
+      "group": "captured_audio",
+      "formats": ["wav", "mp3", "flac", "m4a", "ogg", "audio_webm"],
+      "preview": true,
+      "download": true,
+      "reuse": "chat_only",
+      "save_rag": false,
+      "verification_status": "contract_verified"
+    },
+    {
+      "group": "captured_video",
+      "formats": ["mp4", "mpeg", "mov", "video_webm"],
+      "preview": true,
+      "download": true,
+      "reuse": "chat_only",
+      "save_rag": false,
+      "verification_status": "contract_verified"
+    }
+  ],
+  "security_controls": [
+    "tenant_purpose_scope_enforcement",
+    "opaque_blob_keys",
+    "source_path_redaction",
+    "content_hash_and_type_revalidation",
+    "symlink_and_reparse_rejection",
+    "dangerous_executable_rejection",
+    "network_none_office_pdf_renderer",
+    "no_workspace_scanning",
+    "no_remote_url_persistence_fetch",
+    "single_deadline_no_automatic_retry",
+    "seven_day_hard_ttl",
+    "cleanup_pending_retry"
+  ],
+  "evidence": [
+    "server/tests/test_file_output_assets.py",
+    "server/tests/test_file_output_renderer.py",
+    "server/tests/test_mcp_output_renderer.py",
+    "server/tests/test_chat_file_output.py",
+    "server/tests/test_file_output_runtime_adapters.py",
+    "server/tests/test_rag_file_output_import.py",
+    "client/src/pages/ChatPage.tsx",
+    "client/src/data/fileOutputs.test.ts",
+    "client/src/components/FileOutputTray.test.tsx",
+    "client/src/utils/fetchChatStream.test.ts"
+  ],
+  "known_gaps": [
+    "unverified_chat_models_remain_planned",
+    "agent_workflow_media_reuse_without_equivalent_inputs",
+    "unified_file_center",
+    "cross_module_transfer",
+    "datax_and_coding_exports"
+  ]
+}

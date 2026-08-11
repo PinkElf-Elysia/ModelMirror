@@ -87,7 +87,10 @@ function assertChatFileWiring({
   assert(/import\s+ChatFileComposer/.test(chatPage), "ChatPage does not import ChatFileComposer");
   assert(/<ChatFileComposer\b/.test(chatPage), "ChatPage does not render ChatFileComposer");
   assert(/type:\s*["']input_file["']/.test(chatPage), "ChatPage does not build input_file content parts");
-  assert(/fileScopeId:\s*selectedFiles/.test(chatPage), "ChatPage does not bind file requests to the active scope");
+  assert(
+    /fileScopeId:\s*(?:selectedFiles|chatFileScopeId)/.test(chatPage),
+    "ChatPage does not bind file requests to the active scope",
+  );
 
   for (const symbol of [
     "fetchFileCapabilities",

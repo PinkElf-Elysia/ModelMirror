@@ -6,3 +6,4 @@ xlrd==2.0.2
 matplotlib==3.10.7
 markitdown[all]==0.1.7
 python-docx==1.2.0
+reportlab==5.0.0

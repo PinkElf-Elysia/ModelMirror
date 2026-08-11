@@ -1,10 +1,12 @@
 import asyncio
 import ast
 import base64
+import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -60,6 +62,14 @@ except ModuleNotFoundError:
 
 try:
     from server.file_assets.api import router as file_assets_router
+    from server.file_assets.chat_output import (
+        ChatOutputError,
+        run_chat_output_turn,
+        verified_chat_output_provider,
+    )
+    from server.file_assets.contracts import FilePurpose
+    from server.file_assets.output_media import ChatMediaCapture
+    from server.file_assets.output_service import get_file_output_service
     from server.file_assets.service import (
         ChatFileSelection,
         FileAssetServiceError,
@@ -68,6 +78,14 @@ try:
     )
 except ModuleNotFoundError:
     from file_assets.api import router as file_assets_router
+    from file_assets.chat_output import (
+        ChatOutputError,
+        run_chat_output_turn,
+        verified_chat_output_provider,
+    )
+    from file_assets.contracts import FilePurpose
+    from file_assets.output_media import ChatMediaCapture
+    from file_assets.output_service import get_file_output_service
     from file_assets.service import (
         ChatFileSelection,
         FileAssetServiceError,
@@ -1300,6 +1318,34 @@ class ImageUrlPayload(BaseModel):
 class ImageContentPart(BaseModel):
     type: Literal["image_url"]
     image_url: ImageUrlPayload
+    output_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=80,
+        pattern=r"^output_[A-Za-z0-9_-]+$",
+    )
+    output_asset_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=80,
+        pattern=r"^file_[A-Za-z0-9_-]+$",
+    )
+    output_confirmation_revision: int | None = Field(
+        default=None, ge=1, le=2_147_483_647
+    )
+
+    @model_validator(mode="after")
+    def validate_output_binding(self) -> "ImageContentPart":
+        values = (
+            self.output_id,
+            self.output_asset_id,
+            self.output_confirmation_revision,
+        )
+        if any(value is not None for value in values) and not all(
+            value is not None for value in values
+        ):
+            raise ValueError("output image reuse fields must be provided together")
+        return self
 
 
 class InputAudioContentPart(BaseModel):
@@ -1309,6 +1355,34 @@ class InputAudioContentPart(BaseModel):
         max_length=80,
         pattern=r"^att_[A-Za-z0-9_-]+$",
     )
+    output_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=80,
+        pattern=r"^output_[A-Za-z0-9_-]+$",
+    )
+    output_asset_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=80,
+        pattern=r"^file_[A-Za-z0-9_-]+$",
+    )
+    output_confirmation_revision: int | None = Field(
+        default=None, ge=1, le=2_147_483_647
+    )
+
+    @model_validator(mode="after")
+    def validate_output_binding(self) -> "InputAudioContentPart":
+        values = (
+            self.output_id,
+            self.output_asset_id,
+            self.output_confirmation_revision,
+        )
+        if any(value is not None for value in values) and not all(
+            value is not None for value in values
+        ):
+            raise ValueError("output audio reuse fields must be provided together")
+        return self
 
 
 class InputVideoContentPart(BaseModel):
@@ -1318,6 +1392,34 @@ class InputVideoContentPart(BaseModel):
         max_length=80,
         pattern=r"^att_[A-Za-z0-9_-]+$",
     )
+    output_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=80,
+        pattern=r"^output_[A-Za-z0-9_-]+$",
+    )
+    output_asset_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=80,
+        pattern=r"^file_[A-Za-z0-9_-]+$",
+    )
+    output_confirmation_revision: int | None = Field(
+        default=None, ge=1, le=2_147_483_647
+    )
+
+    @model_validator(mode="after")
+    def validate_output_binding(self) -> "InputVideoContentPart":
+        values = (
+            self.output_id,
+            self.output_asset_id,
+            self.output_confirmation_revision,
+        )
+        if any(value is not None for value in values) and not all(
+            value is not None for value in values
+        ):
+            raise ValueError("output video reuse fields must be provided together")
+        return self
 
 
 class InputFileContentPart(BaseModel):
@@ -1336,6 +1438,15 @@ class InputFileContentPart(BaseModel):
         pattern=r"^artifact_[A-Za-z0-9_-]+$",
     )
     analysis_prompt: str | None = Field(default=None, max_length=2_000)
+    output_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=80,
+        pattern=r"^output_[A-Za-z0-9_-]+$",
+    )
+    output_confirmation_revision: int | None = Field(
+        default=None, ge=1, le=2_147_483_647
+    )
 
     @model_validator(mode="after")
     def validate_analysis_binding(self) -> "InputFileContentPart":
@@ -1343,6 +1454,12 @@ class InputFileContentPart(BaseModel):
             raise ValueError("analysis_prompt requires analysis_artifact_id")
         if self.analysis_artifact_id is not None and self.handling != "extract":
             raise ValueError("analysis artifacts require extract handling")
+        if (self.output_id is None) != (self.output_confirmation_revision is None):
+            raise ValueError(
+                "output_id and output_confirmation_revision must be provided together"
+            )
+        if self.output_id is not None and self.analysis_artifact_id is not None:
+            raise ValueError("output reuse cannot also bind an analysis artifact")
         return self
 
 
@@ -1410,6 +1527,13 @@ class ChatRequest(BaseModel):
     compression: ChatCompressionOptions | None = None
     response_audio: ChatResponseAudioOptions | None = None
     file_scope_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+    output_mode: Literal["none", "allowlisted"] = "none"
+    output_context_id: str | None = Field(
         default=None,
         min_length=1,
         max_length=256,
@@ -2154,6 +2278,178 @@ async def model_supports_native_pdf_input(model_id: str) -> bool:
     )
 
 
+async def model_supports_chat_output_tool(model_id: str, *, gateway_url: str) -> bool:
+    if verified_chat_output_provider(model_id=model_id, gateway_url=gateway_url) is None:
+        return False
+    try:
+        catalog = await get_catalog_coordinator().get_catalog()
+    except Exception:
+        return False
+    if catalog.router_status != "online" or catalog.stale or catalog.source == "bundled":
+        return False
+    return any(
+        candidate.invocation_id == model_id
+        and candidate.invocable
+        and candidate.availability == "live"
+        and "text" in candidate.input_modalities
+        and "text" in candidate.output_modalities
+        and "chat" in candidate.operations
+        and "tools" in candidate.capabilities
+        for candidate in catalog.models
+    )
+
+
+async def validate_chat_output_request(
+    payload: ChatRequest,
+    *,
+    gateway_url: str,
+    direct_audio_requested: bool,
+    direct_video_requested: bool,
+    direct_file_requested: bool,
+) -> None:
+    if payload.output_mode == "none":
+        if payload.output_context_id is not None and payload.file_scope_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="output_context_id requires the current Chat file scope.",
+            )
+        return
+    if not chat_output_flag_enabled("FILE_OUTPUT_ASSETS_ENABLED") or not chat_output_flag_enabled(
+        "CHAT_FILE_OUTPUT_TOOL_ENABLED"
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Chat file output is disabled by configuration.",
+        )
+    if (
+        payload.gateway != "default"
+        or is_omniroute_auto_model(payload.model_id)
+        or payload.routing is not None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="File output requires the exact selected model on the default gateway.",
+        )
+    if payload.tool_mode != "none":
+        raise HTTPException(
+            status_code=422,
+            detail="The built-in file-output tool cannot be combined with MCP tool mode.",
+        )
+    if payload.response_audio is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Native audio output cannot be combined with file generation.",
+        )
+    if direct_audio_requested or direct_video_requested or direct_file_requested:
+        raise HTTPException(
+            status_code=422,
+            detail="File generation currently requires a text-only Chat turn.",
+        )
+    if payload.file_scope_id is None or payload.output_context_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="File output requires both the current Chat scope and a stable turn context.",
+        )
+    if not await model_supports_chat_output_tool(
+        payload.model_id,
+        gateway_url=gateway_url,
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="The exact selected model is not currently verified for tool calling.",
+        )
+
+
+def validate_chat_output_reuse_inputs(
+    payload: ChatRequest,
+) -> tuple[dict[str, str], dict[str, tuple[str, bytes]]]:
+    reused_files = tuple(
+        part
+        for message in payload.messages
+        if isinstance(message.content, list)
+        for part in message.content
+        if isinstance(part, InputFileContentPart) and part.output_id is not None
+    )
+    reused_media = tuple(
+        part
+        for message in payload.messages
+        if isinstance(message.content, list)
+        for part in message.content
+        if isinstance(
+            part,
+            (ImageContentPart, InputAudioContentPart, InputVideoContentPart),
+        )
+        and part.output_id is not None
+    )
+    if not reused_files and not reused_media:
+        return {}, {}
+    if payload.gateway != "default" or payload.file_scope_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Output reuse must be reconfirmed for the exact Chat model and scope.",
+        )
+    service = get_file_output_service()
+    for part in reused_files:
+        try:
+            service.validate_reuse_confirmation(
+                part.output_id or "",
+                asset_id=part.asset_id,
+                purpose=FilePurpose.CHAT,
+                scope_id=payload.file_scope_id,
+                handling=part.handling,
+                target_id=payload.model_id,
+                gateway="default",
+                output_confirmation_revision=part.output_confirmation_revision or 0,
+            )
+        except FileAssetServiceError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.message,
+            ) from exc
+    resolved_images: dict[str, str] = {}
+    resolved_attachments: dict[str, tuple[str, bytes]] = {}
+    for part in reused_media:
+        expected_kind = (
+            "image"
+            if isinstance(part, ImageContentPart)
+            else "audio"
+            if isinstance(part, InputAudioContentPart)
+            else "video"
+        )
+        try:
+            record, content = service.resolve_media_reuse(
+                part.output_id or "",
+                asset_id=part.output_asset_id or "",
+                scope_id=payload.file_scope_id,
+                target_id=payload.model_id,
+                gateway="default",
+                output_confirmation_revision=(
+                    part.output_confirmation_revision or 0
+                ),
+                expected_kind=expected_kind,
+            )
+        except FileAssetServiceError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.message,
+            ) from exc
+        if isinstance(part, ImageContentPart):
+            resolved_images[part.output_id or ""] = (
+                f"data:{record.media_type};base64,"
+                + base64.b64encode(content).decode("ascii")
+            )
+        else:
+            resolved_attachments[part.attachment_id] = (
+                expected_kind,
+                content,
+            )
+    return resolved_images, resolved_attachments
+
+
+def chat_output_flag_enabled(name: str) -> bool:
+    return os.getenv(name, "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def render_extracted_chat_file(item: ResolvedChatFile) -> str:
     if item.analysis_artifact is not None:
         return render_analyzed_chat_file(item)
@@ -2490,6 +2786,7 @@ def upstream_chat_messages(
     *,
     audio_attachment: ClaimedChatAttachment | None = None,
     resolved_chat_files: tuple[ResolvedChatFile, ...] = (),
+    resolved_output_images: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     encoded_audio = (
         base64.b64encode(audio_attachment.content).decode("ascii")
@@ -2550,6 +2847,23 @@ def upstream_chat_messages(
                         },
                     }
                 )
+            elif isinstance(part, ImageContentPart):
+                image_url = part.image_url.url
+                if part.output_id is not None:
+                    image_url = (resolved_output_images or {}).get(
+                        part.output_id,
+                        "",
+                    )
+                    if not image_url:
+                        raise ValueError(
+                            "reused output image was not safely resolved for upstream"
+                        )
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_url},
+                    }
+                )
             else:
                 content.append(part.model_dump(mode="json"))
         result.append({"role": message.role, "content": content})
@@ -2562,6 +2876,7 @@ def build_upstream_payload(
     *,
     audio_attachment: ClaimedChatAttachment | None = None,
     resolved_chat_files: tuple[ResolvedChatFile, ...] = (),
+    resolved_output_images: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     upstream_payload: dict[str, Any] = {
         "model": model_id,
@@ -2569,6 +2884,7 @@ def build_upstream_payload(
             payload.messages,
             audio_attachment=audio_attachment,
             resolved_chat_files=resolved_chat_files,
+            resolved_output_images=resolved_output_images,
         ),
         "temperature": payload.temperature,
         "max_tokens": payload.max_tokens,
@@ -6199,6 +6515,7 @@ async def _run_workflow_response(
                         "node_title": title,
                         "task_id": task_id,
                         "run_id": effective_context.metadata.get("run_id"),
+                        "workflow_id": run_context.get("workflow_id"),
                         "runtime_run_type": runtime_run_type,
                         "xpert_id": run_context.get("xpert_id"),
                         "xpert_slug": run_context.get("xpert_slug"),
@@ -8256,6 +8573,26 @@ async def _run_workflow_response(
                         arguments,
                         tool_result_text,
                     )
+                    runtime_outputs: list[dict[str, Any]] = []
+                    if isinstance(call_result.metadata.get("file_output"), dict):
+                        runtime_outputs.append(dict(call_result.metadata["file_output"]))
+                    if isinstance(call_result.metadata.get("file_outputs"), list):
+                        runtime_outputs.extend(
+                            dict(item)
+                            for item in call_result.metadata["file_outputs"]
+                            if isinstance(item, dict)
+                        )
+                    for runtime_output in runtime_outputs:
+                        output_event = {
+                            "event": "output_file",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            **runtime_output,
+                        }
+                        if run_id:
+                            output_event["run_id"] = run_id
+                        events.append(output_event)
                     if tool_name.startswith("sandbox_"):
                         sandbox_event = {
                             "event": (
@@ -8271,6 +8608,10 @@ async def _run_workflow_response(
                             "operation_id": call_result.metadata.get("operation_id"),
                             "artifact_id": call_result.metadata.get("artifact_id"),
                         }
+                        if isinstance(call_result.metadata.get("file_output"), dict):
+                            sandbox_event["file_output"] = dict(
+                                call_result.metadata["file_output"]
+                            )
                         if run_id:
                             sandbox_event["run_id"] = run_id
                         events.append(sandbox_event)
@@ -8321,6 +8662,10 @@ async def _run_workflow_response(
                             "domain": call_result.metadata.get("domain"),
                             "page_title": call_result.metadata.get("page_title"),
                         }
+                        if isinstance(call_result.metadata.get("file_output"), dict):
+                            browser_event["file_output"] = dict(
+                                call_result.metadata["file_output"]
+                            )
                         if run_id:
                             browser_event["run_id"] = run_id
                         events.append(browser_event)
@@ -12254,6 +12599,8 @@ async def _run_workflow_response(
                                         "session_id": matched_tool.session_id,
                                         "server_id": matched_tool.server_id,
                                         "node_id": node.id,
+                                        "workflow_id": payload.workflow.id,
+                                        "run_id": workflow_run.run_id,
                                     },
                                 ),
                                 runtime_capabilities,
@@ -12283,6 +12630,20 @@ async def _run_workflow_response(
                             ]
                             output = call_result.output.strip()
                             variables[output_variable] = output
+                            for file_output in list(
+                                call_result.metadata.get("file_outputs") or []
+                            ):
+                                if isinstance(file_output, dict):
+                                    yield sse_payload(
+                                        {
+                                            "event": "output_file",
+                                            "node_id": node.id,
+                                            "node_title": title,
+                                            "node_type": kind,
+                                            "run_id": workflow_run.run_id,
+                                            **dict(file_output),
+                                        }
+                                    )
                             if non_text_types:
                                 yield sse_payload(
                                     {
@@ -16634,6 +16995,8 @@ async def chat(payload: ChatRequest, request: Request):
         message_has_file(message.content) for message in payload.messages
     )
     resolved_chat_files: tuple[ResolvedChatFile, ...] = ()
+    resolved_output_images: dict[str, str] = {}
+    resolved_output_attachments: dict[str, tuple[str, bytes]] = {}
     chat_file_service = None
     response_audio_requested = payload.response_audio is not None
     native_audio_requested = (
@@ -16694,6 +17057,17 @@ async def chat(payload: ChatRequest, request: Request):
     try:
         rate_limit_or_raise(client_ip(request))
         validate_chat_file_request(payload)
+        await validate_chat_output_request(
+            payload,
+            gateway_url=url,
+            direct_audio_requested=direct_audio_requested,
+            direct_video_requested=direct_video_requested,
+            direct_file_requested=direct_file_requested,
+        )
+        (
+            resolved_output_images,
+            resolved_output_attachments,
+        ) = validate_chat_output_reuse_inputs(payload)
         if payload.routing is not None and (
             not (use_omniroute or use_native_router)
             or not is_omniroute_auto_model(payload.model_id)
@@ -16869,6 +17243,111 @@ async def chat(payload: ChatRequest, request: Request):
             content={"error": "后端校验请求时出错，请查看服务日志。"},
         )
 
+    if payload.output_mode == "allowlisted":
+        try:
+            provider_tag = verified_chat_output_provider(
+                model_id=payload.model_id,
+                gateway_url=url,
+            )
+            if provider_tag is None:
+                raise ChatOutputError(
+                    422,
+                    "output_target_not_verified",
+                    "The exact model connection has not passed a real-provider file-output canary.",
+                )
+            output_result = await run_chat_output_turn(
+                url=url,
+                key=key,
+                headers=llm_gateway_headers(key),
+                client_kwargs=llm_client_kwargs(),
+                model_id=payload.model_id,
+                messages=upstream_chat_messages(payload.messages),
+                temperature=payload.temperature,
+                max_tokens=payload.max_tokens,
+                top_p=payload.top_p,
+                seed=payload.seed,
+                stop=payload.stop,
+                output_service=get_file_output_service(),
+                scope_id=payload.file_scope_id or "",
+                output_context_id=payload.output_context_id or "",
+                provider_tag=provider_tag,
+            )
+        except ChatOutputError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": exc.message, "code": exc.error_code},
+            )
+        except FileAssetServiceError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"error": exc.message, "code": exc.error_code},
+            )
+        except Exception:
+            logger.warning(
+                "Chat output request failed model=%s code=output_chat_failed",
+                payload.model_id,
+            )
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "The selected model could not complete the file-output turn.",
+                    "code": "output_chat_failed",
+                },
+            )
+
+        usage = output_result.usage
+        input_tokens = usage.get("prompt_tokens") or usage.get("input_tokens")
+        output_tokens = usage.get("completion_tokens") or usage.get("output_tokens")
+        total_tokens = usage.get("total_tokens")
+        receipt = {
+            "requested_model": payload.model_id,
+            "actual_model": output_result.actual_model,
+            "provider": None,
+            "strategy": "explicit",
+            "engine": "openrouter" if is_openrouter_contract_url(url) else "gateway",
+            "reason_codes": [
+                "explicit_model",
+                "operation_generate_document",
+                "bounded_file_output_tool",
+            ],
+            "latency_ms": None,
+            "tokens": {
+                "input": input_tokens,
+                "output": output_tokens,
+                "total": total_tokens,
+            },
+            "response_cost_usd": None,
+            "cost_kind": "unavailable",
+            "fallback_attempts": 0,
+            "cache_hit": None,
+            "request_id": output_result.request_id,
+            "version": "2",
+        }
+
+        async def stream_file_output():
+            for text_chunk in output_result.text_chunks:
+                if text_chunk:
+                    yield chat_sse_delta(text_chunk)
+            if output_result.output is not None:
+                output_payload = output_result.output.model_dump(mode="json")
+                yield (
+                    "event: output_file\n"
+                    f"data: {json.dumps(output_payload, ensure_ascii=False)}\n\n"
+                ).encode("utf-8")
+            yield route_receipt_sse(receipt)
+            yield b"event: message_end\ndata: {}\n\n"
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(
+            stream_file_output(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-ModelMirror-Actual-Model": output_result.actual_model,
+            },
+        )
+
     if direct_video_requested:
         attachment_store = get_chat_attachment_store()
         video_attachment: ClaimedChatAttachment | None = None
@@ -16884,6 +17363,20 @@ async def chat(payload: ChatRequest, request: Request):
                 attachment_ids[0],
                 expected_kind="video",
             )
+            expected_reuse = resolved_output_attachments.get(
+                video_attachment.attachment_id
+            )
+            if expected_reuse is not None and (
+                expected_reuse[0] != "video"
+                or not secrets.compare_digest(
+                    expected_reuse[1], video_attachment.content
+                )
+            ):
+                raise MultimodalServiceError(
+                    "output_reuse_integrity_failed",
+                    "The reused video no longer matches the confirmed output.",
+                    status_code=409,
+                )
             prompt = next(
                 (
                     message_text(message.content).strip()
@@ -17067,6 +17560,20 @@ async def chat(payload: ChatRequest, request: Request):
                     attachment_ids[0],
                     expected_kind="audio",
                 )
+                expected_reuse = resolved_output_attachments.get(
+                    audio_attachment.attachment_id
+                )
+                if expected_reuse is not None and (
+                    expected_reuse[0] != "audio"
+                    or not secrets.compare_digest(
+                        expected_reuse[1], audio_attachment.content
+                    )
+                ):
+                    raise MultimodalServiceError(
+                        "output_reuse_integrity_failed",
+                        "The reused audio no longer matches the confirmed output.",
+                        status_code=409,
+                    )
                 if audio_attachment.format not in profile.input_formats:
                     audio_attachment_store.release_for_retry(
                         audio_attachment.attachment_id
@@ -17673,6 +18180,7 @@ async def chat(payload: ChatRequest, request: Request):
             model_id,
             audio_attachment=audio_attachment,
             resolved_chat_files=resolved_chat_files,
+            resolved_output_images=resolved_output_images,
         )
         if runtime_pipeline is None or runtime_context is None:
             return await send_prepared_to_upstream(
@@ -17712,6 +18220,7 @@ async def chat(payload: ChatRequest, request: Request):
                     model_id,
                     audio_attachment=audio_attachment,
                     resolved_chat_files=resolved_chat_files,
+                    resolved_output_images=resolved_output_images,
                 )
             except Exception as exc:
                 log_chat_runtime_prepare_failure(
@@ -17755,6 +18264,7 @@ async def chat(payload: ChatRequest, request: Request):
                 model_id,
                 audio_attachment=audio_attachment,
                 resolved_chat_files=resolved_chat_files,
+                resolved_output_images=resolved_output_images,
             )
 
             async def runtime_model_handler(
@@ -18180,6 +18690,14 @@ async def chat(payload: ChatRequest, request: Request):
         omniroute_header_state.setdefault("decision", payload.routing.mode)
     omniroute_stream_state: dict[str, Any] = {}
     native_audio_stream_state: dict[str, Any] = {}
+    capture_chat_media = bool(
+        chat_output_flag_enabled("FILE_OUTPUT_ASSETS_ENABLED")
+        and payload.file_scope_id
+        and payload.output_context_id
+        and not direct_file_requested
+    )
+    media_output_stream_state: dict[str, Any] = {}
+    media_capture = ChatMediaCapture()
 
     async def stream_native_response():
         nonlocal actual_model_id
@@ -18577,16 +19095,19 @@ async def chat(payload: ChatRequest, request: Request):
                         update_stream_state(line, native_audio_stream_state)
                     if direct_file_requested:
                         update_stream_state(line, file_stream_state)
+                    if capture_chat_media:
+                        update_stream_state(line, media_output_stream_state)
+                        media_capture.consume_line(line)
                     if line.lstrip().startswith(":"):
                         continue
                     if (
-                        (use_omniroute or native_audio_requested or direct_file_requested)
+                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media)
                         and line.strip() == "data: [DONE]"
                     ):
                         deferred_done = True
                         continue
                     if (
-                        (use_omniroute or native_audio_requested or direct_file_requested)
+                        (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media)
                         and deferred_done
                         and not line.strip()
                     ):
@@ -18635,10 +19156,13 @@ async def chat(payload: ChatRequest, request: Request):
                     update_stream_state(buffer, native_audio_stream_state)
                 if direct_file_requested:
                     update_stream_state(buffer, file_stream_state)
+                if capture_chat_media:
+                    update_stream_state(buffer, media_output_stream_state)
+                    media_capture.consume_line(buffer)
                 if buffer.lstrip().startswith(":"):
                     pass
                 elif (
-                    (use_omniroute or native_audio_requested or direct_file_requested)
+                    (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media)
                     and buffer.strip() == "data: [DONE]"
                 ):
                     deferred_done = True
@@ -18742,6 +19266,74 @@ async def chat(payload: ChatRequest, request: Request):
                     yield (
                         f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
                     ).encode("utf-8")
+
+            captured_outputs = ()
+            media_finish_reason = str(
+                media_output_stream_state.get("finish_reason") or ""
+            ).strip()
+            media_terminal_observed = bool(
+                deferred_done
+                or media_output_stream_state.get("_done_observed")
+                or media_finish_reason
+            )
+            if (
+                capture_chat_media
+                and stream_completed
+                and runtime_status == "completed"
+                and media_terminal_observed
+            ):
+                registered = []
+                audio_format = (
+                    payload.response_audio.format
+                    if response_audio_requested and payload.response_audio is not None
+                    else None
+                )
+                for index, media in enumerate(
+                    media_capture.items(audio_format=audio_format), start=1
+                ):
+                    producer_digest = hashlib.sha256(
+                        (
+                            (payload.output_context_id or "")
+                            + "\0"
+                            + media.kind
+                            + "\0"
+                            + str(index)
+                            + "\0"
+                            + hashlib.sha256(media.content).hexdigest()
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    try:
+                        output = await asyncio.to_thread(
+                            get_file_output_service().register_bytes,
+                            media.content,
+                            purpose=FilePurpose.CHAT,
+                            scope_id=payload.file_scope_id or "",
+                            producer_kind=(
+                                "chat_audio" if media.kind == "audio" else "chat_image"
+                            ),
+                            producer_artifact_id="chat_media_" + producer_digest,
+                            filename=media.filename,
+                            format_id=media.format_id,
+                            media_type=media.media_type,
+                            source_message_id=payload.output_context_id,
+                            warnings=(
+                                "Captured from provider-embedded response bytes; remote URLs are not persisted.",
+                            ),
+                        )
+                    except FileAssetServiceError as exc:
+                        logger.warning(
+                            "Chat media output registration failed model=%s code=%s",
+                            payload.model_id,
+                            exc.error_code,
+                        )
+                        continue
+                    registered.append(output)
+                    output_payload = output.model_dump(mode="json")
+                    yield (
+                        "event: output_file\n"
+                        f"data: {json.dumps(output_payload, ensure_ascii=False)}\n\n"
+                    ).encode("utf-8")
+                captured_outputs = tuple(registered)
 
             native_audio_succeeded = False
             if native_audio_requested:
@@ -18936,16 +19528,54 @@ async def chat(payload: ChatRequest, request: Request):
                     yield (
                         f"data: {json.dumps(empty_error, ensure_ascii=False)}\n\n"
                     ).encode("utf-8")
+            if (
+                captured_outputs
+                and not native_audio_requested
+                and not use_omniroute
+            ):
+                yield route_receipt_sse(
+                    {
+                        "requested_model": payload.model_id,
+                        "actual_model": (
+                            media_output_stream_state.get("actual_model")
+                            or actual_model_id
+                        ),
+                        "provider": media_output_stream_state.get("provider"),
+                        "strategy": "explicit",
+                        "engine": (
+                            "openrouter"
+                            if is_openrouter_contract_url(url)
+                            else "gateway"
+                        ),
+                        "reason_codes": [
+                            "explicit_model",
+                            "operation_generate_media",
+                            "provider_embedded_bytes",
+                        ],
+                        "latency_ms": None,
+                        "tokens": {
+                            "input": media_output_stream_state.get("tokens_in"),
+                            "output": media_output_stream_state.get("tokens_out"),
+                            "total": media_output_stream_state.get("tokens_total"),
+                        },
+                        "response_cost_usd": None,
+                        "cost_kind": "unavailable",
+                        "fallback_attempts": 0,
+                        "cache_hit": None,
+                        "request_id": response.headers.get("x-request-id"),
+                        "version": "2",
+                    }
+                )
             if direct_file_requested:
                 for event in chat_file_terminal_events(
                     file_terminal_receipt,
                     failure_error_emitted=runtime_status == "error",
                 ):
                     yield event
-            elif native_audio_succeeded:
+            elif native_audio_succeeded or captured_outputs:
                 yield b"event: message_end\ndata: {}\n\n"
             if not direct_file_requested and (
-                deferred_done or native_audio_succeeded
+                deferred_done or native_audio_succeeded or captured_outputs
             ):
                 yield b"data: [DONE]\n\n"
             await response.aclose()

@@ -56,7 +56,10 @@ The `modelmirror-mcp-files:wave3-v1` runtime also includes these pinned direct
 dependencies under their upstream licenses: MCP Python SDK 1.27.2 (MIT),
 pandas 2.3.3 (BSD-3-Clause), openpyxl 3.1.5 (MIT), xlrd 2.0.2 (BSD),
 matplotlib 3.10.7 (PSF-based), MarkItDown 0.1.7 (MIT), python-docx 1.2.0
-(MIT), and python-pptx 1.0.2 (MIT). The Office libraries are used only after
+(MIT), python-pptx 1.0.2 (MIT), and ReportLab 5.0.0 (BSD-3-Clause). The Office
+libraries and ReportLab are used only by fixed local parsing or rendering
+contracts; the renderer cannot load URLs, run macros, or select output paths.
+The Office libraries are used only after
 the sidecar independently validates the complete OOXML package. Transitive
 package metadata and Debian license texts remain available in the image's
 installed package and `/usr/share/doc` directories.
