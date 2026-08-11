@@ -1,6 +1,6 @@
 # 架构方向
 
-最后更新：2026-08-10
+最后更新：2026-08-11
 状态：R7 独立 Scene Pack 与离线场景绑定
 
 ## 当前系统
@@ -20,7 +20,7 @@ Scene Pack + local GLB → scene composer
 frozen first-person controller → ray interaction → dynamic Action terminals
 ```
 
-R7 新建独立 scene lab，调用冻结 R5 loader/runtime 与 R6 playable 公开类。Scene Pack 绑定 Runtime 身份、GLB、placement、node spawn 与 action anchor；不修改 Runtime schema、snapshot 或 `project.godot`。
+R7 新建独立 scene lab，调用冻结 R5 loader/runtime 与 R6 playable 公开类。Scene Pack 绑定 Runtime 身份、GLB、placement、node spawn 与 action anchor；场景切换采用候选组合后原子替换，不修改 Runtime schema、snapshot 或 `project.godot`。
 
 ## 独立模块原则
 

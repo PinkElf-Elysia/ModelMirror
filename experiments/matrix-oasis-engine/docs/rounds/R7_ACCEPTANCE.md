@@ -1,6 +1,6 @@
 # R7 验收记录
 
-状态：R7.3 已验证，等待本地提交；R7.4–R7.6 未开始。
+状态：R7.4 已验证，等待本地提交；R7.5–R7.6 未开始。
 
 固定基线：`a4a2a68d2fc5cf056c741cd3101fcf36a250ad6e`
 分支：`codex/matrix-oasis-r7-scene-binding`
@@ -11,7 +11,7 @@
 - [x] R7.1 治理与冻结迁移
 - [x] R7.2 Scene Pack contracts/validator
 - [x] R7.3 Kenney GLB 与 Godot loader
-- [ ] R7.4 Runtime 场景组合
+- [x] R7.4 Runtime 场景组合
 - [ ] R7.5 自动验证与 Splat 资格
 - [ ] R7.6 standalone 与人工验收收口
 
@@ -58,6 +58,20 @@ R7.2 提交：`ebced26`（`feature: 定义矩阵绿洲 Scene Pack 与离线资�
 - `npm.cmd run check:godot-boundary`：`GODOT_BOUNDARY_OK checked=27`；`npm.cmd run check:boundary`：`BOUNDARY_OK checked=850 tracked=850`；`npm.cmd run check:round-scope` 与固定基线 parent scope 均为 `checked=64 changed=57`；`git diff --check` 通过。
 
 本批提交 SHA 在 R7.4 或仓外交付清单记录，避免自引用。单独 revert 本提交移除 Kenney 资产、来源锁与 Godot GLTF loader，R7.2 的纯 Node Scene Pack 合同/验证器仍可独立运行。
+
+R7.3 提交：`0862a8d`（`feature: 接入矩阵绿洲本地 GLB 场景资产`）。
+
+## R7.4 证据
+
+本批新增独立 scene lab、数据驱动场景组合器与仓外临时预览入口。它只调用冻结 R5 Runtime 与 R6 controller/terminal 的公开类；没有修改 R1–R6、Creator、examples、`project.godot` 或既有 Godot 主场景。两份冻结 Authoring 样例使用同一通用生成器产生 canonical Scene Pack，Godot 一方源码没有题材 ID 或条件分支。
+
+- `node --test tests/godot-scene-binding.test.mjs tests/godot-scene-preview.test.mjs`：7/7 通过；覆盖双样例 canonical Scene Pack、node 声明顺序、placement 显隐、静态 concave collider、三文件参数与仓外临时根。
+- 注入已核验 Godot 4.6.3 后 `npm.cmd run test:godot`：45/45 通过；覆盖 entry binding、node transition、spawn、terminal anchor、ending、reset，以及 Runtime 失败时旧世界、snapshot、玩家和 terminal 引用不变。
+- 同一工具链下 `npm.cmd test`：473/473 通过；首次未设置 `GODOT_BIN` 的运行仅由严格 doctor 按预期拒绝，注入固定工具链后的原命令完整重跑通过。
+- `npm.cmd run check:boundary`：`BOUNDARY_OK checked=862 tracked=850`；`npm.cmd run check:round-scope`：`ROUND_SCOPE_OK checked=70 changed=69`；`git diff --check` 通过。
+- 玩家坐标断言沿用 R6 的物理容差：X/Z 绑定精确到 0.02 m，Y 允许重力结算后的 0.15 m 容差；Runtime trace 与 placement 顺序不使用跨平台浮点 golden。
+
+本批提交 SHA 在 R7.5 或仓外交付清单记录，避免自引用。单独 revert 本提交移除 scene lab、组合器和预览 harness，R7.3 的严格 Scene/GLB loader 仍保持独立可测试。
 
 ## 外部调用事实
 

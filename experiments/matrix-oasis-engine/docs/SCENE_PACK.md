@@ -13,6 +13,15 @@ npm.cmd run validate:scene-pack -- \
 
 三份输入都必须是模块内普通文件；拒绝绝对路径、`..`、symlink/junction、非法 UTF-8 与读取期间替换。Scene manifest 最大 256 KiB，Runtime Pack 最大 16 MiB，Receipt 最大 16 KiB。
 
+独立 Godot 场景实验台可从两个冻结样例生成仓外临时 bundle，并只把三份本地只读文件交给新 scene lab：
+
+```text
+npm.cmd run preview:godot:scene -- --example mechanics-conformance
+npm.cmd run preview:godot:scene -- --example last-train-r1
+```
+
+场景组合按 Runtime node 切换 placement 显隐、玩家出生点与 Action 终端锚点。候选 Scene Pack、GLB、Runtime 会话或组合任一步失败时，旧世界、会话、玩家和终端引用保持不变。
+
 ## 合同
 
 - `format` 固定为 `matrix-oasis.scene-pack`，版本固定 `0.1.0`。
