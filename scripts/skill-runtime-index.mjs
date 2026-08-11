@@ -205,6 +205,7 @@ export function buildSkillRuntimeIndex({
       trustStatus: receipt.trustStatus,
       installPolicy: receipt.installPolicy,
       compatibilityStatus: receipt.compatibilityStatus,
+      routerEligible: receipt.routerEligible,
     };
     const payload = Object.fromEntries(
       Object.entries(candidate).filter(([key]) => key !== "candidateFingerprint"),

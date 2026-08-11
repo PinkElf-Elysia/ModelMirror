@@ -2148,6 +2148,7 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
             "trustStatus": "verified",
             "installPolicy": "allow",
             "compatibilityStatus": "portable",
+            "routerEligible": True,
         },
     }
     candidate = {

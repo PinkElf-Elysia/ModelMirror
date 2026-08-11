@@ -11,6 +11,18 @@ import {
 import ReactMarkdown from "react-markdown";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import remarkGfm from "remark-gfm";
+import {
+  AudioLines,
+  Database,
+  FileOutput as FileOutputIcon,
+  FileText,
+  Image as ImageIcon,
+  Radio,
+  ScanText,
+  Sparkles,
+  Video,
+  Wrench,
+} from "lucide-react";
 import AdvancedParamsPanel, {
   type ChatAdvancedParams,
 } from "../components/AdvancedParamsPanel";
@@ -41,7 +53,7 @@ import {
   federationFallbackModelId,
   federationRouteId,
 } from "../components/FederationRouterCard";
-import PromptSidebar from "../components/PromptSidebar";
+import { PromptLibraryContent } from "../components/PromptSidebar";
 import RealtimeVoiceWorkspace from "../components/RealtimeVoiceWorkspace";
 import ResourceNav from "../components/ResourceNav";
 import SpeechWorkspace from "../components/SpeechWorkspace";
@@ -70,7 +82,6 @@ import {
   type FileOutputReuseConfirmation,
 } from "../data/fileOutputs";
 import { models } from "../data/models";
-import { recruitmentTheme } from "../theme/recruitmentTheme";
 import { compressImage } from "../utils/compressImage";
 import {
   downloadImage,
@@ -102,6 +113,15 @@ import {
   speechVoiceLabel,
 } from "../utils/speechAudio";
 import { StreamingMp3Session } from "../utils/streamingAudio";
+import {
+  ChatActionMenu,
+  ChatActiveContextBar,
+  ChatCompactHeader,
+  ChatOverlayDrawer,
+  type ChatActionDescriptor,
+  type ChatActiveContext,
+  type ChatShellMode,
+} from "../components/chat/ChatConversationChrome";
 
 const WorldGenerationPanel = lazy(() =>
   import("../components/world/WorldGenerationPanel").then((module) => ({
@@ -112,8 +132,13 @@ const WorldGenerationPanel = lazy(() =>
 const TTS_MODEL_SESSION_KEY = "modelmirror-chat-tts-model";
 const TTS_VOICE_SESSION_KEY = "modelmirror-chat-tts-voice";
 
-export const CHAT_HEADER_POSITION_CLASSES =
-  "md:sticky md:top-4 lg:top-24";
+export const CHAT_SHELL_HEADER_CLASSES = "sticky top-0 h-16";
+export const CHAT_MESSAGE_COLUMN_CLASSES = "mx-auto w-full max-w-[920px]";
+export const CHAT_COMPOSER_COLUMN_CLASSES = "mx-auto w-full max-w-[1000px]";
+
+export function skillActivationContentUrl(skillId: string) {
+  return `/api/skills/${encodeURIComponent(skillId)}/content?purpose=activate`;
+}
 
 interface UploadedImage {
   id: string;
@@ -967,6 +992,7 @@ const MessageBubble = memo(function MessageBubble({
   onOutputsChange,
   onOutputReuse,
   onRead,
+  assistantLabel,
 }: {
   message: ChatMessage;
   isSending: boolean;
@@ -980,6 +1006,7 @@ const MessageBubble = memo(function MessageBubble({
     confirmation: FileOutputReuseConfirmation,
   ) => void | Promise<void>;
   onRead: (message: ChatMessage) => void;
+  assistantLabel: string;
 }) {
   const isUser = message.role === "user";
   const { text: cleanedContent, images: extractedImages } = useMemo(
@@ -990,10 +1017,10 @@ const MessageBubble = memo(function MessageBubble({
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[88%] px-4 py-3 text-sm leading-6 shadow-prism sm:max-w-[76%] ${
+        className={`text-sm leading-6 ${
           isUser
-            ? "rounded-lg rounded-br-sm bg-brand-300 text-ink-950 shadow-neon"
-            : "rounded-lg rounded-bl-sm border border-white/10 bg-surface-850/90 text-slate-100"
+            ? "max-w-[88%] rounded-2xl rounded-br-md bg-brand-300 px-4 py-3 text-ink-950 shadow-neon sm:max-w-[76%]"
+            : "w-full max-w-full py-3 text-slate-100"
         }`}
       >
         <p
@@ -1001,7 +1028,7 @@ const MessageBubble = memo(function MessageBubble({
             isUser ? "text-ink-800" : "text-hire-200"
           }`}
         >
-          {isUser ? "面试官说" : "候选人说"}
+          {isUser ? "你" : assistantLabel}
         </p>
         {message.images && message.images.length > 0 ? (
           <div className="mb-3 flex flex-wrap gap-2">
@@ -1316,6 +1343,9 @@ function ChatConversationPage() {
       busy: false,
       allConfirmed: false,
     });
+  const [visualAnalysisCapability, setVisualAnalysisCapability] = useState<
+    "loading" | "ready" | "disabled"
+  >("loading");
   const [visualAnalysisResetVersion, setVisualAnalysisResetVersion] = useState(0);
   const [visualAnalysisDiscardVersion, setVisualAnalysisDiscardVersion] = useState(0);
   const [chatFileScope, setChatFileScope] = useState(() => ({
@@ -1373,11 +1403,9 @@ function ChatConversationPage() {
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [error, setError] = useState("");
   const [lightboxImage, setLightboxImage] = useState<LightboxItem | null>(null);
-  const [promptSidebarOpen, setPromptSidebarOpen] = useState(false);
+  const [topOverlay, setTopOverlay] = useState<"prompt" | "settings" | null>(null);
+  const [composerMenuOpen, setComposerMenuOpen] = useState(false);
   const [superPromptMode, setSuperPromptMode] = useState(false);
-  const [advancedParamsOpen, setAdvancedParamsOpen] = useState(
-    () => searchParams.get("advanced") === "1",
-  );
   const [advancedParams, setAdvancedParams] = useState<ChatAdvancedParams>(() =>
     defaultAdvancedParams(),
   );
@@ -1423,6 +1451,9 @@ function ChatConversationPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const actionMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const promptTriggerRef = useRef<HTMLButtonElement>(null);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
   const autoFollowStreamRef = useRef(true);
   const streamingAudioSessionsRef = useRef(
     new Map<string, StreamingMp3Session>(),
@@ -1830,12 +1861,6 @@ function ChatConversationPage() {
   );
 
   useEffect(() => {
-    if (window.matchMedia("(min-width: 1024px)").matches) {
-      setPromptSidebarOpen(true);
-    }
-  }, []);
-
-  useEffect(() => {
     void loadKnowledgeBases();
   }, []);
 
@@ -2054,12 +2079,12 @@ function ChatConversationPage() {
     }
   }
 
-  async function loadSkillContent(skillId: string) {
+  async function loadSkillContent(skillId: string, forceActivationCheck = false) {
     if (!skillId) return "";
     const cached = skillContentCache[skillId];
-    if (cached) return cached;
+    if (cached && !forceActivationCheck) return cached;
 
-    const response = await fetch(`/api/skills/${encodeURIComponent(skillId)}/content`);
+    const response = await fetch(skillActivationContentUrl(skillId));
     if (!response.ok) throw new Error(await readApiError(response));
     const data = (await response.json()) as SkillContentResponse;
     setSkillContentCache((current) => ({
@@ -2513,7 +2538,7 @@ function ChatConversationPage() {
     let activeSkillContent = "";
     if (selectedSkillId) {
       try {
-        activeSkillContent = await loadSkillContent(selectedSkillId);
+        activeSkillContent = await loadSkillContent(selectedSkillId, true);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Skill 内容加载失败");
         return false;
@@ -3507,6 +3532,228 @@ function ChatConversationPage() {
     : isFederationRoute
     ? "智能路由功能正在紧锣密鼓开发中，当前将使用默认模型为您服务。"
     : agentInterview?.expertise ?? model.description;
+  const shellMode: ChatShellMode = agentInterview
+    ? "expert"
+    : isOmniAutoRoute || isFederationRoute
+      ? "auto"
+      : "direct";
+  const promptLabel = agentInterview ? "题库" : "提示库";
+  const selectedKnowledgeBase = knowledgeBases.find(
+    (item) => item.id === selectedKnowledgeBaseId,
+  );
+  const selectedSkill = installedSkills.find(
+    (item) => item.skill_id === selectedSkillId,
+  );
+  const activeContexts: ChatActiveContext[] = [
+    ...(selectedKnowledgeBase
+      ? [
+          {
+            id: "knowledge-base",
+            label: `资料库 · ${selectedKnowledgeBase.name}`,
+            detail: "回答会基于资料库并附引用",
+            onRemove: () => setSelectedKnowledgeBaseId(""),
+            disabled: isSending,
+          },
+        ]
+      : []),
+    ...(selectedSkill
+      ? [
+          {
+            id: "skill",
+            label: `Skill · ${selectedSkill.name}`,
+            onRemove: () => void handleSkillSelection(""),
+            disabled: isSending,
+          },
+        ]
+      : []),
+    ...(runtimeToolsEnabled
+      ? [
+          {
+            id: "mcp",
+            label: "MCP 工具",
+            detail: runtimeToolNames.trim() || "使用当前白名单",
+            onRemove: () => setRuntimeToolsEnabled(false),
+            disabled: isSending,
+          },
+        ]
+      : []),
+    ...(chatOutputEnabled
+      ? [
+          {
+            id: "file-output",
+            label: "文件输出 · 本轮",
+            onRemove: () => setChatOutputEnabled(false),
+            disabled: isSending,
+          },
+        ]
+      : []),
+  ];
+  const contentBusy =
+    isSending ||
+    isPreparingVideo ||
+    isUploadingImage ||
+    chatFileState.busy ||
+    visualAnalysisState.busy;
+  const imageBlockedReason =
+    chatOutputEnabled
+      ? "文件输出模式开启时不能同时添加图片。"
+      : audioComposerOpen || videoComposerOpen || reusedDirectMedia
+        ? "本轮已有音视频输入，请先移除后再添加图片。"
+        : chatFileState.count > 0 || visualAnalysisState.count > 0
+          ? "本轮已有文件输入，请先移除后再添加图片。"
+          : "";
+  const audioBlockedReason =
+    chatOutputEnabled || uploadedImages.length > 0 || videoComposerOpen || reusedDirectMedia || chatFileState.count > 0 || visualAnalysisState.count > 0
+      ? "本轮已有互斥的文件、图片、视频或输出模式。"
+      : "";
+  const videoBlockedReason = !chatVideoEnabled
+    ? "当前环境未启用视频输入。"
+    : chatOutputEnabled || uploadedImages.length > 0 || audioComposerOpen || reusedDirectMedia || chatFileState.count > 0 || visualAnalysisState.count > 0
+      ? "本轮已有互斥的文件、图片、音频或输出模式。"
+      : "";
+  const visualCapabilityBlockedReason =
+    visualAnalysisCapability === "loading"
+      ? "正在读取视觉/OCR 能力。"
+      : visualAnalysisCapability === "disabled"
+        ? "视觉/OCR 功能未启用或没有实时可调用目标。"
+        : "";
+  const visualBlockedReason = visualCapabilityBlockedReason || visualAnalysisBlockedReason || (chatOutputEnabled ? "文件输出模式开启时不能同时使用视觉/OCR。" : "");
+  const chatActions: ChatActionDescriptor[] = [
+    {
+      id: "file",
+      group: "content",
+      label: "文件",
+      description: "上传并预览，逐个确认后才用于本轮",
+      icon: FileText,
+      count: chatFileState.count || undefined,
+      status: contentBusy || Boolean(chatFileMediaBlockedReason) || chatOutputEnabled ? "blocked" : chatFileState.count > 0 ? "active" : "available",
+      blockedReason: chatFileMediaBlockedReason || (chatOutputEnabled ? "文件输出模式开启时不能同时添加输入文件。" : "当前正在处理内容，请稍候。"),
+      onSelect: () => window.dispatchEvent(new CustomEvent("modelmirror:open-chat-file")),
+    },
+    {
+      id: "visual-analysis",
+      group: "content",
+      label: "视觉 / OCR",
+      description: "一次性识别扫描 PDF 或图片，预览确认后使用",
+      icon: ScanText,
+      count: visualAnalysisState.count || undefined,
+      status: contentBusy || Boolean(visualBlockedReason) ? "blocked" : visualAnalysisState.count > 0 ? "active" : "available",
+      blockedReason: visualBlockedReason || "当前正在处理内容，请稍候。",
+      onSelect: () => window.dispatchEvent(new CustomEvent("modelmirror:open-chat-visual-analysis")),
+    },
+    {
+      id: "image",
+      group: "content",
+      label: "图片",
+      description: supportsImageInput ? "添加图片到本轮消息" : "当前模型会按既有辅助能力校验处理",
+      icon: ImageIcon,
+      count: uploadedImages.length || undefined,
+      status: contentBusy || Boolean(imageBlockedReason) ? "blocked" : uploadedImages.length > 0 ? "active" : "available",
+      blockedReason: imageBlockedReason || "当前正在处理内容，请稍候。",
+      onSelect: () => fileInputRef.current?.click(),
+    },
+    {
+      id: "audio",
+      group: "content",
+      label: "音频",
+      description: "上传音频、转写或按模型能力直接发送",
+      icon: AudioLines,
+      status: contentBusy || Boolean(audioBlockedReason) ? "blocked" : audioComposerOpen ? "active" : "available",
+      blockedReason: audioBlockedReason || "当前正在处理内容，请稍候。",
+      onSelect: () => openAudioComposer("upload"),
+    },
+    {
+      id: "video",
+      group: "content",
+      label: "视频",
+      description: "按当前视频能力用于本轮",
+      icon: Video,
+      status: contentBusy || Boolean(videoBlockedReason) ? "blocked" : videoComposerOpen ? "active" : "available",
+      blockedReason: videoBlockedReason || "当前正在处理内容，请稍候。",
+      onSelect: openVideoComposer,
+    },
+    {
+      id: "knowledge-base",
+      group: "context",
+      label: "知识库",
+      description: isOmniAutoRoute ? "智能调度暂不组合知识库" : "选择资料库，回答将附带引用",
+      icon: Database,
+      control: (
+        <select
+          aria-label="选择知识库"
+          className="min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+          disabled={isSending || isLoadingKnowledgeBases || isOmniAutoRoute}
+          onChange={(event) => {
+            setSelectedKnowledgeBaseId(event.target.value);
+            if (event.target.value) setNativeAudioEnabled(false);
+          }}
+          value={selectedKnowledgeBaseId}
+        >
+          <option value="">不使用知识库</option>
+          {knowledgeBases.map((kb) => (
+            <option key={kb.id} value={kb.id}>{kb.name}（{kb.document_count} 份文档）</option>
+          ))}
+        </select>
+      ),
+    },
+    {
+      id: "skill",
+      group: "context",
+      label: "Skill",
+      description: "为本轮加入一个已安装 Skill",
+      icon: Sparkles,
+      control: (
+        <select
+          aria-label="选择 Skill"
+          className="min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+          disabled={isSending || isLoadingSkills}
+          onChange={(event) => void handleSkillSelection(event.target.value)}
+          value={selectedSkillId}
+        >
+          <option value="">不使用 Skill</option>
+          {installedSkills.map((skill) => (
+            <option key={skill.skill_id} value={skill.skill_id}>{skill.name}</option>
+          ))}
+        </select>
+      ),
+    },
+    {
+      id: "mcp",
+      group: "tools",
+      label: "MCP 工具",
+      description: "按白名单让模型调用已注册工具",
+      icon: Wrench,
+      status: isOmniAutoRoute ? "blocked" : runtimeToolsEnabled ? "active" : "available",
+      blockedReason: "智能调度暂不与本地 MCP 工具循环组合使用。",
+      onSelect: () => setRuntimeToolsEnabled((current) => !current),
+    },
+    {
+      id: "file-output",
+      group: "tools",
+      label: "文件输出",
+      description: "仅本轮允许精确模型调用受限文件生成工具",
+      icon: FileOutputIcon,
+      status: !chatOutputCapabilities || Boolean(chatOutputBlockedReason) ? "blocked" : chatOutputEnabled ? "active" : "available",
+      blockedReason: chatOutputBlockedReason || "文件输出能力当前未启用。",
+      onSelect: () => {
+        setChatOutputEnabled((current) => !current);
+        setError("");
+      },
+    },
+    {
+      id: "realtime-voice",
+      group: "voice",
+      label: "实时语音",
+      description: "进入连续语音通话，与单轮麦克风转写分开",
+      icon: Radio,
+      status: realtimeVoiceProfile?.interaction_status === "ready" ? "available" : "blocked",
+      blockedReason: realtimeVoiceProfile?.status_reason || "当前没有可调用的实时语音模型。",
+      onSelect: () => {
+        if (!realtimeVoiceProfile) return;
+        navigate(`/chat/${encodeURIComponent(realtimeVoiceProfile.model_id)}?operation=realtime_voice`);
+      },
+    },
+  ];
 
   if (model?.worldModel) {
     return (
@@ -3550,281 +3797,37 @@ function ChatConversationPage() {
   }
 
   return (
-    <main className="museum-grid min-h-screen pb-24 pt-5 text-slate-100 lg:pt-24">
-      <ResourceNav activeResource={agentInterview ? "agents" : "models"} />
-      <div className="mx-auto flex min-h-screen w-full max-w-[1540px] flex-col px-4 py-5 sm:px-6 lg:px-8">
-        <header
-          className={`${CHAT_HEADER_POSITION_CLASSES} z-30 border-y border-hire-300/20 bg-ink-950/72 px-0 py-4 backdrop-blur-2xl md:flex md:items-center md:justify-between md:gap-6`}
-        >
-          <div>
-            <BrandLogo className="mb-4 lg:hidden" />
-            <Link
-              className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-sm font-medium text-slate-300 transition hover:border-brand-300/30 hover:bg-brand-300/10 hover:text-brand-100"
-              to={agentInterview ? "/agents" : "/models"}
-            >
-              {agentInterview ? "返回 AI 人才市场" : "返回招聘会现场"}
-            </Link>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1.5 text-xs font-semibold text-emerald-100">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-                面试中
-              </span>
-              <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1.5 text-xs font-semibold text-hire-100">
-                {agentInterview ? "专家已入场" : "候选人已入场"}
-              </span>
-              {agentInterview ? (
-                <>
-                  <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-3 py-1.5 text-xs font-semibold text-brand-100">
-                    {agentInterview.department}
-                  </span>
-                  <button
-                    className="rounded-full border border-white/15 bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-brand-300/45 hover:bg-brand-300/10 hover:text-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isSending}
-                    onClick={exitAgentInterview}
-                    title={
-                      isSending
-                        ? "请等待当前回答完成后再退出专家模式"
-                        : "清空当前专家对话，继续直接与所选模型聊天"
-                    }
-                    type="button"
-                  >
-                    退出专家模式
-                  </button>
-                </>
-              ) : null}
-              {isOmniAutoRoute ? (
-                <span className="rounded-full border border-brand-300/30 bg-brand-300/10 px-3 py-1.5 text-xs font-semibold text-brand-100">
-                  智能调度 · {decodedModelId}
-                </span>
-              ) : isFederationRoute ? (
-                <span className="rounded-full border border-hire-300/30 bg-hire-300/10 px-3 py-1.5 text-xs font-semibold text-hire-100">
-                  默认模型代班：{model.name}
-                </span>
-              ) : null}
-            </div>
-            <h1 className="mt-3 text-2xl font-semibold tracking-normal text-white sm:text-4xl">
-              面试进行中：与 {displayCandidateName} 交谈
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-              {displayCandidateDescription}
-            </p>
-            {isFederationRoute && !isOmniAutoRoute ? (
-              <div className="mt-4 rounded-lg border border-hire-300/25 bg-hire-300/10 px-4 py-3 text-sm leading-6 text-hire-50">
-                智能路由功能正在紧锣密鼓开发中，当前将使用默认模型为您服务。
-              </div>
-            ) : null}
-          </div>
+    <main className="museum-grid flex h-[100dvh] min-h-0 flex-col overflow-hidden text-slate-100">
+      <ChatCompactHeader
+        backTo={agentInterview ? "/agents" : "/models"}
+        disabled={isSending}
+        expertDepartment={agentInterview?.department}
+        mode={shellMode}
+        modelLabel={displayCandidateName}
+        onExitExpert={agentInterview ? exitAgentInterview : undefined}
+        onOpenPrompt={() => {
+          setComposerMenuOpen(false);
+          setTopOverlay("prompt");
+        }}
+        onOpenSettings={() => {
+          setComposerMenuOpen(false);
+          setTopOverlay("settings");
+        }}
+        promptLabel={promptLabel}
+        promptTriggerRef={promptTriggerRef}
+        providerLabel={providerName}
+        settingsTriggerRef={settingsTriggerRef}
+      />
+      <div className="flex min-h-0 w-full flex-1 flex-col">
 
-          {(agentDefaultModelNotice || modelSwitchNotice) ? (
-            <div className="mt-4 space-y-3 md:mt-0">
-              {agentDefaultModelNotice ? (
-                <div className="rounded-lg border border-brand-300/25 bg-brand-300/10 px-4 py-3 text-sm leading-6 text-brand-50">
-                  {agentDefaultModelNotice}
-                </div>
-              ) : null}
-              {modelSwitchNotice ? (
-                <div className="flex items-start justify-between gap-4 rounded-lg border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-50">
-                  <span>{modelSwitchNotice}</span>
-                  <button
-                    className="shrink-0 rounded-full border border-amber-200/30 px-2 py-0.5 text-xs font-semibold transition hover:bg-amber-200/10"
-                    onClick={() => setModelSwitchNotice("")}
-                    type="button"
-                  >
-                    知道了
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+        <div className="flex min-h-0 min-w-0 flex-1 justify-center">
 
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-300 md:mt-0 md:justify-end">
-            {isOmniAutoRoute ? (
-              <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-3 py-1.5 font-semibold text-hire-50">
-                调用 {decodedModelId}
-              </span>
-            ) : (
-              <label className="flex items-center gap-2 rounded-full border border-hire-300/25 bg-hire-300/10 px-3 py-1.5 text-hire-50">
-                <span className="font-semibold">当前使用模型</span>
-                <select
-                  className="max-w-[220px] bg-transparent text-xs font-semibold text-white outline-none"
-                  onChange={(event) => handleModelChange(event.target.value)}
-                  value={model.id}
-                >
-                  {models.map((item) => (
-                    <option
-                      className="bg-slate-950 text-white"
-                      key={item.id}
-                      value={item.id}
-                    >
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5">
-              {providerName}
-            </span>
-            <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5">
-              上下文 {model.context_length.toLocaleString("zh-CN")}
-            </span>
-            <span
-              className={`rounded-full border px-3 py-1.5 ${
-                supportsImageInput
-                  ? "border-brand-300/30 bg-brand-300/10 text-brand-100"
-                  : "border-white/10 bg-white/[0.06] text-slate-300"
-              }`}
-            >
-              {supportsImageInput
-                ? "支持图片输入"
-                : imageAnalysisModelIds === null && !omniRouteSupportsImage
-                  ? "正在核实图片能力"
-                  : "仅文本输入"}
-            </span>
-          </div>
-        </header>
-
-        <div className="grid min-w-0 flex-1 gap-5 py-5 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="surface-panel rounded-lg p-5 lg:sticky lg:top-36 lg:h-[calc(100vh-11rem)]">
-            <p className="text-sm font-semibold text-white">候选人档案</p>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              {agentInterview
-                ? "这场面试会带上智能体的完整岗位人设。刷新页面后会重新开始。"
-                : "当前对话只在本页会话中保留。刷新页面后会重新开始。"}
-            </p>
-            {isOmniAutoRoute ? (
-              <div className="mt-5 space-y-3 rounded-lg border border-brand-300/20 bg-brand-300/[0.065] p-3">
-                <div>
-                  <p className="text-xs font-semibold text-brand-100">路由控制</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-400">
-                    设置只作用于本次智能调度会话。
-                  </p>
-                </div>
-                <label className="block text-xs font-semibold text-slate-300">
-                  调度模式
-                  <select
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
-                    disabled={isSending}
-                    onChange={(event) =>
-                      setRoutingMode(
-                        event.target.value as
-                          | "fast"
-                          | "balanced"
-                          | "quality"
-                          | "cheap"
-                          | "reliable"
-                          | "offline",
-                      )
-                    }
-                    value={routingMode}
-                  >
-                    <option value="balanced">均衡</option>
-                    <option value="fast">速度优先</option>
-                    <option value="quality">质量优先</option>
-                    <option value="cheap">成本优先</option>
-                    <option value="reliable">稳定优先</option>
-                    <option value="offline">离线优先</option>
-                  </select>
-                </label>
-                <label className="block text-xs font-semibold text-slate-300">
-                  单次预算上限（USD，可选）
-                  <input
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-400 focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
-                    disabled={isSending}
-                    inputMode="decimal"
-                    max="1000"
-                    min="0.000001"
-                    onChange={(event) => setRoutingBudget(event.target.value)}
-                    placeholder="例如 0.05"
-                    step="0.000001"
-                    type="number"
-                    value={routingBudget}
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-slate-300">
-                  超预算处理
-                  <select
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
-                    disabled={isSending || !routingBudget.trim()}
-                    onChange={(event) =>
-                      setRoutingBudgetFallback(
-                        event.target.value as "strict" | "cheapest",
-                      )
-                    }
-                    value={routingBudgetFallback}
-                  >
-                    <option value="cheapest">改用最低成本候选</option>
-                    <option value="strict">严格拒绝并返回 402</option>
-                  </select>
-                </label>
-                <label className="block text-xs font-semibold text-slate-300">
-                  上下文优化
-                  <select
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/85 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
-                    disabled={isSending}
-                    onChange={(event) =>
-                      setCompressionMode(
-                        event.target.value as
-                          | "auto"
-                          | "off"
-                          | "standard"
-                          | "strong",
-                      )
-                    }
-                    value={compressionMode}
-                  >
-                    <option value="auto">自动推荐</option>
-                    <option value="off">关闭</option>
-                    <option value="standard">标准</option>
-                    <option value="strong">强力</option>
-                  </select>
-                </label>
-              </div>
-            ) : null}
-            {isOmniAutoRoute || model.pricing_status === "dynamic" ? (
-              <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3 text-sm">
-                <p className="text-xs text-slate-400">结算方式</p>
-                <p className="mt-1 font-semibold text-white">
-                  {isOmniAutoRoute
-                    ? "按实际路由模型计费"
-                    : "按实际路由或组合调用计费"}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  最终费用以网关结算和回答下方的调用回执为准。
-                </p>
-              </div>
-            ) : (
-              <div className="mt-5 grid grid-cols-2 gap-3 text-sm lg:grid-cols-1">
-                <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
-                  <p className="text-xs text-slate-400">输入薪资</p>
-                  <p className="mt-1 font-semibold text-white">
-                    ¥{model.price_cny.input.toFixed(2)}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-white/[0.045] p-3">
-                  <p className="text-xs text-slate-400">输出薪资</p>
-                  <p className="mt-1 font-semibold text-white">
-                    ¥{model.price_cny.output.toFixed(2)}
-                  </p>
-                </div>
-              </div>
-            )}
-            <div className="mt-4 rounded-lg border border-white/10 bg-[linear-gradient(135deg,rgba(36,217,255,0.10),rgba(124,58,237,0.08))] p-3">
-              <p className="text-xs text-slate-400">输入模态</p>
-              <p className="mt-2 text-sm font-semibold text-white">
-                {model.input_modalities
-                  .map((modality) => modalityLabels[modality] ?? modality)
-                  .join(" / ")}
-              </p>
-            </div>
-          </aside>
-
-          <div className="flex min-w-0 gap-5 overflow-hidden">
+          <div className="flex min-h-0 w-full max-w-[1000px] min-w-0 overflow-hidden px-2 sm:px-4">
             <section
-              className={`relative flex min-h-[560px] min-w-0 basis-0 flex-1 flex-col overflow-hidden rounded-lg border bg-surface-900/80 shadow-prism backdrop-blur-xl transition lg:h-[calc(100vh-11rem)] lg:min-h-[560px] ${
+              className={`relative flex min-h-0 min-w-0 basis-0 flex-1 flex-col overflow-hidden border-x bg-ink-950/38 transition ${
                 isDraggingImage
                   ? "border-brand-300/70 ring-4 ring-brand-300/10"
-                  : "border-white/10"
+                  : "border-white/[0.07]"
               }`}
               ref={chatSectionRef}
               onDragLeave={() => setIsDraggingImage(false)}
@@ -3841,7 +3844,7 @@ function ChatConversationPage() {
               ) : null}
 
               <div
-                className="flex-1 overflow-y-auto px-4 py-5 sm:px-6"
+                className="flex-1 overflow-y-auto px-3 py-5 sm:px-8"
                 onScroll={(event) => {
                   const viewport = event.currentTarget;
                   autoFollowStreamRef.current =
@@ -3853,7 +3856,7 @@ function ChatConversationPage() {
                 ref={messageViewportRef}
               >
                 {recoveredOutputs.length > 0 ? (
-                  <div className="mb-5">
+                  <div className={`${CHAT_MESSAGE_COLUMN_CLASSES} mb-5`}>
                     <FileOutputTray
                       modelId={outputModelId}
                       onChange={setRecoveredOutputs}
@@ -3866,7 +3869,7 @@ function ChatConversationPage() {
                   </div>
                 ) : null}
                 {messages.length === 0 ? (
-                  <div className="flex h-full min-h-[260px] flex-col items-center justify-start pt-20 text-center sm:justify-center sm:pt-0">
+                  <div className={`${CHAT_MESSAGE_COLUMN_CLASSES} flex h-full min-h-[260px] flex-col items-center justify-start pt-20 text-center sm:justify-center sm:pt-0`}>
                     <img
                       alt="模镜"
                       className="h-16 w-16 rounded-lg object-cover shadow-neon"
@@ -3874,12 +3877,12 @@ function ChatConversationPage() {
                     />
                     <h2 className="mt-5 text-xl font-semibold text-white">
                       {isOmniAutoRoute
-                        ? "智能调度员已就绪"
+                        ? "智能调度已就绪"
                         : isFederationRoute
                         ? "智能路由调度员正在候场..."
                         : agentInterview
-                        ? `正在等待 ${agentInterview.agentName} 入场...`
-                        : recruitmentTheme.interviewWaiting}
+                        ? `${agentInterview.agentName} 已就绪`
+                        : "开始一段新对话"}
                     </h2>
                     <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
                       {isOmniAutoRoute
@@ -3887,15 +3890,16 @@ function ChatConversationPage() {
                         : isFederationRoute
                         ? "先由默认模型代班回答。后续路由上线后，会自动按任务挑选更合适的候选人。"
                         : agentInterview
-                        ? "向这位 AI 专家描述你的任务，系统会自动带上他的完整简历和工作方式。"
-                        : "输入问题，上传图片，或从右侧面试题库抽一道题开场。"}
+                        ? "描述你的任务；专家身份与工作方式会在本次对话中保持。"
+                        : "直接输入问题，或通过加号添加文件、上下文与工具。"}
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-5">
+                  <div className={`${CHAT_MESSAGE_COLUMN_CLASSES} space-y-6`}>
                     {messages.map((message) => (
                       <MessageBubble
                         canRead={Boolean(ttsProfile)}
+                        assistantLabel={displayCandidateName}
                         currentScopeId={chatFileScopeId}
                         isSending={isSending}
                         key={message.id}
@@ -3926,6 +3930,30 @@ function ChatConversationPage() {
                 )}
               </div>
 
+              {agentDefaultModelNotice || modelSwitchNotice ? (
+                <div className="border-t border-white/10 px-3 py-2 sm:px-6">
+                  <div className="mx-auto flex w-full max-w-[920px] flex-col gap-2">
+                    {agentDefaultModelNotice ? (
+                      <div className="rounded-xl border border-brand-300/20 bg-brand-300/[0.08] px-3 py-2 text-xs leading-5 text-brand-50">
+                        {agentDefaultModelNotice}
+                      </div>
+                    ) : null}
+                    {modelSwitchNotice ? (
+                      <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.08] px-3 py-2 text-xs leading-5 text-amber-50">
+                        <span>{modelSwitchNotice}</span>
+                        <button
+                          className="min-h-8 shrink-0 rounded-full px-2 font-semibold transition hover:bg-amber-200/10"
+                          onClick={() => setModelSwitchNotice("")}
+                          type="button"
+                        >
+                          知道了
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               {error ? (
                 <div className="flex flex-col gap-3 border-t border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                   <span>{error}</span>
@@ -3939,389 +3967,7 @@ function ChatConversationPage() {
                 </div>
               ) : null}
 
-              <AdvancedParamsPanel
-                isOpen={advancedParamsOpen}
-                maxTokenLimit={maxTokenLimit}
-                onChange={handleAdvancedParamsChange}
-                onReset={resetAdvancedParams}
-                onToggle={() => setAdvancedParamsOpen((current) => !current)}
-                params={advancedParams}
-              />
-
-              <div className="border-t border-white/10 bg-ink-950/40 p-4 sm:p-5">
-                <div className="mb-3 flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.045] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <label className="flex flex-1 flex-col gap-2 text-xs font-semibold text-slate-300 sm:flex-row sm:items-center">
-                    <span className="shrink-0 text-hire-100">知识库</span>
-                    <select
-                      className="min-w-0 flex-1 rounded-full border border-white/10 bg-ink-950/80 px-3 py-2 text-xs font-semibold text-white outline-none transition focus:border-hire-300/50 focus:ring-4 focus:ring-hire-300/10"
-                      disabled={
-                        isSending ||
-                        isLoadingKnowledgeBases ||
-                        isOmniAutoRoute
-                      }
-                      onChange={(event) => {
-                        setSelectedKnowledgeBaseId(event.target.value);
-                        if (event.target.value) setNativeAudioEnabled(false);
-                      }}
-                      value={selectedKnowledgeBaseId}
-                    >
-                      <option value="">
-                        {isOmniAutoRoute
-                          ? "智能调度暂不组合知识库"
-                          : "不使用知识库，直接面试"}
-                      </option>
-                      {knowledgeBases.map((kb) => (
-                        <option className="bg-slate-950 text-white" key={kb.id} value={kb.id}>
-                          {kb.name}（{kb.document_count} 份文档）
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-1 flex-col gap-2 text-xs font-semibold text-slate-300 sm:flex-row sm:items-center">
-                    <span className="shrink-0 text-brand-100">Skill</span>
-                    <select
-                      className="min-w-0 flex-1 rounded-full border border-white/10 bg-ink-950/80 px-3 py-2 text-xs font-semibold text-white outline-none transition focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10"
-                      disabled={isSending || isLoadingSkills}
-                      onChange={(event) => void handleSkillSelection(event.target.value)}
-                      value={selectedSkillId}
-                    >
-                      <option value="">不使用 Skill，普通面试</option>
-                      {installedSkills.map((skill) => (
-                        <option
-                          className="bg-slate-950 text-white"
-                          key={skill.skill_id}
-                          value={skill.skill_id}
-                        >
-                          {skill.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="flex items-center justify-between gap-3 sm:justify-end">
-                    <span className="text-xs text-slate-500">
-                      {selectedKnowledgeBaseId
-                        ? "回答会基于资料库并附引用"
-                        : "可在 /rag 上传资料后选择"}
-                    </span>
-                    <button
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100"
-                      disabled={isLoadingKnowledgeBases}
-                      onClick={() => void loadKnowledgeBases()}
-                      type="button"
-                    >
-                      {isLoadingKnowledgeBases ? "刷新中" : "刷新"}
-                    </button>
-                  </div>
-                </div>
-                <div className="mb-3 rounded-lg border border-white/10 bg-white/[0.045] px-3 py-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold text-cyan-100">
-                        Runtime 工具模式 Beta
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-slate-400">
-                        {isOmniAutoRoute
-                          ? "智能调度暂不与本地 MCP 工具循环组合使用。"
-                          : "开启后，聊天会按 JSON 决策调用已注册 MCP 工具；默认关闭。"}
-                      </p>
-                    </div>
-                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-200">
-                      <input
-                        checked={runtimeToolsEnabled}
-                        className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
-                        disabled={isSending || isOmniAutoRoute}
-                        onChange={(event) => {
-                          setRuntimeToolsEnabled(event.target.checked);
-                          if (event.target.checked) {
-                            setNativeAudioEnabled(false);
-                          }
-                        }}
-                        type="checkbox"
-                      />
-                      启用 MCP 工具
-                    </label>
-                  </div>
-                  {runtimeToolsEnabled ? (
-                    <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_140px]">
-                      <label className="flex flex-col gap-1 text-xs font-semibold text-slate-300">
-                        工具白名单
-                        <input
-                          className="rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2 text-xs text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50 focus:ring-4 focus:ring-cyan-300/10"
-                          disabled={isSending}
-                          onChange={(event) => setRuntimeToolNames(event.target.value)}
-                          placeholder="fetch, search；留空代表全部已注册工具"
-                          value={runtimeToolNames}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1 text-xs font-semibold text-slate-300">
-                        最大循环
-                        <input
-                          className="rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2 text-xs text-white outline-none transition focus:border-cyan-300/50 focus:ring-4 focus:ring-cyan-300/10"
-                          disabled={isSending}
-                          max={20}
-                          min={1}
-                          onChange={(event) =>
-                            setRuntimeMaxToolIterations(event.target.value)
-                          }
-                          type="number"
-                          value={runtimeMaxToolIterations}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1 text-xs font-semibold text-slate-300 lg:col-span-2">
-                        补充约束
-                        <textarea
-                          className="min-h-20 resize-none rounded-lg border border-white/10 bg-ink-950/80 px-3 py-2 text-xs leading-5 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50 focus:ring-4 focus:ring-cyan-300/10"
-                          disabled={isSending}
-                          onChange={(event) =>
-                            setRuntimePromptSuffix(event.target.value)
-                          }
-                          placeholder="例如：工具结果不足时直接说明，不要猜测。"
-                          value={runtimePromptSuffix}
-                        />
-                      </label>
-                    </div>
-                  ) : null}
-                </div>
-                {runtimeToolsEnabled &&
-                (runtimeMeta || runtimeObservation || runtimeObservationError) ? (
-                  <div className="mb-3 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.055] px-3 py-3">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-xs font-semibold text-cyan-100">
-                          运行观测 Beta
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-slate-400">
-                          run {shortRuntimeId(runtimeMeta?.runId)} · task{" "}
-                          {shortRuntimeId(runtimeMeta?.taskId)}
-                        </p>
-                      </div>
-                      <button
-                        className="rounded-full border border-cyan-300/20 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300/45 hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={runtimeObservationLoading || !runtimeMeta}
-                        onClick={() => void loadRuntimeObservation()}
-                        type="button"
-                      >
-                        {runtimeObservationLoading ? "加载中" : "刷新观测"}
-                      </button>
-                    </div>
-                    {runtimeObservationError ? (
-                      <p className="mt-3 rounded-lg border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-100">
-                        {runtimeObservationError}
-                      </p>
-                    ) : null}
-                    {runtimeObservation ? (
-                      <div className="mt-3 grid gap-3 xl:grid-cols-3">
-                        <div className="rounded-lg border border-white/10 bg-ink-950/55 p-3">
-                          <p className="text-[11px] font-semibold text-slate-400">
-                            Run 状态
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-white">
-                            {runtimeObservation.run?.status ?? "unknown"}
-                          </p>
-                          {runtimeObservation.run?.error ? (
-                            <p className="mt-1 truncate text-xs leading-5 text-rose-100">
-                              {runtimeObservation.run.error}
-                            </p>
-                          ) : (
-                            <p className="mt-1 text-xs leading-5 text-slate-400">
-                              事件 {runtimeObservation.eventCount} 条，审计{" "}
-                              {runtimeObservation.auditCount} 条。
-                            </p>
-                          )}
-                        </div>
-                        <div className="rounded-lg border border-white/10 bg-ink-950/55 p-3">
-                          <p className="text-[11px] font-semibold text-slate-400">
-                            Checkpoint
-                          </p>
-                          <div className="mt-2 space-y-2">
-                            {runtimeObservation.checkpoints.slice(0, 4).map((item) => (
-                              <div key={item.checkpoint_id}>
-                                <p className="truncate text-xs font-semibold text-slate-100">
-                                  {item.event_type}
-                                </p>
-                                <p className="truncate text-[11px] text-slate-400">
-                                  {formatRuntimeTimestamp(item.created_at)}
-                                  {item.summary ? ` · ${item.summary}` : ""}
-                                </p>
-                              </div>
-                            ))}
-                            {runtimeObservation.checkpoints.length === 0 ? (
-                              <p className="text-xs text-slate-500">暂无 checkpoint。</p>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-white/10 bg-ink-950/55 p-3">
-                          <p className="text-[11px] font-semibold text-slate-400">
-                            Tool 事件 / 审计
-                          </p>
-                          <div className="mt-2 space-y-2">
-                            {runtimeObservation.auditRecords.slice(0, 3).map((item) => (
-                              <div key={item.record_id}>
-                                <p className="truncate text-xs font-semibold text-slate-100">
-                                  {item.tool_name} · {item.status}
-                                </p>
-                                <p className="truncate text-[11px] text-slate-400">
-                                  {item.duration_ms != null
-                                    ? `${item.duration_ms.toFixed(0)}ms`
-                                    : "无耗时"}
-                                  {item.output_length != null
-                                    ? ` · ${item.output_length} chars`
-                                    : ""}
-                                  {item.error ? ` · ${item.error}` : ""}
-                                </p>
-                              </div>
-                            ))}
-                            {runtimeObservation.auditRecords.length === 0 ? (
-                              <p className="text-xs text-slate-500">
-                                暂无工具审计记录。
-                              </p>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                {ttsProfile || nativeAudioAvailable ? (
-                  <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-white/10 px-1 py-2.5 text-xs">
-                    <span className="font-semibold text-cyan-100">语音回答</span>
-                    {nativeAudioAvailable ? (
-                      <label className="inline-flex items-center gap-2 font-semibold text-slate-200">
-                        <input
-                          checked={nativeAudioEnabled}
-                          className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
-                          disabled={
-                            isSending ||
-                            Boolean(selectedKnowledgeBaseId) ||
-                            runtimeToolsEnabled
-                          }
-                          onChange={(event) =>
-                            setNativeAudioEnabled(event.target.checked)
-                          }
-                          type="checkbox"
-                        />
-                        原生语音回答
-                      </label>
-                    ) : null}
-                    {nativeAudioEnabled && nativeAudioProfile ? (
-                      <label className="inline-flex items-center gap-2 text-slate-300">
-                        声线
-                        <select
-                          className="rounded-full border border-white/10 bg-ink-950/80 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-300/45"
-                          disabled={isSending}
-                          onChange={(event) =>
-                            setNativeAudioVoice(event.target.value)
-                          }
-                          value={nativeAudioVoice}
-                        >
-                          {nativeAudioProfile.voices.map((voice) => (
-                            <option key={voice} value={voice}>
-                              {voice}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-                    {ttsProfile ? (
-                      <>
-                        <label className="inline-flex items-center gap-2 text-slate-300">
-                          朗读模型
-                          <select
-                            aria-label="朗读模型"
-                            className="max-w-52 rounded-full border border-white/10 bg-ink-950/80 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-300/45"
-                            disabled={isSending}
-                            onChange={(event) => {
-                              const nextModelId = event.target.value;
-                              setTtsModelId(nextModelId);
-                              window.sessionStorage.setItem(
-                                TTS_MODEL_SESSION_KEY,
-                                nextModelId,
-                              );
-                            }}
-                            value={ttsProfile.model_id}
-                          >
-                            {ttsProfiles.map((profile) => (
-                              <option
-                                key={profile.model_id}
-                                value={profile.model_id}
-                              >
-                                {profile.display_name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="inline-flex items-center gap-2 text-slate-300">
-                          声线
-                          <select
-                            aria-label="朗读声线"
-                            className="max-w-44 rounded-full border border-white/10 bg-ink-950/80 px-2.5 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-300/45"
-                            disabled={isSending}
-                            onChange={(event) => {
-                              const nextVoice = event.target.value;
-                              setTtsVoice(nextVoice);
-                              window.sessionStorage.setItem(
-                                TTS_VOICE_SESSION_KEY,
-                                nextVoice,
-                              );
-                            }}
-                            value={ttsVoice}
-                          >
-                            {ttsProfile.voices.map((voice) => (
-                              <option key={voice} value={voice}>
-                                {speechVoiceLabel(voice)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="inline-flex items-center gap-2 font-semibold text-slate-200">
-                          <input
-                            checked={autoReadEnabled}
-                            className="h-4 w-4 rounded border-white/20 bg-ink-950 text-cyan-300 focus:ring-cyan-300/30"
-                            disabled={isSending}
-                            onChange={(event) => {
-                              if (
-                                event.target.checked &&
-                                !autoReadConfirmedRef.current
-                              ) {
-                                setAutoReadConfirmationOpen(true);
-                                return;
-                              }
-                              setAutoReadEnabled(event.target.checked);
-                            }}
-                            type="checkbox"
-                          />
-                          自动朗读后续回答
-                        </label>
-                      </>
-                    ) : null}
-                    <span className="text-slate-500">
-                      默认关闭；原生语音开启时不会重复调用辅助朗读。
-                    </span>
-                    {autoReadConfirmationOpen ? (
-                      <span className="flex basis-full flex-wrap items-center gap-2 rounded-md bg-amber-300/[0.08] px-3 py-2 text-amber-100">
-                        每次文字回答后会额外调用一次语音模型，可能产生费用。
-                        <button
-                          className="rounded-full bg-amber-200 px-3 py-1 font-semibold text-ink-950"
-                          onClick={() => {
-                            autoReadConfirmedRef.current = true;
-                            setAutoReadEnabled(true);
-                            setAutoReadConfirmationOpen(false);
-                          }}
-                          type="button"
-                        >
-                          确认开启
-                        </button>
-                        <button
-                          className="rounded-full border border-amber-200/30 px-3 py-1 font-semibold"
-                          onClick={() => setAutoReadConfirmationOpen(false)}
-                          type="button"
-                        >
-                          取消
-                        </button>
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
+              <div className={`${CHAT_COMPOSER_COLUMN_CLASSES} border-t border-white/10 bg-ink-950/72 p-3 sm:p-4`}>
                 <div
                   className={`rounded-lg border p-2 transition ${
                     superPromptMode
@@ -4408,122 +4054,108 @@ function ChatConversationPage() {
                     </div>
                   ) : null}
 
+                  <ChatFileComposer
+                    disabled={
+                      isSending ||
+                      isPreparingVideo ||
+                      isUploadingImage ||
+                      chatOutputEnabled ||
+                      visualAnalysisState.count > 0
+                    }
+                    discardVersion={chatFileDiscardVersion}
+                    drawerHost={messageViewportRef.current}
+                    hideTrigger
+                    injectedFile={injectedOutputFile}
+                    inputBoundary={messageInputRef.current}
+                    isAutoRoute={isOmniAutoRoute}
+                    knowledgeBaseSelected={Boolean(selectedKnowledgeBaseId)}
+                    mediaBlockedReason={chatFileMediaBlockedReason}
+                    modelId={isOmniAutoRoute ? decodedModelId : model.id}
+                    onError={setError}
+                    onStateChange={handleChatFileStateChange}
+                    resetVersion={chatFileResetVersion}
+                    scopeId={chatFileScopeId}
+                  />
+                  <ChatVisualAnalysisPanel
+                    blockedReason={visualAnalysisBlockedReason}
+                    disabled={
+                      isSending ||
+                      isPreparingVideo ||
+                      isUploadingImage ||
+                      chatOutputEnabled
+                    }
+                    discardVersion={visualAnalysisDiscardVersion}
+                    drawerHost={messageViewportRef.current}
+                    hideTrigger
+                    inputBoundary={messageInputRef.current}
+                    knowledgeBases={knowledgeBases.map((item) => ({
+                      id: item.id,
+                      name: item.name,
+                    }))}
+                    modelId={isOmniAutoRoute ? decodedModelId : model.id}
+                    onCapabilityChange={setVisualAnalysisCapability}
+                    onError={setError}
+                    onStateChange={setVisualAnalysisState}
+                    resetVersion={visualAnalysisResetVersion}
+                    scopeId={chatFileScopeId}
+                  />
+                  <input
+                    accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                    className="hidden"
+                    multiple
+                    onChange={(event) => {
+                      void addImageFiles(Array.from(event.target.files ?? []));
+                      event.target.value = "";
+                    }}
+                    ref={fileInputRef}
+                    type="file"
+                  />
+                  <ChatActiveContextBar contexts={activeContexts} />
+
                   <textarea
                     className="max-h-44 min-h-24 w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-slate-500"
                     disabled={isSending}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder={recruitmentTheme.chatPlaceholder}
+                    placeholder={agentInterview ? "向专家描述任务…" : "给当前模型发送消息…"}
                     ref={messageInputRef}
                     value={input}
                   />
 
-                  <div className="flex flex-col gap-3 px-2 pb-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <ChatFileComposer
-                        disabled={
-                          isSending ||
-                          isPreparingVideo ||
-                          isUploadingImage ||
-                          chatOutputEnabled ||
-                          visualAnalysisState.count > 0
-                        }
-                        discardVersion={chatFileDiscardVersion}
-                        drawerHost={messageViewportRef.current}
-                        injectedFile={injectedOutputFile}
-                        inputBoundary={messageInputRef.current}
-                        isAutoRoute={isOmniAutoRoute}
-                        knowledgeBaseSelected={Boolean(selectedKnowledgeBaseId)}
-                        mediaBlockedReason={chatFileMediaBlockedReason}
-                        modelId={isOmniAutoRoute ? decodedModelId : model.id}
-                        onError={setError}
-                        onStateChange={handleChatFileStateChange}
-                        resetVersion={chatFileResetVersion}
-                        scopeId={chatFileScopeId}
-                      />
-                      <ChatVisualAnalysisPanel
-                        blockedReason={visualAnalysisBlockedReason}
-                        disabled={
-                          isSending ||
-                          isPreparingVideo ||
-                          isUploadingImage ||
-                          chatOutputEnabled
-                        }
-                        discardVersion={visualAnalysisDiscardVersion}
-                        drawerHost={messageViewportRef.current}
-                        inputBoundary={messageInputRef.current}
-                        knowledgeBases={knowledgeBases.map((item) => ({
-                          id: item.id,
-                          name: item.name,
-                        }))}
-                        modelId={isOmniAutoRoute ? decodedModelId : model.id}
-                        onError={setError}
-                        onStateChange={setVisualAnalysisState}
-                        resetVersion={visualAnalysisResetVersion}
-                        scopeId={chatFileScopeId}
-                      />
-                      <button
-                        aria-checked={chatOutputEnabled}
-                        className={`min-h-11 rounded-full border px-3 text-xs font-semibold transition focus:outline-none focus:ring-4 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-45 ${
-                          chatOutputEnabled
-                            ? "border-cyan-300/50 bg-cyan-300/15 text-cyan-50"
-                            : "border-white/10 bg-white/[0.06] text-slate-200 hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100"
-                        }`}
-                        disabled={isSending || Boolean(chatOutputBlockedReason)}
-                        onClick={() => {
-                          setChatOutputEnabled((current) => !current);
-                          setError("");
-                        }}
-                        role="switch"
-                        title={
-                          chatOutputBlockedReason ||
-                          "仅允许当前精确模型在本轮调用受限文件生成工具；不会调用 shell 或任意路径。"
-                        }
-                        type="button"
-                      >
-                        {chatOutputCapabilities
-                          ? chatOutputEnabled
-                            ? "生成文件 · 本轮已允许"
-                            : "生成文件 · 仅本轮"
-                          : "文件输出未启用"}
-                      </button>
-                      <input
-                        accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
-                        className="hidden"
-                        multiple
-                        onChange={(event) => {
-                          void addImageFiles(Array.from(event.target.files ?? []));
-                          event.target.value = "";
-                        }}
-                        ref={fileInputRef}
-                        type="file"
-                      />
-                      <button
-                        className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={
-                          isSending ||
-                          isUploadingImage ||
-                          chatOutputEnabled ||
-                          audioComposerOpen ||
-                          videoComposerOpen ||
-                          Boolean(reusedDirectMedia) ||
-                          chatFileState.count > 0 ||
-                          visualAnalysisState.count > 0
-                        }
-                        onClick={() => fileInputRef.current?.click()}
-                        title="上传图片"
-                        type="button"
-                      >
-                        图片
-                      </button>
-                      <button
-                        className={`rounded-full border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                          audioComposerOpen &&
-                          audioComposerSource === "upload"
-                            ? "border-brand-300/45 bg-brand-300/12 text-brand-100"
-                            : "border-white/10 bg-white/[0.06] text-slate-200 hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100"
-                        }`}
+
+                  <div className="flex items-center gap-2 px-1 pb-1 pt-1">
+                    <ChatActionMenu
+                      actions={chatActions}
+                      onOpenChange={setComposerMenuOpen}
+                      open={composerMenuOpen}
+                      triggerRef={actionMenuTriggerRef}
+                    />
+                    {isOmniAutoRoute ? (
+                      <span className="inline-flex min-h-11 min-w-0 flex-1 items-center rounded-full border border-white/10 bg-white/[0.045] px-4 text-xs font-semibold text-slate-200 sm:max-w-64">
+                        <span className="truncate">{displayCandidateName}</span>
+                      </span>
+                    ) : (
+                      <label className="min-w-0 flex-1 sm:max-w-64">
+                        <span className="sr-only">切换当前模型</span>
+                        <select
+                          className="min-h-11 w-full truncate rounded-full border border-white/10 bg-white/[0.045] px-4 text-xs font-semibold text-white outline-none transition hover:border-white/20 focus:border-brand-300/45 focus:ring-4 focus:ring-brand-300/10"
+                          disabled={isSending}
+                          onChange={(event) => handleModelChange(event.target.value)}
+                          value={model.id}
+                        >
+                          {models.map((item) => (
+                            <option className="bg-slate-950 text-white" key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {chatAudioFeatures?.microphone_enabled ? (
+                      <QuickTranscriptionControl
+                        currentModelId={isOmniAutoRoute ? decodedModelId : model.id}
+                        directBlockedReason={directAudioBlockedReason}
                         disabled={
                           isSending ||
                           isUploadingImage ||
@@ -4534,155 +4166,332 @@ function ChatConversationPage() {
                           chatFileState.count > 0 ||
                           visualAnalysisState.count > 0
                         }
-                        onClick={() => openAudioComposer("upload")}
-                        type="button"
-                      >
-                        音频
-                      </button>
-                      {chatVideoEnabled ? (
-                        <button
-                          className={`rounded-full border px-3 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                            videoComposerOpen
-                              ? "border-brand-300/45 bg-brand-300/12 text-brand-100"
-                              : "border-white/10 bg-white/[0.06] text-slate-200 hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100"
-                          }`}
-                          disabled={
-                            isSending ||
-                            isPreparingVideo ||
-                            isUploadingImage ||
-                            chatOutputEnabled ||
-                            uploadedImages.length > 0 ||
-                            audioComposerOpen ||
-                            Boolean(reusedDirectMedia) ||
-                            chatFileState.count > 0 ||
-                            visualAnalysisState.count > 0
-                          }
-                          onClick={openVideoComposer}
-                          type="button"
-                        >
-                          视频
-                        </button>
-                      ) : null}
-                      {chatAudioFeatures?.microphone_enabled ? (
-                        <QuickTranscriptionControl
-                          currentModelId={
-                            isOmniAutoRoute ? decodedModelId : model.id
-                          }
-                          directBlockedReason={directAudioBlockedReason}
-                          disabled={
-                            isSending ||
-                            isUploadingImage ||
-                            chatOutputEnabled ||
-                            uploadedImages.length > 0 ||
-                            videoComposerOpen ||
-                            Boolean(reusedDirectMedia) ||
-                            chatFileState.count > 0 ||
-                            visualAnalysisState.count > 0
-                          }
-                          enabled
-                          isAutoRoute={isOmniAutoRoute}
-                          onError={setError}
-                          onSendDirectAudio={sendDirectAudio}
-                          onTranscript={fillQuickTranscript}
-                        />
-                      ) : null}
-                      {realtimeVoiceProfile ? (
-                        <Link
-                          className={`inline-flex items-center rounded-full border px-3 py-2 text-xs font-semibold transition ${
-                            realtimeVoiceProfile.interaction_status === "ready"
-                              ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100 hover:border-cyan-300/60 hover:bg-cyan-300/15"
-                              : "border-white/10 bg-white/[0.045] text-slate-400 hover:border-white/20 hover:text-slate-200"
-                          }`}
-                          title={
-                            realtimeVoiceProfile.status_reason ??
-                            "进入连续语音通话，区别于单轮麦克风转写"
-                          }
-                          to={`/chat/${encodeURIComponent(
-                            realtimeVoiceProfile.model_id,
-                          )}?operation=realtime_voice`}
-                        >
-                          实时语音
-                        </Link>
-                      ) : null}
-                      <p className="text-xs text-slate-400">
-                        {visualAnalysisState.busy
-                          ? "视觉/OCR 正在处理；不会自动重试"
-                          : visualAnalysisState.count > 0
-                            ? visualAnalysisState.allConfirmed
-                              ? "识别结果已确认，可用于本轮发送"
-                              : "请在视觉/OCR 面板预览并选择用途"
-                        : chatFileState.busy
-                          ? "正在本地提取文件内容..."
-                          : chatFileState.count > 0
-                            ? chatFileState.allConfirmed
-                              ? `已确认 ${chatFileState.count} 个文件，可发送`
-                              : "请打开文件预览并逐个确认"
-                        : isUploadingImage
-                          ? "正在压缩图片..."
-                          : isPreparingVideo
-                            ? videoSelection?.mode === "assist"
-                              ? "正在生成视频理解摘要..."
-                              : "正在上传并理解视频..."
-                          : reusedDirectMedia
-                            ? `复用${reusedDirectMedia.kind === "audio" ? "音频" : "视频"}已加入本轮，尚未发送`
-                          : audioComposerOpen
-                            ? "语音只在本页临时处理"
-                            : videoComposerOpen
-                              ? "视频只参与本轮，刷新后不会保留"
-                          : supportsImageInput
-                            ? chatAudioFeatures?.microphone_enabled
-                              ? chatVideoEnabled
-                                ? "可上传图片、音频、视频或使用麦克风"
-                                : "麦克风可直接转成文字"
-                              : chatVideoEnabled
-                                ? "可上传图片、音频或视频"
-                                : "可上传图片或音频"
-                            : chatAudioFeatures?.microphone_enabled
-                              ? chatVideoEnabled
-                                ? "可上传音频、视频或使用麦克风"
-                                : "麦克风可直接转成文字"
-                              : chatVideoEnabled
-                                ? "可上传音频或视频"
-                                : "可上传音频"}
-                      </p>
-                    </div>
+                        enabled
+                        isAutoRoute={isOmniAutoRoute}
+                        onError={setError}
+                        onSendDirectAudio={sendDirectAudio}
+                        onTranscript={fillQuickTranscript}
+                      />
+                    ) : null}
                     <button
-                      className="rounded-full bg-brand-300 px-5 py-2 text-sm font-semibold text-ink-950 shadow-neon transition hover:bg-brand-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
+                      aria-label="发送消息"
+                      className="inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-brand-300 px-4 text-sm font-semibold text-ink-950 shadow-neon transition hover:bg-brand-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
                       disabled={!canSend}
-                      onClick={() =>
-                        void (
-                          videoSelection
-                            ? sendSelectedVideo()
-                            : sendMessage()
-                        )
-                      }
+                      onClick={() => void (videoSelection ? sendSelectedVideo() : sendMessage())}
                       type="button"
                     >
-                      {isPreparingVideo
-                        ? "理解视频中"
-                        : isSending
-                          ? "发送中"
-                          : "发送"}
+                      {isPreparingVideo ? "处理中" : isSending ? "发送中" : "发送"}
                     </button>
                   </div>
                 </div>
               </div>
             </section>
 
-            <PromptSidebar
-              isOpen={promptSidebarOpen}
-              onFillPrompt={(content) => {
-                setInput(content);
-                setError("");
-              }}
-              onSendPrompt={(content) => void sendMessage(content)}
-              onSuperPromptModeChange={setSuperPromptMode}
-              onToggleOpen={() => setPromptSidebarOpen((current) => !current)}
-              superPromptMode={superPromptMode}
-            />
           </div>
         </div>
       </div>
+
+      <ChatOverlayDrawer
+        description={agentInterview ? "选择一道题填入或直接发送" : "选择提示填入输入框或直接发送"}
+        onClose={() => setTopOverlay(null)}
+        open={topOverlay === "prompt"}
+        title={promptLabel}
+        triggerRef={promptTriggerRef}
+      >
+        <PromptLibraryContent
+          onFillPrompt={(content) => {
+            setInput(content);
+            setError("");
+            setTopOverlay(null);
+            window.requestAnimationFrame(() => messageInputRef.current?.focus());
+          }}
+          onSendPrompt={(content) => {
+            setTopOverlay(null);
+            void sendMessage(content);
+          }}
+          onSuperPromptModeChange={setSuperPromptMode}
+          superPromptMode={superPromptMode}
+          variant={agentInterview ? "question" : "prompt"}
+        />
+      </ChatOverlayDrawer>
+
+      <ChatOverlayDrawer
+        description="模型、路由、工具与语音设置"
+        onClose={() => setTopOverlay(null)}
+        open={topOverlay === "settings"}
+        title="对话设置"
+        triggerRef={settingsTriggerRef}
+      >
+        <div className="divide-y divide-white/10">
+          <section className="p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">当前模型</p>
+            <h3 className="mt-2 text-base font-semibold text-white">{displayCandidateName}</h3>
+            <p className="mt-1 text-sm leading-6 text-slate-400">{displayCandidateDescription}</p>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+              <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
+                <dt className="text-slate-500">服务</dt>
+                <dd className="mt-1 font-semibold text-slate-100">{providerName}</dd>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
+                <dt className="text-slate-500">上下文</dt>
+                <dd className="mt-1 font-semibold text-slate-100">{model.context_length.toLocaleString("zh-CN")}</dd>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
+                <dt className="text-slate-500">输入模态</dt>
+                <dd className="mt-1 font-semibold text-slate-100">
+                  {model.input_modalities.map((modality) => modalityLabels[modality] ?? modality).join(" / ")}
+                </dd>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
+                <dt className="text-slate-500">价格</dt>
+                <dd className="mt-1 font-semibold text-slate-100">
+                  {isOmniAutoRoute || model.pricing_status === "dynamic"
+                    ? "按实际调用"
+                    : `¥${model.price_cny.input.toFixed(2)} / ¥${model.price_cny.output.toFixed(2)}`}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          {isOmniAutoRoute ? (
+            <section className="space-y-4 p-5">
+              <div>
+                <h3 className="text-sm font-semibold text-white">智能调度与预算</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-400">设置只作用于当前调度会话，不自动切换你的输入能力。</p>
+              </div>
+              <label className="block text-xs font-semibold text-slate-300">
+                调度模式
+                <select
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                  disabled={isSending}
+                  onChange={(event) => setRoutingMode(event.target.value as typeof routingMode)}
+                  value={routingMode}
+                >
+                  <option value="balanced">均衡</option>
+                  <option value="fast">速度优先</option>
+                  <option value="quality">质量优先</option>
+                  <option value="cheap">成本优先</option>
+                  <option value="reliable">稳定优先</option>
+                  <option value="offline">离线优先</option>
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-slate-300">
+                单次预算上限（USD，可选）
+                <input
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-brand-300/45"
+                  disabled={isSending}
+                  inputMode="decimal"
+                  min="0.000001"
+                  onChange={(event) => setRoutingBudget(event.target.value)}
+                  placeholder="例如 0.05"
+                  type="number"
+                  value={routingBudget}
+                />
+              </label>
+              <label className="block text-xs font-semibold text-slate-300">
+                超预算处理
+                <select
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                  disabled={isSending || !routingBudget.trim()}
+                  onChange={(event) => setRoutingBudgetFallback(event.target.value as typeof routingBudgetFallback)}
+                  value={routingBudgetFallback}
+                >
+                  <option value="cheapest">改用最低成本候选</option>
+                  <option value="strict">严格拒绝并返回 402</option>
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-slate-300">
+                上下文优化
+                <select
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                  disabled={isSending}
+                  onChange={(event) => setCompressionMode(event.target.value as typeof compressionMode)}
+                  value={compressionMode}
+                >
+                  <option value="auto">自动推荐</option>
+                  <option value="off">关闭</option>
+                  <option value="standard">标准</option>
+                  <option value="strong">强力</option>
+                </select>
+              </label>
+            </section>
+          ) : null}
+
+          <section>
+            <div className="px-5 pt-5">
+              <h3 className="text-sm font-semibold text-white">高级参数</h3>
+              <p className="mt-1 text-xs text-slate-400">继续按模型保存在现有本地设置中。</p>
+            </div>
+            <AdvancedParamsPanel
+              embedded
+              isOpen
+              maxTokenLimit={maxTokenLimit}
+              onChange={handleAdvancedParamsChange}
+              onReset={resetAdvancedParams}
+              onToggle={() => undefined}
+              params={advancedParams}
+            />
+          </section>
+
+          <section className="space-y-4 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-white">MCP 工具</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-400">仅调用白名单内已注册工具，默认关闭。</p>
+              </div>
+              <label className="inline-flex min-h-11 items-center gap-2 text-xs font-semibold text-slate-200">
+                <input
+                  checked={runtimeToolsEnabled}
+                  className="h-4 w-4"
+                  disabled={isSending || isOmniAutoRoute}
+                  onChange={(event) => setRuntimeToolsEnabled(event.target.checked)}
+                  type="checkbox"
+                />
+                启用
+              </label>
+            </div>
+            {runtimeToolsEnabled ? (
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-slate-300">
+                  工具白名单
+                  <input
+                    className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                    disabled={isSending}
+                    onChange={(event) => setRuntimeToolNames(event.target.value)}
+                    placeholder="多个名称用逗号分隔；留空使用当前可用工具"
+                    value={runtimeToolNames}
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-300">
+                  最大循环次数
+                  <input
+                    className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                    disabled={isSending}
+                    max="12"
+                    min="1"
+                    onChange={(event) => setRuntimeMaxToolIterations(event.target.value)}
+                    type="number"
+                    value={runtimeMaxToolIterations}
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-300">
+                  补充约束
+                  <textarea
+                    className="mt-2 min-h-24 w-full resize-y rounded-xl border border-white/10 bg-ink-950/85 p-3 text-sm text-white outline-none focus:border-brand-300/45"
+                    disabled={isSending}
+                    maxLength={2000}
+                    onChange={(event) => setRuntimePromptSuffix(event.target.value)}
+                    value={runtimePromptSuffix}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </section>
+
+          {ttsProfile || nativeAudioAvailable ? (
+            <section className="space-y-4 p-5">
+              <div>
+                <h3 className="text-sm font-semibold text-white">回答语音</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-400">默认关闭；原生语音开启时不会重复调用辅助朗读。</p>
+              </div>
+              {nativeAudioAvailable ? (
+                <label className="flex min-h-11 items-center justify-between gap-3 text-sm text-slate-200">
+                  原生语音回答
+                  <input
+                    checked={nativeAudioEnabled}
+                    className="h-4 w-4"
+                    disabled={isSending || Boolean(selectedKnowledgeBaseId) || runtimeToolsEnabled}
+                    onChange={(event) => setNativeAudioEnabled(event.target.checked)}
+                    type="checkbox"
+                  />
+                </label>
+              ) : null}
+              {nativeAudioEnabled && nativeAudioProfile ? (
+                <label className="block text-xs font-semibold text-slate-300">
+                  原生声线
+                  <select
+                    className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white"
+                    disabled={isSending}
+                    onChange={(event) => setNativeAudioVoice(event.target.value)}
+                    value={nativeAudioVoice}
+                  >
+                    {nativeAudioProfile.voices.map((voice) => <option key={voice} value={voice}>{voice}</option>)}
+                  </select>
+                </label>
+              ) : null}
+              {ttsProfile ? (
+                <>
+                  <label className="block text-xs font-semibold text-slate-300">
+                    辅助朗读模型
+                    <select
+                      className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white"
+                      disabled={isSending}
+                      onChange={(event) => {
+                        setTtsModelId(event.target.value);
+                        window.sessionStorage.setItem(TTS_MODEL_SESSION_KEY, event.target.value);
+                      }}
+                      value={ttsProfile.model_id}
+                    >
+                      {ttsProfiles.map((profile) => <option key={profile.model_id} value={profile.model_id}>{profile.display_name}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-300">
+                    辅助朗读声线
+                    <select
+                      className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white"
+                      disabled={isSending}
+                      onChange={(event) => {
+                        setTtsVoice(event.target.value);
+                        window.sessionStorage.setItem(TTS_VOICE_SESSION_KEY, event.target.value);
+                      }}
+                      value={ttsVoice}
+                    >
+                      {ttsProfile.voices.map((voice) => <option key={voice} value={voice}>{speechVoiceLabel(voice)}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex min-h-11 items-center justify-between gap-3 text-sm text-slate-200">
+                    自动朗读后续回答
+                    <input
+                      checked={autoReadEnabled}
+                      className="h-4 w-4"
+                      disabled={isSending}
+                      onChange={(event) => {
+                        if (event.target.checked && !autoReadConfirmedRef.current) {
+                          setAutoReadConfirmationOpen(true);
+                          return;
+                        }
+                        setAutoReadEnabled(event.target.checked);
+                      }}
+                      type="checkbox"
+                    />
+                  </label>
+                  {autoReadConfirmationOpen ? (
+                    <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.08] p-3 text-xs leading-5 text-amber-100">
+                      每次文字回答后会额外调用一次语音模型，可能产生费用。
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          className="min-h-11 rounded-full bg-amber-200 px-4 font-semibold text-ink-950"
+                          onClick={() => {
+                            autoReadConfirmedRef.current = true;
+                            setAutoReadEnabled(true);
+                            setAutoReadConfirmationOpen(false);
+                          }}
+                          type="button"
+                        >确认开启</button>
+                        <button
+                          className="min-h-11 rounded-full border border-amber-200/30 px-4 font-semibold"
+                          onClick={() => setAutoReadConfirmationOpen(false)}
+                          type="button"
+                        >取消</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </section>
+          ) : null}
+        </div>
+      </ChatOverlayDrawer>
 
       {lightboxImage ? (
         <div

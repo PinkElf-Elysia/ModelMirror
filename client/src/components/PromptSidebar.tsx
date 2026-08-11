@@ -51,10 +51,12 @@ function interviewCategoryName(name: string) {
 
 function PromptCard({
   prompt,
+  variant,
   onFillPrompt,
   onSendPrompt,
 }: {
   prompt: PromptItem;
+  variant: "prompt" | "question";
   onFillPrompt: (content: string) => void;
   onSendPrompt: (content: string) => void;
 }) {
@@ -79,26 +81,29 @@ function PromptCard({
           onClick={() => onFillPrompt(prompt.content)}
           type="button"
         >
-          备题
+          {variant === "question" ? "备题" : "填入"}
         </button>
         <button
           className="rounded-full bg-brand-300 px-2.5 py-1 text-xs font-semibold text-ink-950 transition hover:bg-brand-200 hover:shadow-neon"
           onClick={() => onSendPrompt(prompt.content)}
           type="button"
         >
-          开问
+          {variant === "question" ? "开问" : "发送"}
         </button>
       </div>
     </article>
   );
 }
 
-function SidebarContent({
+export function PromptLibraryContent({
   superPromptMode,
+  variant = "question",
   onSuperPromptModeChange,
   onFillPrompt,
   onSendPrompt,
-}: Omit<PromptSidebarProps, "isOpen" | "onToggleOpen">) {
+}: Omit<PromptSidebarProps, "isOpen" | "onToggleOpen"> & {
+  variant?: "prompt" | "question";
+}) {
   const [openCategoryIds, setOpenCategoryIds] = useState<string[]>([
     categories[0]?.id ?? "",
   ]);
@@ -124,10 +129,12 @@ function SidebarContent({
     <div className="flex h-full flex-col">
       <div className="border-b border-white/10 bg-[linear-gradient(120deg,rgba(36,217,255,0.10),transparent_56%)] p-4">
         <p className="text-sm font-semibold text-white">
-          {recruitmentTheme.promptPanelTitle}
+          {variant === "question" ? recruitmentTheme.promptPanelTitle : "提示库"}
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-400">
-          {categories.length} 个题库，{promptCount} 道面试题
+          {variant === "question"
+            ? `${categories.length} 个题库，${promptCount} 道面试题`
+            : `${categories.length} 个分类，${promptCount} 条可复用提示`}
         </p>
 
         <button
@@ -142,10 +149,12 @@ function SidebarContent({
         >
           <span>
             <span className="block text-sm font-semibold">
-              {recruitmentTheme.superPromptTitle}
+              {variant === "question" ? recruitmentTheme.superPromptTitle : "增强提示模式"}
             </span>
             <span className="mt-0.5 block text-xs opacity-75">
-              {recruitmentTheme.superPromptDescription}
+              {variant === "question"
+                ? recruitmentTheme.superPromptDescription
+                : "使用更严格的提示结构组织下一轮请求"}
             </span>
           </span>
           <span
@@ -184,7 +193,9 @@ function SidebarContent({
                         {categoryMark(category.name)}
                       </span>
                       <span className="truncate">
-                        {interviewCategoryName(category.name)}
+                        {variant === "question"
+                          ? interviewCategoryName(category.name)
+                          : category.name}
                       </span>
                     </span>
                     <span className="mt-0.5 block text-xs text-slate-400">
@@ -215,6 +226,7 @@ function SidebarContent({
                           onFillPrompt={onFillPrompt}
                           onSendPrompt={onSendPrompt}
                           prompt={prompt}
+                          variant={variant}
                         />
                       ))}
                     </div>
@@ -257,7 +269,7 @@ export default function PromptSidebar({
             isOpen ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
-          <SidebarContent
+          <PromptLibraryContent
             onFillPrompt={onFillPrompt}
             onSendPrompt={onSendPrompt}
             onSuperPromptModeChange={onSuperPromptModeChange}
@@ -296,7 +308,7 @@ export default function PromptSidebar({
           </button>
         </div>
         <div className="h-[72vh]">
-          <SidebarContent
+          <PromptLibraryContent
             onFillPrompt={onFillPrompt}
             onSendPrompt={onSendPrompt}
             onSuperPromptModeChange={onSuperPromptModeChange}

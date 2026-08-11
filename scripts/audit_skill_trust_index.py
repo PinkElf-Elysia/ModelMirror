@@ -25,7 +25,7 @@ from skills.trust_scanner import (  # noqa: E402
 
 _RECEIPT_FIELDS = {
     "receiptId", "source", "directoryTreeSha", "packageDigest", "scannerVersion",
-    "riskLevel", "trustStatus", "installPolicy", "compatibilityStatus", "summary",
+    "riskLevel", "trustStatus", "installPolicy", "compatibilityStatus", "routerEligible", "summary",
     "scripts", "opaqueResources", "license", "allowedTools", "dependencies",
     "commands", "capabilities", "findings", "trustFingerprint",
 }
@@ -99,10 +99,13 @@ def audit(
         assert receipt["trustStatus"] in {"verified", "conditional", "blocked"}
         assert receipt["installPolicy"] in {"allow", "confirm", "block"}
         assert receipt["compatibilityStatus"] in {"portable", "conditional", "unsupported"}
-        if receipt["riskLevel"] == "critical":
+        assert isinstance(receipt["routerEligible"], bool)
+        if receipt["installPolicy"] == "block":
             assert receipt["trustStatus"] == "blocked"
-            assert receipt["installPolicy"] == "block"
             assert receipt["compatibilityStatus"] == "unsupported"
+            assert receipt["routerEligible"] is False
+        if receipt["routerEligible"]:
+            assert receipt["installPolicy"] != "block"
         for finding in receipt["findings"]:
             assert set(finding).issubset(_FINDING_FIELDS)
             assert {"code", "severity", "message"}.issubset(finding)
@@ -150,6 +153,7 @@ def audit(
             "trustStatus": receipt["trustStatus"],
             "installPolicy": receipt["installPolicy"],
             "compatibilityStatus": receipt["compatibilityStatus"],
+            "routerEligible": receipt["routerEligible"],
         }
         mapping = "#".join(
             (

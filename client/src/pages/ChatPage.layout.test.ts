@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { CHAT_HEADER_POSITION_CLASSES } from "./ChatPage";
+import {
+  CHAT_COMPOSER_COLUMN_CLASSES,
+  CHAT_MESSAGE_COLUMN_CLASSES,
+  CHAT_SHELL_HEADER_CLASSES,
+  skillActivationContentUrl,
+} from "./ChatPage";
 
 const BREAKPOINTS: Record<string, number> = {
   md: 768,
   lg: 1024,
 };
 
-function activePositionClasses(viewportWidth: number) {
-  return CHAT_HEADER_POSITION_CLASSES.split(/\s+/).flatMap((token) => {
+function activePositionClasses(classNames: string, viewportWidth: number) {
+  return classNames.split(/\s+/).flatMap((token) => {
     const [prefix, className] = token.includes(":")
       ? token.split(":", 2)
       : [null, token];
@@ -16,16 +21,19 @@ function activePositionClasses(viewportWidth: number) {
   });
 }
 
-describe("ChatPage responsive interview header", () => {
-  it("keeps the 390px chat input clear while preserving desktop sticky behavior", () => {
-    expect(activePositionClasses(390)).not.toContain("sticky");
-    expect(activePositionClasses(390)).not.toContain("top-4");
-
-    expect(activePositionClasses(768)).toEqual(
-      expect.arrayContaining(["sticky", "top-4"]),
+describe("ChatPage conversation-first shell", () => {
+  it("keeps one compact header and bounded message/composer columns at every viewport", () => {
+    expect(activePositionClasses(CHAT_SHELL_HEADER_CLASSES, 390)).toEqual(
+      expect.arrayContaining(["sticky", "top-0", "h-16"]),
     );
-    expect(activePositionClasses(1024)).toEqual(
-      expect.arrayContaining(["sticky", "top-4", "top-24"]),
+    expect(CHAT_MESSAGE_COLUMN_CLASSES).toContain("max-w-[920px]");
+    expect(CHAT_COMPOSER_COLUMN_CLASSES).toContain("max-w-[1000px]");
+    expect(CHAT_SHELL_HEADER_CLASSES).not.toContain("top-24");
+  });
+
+  it("requests Skill content through the server activation gate", () => {
+    expect(skillActivationContentUrl("skill id/with spaces")).toBe(
+      "/api/skills/skill%20id%2Fwith%20spaces/content?purpose=activate",
     );
   });
 });

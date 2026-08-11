@@ -7884,6 +7884,13 @@ async def _run_workflow_response(
                 for item in (pending_state.get("active_skill_ids") or [])
                 if str(item).strip()
             }
+            skill_trust_authorizations = {
+                str(skill_id): str(fingerprint)
+                for skill_id, fingerprint in dict(
+                    pending_state.get("skill_trust_authorizations") or {}
+                ).items()
+                if str(skill_id).strip() and str(fingerprint).strip()
+            }
             denied_skill_candidate_ids = {
                 str(item)
                 for item in (pending_state.get("denied_skill_candidate_ids") or [])
@@ -7912,6 +7919,18 @@ async def _run_workflow_response(
                 ).strip()
                 if activated_skill_id:
                     active_skill_ids.add(activated_skill_id)
+                trust_authorization = metadata.get("trust_authorization")
+                if isinstance(trust_authorization, dict):
+                    authorized_skill_id = str(
+                        trust_authorization.get("skill_id") or ""
+                    ).strip()
+                    trust_fingerprint = str(
+                        trust_authorization.get("trust_fingerprint") or ""
+                    ).strip()
+                    if authorized_skill_id and trust_fingerprint:
+                        skill_trust_authorizations[
+                            authorized_skill_id
+                        ] = trust_fingerprint
                 increment = int(metadata.get("catalog_install_increment") or 0)
                 if increment > 0:
                     catalog_install_count += increment
@@ -8035,6 +8054,28 @@ async def _run_workflow_response(
                         denied_skill_candidate_ids
                     ),
                     "catalog_install_count": catalog_install_count,
+                    "skill_trust_authorizations": dict(
+                        sorted(skill_trust_authorizations.items())
+                    ),
+                    "skill_runtime_environment": {
+                        "tool_names": sorted(
+                            {
+                                str(tool.name)
+                                for tool in available_tools
+                                if str(tool.name).strip()
+                            }
+                        ),
+                        "tool_providers": sorted(
+                            {
+                                str(tool.provider)
+                                for tool in available_tools
+                                if str(tool.provider).strip()
+                            }
+                        ),
+                        "credentials_available": False,
+                        "host_filesystem_available": False,
+                        "desktop_control_available": False,
+                    },
                 }
                 if batch_id:
                     metadata["parallel_batch_id"] = batch_id
@@ -8612,6 +8653,9 @@ async def _run_workflow_response(
                                 denied_skill_candidate_ids
                             ),
                             "catalog_install_count": catalog_install_count,
+                            "skill_trust_authorizations": dict(
+                                sorted(skill_trust_authorizations.items())
+                            ),
                         }
                         raise
                     tool_calls_used += 1
