@@ -108,6 +108,29 @@ class _OpenTrackingProvider(FakeCodingAgentProvider):
         return await super().open(request)
 
 
+class _LostTurnReceiptProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.message_count = 0
+        self.checkpoint_count = 0
+        self.repair: Callable[[], Awaitable[None]] | None = None
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.message_count += 1
+        if self.message_count == 1 and self.repair is not None:
+            await self.repair()
+        async for event in super().message(session, text):
+            yield event
+
+    async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
+        self.checkpoint_count += 1
+        if self.checkpoint_count == 1:
+            raise OSError("simulated provider receipt loss")
+        return await super().checkpoint(session)
+
+
 def _service_with_harness(
     tmp_path: Path, provider: FakeCodingAgentProvider
 ) -> tuple[CodingWorkerService, ToolBroker]:
@@ -535,4 +558,50 @@ async def test_resume_rejects_workspace_changed_after_checkpoint(tmp_path: Path)
     )
     assert blocked.reason == "checkpoint_workspace_changed"
     assert provider.restore_count == 0
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_completed_provider_turn_is_reconciled_before_any_replay(
+    tmp_path: Path,
+) -> None:
+    provider = _LostTurnReceiptProvider()
+    service, broker = _service_with_harness(tmp_path, provider)
+    request = _request("lost-turn-receipt").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    task = await service.create_task(
+        Origin(module="test", object_id="lost-turn-receipt"), request
+    )
+
+    async def repair() -> None:
+        content = "print('reconciled')\n"
+        await broker.execute(
+            task_id=task.task_id,
+            operation_id="lost-turn-write",
+            tool_name="write_file",
+            arguments={
+                "path": "main.py",
+                "content": content,
+                "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+            },
+        )
+
+    provider.repair = repair
+    blocked = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.BLOCKED,
+    )
+    assert blocked.reason == "checkpoint_failed"
+    assert service.store.latest_checkpoint(task.task_id) is None
+    assert provider.message_count == 1
+
+    await service.resume(task.task_id)
+    completed = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.COMPLETED,
+    )
+    assert completed.reason is None
+    assert provider.message_count == 1
+    assert service.store.get_operation("lost-turn-write").state.value == "completed"
     await service.shutdown()

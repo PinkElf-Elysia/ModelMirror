@@ -349,7 +349,18 @@ class CodingWorkerService:
             resume_context: dict[str, object] | None = None
             completed_turns = 0
             checkpoint = self.store.latest_checkpoint(task_id)
-            if checkpoint is not None:
+            uncheckpointed_turns = self._uncheckpointed_completed_turns(task_id)
+            if uncheckpointed_turns:
+                current_tree_hash = self.workspace_broker.current_tree_hash(
+                    workspace.workspace_id
+                )
+                resume_phase = "testing"
+                completed_turns = uncheckpointed_turns
+                resume_context = self._context_summary(
+                    task_id, tree_hash=current_tree_hash, public_output=""
+                )
+                session = await self.provider.open(request)
+            elif checkpoint is not None:
                 current_tree_hash = self.workspace_broker.current_tree_hash(
                     workspace.workspace_id
                 )
@@ -429,6 +440,34 @@ class CodingWorkerService:
             if session is not None:
                 with contextlib.suppress(Exception):
                     await self.provider.close(session)
+
+    def _uncheckpointed_completed_turns(self, task_id: str) -> int:
+        cursor = 0
+        completed_turns = 0
+        last_completed_sequence = 0
+        last_checkpoint_sequence = 0
+        while True:
+            events = self.store.list_events(task_id, after=cursor, limit=1000)
+            if not events:
+                break
+            for event in events:
+                if (
+                    event.type == "provider_event"
+                    and event.payload.get("kind")
+                    == ProviderEventKind.TURN_COMPLETED.value
+                ):
+                    completed_turns += 1
+                    last_completed_sequence = event.sequence
+                elif event.type == "checkpoint_created":
+                    last_checkpoint_sequence = event.sequence
+            cursor = events[-1].sequence
+            if len(events) < 1000:
+                break
+        return (
+            completed_turns
+            if last_completed_sequence > last_checkpoint_sequence
+            else 0
+        )
 
     async def _drive_session(
         self,
