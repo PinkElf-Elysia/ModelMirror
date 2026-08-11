@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "package": "Kenney Prototype Kit",
+  "version": "1.0",
+  "upstream": "https://www.kenney.nl/assets/prototype-kit",
+  "license": "CC0-1.0",
+  "modified": false,
+  "sourceArchiveUrl": "https://kenney.nl/media/pages/assets/prototype-kit/6a76d93386-1677696368/kenney_prototype-kit-1.0.zip",
+  "sourceArchiveSha256": "213b522fb12bcc9b9ac66c4f7581f7c74623293272212e40a70c39936ad3da95",
+  "licensePath": "third-party/kenney-prototype-kit/LICENSE.txt",
+  "licenseSha256": "ec05660e0dca843cc52d9bdd98412bf8a1ce91606ecf23ab38c39af71e629e62",
+  "sourceRecordPath": "third-party/kenney-prototype-kit/SOURCE.md",
+  "sourceRecordByteLength": 1040,
+  "sourceRecordSha256": "d0bc5ef5777cfe2143613b6d0378db776fe5e1e4fbf72a47703accdb1ce3f82e",
+  "assetRoot": "examples/scene-bundles/kenney-prototype/assets",
+  "assets": [
+    {"path": "Textures/colormap.png", "byteLength": 8706, "sha256": "0d4947d34ff32acf4a359c7f22ca784e057e7e72f622170a9a77b6fc88fdb70e"},
+    {"path": "crate.glb", "byteLength": 18064, "sha256": "7dec224fbdd2297524c56fe3b4fa79fe6c5854f4b699a9e2e2c21ce6f008738c"},
+    {"path": "figurine.glb", "byteLength": 118936, "sha256": "ae0ea82089e66215684b0b2f5a162be9f6c71475085c81c3b80e53abd08b6bd8"},
+    {"path": "floor-square.glb", "byteLength": 2340, "sha256": "873232210ff286b26bb6bfc371d3c6c96479a5b667f2927de3bcf06b1114d5af"},
+    {"path": "wall.glb", "byteLength": 2848, "sha256": "538dd97f85473999e1e9fe4758dc48daa85a7eed0be50b30c004702ab848f36c"}
+  ],
+  "tree": {
+    "profile": "matrix-oasis.vendor-tree/1",
+    "fileCount": 5,
+    "byteLength": 150894,
+    "sha256": "ebe687657bc1c6eee2914be74208f553c82e2d05e8361aff1b322d0c6efadfdb"
+  }
+}

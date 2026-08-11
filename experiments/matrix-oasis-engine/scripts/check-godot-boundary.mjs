@@ -69,10 +69,11 @@ function hasUnsafeAbsoluteLiteral(source) {
   for (const match of literals) {
     const value = match[2];
     const prefix = source.slice(Math.max(0, match.index - 32), match.index);
-    const safeJsonPointer = /^\/(?:runtimePack|receipt)(?:\/[^\r\n]*)?$/u.test(value) ||
+    const safeJsonPointer = /^\/(?:runtimePack|receipt|scenePack)(?:\/[^\r\n]*)?$/u.test(value) ||
       /^\/(?:prepared|options|actionId|runtime)$/u.test(value) ||
       /^\/snapshot(?:\/(?:pack|status|stepCount|variables))?$/u.test(value) ||
-      (/\b(?:path|action_path)\s*\+\s*$/u.test(prefix) && /^(?:\/[A-Za-z][A-Za-z0-9]*)+$/u.test(value));
+      (/\b(?:path|action_path)\s*\+\s*$/u.test(prefix) && /^(?:\/[A-Za-z][A-Za-z0-9]*)+$/u.test(value)) ||
+      (value === "/" && /\btrim_prefix\s*\(\s*$/u.test(prefix));
     if (safeJsonPointer) {
       continue;
     }
@@ -109,7 +110,9 @@ function hasUnsafeFileOpen(source, relativePath) {
       /\bFileAccess\s*\.\s*READ\b/u.test(args);
     const approvedRuntimeRead = relativePath === "runtime/runtime_artifact_loader.gd" &&
       /^\s*approved_path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
-    if (!staticResourceRead && !approvedRuntimeRead) {
+    const approvedSceneRead = relativePath === "scene_binding/scene_artifact_loader.gd" &&
+      /^\s*path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
+    if (!staticResourceRead && !approvedRuntimeRead && !approvedSceneRead) {
       return true;
     }
   }

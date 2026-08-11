@@ -10,10 +10,14 @@ import {
   GDUNIT4_SOURCE_ARCHIVE_SHA256,
   GODOT_DEMO_REFERENCE_COMMIT,
   GODOT_DEMO_REFERENCE_SHA256,
+  KENNEY_PROTOTYPE_ARCHIVE_SHA256,
+  KENNEY_PROTOTYPE_TEXTURE_SHA256,
+  KENNEY_PROTOTYPE_TREE_SHA256,
   VendorIntegrityError,
   computeVendorTree,
   verifyGodotDemoReference,
   verifyGodotVendor,
+  verifyKenneyAssets,
 } from "../scripts/lib/vendor-core.mjs";
 
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -33,6 +37,10 @@ async function readReferenceManifest(root = moduleRoot) {
   );
 }
 
+async function readKenneyManifest(root = moduleRoot) {
+  return JSON.parse(await fs.readFile(path.join(root, "third-party", "kenney-prototype-kit", "asset.lock.json"), "utf8"));
+}
+
 test("the committed GdUnit4 tree matches the exact approved lock", async () => {
   const manifest = await readManifest();
   const tree = await verifyGodotVendor({ moduleRoot, manifest });
@@ -50,6 +58,29 @@ test("the official Godot movement reference is exact and non-executable", async 
   assert.equal(manifest.runtimeDependency, false);
   assert.equal(manifest.executable, false);
   assert.match(manifest.referencePath, /\.reference\.txt$/);
+});
+
+test("the four Kenney CC0 GLBs, approved shared texture, and source records match the exact asset lock", async () => {
+  const manifest = await readKenneyManifest();
+  const tree = await verifyKenneyAssets({ moduleRoot, manifest });
+  assert.equal(manifest.sourceArchiveSha256, KENNEY_PROTOTYPE_ARCHIVE_SHA256);
+  assert.equal(tree.sha256, KENNEY_PROTOTYPE_TREE_SHA256);
+  assert.equal(tree.fileCount, 5);
+  assert.equal(tree.byteLength, 150894);
+  assert.equal(manifest.assets[0].path, "Textures/colormap.png");
+  assert.equal(manifest.assets[0].sha256, KENNEY_PROTOTYPE_TEXTURE_SHA256);
+});
+
+test("Kenney asset verification rejects manifest expansion and byte drift", async () => {
+  const manifest = await readKenneyManifest();
+  await assert.rejects(
+    verifyKenneyAssets({ moduleRoot, manifest: {...manifest, unexpected: true} }),
+    (error) => error instanceof VendorIntegrityError && error.code === "KENNEY_ASSET_MANIFEST_INVALID",
+  );
+  await assert.rejects(
+    verifyKenneyAssets({ moduleRoot, manifest: {...manifest, assets: manifest.assets.map((asset, index) => index === 0 ? {...asset, sha256: "0".repeat(64)} : asset)} }),
+    (error) => error instanceof VendorIntegrityError && error.code === "KENNEY_ASSET_MANIFEST_INVALID",
+  );
 });
 
 test("Godot movement reference verification rejects drift and expanded manifests", async () => {
@@ -78,6 +109,10 @@ test("Git preserves vendor bytes and scopes whitespace exceptions exactly", asyn
     attributes,
     /^apps\/runtime-godot\/addons\/gdUnit4\/\*\* -text -whitespace$/m,
   );
+  assert.match(
+    attributes,
+    /^third-party\/kenney-prototype-kit\/LICENSE\.txt -text -whitespace$/m,
+  );
   const vendorAttribute = spawnSync(
     "git",
     ["check-attr", "text", "whitespace", "--", "apps/runtime-godot/addons/gdUnit4/test/core/command/GdUnitCommandTestSessionTest.gd"],
@@ -86,6 +121,14 @@ test("Git preserves vendor bytes and scopes whitespace exceptions exactly", asyn
   assert.equal(vendorAttribute.status, 0);
   assert.match(vendorAttribute.stdout, /text: unset/);
   assert.match(vendorAttribute.stdout, /whitespace: unset/);
+  const kenneyLicenseAttribute = spawnSync(
+    "git",
+    ["check-attr", "text", "whitespace", "--", "third-party/kenney-prototype-kit/LICENSE.txt"],
+    { cwd: moduleRoot, encoding: "utf8", shell: false, windowsHide: true },
+  );
+  assert.equal(kenneyLicenseAttribute.status, 0);
+  assert.match(kenneyLicenseAttribute.stdout, /text: unset/);
+  assert.match(kenneyLicenseAttribute.stdout, /whitespace: unset/);
   const firstPartyAttribute = spawnSync(
     "git",
     ["check-attr", "whitespace", "--", "apps/runtime-godot/test/test_foundation.gd"],

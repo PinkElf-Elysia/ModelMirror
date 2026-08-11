@@ -23,6 +23,11 @@ function createDisposableProject() {
     recursive: true,
     filter: (source) => path.basename(source) !== ".godot",
   });
+  fs.cpSync(
+    path.join(moduleRoot, "examples", "scene-bundles", "kenney-prototype"),
+    path.join(projectRoot, "scene-fixtures", "kenney-prototype"),
+    { recursive: true },
+  );
   return { temporaryRoot, projectRoot };
 }
 
