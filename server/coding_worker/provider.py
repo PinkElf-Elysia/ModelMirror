@@ -183,16 +183,19 @@ class FakeCodingAgentProvider:
         self._block = block
         self._cancelled: set[str] = set()
         self._closed: set[str] = set()
+        self._requests: dict[str, ProviderOpenRequest] = {}
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(supports_checkpoint=True, supports_restore=True)
 
     async def open(self, request: ProviderOpenRequest) -> ProviderSession:
-        return ProviderSession(
+        session = ProviderSession(
             session_id=f"fake_{uuid.uuid4().hex}",
             task_id=request.task_id,
             provider_capabilities=await self.capabilities(),
         )
+        self._requests[session.session_id] = request
+        return session
 
     async def message(
         self, session: ProviderSession, text: str
@@ -215,12 +218,16 @@ class FakeCodingAgentProvider:
         return True
 
     async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
+        request = self._requests.get(session.session_id)
+        if request is None or request.task_id != session.task_id:
+            raise ValueError("invalid session")
         return ProviderCheckpoint(
             checkpoint_id=f"checkpoint_{uuid.uuid4().hex}",
             compatibility=ProviderCheckpointCompatibility(
                 provider_family="fake",
                 provider_version="1",
                 task_id=session.task_id,
+                workspace_tree_hash=request.workspace_tree_hash,
             ),
             payload={"fake_session": session.session_id},
         )
@@ -235,8 +242,7 @@ class FakeCodingAgentProvider:
             compatibility.provider_family != "fake"
             or compatibility.provider_version != "1"
             or compatibility.task_id != request.task_id
-            or compatibility.workspace_tree_hash
-            not in {None, request.workspace_tree_hash}
+            or compatibility.workspace_tree_hash != request.workspace_tree_hash
         ):
             raise ValueError("incompatible checkpoint")
         return await self.open(request)
@@ -244,3 +250,4 @@ class FakeCodingAgentProvider:
     async def close(self, session: ProviderSession) -> None:
         self._closed.add(session.session_id)
         self._cancelled.discard(session.session_id)
+        self._requests.pop(session.session_id, None)

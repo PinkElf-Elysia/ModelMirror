@@ -215,3 +215,22 @@ async def test_secret_symlink_is_rejected_before_process_start(tmp_path: Path) -
     with pytest.raises(ClaudeCodeProviderError) as caught:
         await provider.open(_request())
     assert caught.value.code == "provider_credential_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_non_utf8_secret_is_an_authentication_failure(tmp_path: Path) -> None:
+    secret = tmp_path / "invalid-secret"
+    secret.write_bytes(b"\xff\xfe")
+    provider = ClaudeCodeProvider(
+        runtime_root=tmp_path / "runtime",
+        routes={"coding/quality": _route()},
+        secret_path=secret,
+        command_prefix=("must-not-start",),
+    )
+    provider.bind_broker("task-claude", "unix:/run/broker.sock", "b" * 48)
+    session = await provider.open(_request())
+    with pytest.raises(ClaudeCodeProviderError) as caught:
+        _ = [event async for event in provider.message(session, "continue")]
+    assert caught.value.code == "provider_credential_unavailable"
+    assert caught.value.failure_kind.value == "authentication"
+    await provider.close(session)
