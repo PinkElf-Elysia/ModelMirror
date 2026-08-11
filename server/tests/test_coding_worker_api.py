@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
 from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.contracts import OperationState
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
@@ -303,6 +304,101 @@ def test_evidence_and_artifact_download_are_opaque_and_task_bound(
             f"/api/coding-worker/v1/tasks/{second['task_id']}/artifacts/{artifact.artifact_id}"
         )
         assert foreign.status_code == 404
+
+
+def test_operation_output_and_changeset_queries_are_replayable_and_task_bound(
+    tmp_path: Path,
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    with client:
+        first = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        second = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("api-task-02")
+        ).json()
+        task_id = first["task_id"]
+        task = asyncio.run(
+            service.wait_for(task_id, lambda item: item.workspace_id is not None)
+        )
+        operation_id = "shell_api_output"
+        operation = service.store.create_operation(
+            task_id=task_id,
+            operation_id=operation_id,
+            tool_name="run_shell",
+            intent_sha256="a" * 64,
+            request={"arguments": {}, "workspace_id": task.workspace_id},
+        )
+        service.store.transition_operation(
+            operation.operation_id, OperationState.RUNNING
+        )
+        first_chunk = service.store.append_event(
+            task_id,
+            "operation_output",
+            {
+                "operation_id": operation_id,
+                "stream": "stdout",
+                "text": "first\n",
+                "truncated": False,
+            },
+        )
+        service.store.append_event(task_id, "unrelated", {"value": True})
+        second_chunk = service.store.append_event(
+            task_id,
+            "operation_output",
+            {
+                "operation_id": operation_id,
+                "stream": "stderr",
+                "text": "second\n",
+                "truncated": False,
+            },
+        )
+        changeset = {
+            "changeset_id": "changeset_" + "b" * 32,
+            "task_id": task_id,
+            "operation_id": operation_id,
+            "base_tree_hash": "c" * 64,
+            "result_tree_hash": "d" * 64,
+            "state": "applied",
+            "entries": [],
+            "artifact_id": None,
+            "created_at": 1.0,
+            "updated_at": 2.0,
+        }
+        service.store.transition_operation(
+            operation.operation_id,
+            OperationState.COMPLETED,
+            result={"changeset": changeset},
+        )
+
+        output = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/operations/{operation_id}/output"
+        )
+        assert output.status_code == 200
+        assert [item["text"] for item in output.json()["chunks"]] == [
+            "first\n",
+            "second\n",
+        ]
+        replay = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/operations/{operation_id}/output",
+            params={"after": first_chunk.sequence},
+        )
+        assert [item["sequence"] for item in replay.json()["chunks"]] == [
+            second_chunk.sequence
+        ]
+        queried = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/changesets/{operation_id}"
+        )
+        assert queried.status_code == 200
+        assert queried.json() == changeset
+        foreign_output = client.get(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/operations/"
+            f"{operation_id}/output"
+        )
+        foreign_changeset = client.get(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/changesets/"
+            f"{operation_id}"
+        )
+        assert foreign_output.status_code == 404
+        assert foreign_changeset.status_code == 404
 
 
 def test_preview_proxy_uses_only_task_slot_and_registered_port(

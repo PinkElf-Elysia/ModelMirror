@@ -23,7 +23,9 @@ from .contracts import (
     WorkerCapabilities,
     WorkerApproval,
     WorkerArtifact,
+    WorkerChangeset,
     WorkerEvidence,
+    OperationOutputChunk,
 )
 from .service import CodingWorkerService
 from .runtime import CodingWorkerRuntime, build_runtime_from_environment
@@ -325,6 +327,80 @@ async def task_evidence(task_id: str) -> dict[str, list[WorkerEvidence]]:
 async def task_artifacts(task_id: str) -> dict[str, list[WorkerArtifact]]:
     try:
         return {"artifacts": get_coding_worker_service().store.list_artifacts(task_id)}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/operations/{operation_id}/output",
+    response_model=dict[str, list[OperationOutputChunk]],
+)
+async def task_operation_output(
+    task_id: str,
+    operation_id: str,
+    after: int = Query(default=0, ge=0),
+) -> dict[str, list[OperationOutputChunk]]:
+    service = get_coding_worker_service()
+    try:
+        operation = service.store.get_operation(operation_id)
+        if operation.task_id != task_id:
+            raise WorkerNotFoundError(
+                "Operation was not found.", code="operation_not_found"
+            )
+        chunks: list[OperationOutputChunk] = []
+        cursor = after
+        scanned = 0
+        while len(chunks) < 256 and scanned < 10_000:
+            events = service.store.list_events(task_id, after=cursor, limit=1000)
+            if not events:
+                break
+            cursor = events[-1].sequence
+            scanned += len(events)
+            for event in events:
+                if (
+                    event.type != "operation_output"
+                    or event.payload.get("operation_id") != operation_id
+                ):
+                    continue
+                chunks.append(
+                    OperationOutputChunk(
+                        task_id=task_id,
+                        operation_id=operation_id,
+                        sequence=event.sequence,
+                        stream=event.payload.get("stream"),
+                        text=event.payload.get("text"),
+                        created_at=event.created_at,
+                        truncated=event.payload.get("truncated", False),
+                    )
+                )
+                if len(chunks) >= 256:
+                    break
+            if len(events) < 1000:
+                break
+        return {"chunks": chunks}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/changesets/{operation_id}",
+    response_model=WorkerChangeset,
+)
+async def task_changeset(task_id: str, operation_id: str) -> WorkerChangeset:
+    service = get_coding_worker_service()
+    try:
+        operation = service.store.get_operation(operation_id)
+        if operation.task_id != task_id:
+            raise WorkerNotFoundError(
+                "Changeset was not found.", code="changeset_not_found"
+            )
+        value = (operation.result or {}).get("changeset")
+        if not isinstance(value, dict):
+            raise WorkerConflictError(
+                "Changeset result is not available.",
+                code="changeset_result_unavailable",
+            )
+        return WorkerChangeset.model_validate(value)
     except Exception as exc:
         _raise_worker_error(exc)
 
