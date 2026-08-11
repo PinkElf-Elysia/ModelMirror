@@ -1,6 +1,6 @@
 # R6 验收记录
 
-状态：R6.5 已验证，等待本地提交；standalone 与最终人工验收尚未收口。
+状态：R6.6 已完成提交前自动验证，等待本地提交与提交后 standalone 复验；人工实机验收待用户确认。
 
 固定基线：`430f24a4fd8510a0d54f14bcd240a80423d16719`
 分支：`codex/matrix-oasis-r6-playable-3d-skeleton`
@@ -13,7 +13,7 @@
 - [x] R6.3 3D Action 终端
 - [x] R6.4 Runtime 与 3D 世界接通
 - [x] R6.5 自动验证与固定帧
-- [ ] R6.6 standalone 与人工验收收口
+- [x] R6.6 standalone 与人工验收收口
 
 每批记录精确 diff、命令/退出码、测试数量、冻结路径零差异、风险与回退。最终 HEAD、split tree、archive SHA-256、参考源码 SHA-256 和仓外截图只写入提交后的交付清单，避免文档自引用。
 
@@ -81,9 +81,25 @@ R6.4 提交：`859c264`。本批精确变更 12 个模块内文件：playable tr
 
 本批固定帧和临时生成物仅在仓外；不提交 Pack、Receipt、PNG、日志或 `.godot/`。单独 revert R6.5 恢复 R6.4 的可玩场景，但移除自动差分、预览、捕获与稳定 R6 trace 门。
 
+## R6.6 证据
+
+R6.5 提交：`d796797`。本批提交前精确变更为模块根 `package.json` 的 `verify:godot:source` 稳定命令接线与本验收记录；不修改 Godot 功能源码、冻结文件、父仓文件或锁文件。
+
+- `npm.cmd ci --offline --no-audit --no-fund`：84 packages，退出 0；`npm.cmd prefix` 精确指向模块根；`npm.cmd ls --all` 退出 0，仅有平台/可选依赖提示。
+- `npm.cmd run doctor:godot`：Node 24.18.0、npm 11.16.0、Git 2.51.0、Godot 4.6.3 全部 ready。
+- `npm.cmd run verify:godot:source`：GdUnit4 599 文件、官方参考源码哈希、22 个第一方脚本和 headless import 全部通过。
+- `npm.cmd run verify:godot:3d`：13/13 Node 合同、34 个 Godot 用例、7 个差分 case/26 次运行/2 个 smoke 全部通过。受限沙箱内首次 GdUnit 子进程因临时缓存权限返回静态失败；在批准的模块/C:\\tmp 正常权限下原命令复跑通过，未修改源码或跳过门禁。
+- 最新树 `npm.cmd run verify`：12/12 步通过，446/446 Node、Godot 4.6.3 全门、Creator 247 modules build 与 HTTP 200 smoke 全绿。
+- `check:round-scope` 与 `check:parent-scope` 均为 `checked=48 changed=46`；`check:boundary` 为 `checked=814 tracked=814`；R1–R5 冻结路径、父仓路径和 Creator 相对固定基线零差异。
+- 父 `client` 在本隔离 worktree 内 `npm.cmd ci --no-audit --no-fund` 安装 384 packages，`npm.cmd run build` 转换 3067 modules 并退出 0；仅既有大 chunk warning，构建后 `client` 跟踪路径零差异。
+- 仓外固定帧：mechanics 12 帧 960×540、首帧 SHA-256 `169bf7c33b5c1a92be7470a1a4669bbc473ba7eb7a0b0406fd6af48708cf21a5`；末班地铁 12 帧 640×540、首帧 SHA-256 `9aec8718f320b82486f51c73a369e3bdcb9bb985e4d7fbc980cb19c3b8a0229a`。代表帧已检查 primitive 场景、HUD、准星和终端可见，窄宽度无关键 HUD 裁切。
+- Godot 4.6.3 console 可执行文件 SHA-512：`6089297513044E32CB11D91CAEE4FCF4EE4A41D62EA26644BF583290D6AD809D739ED593B6C975EF3FCAAAA95AF5622822ADEF794E4AD894E6AD87563A8C44BC`；GdUnit tree：`sha256:4b1904e747517348cc05134d45b91e7244c92923fb4b6823e700fa4f255664ab`；官方参考 SHA-256：`dfda0bc36b5cfb719af3d9d104b274aff3b5387ec2c47e882178be02301bcb25`。
+
+R6.6 提交后的 clean HEAD 必须再执行完整 `verify` 与 `verify:extraction`；最终 HEAD、split tree 和 source archive SHA-256 仅写入仓外交付清单，避免本文件自引用。用户仍需在独立预览器确认 WASD/鼠标/E/Enter/Esc/左键、墙体/坡面、两个样例、末班地铁三个 ending 与循环；自动差分已经覆盖相同 Runtime 轨迹，但不替代人工输入验收。
+
 ## 未运行项
 
-Godot 3D 功能、固定帧、standalone、父 client build 与人工交互留待相应批次；父后端、Docker、共享栈、父路由、导出和部署不属于 R6。
+父后端、Docker、共享栈、父路由、正式导出和部署不属于 R6，均未运行。默认 step limit 的 256 次人工点击不重复执行，由固定较小上限的自动轨迹证明。最终提交后 standalone 与用户人工交互确认仍是交付硬门。
 
 ## 回退
 
