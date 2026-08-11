@@ -15,7 +15,11 @@ from server.coding_worker.contracts import (
 )
 from server.coding_worker.provider import FakeCodingAgentProvider
 from server.coding_worker.provider_rpc import ProviderRPCServer
-from server.coding_worker.runtime import CodingWorkerRuntime
+from server.coding_worker.runtime import (
+    CodingWorkerRuntime,
+    CodingWorkerRuntimeError,
+    _route_slots_from_environment,
+)
 from server.coding_worker.tool_broker import FrozenCheck
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter
 
@@ -92,3 +96,24 @@ async def test_runtime_connects_two_dedicated_provider_slots(tmp_path: Path) -> 
     await runtime.close()
     for server in servers.values():
         await server.close()
+
+
+def test_route_slot_catalog_is_strict_and_provider_neutral(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "CODING_WORKER_ROUTE_SLOTS_JSON",
+        '{"coding/default":["slot-a"],"coding/quality":["slot-b"]}',
+    )
+    assert _route_slots_from_environment(("slot-a", "slot-b")) == {
+        "coding/default": ("slot-a",),
+        "coding/quality": ("slot-b",),
+    }
+
+    monkeypatch.setenv(
+        "CODING_WORKER_ROUTE_SLOTS_JSON",
+        '{"coding/quality":["missing-slot"]}',
+    )
+    with pytest.raises(CodingWorkerRuntimeError) as caught:
+        _route_slots_from_environment(("slot-a", "slot-b"))
+    assert caught.value.code == "coding_worker_config_invalid"

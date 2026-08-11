@@ -312,6 +312,78 @@ async def test_dedicated_slots_queue_third_task_and_resume_on_original_slot(
 
 
 @pytest.mark.asyncio
+async def test_route_catalog_pins_tasks_to_provider_slots(tmp_path: Path) -> None:
+    blocker = asyncio.Event()
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    broker = WorkspaceBroker(
+        tmp_path / "control",
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {("source-01", "revision-01"): {"main.py": b"print('ok')\n"}}
+            )
+        },
+        id_key=b"r" * 32,
+        slot_roots={
+            "slot-a": tmp_path / "slot-a",
+            "slot-b": tmp_path / "slot-b",
+        },
+    )
+    service = CodingWorkerService(
+        store=store,
+        workspace_broker=broker,
+        provider=FakeCodingAgentProvider(block=blocker),
+        max_active_tasks=2,
+        route_slots={
+            "coding/default": ("slot-a",),
+            "coding/quality": ("slot-b",),
+        },
+    )
+    origin = Origin(module="test", object_id="route-slots")
+    default_task = await service.create_task(origin, _request("route-default"))
+    quality_task = await service.create_task(
+        origin,
+        _request("route-quality").model_copy(
+            update={"model_route": "coding/quality"}
+        ),
+    )
+    queued_default = await service.create_task(
+        origin, _request("route-default-queued")
+    )
+
+    for task in (default_task, quality_task):
+        await service.wait_for(task.task_id, lambda item: item.state is TaskState.RUNNING)
+    assert broker.workspace_slot(
+        store.get_task(default_task.task_id).workspace_id or ""
+    ) == "slot-a"
+    assert broker.workspace_slot(
+        store.get_task(quality_task.task_id).workspace_id or ""
+    ) == "slot-b"
+    assert store.get_task(queued_default.task_id).state is TaskState.QUEUED
+
+    await service.pause(quality_task.task_id)
+    await asyncio.sleep(0.05)
+    assert store.get_task(queued_default.task_id).state is TaskState.QUEUED
+    await service.cancel(default_task.task_id)
+    await service.wait_for(
+        queued_default.task_id, lambda item: item.state is TaskState.RUNNING
+    )
+    assert broker.workspace_slot(
+        store.get_task(queued_default.task_id).workspace_id or ""
+    ) == "slot-a"
+
+    with pytest.raises(WorkerConflictError) as unavailable:
+        await service.create_task(
+            origin,
+            _request("route-unknown").model_copy(
+                update={"model_route": "coding/unknown"}
+            ),
+        )
+    assert unavailable.value.code == "model_route_unavailable"
+    await service.cancel(queued_default.task_id)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_failed_acceptance_is_repaired_and_retested_before_completion(
     tmp_path: Path,
 ) -> None:
