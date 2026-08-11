@@ -98,6 +98,16 @@ class _RestoreTrackingProvider(FakeCodingAgentProvider):
         return await super().restore(request, checkpoint)
 
 
+class _OpenTrackingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.open_request: ProviderOpenRequest | None = None
+
+    async def open(self, request: ProviderOpenRequest) -> ProviderSession:
+        self.open_request = request
+        return await super().open(request)
+
+
 def _service_with_harness(
     tmp_path: Path, provider: FakeCodingAgentProvider
 ) -> tuple[CodingWorkerService, ToolBroker]:
@@ -202,6 +212,26 @@ async def test_model_stop_cannot_complete_without_acceptance_runner(tmp_path: Pa
     terminal = await service.wait_for(task.task_id, lambda item: item.state is TaskState.BLOCKED)
     assert terminal.state is not TaskState.COMPLETED
     assert [event.type for event in service.store.list_events(task.task_id)].count("task_state") >= 3
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_provider_request_binds_tree_and_policy_tool_allowlist(
+    tmp_path: Path,
+) -> None:
+    provider = _OpenTrackingProvider()
+    service = _service(tmp_path, provider)
+    task = await service.create_task(
+        Origin(module="test", object_id="provider-contract"),
+        _request("provider-contract"),
+    )
+    await service.wait_for(task.task_id, lambda item: item.state is TaskState.BLOCKED)
+
+    request = provider.open_request
+    assert request is not None and len(request.workspace_tree_hash or "") == 64
+    assert "read_file" in request.tool_allowlist
+    assert "write_file" not in request.tool_allowlist
+    assert "run_shell" not in request.tool_allowlist
     await service.shutdown()
 
 

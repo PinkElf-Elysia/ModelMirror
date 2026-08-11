@@ -21,6 +21,7 @@ from .provider import (
     ProviderEventKind,
     ProviderOpenRequest,
     ProviderSession,
+    provider_tools_for_policy,
 )
 from .store import CodingWorkerStore, WorkerConflictError
 from .tool_broker import ToolBroker, ToolBrokerError
@@ -284,6 +285,10 @@ class CodingWorkerService:
                 model_route=task.spec.model_route,
                 policy_profile=task.spec.policy_profile,
                 budget=task.spec.budget,
+                workspace_tree_hash=self.workspace_broker.current_tree_hash(
+                    workspace.workspace_id
+                ),
+                tool_allowlist=provider_tools_for_policy(task.spec.policy_profile),
             )
             resume_phase: str | None = None
             resume_context: dict[str, object] | None = None
