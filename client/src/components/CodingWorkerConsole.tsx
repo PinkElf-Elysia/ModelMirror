@@ -18,9 +18,12 @@ import {
 import type {
   CodingWorkerApproval,
   CodingWorkerArtifact,
+  CodingWorkerChangeset,
+  CodingWorkerDiagnosticsSnapshot,
   CodingWorkerEntry,
   CodingWorkerEvent,
   CodingWorkerEvidence,
+  CodingWorkerOperationOutputChunk,
   CodingWorkerStatus,
   CodingWorkerTask,
   CodingWorkerTaskSpec,
@@ -31,12 +34,15 @@ import {
   connectCodingWorkerEvents,
   createCodingWorkerTask,
   decideCodingWorkerApproval,
+  getCodingWorkerChangeset,
+  getCodingWorkerDiagnostics,
   getCodingWorkerTask,
   getCodingWorkerStatus,
   handoffCodingWorkerTask,
   listCodingWorkerApprovals,
   listCodingWorkerArtifacts,
   listCodingWorkerEvidence,
+  listCodingWorkerOperationOutput,
   listCodingWorkerTasks,
   listCodingWorkerTree,
   readCodingWorkerDiff,
@@ -53,7 +59,7 @@ import {
 } from "../utils/codingApi";
 
 type ConsoleContext = "coding" | "agent";
-type InspectorTab = "files" | "diff" | "evidence" | "terminal";
+type InspectorTab = "files" | "diff" | "changesets" | "diagnostics" | "evidence" | "terminal";
 
 const terminalStates = new Set([
   "completed", "blocked", "failed", "cancelled", "budget_limited", "expired",
@@ -76,6 +82,27 @@ function payloadText(event: CodingWorkerEvent) {
   return typeof value === "string" ? value : null;
 }
 
+function publicPlanText(event: CodingWorkerEvent) {
+  if (event.type !== "provider_event" || event.payload.kind !== "plan") return null;
+  const data = event.payload.data;
+  if (typeof data === "string") return data;
+  if (!data || typeof data !== "object") return null;
+  const record = data as Record<string, unknown>;
+  const value = [record.summary, record.message, record.text].find((item) => typeof item === "string");
+  return typeof value === "string" ? value : JSON.stringify(record);
+}
+
+function approvalField(request: Record<string, unknown>, key: string) {
+  const value = request[key];
+  return typeof value === "string" || typeof value === "number" ? String(value) : "未请求";
+}
+
+function outputTone(stream: CodingWorkerOperationOutputChunk["stream"]) {
+  if (stream === "stderr") return "text-rose-200";
+  if (stream === "system") return "text-amber-200";
+  return "text-slate-200";
+}
+
 interface CodingWorkerConsoleProps {
   context: ConsoleContext;
   onCodingHandoff?: (result: CodingWorkerHandoffResult) => void;
@@ -91,6 +118,10 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   const [artifacts, setArtifacts] = useState<CodingWorkerArtifact[]>([]);
   const [entries, setEntries] = useState<CodingWorkerEntry[]>([]);
   const [treeHash, setTreeHash] = useState("");
+  const [operationOutputs, setOperationOutputs] = useState<Record<string, CodingWorkerOperationOutputChunk[]>>({});
+  const [changesets, setChangesets] = useState<CodingWorkerChangeset[]>([]);
+  const [diagnostics, setDiagnostics] = useState<CodingWorkerDiagnosticsSnapshot[]>([]);
+  const [inspectorLoading, setInspectorLoading] = useState(false);
   const [preview, setPreview] = useState<{ path: string; content: string } | null>(null);
   const [diff, setDiff] = useState("");
   const [tab, setTab] = useState<InspectorTab>("files");
@@ -112,6 +143,18 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   const selectedTask = useMemo(
     () => tasks.find((task) => task.task_id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
+  );
+  const operationIds = useMemo(() => {
+    const ids = new Set<string>();
+    events.forEach((event) => {
+      const operationId = event.payload.operation_id;
+      if (typeof operationId === "string" && operationId.length <= 128) ids.add(operationId);
+    });
+    return [...ids].slice(-32);
+  }, [events]);
+  const latestPlan = useMemo(
+    () => events.map(publicPlanText).filter((item): item is string => Boolean(item)).at(-1) ?? null,
+    [events],
   );
 
   const refreshCodingProjects = useCallback(async (preferredId?: string, selectNew = false) => {
@@ -238,12 +281,16 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     if (!selectedTaskId) {
       setEvents([]); setApprovals([]); setEvidence([]); setArtifacts([]);
       setEntries([]); setPreview(null); setDiff(""); setTreeHash("");
+      setOperationOutputs({}); setChangesets([]); setDiagnostics([]);
       return;
     }
     let active = true;
     let cursor = 0;
     setEvents([]);
     setPreview(null);
+    setOperationOutputs({});
+    setChangesets([]);
+    setDiagnostics([]);
     setTransportWarning(false);
     void refreshTaskPanels(selectedTaskId).catch((caught) => {
       if (active) setError(errorMessage(caught, "任务详情加载失败"));
@@ -260,6 +307,35 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     });
     return () => { active = false; disconnect(); };
   }, [refreshTaskPanels, selectedTaskId]);
+
+  useEffect(() => {
+    if (!selectedTaskId || operationIds.length === 0) return;
+    let active = true;
+    const loadStructuredInspector = async () => {
+      setInspectorLoading(true);
+      try {
+        if (tab === "terminal" && status?.capabilities.operation_output) {
+          const values = await Promise.all(operationIds.map(async (operationId) => [
+            operationId,
+            await listCodingWorkerOperationOutput(selectedTaskId, operationId).catch(() => []),
+          ] as const));
+          if (active) setOperationOutputs(Object.fromEntries(values));
+        } else if (tab === "changesets" && status?.capabilities.changesets) {
+          const values = await Promise.all(operationIds.map((operationId) =>
+            getCodingWorkerChangeset(selectedTaskId, operationId).catch(() => null)));
+          if (active) setChangesets(values.filter((item): item is CodingWorkerChangeset => item !== null));
+        } else if (tab === "diagnostics" && status?.capabilities.code_intelligence) {
+          const values = await Promise.all(operationIds.map((operationId) =>
+            getCodingWorkerDiagnostics(selectedTaskId, operationId).catch(() => null)));
+          if (active) setDiagnostics(values.filter((item): item is CodingWorkerDiagnosticsSnapshot => item !== null));
+        }
+      } finally {
+        if (active) setInspectorLoading(false);
+      }
+    };
+    void loadStructuredInspector();
+    return () => { active = false; };
+  }, [operationIds, selectedTaskId, status?.capabilities, tab]);
 
   const run = useCallback(async (operation: () => Promise<unknown>) => {
     if (operationRef.current) return;
@@ -383,6 +459,19 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
         <div className="min-w-0">
           <h1 className="text-xl font-semibold text-white">Coding Worker</h1>
           <p className="mt-1 text-sm text-slate-300">两个隔离槽位，任务证据与 Diff 可在重启后继续读取。</p>
+          <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Worker 通用能力">
+            {([
+              ["专业文件", status.capabilities.professional_file_tools],
+              ["Shell", status.capabilities.shell],
+              ["终端补发", status.capabilities.operation_output],
+              ["原子变更", status.capabilities.changesets],
+              ["代码诊断", status.capabilities.code_intelligence],
+            ] as const).map(([label, available]) => (
+              <span key={label} className={`rounded-full px-2.5 py-1 text-xs ${available ? "bg-cyan-300/10 text-cyan-100" : "bg-white/5 text-slate-500"}`}>
+                {label} · {available ? "可用" : "关闭"}
+              </span>
+            ))}
+          </div>
         </div>
         <button type="button" onClick={() => setShowCreate((value) => !value)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-cyan-400 px-4 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50" disabled={busy}>
           <Plus className="h-4 w-4" aria-hidden="true" />创建任务
@@ -477,6 +566,16 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
                 <ul className="mt-2 space-y-1 text-sm text-slate-300">{selectedTask.spec.acceptance.required_checks.map((check) => <li key={check.check_id}>• {check.label} <code className="break-all text-xs text-slate-400">{check.check_id}</code></li>)}</ul>
               </section>
 
+              {latestPlan && (
+                <section className="border-b border-white/10 py-3" aria-labelledby="worker-plan-heading">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 id="worker-plan-heading" className="text-sm font-semibold text-white">当前公开计划</h2>
+                    <span className="text-xs text-slate-500">Provider 中立</span>
+                  </div>
+                  <p className="mt-2 max-w-[72ch] whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">{latestPlan}</p>
+                </section>
+              )}
+
               <section className="min-h-0 flex-1 overflow-y-auto py-3" aria-label="任务事件" aria-live="polite">
                 {events.length === 0 ? <p className="text-sm text-slate-400">等待 Worker 事件。公开事件只包含计划、状态和工具摘要。</p> : events.map((event) => (
                   <article key={event.sequence} className="mb-3 flex gap-3"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-cyan-300" aria-hidden="true" /><div className="min-w-0"><p className="text-xs font-medium text-slate-400">{event.type} · #{event.sequence}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-200">{payloadText(event) ?? JSON.stringify(event.payload)}</p></div></article>
@@ -493,13 +592,48 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
 
         <aside className="min-w-0 border-t border-white/10 pt-3 xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0" aria-label="任务检查器">
           <div className="flex overflow-x-auto border-b border-white/10" role="tablist">
-            {([ ["files", FolderTree, "文件"], ["diff", GitCompareArrows, "Diff"], ["evidence", ShieldCheck, "证据"], ["terminal", TerminalSquare, "终端"] ] as const).map(([value, Icon, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`inline-flex min-h-11 items-center gap-1 px-3 text-sm ${tab === value ? "border-b-2 border-cyan-300 text-white" : "text-slate-400"}`}><Icon className="h-4 w-4" />{label}</button>)}
+            {([ ["files", FolderTree, "文件"], ["diff", GitCompareArrows, "Diff"], ["changesets", GitCompareArrows, "变更"], ["diagnostics", CircleAlert, "诊断"], ["evidence", ShieldCheck, "证据"], ["terminal", TerminalSquare, "终端"] ] as const).map(([value, Icon, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`inline-flex min-h-11 items-center gap-1 px-3 text-sm ${tab === value ? "border-b-2 border-cyan-300 text-white" : "text-slate-400"}`}><Icon className="h-4 w-4" />{label}</button>)}
           </div>
           <div className="max-h-[46rem] overflow-auto py-3 text-sm">
             {tab === "files" && <div><p className="mb-2 break-all text-xs text-slate-400">tree {treeHash || "尚未创建"}</p>{preview ? <div><button type="button" className="mb-2 min-h-11 text-cyan-200" onClick={() => setPreview(null)}>返回文件树</button><p className="mb-2 break-all text-slate-300">{preview.path}</p><pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-3 text-xs text-slate-200">{preview.content}</pre></div> : <ul className="space-y-1">{entries.map((entry) => <li key={entry.entry_id}><button type="button" disabled={entry.kind !== "file" || busy} onClick={() => void openEntry(entry)} className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-left text-slate-300 hover:bg-white/5 disabled:cursor-default"><FileCode2 className="h-4 w-4 shrink-0" /><span className="min-w-0 break-all">{entry.display_path}</span></button></li>)}</ul>}</div>}
             {tab === "diff" && <pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-3 text-xs text-slate-200">{diff || "工作区还没有变更。"}</pre>}
-            {tab === "evidence" && <div className="space-y-4"><section><h3 className="font-semibold text-white">审批</h3>{approvals.filter((item) => item.status === "pending").map((item) => <div key={item.approval_id} className="mt-2 rounded-lg bg-amber-300/10 p-3"><p className="text-amber-100">{item.capability}</p><p className="mt-1 break-words text-xs text-slate-300">{JSON.stringify(item.request)}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "approve_once")} className="min-h-11 rounded-lg bg-cyan-400 px-3 font-semibold text-slate-950">批准一次</button><button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "approve_task")} className="min-h-11 rounded-lg border border-cyan-300/40 px-3 text-cyan-100">本任务批准</button><button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "reject")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200">拒绝</button></div></div>)}</section><section><h3 className="font-semibold text-white">检查证据</h3><ul className="mt-2 space-y-2">{evidence.map((item) => <li key={item.evidence_id} className="rounded-lg bg-white/5 p-3"><span className={item.status === "passed" ? "text-emerald-300" : item.status === "failed" ? "text-rose-300" : "text-amber-300"}>{item.status}</span><span className="ml-2 break-all text-slate-200">{item.check_id}</span><span className="mt-1 block text-xs text-slate-400">exit {item.exit_code}</span></li>)}</ul></section><section><h3 className="font-semibold text-white">Artifacts</h3><ul className="mt-2 space-y-1">{artifacts.map((item) => <li key={item.artifact_id}><a className="block min-h-10 break-all rounded-md px-2 py-2 text-cyan-200 hover:bg-white/5" href={codingWorkerArtifactUrl(item.task_id, item.artifact_id)}>{item.artifact_id} · {item.media_type}</a></li>)}</ul></section></div>}
-            {tab === "terminal" && <div><p className="mb-2 text-xs text-slate-400">命令归属和输出只来自 Tool Broker 公开事件。</p><pre className="overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-3 text-xs text-slate-200">{events.filter((event) => event.type === "tool_operation" || event.type === "provider_event").map((event) => `#${event.sequence} ${event.type}\n${payloadText(event) ?? JSON.stringify(event.payload)}`).join("\n\n") || "尚无工具输出。"}</pre></div>}
+            {tab === "changesets" && (
+              <div className="space-y-3" aria-busy={inspectorLoading}>
+                {!status.capabilities.changesets ? <p className="text-slate-400">原子 changeset 当前关闭。</p> : null}
+                {status.capabilities.changesets && changesets.length === 0 ? <p className="text-slate-400">{inspectorLoading ? "正在读取变更记录。" : "尚无 changeset。"}</p> : null}
+                {changesets.map((changeset) => (
+                  <section key={changeset.changeset_id} className="rounded-lg bg-white/5 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="break-all font-semibold text-white">{changeset.changeset_id}</h3><span className={changeset.state === "applied" ? "text-emerald-300" : "text-amber-200"}>{changeset.state}</span></div>
+                    <p className="mt-1 break-all text-xs text-slate-400">operation {changeset.operation_id}</p>
+                    <p className="mt-1 break-all text-xs text-slate-500">tree {changeset.base_tree_hash.slice(0, 12)} → {changeset.result_tree_hash?.slice(0, 12) ?? "未发布"}</p>
+                    <ul className="mt-3 space-y-2">{changeset.entries.map((entry) => <li key={`${changeset.changeset_id}-${entry.entry_id}`} className="break-all text-slate-200"><span className="mr-2 rounded bg-slate-800 px-1.5 py-0.5 text-xs text-cyan-100">{entry.kind}</span>{entry.display_path}{entry.destination_display_path ? ` → ${entry.destination_display_path}` : ""}{entry.binary ? <span className="ml-2 text-xs text-amber-200">二进制</span> : null}</li>)}</ul>
+                    {changeset.artifact_id ? <a className="mt-3 block min-h-11 break-all py-2 text-cyan-200" href={codingWorkerArtifactUrl(changeset.task_id, changeset.artifact_id)}>下载 changeset Artifact</a> : null}
+                  </section>
+                ))}
+              </div>
+            )}
+            {tab === "diagnostics" && (
+              <div className="space-y-3" aria-busy={inspectorLoading}>
+                {!status.capabilities.code_intelligence ? <p className="text-slate-400">代码诊断当前关闭。</p> : null}
+                {status.capabilities.code_intelligence && diagnostics.length === 0 ? <p className="text-slate-400">{inspectorLoading ? "正在读取诊断。" : "尚无诊断结果。"}</p> : null}
+                {diagnostics.map((snapshot) => (
+                  <section key={snapshot.operation_id} className="rounded-lg bg-white/5 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="break-all font-semibold text-white">{entries.find((entry) => entry.entry_id === snapshot.entry_id)?.display_path ?? snapshot.entry_id}</h3><span className="text-xs text-slate-400">{snapshot.language}</span></div>
+                    {snapshot.stale ? <p className="mt-2 rounded-md bg-amber-300/10 px-2 py-1.5 text-xs text-amber-100" role="status">工作区已改变，此诊断仅作历史证据。</p> : null}
+                    <ul className="mt-3 space-y-2">{snapshot.diagnostics.map((item) => <li key={item.diagnostic_id} className="break-words text-slate-200"><span className={item.severity === "error" ? "text-rose-300" : item.severity === "warning" ? "text-amber-200" : "text-cyan-200"}>{item.severity}</span><span className="ml-2 text-xs text-slate-500">{item.range.start.line + 1}:{item.range.start.character + 1}{item.code ? ` · ${item.code}` : ""}</span><p className="mt-1 leading-5">{item.message}</p></li>)}</ul>
+                  </section>
+                ))}
+              </div>
+            )}
+            {tab === "evidence" && <div className="space-y-4"><section><h3 className="font-semibold text-white">审批</h3>{approvals.filter((item) => item.status === "pending").map((item) => <div key={item.approval_id} className="mt-2 rounded-lg bg-amber-300/10 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-amber-100">{item.capability === "shell" ? "Shell 单次审批" : item.capability}</p><code className="break-all text-xs text-slate-400">{item.operation_id}</code></div>{item.capability === "shell" ? <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs"><dt className="text-slate-400">模式</dt><dd className="break-all text-slate-200">{approvalField(item.request, "mode")}</dd><dt className="text-slate-400">工作目录</dt><dd className="break-all text-slate-200">{approvalField(item.request, "cwd")}</dd><dt className="text-slate-400">超时</dt><dd className="break-all text-slate-200">{approvalField(item.request, "timeout_seconds")} 秒</dd><dt className="text-slate-400">脚本摘要</dt><dd className="break-all font-mono text-slate-200">{approvalField(item.request, "script_sha256")}</dd><dt className="text-slate-400">网络范围</dt><dd className="break-all font-mono text-slate-200">{approvalField(item.request, "network_scope_sha256")}</dd></dl> : <p className="mt-1 break-words text-xs text-slate-300">{JSON.stringify(item.request)}</p>}<div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "approve_once")} className="min-h-11 rounded-lg bg-cyan-400 px-3 font-semibold text-slate-950">批准一次</button>{item.capability !== "shell" ? <button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "approve_task")} className="min-h-11 rounded-lg border border-cyan-300/40 px-3 text-cyan-100">本任务批准</button> : null}<button type="button" disabled={busy} onClick={() => void decide(item.approval_id, "reject")} className="min-h-11 rounded-lg border border-white/15 px-3 text-slate-200">拒绝</button></div></div>)}</section><section><h3 className="font-semibold text-white">检查证据</h3><ul className="mt-2 space-y-2">{evidence.map((item) => <li key={item.evidence_id} className="rounded-lg bg-white/5 p-3"><span className={item.status === "passed" ? "text-emerald-300" : item.status === "failed" ? "text-rose-300" : "text-amber-300"}>{item.status}</span><span className="ml-2 break-all text-slate-200">{item.check_id}</span><span className="mt-1 block text-xs text-slate-400">exit {item.exit_code}</span></li>)}</ul></section><section><h3 className="font-semibold text-white">Artifacts</h3><ul className="mt-2 space-y-1">{artifacts.map((item) => <li key={item.artifact_id}><a className="block min-h-11 break-all rounded-md px-2 py-2.5 text-cyan-200 hover:bg-white/5" href={codingWorkerArtifactUrl(item.task_id, item.artifact_id)}>{item.artifact_id} · {item.media_type}</a></li>)}</ul></section></div>}
+            {tab === "terminal" && (
+              <div aria-busy={inspectorLoading}>
+                <p className="mb-2 text-xs text-slate-400">输出按 operation 归属并从持久事件补发；刷新页面不会丢失已归档片段。</p>
+                {!status.capabilities.operation_output ? <p className="text-slate-400">终端补发当前关闭。</p> : null}
+                {status.capabilities.operation_output && Object.values(operationOutputs).every((items) => items.length === 0) ? <p className="text-slate-400">{inspectorLoading ? "正在补发终端输出。" : "尚无命令输出。"}</p> : null}
+                <div className="space-y-3">{Object.entries(operationOutputs).filter(([, chunks]) => chunks.length > 0).map(([operationId, chunks]) => <section key={operationId} className="overflow-hidden rounded-lg bg-slate-950/80"><h3 className="border-b border-white/10 px-3 py-2 break-all text-xs font-semibold text-cyan-100">{operationId}</h3><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs">{chunks.map((chunk) => <span key={chunk.sequence} className={outputTone(chunk.stream)}>{chunk.text}{chunk.truncated ? "\n[输出已截断]\n" : ""}</span>)}</pre></section>)}</div>
+              </div>
+            )}
           </div>
           {context === "coding" && selectedTask && <section className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center gap-2"><GitCompareArrows className="h-4 w-4 text-cyan-300" /><h3 className="font-semibold text-white">宿主写回</h3></div><p className="mt-1 text-xs text-slate-400">完成后继续使用 v13 的应用、提交、撤销和发布确认链。Worker 不直接写用户仓库。</p>{selectedTask.state === "completed" && selectedTask.spec.workspace_source.kind === "host_snapshot" ? <button type="button" onClick={() => void handoffToWriteback()} disabled={busy} className="mt-3 min-h-11 w-full rounded-lg bg-cyan-400 px-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50">进入 v13 写回确认</button> : <p className="mt-3 text-xs text-slate-500">Host Snapshot 任务通过全部必需检查后，才会开放写回确认。</p>}<div className="mt-3 flex flex-wrap gap-2" aria-label="Coding 领域动作"><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">应用</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">提交</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">撤销</span><span className="rounded-full bg-white/5 px-3 py-1 text-xs text-slate-300">发布</span></div></section>}
         </aside>
