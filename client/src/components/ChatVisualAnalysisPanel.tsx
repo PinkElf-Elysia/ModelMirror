@@ -60,7 +60,9 @@ interface ChatVisualAnalysisPanelProps {
   knowledgeBases: Array<{ id: string; name: string }>;
   resetVersion: number;
   discardVersion: number;
+  hideTrigger?: boolean;
   onError: (message: string) => void;
+  onCapabilityChange?: (state: "loading" | "ready" | "disabled") => void;
   onStateChange: (state: ChatVisualAnalysisState) => void;
 }
 
@@ -174,7 +176,9 @@ export default function ChatVisualAnalysisPanel({
   knowledgeBases,
   resetVersion,
   discardVersion,
+  hideTrigger = false,
   onError,
+  onCapabilityChange,
   onStateChange,
 }: ChatVisualAnalysisPanelProps) {
   const titleId = useId();
@@ -213,6 +217,10 @@ export default function ChatVisualAnalysisPanel({
   );
   const hasVisionTarget = targets.some((target) => target.mode === "vision");
   const fileAccept = hasVisionTarget ? ACCEPT : ".pdf";
+
+  useEffect(() => {
+    onCapabilityChange?.(capability);
+  }, [capability, onCapabilityChange]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -750,7 +758,7 @@ export default function ChatVisualAnalysisPanel({
 
   return (
     <>
-      <button
+      {!hideTrigger ? <button
         aria-controls={open ? titleId : undefined}
         aria-expanded={open}
         className="min-h-11 rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 text-xs font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -761,7 +769,7 @@ export default function ChatVisualAnalysisPanel({
         type="button"
       >
         视觉/OCR{asset ? " · 1" : ""}
-      </button>
+      </button> : null}
       {panel}
     </>
   );

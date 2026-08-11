@@ -176,6 +176,7 @@ interface ChatFileComposerProps {
   resetVersion: number;
   discardVersion: number;
   injectedFile?: PreparedChatFile | null;
+  hideTrigger?: boolean;
   onError: (message: string) => void;
   onStateChange: (state: ChatFileComposerState) => void;
 }
@@ -346,6 +347,7 @@ export default function ChatFileComposer({
   resetVersion,
   discardVersion,
   injectedFile,
+  hideTrigger = false,
   onError,
   onStateChange,
 }: ChatFileComposerProps) {
@@ -870,6 +872,18 @@ export default function ChatFileComposer({
             : mediaBlockedReason ??
               `上传 ${acceptedFormats.map((format) => formatFileFormatLabel(format.format_id)).join("、")}`;
 
+  useEffect(() => {
+    const openPicker = () => {
+      if (entryDisabled) {
+        onError(entryTitle);
+        return;
+      }
+      inputRef.current?.click();
+    };
+    window.addEventListener("modelmirror:open-chat-file", openPicker);
+    return () => window.removeEventListener("modelmirror:open-chat-file", openPicker);
+  }, [entryDisabled, entryTitle, onError]);
+
   const acceptValue = Array.from(
     new Set(
       acceptedFormats.flatMap((format) => [
@@ -919,7 +933,7 @@ export default function ChatFileComposer({
           }}
         />
       ) : null}
-      <button
+      {!hideTrigger ? <button
         aria-label="添加文件"
         className="min-h-11 rounded-full border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-slate-200 transition hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 focus:outline-none focus:ring-4 focus:ring-brand-300/10 disabled:cursor-not-allowed disabled:opacity-45"
         disabled={entryDisabled}
@@ -941,7 +955,7 @@ export default function ChatFileComposer({
           : capabilityState === "unavailable"
             ? "文件不可用"
             : "文件"}
-      </button>
+      </button> : null}
 
       {items.length > 0 ? (
         <div
