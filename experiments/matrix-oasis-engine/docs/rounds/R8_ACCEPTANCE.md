@@ -1,13 +1,13 @@
 # R8验收记录
 
-状态：R8.1治理已验证，等待本地提交。
+状态：R8.2合同已验证，等待本地提交。
 
 固定基线：`21cbbb8b943b6f9d9799f014c44a6349e6124a63`
 
 ## 批次
 
 - [x] R8.1 治理与关键路径护栏
-- [ ] R8.2 Generation Proposal与Scene Blueprint合同
+- [x] R8.2 Generation Proposal与Scene Blueprint合同
 - [ ] R8.3 OpenAI兼容模型适配器
 - [ ] R8.4 生成编排、修复循环与CLI
 - [ ] R8.5 真实模型资格验证
@@ -26,4 +26,19 @@
 - 注入仓外Godot 4.6.3后 `npm.cmd run verify`：13/13步骤通过；Node 484/484、Godot R4–R7、Creator build与HTTP smoke无回归。
 - 未启动父服务、Docker或共享栈，未调用真实模型、Marble或Meshy。
 
-本批提交SHA由R8.2记录。单独revert本提交恢复完整R7治理和模块版本，不影响冻结运行链。
+R8.1提交：`968be5d75335b27829f32f374c393cc7b945259a`。单独revert该提交恢复完整R7治理和模块版本，不影响冻结运行链。
+
+## R8.2证据
+
+- 新增私有 `@matrix-oasis/prototype-generation-contracts@0.1.0-r8`；Generation Proposal在运行时组合冻结Authoring Schema，不维护第二份Authoring字段定义。
+- Scene Blueprint `0.1.0`只包含scene提示、zone、asset brief、placement与node binding；不含路径、哈希、供应商任务、3D坐标、密钥或原始用户提示。
+- 严格文本入口按parse、闭合Schema、冻结Authoring Validator、跨合同语义顺序门控；覆盖重复键、256层深度、集合/文本预算、孤立代理项、身份、ID、environment、entity/zone/asset/placement/node引用。
+- `npm.cmd ci --offline --no-audit --no-fund`：87 packages，退出0；lock只新增本地workspace登记，复用既有Ajv `8.20.0`与jsonc-parser `3.3.1`。
+- `npm.cmd run test:prototype-contracts`：14/14通过；20次canonical Proposal字节稳定，输入不变，成功值与报告深冻结。
+- TypeScript declaration strict解析、`npm.cmd prefix`、`npm.cmd ls --all`、`check:round-scope`、固定BASE的`check:parent-scope`、`check:boundary`和`git diff --check`均通过；boundary为checked=884、tracked=877。
+- 注入仓外Godot 4.6.3后最终 `npm.cmd run verify`：14/14步骤通过；Node 498/498、Godot R4–R7、Creator 247 modules build与HTTP smoke无回归。
+- 首次非提权全量Node测试因沙箱拒绝 `C:\\tmp` 临时目录而出现6项环境失败；按原命令在允许的仓外临时根重跑后498/498。一次完整verify在既有boundary临时Git fixture启动时瞬态失败；该fixture随后63/63，最终完整verify通过，未修改或放宽既有测试。
+- R1–R7 packages、examples、Creator、Godot、assets、vendor及历史验收记录相对R8.1 HEAD零差异；父仓选定范围零差异。
+- 未调用真实模型、Marble或Meshy，未启动Docker、父服务或共享栈；R8.2完全离线。
+
+本批提交SHA由R8.3记录。单独revert本提交删除唯一新增合同workspace及根验证登记，不影响冻结R1–R7链。
