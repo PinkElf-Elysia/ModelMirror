@@ -20,6 +20,7 @@ from server.coding_worker.provider import (
     ProviderEventKind,
     ProviderOpenRequest,
 )
+from server.coding_worker.sidecar import _provider_from_environment
 
 
 def _request() -> ProviderOpenRequest:
@@ -70,6 +71,25 @@ def test_managed_settings_and_command_disable_builtin_surfaces(tmp_path: Path) -
         "mcp__modelmirror-tool-broker__apply_changeset",
         "mcp__modelmirror-tool-broker__run_shell",
     ]
+
+
+def test_sidecar_selects_claude_without_gateway_key_or_workspace_resolver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("secret", encoding="utf-8")
+    monkeypatch.setenv("CODING_WORKER_PROVIDER_KIND", "claude-code")
+    monkeypatch.setenv("CODING_WORKER_ROUTE_ID", "coding/quality")
+    monkeypatch.setenv("CODING_WORKER_MODEL_ID", "claude-test-model")
+    monkeypatch.setenv("CODING_WORKER_CLAUDE_SECRET_PATH", str(secret))
+    monkeypatch.delenv("CODING_WORKER_MODEL_BASE_URL", raising=False)
+    monkeypatch.delenv("CODING_WORKER_ROUTE_KEY", raising=False)
+
+    provider = _provider_from_environment(
+        tmp_path / "unused-workspace", tmp_path / "runtime"
+    )
+    assert isinstance(provider, ClaudeCodeProvider)
+    assert "secret" not in repr(provider)
 
 
 @pytest.mark.asyncio
