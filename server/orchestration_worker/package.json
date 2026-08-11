@@ -1,0 +1,27 @@
+{
+  "name": "@modelmirror/agency-orchestration-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "link:vendor-deps": "node scripts/link-vendor-deps.mjs",
+    "pretest": "npm run link:vendor-deps",
+    "test": "node --import tsx --test test/*.test.ts",
+    "pretest:upstream": "npm run link:vendor-deps",
+    "test:upstream": "tsx ../vendor/agency-orchestrator/test/condition.ts && tsx ../vendor/agency-orchestrator/test/compose.ts && tsx ../vendor/agency-orchestrator/test/compose-name.ts && tsx ../vendor/agency-orchestrator/test/team.ts && tsx ../vendor/agency-orchestrator/test/roles.ts && tsx ../vendor/agency-orchestrator/test/skills.ts && tsx ../vendor/agency-orchestrator/test/acceptance.ts && tsx ../vendor/agency-orchestrator/test/verify.ts",
+    "test:all": "npm run test && npm run test:upstream"
+  },
+  "dependencies": {
+    "js-yaml": "4.3.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "4.0.9",
+    "@types/node": "22.17.0",
+    "tsx": "4.20.3",
+    "typescript": "5.9.2"
+  }
+}
