@@ -742,3 +742,28 @@ V14 的公共入口是版本化 `/api/coding-worker/v1`。OpenCode、ACP、sidec
 `/coding` 与 `/agents/workbench` 的新会话可渐进使用同一 `CodingWorkerConsole`；已有活动会话仍走 legacy。Coding 场景中的 completed `host_snapshot` 任务可调用 `POST /api/coding/worker-tasks/{task_id}/handoff`，把严格 UTF-8 文本 Diff 交给 v13 Recovery，然后由用户确认 apply/commit/undo/publish。二进制变更、未通过验收、Workspace 变化或 Host 身份变化均不得进入写回。
 
 模型停止输出不代表完成。服务端先进入 `testing`，Harness Runner 运行冻结检查并写 Evidence Ledger；只有全部必需检查对当前 tree hash 为 passed，任务才进入 `completed`。运行中命令在重启时停止，任务标记 `interrupted`；resume 只恢复确定 checkpoint，不恢复旧进程或盲重放未知 operation ID。
+
+## V15 专业工具与模块控制
+
+V15 不改变 TaskSpec，也不允许调用方选择供应商。它在同一版本化 API 上增加只读查询：
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /tasks/{task_id}/operations/{operation_id}/output?after=` | 按序补发有界 Shell/检查输出；完整输出从绑定 Artifact 下载 |
+| `GET /tasks/{task_id}/changesets/{operation_id}` | 读取原子发布结果、preimage/tree CAS 与文件摘要 |
+| `GET /tasks/{task_id}/diagnostics/{operation_id}` | 读取绑定 entry ID 与 tree hash 的代码诊断；旧树结果标记失效 |
+
+公共 capability 只说明 `shell`、`changesets`、`code_intelligence` 等中立能力。内部 route catalog
+在任务创建时固定 Provider 与兼容版本；公共 API、SSE 和 Console 不返回 Claude/OpenCode 名称、
+原始帧、端口、session ID、secret 或真实端点。Provider 完成但回执丢失时先按 checkpoint/operation
+对账，不重新执行工具副作用。
+
+共享 `CodingWorkerConsole` 展示公开计划、实时终端、changeset、diagnostics、Evidence 与精确
+Shell 批准。Shell 批准包含 operation ID、脚本摘要、相对 cwd、模式、timeout 和网络范围；Shell
+不允许 task-scope lease。Coding 场景仍可在任务 completed 后进入 v13 handoff；通用 Agent 场景不
+显示 apply、commit、undo 或 publish。
+
+模块侧 `CodingWorkerClient` 的所有任务读取和生命周期操作都需要服务端 origin。跨模块或业务对象
+任务 ID 在读取事件或产生副作用前拒绝。模块可以注册 source、context、acceptance 和通用 route
+allowlist，不能控制 Provider、Tool Broker、Shell/LSP 进程、secret 或任意 MCP Server。旧 V14 任务
+继续按兼容默认值读取与恢复，不迁移 Provider checkpoint。

@@ -592,3 +592,46 @@ docker compose -f docker-compose.yml -f docker-compose.coding-project-host.yml -
 验收至少包括：两个任务并行、第三个排队；失败检查后的自动修复与复测；审批拒绝/过期；SSE 断线补发；Server、两个 Provider/Executor 逐个重启；Host Snapshot 经过 v13 写回。真实 OpenCode、Windows Helper 和用户项目写回必须单列人工结果，不能用 Fake Provider 或 Compose `config` 代替。
 
 回退只需设置 `CODING_WORKER_V14_ENABLED=false` 并重建 Server，使新会话回到 legacy。不要删除 `coding_worker_state`、slot Workspace 卷、v13 Recovery 或 Agent Workspace 数据；已有任务保持可审计，已有宿主副作用不会自动撤销。
+
+## Coding Worker V15 部署
+
+V15 在 V14 overlay 之后可选加载 `docker-compose.coding-worker-v15-claude.yml`。以下开关默认
+全部关闭；前三项写入绝对 `MODELMIRROR_DATA_ROOT` 对应的 `server/.env`，单独设置浏览器参数
+或 TaskSpec 不能开启能力：
+
+```dotenv
+CODING_WORKER_V15_ENABLED=false
+CODING_WORKER_SHELL_ENABLED=false
+CODING_WORKER_CODE_INTELLIGENCE_ENABLED=false
+```
+
+Claude overlay 的值用于 Compose 插值，必须由部署脚本/宿主环境或 Compose project `.env`
+显式提供；Server 的 `env_file` 不会替代这些插值：
+
+```dotenv
+CODING_WORKER_CLAUDE_ENABLED=false
+CODING_WORKER_CLAUDE_MODEL_ID=<controlled-model-id>
+CODING_WORKER_CLAUDE_SECRET_FILE=C:\\absolute\\path\\claude-api-key.secret
+CODING_WORKER_CLAUDE_PROXY_TOKEN=<random-url-safe-token>
+```
+
+Claude secret 文件不得放入仓库或数据导出；sidecar 只接受普通、非链接、单硬链接的只读文件。
+缺少或不安全的 secret 只禁用相应内部路由，不影响 OpenCode、Fake、legacy 或已有 V14 任务。
+Claude Provider 不挂载 Workspace、Docker socket、宿主目录或 Server 密钥；独立出口代理只允许
+`api.anthropic.com:443`，Executor 仍无模型网络。`CODING_WORKER_CLAUDE_MODEL_ID` 是部署者控制
+的内部映射，不进入公共 TaskSpec。
+
+只展开最终配置而不启动服务：
+
+```powershell
+docker compose -f docker-compose.yml `
+  -f docker-compose.coding-worker-v14.yml `
+  -f docker-compose.coding-worker-v15-claude.yml `
+  -p modelmirror --profile coding config --quiet
+```
+
+重建、真实 secret、真实双引擎任务和逐组件重启必须在用户确认的共享栈窗口执行。自动测试、
+镜像版本探针或 Compose 展开不等同于真实 Claude/OpenCode 验收。回退时先关闭
+`CODING_WORKER_CLAUDE_ENABLED`，再按需关闭 code intelligence、Shell 与 V15 总开关并停止接收
+新 V15 任务；不要删除 V14 Store、Workspace、Evidence、v13 Recovery 或 Agent Workspace 数据。
+已开始的任务必须进入明确的 `interrupted`/终态，未知 operation 只能对账，不能重放。

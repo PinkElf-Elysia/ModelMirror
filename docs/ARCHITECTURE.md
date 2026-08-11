@@ -331,3 +331,31 @@ flowchart LR
 - `host_snapshot` 在任务真正出队时才向 Windows Helper 请求一次性快照并导入 Project Source；Server 始终不获得宿主物理路径。完成后仅能显式交给现有 v13 写回链，Worker 本身不写用户仓库。
 
 `/coding` 和 `/agents/workbench` 使用同一个 Worker Console。前者保留 v13 apply/commit/undo/publish 领域动作；后者只显示通用任务、文件、Diff、审批、Evidence、Artifact 与终端语义。下游 Skill/MCP 创建、AI 应用、3D 引擎和用户开发模块只注册来源、上下文和验收适配器，不向 Worker 内核加入领域逻辑。
+
+## V15 专业执行与双引擎边界
+
+V15 保持 `/api/coding-worker/v1`、`TaskSpec` 和 V14 Workspace/Store 不变，在 Tool Broker 与
+Provider 私有层补充专业执行能力：
+
+- 文件修改使用带 preimage hash 的统一 changeset；多文件 Patch、移动或删除任一项冲突时整批
+  失败。Shell `mutate` 只在退出码为零且真实 Workspace tree CAS 未变化时发布，`inspect` 的
+  任何文件变化均丢弃。完整输出进入 Artifact，公共事件只保存有界、可补发的顺序片段。
+- Shell 批准只绑定一个 operation ID、脚本摘要、相对 cwd、模式、超时和网络范围，不存在
+  “本任务全部批准”。后台服务、冻结检查和 Shell 共享任务进程归属，但不共享批准租约。
+- Pyright 与 TypeScript Language Server 固定在 Executor 镜像内。symbols、definition、
+  references、hover 与 diagnostics 均绑定 task、entry ID 和 tree hash；树变化后旧诊断失效，
+  重启只重建 LSP，不恢复旧进程。
+- Provider 私有契约 v2 统一 Fake、OpenCode 与 Claude 的 capability、工具 allowlist、usage、
+  checkpoint compatibility 和错误分类。任务创建时固定内部 Provider；不可用时进入
+  `interrupted`，不跨引擎迁移 checkpoint，也不自动换供应商。
+- Claude Code 固定为 `2.1.89`，运行在独立、无 Workspace 挂载的 Provider sidecar。内建
+  Bash、文件、Web、Skill、插件、hooks、marketplace 与更新检查关闭；仅能调用
+  ModelMirror MCP Broker。凭据只以只读 secret 文件进入 Claude sidecar，并仅在启动子进程
+  时注入；Executor、Store、日志、Artifact 和公共 API 不接收它。
+- 平台内部 route catalog 把 `coding/default`、`coding/quality` 等通用路由固定到执行槽和
+  Provider。浏览器、模块与公共 SSE 仍看不到供应商名、端口、原始帧、session ID 或凭据状态。
+
+共享 Console 只查询公共 capability、公开计划、operation output、changeset 与 diagnostics，
+并展示精确 Shell 批准字段；它不获得 Provider 控制权。模块 SDK 对每次读取、steering、暂停、
+恢复和取消都复核服务端 `origin(module, business_object)`，跨模块任务 ID 在副作用前拒绝。
+模块仍不能注册 Provider、工具进程、密钥或任意 MCP Server；领域适配继续位于调用模块。
