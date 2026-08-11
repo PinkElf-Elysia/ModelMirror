@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,34 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
         "stop_service",
     }
     write = next(tool for tool in tools if tool.name == "write_file")
-    assert {"operation_id", "path", "content", "content_sha256"}.issubset(
-        write.inputSchema["required"]
+    assert set(write.inputSchema["required"]) == {"operation_id", "path", "content"}
+    assert "content_sha256" not in write.inputSchema["properties"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_computes_write_digest_inside_trusted_adapter() -> None:
+    calls: list[dict[str, object]] = []
+
+    class RecordingClient:
+        async def call(self, **kwargs: object) -> dict[str, object]:
+            calls.append(kwargs)
+            return {"ok": True}
+
+    content = "discount = 0.0\n"
+    await build_server(RecordingClient()).call_tool(
+        "write_file",
+        {"operation_id": "write-discount", "path": "pricing.py", "content": content},
     )
+    assert calls == [
+        {
+            "operation_id": "write-discount",
+            "tool_name": "write_file",
+            "arguments": {
+                "path": "pricing.py",
+                "content": content,
+                "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            },
+            "lease_id": None,
+            "network_lease_id": None,
+        }
+    ]

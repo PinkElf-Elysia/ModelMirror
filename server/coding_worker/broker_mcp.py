@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import uuid
 from typing import Any
@@ -49,10 +50,9 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         return await call("diff", {})
 
     @mcp.tool()
-    async def write_file(
-        operation_id: str, path: str, content: str, content_sha256: str
-    ) -> dict[str, Any]:
-        """Atomically write UTF-8 text using a stable operation id and content digest."""
+    async def write_file(operation_id: str, path: str, content: str) -> dict[str, Any]:
+        """Atomically write UTF-8 text using a stable operation id."""
+        content_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
         return await call(
             "write_file",
             {"path": path, "content": content, "content_sha256": content_sha256},

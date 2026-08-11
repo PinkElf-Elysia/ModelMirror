@@ -30,6 +30,7 @@ from .provider import (
 
 
 OPENCODE_VERSION = "1.18.9"
+TOOL_BROKER_MCP_NAME = "modelmirror-tool-broker"
 DIRECT_TOOL_NAMES = frozenset(
     {
         "bash",
@@ -143,6 +144,7 @@ class OpenCodeProvider(CodingAgentProvider):
             raise OpenCodeProviderError("Workspace is unavailable.", code="workspace_unavailable")
         handle = await self._server_factory(request, workspace, route)
         try:
+            await self._wait_for_tool_broker(handle)
             response = await handle.client.post(
                 self._url("/session", workspace),
                 json={
@@ -296,10 +298,13 @@ class OpenCodeProvider(CodingAgentProvider):
         }
         mcp: dict[str, Any] = {}
         if self._tool_broker_command is not None:
-            permission["modelmirror-tool-broker_*"] = "allow"
-            mcp["modelmirror-tool-broker"] = {
+            permission[f"{TOOL_BROKER_MCP_NAME}_*"] = "allow"
+            mcp[TOOL_BROKER_MCP_NAME] = {
                 "type": "local",
                 "command": list(self._tool_broker_command),
+                "environment": {
+                    "PYTHONPATH": str(Path(__file__).resolve().parent.parent),
+                },
                 "enabled": True,
                 "timeout": 310_000,
             }
@@ -473,8 +478,37 @@ class OpenCodeProvider(CodingAgentProvider):
     def _prompt_tools(self) -> dict[str, bool]:
         tools = {name: False for name in DIRECT_TOOL_NAMES}
         if self._tool_broker_command is not None:
-            tools["modelmirror-tool-broker_*"] = True
+            tools[f"{TOOL_BROKER_MCP_NAME}_*"] = True
         return tools
+
+    async def _wait_for_tool_broker(self, handle: OpenCodeServerHandle) -> None:
+        if self._tool_broker_command is None:
+            return
+        deadline = asyncio.get_running_loop().time() + 15.0
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                status_response = await handle.client.get(
+                    self._url("/mcp", handle.workspace), timeout=2.0
+                )
+                status_response.raise_for_status()
+                statuses = status_response.json()
+                broker_status = (
+                    statuses.get(TOOL_BROKER_MCP_NAME)
+                    if isinstance(statuses, dict)
+                    else None
+                )
+                if (
+                    isinstance(broker_status, dict)
+                    and broker_status.get("status") == "connected"
+                ):
+                    return
+            except (httpx.HTTPError, ValueError):
+                pass
+            await asyncio.sleep(0.1)
+        raise OpenCodeProviderError(
+            "Tool Broker MCP failed to become ready.",
+            code="tool_broker_unavailable",
+        )
 
     @staticmethod
     def _url(path: str, workspace: Path) -> str:
