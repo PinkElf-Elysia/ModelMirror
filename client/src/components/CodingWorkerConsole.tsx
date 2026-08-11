@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   CircleAlert,
   FileCode2,
+  FolderPlus,
   FolderTree,
   GitCompareArrows,
   MessageSquareText,
@@ -43,6 +44,13 @@ import {
   sendCodingWorkerMessage,
   type CodingWorkerHandoffResult,
 } from "../utils/codingWorkerApi";
+import type { CodingProjectSelection, CodingProjectSummary } from "../types/coding";
+import {
+  createCodingProjectSelection,
+  getCodingProjectSelection,
+  getCodingProjects,
+  getCodingWorkerHostSource,
+} from "../utils/codingApi";
 
 type ConsoleContext = "coding" | "agent";
 type InspectorTab = "files" | "diff" | "evidence" | "terminal";
@@ -92,16 +100,51 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   const [sourceId, setSourceId] = useState("");
   const [revision, setRevision] = useState("");
   const [checkId, setCheckId] = useState("");
+  const [codingProjects, setCodingProjects] = useState<CodingProjectSummary[]>([]);
+  const [selection, setSelection] = useState<CodingProjectSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [transportWarning, setTransportWarning] = useState(false);
   const [error, setError] = useState("");
   const operationRef = useRef(false);
+  const selectionProjectIdsRef = useRef<Set<string>>(new Set());
 
   const selectedTask = useMemo(
     () => tasks.find((task) => task.task_id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
   );
+
+  const refreshCodingProjects = useCallback(async (preferredId?: string, selectNew = false) => {
+    if (context !== "coding") return null;
+    const response = await getCodingProjects();
+    const hostProjects = response.projects.filter((project) => project.kind === "host_git");
+    setCodingProjects(hostProjects);
+    const preferred = hostProjects.find(
+      (project) => project.id === preferredId && project.state === "available" && project.head,
+    );
+    const newlyAdded = selectNew
+      ? hostProjects.filter(
+        (project) => !selectionProjectIdsRef.current.has(project.id)
+          && project.state === "available"
+          && project.head,
+      )
+      : [];
+    const selected = preferred ?? (newlyAdded.length === 1 ? newlyAdded[0] : undefined);
+    if (selected?.head) {
+      const binding = await getCodingWorkerHostSource(selected.id);
+      if (
+        binding.source_id !== selected.id
+        || binding.branch !== selected.branch
+        || !binding.revision.startsWith(selected.head)
+      ) {
+        throw new Error("本地项目基准已改变，请刷新后重新选择。");
+      }
+      setSourceId(binding.source_id);
+      setRevision(binding.revision);
+      return selected.id;
+    }
+    return null;
+  }, [context]);
 
   const refreshTasks = useCallback(async (preferredId?: string) => {
     const next = await listCodingWorkerTasks();
@@ -148,6 +191,48 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [refreshTasks]);
+
+  useEffect(() => {
+    if (context !== "coding") return;
+    void refreshCodingProjects().catch((caught) => {
+      setError(errorMessage(caught, "本地项目列表加载失败"));
+    });
+  }, [context, refreshCodingProjects]);
+
+  useEffect(() => {
+    if (!selection || !["pending", "dispatched"].includes(selection.status)) return;
+    let active = true;
+    let timer = 0;
+    const poll = async () => {
+      try {
+        const next = await getCodingProjectSelection(selection.request_id);
+        if (!active) return;
+        setSelection(next);
+        if (next.status === "completed" && next.project_id) {
+          await refreshCodingProjects(next.project_id);
+          return;
+        }
+        if (next.status === "failed" || next.status === "expired") {
+          const recoveredProjectId = await refreshCodingProjects(undefined, true);
+          if (recoveredProjectId) return;
+          setError(next.error === "project_selection_cancelled"
+            ? "已取消选择，本地项目列表没有变化。"
+            : next.status === "expired"
+              ? "选择请求已超时；若 Helper 已完成授权，请从本地项目列表中选择该项目。"
+              : "没有添加项目，请重新选择一个干净的 Git 仓库。");
+          return;
+        }
+        timer = window.setTimeout(() => void poll(), 800);
+      } catch (caught) {
+        if (active) setError(errorMessage(caught, "本地项目选择失败"));
+      }
+    };
+    timer = window.setTimeout(() => void poll(), 500);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [refreshCodingProjects, selection]);
 
   useEffect(() => {
     if (!selectedTaskId) {
@@ -209,6 +294,42 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
     const task = await createCodingWorkerTask(spec);
     await refreshTasks(task.task_id);
     setShowCreate(false); setObjective(""); setSourceId(""); setRevision(""); setCheckId("");
+  });
+
+  const addCodingProject = () => run(async () => {
+    selectionProjectIdsRef.current = new Set(codingProjects.map((project) => project.id));
+    const next = await createCodingProjectSelection();
+    setSelection(next);
+    if (next.status === "completed" && next.project_id) {
+      await refreshCodingProjects(next.project_id);
+    } else if (next.status === "failed" || next.status === "expired") {
+      const recoveredProjectId = await refreshCodingProjects(undefined, true);
+      if (recoveredProjectId) return;
+      setError(next.error === "project_selection_cancelled"
+        ? "已取消选择，本地项目列表没有变化。"
+        : next.status === "expired"
+          ? "选择请求已超时；若 Helper 已完成授权，请从本地项目列表中选择该项目。"
+          : "没有添加项目，请重新选择一个干净的 Git 仓库。");
+    }
+  });
+
+  const selectCodingProject = (projectId: string) => run(async () => {
+    const project = codingProjects.find((item) => item.id === projectId);
+    if (!project || project.state !== "available" || !project.head) {
+      setSourceId("");
+      setRevision("");
+      return;
+    }
+    const binding = await getCodingWorkerHostSource(project.id);
+    if (
+      binding.source_id !== project.id
+      || binding.branch !== project.branch
+      || !binding.revision.startsWith(project.head)
+    ) {
+      throw new Error("本地项目基准已改变，请刷新后重新选择。");
+    }
+    setSourceId(binding.source_id);
+    setRevision(binding.revision);
   });
 
   const submitMessage = () => run(async () => {
@@ -273,8 +394,47 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
           <label className="md:col-span-2 xl:col-span-2 text-sm text-slate-200">任务目标
             <textarea value={objective} onChange={(event) => setObjective(event.target.value)} className="mt-1 min-h-24 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-white" maxLength={1_048_576} />
           </label>
-          <label className="text-sm text-slate-200">不透明来源 ID<input value={sourceId} onChange={(event) => setSourceId(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white" /></label>
-          <label className="text-sm text-slate-200">基准 revision<input value={revision} onChange={(event) => setRevision(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white" /></label>
+          {context === "coding" ? (
+            <div className="text-sm text-slate-200">
+              <label htmlFor="worker-host-project">本地项目</label>
+              <select
+                id="worker-host-project"
+                value={sourceId}
+                onChange={(event) => void selectCodingProject(event.target.value)}
+                className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white outline-none focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10"
+              >
+                <option value="">选择已授权项目</option>
+                {codingProjects.map((project) => (
+                  <option
+                    key={project.id}
+                    value={project.id}
+                    disabled={project.state !== "available" || !project.head}
+                  >
+                    {project.name}{project.branch ? ` · ${project.branch}` : ""}
+                    {project.head ? ` · ${project.head.slice(0, 12)}` : ""}
+                    {project.state !== "available" ? " · 当前不可用" : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void addCodingProject()}
+                disabled={busy || selection?.status === "pending" || selection?.status === "dispatched"}
+                className="mt-2 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-cyan-300/35 px-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <FolderPlus className="h-4 w-4" aria-hidden="true" />
+                {selection?.status === "pending" || selection?.status === "dispatched"
+                  ? "等待 Helper 选择"
+                  : "添加本地项目"}
+              </button>
+              <p className="mt-2 text-xs leading-5 text-slate-400">
+                点击后在 Helper 弹出的窗口中选择干净的 Git 仓库，物理路径不会发送到 Server。
+              </p>
+            </div>
+          ) : (
+            <label className="text-sm text-slate-200">不透明来源 ID<input value={sourceId} onChange={(event) => setSourceId(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white" /></label>
+          )}
+          <label className="text-sm text-slate-200">基准 revision<input value={revision} onChange={(event) => setRevision(event.target.value)} readOnly={context === "coding"} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white read-only:text-slate-300" /></label>
           <label className="text-sm text-slate-200">冻结验收检查<select value={checkId} onChange={(event) => setCheckId(event.target.value)} disabled={!status.acceptance_checks.length} className="mt-1 min-h-11 w-full rounded-lg border border-white/15 bg-slate-950/70 px-3 text-white disabled:opacity-60">{status.acceptance_checks.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
           <div className="flex items-end md:col-span-2 xl:col-span-5"><button type="submit" disabled={busy || !checkId} className="min-h-11 rounded-lg bg-cyan-400 px-5 text-sm font-semibold text-slate-950 disabled:opacity-50">提交到队列</button></div>
         </form>

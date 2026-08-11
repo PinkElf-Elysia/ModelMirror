@@ -5242,6 +5242,18 @@ async def coding_projects(response: Response) -> dict[str, Any]:
     return await get_coding_service().project_catalog()
 
 
+@router.get("/worker-sources/{project_id}")
+async def coding_worker_source(project_id: str, response: Response) -> dict[str, str]:
+    response.headers["Cache-Control"] = "no-store"
+    service = get_coding_service()
+    if service.project_host is None:
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "project_host_unavailable")
+    try:
+        return service.project_host.worker_source(project_id)
+    except ProjectHostError as exc:
+        raise _project_host_http_error(exc) from exc
+
+
 @router.get("/recovery")
 async def coding_recovery_status(response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
