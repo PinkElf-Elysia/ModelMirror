@@ -1,23 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import hashlib
 import json
 import os
 import secrets
 import shutil
 import signal
+import stat
+import sys
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
-from pathlib import Path
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .contracts import SAFE_ID
 
 
 MAX_EXECUTOR_RPC_BYTES = 8 * 1024 * 1024
+MAX_SHELL_CHANGE_BYTES = 4 * 1024 * 1024
 
 
 class SidecarExecutionError(RuntimeError):
@@ -45,6 +50,16 @@ class _Service:
     monitor: asyncio.Task[None] | None = None
 
 
+@dataclass(slots=True)
+class _ShellProcess:
+    task_id: str
+    operation_id: str
+    process: asyncio.subprocess.Process
+    reason: str | None = None
+    stop_requested: asyncio.Event = field(default_factory=asyncio.Event)
+    finished: asyncio.Event = field(default_factory=asyncio.Event)
+
+
 class SidecarExecutor:
     """Runs task commands inside one non-root slot sidecar."""
 
@@ -61,7 +76,10 @@ class SidecarExecutor:
         self._max_output_bytes = max_output_bytes
         self._max_services_per_task = max_services_per_task
         self._services: dict[str, _Service] = {}
+        self._shells: dict[str, _ShellProcess] = {}
+        self._shell_reservations: set[str] = set()
         self._lock = asyncio.Lock()
+        self._remove_owned_runtime(self._runtime_root / "shell")
 
     async def run_process(
         self,
@@ -110,6 +128,222 @@ class SidecarExecutor:
         finally:
             if execution_root is not None:
                 shutil.rmtree(execution_root, ignore_errors=True)
+
+    async def run_shell(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        script: str,
+        cwd: str,
+        mode: str,
+        timeout_seconds: int,
+        output_callback: Callable[[str, bytes], Awaitable[None]] | None = None,
+    ) -> dict[str, object]:
+        if (
+            SAFE_ID.fullmatch(task_id) is None
+            or SAFE_ID.fullmatch(operation_id) is None
+            or not script
+            or len(script.encode("utf-8")) > 64 * 1024
+            or "\x00" in script
+            or mode not in {"inspect", "mutate"}
+            or isinstance(timeout_seconds, bool)
+            or not 1 <= timeout_seconds <= 3600
+        ):
+            raise SidecarExecutionError("Shell request is invalid.", code="shell_input_invalid")
+        relative_cwd = self._relative_path(cwd, allow_root=True)
+        if os.name == "nt" or not Path("/bin/bash").is_file():
+            raise SidecarExecutionError("Bash is unavailable.", code="shell_unavailable")
+        repository = self._workspace_resolver(workspace_id)
+        before = self._snapshot_files(repository)
+        base_tree_hash = self._snapshot_hash(before)
+        run_root = self._runtime_root / "shell" / task_id / operation_id
+        if run_root.exists() or run_root.is_symlink():
+            raise SidecarExecutionError(
+                "Shell operation runtime already exists.", code="shell_operation_exists"
+            )
+        async with self._lock:
+            if task_id in self._shell_reservations or any(
+                item.task_id == task_id for item in self._shells.values()
+            ):
+                raise SidecarExecutionError(
+                    "A shell operation is already active for this task.",
+                    code="shell_capacity_exhausted",
+                )
+            self._shell_reservations.add(task_id)
+        execution_repository = run_root / "repo"
+        process: asyncio.subprocess.Process | None = None
+        shell_process: _ShellProcess | None = None
+        try:
+            run_root.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(
+                repository,
+                execution_repository,
+                ignore=shutil.ignore_patterns(".git"),
+                symlinks=True,
+            )
+            if self._snapshot_files(repository) != before:
+                raise SidecarExecutionError(
+                    "Workspace changed while cloning shell input.",
+                    code="workspace_tree_changed",
+                )
+            cloned = self._snapshot_files(execution_repository)
+            if cloned != before:
+                raise SidecarExecutionError(
+                    "Shell clone does not match the workspace.",
+                    code="workspace_tree_changed",
+                )
+            execution_cwd = execution_repository.joinpath(*relative_cwd.parts)
+            if not execution_cwd.is_dir() or execution_cwd.is_symlink():
+                raise SidecarExecutionError(
+                    "Shell cwd is unavailable.", code="workspace_path_invalid"
+                )
+            home = run_root / "home"
+            temporary = run_root / "tmp"
+            home.mkdir()
+            temporary.mkdir()
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                str(Path(__file__).with_name("shell_sandbox.py")),
+                "--repository",
+                str(execution_repository),
+                "--home",
+                str(home),
+                "--temporary",
+                str(temporary),
+                "--cwd",
+                str(execution_cwd),
+                "--",
+                "/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-c",
+                script,
+                cwd=execution_cwd,
+                env=self._environment(
+                    execution_repository,
+                    {"HOME": str(home), "TMPDIR": str(temporary)},
+                ),
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+            shell_process = _ShellProcess(
+                task_id=task_id,
+                operation_id=operation_id,
+                process=process,
+            )
+            async with self._lock:
+                self._shells[operation_id] = shell_process
+            output = bytearray()
+            output_lock = asyncio.Lock()
+            reason: str | None = None
+
+            async def record(stream_name: str, chunk: bytes) -> None:
+                nonlocal reason
+                async with output_lock:
+                    remaining = self._max_output_bytes - len(output)
+                    accepted = chunk[: max(remaining, 0)]
+                    if accepted:
+                        output.extend(accepted)
+                        if output_callback is not None:
+                            await output_callback(stream_name, accepted)
+                    if len(accepted) != len(chunk) and reason is None:
+                        reason = "shell_output_limit"
+                        if process is not None and process.returncode is None:
+                            process.kill()
+
+            async def pump(
+                stream_name: str, reader: asyncio.StreamReader | None
+            ) -> None:
+                if reader is None:
+                    return
+                while True:
+                    chunk = await reader.read(64 * 1024)
+                    if not chunk:
+                        return
+                    await record(stream_name, chunk)
+
+            stdout = asyncio.create_task(pump("stdout", process.stdout))
+            stderr = asyncio.create_task(pump("stderr", process.stderr))
+            process_wait = asyncio.create_task(process.wait())
+            stop_wait = asyncio.create_task(shell_process.stop_requested.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {process_wait, stop_wait},
+                    timeout=timeout_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    reason = "shell_timeout"
+                    await self._interrupt(process)
+                elif stop_wait in done:
+                    reason = shell_process.reason or "task_closed"
+                    await self._interrupt(process)
+                else:
+                    await process_wait
+                await asyncio.gather(stdout, stderr)
+            except asyncio.CancelledError:
+                await self._interrupt(process)
+                await asyncio.gather(stdout, stderr, return_exceptions=True)
+                raise
+            except Exception:
+                await self._interrupt(process)
+                await asyncio.gather(stdout, stderr, return_exceptions=True)
+                raise
+            finally:
+                if not process_wait.done():
+                    process_wait.cancel()
+                if not stop_wait.done():
+                    stop_wait.cancel()
+                await asyncio.gather(process_wait, stop_wait, return_exceptions=True)
+                async with self._lock:
+                    self._shells.pop(operation_id, None)
+                shell_process.finished.set()
+            after = self._snapshot_files(execution_repository)
+            changed, violations = self._shell_changes(before, after)
+            changed_bytes = sum(
+                len(str(change.get("content", "")).encode("utf-8"))
+                for change in changed
+            )
+            if changed_bytes > MAX_SHELL_CHANGE_BYTES:
+                violations.append(
+                    {
+                        "reason": "changeset_too_large",
+                        "size": changed_bytes,
+                        "limit": MAX_SHELL_CHANGE_BYTES,
+                    }
+                )
+            exit_code = int(process.returncode or 0)
+            eligible = (
+                mode == "mutate"
+                and reason is None
+                and exit_code == 0
+                and not violations
+            )
+            return {
+                "mode": mode,
+                "exit_code": exit_code,
+                "reason": reason,
+                "base_tree_hash": base_tree_hash,
+                "clone_tree_hash": self._snapshot_hash(after),
+                "workspace_changed": before != after,
+                "changeset_eligible": eligible,
+                "changes": changed if eligible else [],
+                "change_summary": self._change_summary(before, after, violations),
+                "output": output.decode("utf-8", errors="replace"),
+            }
+        finally:
+            if process is not None:
+                async with self._lock:
+                    self._shells.pop(operation_id, None)
+            if shell_process is not None:
+                shell_process.finished.set()
+            async with self._lock:
+                self._shell_reservations.discard(task_id)
+            self._remove_owned_runtime(run_root)
 
     async def start_service(
         self,
@@ -195,10 +429,190 @@ class SidecarExecutor:
         for service in services:
             service.reason = "task_closed"
             await self._interrupt(service.process)
+        shells = [item for item in self._shells.values() if item.task_id == task_id]
+        for shell in shells:
+            shell.reason = "task_closed"
+            shell.stop_requested.set()
+        await asyncio.gather(
+            *(shell.finished.wait() for shell in shells),
+            return_exceptions=True,
+        )
         await asyncio.gather(
             *(service.monitor for service in services if service.monitor is not None),
             return_exceptions=True,
         )
+
+    @classmethod
+    def _snapshot_files(cls, repository: Path) -> dict[str, tuple[bytes, int]]:
+        snapshot: dict[str, tuple[bytes, int]] = {}
+        for current, directories, files in os.walk(
+            repository, topdown=True, followlinks=False
+        ):
+            current_path = Path(current)
+            if current_path == repository:
+                directories[:] = [name for name in directories if name != ".git"]
+            directories.sort()
+            for name in directories:
+                directory = current_path / name
+                if name == ".git" or cls._is_link(directory):
+                    raise SidecarExecutionError(
+                        "Shell workspace contains a link.", code="workspace_changed"
+                    )
+            for name in sorted(files):
+                path = current_path / name
+                metadata = path.lstat()
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or cls._is_link(path)
+                    or metadata.st_nlink != 1
+                ):
+                    raise SidecarExecutionError(
+                        "Shell workspace contains an unsafe file.",
+                        code="workspace_changed",
+                    )
+                content = path.read_bytes()
+                after = path.lstat()
+                if (
+                    len(content) != metadata.st_size
+                    or (metadata.st_dev, metadata.st_ino, metadata.st_mtime_ns)
+                    != (after.st_dev, after.st_ino, after.st_mtime_ns)
+                ):
+                    raise SidecarExecutionError(
+                        "Shell workspace changed while reading.",
+                        code="workspace_changed",
+                    )
+                relative = path.relative_to(repository).as_posix()
+                snapshot[relative] = (content, stat.S_IMODE(metadata.st_mode))
+        return snapshot
+
+    @staticmethod
+    def _snapshot_hash(snapshot: Mapping[str, tuple[bytes, int]]) -> str:
+        digest = hashlib.sha256()
+        for path in sorted(snapshot):
+            content = snapshot[path][0]
+            relative = path.encode("utf-8")
+            digest.update(len(relative).to_bytes(4, "big"))
+            digest.update(relative)
+            digest.update(len(content).to_bytes(8, "big"))
+            digest.update(hashlib.sha256(content).digest())
+        return digest.hexdigest()
+
+    @staticmethod
+    def _shell_changes(
+        before: Mapping[str, tuple[bytes, int]],
+        after: Mapping[str, tuple[bytes, int]],
+    ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+        changes: list[dict[str, object]] = []
+        violations: list[dict[str, object]] = []
+        for path in sorted(set(before) | set(after)):
+            old = before.get(path)
+            new = after.get(path)
+            if old == new:
+                continue
+            content = (new or old)[0]  # type: ignore[index]
+            if b"\x00" in content:
+                violations.append(
+                    {
+                        "path": path,
+                        "reason": "binary_change_rejected",
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "size": len(content),
+                    }
+                )
+                continue
+            if old is not None and new is not None and old[1] != new[1]:
+                violations.append(
+                    {"path": path, "reason": "mode_change_rejected"}
+                )
+                continue
+            if new is None:
+                assert old is not None
+                changes.append(
+                    {
+                        "kind": "delete",
+                        "path": path,
+                        "expected_sha256": hashlib.sha256(old[0]).hexdigest(),
+                    }
+                )
+                continue
+            try:
+                text = new[0].decode("utf-8")
+            except UnicodeDecodeError:
+                violations.append(
+                    {
+                        "path": path,
+                        "reason": "binary_change_rejected",
+                        "sha256": hashlib.sha256(new[0]).hexdigest(),
+                        "size": len(new[0]),
+                    }
+                )
+                continue
+            change: dict[str, object] = {
+                "kind": "write",
+                "path": path,
+                "content": text,
+                "content_sha256": hashlib.sha256(new[0]).hexdigest(),
+            }
+            if old is None:
+                change["expected_absent"] = True
+            else:
+                change["expected_sha256"] = hashlib.sha256(old[0]).hexdigest()
+            changes.append(change)
+        return changes, violations
+
+    @staticmethod
+    def _change_summary(
+        before: Mapping[str, tuple[bytes, int]],
+        after: Mapping[str, tuple[bytes, int]],
+        violations: list[dict[str, object]],
+    ) -> dict[str, object]:
+        return {
+            "added": sorted(set(after) - set(before)),
+            "deleted": sorted(set(before) - set(after)),
+            "modified": sorted(
+                path
+                for path in set(before) & set(after)
+                if before[path] != after[path]
+            ),
+            "violations": violations,
+        }
+
+    @staticmethod
+    def _relative_path(value: str, *, allow_root: bool = False) -> PurePosixPath:
+        raw_parts = value.split("/")
+        path = PurePosixPath(value)
+        if (
+            not value
+            or "\\" in value
+            or path.is_absolute()
+            or any(
+                part in {"", "..", ".git"}
+                or (part == "." and not (value == "." and allow_root))
+                for part in raw_parts
+            )
+            or any(part in {"", "..", ".git"} for part in path.parts)
+            or (path.as_posix() == "." and not allow_root)
+        ):
+            raise SidecarExecutionError(
+                "Workspace path is invalid.", code="workspace_path_invalid"
+            )
+        return path
+
+    @staticmethod
+    def _is_link(path: Path) -> bool:
+        return path.is_symlink() or (
+            hasattr(path, "is_junction") and path.is_junction()  # type: ignore[attr-defined]
+        )
+
+    @classmethod
+    def _remove_owned_runtime(cls, path: Path) -> None:
+        if not path.exists() and not path.is_symlink():
+            return
+        if cls._is_link(path):
+            raise SidecarExecutionError(
+                "Shell runtime is unsafe.", code="shell_runtime_unsafe"
+            )
+        shutil.rmtree(path, ignore_errors=True)
 
     async def _monitor(self, service: _Service, ttl_seconds: int) -> None:
         drain = asyncio.create_task(self._drain(service))
@@ -371,7 +785,22 @@ class ExecutorRPCServer:
                 raise ExecutorRPCError("Executor authentication failed.", code="executor_unauthorized")
             if not isinstance(action, str) or not isinstance(payload, dict):
                 raise ExecutorRPCError("Executor request is invalid.", code="executor_request_invalid")
-            result = await self._dispatch(action, payload)
+            async def send_output(stream_name: str, chunk: bytes) -> None:
+                frame = {
+                    "type": "output",
+                    "stream": stream_name,
+                    "data": base64.b64encode(chunk).decode("ascii"),
+                }
+                writer.write(
+                    json.dumps(frame, separators=(",", ":")).encode() + b"\n"
+                )
+                await writer.drain()
+
+            result = await self._dispatch(
+                action,
+                payload,
+                output_callback=send_output if action == "run_shell" else None,
+            )
             response = {"ok": True, "result": result}
         except Exception as exc:
             response = {
@@ -390,7 +819,13 @@ class ExecutorRPCServer:
         with contextlib.suppress(Exception):
             await writer.wait_closed()
 
-    async def _dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _dispatch(
+        self,
+        action: str,
+        payload: dict[str, Any],
+        *,
+        output_callback: Callable[[str, bytes], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
         task_id = str(payload.get("task_id", ""))
         workspace_id = str(payload.get("workspace_id", ""))
         if action == "bind_task":
@@ -417,6 +852,17 @@ class ExecutorRPCServer:
                 timeout_seconds=int(payload.get("timeout_seconds", 0)),
                 isolated=payload.get("isolated") is True,
                 environment_overrides=payload.get("environment_overrides"),
+            )
+        if action == "run_shell":
+            return await self.executor.run_shell(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=str(payload.get("operation_id", "")),
+                script=str(payload.get("script", "")),
+                cwd=str(payload.get("cwd", "")),
+                mode=str(payload.get("mode", "")),
+                timeout_seconds=int(payload.get("timeout_seconds", 0)),
+                output_callback=output_callback,
             )
         if action == "start_service":
             return await self.executor.start_service(
@@ -477,6 +923,33 @@ class ExecutorSidecarClientPool:
     async def run_process(self, *, task_id: str, workspace_id: str, argv: Sequence[str], timeout_seconds: int, isolated: bool, environment_overrides: Mapping[str, str] | None = None) -> dict[str, Any]:
         return await self._workspace_call(workspace_id, "execute_process", {"task_id": task_id, "workspace_id": workspace_id, "argv": list(argv), "timeout_seconds": timeout_seconds, "isolated": isolated, "environment_overrides": dict(environment_overrides or {})})
 
+    async def run_shell(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        script: str,
+        cwd: str,
+        mode: str,
+        timeout_seconds: int,
+        output_callback: Callable[[str, bytes], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        return await self._workspace_stream_call(
+            workspace_id,
+            "run_shell",
+            {
+                "task_id": task_id,
+                "workspace_id": workspace_id,
+                "operation_id": operation_id,
+                "script": script,
+                "cwd": cwd,
+                "mode": mode,
+                "timeout_seconds": timeout_seconds,
+            },
+            output_callback=output_callback,
+        )
+
     async def start_service(self, *, task_id: str, workspace_id: str, argv: Sequence[str], ttl_seconds: int, preview_port: int | None = None) -> dict[str, Any]:
         return await self._workspace_call(workspace_id, "start_service", {"task_id": task_id, "workspace_id": workspace_id, "argv": list(argv), "ttl_seconds": ttl_seconds, "preview_port": preview_port})
 
@@ -490,6 +963,18 @@ class ExecutorSidecarClientPool:
         return await self._workspace_call(workspace_id, "stop_service", {"task_id": task_id, "workspace_id": workspace_id, "service_id": service_id})
 
     async def _workspace_call(self, workspace_id: str, action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._workspace_stream_call(
+            workspace_id, action, payload, output_callback=None
+        )
+
+    async def _workspace_stream_call(
+        self,
+        workspace_id: str,
+        action: str,
+        payload: dict[str, Any],
+        *,
+        output_callback: Callable[[str, bytes], Awaitable[None]] | None,
+    ) -> dict[str, Any]:
         slot_id = self._workspace_slot_resolver(workspace_id)
         endpoint = self._endpoints.get(slot_id)
         token = self._tokens.get(slot_id)
@@ -505,15 +990,55 @@ class ExecutorSidecarClientPool:
             request = json.dumps({"token": token, "action": action, "payload": payload}, separators=(",", ":")).encode() + b"\n"
             writer.write(request)
             await writer.drain()
-            raw = await reader.readline()
-            value = json.loads(raw)
-            if not isinstance(value, dict) or value.get("ok") is not True:
-                error = value.get("error", {}) if isinstance(value, dict) else {}
-                raise ExecutorRPCError(str(error.get("message", "Executor request failed.")), code=str(error.get("code", "executor_failed")))
-            result = value.get("result")
-            if not isinstance(result, dict):
-                raise ExecutorRPCError("Executor response is invalid.", code="executor_invalid_response")
-            return result
+            while True:
+                raw = await reader.readline()
+                if (
+                    not raw
+                    or len(raw) > MAX_EXECUTOR_RPC_BYTES
+                    or not raw.endswith(b"\n")
+                ):
+                    raise ExecutorRPCError(
+                        "Executor response is invalid.",
+                        code="executor_invalid_response",
+                    )
+                value = json.loads(raw)
+                if isinstance(value, dict) and value.get("type") == "output":
+                    if action != "run_shell" or output_callback is None:
+                        raise ExecutorRPCError(
+                            "Executor response is invalid.",
+                            code="executor_invalid_response",
+                        )
+                    stream = value.get("stream")
+                    encoded = value.get("data")
+                    if stream not in {"stdout", "stderr"} or not isinstance(
+                        encoded, str
+                    ):
+                        raise ExecutorRPCError(
+                            "Executor response is invalid.",
+                            code="executor_invalid_response",
+                        )
+                    try:
+                        chunk = base64.b64decode(encoded, validate=True)
+                    except (ValueError, TypeError) as exc:
+                        raise ExecutorRPCError(
+                            "Executor response is invalid.",
+                            code="executor_invalid_response",
+                        ) from exc
+                    await output_callback(str(stream), chunk)
+                    continue
+                if not isinstance(value, dict) or value.get("ok") is not True:
+                    error = value.get("error", {}) if isinstance(value, dict) else {}
+                    raise ExecutorRPCError(
+                        str(error.get("message", "Executor request failed.")),
+                        code=str(error.get("code", "executor_failed")),
+                    )
+                result = value.get("result")
+                if not isinstance(result, dict):
+                    raise ExecutorRPCError(
+                        "Executor response is invalid.",
+                        code="executor_invalid_response",
+                    )
+                return result
         finally:
             writer.close()
             with contextlib.suppress(Exception):
