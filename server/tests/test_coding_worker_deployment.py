@@ -4,6 +4,7 @@ from pathlib import Path
 def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     root = Path(__file__).parents[2]
     dockerfile = (root / "server/coding_worker/Dockerfile.v14").read_text()
+    shell_sandbox = (root / "server/coding_worker/shell_sandbox.py").read_text()
     server_dockerfile = (root / "server/Dockerfile").read_text()
     compose = (root / "docker-compose.coding-worker-v14.yml").read_text()
 
@@ -11,11 +12,21 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     assert "USER 65532:65532" in dockerfile
     assert 'CMD ["python", "-m", "coding_worker.sidecar"]' in dockerfile
     assert "OPENCODE_VERSION=1.18.9" in dockerfile
+    assert "PYRIGHT_VERSION=1.1.411" in dockerfile
+    assert "TYPESCRIPT_LANGUAGE_SERVER_VERSION=5.3.0" in dockerfile
+    assert "TYPESCRIPT_VERSION=5.9.3" in dockerfile
     assert "coding-worker-provider-a:" in compose
     assert "coding-worker-provider-b:" in compose
     assert "coding-worker-slot-a:" in compose
     assert "coding-worker-slot-b:" in compose
     assert "CODING_WORKER_V14_ENABLED: ${CODING_WORKER_V14_ENABLED:-false}" in compose
+    assert "CODING_WORKER_V15_ENABLED: ${CODING_WORKER_V15_ENABLED:-false}" in compose
+    assert "CODING_WORKER_SHELL_ENABLED: ${CODING_WORKER_SHELL_ENABLED:-false}" in compose
+    assert (
+        "CODING_WORKER_CODE_INTELLIGENCE_ENABLED: "
+        "${CODING_WORKER_CODE_INTELLIGENCE_ENABLED:-false}"
+    ) in compose
+    assert "CODING_WORKER_CLAUDE_ENABLED: ${CODING_WORKER_CLAUDE_ENABLED:-false}" in compose
     assert "/var/run/docker.sock" not in compose
     assert ".ssh" not in compose
     assert "network_mode: host" not in compose
@@ -30,6 +41,8 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     )[0]
     assert "coding_worker_tools" in executor
     assert "coding_internal" not in executor
+    assert "pids_limit: 192" in executor
+    assert "(resource.RLIMIT_NPROC, (256, 256))" in shell_sandbox
     assert "coding_worker_tools:" in compose and "internal: true" in compose
     assert "coding-worker-network" in compose
     assert 'command: ["python", "-m", "coding_worker.egress_proxy"]' in compose

@@ -120,13 +120,23 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
     assert names == {
         "list_files",
         "read_file",
+        "read_file_range",
+        "glob_files",
         "search_text",
+        "search_regex",
         "workspace_diff",
+        "code_symbols",
+        "code_definition",
+        "code_references",
+        "code_hover",
+        "code_diagnostics",
         "write_file",
         "delete_file",
+        "apply_changeset",
         "list_acceptance_checks",
         "run_check",
         "run_command",
+        "run_shell",
         "install_dependencies",
         "start_service",
         "service_status",
@@ -136,9 +146,30 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
     write = next(tool for tool in tools if tool.name == "write_file")
     assert set(write.inputSchema["required"]) == {"operation_id", "path", "content"}
     assert "content_sha256" not in write.inputSchema["properties"]
+    changeset = next(tool for tool in tools if tool.name == "apply_changeset")
+    assert set(changeset.inputSchema["required"]) == {
+        "operation_id",
+        "base_tree_hash",
+        "changes",
+    }
+    assert "provider" not in changeset.inputSchema["properties"]
     command = next(tool for tool in tools if tool.name == "run_command")
     assert set(command.inputSchema["required"]) == {"operation_id", "argv"}
     assert "lease_id" not in command.inputSchema["properties"]
+    shell = next(tool for tool in tools if tool.name == "run_shell")
+    assert set(shell.inputSchema["required"]) == {"operation_id", "script"}
+    assert "lease_id" not in shell.inputSchema["properties"]
+    assert "provider" not in shell.inputSchema["properties"]
+    symbols = next(tool for tool in tools if tool.name == "code_symbols")
+    assert set(symbols.inputSchema["required"]) == {"entry_id"}
+    assert "path" not in symbols.inputSchema["properties"]
+    definition = next(tool for tool in tools if tool.name == "code_definition")
+    assert set(definition.inputSchema["required"]) == {
+        "entry_id",
+        "line",
+        "character",
+    }
+    assert "provider" not in definition.inputSchema["properties"]
     install = next(tool for tool in tools if tool.name == "install_dependencies")
     assert set(install.inputSchema["required"]) == {"operation_id"}
     assert "lease_id" not in install.inputSchema["properties"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 
 import pytest
 from pydantic import ValidationError
@@ -8,7 +9,14 @@ from pydantic import ValidationError
 from server.coding_worker.contracts import (
     AcceptanceCheck,
     AcceptanceContract,
+    CapabilityLease,
+    ChangeKind,
+    ChangesetEntry,
+    CodePosition,
+    CodeRange,
     Origin,
+    ShellApprovalScope,
+    ShellMode,
     TaskCreateRequest,
     TaskSpec,
     TaskState,
@@ -74,6 +82,81 @@ def test_task_state_machine_rejects_completion_without_testing() -> None:
         require_transition(TaskState.RUNNING, TaskState.COMPLETED)
     require_transition(TaskState.RUNNING, TaskState.TESTING)
     require_transition(TaskState.TESTING, TaskState.COMPLETED)
+
+
+def test_shell_approval_is_exact_single_operation_and_workspace_relative() -> None:
+    script_sha256 = hashlib.sha256(b"pytest -q").hexdigest()
+    scope = ShellApprovalScope(
+        operation_id="shell-operation-01",
+        script_sha256=script_sha256,
+        cwd="packages/api",
+        mode=ShellMode.INSPECT,
+        timeout_seconds=120,
+    )
+    lease = CapabilityLease(
+        lease_id="lease-shell-01",
+        task_id="task-shell-01",
+        capability="shell",
+        scope=scope.model_dump(mode="json"),
+        issued_at=1.0,
+        expires_at=2.0,
+        operation_limit=1,
+    )
+    assert lease.scope["script_sha256"] == script_sha256
+
+    invalid_scope = scope.model_dump(mode="json") | {"cwd": "C:/host/project"}
+    with pytest.raises(ValidationError, match="workspace-relative"):
+        CapabilityLease(
+            lease_id="lease-shell-02",
+            task_id="task-shell-01",
+            capability="shell",
+            scope=invalid_scope,
+            issued_at=1.0,
+            expires_at=2.0,
+        )
+    with pytest.raises(ValidationError, match="single-operation"):
+        CapabilityLease(
+            lease_id="lease-shell-03",
+            task_id="task-shell-01",
+            capability="shell",
+            scope=scope.model_dump(mode="json"),
+            issued_at=1.0,
+            expires_at=2.0,
+            operation_limit=2,
+        )
+
+
+def test_changeset_and_code_ranges_reject_ambiguous_bindings() -> None:
+    digest = "a" * 64
+    entry = ChangesetEntry(
+        entry_id="entry-01",
+        kind=ChangeKind.MODIFY,
+        display_path="src/example.py",
+        preimage_sha256=digest,
+        postimage_sha256="b" * 64,
+    )
+    assert entry.preimage_sha256 == digest
+    with pytest.raises(ValidationError, match="destination"):
+        ChangesetEntry(
+            entry_id="entry-02",
+            kind=ChangeKind.MOVE,
+            display_path="src/example.py",
+            preimage_sha256=digest,
+            postimage_sha256=digest,
+        )
+    with pytest.raises(ValidationError, match="workspace-relative"):
+        ChangesetEntry(
+            entry_id="entry-03",
+            kind=ChangeKind.MODIFY,
+            display_path="C:/host/secret.py",
+            preimage_sha256=digest,
+            postimage_sha256=digest,
+        )
+    with pytest.raises(ValidationError, match="precedes"):
+        CodeRange(
+            start=CodePosition(line=2, character=0),
+            end=CodePosition(line=1, character=10),
+        )
 
 
 @pytest.mark.asyncio

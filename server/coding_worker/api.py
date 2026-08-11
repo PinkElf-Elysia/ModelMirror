@@ -11,18 +11,25 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 import httpx
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from .contracts import (
     Origin,
+    CodeDiagnosticsSnapshot,
+    CodeIntelligenceSnapshot,
+    OperationState,
     StrictModel,
     TaskCreateRequest,
     TaskRecord,
     TaskState,
     TERMINAL_STATES,
+    WorkerCapabilities,
     WorkerApproval,
     WorkerArtifact,
+    WorkerChangeset,
     WorkerEvidence,
+    WorkerDiagnostic,
+    OperationOutputChunk,
 )
 from .service import CodingWorkerService
 from .runtime import CodingWorkerRuntime, build_runtime_from_environment
@@ -88,6 +95,30 @@ def is_coding_worker_enabled() -> bool:
     }
 
 
+def _feature_enabled(name: str) -> bool:
+    return os.getenv(name, "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def coding_worker_capabilities() -> WorkerCapabilities:
+    task_runtime = is_coding_worker_enabled() and _service is not None
+    v15 = task_runtime and _feature_enabled("CODING_WORKER_V15_ENABLED")
+    return WorkerCapabilities(
+        task_runtime=task_runtime,
+        professional_file_tools=v15,
+        shell=v15 and _feature_enabled("CODING_WORKER_SHELL_ENABLED"),
+        operation_output=v15,
+        changesets=v15,
+        code_intelligence=(
+            v15 and _feature_enabled("CODING_WORKER_CODE_INTELLIGENCE_ENABLED")
+        ),
+    )
+
+
 def configure_coding_worker_for_tests(
     service: CodingWorkerService | None, *, enabled: bool | None = None
 ) -> None:
@@ -142,6 +173,7 @@ def _raise_worker_error(exc: Exception) -> None:
 @router.get("")
 async def coding_worker_status() -> dict[str, Any]:
     enabled = is_coding_worker_enabled()
+    capabilities = coding_worker_capabilities()
     return {
         "enabled": enabled,
         "available": enabled and _service is not None,
@@ -157,7 +189,13 @@ async def coding_worker_status() -> dict[str, Any]:
             else []
         ),
         "reason": _startup_error,
+        "capabilities": capabilities.model_dump(mode="json"),
     }
+
+
+@router.get("/capabilities", response_model=WorkerCapabilities)
+async def get_worker_capabilities() -> WorkerCapabilities:
+    return coding_worker_capabilities()
 
 
 @router.post("/tasks", response_model=TaskRecord, status_code=202)
@@ -243,6 +281,11 @@ async def decide_task_approval(
         approval = service.store.get_approval(payload.approval_id)
         if approval.task_id != task_id:
             raise WorkerNotFoundError("Approval was not found.", code="approval_not_found")
+        if approval.capability == "shell" and payload.decision == "approve_task":
+            raise WorkerConflictError(
+                "Shell approval is always bound to one exact operation.",
+                code="shell_task_approval_forbidden",
+            )
         decided = service.store.decide_approval(
             payload.approval_id,
             approved=payload.decision != "reject",
@@ -288,6 +331,215 @@ async def task_evidence(task_id: str) -> dict[str, list[WorkerEvidence]]:
 async def task_artifacts(task_id: str) -> dict[str, list[WorkerArtifact]]:
     try:
         return {"artifacts": get_coding_worker_service().store.list_artifacts(task_id)}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/operations/{operation_id}/output",
+    response_model=dict[str, list[OperationOutputChunk]],
+)
+async def task_operation_output(
+    task_id: str,
+    operation_id: str,
+    after: int = Query(default=0, ge=0),
+) -> dict[str, list[OperationOutputChunk]]:
+    service = get_coding_worker_service()
+    try:
+        operation = service.store.get_operation(operation_id)
+        if operation.task_id != task_id:
+            raise WorkerNotFoundError(
+                "Operation was not found.", code="operation_not_found"
+            )
+        chunks: list[OperationOutputChunk] = []
+        cursor = after
+        scanned = 0
+        while len(chunks) < 256 and scanned < 10_000:
+            events = service.store.list_events(task_id, after=cursor, limit=1000)
+            if not events:
+                break
+            cursor = events[-1].sequence
+            scanned += len(events)
+            for event in events:
+                if (
+                    event.type != "operation_output"
+                    or event.payload.get("operation_id") != operation_id
+                ):
+                    continue
+                chunks.append(
+                    OperationOutputChunk(
+                        task_id=task_id,
+                        operation_id=operation_id,
+                        sequence=event.sequence,
+                        stream=event.payload.get("stream"),
+                        text=event.payload.get("text"),
+                        created_at=event.created_at,
+                        truncated=event.payload.get("truncated", False),
+                    )
+                )
+                if len(chunks) >= 256:
+                    break
+            if len(events) < 1000:
+                break
+        return {"chunks": chunks}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+def _code_intelligence_snapshot(
+    service: CodingWorkerService,
+    task_id: str,
+    operation_id: str,
+) -> CodeIntelligenceSnapshot:
+    task = service.store.get_task(task_id)
+    operation = service.store.get_operation(operation_id)
+    operation_kind = {
+        "code_symbols": "symbols",
+        "code_definition": "definition",
+        "code_references": "references",
+        "code_hover": "hover",
+        "code_diagnostics": "diagnostics",
+    }.get(operation.tool_name)
+    if operation.task_id != task_id or operation_kind is None:
+        raise WorkerNotFoundError(
+            "Code intelligence result was not found.",
+            code="code_intelligence_not_found",
+        )
+    if operation.state is not OperationState.COMPLETED:
+        raise WorkerConflictError(
+            "Code intelligence result is not available.",
+            code="code_intelligence_result_unavailable",
+        )
+    if task.workspace_id is None:
+        raise WorkerConflictError(
+            "Task workspace is unavailable.", code="workspace_unavailable"
+        )
+    result = operation.result
+    value_key = {
+        "symbols": "symbols",
+        "definition": "locations",
+        "references": "locations",
+        "hover": "hover",
+        "diagnostics": "diagnostics",
+    }[operation_kind]
+    expected_keys = {
+        "task_id",
+        "entry_id",
+        "workspace_tree_hash",
+        "operation",
+        "language",
+        value_key,
+    }
+    if (
+        not isinstance(result, dict)
+        or set(result) != expected_keys
+        or result.get("task_id") != task_id
+        or result.get("operation") != operation_kind
+    ):
+        raise WorkerStoreError(
+            "Code intelligence result is corrupt.", code="worker_data_corrupt"
+        )
+    current_tree_hash = service.workspace_broker.current_tree_hash(task.workspace_id)
+    try:
+        return CodeIntelligenceSnapshot(
+            task_id=task_id,
+            operation_id=operation_id,
+            entry_id=result["entry_id"],
+            operation=operation_kind,
+            language=result["language"],
+            workspace_tree_hash=result["workspace_tree_hash"],
+            current_tree_hash=current_tree_hash,
+            stale=result["workspace_tree_hash"] != current_tree_hash,
+            result={value_key: result[value_key]},
+        )
+    except (KeyError, ValidationError) as exc:
+        raise WorkerStoreError(
+            "Code intelligence result is corrupt.", code="worker_data_corrupt"
+        ) from exc
+
+
+@router.get(
+    "/tasks/{task_id}/code-intelligence/{operation_id}",
+    response_model=CodeIntelligenceSnapshot,
+)
+async def task_code_intelligence(
+    task_id: str, operation_id: str
+) -> CodeIntelligenceSnapshot:
+    try:
+        return _code_intelligence_snapshot(
+            get_coding_worker_service(), task_id, operation_id
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/diagnostics/{operation_id}",
+    response_model=CodeDiagnosticsSnapshot,
+)
+async def task_diagnostics(
+    task_id: str, operation_id: str
+) -> CodeDiagnosticsSnapshot:
+    try:
+        snapshot = _code_intelligence_snapshot(
+            get_coding_worker_service(), task_id, operation_id
+        )
+        if snapshot.operation != "diagnostics":
+            raise WorkerNotFoundError(
+                "Diagnostics were not found.", code="diagnostics_not_found"
+            )
+        diagnostics = tuple(
+            WorkerDiagnostic.model_validate(item)
+            for item in snapshot.result.get("diagnostics", [])
+        )
+        if any(
+            item.task_id != task_id
+            or item.entry_id != snapshot.entry_id
+            or item.workspace_tree_hash != snapshot.workspace_tree_hash
+            for item in diagnostics
+        ):
+            raise WorkerStoreError(
+                "Diagnostics result is corrupt.", code="worker_data_corrupt"
+            )
+        return CodeDiagnosticsSnapshot(
+            task_id=task_id,
+            operation_id=operation_id,
+            entry_id=snapshot.entry_id,
+            language=snapshot.language,
+            workspace_tree_hash=snapshot.workspace_tree_hash,
+            current_tree_hash=snapshot.current_tree_hash,
+            stale=snapshot.stale,
+            diagnostics=diagnostics,
+        )
+    except ValidationError as exc:
+        _raise_worker_error(
+            WorkerStoreError(
+                "Diagnostics result is corrupt.", code="worker_data_corrupt"
+            )
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/changesets/{operation_id}",
+    response_model=WorkerChangeset,
+)
+async def task_changeset(task_id: str, operation_id: str) -> WorkerChangeset:
+    service = get_coding_worker_service()
+    try:
+        operation = service.store.get_operation(operation_id)
+        if operation.task_id != task_id:
+            raise WorkerNotFoundError(
+                "Changeset was not found.", code="changeset_not_found"
+            )
+        value = (operation.result or {}).get("changeset")
+        if not isinstance(value, dict):
+            raise WorkerConflictError(
+                "Changeset result is not available.",
+                code="changeset_result_unavailable",
+            )
+        return WorkerChangeset.model_validate(value)
     except Exception as exc:
         _raise_worker_error(exc)
 

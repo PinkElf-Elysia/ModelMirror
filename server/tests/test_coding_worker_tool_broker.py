@@ -105,6 +105,267 @@ async def test_develop_can_write_search_diff_and_run_frozen_check(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_v15_range_glob_and_safe_regex_are_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    broker, _, task_id, repository = await _broker(tmp_path)
+    repository.joinpath("notes.txt").write_bytes(b"alpha\nbeta boundary\ngamma\n")
+    ranged = await broker.execute(
+        task_id=task_id,
+        operation_id="range-01",
+        tool_name="read_file_range",
+        arguments={"path": "notes.txt", "start_line": 2, "end_line": 3},
+    )
+    assert ranged.data["content"] == "beta boundary\ngamma\n"
+    assert ranged.data["total_lines"] == 3
+    globbed = await broker.execute(
+        task_id=task_id,
+        operation_id="glob-01",
+        tool_name="glob_files",
+        arguments={"pattern": "**/*.txt"},
+    )
+    assert [item["display_path"] for item in globbed.data["entries"]] == [
+        "notes.txt"
+    ]
+    searched = await broker.execute(
+        task_id=task_id,
+        operation_id="regex-01",
+        tool_name="search_regex",
+        arguments={"pattern": r"b[a-z]+ boundary", "glob": "**/*.txt"},
+    )
+    assert searched.data["matches"][0]["line"] == 2
+    with pytest.raises(ToolBrokerError) as unsafe:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="regex-unsafe",
+            tool_name="search_regex",
+            arguments={"pattern": r"(a+)+$"},
+        )
+    assert unsafe.value.code == "tool_input_invalid"
+
+
+@pytest.mark.asyncio
+async def test_v15_changeset_write_patch_move_and_evidence_invalidation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    broker, store, task_id, repository = await _broker(tmp_path)
+    workspace_id = store.get_task(task_id).workspace_id
+    assert workspace_id is not None
+    base = broker.workspace_broker.current_tree_hash(workspace_id)
+    artifact = store.create_artifact(
+        task_id=task_id,
+        media_type="text/plain",
+        content=b"passed\n",
+        metadata={"check_id": "syntax", "workspace_tree_hash": base},
+    )
+    store.record_evidence(
+        task_id=task_id,
+        check_id="syntax",
+        operation_id="evidence-before-changeset",
+        workspace_tree_hash=base,
+        exit_code=0,
+        artifact_id=artifact.artifact_id,
+    )
+    old = repository.joinpath("app.py").read_bytes()
+    new = b"print('new')\n"
+    readme = b"# Example\n"
+    with pytest.raises(ToolBrokerError) as conflict:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="changeset-conflict",
+            tool_name="apply_changeset",
+            arguments={
+                "base_tree_hash": base,
+                "changes": [
+                    {
+                        "kind": "write",
+                        "path": "app.py",
+                        "expected_sha256": hashlib.sha256(old).hexdigest(),
+                        "content": new.decode(),
+                        "content_sha256": hashlib.sha256(new).hexdigest(),
+                    },
+                    {
+                        "kind": "delete",
+                        "path": "missing.txt",
+                        "expected_sha256": "f" * 64,
+                    },
+                ],
+            },
+        )
+    assert conflict.value.code == "preimage_changed"
+    assert repository.joinpath("app.py").read_bytes() == old
+    first = await broker.execute(
+        task_id=task_id,
+        operation_id="changeset-first",
+        tool_name="apply_changeset",
+        arguments={
+            "base_tree_hash": base,
+            "changes": [
+                {
+                    "kind": "write",
+                    "path": "app.py",
+                    "expected_sha256": hashlib.sha256(old).hexdigest(),
+                    "content": new.decode(),
+                    "content_sha256": hashlib.sha256(new).hexdigest(),
+                },
+                {
+                    "kind": "write",
+                    "path": "README.md",
+                    "expected_absent": True,
+                    "content": readme.decode(),
+                    "content_sha256": hashlib.sha256(readme).hexdigest(),
+                },
+            ],
+        },
+    )
+    assert first.data["changeset"]["state"] == "applied"
+    assert first.data["changeset"]["task_id"] == task_id
+    assert repository.joinpath("app.py").read_bytes() == new
+    current = broker.workspace_broker.current_tree_hash(workspace_id)
+    assert store.list_evidence(task_id, current_tree_hash=current)[0].status.value == "invalidated"
+
+    patch = (
+        "--- a/app.py\n"
+        "+++ b/app.py\n"
+        "@@ -1 +1 @@\n"
+        "-print('new')\n"
+        "+print('patched')\n"
+    )
+    second = await broker.execute(
+        task_id=task_id,
+        operation_id="changeset-second",
+        tool_name="apply_changeset",
+        arguments={
+            "base_tree_hash": current,
+            "changes": [
+                {
+                    "kind": "patch",
+                    "path": "app.py",
+                    "expected_sha256": hashlib.sha256(new).hexdigest(),
+                    "patch": patch,
+                    "patch_sha256": hashlib.sha256(patch.encode()).hexdigest(),
+                },
+                {
+                    "kind": "move",
+                    "path": "README.md",
+                    "destination": "docs/README.md",
+                    "expected_sha256": hashlib.sha256(readme).hexdigest(),
+                    "destination_expected_absent": True,
+                },
+            ],
+        },
+    )
+    assert second.data["changeset"]["entries"][1]["kind"] == "move"
+    assert repository.joinpath("app.py").read_text() == "print('patched')\n"
+    assert not repository.joinpath("README.md").exists()
+    assert repository.joinpath("docs/README.md").read_bytes() == readme
+
+
+@pytest.mark.asyncio
+async def test_v15_changeset_rolls_back_fault_and_reconciles_applied_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    broker, store, task_id, repository = await _broker(tmp_path)
+    workspace_id = store.get_task(task_id).workspace_id
+    assert workspace_id is not None
+    base = broker.workspace_broker.current_tree_hash(workspace_id)
+    old = repository.joinpath("app.py").read_bytes()
+    changed = b"print('changed')\n"
+    extra = b"extra\n"
+
+    def fail_after_first(index: int) -> None:
+        if index == 0:
+            raise OSError("simulated changeset interruption")
+
+    broker.changesets.fault_hook = fail_after_first
+    with pytest.raises(ToolBrokerError) as interrupted:
+        await broker.execute(
+            task_id=task_id,
+            operation_id="changeset-fault",
+            tool_name="apply_changeset",
+            arguments={
+                "base_tree_hash": base,
+                "changes": [
+                    {
+                        "kind": "write",
+                        "path": "app.py",
+                        "expected_sha256": hashlib.sha256(old).hexdigest(),
+                        "content": changed.decode(),
+                        "content_sha256": hashlib.sha256(changed).hexdigest(),
+                    },
+                    {
+                        "kind": "write",
+                        "path": "extra.txt",
+                        "expected_absent": True,
+                        "content": extra.decode(),
+                        "content_sha256": hashlib.sha256(extra).hexdigest(),
+                    },
+                ],
+            },
+        )
+    assert interrupted.value.code == "tool_failed"
+    broker.changesets.fault_hook = None
+    assert repository.joinpath("app.py").read_bytes() == old
+    assert not repository.joinpath("extra.txt").exists()
+    assert broker.workspace_broker.current_tree_hash(workspace_id) == base
+
+    arguments = {
+        "base_tree_hash": base,
+        "changes": [
+            {
+                "kind": "write",
+                "path": "app.py",
+                "expected_sha256": hashlib.sha256(old).hexdigest(),
+                "content": changed.decode(),
+                "content_sha256": hashlib.sha256(changed).hexdigest(),
+            }
+        ],
+    }
+    original_prepare = broker.changesets._prepare
+
+    def hard_stop(**_kwargs: object) -> object:
+        raise SystemExit("simulated hard stop during changeset preparation")
+
+    monkeypatch.setattr(broker.changesets, "_prepare", hard_stop)
+    with pytest.raises(SystemExit):
+        await broker.execute(
+            task_id=task_id,
+            operation_id="changeset-preparing-stop",
+            tool_name="apply_changeset",
+            arguments=arguments,
+        )
+    monkeypatch.setattr(broker.changesets, "_prepare", original_prepare)
+    store.mark_inflight_operations_unknown()
+    with pytest.raises(ToolBrokerError) as rolled_back:
+        broker.reconcile("changeset-preparing-stop")
+    assert rolled_back.value.code == "changeset_rolled_back"
+    assert store.get_operation("changeset-preparing-stop").state is OperationState.FAILED
+
+    request = {"arguments": arguments, "workspace_id": workspace_id}
+    operation = store.create_operation(
+        task_id=task_id,
+        operation_id="changeset-unknown",
+        tool_name="apply_changeset",
+        intent_sha256=broker._intent_sha256("apply_changeset", request),
+        request=request,
+    )
+    store.transition_operation(operation.operation_id, OperationState.RUNNING)
+    broker.changesets.apply(
+        task_id=task_id,
+        workspace_id=workspace_id,
+        operation_id=operation.operation_id,
+        arguments=arguments,
+    )
+    store.mark_inflight_operations_unknown()
+    reconciled = broker.reconcile(operation.operation_id)
+    assert reconciled.state is OperationState.COMPLETED
+    assert repository.joinpath("app.py").read_bytes() == changed
+
+
+@pytest.mark.asyncio
 async def test_command_execution_can_be_delegated_to_sidecar(tmp_path: Path) -> None:
     broker, store, task_id, _ = await _broker(tmp_path)
     executor = AsyncMock()

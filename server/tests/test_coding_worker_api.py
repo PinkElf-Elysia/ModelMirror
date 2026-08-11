@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
 from server.coding_worker.provider import FakeCodingAgentProvider
+from server.coding_worker.contracts import OperationState
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
@@ -63,12 +65,49 @@ def teardown_function() -> None:
 
 def test_feature_flag_is_default_deny(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CODING_WORKER_V14_ENABLED", raising=False)
+    monkeypatch.delenv("CODING_WORKER_V15_ENABLED", raising=False)
+    monkeypatch.delenv("CODING_WORKER_SHELL_ENABLED", raising=False)
+    monkeypatch.delenv("CODING_WORKER_CODE_INTELLIGENCE_ENABLED", raising=False)
     configure_coding_worker_for_tests(None, enabled=None)
     app = FastAPI()
     app.include_router(router)
     client = TestClient(app)
-    assert client.get("/api/coding-worker/v1").json()["enabled"] is False
+    status = client.get("/api/coding-worker/v1").json()
+    assert status["enabled"] is False
+    assert status["capabilities"] == {
+        "api_version": "v1",
+        "task_runtime": False,
+        "professional_file_tools": False,
+        "shell": False,
+        "operation_output": False,
+        "changesets": False,
+        "code_intelligence": False,
+    }
     assert client.post("/api/coding-worker/v1/tasks", json=_payload()).status_code == 404
+
+
+def test_v15_capabilities_are_vendor_neutral_and_independently_gated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _service = _client(tmp_path)
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SHELL_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_CODE_INTELLIGENCE_ENABLED", "false")
+    with client:
+        response = client.get("/api/coding-worker/v1/capabilities")
+    assert response.status_code == 200
+    capabilities = response.json()
+    assert capabilities == {
+        "api_version": "v1",
+        "task_runtime": True,
+        "professional_file_tools": True,
+        "shell": True,
+        "operation_output": True,
+        "changesets": True,
+        "code_intelligence": False,
+    }
+    encoded = response.text.lower()
+    assert "opencode" not in encoded and "claude" not in encoded
 
 
 def test_enabled_runtime_fails_closed_when_sidecar_tokens_are_missing(
@@ -188,6 +227,38 @@ def test_approval_endpoints_are_task_bound_and_single_decision(tmp_path: Path) -
         assert replay.status_code == 409
 
 
+def test_shell_approval_cannot_be_promoted_to_task_scope(tmp_path: Path) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    with client:
+        task = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        operation_id = "shell-operation-api-01"
+        approval = service.store.create_approval(
+            task_id=task["task_id"],
+            operation_id=operation_id,
+            capability="shell",
+            request={
+                "operation_id": operation_id,
+                "script_sha256": hashlib.sha256(b"pytest -q").hexdigest(),
+                "cwd": ".",
+                "mode": "inspect",
+                "timeout_seconds": 120,
+                "network_scope_sha256": None,
+            },
+        )
+        denied = client.post(
+            f"/api/coding-worker/v1/tasks/{task['task_id']}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "approve_task"},
+        )
+        assert denied.status_code == 409
+        assert denied.json()["detail"]["code"] == "shell_task_approval_forbidden"
+        once = client.post(
+            f"/api/coding-worker/v1/tasks/{task['task_id']}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "approve_once"},
+        )
+        assert once.status_code == 200
+        assert once.json()["lease"]["operation_limit"] == 1
+
+
 def test_evidence_and_artifact_download_are_opaque_and_task_bound(
     tmp_path: Path,
 ) -> None:
@@ -231,6 +302,184 @@ def test_evidence_and_artifact_download_are_opaque_and_task_bound(
         assert "C:" not in download.headers["content-disposition"]
         foreign = client.get(
             f"/api/coding-worker/v1/tasks/{second['task_id']}/artifacts/{artifact.artifact_id}"
+        )
+        assert foreign.status_code == 404
+
+
+def test_operation_output_and_changeset_queries_are_replayable_and_task_bound(
+    tmp_path: Path,
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    with client:
+        first = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        second = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("api-task-02")
+        ).json()
+        task_id = first["task_id"]
+        task = asyncio.run(
+            service.wait_for(task_id, lambda item: item.workspace_id is not None)
+        )
+        operation_id = "shell_api_output"
+        operation = service.store.create_operation(
+            task_id=task_id,
+            operation_id=operation_id,
+            tool_name="run_shell",
+            intent_sha256="a" * 64,
+            request={"arguments": {}, "workspace_id": task.workspace_id},
+        )
+        service.store.transition_operation(
+            operation.operation_id, OperationState.RUNNING
+        )
+        first_chunk = service.store.append_event(
+            task_id,
+            "operation_output",
+            {
+                "operation_id": operation_id,
+                "stream": "stdout",
+                "text": "first\n",
+                "truncated": False,
+            },
+        )
+        service.store.append_event(task_id, "unrelated", {"value": True})
+        second_chunk = service.store.append_event(
+            task_id,
+            "operation_output",
+            {
+                "operation_id": operation_id,
+                "stream": "stderr",
+                "text": "second\n",
+                "truncated": False,
+            },
+        )
+        changeset = {
+            "changeset_id": "changeset_" + "b" * 32,
+            "task_id": task_id,
+            "operation_id": operation_id,
+            "base_tree_hash": "c" * 64,
+            "result_tree_hash": "d" * 64,
+            "state": "applied",
+            "entries": [],
+            "artifact_id": None,
+            "created_at": 1.0,
+            "updated_at": 2.0,
+        }
+        service.store.transition_operation(
+            operation.operation_id,
+            OperationState.COMPLETED,
+            result={"changeset": changeset},
+        )
+
+        output = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/operations/{operation_id}/output"
+        )
+        assert output.status_code == 200
+        assert [item["text"] for item in output.json()["chunks"]] == [
+            "first\n",
+            "second\n",
+        ]
+        replay = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/operations/{operation_id}/output",
+            params={"after": first_chunk.sequence},
+        )
+        assert [item["sequence"] for item in replay.json()["chunks"]] == [
+            second_chunk.sequence
+        ]
+        queried = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/changesets/{operation_id}"
+        )
+        assert queried.status_code == 200
+        assert queried.json() == changeset
+        foreign_output = client.get(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/operations/"
+            f"{operation_id}/output"
+        )
+        foreign_changeset = client.get(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/changesets/"
+            f"{operation_id}"
+        )
+        assert foreign_output.status_code == 404
+        assert foreign_changeset.status_code == 404
+
+
+def test_code_intelligence_queries_are_task_bound_and_mark_stale_diagnostics(
+    tmp_path: Path,
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    with client:
+        first = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        second = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("api-task-code-02")
+        ).json()
+        task_id = first["task_id"]
+        task = asyncio.run(
+            service.wait_for(task_id, lambda item: item.workspace_id is not None)
+        )
+        assert task.workspace_id is not None
+        entry = next(
+            item
+            for item in service.workspace_broker.tree(task.workspace_id)
+            if item.display_path == "main.py"
+        )
+        tree_hash = service.workspace_broker.current_tree_hash(task.workspace_id)
+        operation_id = "code_api_diagnostics"
+        operation = service.store.create_operation(
+            task_id=task_id,
+            operation_id=operation_id,
+            tool_name="code_diagnostics",
+            intent_sha256="e" * 64,
+            request={"arguments": {"entry_id": entry.entry_id}},
+        )
+        service.store.transition_operation(operation_id, OperationState.RUNNING)
+        diagnostic = {
+            "diagnostic_id": "diagnostic_" + "f" * 32,
+            "task_id": task_id,
+            "entry_id": entry.entry_id,
+            "workspace_tree_hash": tree_hash,
+            "range": {
+                "start": {"line": 0, "character": 0},
+                "end": {"line": 0, "character": 5},
+            },
+            "severity": "error",
+            "code": "reportAssignmentType",
+            "message": "Type is not assignable",
+            "created_at": 1.0,
+        }
+        service.store.transition_operation(
+            operation.operation_id,
+            OperationState.COMPLETED,
+            result={
+                "task_id": task_id,
+                "entry_id": entry.entry_id,
+                "workspace_tree_hash": tree_hash,
+                "operation": "diagnostics",
+                "language": "python",
+                "diagnostics": [diagnostic],
+            },
+        )
+
+        queried = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/code-intelligence/{operation_id}"
+        )
+        diagnostics = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/diagnostics/{operation_id}"
+        )
+        assert queried.status_code == 200
+        assert queried.json()["stale"] is False
+        assert queried.json()["result"] == {"diagnostics": [diagnostic]}
+        assert diagnostics.status_code == 200
+        assert diagnostics.json()["diagnostics"] == [diagnostic]
+
+        repository = service.workspace_broker.repository_path(task.workspace_id)
+        repository.joinpath("main.py").write_text("print('changed')\n", encoding="utf-8")
+        stale = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/diagnostics/{operation_id}"
+        )
+        assert stale.status_code == 200
+        assert stale.json()["stale"] is True
+        assert stale.json()["current_tree_hash"] != tree_hash
+        foreign = client.get(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/diagnostics/"
+            f"{operation_id}"
         )
         assert foreign.status_code == 404
 
