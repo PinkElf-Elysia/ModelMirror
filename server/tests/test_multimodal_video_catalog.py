@@ -53,6 +53,10 @@ def test_verified_video_registry_contains_batch_g_acceptance() -> None:
     } <= VERIFIED_VIDEO_GENERATION_MODELS
 
 
+def test_verified_video_registry_contains_seedance_25_refresh() -> None:
+    assert "bytedance/seedance-2.5" in VERIFIED_VIDEO_GENERATION_MODELS
+
+
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
     repository = SQLiteRouterRepository(tmp_path)
     connection = repository.create_connection(
@@ -115,6 +119,12 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                             "id": "google/veo-3.1-lite",
                             "supported_resolutions": ["720p", "1080p"],
                             "supported_aspect_ratios": ["16:9", "9:16"],
+                            "supported_sizes": [
+                                "1280x720",
+                                "720x1280",
+                                "1920x1080",
+                                "1080x1920",
+                            ],
                             "supported_durations": [5, 8],
                             "supported_frame_images": [
                                 "first_frame",
@@ -233,6 +243,12 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert analysis.operation_readiness[0].availability_status == "available"
     assert generation.model_id == "google/veo-3.1-lite"
     assert generation.supported_resolutions == ["720p", "1080p"]
+    assert generation.supported_sizes == [
+        "1280x720",
+        "720x1280",
+        "1920x1080",
+        "1080x1920",
+    ]
     assert generation.supported_durations == [5, 8]
     assert generation.supports_first_frame is True
     assert generation.supported_frame_types == [

@@ -1,6 +1,7 @@
 ﻿// Merged with OpenRouter model catalog on 2026-08-06T08:31:09.233Z.
 // Refreshed with entries published through 2026-08-05T23:51:37.000Z.
 // Source: https://openrouter.ai/api/v1/models?output_modalities=all&sort=newest
+// Supplemental OpenRouter refresh: 2026-08-11 (five newly listed models).
 // Prices are stored as USD per 1M tokens and CNY per 1M tokens.
 export const USD_TO_CNY = 6.77;
 
@@ -125,6 +126,148 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    id: "bytedance/seedance-2.5",
+    canonical_slug: "bytedance/seedance-2.5-20260807",
+    name: "ByteDance: Seedance 2.5",
+    raw_description:
+      "Seedance 2.5 is a video generation model from ByteDance. It is suited for long-form storytelling, multimodal reference-based generation, video editing, and video extension. It supports first-frame and first-and-last-frame control.",
+    context_length: 0,
+    pricing: { input: 10.7, output: 10.7 },
+    input_modalities: ["text", "image"],
+    output_modalities: ["video"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "duration",
+      "resolution",
+      "aspect_ratio",
+      "frame_images",
+      "input_references",
+      "generate_audio",
+      "seed",
+    ],
+    created: 1786141253,
+    expiration_date: null,
+    model_author: "ByteDance",
+  },
+  {
+    id: "sakana/sakana-namazu",
+    canonical_slug: "sakana/namazu-20260811",
+    name: "Sakana: Sakana Namazu",
+    raw_description:
+      "Sakana Namazu is a Japanese-specialized reasoning model from Sakana AI, based on Kimi K2.6 with additional training for Japanese language and business contexts. It is suited for Japanese instruction following and business work.",
+    context_length: 262144,
+    pricing: { input: 0.95, output: 4 },
+    input_modalities: ["text", "image", "file"],
+    output_modalities: ["text"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "include_reasoning",
+      "reasoning",
+      "reasoning_effort",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "web_search_options",
+    ],
+    created: 1786410129,
+    expiration_date: null,
+    model_author: "Sakana",
+  },
+  {
+    id: "upstage/solar-pro4",
+    canonical_slug: "upstage/solar-pro4-20260810",
+    name: "Upstage: Solar Pro 4",
+    raw_description:
+      "Solar Pro 4 is a large language model from Upstage. It is suited for agentic workflows, office productivity, document-intensive work, and coding.",
+    context_length: 524288,
+    pricing: { input: 0.03, output: 0.12 },
+    input_modalities: ["text"],
+    output_modalities: ["text"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p",
+    ],
+    created: 1786371636,
+    expiration_date: null,
+    model_author: "Upstage",
+  },
+  {
+    id: "meta/muse-glimmer-30b",
+    canonical_slug: "meta/muse-glimmer-30b-20260810",
+    name: "Meta: Muse Glimmer 30B",
+    raw_description:
+      "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon agent work.",
+    context_length: 131072,
+    pricing: { input: 0.35, output: 1.5 },
+    input_modalities: ["text", "image"],
+    output_modalities: ["text"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p",
+    ],
+    created: 1786302394,
+    expiration_date: null,
+    model_author: "Meta",
+  },
+  {
+    id: "inclusionai/ling-3.0-tiny:free",
+    canonical_slug: "inclusionai/ling-3.0-tiny-20260806",
+    name: "inclusionAI: Ling 3.0 Tiny (free)",
+    raw_description:
+      "Ling 3.0 Tiny is a mixture-of-experts model from InclusionAI, with 1.3B active parameters out of 7.9B total. It is designed for responsive agents, instruction following, and multi-turn conversations.",
+    context_length: 262144,
+    pricing: { input: 0, output: 0 },
+    input_modalities: ["text"],
+    output_modalities: ["text"],
+    tokenizer: "Other",
+    supported_parameters: [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "seed",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p",
+    ],
+    created: 1786034890,
+    expiration_date: null,
+    model_author: "InclusionAI",
+  },
   {
     "id": "openai/gpt-transcribe",
     "canonical_slug": "openai/gpt-transcribe-20260805",
@@ -18141,6 +18284,7 @@ const VERIFIED_SPEECH_MODEL_IDS = new Set([
 
 const VERIFIED_VIDEO_MODEL_IDS = new Set([
   "bytedance/seedance-2.0",
+  "bytedance/seedance-2.5",
   "runway/aleph-2",
   "runway/gen-4.5",
 ]);
@@ -18524,14 +18668,43 @@ const sortedCatalogModels = [...rawCatalogModels]
   .sort(catalogSort)
   .map(enrichModel);
 
+const SEEDANCE_2_5_MODEL_ID = "bytedance/seedance-2.5";
+const MID_CATALOG_MODEL_IDS = [
+  "sakana/sakana-namazu",
+  "upstage/solar-pro4",
+  "meta/muse-glimmer-30b",
+  "inclusionai/ling-3.0-tiny:free",
+];
+const reservedCatalogModelIds = new Set([
+  SEEDANCE_2_5_MODEL_ID,
+  ...MID_CATALOG_MODEL_IDS,
+]);
+const seedance25Model = sortedCatalogModels.find(
+  (model) => model.id === SEEDANCE_2_5_MODEL_ID,
+);
+const midCatalogModels = MID_CATALOG_MODEL_IDS.map((modelId) =>
+  sortedCatalogModels.find((model) => model.id === modelId),
+).filter((model): model is Model => Boolean(model));
+const normallyOrderedCatalogModels = sortedCatalogModels.filter(
+  (model) => !reservedCatalogModelIds.has(model.id),
+);
+
 // The homepage reserves two spotlight cards plus three desktop gallery rows for
 // broadly useful catalog models before showing direct OpenAI audio models.
 const REALTIME_MODEL_INSERT_INDEX = 11;
 
-const assembledModels: Model[] = [
-  ...sortedCatalogModels.slice(0, REALTIME_MODEL_INSERT_INDEX),
+const primaryCatalogModels: Model[] = [
+  ...normallyOrderedCatalogModels.slice(0, REALTIME_MODEL_INSERT_INDEX),
+  ...(seedance25Model ? [seedance25Model] : []),
   ...DIRECT_OPENAI_AUDIO_MODELS,
-  ...sortedCatalogModels.slice(REALTIME_MODEL_INSERT_INDEX),
+  ...normallyOrderedCatalogModels.slice(REALTIME_MODEL_INSERT_INDEX),
+];
+const catalogMidpoint = Math.floor(primaryCatalogModels.length / 2);
+
+const assembledModels: Model[] = [
+  ...primaryCatalogModels.slice(0, catalogMidpoint),
+  ...midCatalogModels,
+  ...primaryCatalogModels.slice(catalogMidpoint),
   worldModelEntry,
 ];
 

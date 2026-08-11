@@ -47,6 +47,8 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         "kwaivgi/kling-video-o1",
         "bytedance/seedance-1-5-pro",
         "bytedance/seedance-2.0-fast",
+        # 2026-08-11：复用统一异步视频链路，首尾帧、本地参考图与费用估算已适配。
+        "bytedance/seedance-2.5",
         # 2026-08-06 人工验收：最低规格生成、轮询、播放与下载闭环通过。
         # Veo Lite 的受控高级参数也已完成验收。
         "google/veo-3.1-lite",
@@ -86,6 +88,7 @@ class VideoModelProfile(BaseModel):
     )
     supported_resolutions: list[str] = Field(default_factory=list)
     supported_aspect_ratios: list[str] = Field(default_factory=list)
+    supported_sizes: list[str] = Field(default_factory=list)
     supported_durations: list[int] = Field(default_factory=list)
     supported_frame_types: list[
         Literal["first_frame", "last_frame"]
@@ -110,6 +113,7 @@ class VideoModelProfile(BaseModel):
 
 REFERENCE_IMAGE_AUDIT: dict[str, int] = {
     "bytedance/seedance-2.0-fast": 3,
+    "bytedance/seedance-2.5": 3,
 }
 
 PROVIDER_OPTION_AUDIT: dict[
@@ -317,6 +321,9 @@ class VideoCatalogService:
                         ),
                         supported_aspect_ratios=self._strings(
                             item.get("supported_aspect_ratios")
+                        ),
+                        supported_sizes=self._strings(
+                            item.get("supported_sizes")
                         ),
                         supported_durations=self._integers(
                             item.get("supported_durations")
