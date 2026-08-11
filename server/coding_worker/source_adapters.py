@@ -495,7 +495,7 @@ class HostSnapshotWorkspaceSourceAdapter:
             archive_sha256 = transfer.get("archive_sha256")
             if (
                 not isinstance(project, dict)
-                or project.get("id") != source.source_id
+                or project.get("project_id") != source.source_id
                 or project.get("head") != source.revision
                 or not isinstance(project.get("name"), str)
                 or not isinstance(project.get("branch"), str)

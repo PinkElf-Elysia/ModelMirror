@@ -127,7 +127,7 @@ async def test_host_snapshot_adapter_requests_imports_and_releases_exact_transfe
     files = {"README.md": b"hello\n", "src/app.py": b"print('ok')\n"}
     lease = _lease("host_git", files)
     project = {
-        "id": lease["project_id"],
+        "project_id": lease["project_id"],
         "name": "中文 Host Project",
         "branch": "feature/v14",
         "head": lease["head"],
@@ -221,7 +221,7 @@ async def test_project_snapshot_adapter_rejects_changed_fingerprint_and_releases
     )
 
     project = {
-        "id": lease["project_id"],
+        "project_id": lease["project_id"],
         "name": "Host Project",
         "branch": "feature/v14",
         "head": lease["head"],
