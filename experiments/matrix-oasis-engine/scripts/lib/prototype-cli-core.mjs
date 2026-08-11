@@ -1,6 +1,9 @@
 import path from "node:path";
 
 export const PROTOTYPE_PROMPT_MAX_BYTES = 32_768;
+export const PROTOTYPE_QUALIFICATION_PROMPT = Object.freeze(
+  "Create a compact topic-neutral first-person prototype description with one bounded environment, one prop, one static character placeholder, at least two interactive nodes, basic actions, and one reachable ending. Keep every title and description neutral. Do not include file paths, hashes, coordinates, images, provider names, credentials, or user data.",
+);
 export const PROTOTYPE_ARTIFACT_FILES = Object.freeze([
   ["authoringGamePackJson", "authoring-game-pack.json"],
   ["sceneBlueprintJson", "scene-blueprint.json"],
@@ -133,6 +136,40 @@ export function parseGeneratePrototypeArgs(args) {
     fail("PROTOTYPE_GENERATE_UPLOAD_ACK_REQUIRED");
   }
   return Object.freeze({ promptFile, output });
+}
+
+export function parseQualifyPrototypeArgs(args) {
+  if (!Array.isArray(args)) {
+    fail("PROTOTYPE_QUALIFY_ARGUMENT_INVALID");
+  }
+  let output;
+  let acknowledged = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = normalizeArgument(args[index], "PROTOTYPE_QUALIFY_ARGUMENT_INVALID");
+    if (argument === "--acknowledge-external-upload") {
+      if (acknowledged) {
+        fail("PROTOTYPE_QUALIFY_ARGUMENT_INVALID");
+      }
+      acknowledged = true;
+      continue;
+    }
+    if (argument === "--output") {
+      if (output !== undefined || index + 1 >= args.length) {
+        fail("PROTOTYPE_QUALIFY_OUTPUT_INVALID");
+      }
+      output = normalizeArgument(args[index + 1], "PROTOTYPE_QUALIFY_OUTPUT_INVALID");
+      index += 1;
+      continue;
+    }
+    fail("PROTOTYPE_QUALIFY_UNKNOWN_OPTION");
+  }
+  if (output === undefined) {
+    fail("PROTOTYPE_QUALIFY_OUTPUT_REQUIRED");
+  }
+  if (!acknowledged) {
+    fail("PROTOTYPE_QUALIFY_UPLOAD_ACK_REQUIRED");
+  }
+  return Object.freeze({ output });
 }
 
 function validateOutputName(name) {
@@ -270,14 +307,23 @@ function safeHost(endpoint) {
     fail("PROTOTYPE_MODEL_CONFIG_INVALID");
   }
   const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]);
+  const hostname = url.hostname.toLowerCase();
+  const openRouter =
+    url.protocol === "https:" &&
+    hostname === "openrouter.ai" &&
+    url.pathname === "/api/v1/chat/completions";
+  const endpointPathAllowed =
+    hostname === "openrouter.ai"
+      ? openRouter
+      : url.pathname === "/v1/chat/completions";
   if (
-    url.pathname !== "/v1/chat/completions" ||
+    !endpointPathAllowed ||
     url.search !== "" ||
     url.hash !== "" ||
     url.username !== "" ||
     url.password !== "" ||
     (url.protocol !== "https:" &&
-      !(url.protocol === "http:" && loopback.has(url.hostname.toLowerCase())))
+      !(url.protocol === "http:" && loopback.has(hostname)))
   ) {
     fail("PROTOTYPE_MODEL_CONFIG_INVALID");
   }
@@ -791,5 +837,64 @@ export async function executeGeneratePrototypeCli({
     });
   } catch (error) {
     return staticFailure(error, "PROTOTYPE_GENERATE_INTERNAL_ERROR");
+  }
+}
+
+export async function executeQualifyPrototypeModelCli({
+  args,
+  tempRoot,
+  environment,
+  openFile,
+  mkdtemp,
+  rename,
+  rm,
+  realpath,
+  lstat,
+  createOpenAICompatibleProvider,
+  generatePrototype,
+}) {
+  try {
+    const parsed = parseQualifyPrototypeArgs(args);
+    const trustedRoot = await trustedTempRoot(tempRoot, { realpath, lstat });
+    const config = readEnvironment(environment, true);
+    safeHost(config.endpoint);
+    const provider = createOpenAICompatibleProvider({
+      endpoint: config.endpoint,
+      model: config.model,
+      apiKey: config.credential,
+    });
+    const generated = normalizeGenerationResult(
+      await generatePrototype({ prompt: PROTOTYPE_QUALIFICATION_PROMPT }, provider),
+    );
+    if (!generated.ok) {
+      return Object.freeze({
+        exitCode: 1,
+        stdout: "",
+        stderr: `${generated.diagnostics.map((item) => `${item.code} ${item.path}`).join("\n")}\n`,
+      });
+    }
+    const report = JSON.parse(generated.artifacts.generationReportJson);
+    const requestCount = report?.requestCount;
+    if (!Number.isSafeInteger(requestCount) || requestCount < 1 || requestCount > 3) {
+      fail("PROTOTYPE_QUALIFY_INTERNAL_ERROR");
+    }
+    await publishPrototypeArtifacts({
+      tempRoot: trustedRoot,
+      output: parsed.output,
+      artifacts: generated.artifacts,
+      openFile,
+      mkdtemp,
+      rename,
+      rm,
+      realpath,
+      lstat,
+    });
+    return Object.freeze({
+      exitCode: 0,
+      stdout: `PROTOTYPE_MODEL_QUALIFIED requests=${requestCount}\n`,
+      stderr: "",
+    });
+  } catch (error) {
+    return staticFailure(error, "PROTOTYPE_QUALIFY_INTERNAL_ERROR");
   }
 }

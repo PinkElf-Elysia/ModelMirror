@@ -24,9 +24,13 @@ Scene Blueprint 固定包含：
 
 ## R8.3 OpenAI兼容Provider
 
-`@matrix-oasis/prototype-generator@0.1.0-r8` 的 Provider 适配器使用Node 24原生Web API，固定向配置的精确 `/v1/chat/completions` 发出一次非streaming请求。响应格式为strict Generation Proposal JSON Schema；请求不含tools、函数调用或自动重试，redirect固定拒绝，单次超时120秒，响应上限1 MiB。
+`@matrix-oasis/prototype-generator@0.1.0-r8` 的 Provider 适配器使用Node 24原生Web API，通常只允许配置精确 `/v1/chat/completions`；另对精确HTTPS主机 `openrouter.ai` 放行官方 `/api/v1/chat/completions`，相似、子域、明文HTTP、query和其他路径均拒绝。OpenRouter请求固定携带 `provider.require_parameters=true`。请求为non-streaming strict Generation Proposal JSON Schema，不含tools、函数调用或自动重试，redirect固定拒绝，单次超时120秒，响应上限1 MiB。
+
+Provider-facing Schema 是完整Generation Proposal Schema的受控投影：移除模型侧无必要的 `$id` 及当前严格输出后端不支持、但由本地合同验证继续强制的 `not` 与 `uniqueItems`；将联合分支关键字从 `oneOf` 映射为受支持的 `anyOf`；按严格输出协议把每个对象的全部属性列为模型必填；并把嵌套 `$defs` 提升到唯一顶层定义表后重写本地 `$ref`。修复负载仍携带原始完整Schema；任何候选最终都必须通过完整本地Schema、跨合同语义、Compiler和Runtime门，因此该投影不扩大可接受产物。
 
 Provider包不读取环境变量。endpoint、模型和凭据只由未来R8.4 CLI宿主传入；HTTP仅允许loopback，外部主机必须HTTPS。公开Provider对象不暴露凭据，HTTP正文、底层异常和动态响应字段不进入错误。正常响应必须只有一个choice、文本content与`stop`结束状态。
+
+CLI仍只读取 `MATRIX_OASIS_MODEL_ENDPOINT`、`MATRIX_OASIS_MODEL_ID` 与 `MATRIX_OASIS_MODEL_API_KEY`。凭据值可以由操作者手工复用，但R8不会读取或回退到父仓 `OPENROUTER_API_KEY`、`LLM_GATEWAY_*` 等变量。
 
 首轮请求只携带纯文本prompt；修复请求只携带上一候选、静态code/JSON Pointer和原始Schema，不再次发送原始prompt。普通测试使用本机loopback假服务，不调用外部模型。
 

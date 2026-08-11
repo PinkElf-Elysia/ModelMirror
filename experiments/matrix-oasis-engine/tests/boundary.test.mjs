@@ -845,6 +845,42 @@ const negativeCases = [
     },
   },
   {
+    name: "tampered OpenRouter provider boundary policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.openRouterHost = "router.example.invalid";
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered provider schema transform policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.providerSchemaKeywordTransforms[0].to = "oneOf";
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered provider required-property policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.providerSchemaRequiresAllProperties = false;
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered provider definition-flattening policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.providerSchemaFlattensNestedDefinitions = false;
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
     name: "CC-BY exception used by a runtime dependency",
     expectedRule: "dependency-license-exception-scope",
     setup: async ({ root }) => {

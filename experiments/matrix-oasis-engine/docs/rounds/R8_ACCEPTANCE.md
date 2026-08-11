@@ -1,6 +1,6 @@
 # R8验收记录
 
-状态：R8.4 生成编排与安全CLI已验证，等待本地提交。
+状态：R8.5 真实模型资格验证已通过，等待本地提交。
 
 固定基线：`21cbbb8b943b6f9d9799f014c44a6349e6124a63`
 
@@ -10,7 +10,7 @@
 - [x] R8.2 Generation Proposal与Scene Blueprint合同
 - [x] R8.3 OpenAI兼容模型适配器
 - [x] R8.4 生成编排、修复循环与CLI
-- [ ] R8.5 真实模型资格验证
+- [x] R8.5 真实模型资格验证
 - [ ] R8.6 standalone与验收收口
 
 每批在验证后提交；后续批次记录前一提交SHA。真实模型输出、最终HEAD、split tree和archive hash只记录在仓外交付清单，避免自引用或提交供应商内容。
@@ -71,4 +71,16 @@ R8.3提交：`00a74f6a5d13f56f2a32290ee5e71649ddf97d8e`。单独revert该提交�
 - 一次未注入`GODOT_BIN`的全量Node试跑仅有doctor严格环境项失败（535/536），设置方案固定的仓外Godot路径后最终门通过；未修改doctor或放宽工具链。
 - R1–R7、Creator、Godot、examples、assets、vendor及历史验收记录相对R8.3 HEAD零差异；未调用真实模型、Marble或Meshy，未启动Docker、父服务或共享栈。
 
-本批提交SHA由R8.5记录。单独revert本提交删除生成编排、两个CLI和事务测试，恢复R8.3仅Provider状态，不影响冻结R1–R7链。
+R8.4提交：`04a56020f11cf542c742f30f15490a2388fc3e96`。单独revert该提交删除生成编排、两个CLI和事务测试，恢复R8.3仅Provider状态，不影响冻结R1–R7链。
+
+## R8.5证据
+
+- 在用户当次批准的上限内，对OpenAI官方Chat Completions endpoint与`gpt-5.6-luna`执行一次固定中性提示资格链；最多3次、费用上限1美元，本次恰使用3次请求，报告usage为prompt 18,207、completion 3,869、合计22,076 tokens。授权额度已耗尽，后续不再发起外部请求。
+- 资格脚本固定使用仓内中性提示，只读取三个R8专用环境变量；真实API key仅存在于仓外操作者脚本和当前进程环境，未读取父仓网关变量，也未进入仓库、产物、日志或测试输出。
+- 为兼容严格Structured Outputs，Provider侧Schema投影机器化固定为：移除模型侧`$id`、`not`、`uniqueItems`，将`oneOf`映射为`anyOf`，把对象全部properties列为required，并将嵌套`$defs`提升到唯一顶层表后重写引用。完整本地Generation Proposal Schema、跨合同语义、Compiler和Runtime仍是最终准入门，未因供应商兼容放宽产物合同。
+- 真实资格链无需人工修改JSON即发布固定五个canonical产物；目录无额外文件、BOM或尾换行，固定资格提示全文、endpoint、凭据标识、Authorization值和原始HTTP响应均未进入产物。
+- 离线复核确认四个业务artifact的SHA-256与UTF-8字节数均与generation report一致；Authoring Validator、Generation Proposal Validator与Runtime Validator均valid，Runtime可prepare并创建active初始Session。报告记录2个声明Action、1个初始可用Action和`requestCount=3`。
+- `npm.cmd run verify:prototype-generation`：合同14/14、Provider/CLI 29/29、生成编排9/9、资格CLI 5/5，共57/57通过；`node --test tests/boundary.test.mjs`为68/68，`check:boundary`为checked=897/tracked=897，round scope为checked=52/changed=43，`git diff --check`通过。
+- qualification脚本不进入普通`verify`，因此自动验证不会产生费用；真实五文件及供应商调用结果仍只保存在仓外。未调用Marble或Meshy，未启动Godot、Docker、父服务或共享栈。
+
+本批提交SHA由R8.6记录。单独revert本提交删除真实资格CLI与其测试，并恢复Provider兼容投影前的R8.4状态；不会删除仓外真实产物，也不影响冻结R1–R7链。

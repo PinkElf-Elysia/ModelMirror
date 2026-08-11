@@ -1,11 +1,83 @@
 import { GENERATION_PROPOSAL_SCHEMA } from "@matrix-oasis/prototype-generation-contracts";
 
 const PROVIDER_STATE = new WeakMap();
-const ENDPOINT_PATH = "/v1/chat/completions";
+const DEFAULT_ENDPOINT_PATH = "/v1/chat/completions";
+const OPENROUTER_HOST = "openrouter.ai";
+const OPENROUTER_ENDPOINT_PATH = "/api/v1/chat/completions";
 const REQUEST_TIMEOUT_MS = 120_000;
 const PROMPT_MAX_BYTES = 32_768;
 const RESPONSE_MAX_BYTES = 1_048_576;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+const PROVIDER_SCHEMA_OMITTED_KEYWORDS = new Set(["$id", "not", "uniqueItems"]);
+const PROVIDER_SCHEMA_KEYWORD_TRANSFORMS = new Map([["oneOf", "anyOf"]]);
+const PROVIDER_DEFINITION_SEPARATOR = "__";
+
+function rewriteNamespacedDefinitionRefs(value, namespace) {
+  if (Array.isArray(value)) {
+    return value.map((item) => rewriteNamespacedDefinitionRefs(item, namespace));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const output = {};
+  const nestedPrefix = `#/$defs/${namespace}/$defs/`;
+  for (const [key, item] of Object.entries(value)) {
+    output[key] =
+      key === "$ref" && typeof item === "string" && item.startsWith(nestedPrefix)
+        ? `#/$defs/${namespace}${PROVIDER_DEFINITION_SEPARATOR}${item.slice(nestedPrefix.length)}`
+        : rewriteNamespacedDefinitionRefs(item, namespace);
+  }
+  return output;
+}
+
+function flattenProviderDefinitions(schema) {
+  const output = {};
+  for (const [key, item] of Object.entries(schema)) {
+    if (key !== "$defs") {
+      output[key] = item;
+    }
+  }
+  const definitions = {};
+  for (const [namespace, definition] of Object.entries(schema.$defs ?? {})) {
+    const namespacedDefinition = {};
+    for (const [key, item] of Object.entries(definition)) {
+      if (key !== "$defs") {
+        namespacedDefinition[key] = rewriteNamespacedDefinitionRefs(item, namespace);
+      }
+    }
+    definitions[namespace] = namespacedDefinition;
+    for (const [name, nestedDefinition] of Object.entries(definition.$defs ?? {})) {
+      definitions[`${namespace}${PROVIDER_DEFINITION_SEPARATOR}${name}`] =
+        rewriteNamespacedDefinitionRefs(nestedDefinition, namespace);
+    }
+  }
+  output.$defs = definitions;
+  return output;
+}
+
+function projectProviderSchema(value) {
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((item) => projectProviderSchema(item)));
+  }
+  if (value && typeof value === "object") {
+    const output = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (!PROVIDER_SCHEMA_OMITTED_KEYWORDS.has(key)) {
+        const providerKey = PROVIDER_SCHEMA_KEYWORD_TRANSFORMS.get(key) ?? key;
+        output[providerKey] = projectProviderSchema(item);
+      }
+    }
+    if (output.type === "object" && output.properties) {
+      output.required = Object.freeze(Object.keys(output.properties));
+    }
+    return Object.freeze(output);
+  }
+  return value;
+}
+
+const GENERATION_PROPOSAL_PROVIDER_SCHEMA = projectProviderSchema(
+  flattenProviderDefinitions(GENERATION_PROPOSAL_SCHEMA),
+);
 
 export class PrototypeGeneratorOperationalError extends Error {
   constructor() {
@@ -86,18 +158,26 @@ function parseEndpoint(value) {
   } catch {
     fail();
   }
+  const hostname = url.hostname.toLowerCase();
+  const openRouter =
+    url.protocol === "https:" &&
+    hostname === OPENROUTER_HOST &&
+    url.pathname === OPENROUTER_ENDPOINT_PATH;
+  const defaultEndpoint = url.pathname === DEFAULT_ENDPOINT_PATH;
+  const endpointPathAllowed =
+    hostname === OPENROUTER_HOST ? openRouter : defaultEndpoint;
   if (
-    url.pathname !== ENDPOINT_PATH ||
+    !endpointPathAllowed ||
     url.search !== "" ||
     url.hash !== "" ||
     url.username !== "" ||
     url.password !== "" ||
     (url.protocol !== "https:" &&
-      !(url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname)))
+      !(url.protocol === "http:" && LOOPBACK_HOSTS.has(hostname)))
   ) {
     fail();
   }
-  return url.href;
+  return Object.freeze({ endpoint: url.href, openRouter });
 }
 
 function validateConfig(config) {
@@ -114,8 +194,10 @@ function validateConfig(config) {
   ) {
     fail();
   }
+  const endpoint = parseEndpoint(value.endpoint);
   return {
-    endpoint: parseEndpoint(value.endpoint),
+    endpoint: endpoint.endpoint,
+    openRouter: endpoint.openRouter,
     model: value.model,
     credential: value.apiKey,
   };
@@ -205,8 +287,8 @@ function requestMessages(request) {
   ];
 }
 
-function requestBody(model, request) {
-  return {
+function requestBody(model, request, openRouter) {
+  const body = {
     model,
     stream: false,
     messages: requestMessages(request),
@@ -215,10 +297,14 @@ function requestBody(model, request) {
       json_schema: {
         name: "matrix_oasis_generation_proposal",
         strict: true,
-        schema: GENERATION_PROPOSAL_SCHEMA,
+        schema: GENERATION_PROPOSAL_PROVIDER_SCHEMA,
       },
     },
   };
+  if (openRouter) {
+    body.provider = { require_parameters: true };
+  }
+  return body;
 }
 
 async function readBoundedBody(response) {
@@ -293,12 +379,12 @@ function candidateFromEnvelope(value, model) {
   if (!Array.isArray(envelope.choices) || envelope.choices.length !== 1) {
     fail();
   }
-  const choice = exactRecord(
+  const choice = selectedRecord(
     envelope.choices[0],
-    ["index", "message", "finish_reason", "logprobs"],
+    ["message", "finish_reason"],
     ["message", "finish_reason"],
   );
-  const message = exactRecord(choice.message, ["role", "content", "refusal"], ["content"]);
+  const message = selectedRecord(choice.message, ["content"], ["content"]);
   if (choice.finish_reason !== "stop" || typeof message.content !== "string") {
     fail();
   }
@@ -324,7 +410,7 @@ async function requestProposalInternal(provider, requestValue) {
         authorization: `Bearer ${state.credential}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(requestBody(state.model, request)),
+      body: JSON.stringify(requestBody(state.model, request, state.openRouter)),
       redirect: "error",
       signal: state.timeoutSignal(state.timeoutMs),
     });

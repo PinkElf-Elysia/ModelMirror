@@ -22,6 +22,7 @@ import {
   generatePrototype,
   PrototypeGeneratorOperationalError,
 } from "@matrix-oasis/prototype-generator";
+import { GENERATION_PROPOSAL_SCHEMA } from "@matrix-oasis/prototype-generation-contracts";
 import { createOpenAICompatibleProviderWithSeams } from "../packages/prototype-generator/src/openai-compatible.mjs";
 import {
   executeGeneratePrototypeCli,
@@ -220,6 +221,78 @@ function provider(endpoint, credential = "loopback-placeholder-value") {
   });
 }
 
+function schemaHasKeyword(value, keyword) {
+  if (Array.isArray(value)) {
+    return value.some((item) => schemaHasKeyword(item, keyword));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).some(
+      ([key, item]) => key === keyword || schemaHasKeyword(item, keyword),
+    );
+  }
+  return false;
+}
+
+function schemaKeywordCount(value, keyword) {
+  if (Array.isArray(value)) {
+    return value.reduce((count, item) => count + schemaKeywordCount(item, keyword), 0);
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).reduce(
+      (count, [key, item]) =>
+        count + (key === keyword ? 1 : 0) + schemaKeywordCount(item, keyword),
+      0,
+    );
+  }
+  return 0;
+}
+
+function objectSchemasWithIncompleteRequired(value, paths = [], pathValue = "") {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      objectSchemasWithIncompleteRequired(value[index], paths, `${pathValue}/${index}`);
+    }
+    return paths;
+  }
+  if (!value || typeof value !== "object") {
+    return paths;
+  }
+  if (value.type === "object" && value.properties) {
+    const propertyKeys = Object.keys(value.properties);
+    if (
+      !Array.isArray(value.required) ||
+      !propertyKeys.every((key) => value.required.includes(key)) ||
+      value.required.length !== propertyKeys.length
+    ) {
+      paths.push(pathValue || "/");
+    }
+  }
+  for (const [key, item] of Object.entries(value)) {
+    objectSchemasWithIncompleteRequired(item, paths, `${pathValue}/${key}`);
+  }
+  return paths;
+}
+
+function collectSchemaRefs(value, refs = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectSchemaRefs(item, refs);
+    }
+    return refs;
+  }
+  if (!value || typeof value !== "object") {
+    return refs;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "$ref" && typeof item === "string") {
+      refs.push(item);
+    } else {
+      collectSchemaRefs(item, refs);
+    }
+  }
+  return refs;
+}
+
 function assertOperational(error, forbidden = []) {
   assert.equal(error instanceof PrototypeGeneratorOperationalError, true);
   assert.equal(error.name, "PrototypeGeneratorOperationalError");
@@ -270,6 +343,57 @@ test("public provider sends one strict non-streaming JSON Schema request", async
     assert.equal("functions" in requests[0].body, false);
     assert.equal(requests[0].body.response_format.type, "json_schema");
     assert.equal(requests[0].body.response_format.json_schema.strict, true);
+    assert.equal("provider" in requests[0].body, false);
+    assert.equal(
+      schemaHasKeyword(requests[0].body.response_format.json_schema.schema, "not"),
+      false,
+    );
+    assert.equal(
+      schemaHasKeyword(requests[0].body.response_format.json_schema.schema, "uniqueItems"),
+      false,
+    );
+    assert.equal(
+      schemaHasKeyword(requests[0].body.response_format.json_schema.schema, "$id"),
+      false,
+    );
+    assert.equal(
+      schemaHasKeyword(requests[0].body.response_format.json_schema.schema, "oneOf"),
+      false,
+    );
+    assert.equal(
+      schemaKeywordCount(requests[0].body.response_format.json_schema.schema, "anyOf"),
+      schemaKeywordCount(GENERATION_PROPOSAL_SCHEMA, "anyOf") +
+        schemaKeywordCount(GENERATION_PROPOSAL_SCHEMA, "oneOf"),
+    );
+    assert.deepEqual(
+      objectSchemasWithIncompleteRequired(
+        requests[0].body.response_format.json_schema.schema,
+      ),
+      [],
+    );
+    const providerSchema = requests[0].body.response_format.json_schema.schema;
+    const providerRefs = collectSchemaRefs(providerSchema);
+    assert.equal(providerRefs.length > 0, true);
+    assert.equal(providerRefs.every((reference) => /^#\/\$defs\/[^/]+$/.test(reference)), true);
+    assert.equal(
+      providerRefs.every((reference) =>
+        Object.hasOwn(providerSchema.$defs, reference.slice("#/$defs/".length)),
+      ),
+      true,
+    );
+    assert.equal(
+      Object.values(providerSchema.$defs).every(
+        (definition) => !Object.hasOwn(definition, "$defs"),
+      ),
+      true,
+    );
+    assert.equal(objectSchemasWithIncompleteRequired(GENERATION_PROPOSAL_SCHEMA).length > 0, true);
+    assert.equal(
+      collectSchemaRefs(GENERATION_PROPOSAL_SCHEMA).some(
+        (reference) => /^#\/\$defs\/[^/]+\/\$defs\//.test(reference),
+      ),
+      true,
+    );
     assert.equal(
       requests[0].body.response_format.json_schema.schema.properties.format.const,
       "matrix-oasis.prototype-generation-proposal",
@@ -306,23 +430,68 @@ test("repair request contains only candidate, static diagnostics, and the origin
   assert.equal(repair.requestKind, "repair");
   assert.equal("prompt" in repair, false);
   assert.equal(repair.schema.properties.format.const, "matrix-oasis.prototype-generation-proposal");
+  assert.equal(schemaHasKeyword(repair.schema, "not"), true);
+  assert.equal(schemaHasKeyword(repair.schema, "uniqueItems"), true);
+  assert.equal(schemaHasKeyword(repair.schema, "oneOf"), true);
+  assert.equal(schemaHasKeyword(repair.schema, "$id"), true);
+  assert.equal(objectSchemasWithIncompleteRequired(repair.schema).length > 0, true);
   assert.deepEqual(repair.diagnostics, [
     { code: "PROTOTYPE_PROPOSAL_SCHEMA_REQUIRED", path: "/sceneBlueprint" },
   ]);
 });
 
-test("endpoint gate permits HTTPS and loopback HTTP only at the exact path", () => {
+test("endpoint gate permits standard HTTPS and exact OpenRouter or loopback endpoints", () => {
   assert.doesNotThrow(() =>
     provider("https://model.example.invalid/v1/chat/completions"),
+  );
+  assert.doesNotThrow(() =>
+    provider("https://openrouter.ai/api/v1/chat/completions"),
   );
   for (const endpoint of [
     "http://model.example.invalid/v1/chat/completions",
     "http://127.0.0.1/v1/models",
     "http://127.0.0.1/v1/chat/completions?x=1",
     "https://user:pass@model.example.invalid/v1/chat/completions",
+    "https://model.example.invalid/api/v1/chat/completions",
+    "https://evil.openrouter.ai/api/v1/chat/completions",
+    "https://openrouter.ai.evil.invalid/api/v1/chat/completions",
+    "https://openrouter.ai/v1/chat/completions",
+    "http://openrouter.ai/api/v1/chat/completions",
+    "https://openrouter.ai/api/v1/chat/completions?x=1",
   ]) {
     assert.throws(() => provider(endpoint), assertOperational);
   }
+});
+
+test("OpenRouter requests require structured-output parameter support", async () => {
+  let capturedEndpoint;
+  let capturedBody;
+  const instance = createOpenAICompatibleProviderWithSeams(
+    {
+      endpoint: "https://openrouter.ai/api/v1/chat/completions",
+      model: "openai/gpt-5.6-luna",
+      apiKey: ["placeholder", "openrouter", "value"].join("-"),
+    },
+    {
+      fetchImplementation: async (endpoint, options) => {
+        capturedEndpoint = endpoint;
+        capturedBody = JSON.parse(options.body);
+        const envelope = responseEnvelope();
+        envelope.choices[0].native_finish_reason = "stop";
+        envelope.choices[0].message.reasoning_details = [];
+        return new Response(JSON.stringify(envelope), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+      timeoutSignal: () => AbortSignal.abort(),
+      timeoutMs: 1,
+    },
+  );
+  await instance.requestProposal({ kind: "initial", prompt: "neutral" });
+  assert.equal(capturedEndpoint, "https://openrouter.ai/api/v1/chat/completions");
+  assert.deepEqual(capturedBody.provider, { require_parameters: true });
+  assert.equal(capturedBody.model, "openai/gpt-5.6-luna");
 });
 
 test("provider never retries HTTP failures and redacts credentials and response bodies", async () => {
@@ -509,7 +678,7 @@ test("runtime source uses only native Web APIs and never reads host environment"
   );
   assert.equal(source.includes(["process", "env"].join(".")), false);
   assert.equal(source.includes("LLM_GATEWAY"), false);
-  assert.equal(source.includes("OPENROUTER"), false);
+  assert.equal(source.includes("OPENROUTER_API_KEY"), false);
   assert.equal(/from\s+["'](?:node:)?(?:http|https|net|tls|undici)["']/.test(source), false);
   assert.equal(source.includes("globalThis.fetch"), true);
   assert.equal(source.includes('redirect: "error"'), true);
