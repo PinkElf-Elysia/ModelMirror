@@ -187,20 +187,20 @@ export function classifyRoundPath(candidate) {
 
   const relative = moduleRelativePath(normalized);
   if (
-    ROUND_FROZEN_MODULE_PATHS.some((frozenPath) =>
-      matchesPathOrDescendant(relative, frozenPath)
-    )
-  ) {
-    return "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED";
-  }
-
-  if (
     ROUND_ALLOWED_MODULE_FILES.includes(relative) ||
     ROUND_ALLOWED_MODULE_PREFIXES.some((allowedPrefix) =>
       matchesPathOrDescendant(relative, allowedPrefix)
     )
   ) {
     return null;
+  }
+
+  if (
+    ROUND_FROZEN_MODULE_PATHS.some((frozenPath) =>
+      matchesPathOrDescendant(relative, frozenPath)
+    )
+  ) {
+    return "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED";
   }
 
   return "ROUND_SCOPE_PATH_NOT_ALLOWLISTED";

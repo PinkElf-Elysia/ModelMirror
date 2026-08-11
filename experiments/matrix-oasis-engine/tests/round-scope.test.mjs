@@ -122,12 +122,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R7 policy", () => {
+test("machine boundary and code expose the same ordered R8 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 7);
+  assert.equal(policy.schemaVersion, 8);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -144,18 +144,18 @@ test("machine boundary and code expose the same ordered R7 policy", () => {
   );
 });
 
-test("accepts exact R7 files and scene binding prefixes in every Git status source", (t) => {
+test("accepts exact R8 files and prototype package prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/scene_binding/scene_lab.gd`, "extends Node3D\n");
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-generation-contracts/src/index.mjs`, "export {};\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/test/r7/test_scene_lab.gd`);
-  git(fixture, ["add", `${MODULE_PREFIX}/apps/runtime-godot/test/r7/test_scene_lab.gd`]);
+  write(fixture, `${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`, "export {};\n");
+  git(fixture, ["add", `${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R7_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/packages/scene-pack-contracts/src/index.mjs`, "export {};\n");
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R8_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/scripts/generate-prototype.mjs`, "export {};\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -202,7 +202,7 @@ test("rejects an untracked unapproved file under examples", (t) => {
 
   expectCode(
     () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-    "ROUND_SCOPE_PATH_NOT_ALLOWLISTED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
 });
 
@@ -289,13 +289,13 @@ for (const unknownPath of [
   "scripts/unplanned.mjs",
   "tests/unplanned.test.mjs",
 ]) {
-  test(`rejects unlisted path inside formerly broad prefix ${unknownPath}`, (t) => {
+test(`rejects unlisted path inside frozen root ${unknownPath}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
     write(fixture, `${MODULE_PREFIX}/${unknownPath}`);
 
     expectCode(
       () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-      "ROUND_SCOPE_PATH_NOT_ALLOWLISTED",
+      "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
     );
   });
 }
@@ -351,17 +351,17 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable R7 guard categories", () => {
+test("round path classifier exposes stable R8 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/scene_binding/scene_lab.gd`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generation-contracts/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/test/r7/test_scene_lab.gd`),
+    classifyRoundPath(`${MODULE_PREFIX}/packages/prototype-generator/src/index.mjs`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/packages/scene-pack-validator/src/index.mjs`),
+    classifyRoundPath(`${MODULE_PREFIX}/scripts/generate-prototype.mjs`),
     null,
   );
   assert.equal(
@@ -389,6 +389,10 @@ test("round path classifier exposes stable R7 guard categories", () => {
     "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/scene-pack-validator/src/index.mjs`),
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+  );
+  assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/docs/rounds/R1_ACCEPTANCE.md`),
     "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
@@ -398,7 +402,7 @@ test("round path classifier exposes stable R7 guard categories", () => {
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/docs/unplanned.md`),
-    "ROUND_SCOPE_PATH_NOT_ALLOWLISTED",
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/unexpected-root.txt`),

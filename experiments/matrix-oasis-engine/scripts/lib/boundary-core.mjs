@@ -143,6 +143,8 @@ const NETWORK_MODULES = new Set([
   "undici",
 ]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const APPROVED_PROVIDER_NETWORK_SOURCE =
+  "packages/prototype-generator/src/openai-compatible.mjs";
 const STATIC_SECRET_PATTERNS = [
   /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----/,
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
@@ -151,7 +153,7 @@ const STATIC_SECRET_PATTERNS = [
 ];
 const ASSIGNED_SECRET = /\b(?:OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|GITHUB_TOKEN|NPM_TOKEN|_authToken|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s#;,]+))/gi;
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 7],
+  [["schemaVersion"], 8],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -163,7 +165,7 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "creatorSource"], "none"],
   [["networkPolicy", "godotFirstPartySource"], "none"],
   [["networkPolicy", "verificationScripts"], "loopback-only"],
-  [["networkPolicy", "providerCalls"], "none-in-r7"],
+  [["networkPolicy", "providerCalls"], "openai-compatible-adapter-only"],
   [["networkPolicy", "splatQualification"], "source-checkout-and-loopback-disposable-only"],
   [["runtimeArtifactInputPolicy", "mode"], "paired-local-files-only"],
   [["runtimeArtifactInputPolicy", "runtimeMaxBytes"], 16 * 1024 * 1024],
@@ -192,6 +194,20 @@ const REQUIRED_POLICY_VALUES = [
   [["scenePackInputPolicy", "readOnly"], true],
   [["scenePackInputPolicy", "networkAllowed"], false],
   [["scenePackInputPolicy", "providerCallsAllowed"], false],
+  [["prototypeGenerationPolicy", "inputModes", 0], "text"],
+  [["prototypeGenerationPolicy", "promptMaxBytes"], 32768],
+  [["prototypeGenerationPolicy", "responseMaxBytes"], 1048576],
+  [["prototypeGenerationPolicy", "maxRequests"], 3],
+  [["prototypeGenerationPolicy", "maxRepairAttempts"], 2],
+  [["prototypeGenerationPolicy", "endpointPath"], "/v1/chat/completions"],
+  [["prototypeGenerationPolicy", "networkSource"], "packages/prototype-generator/src/openai-compatible.mjs"],
+  [["prototypeGenerationPolicy", "creatorNetworkAllowed"], false],
+  [["prototypeGenerationPolicy", "godotNetworkAllowed"], false],
+  [["prototypeGenerationPolicy", "imageInputAllowed"], false],
+  [["prototypeGenerationPolicy", "assetProviderCallsAllowed"], false],
+  [["prototypeGenerationPolicy", "marbleCallsAllowed"], false],
+  [["prototypeGenerationPolicy", "meshyCallsAllowed"], false],
+  [["prototypeGenerationPolicy", "trackedGeneratedArtifactsAllowed"], false],
   [["scenePackInputPolicy", "symlinksAllowed"], false],
   [
     ["forbiddenParentRoots"],
@@ -907,6 +923,24 @@ function usesNetworkModule(specifiers) {
 }
 
 function checkRuntimeNetwork(relative, content, specifiers, violations) {
+  if (relative === APPROVED_PROVIDER_NETWORK_SOURCE) {
+    const forbiddenCapability =
+      NETWORK_GLOBAL_NAMES
+        .filter((name) => name !== FETCH_GLOBAL_NAME)
+        .some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      usesNetworkModule(specifiers) ||
+      /\bprocess\s*\.\s*env\b/.test(content);
+    if (forbiddenCapability) {
+      addViolation(
+        violations,
+        "provider-network-capability-forbidden",
+        relative,
+        "The approved provider adapter may use only the approved request helper and may not read process environment values.",
+      );
+    }
+    return;
+  }
+
   const forbiddenCapability =
     NETWORK_GLOBAL_NAMES.some((name) =>
       new RegExp(`\\b${name}\\b`).test(content),
