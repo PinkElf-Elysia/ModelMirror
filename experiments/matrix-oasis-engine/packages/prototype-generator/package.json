@@ -1,0 +1,16 @@
+{
+  "name": "@matrix-oasis/prototype-generator",
+  "version": "0.1.0-r8",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.mjs"
+    }
+  },
+  "dependencies": {
+    "@matrix-oasis/prototype-generation-contracts": "0.1.0-r8"
+  }
+}

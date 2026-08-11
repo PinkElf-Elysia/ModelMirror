@@ -21,3 +21,11 @@ Scene Blueprint 固定包含：
 恰好一个 environment brief，必须同时声明 visual 与 collider，并且恰好有一个 environment placement。其他 brief 必须绑定已有 Authoring entity。Blueprint declaration ID、entity、zone、asset、placement 和 node 引用全部机器验证。
 
 公开文本入口先拒绝非严格 JSON、重复键和超过 256 层的文档，再执行闭合 Schema、冻结 Authoring Validator 和跨合同语义。孤立代理项、未知字段、超限数组及不匹配引用均被拒绝；报告只含静态 code 与 JSON Pointer，不回显输入值。
+
+## R8.3 OpenAI兼容Provider
+
+`@matrix-oasis/prototype-generator@0.1.0-r8` 的 Provider 适配器使用Node 24原生Web API，固定向配置的精确 `/v1/chat/completions` 发出一次非streaming请求。响应格式为strict Generation Proposal JSON Schema；请求不含tools、函数调用或自动重试，redirect固定拒绝，单次超时120秒，响应上限1 MiB。
+
+Provider包不读取环境变量。endpoint、模型和凭据只由未来R8.4 CLI宿主传入；HTTP仅允许loopback，外部主机必须HTTPS。公开Provider对象不暴露凭据，HTTP正文、底层异常和动态响应字段不进入错误。正常响应必须只有一个choice、文本content与`stop`结束状态。
+
+首轮请求只携带纯文本prompt；修复请求只携带上一候选、静态code/JSON Pointer和原始Schema，不再次发送原始prompt。普通测试使用本机loopback假服务，不调用外部模型。
