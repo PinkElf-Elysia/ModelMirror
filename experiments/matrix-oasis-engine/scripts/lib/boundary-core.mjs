@@ -151,7 +151,7 @@ const STATIC_SECRET_PATTERNS = [
 ];
 const ASSIGNED_SECRET = /\b(?:OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|GITHUB_TOKEN|NPM_TOKEN|_authToken|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s#;,]+))/gi;
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 4],
+  [["schemaVersion"], 5],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -164,6 +164,19 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "godotFirstPartySource"], "none"],
   [["networkPolicy", "verificationScripts"], "loopback-only"],
   [["networkPolicy", "mcpQualification"], "loopback-disposable-only"],
+  [["runtimeArtifactInputPolicy", "mode"], "paired-local-files-only"],
+  [["runtimeArtifactInputPolicy", "runtimeMaxBytes"], 16 * 1024 * 1024],
+  [["runtimeArtifactInputPolicy", "receiptMaxBytes"], 16 * 1024],
+  [
+    ["runtimeArtifactInputPolicy", "canonicalization"],
+    "matrix-oasis.canonical-json/1",
+  ],
+  [["runtimeArtifactInputPolicy", "readOnly"], true],
+  [["runtimeArtifactInputPolicy", "generatedArtifactsTracked"], false],
+  [
+    ["runtimeArtifactInputPolicy", "isolatedUtf16Surrogates"],
+    "reject-with-static-diagnostic",
+  ],
   [
     ["forbiddenParentRoots"],
     ["client", "server", ".github", "docker-compose.yml", "Dockerfile", "node_modules"],

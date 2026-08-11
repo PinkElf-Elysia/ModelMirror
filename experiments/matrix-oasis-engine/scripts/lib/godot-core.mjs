@@ -80,12 +80,18 @@ export function assertSingleReadinessMarker(output) {
 
 export function assertGdUnitSuccess(output) {
   const text = output ?? "";
+  const summaries = [...text.matchAll(
+    /(\d+) test cases \| (\d+) errors \| (\d+) failures \| (\d+) flaky \| (\d+) skipped \| (\d+) orphans/gu,
+  )];
+  const summary = summaries.at(-1);
+  const suites = /Executed test suites: \((\d+)\/(\d+)\)/u.exec(text);
+  const cases = /Executed test cases\s+: \((\d+)\/(\d+)\)/u.exec(text);
   if (
     text.includes("No test cases found") ||
     !text.includes("Overall Summary:") ||
-    !text.includes("4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans") ||
-    !text.includes("Executed test suites: (1/1)") ||
-    !text.includes("Executed test cases : (4/4)")
+    !summary || Number(summary[1]) < 4 || summary.slice(2).some((value) => Number(value) !== 0) ||
+    !suites || suites[1] !== suites[2] || Number(suites[1]) < 1 ||
+    !cases || cases[1] !== cases[2] || Number(cases[1]) !== Number(summary[1])
   ) {
     fail("GDUNIT4_RESULT_INVALID");
   }
