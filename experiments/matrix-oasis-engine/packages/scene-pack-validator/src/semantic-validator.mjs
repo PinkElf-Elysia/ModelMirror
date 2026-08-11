@@ -1,0 +1,24 @@
+import { diagnostic, pointer } from "./diagnostics.mjs";
+
+function duplicateIds(items, base, code) { const seen = new Map(); const output = []; for (const [index, item] of items.entries()) { if (seen.has(item.id)) output.push(diagnostic("semantic", code, `${base}/${index}/id`, `${base}/${seen.get(item.id)}/id`)); else seen.set(item.id, index); } return output; }
+function hasUnpairedSurrogate(value) { for (let index = 0; index < value.length; index += 1) { const unit = value.charCodeAt(index); if (unit >= 0xd800 && unit <= 0xdbff) { const next = value.charCodeAt(index + 1); if (!(next >= 0xdc00 && next <= 0xdfff)) return true; index += 1; } else if (unit >= 0xdc00 && unit <= 0xdfff) return true; } return false; }
+function unicodeDiagnostics(value) { const output = []; const pending = [{value, path: "/scenePack"}]; while (pending.length) { const current = pending.pop(); if (typeof current.value === "string") { if (hasUnpairedSurrogate(current.value)) output.push(diagnostic("semantic", "SCENE_PACK_UNSUPPORTED_TEXT", current.path)); continue; } if (!current.value || typeof current.value !== "object") continue; if (Array.isArray(current.value)) for (let i = 0; i < current.value.length; i += 1) pending.push({value: current.value[i], path: pointer(current.path, i)}); else for (const [key, child] of Object.entries(current.value)) pending.push({value: child, path: pointer(current.path, key)}); } return output; }
+
+export function validateSceneSemantics(scene, runtimePack, receipt) {
+  const diagnostics = [...unicodeDiagnostics(scene), ...duplicateIds(scene.assets, "/scenePack/assets", "SCENE_PACK_ASSET_ID_DUPLICATE"), ...duplicateIds(scene.placements, "/scenePack/placements", "SCENE_PACK_PLACEMENT_ID_DUPLICATE")];
+  const nodeSeen = new Map(); for (const [index, binding] of scene.nodeBindings.entries()) { if (nodeSeen.has(binding.nodeId)) diagnostics.push(diagnostic("semantic", "SCENE_PACK_NODE_BINDING_DUPLICATE", `/scenePack/nodeBindings/${index}/nodeId`, `/scenePack/nodeBindings/${nodeSeen.get(binding.nodeId)}/nodeId`)); else nodeSeen.set(binding.nodeId, index); }
+  const expected = {runtimeFormat: runtimePack.format, runtimeFormatVersion: runtimePack.formatVersion, packId: runtimePack.source.id, packContentVersion: runtimePack.source.contentVersion, sourceCanonicalSha256: runtimePack.source.canonicalSha256, artifactSha256: receipt.artifact.sha256};
+  for (const [key, value] of Object.entries(expected)) if (scene.runtimeIdentity[key] !== value) diagnostics.push(diagnostic("semantic", "SCENE_PACK_RUNTIME_IDENTITY_MISMATCH", `/scenePack/runtimeIdentity/${key}`));
+  const assets = new Map(scene.assets.map((item) => [item.id, item])); const paths = new Map();
+  for (const [index, asset] of scene.assets.entries()) { if (paths.has(asset.path)) diagnostics.push(diagnostic("semantic", "SCENE_PACK_ASSET_PATH_DUPLICATE", `/scenePack/assets/${index}/path`, `/scenePack/assets/${paths.get(asset.path)}/path`)); else paths.set(asset.path, index); }
+  const entities = new Set(runtimePack.entities.map((item) => item.id)); const placements = new Set(scene.placements.map((item) => item.id));
+  for (const [index, placement] of scene.placements.entries()) {
+    const visual = assets.get(placement.visualAssetId); if (!visual || !visual.roles.includes("visual")) diagnostics.push(diagnostic("semantic", "SCENE_PACK_VISUAL_ASSET_REFERENCE_INVALID", `/scenePack/placements/${index}/visualAssetId`));
+    if (placement.colliderAssetId !== null) { const collider = assets.get(placement.colliderAssetId); if (!collider || !collider.roles.includes("collider")) diagnostics.push(diagnostic("semantic", "SCENE_PACK_COLLIDER_ASSET_REFERENCE_INVALID", `/scenePack/placements/${index}/colliderAssetId`)); }
+    if (placement.entityId !== null && !entities.has(placement.entityId)) diagnostics.push(diagnostic("semantic", "SCENE_PACK_ENTITY_REFERENCE_NOT_FOUND", `/scenePack/placements/${index}/entityId`));
+  }
+  const nodes = new Set(runtimePack.nodes.map((item) => item.id));
+  for (const [index, binding] of scene.nodeBindings.entries()) { if (!nodes.has(binding.nodeId)) diagnostics.push(diagnostic("semantic", "SCENE_PACK_NODE_REFERENCE_NOT_FOUND", `/scenePack/nodeBindings/${index}/nodeId`)); for (const [visibleIndex, id] of binding.visiblePlacementIds.entries()) if (!placements.has(id)) diagnostics.push(diagnostic("semantic", "SCENE_PACK_PLACEMENT_REFERENCE_NOT_FOUND", `/scenePack/nodeBindings/${index}/visiblePlacementIds/${visibleIndex}`)); }
+  if (diagnostics.every((item) => item.code !== "SCENE_PACK_NODE_BINDING_DUPLICATE" && item.code !== "SCENE_PACK_NODE_REFERENCE_NOT_FOUND")) for (const [index, node] of runtimePack.nodes.entries()) if (!nodeSeen.has(node.id)) diagnostics.push(diagnostic("semantic", "SCENE_PACK_NODE_BINDING_MISSING", `/runtimePack/nodes/${index}/id`));
+  return diagnostics;
+}
