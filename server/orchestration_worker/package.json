@@ -7,6 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "prebuild": "npm run link:vendor-deps",
     "build": "tsc -p tsconfig.json",
     "link:vendor-deps": "node scripts/link-vendor-deps.mjs",
     "pretest": "npm run link:vendor-deps",

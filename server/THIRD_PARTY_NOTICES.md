@@ -2,6 +2,19 @@
 
 ModelMirror uses third-party libraries under their respective licenses.
 
+## Agency Orchestrator core
+
+ModelMirror selectively vendors the Apache-2.0 orchestration core from
+`jnMetaCode/agency-orchestrator` at commit
+`3b7c43042325a9091393de6ecfa7e9936b0c7932`. The source, license, exact Blob
+SHA map and ModelMirror modification log are stored under
+`server/vendor/agency-orchestrator/` in the source repository. The service
+image contains only the compiled Worker closure and its production dependency;
+it excludes upstream Provider Connectors, websites, Studio, Electron, role
+libraries, creative assets and third-party CLI integrations.
+
+Project: https://github.com/jnMetaCode/agency-orchestrator
+
 ## PenguinHarness built-in Skills
 
 ModelMirror vendors the 16 upstream Skill directories from

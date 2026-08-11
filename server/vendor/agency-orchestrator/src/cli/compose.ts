@@ -3,6 +3,11 @@
  *
  * 用户用一句话描述需求，AI 从角色库中选角色、设计 DAG、生成完整 workflow YAML。
  * 支持中文（agency-agents-zh）和英文（agency-agents）角色库。
+ *
+ * MODELMIRROR MODIFICATION (2026-08-11): accepts a host-provided role
+ * catalog, rejects incomplete pinned line-ups, and reports whether the
+ * upstream repair chain changed the first generated YAML. Original upstream
+ * Blob SHA: 8b946bfa49f92f95a795d3bbd0e2c4dd5d10bcf8.
  */
 import { listAgents, suggestFromPaths } from '../agents/loader.js';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -439,6 +444,8 @@ export function generateFileName(description: string, dir?: string): string {
 export async function composeWorkflow(options: {
   description: string;
   agentsDir: string;
+  /** Host-owned role catalog. Avoids materializing a second role directory. */
+  roles?: RoleSummary[];
   llmConfig: LLMConfig;
   outputName?: string;
   /** 直接运行模式：生成的 YAML 不需要 inputs */
@@ -455,20 +462,23 @@ export async function composeWorkflow(options: {
   budget?: boolean;
   /** 生成 YAML 里 agents_dir 的名字（多语言角色库如 "agency-agents-ko"）；缺省按 lang 用 zh/en 内置库名 */
   agentsDirName?: string;
-}): Promise<{ yaml: string; savedPath: string; relativePath: string; warnings: string[] }> {
+}): Promise<{ yaml: string; savedPath: string; relativePath: string; warnings: string[]; repairUsed: boolean }> {
   const { description, agentsDir, llmConfig } = options;
   const lang = options.lang ?? detectLang(description);
 
   // 1. 构建角色目录
-  let roles = buildRoleCatalog(agentsDir);
+  let roles = options.roles ? [...options.roles] : buildRoleCatalog(agentsDir);
   if (roles.length === 0) {
     throw new Error(t('compose.empty_catalog', { dir: agentsDir }));
   }
   // 锁定阵容：把目录收窄到勾选的角色，LLM 既无法幻觉别的角色，也被强制用上这些
   if (options.pinnedRoles?.length) {
     const pin = new Set(options.pinnedRoles);
-    const filtered = roles.filter(r => pin.has(r.path));
-    if (filtered.length > 0) roles = filtered;
+    const missing = [...pin].filter(path => !roles.some(role => role.path === path));
+    if (missing.length > 0) {
+      throw new Error(`MODELMIRROR_UNKNOWN_PINNED_ROLE: ${missing.join(', ')}`);
+    }
+    roles = roles.filter(r => pin.has(r.path));
   }
   const catalog = formatCatalogForPrompt(roles);
 
@@ -600,7 +610,13 @@ export async function composeWorkflow(options: {
         const finalErrors = await runVariableFixChain(savedPath, second.errors, validateGenerated, llmConfig, lang);
         warnings.push(...finalErrors);
         const fixedYaml = finalizeBudget(readFileSync(savedPath, 'utf-8').trim(), options, llmConfig.provider, savedPath, warnings);
-        return { yaml: fixedYaml, savedPath, relativePath, warnings };
+        return {
+          yaml: fixedYaml,
+          savedPath,
+          relativePath,
+          warnings,
+          repairUsed: fixedYaml.trim() !== yaml.trim(),
+        };
       }
     } catch (err) {
       warnings.push(`自动修正失败（保留原始输出）: ${err instanceof Error ? err.message : err}`);
@@ -611,7 +627,13 @@ export async function composeWorkflow(options: {
   const finalErrors = await runVariableFixChain(savedPath, first.errors, validateGenerated, llmConfig, lang);
   warnings.push(...finalErrors);
   const finalYaml = finalizeBudget(readFileSync(savedPath, 'utf-8').trim(), options, llmConfig.provider, savedPath, warnings);
-  return { yaml: finalYaml, savedPath, relativePath, warnings };
+  return {
+    yaml: finalYaml,
+    savedPath,
+    relativePath,
+    warnings,
+    repairUsed: finalYaml.trim() !== yaml.trim(),
+  };
 }
 
 /** budget 模式收尾：施加分档、写回盘、把说明加入 warnings（供 CLI 回显）。非 budget 原样返回。 */
