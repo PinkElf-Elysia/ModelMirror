@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from server.coding_worker.code_intelligence import _LspClient
+from server.coding_worker.code_intelligence import (
+    _LspClient,
+    _typescript_diagnostic_response,
+)
 from server.coding_worker.executor import SidecarExecutor
 
 
@@ -198,6 +201,37 @@ async def test_typescript_empty_semantic_result_waits_for_project_progress() -> 
         "wait:10",
         "request:textDocument/documentSymbol:10",
     ]
+
+
+def test_typescript_diagnostic_response_is_bounded_and_zero_based() -> None:
+    assert _typescript_diagnostic_response(
+        {
+            "type": "response",
+            "success": True,
+            "body": [
+                {
+                    "startLocation": {"line": 2, "offset": 3},
+                    "endLocation": {"line": 2, "offset": 8},
+                    "message": "Type mismatch",
+                    "category": "error",
+                    "code": 2322,
+                }
+            ],
+        }
+    ) == [
+        {
+            "range": {
+                "start": {"line": 1, "character": 2},
+                "end": {"line": 1, "character": 7},
+            },
+            "severity": 1,
+            "code": 2322,
+            "message": "Type mismatch",
+        }
+    ]
+    assert _typescript_diagnostic_response(
+        {"type": "response", "success": False}
+    ) is None
 
 
 def test_executor_image_pins_language_servers_with_integrity() -> None:

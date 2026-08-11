@@ -152,6 +152,13 @@ class _LspClient:
         return result
 
     async def collect_diagnostics(self, uri: str, *, timeout: float = 10) -> list[Any]:
+        if self.language_id in {
+            "typescript",
+            "typescriptreact",
+            "javascript",
+            "javascriptreact",
+        }:
+            return await self._collect_typescript_diagnostics(uri, timeout=timeout)
         latest: list[Any] | None = None
         for message in reversed(self.notifications):
             diagnostics = self._published_diagnostics(message, uri)
@@ -174,6 +181,42 @@ class _LspClient:
             if diagnostics is not None:
                 latest = diagnostics
         return latest or []
+
+    async def _collect_typescript_diagnostics(
+        self, uri: str, *, timeout: float
+    ) -> list[Any]:
+        diagnostics: list[Any] = []
+        for command in (
+            "syntacticDiagnosticsSync",
+            "semanticDiagnosticsSync",
+            "suggestionDiagnosticsSync",
+        ):
+            result: list[Any] | None = None
+            for attempt in range(2):
+                raw = await self.request(
+                    "workspace/executeCommand",
+                    {
+                        "command": "typescript.tsserverRequest",
+                        "arguments": [
+                            command,
+                            {"file": uri, "includeLinePosition": True},
+                            {},
+                        ],
+                    },
+                    timeout=timeout,
+                )
+                result = _typescript_diagnostic_response(raw)
+                if result is not None:
+                    break
+                if attempt == 0:
+                    await self._wait_for_typescript_project(timeout=timeout)
+            if result is None:
+                raise CodeIntelligenceError(
+                    "TypeScript diagnostics are unavailable.",
+                    code="code_intelligence_invalid_response",
+                )
+            diagnostics.extend(result)
+        return diagnostics[:MAX_LSP_RESULTS]
 
     async def close(self) -> None:
         with contextlib.suppress(Exception):
@@ -485,6 +528,67 @@ def _normalize_hover(value: Any, repository: Path) -> dict[str, Any] | None:
         text = str(contents or "")
     text = text.replace(str(repository), "<workspace>")[:65_536]
     return {"text": text, "range": _range(value.get("range"))}
+
+
+def _typescript_diagnostic_response(value: Any) -> list[dict[str, Any]] | None:
+    if (
+        not isinstance(value, dict)
+        or value.get("type") != "response"
+        or value.get("success") is not True
+    ):
+        return None
+    body = value.get("body", [])
+    if body is None:
+        body = []
+    if not isinstance(body, list):
+        return None
+    output: list[dict[str, Any]] = []
+    severities = {"error": 1, "warning": 2, "message": 3, "suggestion": 4}
+    for item in body[:MAX_LSP_RESULTS]:
+        if not isinstance(item, dict):
+            continue
+        start = item.get("startLocation") or item.get("start")
+        end = item.get("endLocation") or item.get("end")
+        message = item.get("message") or item.get("text")
+        category = item.get("category")
+        if (
+            not isinstance(start, dict)
+            or not isinstance(end, dict)
+            or not isinstance(message, str)
+            or category not in severities
+        ):
+            continue
+        coordinates = (
+            start.get("line"),
+            start.get("offset"),
+            end.get("line"),
+            end.get("offset"),
+        )
+        if any(
+            isinstance(coordinate, bool)
+            or not isinstance(coordinate, int)
+            or coordinate < 1
+            for coordinate in coordinates
+        ):
+            continue
+        output.append(
+            {
+                "range": {
+                    "start": {
+                        "line": coordinates[0] - 1,
+                        "character": coordinates[1] - 1,
+                    },
+                    "end": {
+                        "line": coordinates[2] - 1,
+                        "character": coordinates[3] - 1,
+                    },
+                },
+                "severity": severities[category],
+                "code": item.get("code"),
+                "message": message,
+            }
+        )
+    return output
 
 
 def _normalize_diagnostics(value: Any, repository: Path) -> list[dict[str, Any]]:
