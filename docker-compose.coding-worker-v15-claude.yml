@@ -1,0 +1,40 @@
+services:
+  server:
+    environment:
+      CODING_WORKER_CLAUDE_ENABLED: ${CODING_WORKER_CLAUDE_ENABLED:-false}
+      CODING_WORKER_MODEL_ROUTES: coding/default,coding/quality
+      CODING_WORKER_ROUTE_SLOTS_JSON: '{"coding/default":["slot-a"],"coding/quality":["slot-b"]}'
+
+  coding-worker-provider-b:
+    image: modelmirror-coding-worker-claude-v15:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.claude
+    depends_on: !reset {}
+    networks: !override
+      - coding_worker_claude
+    environment: !override
+      CODING_WORKER_PROVIDER_SOCKET: /run/modelmirror-coding/provider.sock
+      CODING_WORKER_SIDECAR_TOKEN: ${CODING_WORKER_SLOT_B_TOKEN:?set a random V15 slot B token}
+      CODING_WORKER_PROVIDER_KIND: claude-code
+      CODING_WORKER_ROUTE_ID: coding/quality
+      CODING_WORKER_MODEL_ID: ${CODING_WORKER_CLAUDE_MODEL_ID:?set the controlled Claude model id}
+      CODING_WORKER_CLAUDE_SECRET_PATH: /run/secrets/modelmirror_claude_api_key
+    volumes: !override
+      - coding_worker_provider_b:/run/modelmirror-coding
+      - coding_worker_broker:/run/modelmirror-coding-broker:ro
+    secrets: !override
+      - source: coding_worker_claude_api_key
+        target: modelmirror_claude_api_key
+        uid: "65532"
+        gid: "65532"
+        mode: 0400
+
+secrets:
+  coding_worker_claude_api_key:
+    file: ${CODING_WORKER_CLAUDE_SECRET_FILE:?set an absolute Claude API key secret file}
+
+networks:
+  coding_worker_claude:
+    driver: bridge
+    internal: true

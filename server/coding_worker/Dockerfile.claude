@@ -1,0 +1,38 @@
+FROM node:22-bookworm-slim AS claude_runtime
+
+ARG CLAUDE_CODE_VERSION=2.1.89
+ARG CLAUDE_CODE_INTEGRITY=sha512-etjihHqVxj1RjS5Zu/o+rv3ojn1N7AWzfgIOCSSSncfyb4qJn9J677scj0LHIxtwzjgU7j1qAedXlXKxgkFG2w==
+
+RUN npm pack "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" --pack-destination /tmp \
+    && node -e "const fs=require('fs');const crypto=require('crypto');const p='/tmp/anthropic-ai-claude-code-${CLAUDE_CODE_VERSION}.tgz';const actual='sha512-'+crypto.createHash('sha512').update(fs.readFileSync(p)).digest('base64');if(actual!=='${CLAUDE_CODE_INTEGRITY}'){throw new Error('Claude Code package integrity mismatch')}" \
+    && npm install --global "/tmp/anthropic-ai-claude-code-${CLAUDE_CODE_VERSION}.tgz" \
+    && test "$(claude --version | awk '{print $1}')" = "${CLAUDE_CODE_VERSION}"
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CODING_WORKER_RUNTIME_ROOT=/worker-runtime
+
+COPY --from=claude_runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=claude_runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s ../lib/node_modules/@anthropic-ai/claude-code/cli.js /usr/local/bin/claude \
+    && groupadd --gid 65532 coding \
+    && useradd --uid 65532 --gid 65532 --home-dir /home/coding --no-create-home coding \
+    && mkdir -p /opt/modelmirror /home/coding /worker-runtime /run/modelmirror-coding \
+    && chown -R 65532:65532 /home/coding /worker-runtime /run/modelmirror-coding
+
+WORKDIR /opt/modelmirror
+COPY server/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --retries 5 --timeout 120 -r /tmp/requirements.txt
+
+COPY server/coding_worker ./coding_worker
+COPY server/THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror-coding/THIRD_PARTY_NOTICES.md
+
+USER 65532:65532
+
+CMD ["python", "-m", "coding_worker.sidecar"]
