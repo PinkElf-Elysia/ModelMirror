@@ -62,6 +62,7 @@ function errorMessage(value: unknown, fallback: string) {
 
 export default function SkillResourcePlanPanel({ session, status, onSession }: Props) {
   const plan = session.resource_plan ?? null;
+  const legacyFlow = session.authoring_flow !== "resource";
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -246,7 +247,11 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
 
       {!plan ? (
         <div className="mt-5 rounded-md border border-white/10 bg-ink-950/45 p-4">
-          <p className="text-sm text-slate-300">素材确认后，让固定 Creator 助手只生成一份可编辑计划，不生成任何文件。</p>
+          <p className="text-sm text-slate-300">
+            {legacyFlow
+              ? "这是旧版 Creator 会话。现有提案和草稿保持可读；只有你主动进入资源规划后，才切换到逐资源生成流程。"
+              : "素材确认后，让固定 Creator 助手只生成一份可编辑计划，不生成任何文件。"}
+          </p>
           <button
             className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!session.evidence_confirmed || plannerUnavailable || Boolean(busy)}
@@ -254,7 +259,7 @@ export default function SkillResourcePlanPanel({ session, status, onSession }: P
             type="button"
           >
             {busy === "generate" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Sparkles aria-hidden="true" size={16} />}
-            {busy === "generate" ? "正在分析需求…" : "生成资源计划"}
+            {busy === "generate" ? "正在分析需求…" : legacyFlow ? "进入资源规划并生成计划" : "生成资源计划"}
           </button>
           {plannerUnavailable ? <p className="mt-3 text-xs text-amber-200">模型网关未配置，暂时不能生成资源计划。</p> : null}
         </div>

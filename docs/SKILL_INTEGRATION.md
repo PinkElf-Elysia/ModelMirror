@@ -230,7 +230,7 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 - `技能市场`：合并手工精选与两个生成目录，支持关键词、功能分类、Skill/SkillSet、可安装状态筛选；默认分批渲染 48 项，避免一次挂载全部索引卡片。
 - 父级组合包显示“安装技能包”；成员集合显示“成员可安装”和“查看成员”，详情支持本地名称/路径搜索、每页 50 项分页、成员逐项安装，以及按顺序调用现有接口的“一键安装全部成员”。该操作会跳过已安装成员并在首个失败处停止，不使用整仓安装或新增后端批量协议。
 - `已安装`：调用 `/api/skills/installed`，展示本地已安装 Skill，提供卸载按钮。
-- `工作区草稿`、`待审提案`：保留通用创作与审批入口；默认开启的私有 `/skills/create` 提供 Creator V1 工作台。Creator 草稿须完成当前摘要的三例隔离对照评测，或仅对主观创作类记录明确人工豁免。质量门通过后仍需独立确认安装，评测不会自动安装。其后的 `scripts/`、`references/`、可选 `assets/` 资源化增强边界见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md#43-通过-skill-creator-创建-skill)。
+- `工作区草稿`、`待审提案`：保留通用创作与审批入口；默认开启的私有 `/skills/create` 提供 Creator V1 工作台。新 Session 先确认资源计划，再按需生成和验证 `scripts/`、`references/`、可选 `assets/`，最后评审 `SKILL.md`；简单 Skill 可以不生成附加资源。Creator 草稿仍须完成当前摘要的三例隔离对照评测，或仅对主观创作类记录明确人工豁免。质量门通过后仍需独立确认安装，评测不会自动安装。详细边界见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md#43-通过-skill-creator-创建-skill)。
 
 社区资源卡片同时显示原始来源与收录索引。安装第三方条目只会复制目录，不会在安装阶段自动执行脚本；用户仍需在激活前检查依赖、外部服务和凭据要求。
 
@@ -291,4 +291,3 @@ cd client && npm.cmd run build
 4. 切换到 `已安装`，确认可见。
 5. 打开任意 `/chat/:modelId`，在 Skill 下拉框选择刚安装的 Skill。
 6. 发送“你能做什么？”，观察回复是否体现该 Skill 的能力。
-

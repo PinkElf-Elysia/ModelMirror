@@ -132,7 +132,7 @@ async def test_planning_service_clarifies_regenerates_and_confirms(tmp_path: Pat
             _plan_payload(),
         ]
     )
-    _, planning, _, session = _services(tmp_path, planner)
+    creator, planning, _, session = _services(tmp_path, planner)
 
     first = await planning.generate(
         session.session_id,
@@ -141,6 +141,7 @@ async def test_planning_service_clarifies_regenerates_and_confirms(tmp_path: Pat
         expected_plan_digest=None,
     )
     assert first.state == "needs_input"
+    session, _ = creator.get_session(session.session_id)
     answered = planning.save_answers(
         session.session_id,
         plan_id=first.plan_id,
@@ -179,6 +180,7 @@ async def test_definition_change_makes_existing_plan_projection_stale(tmp_path: 
         expected_plan_revision=None,
         expected_plan_digest=None,
     )
+    session, _ = creator.get_session(session.session_id)
     confirmed = planning.confirm(
         session.session_id,
         plan_id=plan.plan_id,
@@ -563,12 +565,20 @@ async def test_resource_plan_api_projects_plan_and_confirms(tmp_path: Path) -> N
             assert status.json()["resource_authoring_enabled"] is True
             assert status.json()["resource_planner_available"] is True
 
+            created = await client.post(
+                "/api/skills/creator/sessions",
+                json={"mode": "blank", "intent": "Plan a reusable review workflow."},
+            )
+            assert created.status_code == 201, created.text
+            assert created.json()["session"]["authoring_flow"] == "resource"
+
             generated = await client.post(
                 f"/api/skills/creator/sessions/{session.session_id}/resource-plan/generate",
                 json={"expected_session_revision": session.session_revision},
             )
             assert generated.status_code == 200, generated.text
-            plan = generated.json()["resource_plan"]
+            generated_payload = generated.json()
+            plan = generated_payload["resource_plan"]
             assert plan["state"] == "ready"
             assert plan["stale"] is False
 
@@ -576,7 +586,7 @@ async def test_resource_plan_api_projects_plan_and_confirms(tmp_path: Path) -> N
                 f"/api/skills/creator/sessions/{session.session_id}/resource-plan/confirm",
                 json={
                     "plan_id": plan["plan_id"],
-                    "expected_session_revision": session.session_revision,
+                    "expected_session_revision": generated_payload["session"]["session_revision"],
                     "expected_plan_revision": plan["revision"],
                     "expected_plan_digest": plan["digest"],
                 },

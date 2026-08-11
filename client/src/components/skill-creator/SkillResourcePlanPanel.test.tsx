@@ -70,6 +70,7 @@ const session: SkillCreatorSession = {
   session_id: "creator_1",
   session_revision: 3,
   draft_state_revision: 1,
+  authoring_flow: "resource",
   mode: "blank",
   assistant_agent_id: "skill-creator-assistant-v1",
   intent: "Create factual incident reviews.",

@@ -78,7 +78,7 @@ class SkillCreatorResourceBuildService:
         self.builder = builder
         self.script_runner = script_runner
         self.enabled = (
-            os.getenv("SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED", "false").strip().lower()
+            os.getenv("SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED", "true").strip().lower()
             in {"1", "true", "yes", "on"}
             if enabled is None
             else bool(enabled)
@@ -293,6 +293,31 @@ class SkillCreatorResourceBuildService:
             feedback=feedback,
         )
 
+    async def edit_resource(
+        self,
+        build_id: str,
+        *,
+        resource_id: str,
+        expected_session_revision: int,
+        expected_revision: int,
+        expected_digest: str,
+        content: str,
+    ) -> SkillResourceBuild:
+        self.require_enabled()
+        current = self.build_store.require(build_id)
+        async with self._lock(current.session_id):
+            session, draft = self.creator_service.get_session(current.session_id)
+            self._require_session_revision(session, expected_session_revision)
+            self._require_build_scope(current, session=session, draft=draft)
+            edited = self.build_store.replace_resource_content(
+                build_id,
+                resource_id=resource_id,
+                expected_revision=expected_revision,
+                expected_digest=expected_digest,
+                content=content,
+            )
+            return await self._validate_current(edited, auto_repair=False)
+
     def finalize(
         self,
         build_id: str,
@@ -367,7 +392,12 @@ class SkillCreatorResourceBuildService:
         )
         return recorded, proposal
 
-    async def _validate_current(self, current: SkillResourceBuild) -> SkillResourceBuild:
+    async def _validate_current(
+        self,
+        current: SkillResourceBuild,
+        *,
+        auto_repair: bool = True,
+    ) -> SkillResourceBuild:
         if current.state != "awaiting_review":
             return current
         target_id, _ = self._segment_target(current)
@@ -391,6 +421,7 @@ class SkillCreatorResourceBuildService:
             target_id=target_id,
             issues=issues,
             script_receipt=receipt,
+            auto_repair=auto_repair,
         )
 
     def _proposal(
@@ -401,11 +432,27 @@ class SkillCreatorResourceBuildService:
         draft: WorkspaceSkillDraft | None,
         coverage: list[dict[str, Any]],
     ) -> AuthoringProposal:
-        proposals = self.creator_service.authoring_service.proposal_store.list(
-            source_type="skill_creator",
-            source_id=build.build_id,
-            limit=10,
-        )
+        proposal_candidates = [
+            *self.creator_service.authoring_service.proposal_store.list(
+                source_type="skill_creator",
+                source_id=session.session_id,
+                limit=20,
+            ),
+            # PR2 previews used the build id as the proposal source. Keep those
+            # immutable records discoverable while all new proposals use the
+            # Creator session id required by session recovery.
+            *self.creator_service.authoring_service.proposal_store.list(
+                source_type="skill_creator",
+                source_id=build.build_id,
+                limit=20,
+            ),
+        ]
+        proposals = [
+            item
+            for item in {candidate.proposal_id: candidate for candidate in proposal_candidates}.values()
+            if isinstance(item.payload.get("creator_resource_build"), dict)
+            and item.payload["creator_resource_build"].get("build_id") == build.build_id
+        ]
         payload = self._proposal_payload(
             build, session=session, draft=draft, coverage=coverage
         )
@@ -421,7 +468,7 @@ class SkillCreatorResourceBuildService:
                 title=f"Review resource-built Skill: {build.skill_name}",
                 payload=payload,
                 source_type="skill_creator",
-                source_id=build.build_id,
+                source_id=session.session_id,
                 target_id=(draft.draft_id if draft else None),
                 base_revision=(draft.revision if draft else None),
                 base_digest=(draft.content_digest if draft else None),
