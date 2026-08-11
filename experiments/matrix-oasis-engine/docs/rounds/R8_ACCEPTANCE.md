@@ -1,6 +1,6 @@
 # R8验收记录
 
-状态：R8.3 Provider已验证，等待本地提交。
+状态：R8.4 生成编排与安全CLI已验证，等待本地提交。
 
 固定基线：`21cbbb8b943b6f9d9799f014c44a6349e6124a63`
 
@@ -9,7 +9,7 @@
 - [x] R8.1 治理与关键路径护栏
 - [x] R8.2 Generation Proposal与Scene Blueprint合同
 - [x] R8.3 OpenAI兼容模型适配器
-- [ ] R8.4 生成编排、修复循环与CLI
+- [x] R8.4 生成编排、修复循环与CLI
 - [ ] R8.5 真实模型资格验证
 - [ ] R8.6 standalone与验收收口
 
@@ -55,4 +55,20 @@ R8.2提交：`c3e2feffda8995d2a882e83a29385180b0f84c18`。单独revert该提交�
 - 注入仓外Godot 4.6.3后最终 `npm.cmd run verify`：14/14步骤通过；Node 517/517、冻结Godot R4–R7与Creator build/smoke无回归。
 - R1–R7、Creator、Godot、examples、assets、vendor及历史验收记录相对R8.2 HEAD零差异；未调用真实模型、Marble或Meshy，未启动Docker、父服务或共享栈。
 
-本批提交SHA由R8.4记录。单独revert本提交删除Provider workspace与Provider测试，不影响R8.2离线合同或冻结运行链。
+R8.3提交：`00a74f6a5d13f56f2a32290ee5e71649ddf97d8e`。单独revert该提交删除Provider workspace与Provider测试，不影响R8.2离线合同或冻结运行链。
+
+## R8.4证据
+
+- `@matrix-oasis/prototype-generator`公开面固定为供应商中立的`generatePrototype`、OpenAI兼容Provider工厂和静态operational error；生成器只从冻结包根调用合同、Compiler与Runtime，不导入内部evaluator或样例。
+- 最多一次初始请求和两次定向修复；修复负载不重发prompt，只含上一候选和静态code/JSON Pointer，三次内容失败后只返回diagnostics且不写文件。
+- 成功链严格通过Generation Proposal、冻结Authoring Validator、Compiler、Receipt canonical化、Runtime prepare与初始Session，并要求至少一个声明Action；输出固定为五个canonical JSON，generation report只含模型、请求数、usage、artifact hash/字节数和Runtime检查。
+- `plan:prototype-call`只检查上传范围，不发请求；`generate:prototype`必须显式确认上传，只读取三个R8专用环境变量。prompt限制为`C:\tmp`内32 KiB fatal UTF-8普通文件，输出限制为`C:\tmp`尚不存在的一级子目录。
+- 五文件通过同父临时目录、独占FileHandle、bigint设备/文件身份、同步/回读和单次目录rename事务发布；覆盖junction、读取换身、现有目标、第二文件故障、并发同名和路径越界，失败不覆盖既有目标或发布半成品。
+- `npm.cmd install --package-lock-only --offline --ignore-scripts --no-audit --no-fund`退出0；lock只为prototype-generator登记三个既有内部workspace依赖，无新registry包或许可证例外。`npm.cmd ls --all`无missing/extraneous。
+- `npm.cmd run verify:prototype-generation`：合同14/14、Provider/CLI 28/28、生成编排9/9通过；20次假Provider产物字节一致，真实loopback CLI完成一次严格Schema请求并发布五文件。
+- TypeScript declaration strict解析；`npm.cmd run check:boundary`通过（checked=895、tracked=890），包含新增“变量凭据引用允许、真实明文密钥仍拒绝”正反锁；round/parent scope与固定BASE通过（checked=57、changed=41），`git diff --check`通过。
+- 注入仓外Godot 4.6.3后的最终`npm.cmd run verify`：14/14步骤通过；Node 536/536、冻结Godot R4–R7、Creator build与HTTP smoke无回归。
+- 一次未注入`GODOT_BIN`的全量Node试跑仅有doctor严格环境项失败（535/536），设置方案固定的仓外Godot路径后最终门通过；未修改doctor或放宽工具链。
+- R1–R7、Creator、Godot、examples、assets、vendor及历史验收记录相对R8.3 HEAD零差异；未调用真实模型、Marble或Meshy，未启动Docker、父服务或共享栈。
+
+本批提交SHA由R8.5记录。单独revert本提交删除生成编排、两个CLI和事务测试，恢复R8.3仅Provider状态，不影响冻结R1–R7链。

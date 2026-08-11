@@ -18,4 +18,10 @@
 - R8 不生成 3D 资产、不启动 Godot、不调用 Marble/Meshy。
 - 真实模型资格验证不进入普通 `verify`，必须逐次人工批准。
 
-完整自动验证继续使用 `npm.cmd run verify`；R8 独立入口和真实资格命令会在对应批次加入。任何父仓修改、共享栈操作或真实供应商调用都需要单独授权。
+R8.4 已提供：
+
+- `npm.cmd run plan:prototype-call -- --prompt-file <C:\tmp文件>`：只读检查上传范围并显示主机、模型、请求上限和字节数，不发出请求；
+- `npm.cmd run generate:prototype -- --prompt-file <C:\tmp文件> --output <C:\tmp新目录> --acknowledge-external-upload`：最多三次模型请求，严格验证后事务发布五个 canonical JSON；
+- `npm.cmd run verify:prototype-generation`：只使用 loopback 假 Provider，零外部费用。
+
+完整自动验证继续使用 `npm.cmd run verify`。真实资格命令与证据留给 R8.5；任何父仓修改、共享栈操作或真实供应商调用都需要单独授权。

@@ -24,9 +24,13 @@ export interface PrototypeProviderResponse {
 }
 
 export interface PrototypeGenerationProvider {
-  readonly kind: "openai-compatible";
+  readonly kind: string;
   readonly model: string;
   requestProposal(request: PrototypeProviderRequest): Promise<PrototypeProviderResponse>;
+}
+
+export interface OpenAICompatiblePrototypeProvider extends PrototypeGenerationProvider {
+  readonly kind: "openai-compatible";
 }
 
 export interface OpenAICompatibleProviderConfig {
@@ -41,4 +45,30 @@ export declare class PrototypeGeneratorOperationalError extends Error {
 
 export declare function createOpenAICompatibleProvider(
   config: OpenAICompatibleProviderConfig,
-): PrototypeGenerationProvider;
+): OpenAICompatiblePrototypeProvider;
+
+export interface GeneratePrototypeRequest {
+  readonly prompt: string;
+}
+
+export interface GeneratePrototypeSuccess {
+  readonly ok: true;
+  readonly artifacts: Readonly<{
+    authoringGamePackJson: string;
+    sceneBlueprintJson: string;
+    runtimeGamePackJson: string;
+    runtimeReceiptJson: string;
+    generationReportJson: string;
+  }>;
+}
+
+export interface GeneratePrototypeFailure {
+  readonly ok: false;
+  readonly diagnostics: readonly PrototypeGenerationDiagnostic[];
+}
+
+export declare function generatePrototype(
+  request: GeneratePrototypeRequest,
+  provider: PrototypeGenerationProvider,
+): Promise<GeneratePrototypeSuccess | GeneratePrototypeFailure>;
+import type { PrototypeGenerationDiagnostic } from "@matrix-oasis/prototype-generation-contracts";

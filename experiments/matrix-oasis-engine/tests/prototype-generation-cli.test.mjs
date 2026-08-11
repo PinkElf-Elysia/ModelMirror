@@ -1,15 +1,158 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
 import {
   createOpenAICompatibleProvider,
+  generatePrototype,
   PrototypeGeneratorOperationalError,
 } from "@matrix-oasis/prototype-generator";
 import { createOpenAICompatibleProviderWithSeams } from "../packages/prototype-generator/src/openai-compatible.mjs";
+import {
+  executeGeneratePrototypeCli,
+  executePlanPrototypeCli,
+  parseGeneratePrototypeArgs,
+  parsePlanPrototypeArgs,
+} from "../scripts/lib/prototype-cli-core.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const API_PATH = "/v1/chat/completions";
+const TEMP_ROOT = path.resolve(path.parse(process.cwd()).root, "tmp");
+let outputSequence = 0;
+
+function nextOutputPath(label = "output") {
+  outputSequence += 1;
+  return path.join(
+    TEMP_ROOT,
+    `matrix-oasis-r8-${label}-${process.pid}-${Date.now()}-${outputSequence}`,
+  );
+}
+
+async function makeFixtureRoot() {
+  return mkdtemp(path.join(TEMP_ROOT, "matrix-oasis-r8-cli-fixture-"));
+}
+
+async function frozenProposalText() {
+  const authoringGamePack = JSON.parse(
+    await readFile(
+      new URL("../examples/mechanics-conformance.authoring-game-pack.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const nodeBindings = authoringGamePack.nodes.map((node) => ({
+    nodeId: node.id,
+    zoneId: "zone-main",
+    visiblePlacementIds: ["placement-environment"],
+  }));
+  return JSON.stringify({
+    format: "matrix-oasis.prototype-generation-proposal",
+    formatVersion: "0.1.0",
+    authoringGamePack,
+    sceneBlueprint: {
+      format: "matrix-oasis.scene-blueprint",
+      formatVersion: "0.1.0",
+      scene: {
+        id: authoringGamePack.id,
+        contentVersion: authoringGamePack.contentVersion,
+        title: "Neutral generated scene",
+        environmentPrompt: "A bounded neutral room with a floor and solid walls.",
+        visualStylePrompt: "Low-complexity industrial geometric prototype.",
+      },
+      zones: [
+        { id: "zone-main", label: "Main zone", description: "The bounded prototype room." },
+      ],
+      assetBriefs: [
+        {
+          id: "asset-environment",
+          kind: "environment",
+          prompt: "A bounded room with a floor and solid walls.",
+          entityId: null,
+          roles: ["visual", "collider"],
+        },
+      ],
+      placements: [
+        {
+          id: "placement-environment",
+          assetBriefId: "asset-environment",
+          zoneId: "zone-main",
+          entityId: null,
+        },
+      ],
+      nodeBindings,
+    },
+  });
+}
+
+function fakeProviderFor(candidateText) {
+  return Object.freeze({
+    kind: "fake",
+    model: "fake-neutral-model",
+    async requestProposal() {
+      return Object.freeze({ candidateText, model: "fake-neutral-model", usage: null });
+    },
+  });
+}
+
+function cliEnvironment(endpoint = "https://model.example.invalid/v1/chat/completions") {
+  return {
+    MATRIX_OASIS_MODEL_ENDPOINT: endpoint,
+    MATRIX_OASIS_MODEL_ID: "neutral-model",
+    MATRIX_OASIS_MODEL_API_KEY: ["loopback", "placeholder", "value"].join("-"),
+  };
+}
+
+function cliServices(overrides = {}) {
+  return {
+    readFile,
+    openFile: open,
+    mkdtemp,
+    rename,
+    rm,
+    realpath,
+    lstat,
+    createOpenAICompatibleProvider,
+    generatePrototype,
+    ...overrides,
+  };
+}
+
+async function runChild(script, args, environment) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, ...args], {
+      cwd: process.cwd(),
+      env: environment,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (exitCode) => resolve({ exitCode, stdout, stderr }));
+  });
+}
 
 function responseEnvelope(candidate = '{"candidate":true}') {
   return {
@@ -370,4 +513,395 @@ test("runtime source uses only native Web APIs and never reads host environment"
   assert.equal(/from\s+["'](?:node:)?(?:http|https|net|tls|undici)["']/.test(source), false);
   assert.equal(source.includes("globalThis.fetch"), true);
   assert.equal(source.includes('redirect: "error"'), true);
+});
+
+test("prototype CLI parsers reject missing, duplicate, unknown, and unacknowledged arguments", () => {
+  const cases = [
+    [() => parsePlanPrototypeArgs([]), "PROTOTYPE_PLAN_PROMPT_REQUIRED"],
+    [() => parsePlanPrototypeArgs(["--unknown", "value"]), "PROTOTYPE_PLAN_ARGUMENT_INVALID"],
+    [
+      () => parsePlanPrototypeArgs(["--prompt-file", "one", "--prompt-file", "two"]),
+      "PROTOTYPE_PLAN_ARGUMENT_INVALID",
+    ],
+    [
+      () => parseGeneratePrototypeArgs(["--prompt-file", "one", "--output", "two"]),
+      "PROTOTYPE_GENERATE_UPLOAD_ACK_REQUIRED",
+    ],
+    [
+      () =>
+        parseGeneratePrototypeArgs([
+          "--prompt-file",
+          "one",
+          "--output",
+          "two",
+          "--acknowledge-external-upload",
+          "--acknowledge-external-upload",
+        ]),
+      "PROTOTYPE_GENERATE_ARGUMENT_INVALID",
+    ],
+    [
+      () =>
+        parseGeneratePrototypeArgs([
+          "--prompt-file",
+          `bad${String.fromCodePoint(0)}path`,
+          "--output",
+          "two",
+          "--acknowledge-external-upload",
+        ]),
+      "PROTOTYPE_GENERATE_PROMPT_INVALID",
+    ],
+  ];
+  for (const [operation, code] of cases) {
+    assert.throws(operation, (error) => error.code === code && error.message === code);
+  }
+});
+
+test("call plan reads only a bounded fatal UTF-8 prompt and reveals no prompt or credential", async () => {
+  const root = await makeFixtureRoot();
+  try {
+    const accepted = path.join(root, "accepted.txt");
+    const oversized = path.join(root, "oversized.txt");
+    const invalidUtf8 = path.join(root, "invalid.txt");
+    await writeFile(accepted, "x".repeat(32_768));
+    await writeFile(oversized, "x".repeat(32_769));
+    await writeFile(invalidUtf8, Uint8Array.from([0xff]));
+    const environment = cliEnvironment();
+    const acceptedResult = await executePlanPrototypeCli({
+      args: ["--prompt-file", accepted],
+      tempRoot: TEMP_ROOT,
+      environment,
+      readFile,
+      realpath,
+      lstat,
+    });
+    assert.equal(acceptedResult.exitCode, 0);
+    assert.match(acceptedResult.stdout, /maxRequests=3 promptBytes=32768 uploadsPrompt=true/);
+    assert.equal(acceptedResult.stdout.includes("x".repeat(64)), false);
+    assert.equal(
+      acceptedResult.stdout.includes(environment.MATRIX_OASIS_MODEL_API_KEY),
+      false,
+    );
+    for (const candidate of [oversized, invalidUtf8]) {
+      const result = await executePlanPrototypeCli({
+        args: ["--prompt-file", candidate],
+        tempRoot: TEMP_ROOT,
+        environment,
+        readFile,
+        realpath,
+        lstat,
+      });
+      assert.equal(result.exitCode, 2);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /^PROTOTYPE_[A-Z0-9_]+\n$/);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("prompt containment rejects paths outside the trusted root and directory junction traversal", async () => {
+  const root = await makeFixtureRoot();
+  const target = await makeFixtureRoot();
+  const junction = path.join(root, "linked");
+  try {
+    const targetPrompt = path.join(target, "prompt.txt");
+    await writeFile(targetPrompt, "neutral prompt");
+    await symlink(target, junction, "junction");
+    for (const candidate of [
+      path.resolve(path.parse(TEMP_ROOT).root, "Windows", "win.ini"),
+      path.join(junction, "prompt.txt"),
+    ]) {
+      const result = await executePlanPrototypeCli({
+        args: ["--prompt-file", candidate],
+        tempRoot: TEMP_ROOT,
+        environment: cliEnvironment(),
+        readFile,
+        realpath,
+        lstat,
+      });
+      assert.equal(result.exitCode, 2);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /^PROTOTYPE_[A-Z0-9_]+\n$/);
+    }
+  } finally {
+    await unlink(junction).catch(() => {});
+    await rm(root, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
+  }
+});
+
+test("prompt identity swaps and environment accessors fail closed without invoking getters", async () => {
+  const root = await makeFixtureRoot();
+  try {
+    const promptFile = path.join(root, "prompt.txt");
+    const movedFile = path.join(root, "moved.txt");
+    await writeFile(promptFile, "neutral prompt");
+    const swapped = await executePlanPrototypeCli({
+      args: ["--prompt-file", promptFile],
+      tempRoot: TEMP_ROOT,
+      environment: cliEnvironment(),
+      readFile: async (candidate) => {
+        const bytes = await readFile(candidate);
+        await rename(candidate, movedFile);
+        await writeFile(candidate, bytes);
+        return bytes;
+      },
+      realpath,
+      lstat,
+    });
+    assert.equal(swapped.exitCode, 2);
+    assert.equal(swapped.stderr, "PROTOTYPE_PROMPT_READ_ERROR\n");
+
+    let getterCalls = 0;
+    const environment = cliEnvironment();
+    Object.defineProperty(environment, "MATRIX_OASIS_MODEL_ENDPOINT", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return "https://model.example.invalid/v1/chat/completions";
+      },
+    });
+    const accessor = await executePlanPrototypeCli({
+      args: ["--prompt-file", promptFile],
+      tempRoot: TEMP_ROOT,
+      environment,
+      readFile,
+      realpath,
+      lstat,
+    });
+    assert.equal(accessor.exitCode, 2);
+    assert.equal(accessor.stderr, "PROTOTYPE_MODEL_CONFIG_INVALID\n");
+    assert.equal(getterCalls, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("generation publishes exactly five canonical files in one new output directory", async () => {
+  const root = await makeFixtureRoot();
+  const output = nextOutputPath("success");
+  try {
+    const promptFile = path.join(root, "prompt.txt");
+    const candidate = await frozenProposalText();
+    await writeFile(promptFile, "Build a neutral bounded prototype with basic interactions.");
+    const result = await executeGeneratePrototypeCli({
+      args: [
+        "--prompt-file",
+        promptFile,
+        "--output",
+        output,
+        "--acknowledge-external-upload",
+      ],
+      tempRoot: TEMP_ROOT,
+      environment: cliEnvironment(),
+      ...cliServices({
+        createOpenAICompatibleProvider: () => fakeProviderFor(candidate),
+      }),
+    });
+    assert.deepEqual(result, {
+      exitCode: 0,
+      stdout: "PROTOTYPE_GENERATION_OK requests=1\n",
+      stderr: "",
+    });
+    assert.deepEqual((await readdir(output)).sort(), [
+      "authoring-game-pack.json",
+      "generation-report.json",
+      "runtime-game-pack.json",
+      "runtime-receipt.json",
+      "scene-blueprint.json",
+    ]);
+    for (const name of await readdir(output)) {
+      const bytes = await readFile(path.join(output, name));
+      assert.equal(bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf, false);
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      assert.equal(text.endsWith("\n"), false);
+      assert.doesNotThrow(() => JSON.parse(text));
+    }
+  } finally {
+    await rm(output, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("content failure and publication faults leave no candidate output", async () => {
+  const root = await makeFixtureRoot();
+  const rejectedOutput = nextOutputPath("rejected");
+  const failedOutput = nextOutputPath("fault");
+  try {
+    const promptFile = path.join(root, "prompt.txt");
+    await writeFile(promptFile, "neutral prompt");
+    const base = {
+      args: [
+        "--prompt-file",
+        promptFile,
+        "--output",
+        rejectedOutput,
+        "--acknowledge-external-upload",
+      ],
+      tempRoot: TEMP_ROOT,
+      environment: cliEnvironment(),
+      ...cliServices({
+        createOpenAICompatibleProvider: () => Object.freeze({}),
+        generatePrototype: async () => ({
+          ok: false,
+          diagnostics: [
+            {
+              phase: "schema",
+              severity: "error",
+              code: "PROTOTYPE_PROPOSAL_SCHEMA_REQUIRED",
+              path: "/sceneBlueprint",
+              message: "PROTOTYPE_PROPOSAL_SCHEMA_REQUIRED",
+            },
+          ],
+        }),
+      }),
+    };
+    const rejected = await executeGeneratePrototypeCli(base);
+    assert.deepEqual(rejected, {
+      exitCode: 1,
+      stdout: "",
+      stderr: "PROTOTYPE_PROPOSAL_SCHEMA_REQUIRED /sceneBlueprint\n",
+    });
+    await assert.rejects(lstat(rejectedOutput), { code: "ENOENT" });
+
+    let opens = 0;
+    const faulted = await executeGeneratePrototypeCli({
+      ...base,
+      args: base.args.map((value) => (value === rejectedOutput ? failedOutput : value)),
+      generatePrototype: async (_request, _provider) =>
+        generatePrototype({ prompt: "neutral prompt" }, fakeProviderFor(await frozenProposalText())),
+      openFile: async (...arguments_) => {
+        opens += 1;
+        if (opens === 2) {
+          throw new Error(["dynamic", "file", Date.now()].join("-"));
+        }
+        return open(...arguments_);
+      },
+    });
+    assert.equal(faulted.exitCode, 2);
+    assert.equal(faulted.stderr, "PROTOTYPE_GENERATE_IO_ERROR\n");
+    await assert.rejects(lstat(failedOutput), { code: "ENOENT" });
+    const names = await readdir(TEMP_ROOT);
+    assert.equal(names.some((name) => name.includes(path.basename(failedOutput))), false);
+  } finally {
+    await rm(rejectedOutput, { recursive: true, force: true });
+    await rm(failedOutput, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an existing output is preserved and concurrent same-name publication has one winner", async () => {
+  const root = await makeFixtureRoot();
+  const existing = nextOutputPath("existing");
+  const concurrent = nextOutputPath("concurrent");
+  try {
+    const promptFile = path.join(root, "prompt.txt");
+    await writeFile(promptFile, "neutral prompt");
+    await mkdir(existing);
+    await writeFile(path.join(existing, "sentinel.txt"), "preserve-me");
+    const candidate = await frozenProposalText();
+    const execute = (output) =>
+      executeGeneratePrototypeCli({
+        args: [
+          "--prompt-file",
+          promptFile,
+          "--output",
+          output,
+          "--acknowledge-external-upload",
+        ],
+        tempRoot: TEMP_ROOT,
+        environment: cliEnvironment(),
+        ...cliServices({ createOpenAICompatibleProvider: () => fakeProviderFor(candidate) }),
+      });
+    const preserved = await execute(existing);
+    assert.equal(preserved.exitCode, 2);
+    assert.equal(await readFile(path.join(existing, "sentinel.txt"), "utf8"), "preserve-me");
+
+    const results = await Promise.all([execute(concurrent), execute(concurrent)]);
+    assert.deepEqual(results.map((item) => item.exitCode).sort(), [0, 2]);
+    assert.equal((await readdir(concurrent)).length, 5);
+    const reportText = await readFile(path.join(concurrent, "generation-report.json"), "utf8");
+    assert.doesNotThrow(() => JSON.parse(reportText));
+  } finally {
+    await rm(existing, { recursive: true, force: true });
+    await rm(concurrent, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("output paths outside C tmp, reserved names, and existing junctions are rejected", async () => {
+  const root = await makeFixtureRoot();
+  const junction = nextOutputPath("junction");
+  try {
+    const promptFile = path.join(root, "prompt.txt");
+    await writeFile(promptFile, "neutral prompt");
+    await symlink(root, junction, "junction");
+    const candidate = await frozenProposalText();
+    const outputs = [
+      path.resolve(path.parse(TEMP_ROOT).root, "matrix-oasis-r8-outside"),
+      path.join(TEMP_ROOT, "con"),
+      junction,
+    ];
+    for (const output of outputs) {
+      const result = await executeGeneratePrototypeCli({
+        args: [
+          "--prompt-file",
+          promptFile,
+          "--output",
+          output,
+          "--acknowledge-external-upload",
+        ],
+        tempRoot: TEMP_ROOT,
+        environment: cliEnvironment(),
+        ...cliServices({ createOpenAICompatibleProvider: () => fakeProviderFor(candidate) }),
+      });
+      assert.equal(result.exitCode, 2);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /^PROTOTYPE_GENERATE_[A-Z0-9_]+\n$/);
+    }
+    assert.equal((await lstat(junction)).isSymbolicLink(), true);
+  } finally {
+    await unlink(junction).catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("real generate CLI completes through one loopback OpenAI-compatible request", async () => {
+  const root = await makeFixtureRoot();
+  const output = nextOutputPath("loopback");
+  const candidate = await frozenProposalText();
+  let requests = 0;
+  try {
+    const promptFile = path.join(root, "prompt.txt");
+    await writeFile(promptFile, "Build a neutral room with one basic interaction.");
+    await withServer(async (request, response) => {
+      requests += 1;
+      const body = JSON.parse(await readRequest(request));
+      assert.equal(body.response_format.json_schema.strict, true);
+      sendJson(response, 200, responseEnvelope(candidate));
+    }, async (endpoint) => {
+      const script = path.resolve("scripts/generate-prototype.mjs");
+      const result = await runChild(
+        script,
+        [
+          "--prompt-file",
+          promptFile,
+          "--output",
+          output,
+          "--acknowledge-external-upload",
+        ],
+        cliEnvironment(endpoint),
+      );
+      assert.deepEqual(result, {
+        exitCode: 0,
+        stdout: "PROTOTYPE_GENERATION_OK requests=1\n",
+        stderr: "",
+      });
+    });
+    assert.equal(requests, 1);
+    assert.equal((await readdir(output)).length, 5);
+  } finally {
+    await rm(output, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
 });

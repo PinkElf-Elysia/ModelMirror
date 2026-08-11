@@ -14,7 +14,9 @@
 - CLI可以读取三个R8专用模型环境变量，但不得打印或持久化其值，也不得读取父仓模型变量。
 - endpoint只允许HTTPS，或用于自动测试的loopback HTTP；禁止redirect、stream、tools和自动网络重试。
 - 每次生成最多3个请求：1次初始生成和2次定向修复。
-- 生成物只能事务发布到 `C:\tmp` 下的新目录；不得跟踪真实模型输出或详细响应日志。
+- prompt必须是 `C:\tmp` 内的普通真实文件；读取前后使用bigint设备/文件身份核对，拒绝symlink、junction、越界、超过32 KiB及非fatal UTF-8输入。
+- 生成物只能事务发布到 `C:\tmp` 的新一级子目录；五个固定文件先以独占FileHandle写入、同步、回读和复验，再通过单次目录rename发布，不覆盖既有目标。
+- 生成成功目录只包含Authoring、Blueprint、Runtime、Receipt和脱敏generation report；不得跟踪真实模型输出、原始HTTP响应或详细日志。
 
 ## 初版防偏离门
 

@@ -1246,7 +1246,11 @@ function containsHighConfidenceSecret(content) {
   ASSIGNED_SECRET.lastIndex = 0;
   for (const match of content.matchAll(ASSIGNED_SECRET)) {
     const value = match[1] ?? match[2] ?? match[3] ?? "";
-    if (value.length >= 12 && !looksLikePlaceholder(value)) {
+    const indirectReference =
+      match[1] === undefined &&
+      match[2] === undefined &&
+      /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/.test(value);
+    if (value.length >= 12 && !looksLikePlaceholder(value) && !indirectReference) {
       return true;
     }
   }

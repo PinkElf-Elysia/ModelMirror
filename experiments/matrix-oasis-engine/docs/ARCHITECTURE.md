@@ -17,7 +17,7 @@ Compiler → Runtime Pack + Receipt → deterministic Runtime validation（冻�
 Scene Pack + local GLB → Godot playable pipeline（R7，冻结且R8不启动）
 ```
 
-R8 的 Scene Blueprint 只是供应商无关的生成中间合同：它表达环境、资产需求、逻辑区域和节点可见关系，不含真实资产路径、哈希、3D坐标或供应商任务。R9/R10 可以消费它，但它不是 Runtime Pack、Scene Pack 或存档格式。
+R8 的 Scene Blueprint 只是供应商无关的生成中间合同：它表达环境、资产需求、逻辑区域和节点可见关系，不含真实资产路径、哈希、3D坐标或供应商任务。生成编排最多执行一次初始请求和两次定向修复，并以冻结 Validator、Compiler 和 Runtime 作为发布前门禁。R9/R10 可以消费 Blueprint，但它不是 Runtime Pack、Scene Pack 或存档格式。
 
 ## 独立模块原则
 

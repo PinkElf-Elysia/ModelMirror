@@ -225,6 +225,25 @@ test("the exact R8 provider adapter may use fetch without reading process enviro
   });
 });
 
+test("secret scanning permits an indirect credential reference but not embedded values", async () => {
+  await withFixture(async ({ root }) => {
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "src", "config.js"),
+      [
+        "const config = Object.freeze({ credential: readCredential() });",
+        "export const options = { apiKey: config.credential };",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.report.ok, true);
+  });
+});
+
 const negativeCases = [
   {
     name: "network call outside the exact provider adapter",

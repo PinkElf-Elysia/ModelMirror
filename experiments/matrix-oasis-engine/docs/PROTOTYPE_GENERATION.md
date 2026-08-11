@@ -29,3 +29,17 @@ Scene Blueprint 固定包含：
 Provider包不读取环境变量。endpoint、模型和凭据只由未来R8.4 CLI宿主传入；HTTP仅允许loopback，外部主机必须HTTPS。公开Provider对象不暴露凭据，HTTP正文、底层异常和动态响应字段不进入错误。正常响应必须只有一个choice、文本content与`stop`结束状态。
 
 首轮请求只携带纯文本prompt；修复请求只携带上一候选、静态code/JSON Pointer和原始Schema，不再次发送原始prompt。普通测试使用本机loopback假服务，不调用外部模型。
+
+## R8.4 生成编排与CLI
+
+`generatePrototype(request, provider)` 固定执行：请求候选、严格准备Generation Proposal、调用冻结Compiler、canonical化Receipt、准备冻结Runtime并创建入口会话。至少必须声明一个Action，且入口会话必须处于active状态。内容诊断最多触发两次定向修复；Provider、Compiler、Runtime或哈希故障统一抛出静态`PROTOTYPE_GENERATOR_INTERNAL_ERROR`。
+
+成功值只含五个canonical字符串：Authoring Game Pack、Scene Blueprint、Runtime Pack、Runtime Receipt和generation report。report只记录模型标识、请求次数、可用时的聚合usage、四个业务artifact的SHA-256/UTF-8字节数及初始Runtime检查，不包含prompt、endpoint、凭据、原始响应或异常。
+
+```powershell
+npm.cmd run plan:prototype-call -- --prompt-file <C:\tmp文件>
+npm.cmd run generate:prototype -- --prompt-file <C:\tmp文件> --output <C:\tmp新目录> --acknowledge-external-upload
+npm.cmd run verify:prototype-generation
+```
+
+`plan:prototype-call`不发网络请求，只披露将使用的主机、模型、最多三次请求及prompt字节数。`generate:prototype`只有在显式上传确认后才创建Provider；校验失败不写候选文件，成功时五个固定文件在同父临时目录完成独占写入、同步和回读后通过一次目录rename发布。输出必须是尚不存在的`C:\tmp`一级子目录。
