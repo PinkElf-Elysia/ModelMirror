@@ -134,7 +134,7 @@ def _apply_limits() -> None:
     limits = (
         (resource.RLIMIT_FSIZE, (8 * 1024 * 1024, 8 * 1024 * 1024)),
         (resource.RLIMIT_NOFILE, (256, 256)),
-        (resource.RLIMIT_NPROC, (128, 128)),
+        (resource.RLIMIT_NPROC, (256, 256)),
     )
     for kind, value in limits:
         resource.setrlimit(kind, value)

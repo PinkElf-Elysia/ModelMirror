@@ -4,6 +4,7 @@ from pathlib import Path
 def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     root = Path(__file__).parents[2]
     dockerfile = (root / "server/coding_worker/Dockerfile.v14").read_text()
+    shell_sandbox = (root / "server/coding_worker/shell_sandbox.py").read_text()
     server_dockerfile = (root / "server/Dockerfile").read_text()
     compose = (root / "docker-compose.coding-worker-v14.yml").read_text()
 
@@ -40,6 +41,8 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     )[0]
     assert "coding_worker_tools" in executor
     assert "coding_internal" not in executor
+    assert "pids_limit: 192" in executor
+    assert "(resource.RLIMIT_NPROC, (256, 256))" in shell_sandbox
     assert "coding_worker_tools:" in compose and "internal: true" in compose
     assert "coding-worker-network" in compose
     assert 'command: ["python", "-m", "coding_worker.egress_proxy"]' in compose

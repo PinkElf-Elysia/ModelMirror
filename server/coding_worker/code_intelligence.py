@@ -188,6 +188,11 @@ class _LspClient:
     async def _collect_typescript_diagnostics(
         self, uri: str, *, timeout: float
     ) -> list[Any]:
+        await self.semantic_request(
+            "textDocument/documentSymbol",
+            {"textDocument": {"uri": uri}},
+            timeout=timeout,
+        )
         diagnostics: list[Any] = []
         for command in (
             "syntacticDiagnosticsSync",
@@ -195,6 +200,7 @@ class _LspClient:
             "suggestionDiagnosticsSync",
         ):
             result: list[Any] | None = None
+            response_status = "missing_response"
             for attempt in range(2):
                 raw = await self.request(
                     "workspace/executeCommand",
@@ -208,6 +214,7 @@ class _LspClient:
                     },
                     timeout=timeout,
                 )
+                response_status = _typescript_diagnostic_response_status(raw)
                 result = _typescript_diagnostic_response(raw)
                 if result is not None:
                     break
@@ -215,7 +222,8 @@ class _LspClient:
                     await self._wait_for_typescript_project(timeout=timeout)
             if result is None:
                 raise CodeIntelligenceError(
-                    "TypeScript diagnostics are unavailable.",
+                    "TypeScript diagnostics are unavailable "
+                    f"({command}:{response_status}).",
                     code="code_intelligence_invalid_response",
                 )
             diagnostics.extend(result)
@@ -592,6 +600,21 @@ def _typescript_diagnostic_response(value: Any) -> list[dict[str, Any]] | None:
             }
         )
     return output
+
+
+def _typescript_diagnostic_response_status(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "invalid_container"
+    if value.get("type") in {"noServer", "noContent", "cancelled"}:
+        return str(value["type"])
+    if value.get("type") != "response":
+        return "unexpected_type"
+    if value.get("success") is not True:
+        return "request_failed"
+    body = value.get("body", [])
+    if body is not None and not isinstance(body, list):
+        return "invalid_body"
+    return "accepted"
 
 
 def _normalize_diagnostics(value: Any, repository: Path) -> list[dict[str, Any]]:
