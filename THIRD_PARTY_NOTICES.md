@@ -4,7 +4,7 @@
 
 - Project: `jnMetaCode/agency-orchestrator`
 - License: Apache License 2.0
-- Fixed source commit: `3b7c43042325a9091393de6ecfa7e9936b0c7932`
+- Fixed source commit: `e3f69fdf9da8a4630edbb8abeb116893b983b57d`
 - Vendored location: `server/vendor/agency-orchestrator/`
 - Provenance manifest: `server/vendor/agency-orchestrator/UPSTREAM_FILES.json`
 - Local license copy: `server/vendor/agency-orchestrator/LICENSE`
