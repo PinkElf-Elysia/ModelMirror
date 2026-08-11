@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "upstream_revision": "047505dccc0cc16ad92be11011347d635f33ceb0",
+  "package_manager": "pnpm@11.18.0",
+  "application_component": {
+    "name": "@modelmirror/upstream-workbench-worker",
+    "version": "0.1.0",
+    "purl": "pkg:npm/modelmirror/upstream-workbench-worker@0.1.0"
+  },
+  "production_component_count": 188,
+  "production_closure_sha256": "f84b39f756bf153a3a19311d6652cae3bef9056792bf4ae96fe1d19b45bd581c",
+  "license_gate": {
+    "status": "passed",
+    "blocked": [],
+    "policy": "Reject UNKNOWN, UNLICENSED, NOASSERTION, GPL, AGPL, and SSPL declarations."
+  },
+  "audit_gate": {
+    "status": "passed",
+    "high": 0,
+    "critical": 0,
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 1,
+      "high": 0,
+      "critical": 0
+    },
+    "policy": "Reject high or critical advisories in the production closure."
+  },
+  "sbom_sha256": "fe73e437a764d6ae939aab3bd598941a2c5653c771b15471920be655ceefc9c9"
+}

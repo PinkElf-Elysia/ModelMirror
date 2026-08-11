@@ -1,0 +1,21 @@
+{
+  "name": "@modelmirror/upstream-workbench-build",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "build:upstream": "pnpm --filter @prismshadow/penguin-skills build && pnpm --filter @prismshadow/penguin-core build",
+    "test:upstream": "pnpm --filter @prismshadow/penguin-skills test && pnpm --filter @prismshadow/penguin-core test",
+    "test:worker": "node --test --test-reporter=spec worker/test/*.test.mjs",
+    "test": "pnpm test:worker"
+  },
+  "devDependencies": {
+    "@prismshadow/penguin-core": "workspace:*",
+    "@prismshadow/penguin-skills": "workspace:*",
+    "tsx": "^4.20.0"
+  }
+}

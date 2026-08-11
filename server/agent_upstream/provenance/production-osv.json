@@ -1,0 +1,104 @@
+{
+  "results": [
+    {
+      "source": {
+        "path": "/scan/pnpm-lock.yaml",
+        "type": "lockfile"
+      },
+      "packages": [
+        {
+          "package": {
+            "name": "@anthropic-ai/sdk",
+            "version": "0.81.0",
+            "ecosystem": "npm"
+          },
+          "groups": [
+            {
+              "ids": [
+                "GHSA-p7fg-763f-g4gf"
+              ],
+              "aliases": [
+                "CVE-2026-41686",
+                "GHSA-p7fg-763f-g4gf"
+              ],
+              "max_severity": "4.8"
+            }
+          ],
+          "vulnerabilities": [
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-p7fg-763f-g4gf/GHSA-p7fg-763f-g4gf.json"
+                  },
+                  "package": {
+                    "ecosystem": "npm",
+                    "name": "@anthropic-ai/sdk",
+                    "purl": "pkg:npm/%40anthropic-ai/sdk"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "0.79.0"
+                        },
+                        {
+                          "fixed": "0.91.1"
+                        }
+                      ],
+                      "type": "SEMVER"
+                    }
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2026-41686"
+              ],
+              "database_specific": {
+                "cwe_ids": [
+                  "CWE-732"
+                ],
+                "github_reviewed": true,
+                "github_reviewed_at": "2026-04-29T22:28:12Z",
+                "nvd_published_at": "2026-05-04T19:16:03Z",
+                "severity": "MODERATE"
+              },
+              "details": "The `BetaLocalFilesystemMemoryTool` in the Anthropic TypeScript SDK created memory files and directories using the Node.js default modes (`0o666` for files, `0o777` for directories), leaving them world-readable on systems with a standard umask and world-writable in environments with a permissive umask such as many Docker base images. A local attacker on a shared host could read persisted agent state, and in containerized deployments could modify memory files to influence subsequent model behavior.\n\nUsers on the affected versions are advised to update to the latest version.\n\nClaude SDK  thanks `lucasfutures` for the report.",
+              "id": "GHSA-p7fg-763f-g4gf",
+              "modified": "2026-05-08T01:51:09.165218Z",
+              "published": "2026-04-29T22:28:12Z",
+              "references": [
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/anthropics/anthropic-sdk-typescript/security/advisories/GHSA-p7fg-763f-g4gf"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-41686"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://github.com/anthropics/anthropic-sdk-typescript"
+                }
+              ],
+              "schema_version": "1.7.5",
+              "severity": [
+                {
+                  "score": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+                  "type": "CVSS_V4"
+                }
+              ],
+              "summary": "Claude SDK for TypeScript has Insecure Default File Permissions in Local Filesystem Memory Tool"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "experimental_config": {
+    "licenses": {
+      "summary": false,
+      "allowlist": null
+    }
+  }
+}

@@ -1,0 +1,5 @@
+node_modules/
+.pnpm-store/
+build/
+vendor/penguin_harness/packages/*/dist/
+vendor/penguin_harness/packages/*/node_modules/

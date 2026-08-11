@@ -11,6 +11,9 @@ import type {
   AgentWorkspaceEntry,
   ApprovalMode,
   BuiltinSkill,
+  EngineShadowEvent,
+  EngineShadowRun,
+  EngineShadowRunDetail,
 } from "../types/agentWorkspace";
 
 export class AgentWorkspaceApiError extends Error {
@@ -44,7 +47,86 @@ export function readAgentWorkspaceStatus() {
     enabled: boolean;
     version: string;
     runtime_enabled: boolean;
+    engine_shadow_enabled: boolean;
   }>("/api/agent-workspace/status");
+}
+
+export async function listEngineShadowRuns(): Promise<EngineShadowRun[]> {
+  const result = await request<{ runs: EngineShadowRun[] }>(
+    "/api/agent-workspace/apps/engine-shadow-runs",
+  );
+  return result.runs;
+}
+
+export function createEngineShadowRun(payload: {
+  objective: string;
+  model_base_id: string;
+  thinking_level: AgentThinkingLevel;
+  token_budget: number;
+}) {
+  return request<EngineShadowRun>("/api/agent-workspace/apps/engine-shadow-runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function readEngineShadowRun(runId: string) {
+  return request<EngineShadowRunDetail>(
+    `/api/agent-workspace/apps/engine-shadow-runs/${encodeURIComponent(runId)}`,
+  );
+}
+
+export function stopEngineShadowRun(runId: string) {
+  return request<EngineShadowRun>(
+    `/api/agent-workspace/apps/engine-shadow-runs/${encodeURIComponent(runId)}/stop`,
+    { method: "POST" },
+  );
+}
+
+export async function listEngineShadowWorkspace(
+  runId: string,
+  path = "",
+): Promise<AgentWorkspaceEntry[]> {
+  const search = new URLSearchParams({ path });
+  const result = await request<{ entries: AgentWorkspaceEntry[] }>(
+    `/api/agent-workspace/apps/engine-shadow-runs/${encodeURIComponent(runId)}/workspace?${search}`,
+  );
+  return result.entries;
+}
+
+export function readEngineShadowWorkspaceFile(runId: string, path: string) {
+  const search = new URLSearchParams({ path });
+  return request<{ path: string; content: string; size: number }>(
+    `/api/agent-workspace/apps/engine-shadow-runs/${encodeURIComponent(runId)}/workspace/file?${search}`,
+  );
+}
+
+export function connectEngineShadowEvents(
+  runId: string,
+  after: number,
+  handlers: {
+    onEvent: (event: EngineShadowEvent) => void;
+    onTransportError: () => void;
+  },
+) {
+  const source = new EventSource(
+    `/api/agent-workspace/apps/engine-shadow-runs/${encodeURIComponent(runId)}/events/stream?after=${Math.max(0, after)}`,
+  );
+  source.addEventListener("shadow_event", ((message: MessageEvent<string>) => {
+    try {
+      const event = JSON.parse(message.data) as EngineShadowEvent;
+      if (!Number.isFinite(event.sequence) || typeof event.type !== "string") {
+        throw new Error("Invalid EngineShadowEvent");
+      }
+      handlers.onEvent(event);
+    } catch {
+      source.close();
+      handlers.onTransportError();
+    }
+  }) as EventListener);
+  source.onerror = () => handlers.onTransportError();
+  return () => source.close();
 }
 
 export async function listWorkspaceAgents(): Promise<AgentSummary[]> {

@@ -180,3 +180,6 @@ npm.cmd run build
 从“Agent State 生成”继续扩展到应用开发、Goal、证据门禁、服务运行、浏览器自测、
 RAG 配方与多 Agent 工作台的分轮计划见
 [Agent Workspace 后续参考边界](./references/agent-workspace-future.md)。
+
+R3R-1 的固定上游执行内核、Shadow 安全边界、供应链证据与回退说明见
+[Upstream Agent Workbench Shadow Engine](./agent-upstream-shadow.md)。

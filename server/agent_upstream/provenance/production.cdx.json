@@ -1,0 +1,4758 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:f84b39f7-56bf-153a-3a19-311d6652cae3",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:npm/modelmirror/upstream-workbench-worker@0.1.0",
+      "name": "@modelmirror/upstream-workbench-worker",
+      "version": "0.1.0",
+      "purl": "pkg:npm/modelmirror/upstream-workbench-worker@0.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e550b4a608c3d2b428ed3640b48241ca4224006145f557a87b1cd275db62aff2"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:first-party",
+          "value": "true"
+        },
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "package.json"
+        }
+      ]
+    },
+    "properties": [
+      {
+        "name": "modelmirror:source",
+        "value": "PenguinHarness production deploy closure"
+      },
+      {
+        "name": "modelmirror:upstream-revision",
+        "value": "047505dccc0cc16ad92be11011347d635f33ceb0"
+      },
+      {
+        "name": "modelmirror:package-manager",
+        "value": "pnpm@11.18.0"
+      },
+      {
+        "name": "modelmirror:closure-sha256",
+        "value": "f84b39f756bf153a3a19311d6652cae3bef9056792bf4ae96fe1d19b45bd581c"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/accepts@1.3.8",
+      "name": "accepts",
+      "version": "1.3.8",
+      "purl": "pkg:npm/accepts@1.3.8",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e5716d5d939db08c5c28ec6ae86ed67be5320f91089e2673fca1c5b876e57aa3"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/accepts@1.3.8/node_modules/accepts/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/agent-base@7.1.4",
+      "name": "agent-base",
+      "version": "7.1.4",
+      "purl": "pkg:npm/agent-base@7.1.4",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7a08cb2fe1d2b788e0a7bf6a9b7597dbeeeae804698c2fbd15de786d284d327c"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/agent-base@7.1.4/node_modules/agent-base/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/anthropic-ai/bedrock-sdk@0.26.4",
+      "name": "@anthropic-ai/bedrock-sdk",
+      "version": "0.26.4",
+      "purl": "pkg:npm/anthropic-ai/bedrock-sdk@0.26.4",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1411ca0c8b9279ad76507bb5b1da897ea32c64f5996018669f89f38c460df1ae"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@anthropic-ai/bedrock-sdk/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/anthropic-ai/sdk@0.81.0",
+      "name": "@anthropic-ai/sdk",
+      "version": "0.81.0",
+      "purl": "pkg:npm/anthropic-ai/sdk@0.81.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5ff01580d60084bff86f24c4b009c7829c7bef777349d35a228cc0bb5f016e00"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@anthropic-ai/sdk/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/array-flatten@1.1.1",
+      "name": "array-flatten",
+      "version": "1.1.1",
+      "purl": "pkg:npm/array-flatten@1.1.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5c5e0e10cfa23f163d1fe68aa57a881d09cac39d720e1361c697b86c4d33e0f5"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/array-flatten@1.1.1/node_modules/array-flatten/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-crypto/crc32@3.0.0",
+      "name": "@aws-crypto/crc32",
+      "version": "3.0.0",
+      "purl": "pkg:npm/aws-crypto/crc32@3.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "217c7b8d4f1bce78734af6fd48253797f65b3dfc20e10047fd1a3f8aacb5c5ad"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-crypto+crc32@3.0.0/node_modules/@aws-crypto/crc32/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-crypto/sha256-js@4.0.0",
+      "name": "@aws-crypto/sha256-js",
+      "version": "4.0.0",
+      "purl": "pkg:npm/aws-crypto/sha256-js@4.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c0f064ef382b4a8a345892fbd7a22373ea63a0c5a761a59d3b4537c9c8caf6f2"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@aws-crypto/sha256-js/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-crypto/util@3.0.0",
+      "name": "@aws-crypto/util",
+      "version": "3.0.0",
+      "purl": "pkg:npm/aws-crypto/util@3.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4fb079d20af7dfe68d067ea9180d78973082274a5f6876ec2475a30c9d4868f2"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-crypto+crc32@3.0.0/node_modules/@aws-crypto/util/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-crypto/util@4.0.0",
+      "name": "@aws-crypto/util",
+      "version": "4.0.0",
+      "purl": "pkg:npm/aws-crypto/util@4.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6c6ae5a5da4dcee8101a5f15cb8fbb7ecc6064f84a39ee7be96d7bc7544e5131"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-crypto+sha256-js@4.0.0/node_modules/@aws-crypto/util/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/client-bedrock-runtime@3.1106.0",
+      "name": "@aws-sdk/client-bedrock-runtime",
+      "version": "3.1106.0",
+      "purl": "pkg:npm/aws-sdk/client-bedrock-runtime@3.1106.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c6bcc4a01bb5f26b0f8bf292c2714a3349cacc7dcdeeb56823c45e851966fa83"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@aws-sdk/client-bedrock-runtime/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/core@3.977.6",
+      "name": "@aws-sdk/core",
+      "version": "3.977.6",
+      "purl": "pkg:npm/aws-sdk/core@3.977.6",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ca31aa25d921b1f75349008c373ff2ba72290bcea43b7ae39beb5e45077fb8c0"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@aws-sdk/core/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-cognito-identity@3.972.66",
+      "name": "@aws-sdk/credential-provider-cognito-identity",
+      "version": "3.972.66",
+      "purl": "pkg:npm/aws-sdk/credential-provider-cognito-identity@3.972.66",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6fa505daa37086d783f922c41814c5fee8036cd5f8c5ce7e2fe19bbd19a068ae"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-cognito-identity@3.972.66/node_modules/@aws-sdk/credential-provider-cognito-identity/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-env@3.972.67",
+      "name": "@aws-sdk/credential-provider-env",
+      "version": "3.972.67",
+      "purl": "pkg:npm/aws-sdk/credential-provider-env@3.972.67",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7565e3abee21e0613e887a2bc232ab7077bbde9c0c0041871c9680bed4f30f06"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-env@3.972.67/node_modules/@aws-sdk/credential-provider-env/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-http@3.972.69",
+      "name": "@aws-sdk/credential-provider-http",
+      "version": "3.972.69",
+      "purl": "pkg:npm/aws-sdk/credential-provider-http@3.972.69",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5c9f9fec9b2be8571357526baabe0279dbd79a540d99f20a75f0c363a2cbdd30"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-http@3.972.69/node_modules/@aws-sdk/credential-provider-http/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-ini@3.973.12",
+      "name": "@aws-sdk/credential-provider-ini",
+      "version": "3.973.12",
+      "purl": "pkg:npm/aws-sdk/credential-provider-ini@3.973.12",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "215a5e3896eb68046ed2c8355386db8395bf04b05997edf2bff450dc07fdd5d5"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-ini@3.973.12/node_modules/@aws-sdk/credential-provider-ini/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-login@3.972.74",
+      "name": "@aws-sdk/credential-provider-login",
+      "version": "3.972.74",
+      "purl": "pkg:npm/aws-sdk/credential-provider-login@3.972.74",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "26c2e73f803748d05a55d8da632edc03ff84511cc98b52eab596c5f6cf636df2"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-ini@3.973.12/node_modules/@aws-sdk/credential-provider-login/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-node@3.972.78",
+      "name": "@aws-sdk/credential-provider-node",
+      "version": "3.972.78",
+      "purl": "pkg:npm/aws-sdk/credential-provider-node@3.972.78",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "740dc89d0fdfb84e30ee49576e6dc27c579ab7621df38ad38950c90b041694c4"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@aws-sdk/credential-provider-node/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-process@3.972.67",
+      "name": "@aws-sdk/credential-provider-process",
+      "version": "3.972.67",
+      "purl": "pkg:npm/aws-sdk/credential-provider-process@3.972.67",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a6055cd8ad4517eb8987d2caba9182e01d39d6b5f78772e140046df5ebc143fc"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-ini@3.973.12/node_modules/@aws-sdk/credential-provider-process/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-sso@3.973.11",
+      "name": "@aws-sdk/credential-provider-sso",
+      "version": "3.973.11",
+      "purl": "pkg:npm/aws-sdk/credential-provider-sso@3.973.11",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "22fe6614aa5d0ff6bece1b8cf9f69bf15ae31840ba1da9a6459e84572df68296"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-ini@3.973.12/node_modules/@aws-sdk/credential-provider-sso/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-provider-web-identity@3.972.73",
+      "name": "@aws-sdk/credential-provider-web-identity",
+      "version": "3.972.73",
+      "purl": "pkg:npm/aws-sdk/credential-provider-web-identity@3.972.73",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ff1b5072e921f0599644135f133b8ccfdd7e8c185c18d372accec4eccf14ca9e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-ini@3.973.12/node_modules/@aws-sdk/credential-provider-web-identity/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/credential-providers@3.1106.0",
+      "name": "@aws-sdk/credential-providers",
+      "version": "3.1106.0",
+      "purl": "pkg:npm/aws-sdk/credential-providers@3.1106.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b0d95f5cea080b1cb9bdb4752181ec6f862cff0a12e26c8233fb4a2ad353f513"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@aws-sdk/credential-providers/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/eventstream-handler-node@3.972.31",
+      "name": "@aws-sdk/eventstream-handler-node",
+      "version": "3.972.31",
+      "purl": "pkg:npm/aws-sdk/eventstream-handler-node@3.972.31",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c42cadab0030271a20c0249be521eaaf520c1e662da61c0e7e2610f4cbdf25ef"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@aws-sdk/eventstream-handler-node/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/middleware-eventstream@3.972.26",
+      "name": "@aws-sdk/middleware-eventstream",
+      "version": "3.972.26",
+      "purl": "pkg:npm/aws-sdk/middleware-eventstream@3.972.26",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "858e96709d23153c4f793763d11ab9ef27f586e78063e1d7727247538aef4f37"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@aws-sdk/middleware-eventstream/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/middleware-websocket@3.972.49",
+      "name": "@aws-sdk/middleware-websocket",
+      "version": "3.972.49",
+      "purl": "pkg:npm/aws-sdk/middleware-websocket@3.972.49",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "332149c07cffea487237020a163920f81aa75387dd28b04e9c6885ddf5202384"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@aws-sdk/middleware-websocket/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/nested-clients@3.997.41",
+      "name": "@aws-sdk/nested-clients",
+      "version": "3.997.41",
+      "purl": "pkg:npm/aws-sdk/nested-clients@3.997.41",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0ff68677d696ba799a34f4eeafc5f56a8dfb2b659fddad6a15af17a64dd5499c"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-cognito-identity@3.972.66/node_modules/@aws-sdk/nested-clients/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/signature-v4-multi-region@3.996.43",
+      "name": "@aws-sdk/signature-v4-multi-region",
+      "version": "3.996.43",
+      "purl": "pkg:npm/aws-sdk/signature-v4-multi-region@3.996.43",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "08d56cf4ffc5815e0481fd3e3f1dea1586148eac5da8af8282c8a7ca05d65477"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+nested-clients@3.997.41/node_modules/@aws-sdk/signature-v4-multi-region/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/token-providers@3.1103.0",
+      "name": "@aws-sdk/token-providers",
+      "version": "3.1103.0",
+      "purl": "pkg:npm/aws-sdk/token-providers@3.1103.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "423b845cbe167054e1c598ed20c5661fbfc5fee4e6b7b3589e600b66906e78a7"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-sso@3.973.11/node_modules/@aws-sdk/token-providers/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/token-providers@3.1106.0",
+      "name": "@aws-sdk/token-providers",
+      "version": "3.1106.0",
+      "purl": "pkg:npm/aws-sdk/token-providers@3.1106.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8fc0fc6d8312fd9d4f7bc16f1341e41d27bc32dc703db93c3980062833a94aac"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@aws-sdk/token-providers/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/types@3.974.2",
+      "name": "@aws-sdk/types",
+      "version": "3.974.2",
+      "purl": "pkg:npm/aws-sdk/types@3.974.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5524a826dd978d1b460b980057b0b792292bda841a4e227d77a6c49dd38c3d6e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-crypto+crc32@3.0.0/node_modules/@aws-sdk/types/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/util-utf8-browser@3.259.0",
+      "name": "@aws-sdk/util-utf8-browser",
+      "version": "3.259.0",
+      "purl": "pkg:npm/aws-sdk/util-utf8-browser@3.259.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "654a93f2b0574af6451ee3b64df78b8cec83d8326477ad525dfcd9ad59686736"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-crypto+util@3.0.0/node_modules/@aws-sdk/util-utf8-browser/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws-sdk/xml-builder@3.972.37",
+      "name": "@aws-sdk/xml-builder",
+      "version": "3.972.37",
+      "purl": "pkg:npm/aws-sdk/xml-builder@3.972.37",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3b04483d99b7208f8d3ce50e46330e1b637625ddfe394c32cc982cbd3268429f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+core@3.977.6/node_modules/@aws-sdk/xml-builder/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/aws/lambda-invoke-store@0.3.0",
+      "name": "@aws/lambda-invoke-store",
+      "version": "0.3.0",
+      "purl": "pkg:npm/aws/lambda-invoke-store@0.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "67dd0cc15cb17df9e12654a78486e710e13a2e96623cb28c683056378fa973dc"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws+lambda-invoke-store@0.3.0/node_modules/@aws/lambda-invoke-store/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/babel/runtime@7.29.7",
+      "name": "@babel/runtime",
+      "version": "7.29.7",
+      "purl": "pkg:npm/babel/runtime@7.29.7",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8c4bf20c55e3f3a93df034b12746bf72185cf2acb0ef52847a3465d6e67c61e7"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/base64-js@1.5.1",
+      "name": "base64-js",
+      "version": "1.5.1",
+      "purl": "pkg:npm/base64-js@1.5.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9758f3ab8c45e07bb9a368e32f9a8b3729623bbf47cbbb205b32d674ab2a91f0"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/base64-js@1.5.1/node_modules/base64-js/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/bignumber.js@9.3.1",
+      "name": "bignumber.js",
+      "version": "9.3.1",
+      "purl": "pkg:npm/bignumber.js@9.3.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "192208575108629a3272453526258511a5911a8127ab955371fb1f25ac79e99d"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/bignumber.js@9.3.1/node_modules/bignumber.js/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/body-parser@1.20.6",
+      "name": "body-parser",
+      "version": "1.20.6",
+      "purl": "pkg:npm/body-parser@1.20.6",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3aea318533c956b0854703519df4a59fb3194c50a0bf898298838cf9a1e0ada3"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/body-parser/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/bowser@2.14.1",
+      "name": "bowser",
+      "version": "2.14.1",
+      "purl": "pkg:npm/bowser@2.14.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b12b643998a1a7febff9933b5a05e53045c722ff4de13fab751391b2d346a974"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+core@3.977.6/node_modules/bowser/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/buffer-equal-constant-time@1.0.1",
+      "name": "buffer-equal-constant-time",
+      "version": "1.0.1",
+      "purl": "pkg:npm/buffer-equal-constant-time@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2d3df7ecb57811cf6fc43be180d9801c7c70928e5388391a6f258d889449ef4e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/buffer-equal-constant-time@1.0.1/node_modules/buffer-equal-constant-time/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/bytes@3.1.2",
+      "name": "bytes",
+      "version": "3.1.2",
+      "purl": "pkg:npm/bytes@3.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "99b21c09ce812dc76a06cd87c4753247cb9615c6a8501c5a5a9d9caa22ea2d12"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/bytes/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/call-bind-apply-helpers@1.0.2",
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "purl": "pkg:npm/call-bind-apply-helpers@1.0.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "59639b628c6846f674857c6a613fd47e2e4d2a24036cdf0f7a62ac634f4c8a5f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/call-bind-apply-helpers@1.0.2/node_modules/call-bind-apply-helpers/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/call-bound@1.0.4",
+      "name": "call-bound",
+      "version": "1.0.4",
+      "purl": "pkg:npm/call-bound@1.0.4",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "dcc8abb3c4ad3774234272149020cb36d7b1a3d377a419454d1e7adb368dd9c3"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/call-bound@1.0.4/node_modules/call-bound/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/content-disposition@0.5.4",
+      "name": "content-disposition",
+      "version": "0.5.4",
+      "purl": "pkg:npm/content-disposition@0.5.4",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2459c0e8fbeb5716ab06e9ef73747bba46ed2bc52e310bd4e9f0ef1f102da61f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/content-disposition@0.5.4/node_modules/content-disposition/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/content-type@1.0.5",
+      "name": "content-type",
+      "version": "1.0.5",
+      "purl": "pkg:npm/content-type@1.0.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bd78a5427ffca1966621301edc6cac2146c8c1e137f122161ba90dca7ec89f77"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/content-type/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/cookie-signature@1.0.7",
+      "name": "cookie-signature",
+      "version": "1.0.7",
+      "purl": "pkg:npm/cookie-signature@1.0.7",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3bcffbe31f4169c483a9b80fb86a2a91f81a24796c8b750bf0ff345a1b10bdbc"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/cookie-signature@1.0.7/node_modules/cookie-signature/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/cookie@0.7.2",
+      "name": "cookie",
+      "version": "0.7.2",
+      "purl": "pkg:npm/cookie@0.7.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7fa781bd142e7f38b66bff64b4e3a8be9e53e340e7ddaf27caebd00322602208"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/cookie@0.7.2/node_modules/cookie/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/data-uri-to-buffer@4.0.1",
+      "name": "data-uri-to-buffer",
+      "version": "4.0.1",
+      "purl": "pkg:npm/data-uri-to-buffer@4.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ad4f90a737ab5d8af4dad265e9218456e3779ca5beb70df38dd5feecf80121dd"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/data-uri-to-buffer@4.0.1/node_modules/data-uri-to-buffer/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/debug@2.6.9",
+      "name": "debug",
+      "version": "2.6.9",
+      "purl": "pkg:npm/debug@2.6.9",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6c3d2c892db282317913ce7c340dd2edccd326bcafd18b644b8738144967d6ee"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/debug/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/debug@4.4.3",
+      "name": "debug",
+      "version": "4.4.3",
+      "purl": "pkg:npm/debug@4.4.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ea8e33d63fe5f3a4c36609b6c3df8e2ef1f8b8ba2fc3a2e1e53cb27291f384af"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/debug@4.4.3/node_modules/debug/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/depd@2.0.0",
+      "name": "depd",
+      "version": "2.0.0",
+      "purl": "pkg:npm/depd@2.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5a3659bcc2e47b25ebf9f23f38eb9452a58920bfe4b59410bfa6fe84639a3b99"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/depd/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/destroy@1.2.0",
+      "name": "destroy",
+      "version": "1.2.0",
+      "purl": "pkg:npm/destroy@1.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f865b50652dc062f43142e01f55db2760cc10d255bd05afd232e738999c58188"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/destroy/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/dunder-proto@1.0.1",
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "purl": "pkg:npm/dunder-proto@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "24df71008e4225c858f389dd2728b76cf66b752256d42a38ed7930aacae7fe2b"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/dunder-proto@1.0.1/node_modules/dunder-proto/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ecdsa-sig-formatter@1.0.11",
+      "name": "ecdsa-sig-formatter",
+      "version": "1.0.11",
+      "purl": "pkg:npm/ecdsa-sig-formatter@1.0.11",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f8c0805a13487310192db6ae04452c4315f5538ae87d7bc20de2904902c34027"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/ecdsa-sig-formatter@1.0.11/node_modules/ecdsa-sig-formatter/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ee-first@1.1.1",
+      "name": "ee-first",
+      "version": "1.1.1",
+      "purl": "pkg:npm/ee-first@1.1.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a4eece6ff6b38bf7ac107323f381cc60500097a9cbdd473f5d5b45e68822cb89"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/ee-first@1.1.1/node_modules/ee-first/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/encodeurl@2.0.0",
+      "name": "encodeurl",
+      "version": "2.0.0",
+      "purl": "pkg:npm/encodeurl@2.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5df10798f4b086da95c24180d7519fa4f68e2057a48e2ff6b76b91d6ffed1e9b"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/encodeurl@2.0.0/node_modules/encodeurl/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/es-define-property@1.0.1",
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "purl": "pkg:npm/es-define-property@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3a2cb30dae30a96705dcd9aa2d5fb190cf8200f27badccfa5a81a4374e5708b4"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/es-define-property@1.0.1/node_modules/es-define-property/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/es-errors@1.3.0",
+      "name": "es-errors",
+      "version": "1.3.0",
+      "purl": "pkg:npm/es-errors@1.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1a0a0bcccc76b915cb64073317312840cf6363e9144b96f406d0059774dd5278"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/call-bind-apply-helpers@1.0.2/node_modules/es-errors/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/es-object-atoms@1.1.2",
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "purl": "pkg:npm/es-object-atoms@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e4b7882975d10c68457945c883e1060d0b058af5b1216215c872263f42e12fc9"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/es-object-atoms@1.1.2/node_modules/es-object-atoms/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/escape-html@1.0.3",
+      "name": "escape-html",
+      "version": "1.0.3",
+      "purl": "pkg:npm/escape-html@1.0.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "bd320a3e9d23249f5f7d3ce72f2fa426e28a6b2704bd2b281d0c92806a1f5223"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/escape-html@1.0.3/node_modules/escape-html/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/etag@1.8.1",
+      "name": "etag",
+      "version": "1.8.1",
+      "purl": "pkg:npm/etag@1.8.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "836b9a5dd1c6af638f4602e83e2568277f9ab1f457db0b95d949c2a4ddb0462a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/etag@1.8.1/node_modules/etag/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/express@4.22.2",
+      "name": "express",
+      "version": "4.22.2",
+      "purl": "pkg:npm/express@4.22.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c7db3b72582355c80cdcef1ad7b2c9a8f53557550724c6bef8502e9818c2ebe7"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@prismshadow+agenthub@0.4.1_@aws-sdk+credential-provider-node@3.972.78_@smithy+signature-v4@5.6.12_ws@8.21.3/node_modules/express/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/extend@3.0.2",
+      "name": "extend",
+      "version": "3.0.2",
+      "purl": "pkg:npm/extend@3.0.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8d891b3f00bead114c4741d8a594e7aaa59114f53782ec9a9319a619709dc14f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/extend@3.0.2/node_modules/extend/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/fetch-blob@3.2.0",
+      "name": "fetch-blob",
+      "version": "3.2.0",
+      "purl": "pkg:npm/fetch-blob@3.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ee47bb73168049962586a09317017c44b1b10b2a90fc74e5c4561efdb361411b"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/fetch-blob@3.2.0/node_modules/fetch-blob/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/finalhandler@1.3.2",
+      "name": "finalhandler",
+      "version": "1.3.2",
+      "purl": "pkg:npm/finalhandler@1.3.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4907275accd15800e34bd953b35b64e391dbe182f75d870a5a30da72b4e9271b"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/finalhandler/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/formdata-polyfill@4.0.10",
+      "name": "formdata-polyfill",
+      "version": "4.0.10",
+      "purl": "pkg:npm/formdata-polyfill@4.0.10",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "09767e86a596171ef17e8ec4977eb11f530654740fa3105dbbd7cd545753421e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/formdata-polyfill@4.0.10/node_modules/formdata-polyfill/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/forwarded@0.2.0",
+      "name": "forwarded",
+      "version": "0.2.0",
+      "purl": "pkg:npm/forwarded@0.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "550a78f64b6a76bc353d6a10152af5750613d0d910f8478943176c1a6196158a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/forwarded@0.2.0/node_modules/forwarded/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/fresh@0.5.2",
+      "name": "fresh",
+      "version": "0.5.2",
+      "purl": "pkg:npm/fresh@0.5.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "65f8ebd91560a3a6143f06bd9066d337bcf5f0c53e4a5329b98894f24eefb8b1"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/fresh/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/function-bind@1.1.2",
+      "name": "function-bind",
+      "version": "1.1.2",
+      "purl": "pkg:npm/function-bind@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "edb1c4faf4148e6e3d74ed8dbac1a1dc359a647ff4207aad4851396dc7a3559a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/call-bind-apply-helpers@1.0.2/node_modules/function-bind/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/gaxios@7.3.0",
+      "name": "gaxios",
+      "version": "7.3.0",
+      "purl": "pkg:npm/gaxios@7.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "64523820ed04967d5443e8dc3dd27f0ee964175045b603e19e28b99027de0e76"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/gaxios@7.3.0/node_modules/gaxios/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/gcp-metadata@8.1.2",
+      "name": "gcp-metadata",
+      "version": "8.1.2",
+      "purl": "pkg:npm/gcp-metadata@8.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1d50f7d982a12c539356257f1b26631ec06f569b804a596dc926ec8773224fa4"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/gcp-metadata@8.1.2/node_modules/gcp-metadata/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/get-intrinsic@1.3.0",
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "purl": "pkg:npm/get-intrinsic@1.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "45b14763baacc59b0fd7b39e3ad983d5d2aaf7f5ed682f2fce9edb469826c999"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/call-bound@1.0.4/node_modules/get-intrinsic/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/get-proto@1.0.1",
+      "name": "get-proto",
+      "version": "1.0.1",
+      "purl": "pkg:npm/get-proto@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "73839e012ac7134a632c9d9fc6bdb700ac9ab5553cce39eb789ba2b65663e734"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/get-intrinsic@1.3.0/node_modules/get-proto/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/google-auth-library@10.9.1",
+      "name": "google-auth-library",
+      "version": "10.9.1",
+      "purl": "pkg:npm/google-auth-library@10.9.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d502e0b8f9b83f97f5f78aaee9ba5e7cd7067a81d2f8f0215c47b2877814a9c9"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@google+genai@1.52.0/node_modules/google-auth-library/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/google-logging-utils@1.1.3",
+      "name": "google-logging-utils",
+      "version": "1.1.3",
+      "purl": "pkg:npm/google-logging-utils@1.1.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "74980e1fd2db59c71a20ddf6accf42704c67da3b905fc5d2134ee39807dad42f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/gcp-metadata@8.1.2/node_modules/google-logging-utils/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/google/genai@1.52.0",
+      "name": "@google/genai",
+      "version": "1.52.0",
+      "purl": "pkg:npm/google/genai@1.52.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ec761756421ea5502c23dbebfb4bc2b74c3ff842597199f2f330afc49cbdedc7"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@google+genai@1.52.0/node_modules/@google/genai/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/gopd@1.2.0",
+      "name": "gopd",
+      "version": "1.2.0",
+      "purl": "pkg:npm/gopd@1.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "33ace32dc861f6da9d1fd9d0a44c66e8c6ff3b13358d070683c1c2978ff5f19f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/dunder-proto@1.0.1/node_modules/gopd/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/has-symbols@1.1.0",
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "purl": "pkg:npm/has-symbols@1.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5190268c0e3308d7446d1f7c036238f329f786938453e6017cb90980b3612e7a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/get-intrinsic@1.3.0/node_modules/has-symbols/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/hasown@2.0.4",
+      "name": "hasown",
+      "version": "2.0.4",
+      "purl": "pkg:npm/hasown@2.0.4",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "40b750c55a8bacf2c5ac316f5299dd44d48acc101c189a00cd59d39376b5eb89"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/get-intrinsic@1.3.0/node_modules/hasown/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/http-errors@2.0.1",
+      "name": "http-errors",
+      "version": "2.0.1",
+      "purl": "pkg:npm/http-errors@2.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d540721372bf8bf77b5fad31f6567a916e24d0aeeb78c81ba92b69feea9f1eef"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/http-errors/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/https-proxy-agent@7.0.6",
+      "name": "https-proxy-agent",
+      "version": "7.0.6",
+      "purl": "pkg:npm/https-proxy-agent@7.0.6",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b08c1977d38f14f4be7fb5be33aab545e3e5a6e2e12100733a6ad97dec995206"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/gaxios@7.3.0/node_modules/https-proxy-agent/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/iconv-lite@0.4.24",
+      "name": "iconv-lite",
+      "version": "0.4.24",
+      "purl": "pkg:npm/iconv-lite@0.4.24",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6f7c96c32f7d6e0498be71b0ccedaf298bb00ab4dd40c1d63655ec53477db384"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/iconv-lite/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/inherits@2.0.4",
+      "name": "inherits",
+      "version": "2.0.4",
+      "purl": "pkg:npm/inherits@2.0.4",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "be645800bc94fd8de29c8ae91690549b316cc437100108aeea7b2f347693cc80"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/http-errors@2.0.1/node_modules/inherits/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ipaddr.js@1.9.1",
+      "name": "ipaddr.js",
+      "version": "1.9.1",
+      "purl": "pkg:npm/ipaddr.js@1.9.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fc1071893728a0e78fa40ce0dbe04c5a1021179fdcb5b229f274e3556d6a87cd"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/ipaddr.js@1.9.1/node_modules/ipaddr.js/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/json-bigint@1.0.0",
+      "name": "json-bigint",
+      "version": "1.0.0",
+      "purl": "pkg:npm/json-bigint@1.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1c3b07ce46552112606922f0782b316383529b3da935d637c0606cb38a8caa5a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/gcp-metadata@8.1.2/node_modules/json-bigint/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/json-schema-to-ts@3.1.1",
+      "name": "json-schema-to-ts",
+      "version": "3.1.1",
+      "purl": "pkg:npm/json-schema-to-ts@3.1.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9439fa620a0f7a930950239ec4445d902c7d29590cddf0985a83bea531b2e81e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+sdk@0.81.0/node_modules/json-schema-to-ts/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/jwa@2.0.1",
+      "name": "jwa",
+      "version": "2.0.1",
+      "purl": "pkg:npm/jwa@2.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "53610fa0143c2cdef9d280e0c029ededf688930648358d4f3e35a081d75219d8"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/jwa@2.0.1/node_modules/jwa/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/jws@4.0.1",
+      "name": "jws",
+      "version": "4.0.1",
+      "purl": "pkg:npm/jws@4.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a934389f53e2ac8909d5399410c1ede3e35397be9e9f521bde25b61e1fee0b2f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/google-auth-library@10.9.1/node_modules/jws/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/long@5.3.2",
+      "name": "long",
+      "version": "5.3.2",
+      "purl": "pkg:npm/long@5.3.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "982e554a35d140981c7962fbba77855563e5890de200f8dc0a249135e4d9acb8"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/long@5.3.2/node_modules/long/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/math-intrinsics@1.1.0",
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "purl": "pkg:npm/math-intrinsics@1.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "39d74aa5a354153130706286dd60a2d8409ce0c8f66546eff2edcac0afff17e1"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/get-intrinsic@1.3.0/node_modules/math-intrinsics/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/media-typer@0.3.0",
+      "name": "media-typer",
+      "version": "0.3.0",
+      "purl": "pkg:npm/media-typer@0.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8ccf875e488e700b79ec48386e2f47c51c5f26297ec74e5e4e5d92dc5d70ef30"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/media-typer@0.3.0/node_modules/media-typer/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/merge-descriptors@1.0.3",
+      "name": "merge-descriptors",
+      "version": "1.0.3",
+      "purl": "pkg:npm/merge-descriptors@1.0.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6321e7d658510186de8976bd577ef59a1dcc4f1371d238ce2e676e484d1ebbed"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/merge-descriptors/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/methods@1.1.2",
+      "name": "methods",
+      "version": "1.1.2",
+      "purl": "pkg:npm/methods@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1aea21641646c87a589208a9363141cd2acd503db45c635f8217613c45837c09"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/methods/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/mime-db@1.52.0",
+      "name": "mime-db",
+      "version": "1.52.0",
+      "purl": "pkg:npm/mime-db@1.52.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d03e37b915a050af548d543f4e45ff5de06ec767c19e745f18c431d9dc26b5bf"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/mime-db@1.52.0/node_modules/mime-db/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/mime-types@2.1.35",
+      "name": "mime-types",
+      "version": "2.1.35",
+      "purl": "pkg:npm/mime-types@2.1.35",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5053cc10259c3913ab6b6c8f13170a619c0d1836c1d9081238329a559fafeb3a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/accepts@1.3.8/node_modules/mime-types/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/mime@1.6.0",
+      "name": "mime",
+      "version": "1.6.0",
+      "purl": "pkg:npm/mime@1.6.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f6a871d6ab40d2f2945d626a4d75da2fce78a35737c0870a0a4da9bee43f9d4e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/mime@1.6.0/node_modules/mime/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ms@2.0.0",
+      "name": "ms",
+      "version": "2.0.0",
+      "purl": "pkg:npm/ms@2.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "30fbfaa3840b2f63978ad4bcd7ed8dc24d277b818e4755fe93eda8cb1bc8b74c"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/debug@2.6.9/node_modules/ms/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ms@2.1.3",
+      "name": "ms",
+      "version": "2.1.3",
+      "purl": "pkg:npm/ms@2.1.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1a6b4d9739790c0b94ab96c8cc0507e281c164c311ff4fbf5e57fb8d26290b40"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/debug@4.4.3/node_modules/ms/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/negotiator@0.6.3",
+      "name": "negotiator",
+      "version": "0.6.3",
+      "purl": "pkg:npm/negotiator@0.6.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8672e91f7395ce51ec789d883d7f7d872a40847bb83a6a3f89c3d1ded39e55d9"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/accepts@1.3.8/node_modules/negotiator/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/node-domexception@1.0.0",
+      "name": "node-domexception",
+      "version": "1.0.0",
+      "purl": "pkg:npm/node-domexception@1.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1ff59c11ab7aef2b2f7fa393e8b871362e21b8a2defbd4922a8f8a5082fbfa06"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/fetch-blob@3.2.0/node_modules/node-domexception/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/node-fetch@3.3.2",
+      "name": "node-fetch",
+      "version": "3.3.2",
+      "purl": "pkg:npm/node-fetch@3.3.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "058acbc2474901ffa0b95c3f9d0903111426b118b55f928300e448d7252fc27d"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/gaxios@7.3.0/node_modules/node-fetch/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/object-inspect@1.13.4",
+      "name": "object-inspect",
+      "version": "1.13.4",
+      "purl": "pkg:npm/object-inspect@1.13.4",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "21c5c63f653705f44a60f5fe93752b231caf6ff07b01805740bd89b71b2d6d8a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/node_modules/object-inspect/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/on-finished@2.4.1",
+      "name": "on-finished",
+      "version": "2.4.1",
+      "purl": "pkg:npm/on-finished@2.4.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c812eca4b0dee2317cb446124cb27ae8e5b993c8fdd0144886b629ef6ef53fc1"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/on-finished/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/openai@6.49.0",
+      "name": "openai",
+      "version": "6.49.0",
+      "purl": "pkg:npm/openai@6.49.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3e84370c189c41e745700f55aa5535e38f6437a48d539d0e9ce02d0554863d9f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@prismshadow+agenthub@0.4.1_@aws-sdk+credential-provider-node@3.972.78_@smithy+signature-v4@5.6.12_ws@8.21.3/node_modules/openai/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/p-retry@4.6.2",
+      "name": "p-retry",
+      "version": "4.6.2",
+      "purl": "pkg:npm/p-retry@4.6.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ee4376966f4f8db899019ec955b3dc25fd972e12587a0da10d8313dc7b617b3f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@google+genai@1.52.0/node_modules/p-retry/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/parseurl@1.3.3",
+      "name": "parseurl",
+      "version": "1.3.3",
+      "purl": "pkg:npm/parseurl@1.3.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "98c7b953c844cac7c0be2d5abc6559c6fd3a6075fd159b04c0f1bf46145bfed2"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/parseurl/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/path-to-regexp@0.1.13",
+      "name": "path-to-regexp",
+      "version": "0.1.13",
+      "purl": "pkg:npm/path-to-regexp@0.1.13",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "643e7a3db344a1513c1c7797d2aff9c50fc52cab665233e11768cfbca9f8c0f9"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/path-to-regexp/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/prismshadow/agenthub@0.4.1",
+      "name": "@prismshadow/agenthub",
+      "version": "0.4.1",
+      "purl": "pkg:npm/prismshadow/agenthub@0.4.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "19ff92ce35a7bf87f864a9b35b2aaae7f50c890d813fec22072347764295a424"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@prismshadow+agenthub@0.4.1_@aws-sdk+credential-provider-node@3.972.78_@smithy+signature-v4@5.6.12_ws@8.21.3/node_modules/@prismshadow/agenthub/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/prismshadow/penguin-core@0.2.1",
+      "name": "@prismshadow/penguin-core",
+      "version": "0.2.1",
+      "purl": "pkg:npm/prismshadow/penguin-core@0.2.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9d1ca747481286001d63e58bd7579bdf7d2ba439b7ee1b4a90991657a182fa24"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@prismshadow+penguin-core@file++++tmp+modelmirror-upstream-build+vendor+penguin_harness+packages+core/node_modules/@prismshadow/penguin-core/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/prismshadow/penguin-skills@0.2.1",
+      "name": "@prismshadow/penguin-skills",
+      "version": "0.2.1",
+      "purl": "pkg:npm/prismshadow/penguin-skills@0.2.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "68aeec9cf167f8011194cf88098e790bb8dbbe033299593231a03047cf657a1b"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@prismshadow+penguin-core@file++++tmp+modelmirror-upstream-build+vendor+penguin_harness+packages+core/node_modules/@prismshadow/penguin-skills/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs@7.6.5",
+      "name": "protobufjs",
+      "version": "7.6.5",
+      "purl": "pkg:npm/protobufjs@7.6.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "893c7c89175f609c08fa04329c89cefb411faf5ad7da76213f64498485e81404"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@google+genai@1.52.0/node_modules/protobufjs/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/aspromise@1.1.2",
+      "name": "@protobufjs/aspromise",
+      "version": "1.1.2",
+      "purl": "pkg:npm/protobufjs/aspromise@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4a39ee1c94f6ee038d2944196aa6167785d3429a91727f828a1274262919e2d8"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+aspromise@1.1.2/node_modules/@protobufjs/aspromise/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/base64@1.1.2",
+      "name": "@protobufjs/base64",
+      "version": "1.1.2",
+      "purl": "pkg:npm/protobufjs/base64@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7ff6a89f566b95c0f21a5a9cb12df5718f0b06ef96d4186a92d650c0849fa2c5"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+base64@1.1.2/node_modules/@protobufjs/base64/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/codegen@2.0.5",
+      "name": "@protobufjs/codegen",
+      "version": "2.0.5",
+      "purl": "pkg:npm/protobufjs/codegen@2.0.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "818bf10387c19ab09b3814004ec672ab8d975302cdaf2dd65466bdb604764d65"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+codegen@2.0.5/node_modules/@protobufjs/codegen/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/eventemitter@1.1.1",
+      "name": "@protobufjs/eventemitter",
+      "version": "1.1.1",
+      "purl": "pkg:npm/protobufjs/eventemitter@1.1.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d157d364fe4aee21cfd517abff35bca312ff51e6e6e90abdbec16225057e5914"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+eventemitter@1.1.1/node_modules/@protobufjs/eventemitter/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/fetch@1.1.1",
+      "name": "@protobufjs/fetch",
+      "version": "1.1.1",
+      "purl": "pkg:npm/protobufjs/fetch@1.1.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "52f997898a745acce5d68751883aad6296bcc2f152468ced0ed30e3c3c5a1c72"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+fetch@1.1.1/node_modules/@protobufjs/fetch/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/float@1.0.2",
+      "name": "@protobufjs/float",
+      "version": "1.0.2",
+      "purl": "pkg:npm/protobufjs/float@1.0.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1cae4ded1bc97375a67fe4608f87ee59990734ea738fabb98e9061ab23669cdf"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+float@1.0.2/node_modules/@protobufjs/float/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/path@1.1.2",
+      "name": "@protobufjs/path",
+      "version": "1.1.2",
+      "purl": "pkg:npm/protobufjs/path@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b19802dd696ceb8a4aa4839f35ab1c8312e97693d93485ff3c3e4f19cca183c4"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+path@1.1.2/node_modules/@protobufjs/path/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/pool@1.1.0",
+      "name": "@protobufjs/pool",
+      "version": "1.1.0",
+      "purl": "pkg:npm/protobufjs/pool@1.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7a33b609e770020fe1e09690cfebc23bbdd6e1306e3f0dd98ba5048966cb7fec"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+pool@1.1.0/node_modules/@protobufjs/pool/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/protobufjs/utf8@1.1.2",
+      "name": "@protobufjs/utf8",
+      "version": "1.1.2",
+      "purl": "pkg:npm/protobufjs/utf8@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "80fdb6b9f633023846b6cdf352ea795523abcf27affd4d54afd4b50a90a87411"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@protobufjs+utf8@1.1.2/node_modules/@protobufjs/utf8/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/proxy-addr@2.0.7",
+      "name": "proxy-addr",
+      "version": "2.0.7",
+      "purl": "pkg:npm/proxy-addr@2.0.7",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e490a79f8058cbb7c0e9fd3b9977013102b5cbd8d232259b93bb2ebf85834a51"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/proxy-addr/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/qs@6.15.3",
+      "name": "qs",
+      "version": "6.15.3",
+      "purl": "pkg:npm/qs@6.15.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "47477ed1243939a78ab502c3d1d10a3d0571c06f9c2dfa128d7c047dbb010bf4"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/qs/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/range-parser@1.2.1",
+      "name": "range-parser",
+      "version": "1.2.1",
+      "purl": "pkg:npm/range-parser@1.2.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d0b5f54eaa59001dc86720a9be1fdf653bad83707d70842332fb3e8847f65a89"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/range-parser/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/raw-body@2.5.3",
+      "name": "raw-body",
+      "version": "2.5.3",
+      "purl": "pkg:npm/raw-body@2.5.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3847f01a7ffd81ca56879b158b8301f96244113f152ed117bff3f3abf5f88a5f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/raw-body/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/retry@0.13.1",
+      "name": "retry",
+      "version": "0.13.1",
+      "purl": "pkg:npm/retry@0.13.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7ae366b6b8133485abf27abe657c0ffa2d32600611ecf2c4fe5246165bed73d5"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/node_modules/retry/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/safe-buffer@5.2.1",
+      "name": "safe-buffer",
+      "version": "5.2.1",
+      "purl": "pkg:npm/safe-buffer@5.2.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e4018fdbfe625433371f48274fee26f520bbe865e0d8c85bf3aa07424134b90c"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/content-disposition@0.5.4/node_modules/safe-buffer/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/safer-buffer@2.1.2",
+      "name": "safer-buffer",
+      "version": "2.1.2",
+      "purl": "pkg:npm/safer-buffer@2.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4247a3a63c45a6a7ced1557fe4dd9d2a163af4915d594b95e5867b69a53edb52"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/iconv-lite@0.4.24/node_modules/safer-buffer/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/send@0.19.2",
+      "name": "send",
+      "version": "0.19.2",
+      "purl": "pkg:npm/send@0.19.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2d511afc0dc9965be1f1a5b4b7966cad2e02b95be6e5ff962baabebc12739385"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/send/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/serve-static@1.16.3",
+      "name": "serve-static",
+      "version": "1.16.3",
+      "purl": "pkg:npm/serve-static@1.16.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "068fbb0738f4eb2f8ea6ad2f9757ef060d0b79e7990bb9c3dc5ead72a0e3b1f8"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/serve-static/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/setprototypeof@1.2.0",
+      "name": "setprototypeof",
+      "version": "1.2.0",
+      "purl": "pkg:npm/setprototypeof@1.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5b39ddf23d2c12a751cb4af2ce12dd5c87314350be7526fff69b4a3ff2a2d538"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/setprototypeof/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/side-channel-list@1.0.1",
+      "name": "side-channel-list",
+      "version": "1.0.1",
+      "purl": "pkg:npm/side-channel-list@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "90f0c08c6c17f4a3fa3dd61873223957b89da4201f01dc0c8b95b0b9e6a2a59a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/node_modules/side-channel-list/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/side-channel-map@1.0.1",
+      "name": "side-channel-map",
+      "version": "1.0.1",
+      "purl": "pkg:npm/side-channel-map@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "914a8bd732b82523d95bb697eec3e6d95badc5eb13b196fb0772e59354a3ab25"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/node_modules/side-channel-map/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/side-channel-weakmap@1.0.2",
+      "name": "side-channel-weakmap",
+      "version": "1.0.2",
+      "purl": "pkg:npm/side-channel-weakmap@1.0.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8c11f0a1c6cfa549588d991a5cb1b04d62953277ed29f47463d415d5946388a8"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/node_modules/side-channel-weakmap/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/side-channel@1.1.1",
+      "name": "side-channel",
+      "version": "1.1.1",
+      "purl": "pkg:npm/side-channel@1.1.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "14da3b013c3762da85cfd8b173290285394dfa41870bc4a1e8243aaa38316f2a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/node_modules/side-channel/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/abort-controller@2.2.0",
+      "name": "@smithy/abort-controller",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/abort-controller@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "699b896c58f14ebc5b594f601e1a8632922fe929c011b6d7cf18dfcce0a8539d"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+abort-controller@2.2.0/node_modules/@smithy/abort-controller/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/core@3.31.1",
+      "name": "@smithy/core",
+      "version": "3.31.1",
+      "purl": "pkg:npm/smithy/core@3.31.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "9d2924af10a2dc13651e64690eb0a0128614e3185adc9bfb3ced872c5b16f9b6"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@smithy/core/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/credential-provider-imds@4.4.16",
+      "name": "@smithy/credential-provider-imds",
+      "version": "4.4.16",
+      "purl": "pkg:npm/smithy/credential-provider-imds@4.4.16",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "555f92c19085f6cf68686a8b39cf94690f9ba2fd80c088a190c3cdf461836c6a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+credential-provider-ini@3.973.12/node_modules/@smithy/credential-provider-imds/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/eventstream-codec@2.2.0",
+      "name": "@smithy/eventstream-codec",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/eventstream-codec@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "13cc13fac256954d1edc1fe80e6c22d2fff6cb14a05da22b5201776d45813797"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+eventstream-codec@2.2.0/node_modules/@smithy/eventstream-codec/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/eventstream-serde-node@2.2.0",
+      "name": "@smithy/eventstream-serde-node",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/eventstream-serde-node@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ad44f40af4ed99c9b4c122a0b415d1bb24c2eccd84bdbf595d64f08b5b6d213a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@smithy/eventstream-serde-node/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/eventstream-serde-universal@2.2.0",
+      "name": "@smithy/eventstream-serde-universal",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/eventstream-serde-universal@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "044f10b275e667ebe8bc73245818fbcb2da0e044aeb894d1733d8cd0d4691f64"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+eventstream-serde-node@2.2.0/node_modules/@smithy/eventstream-serde-universal/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/fetch-http-handler@2.5.0",
+      "name": "@smithy/fetch-http-handler",
+      "version": "2.5.0",
+      "purl": "pkg:npm/smithy/fetch-http-handler@2.5.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c6b2d49be925ff8d70157752d9855f986825349a58a154501c5583f03e2a3782"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+fetch-http-handler@2.5.0/node_modules/@smithy/fetch-http-handler/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/fetch-http-handler@5.6.13",
+      "name": "@smithy/fetch-http-handler",
+      "version": "5.6.13",
+      "purl": "pkg:npm/smithy/fetch-http-handler@5.6.13",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "41c3acec63b0266e390ead14c223ca1c1b4b2fbcb106ed5af8e2a7c0111de588"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@smithy/fetch-http-handler/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/is-array-buffer@2.2.0",
+      "name": "@smithy/is-array-buffer",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/is-array-buffer@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3a190be525bed484e272c54b4853e4184029f83546d4c30f62382073c1997e8e"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+is-array-buffer@2.2.0/node_modules/@smithy/is-array-buffer/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/is-array-buffer@3.0.0",
+      "name": "@smithy/is-array-buffer",
+      "version": "3.0.0",
+      "purl": "pkg:npm/smithy/is-array-buffer@3.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "92ca9d5d5a420b4da0915b85210404a6fae3e07f85bc475131a963250f7bd369"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+is-array-buffer@3.0.0/node_modules/@smithy/is-array-buffer/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/middleware-endpoint@2.5.1",
+      "name": "@smithy/middleware-endpoint",
+      "version": "2.5.1",
+      "purl": "pkg:npm/smithy/middleware-endpoint@2.5.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c74cbde7a900bf8970fafa9ee8026c2f7ec0c8b8bd392a47cd98cca93d586858"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+middleware-endpoint@2.5.1/node_modules/@smithy/middleware-endpoint/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/middleware-serde@2.3.0",
+      "name": "@smithy/middleware-serde",
+      "version": "2.3.0",
+      "purl": "pkg:npm/smithy/middleware-serde@2.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "544f469d6c83bdc1ac3e3623f86e4ca06f7f696f321f06ae8e314ddb25ee2fd9"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+middleware-endpoint@2.5.1/node_modules/@smithy/middleware-serde/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/middleware-stack@2.2.0",
+      "name": "@smithy/middleware-stack",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/middleware-stack@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "7dab07d810fc8dbf55bf319693984e7e1246513e7d71abd88d6eb83013e14712"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+middleware-stack@2.2.0/node_modules/@smithy/middleware-stack/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/node-config-provider@2.3.0",
+      "name": "@smithy/node-config-provider",
+      "version": "2.3.0",
+      "purl": "pkg:npm/smithy/node-config-provider@2.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "27880397e5e63c37a3f12a3ed93ca689a1836c29bb53f2f16d4e609d53df450f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+middleware-endpoint@2.5.1/node_modules/@smithy/node-config-provider/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/node-http-handler@2.5.0",
+      "name": "@smithy/node-http-handler",
+      "version": "2.5.0",
+      "purl": "pkg:npm/smithy/node-http-handler@2.5.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "2264163d370b1dfe9f33a4a0704ac676b34c15907a4f474e0e336e47bb40fc38"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+node-http-handler@2.5.0/node_modules/@smithy/node-http-handler/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/node-http-handler@4.9.13",
+      "name": "@smithy/node-http-handler",
+      "version": "4.9.13",
+      "purl": "pkg:npm/smithy/node-http-handler@4.9.13",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fe5d9dbd8ca41e004c28682014d63c21be81599b487e1165bfa2a0eb048d91fc"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@smithy/node-http-handler/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/property-provider@2.2.0",
+      "name": "@smithy/property-provider",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/property-provider@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ac4c5c66643d7fca4797a085a80fba235822c9138552a045990188ee2aeeb0f3"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+node-config-provider@2.3.0/node_modules/@smithy/property-provider/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/protocol-http@3.3.0",
+      "name": "@smithy/protocol-http",
+      "version": "3.3.0",
+      "purl": "pkg:npm/smithy/protocol-http@3.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "358e96ffd7289efaff999f844e8c80be22572066b55f52f32ff9695fe03151e8"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@smithy/protocol-http/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/querystring-builder@2.2.0",
+      "name": "@smithy/querystring-builder",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/querystring-builder@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "998dbc3cd8e935a7c76e0a28d6fc1dc71d28be0211a76b141b99e774f34d3d39"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+fetch-http-handler@2.5.0/node_modules/@smithy/querystring-builder/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/querystring-parser@2.2.0",
+      "name": "@smithy/querystring-parser",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/querystring-parser@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4dcbab052b87c6c6bba175a5aeb9de2ae461f2869255548d376faaf72ae96699"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+querystring-parser@2.2.0/node_modules/@smithy/querystring-parser/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/shared-ini-file-loader@2.4.0",
+      "name": "@smithy/shared-ini-file-loader",
+      "version": "2.4.0",
+      "purl": "pkg:npm/smithy/shared-ini-file-loader@2.4.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5ae01fbaf24f1ab3c2bdf43fd9a898ca95a1a164fedd215b0e53f18eb23579d0"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+middleware-endpoint@2.5.1/node_modules/@smithy/shared-ini-file-loader/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/signature-v4@3.1.2",
+      "name": "@smithy/signature-v4",
+      "version": "3.1.2",
+      "purl": "pkg:npm/smithy/signature-v4@3.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "3c34f4578d9113ee9400a2f07f024b6d60c93b70cd2866883cd0e4f4789d75cb"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@smithy/signature-v4/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/signature-v4@5.6.12",
+      "name": "@smithy/signature-v4",
+      "version": "5.6.12",
+      "purl": "pkg:npm/smithy/signature-v4@5.6.12",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "29049da329102718198c7258471bac72734e535582798519f9a2e9644c18c982"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+core@3.977.6/node_modules/@smithy/signature-v4/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/smithy-client@2.5.1",
+      "name": "@smithy/smithy-client",
+      "version": "2.5.1",
+      "purl": "pkg:npm/smithy/smithy-client@2.5.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "cbc5046bd24a3554eabc61d240dd09d192824a513d0142875b6f2bcb761cf83c"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@smithy/smithy-client/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/types@2.12.0",
+      "name": "@smithy/types",
+      "version": "2.12.0",
+      "purl": "pkg:npm/smithy/types@2.12.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "70709bcc0ff34940666ba26486284dd22be47704d68a1b958a04e1c15668791f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@smithy/types/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/types@3.7.2",
+      "name": "@smithy/types",
+      "version": "3.7.2",
+      "purl": "pkg:npm/smithy/types@3.7.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "10992df7e3c29b0383a01ac8f6b29f69ad4b01aa78f2cfd0a4eb925d3eebc7fa"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+signature-v4@3.1.2/node_modules/@smithy/types/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/types@4.16.1",
+      "name": "@smithy/types",
+      "version": "4.16.1",
+      "purl": "pkg:npm/smithy/types@4.16.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "fbf2e562b868b88354f8621cc055aaefc9fa1d3395b5645fadb62ed613d1c1da"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/@smithy/types/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/url-parser@2.2.0",
+      "name": "@smithy/url-parser",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/url-parser@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d41fbff67505f48eda11c4fbcbe488c1071c883a38c0f725382f9509c4033710"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+middleware-endpoint@2.5.1/node_modules/@smithy/url-parser/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-base64@2.3.0",
+      "name": "@smithy/util-base64",
+      "version": "2.3.0",
+      "purl": "pkg:npm/smithy/util-base64@2.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b2839335ad238de82e404350f77e44dc2205c45a800d4da52a3d41e80f58cd61"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@anthropic-ai+bedrock-sdk@0.26.4/node_modules/@smithy/util-base64/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-buffer-from@2.2.0",
+      "name": "@smithy/util-buffer-from",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/util-buffer-from@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "832f2b74d1ed39244e70aee576330270e50355c8043bd9c063051d7384683a3a"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+util-base64@2.3.0/node_modules/@smithy/util-buffer-from/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-buffer-from@3.0.0",
+      "name": "@smithy/util-buffer-from",
+      "version": "3.0.0",
+      "purl": "pkg:npm/smithy/util-buffer-from@3.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d9cd6feaa807df8050305d4d05519a35d4785c80272b5fa571f4f52ce1b30f6d"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+util-buffer-from@3.0.0/node_modules/@smithy/util-buffer-from/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-hex-encoding@2.2.0",
+      "name": "@smithy/util-hex-encoding",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/util-hex-encoding@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a9815f3abe672ab34887e7783737454afc9cc8c04b9a516afa731d8d1d77d5da"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+eventstream-codec@2.2.0/node_modules/@smithy/util-hex-encoding/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-hex-encoding@3.0.0",
+      "name": "@smithy/util-hex-encoding",
+      "version": "3.0.0",
+      "purl": "pkg:npm/smithy/util-hex-encoding@3.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ba16217a136e7d8014cdc075444de3fee18282b9a495205236533948bf03efab"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+signature-v4@3.1.2/node_modules/@smithy/util-hex-encoding/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-middleware@2.2.0",
+      "name": "@smithy/util-middleware",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/util-middleware@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f43cd9b2b464d4c7c7dcef599125eb4f63859f883308f9827d5c96698f493480"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+middleware-endpoint@2.5.1/node_modules/@smithy/util-middleware/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-middleware@3.0.11",
+      "name": "@smithy/util-middleware",
+      "version": "3.0.11",
+      "purl": "pkg:npm/smithy/util-middleware@3.0.11",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d34535a50e9774b0e41b4380c1ba9055f77378f09cc1412a3d453781228ef177"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+signature-v4@3.1.2/node_modules/@smithy/util-middleware/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-stream@2.2.0",
+      "name": "@smithy/util-stream",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/util-stream@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5d8a33748f496a5885f27f0b208a9e32c5603230f1fdadba43533c1c1d930964"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+smithy-client@2.5.1/node_modules/@smithy/util-stream/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-uri-escape@2.2.0",
+      "name": "@smithy/util-uri-escape",
+      "version": "2.2.0",
+      "purl": "pkg:npm/smithy/util-uri-escape@2.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "94854eefe41dbd23f764d10078dfdbd010457a85f39d787a2b72e28bf803c345"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+querystring-builder@2.2.0/node_modules/@smithy/util-uri-escape/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-uri-escape@3.0.0",
+      "name": "@smithy/util-uri-escape",
+      "version": "3.0.0",
+      "purl": "pkg:npm/smithy/util-uri-escape@3.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "04ea5217a056fc0ebd4604772832a8c5bc5a2621c75dfdf515097891d7c167a7"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+signature-v4@3.1.2/node_modules/@smithy/util-uri-escape/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-utf8@2.3.0",
+      "name": "@smithy/util-utf8",
+      "version": "2.3.0",
+      "purl": "pkg:npm/smithy/util-utf8@2.3.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "29a106e642afa19962dc0e33cfd019293b450a8b5c906041cfd13f649384829f"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+util-base64@2.3.0/node_modules/@smithy/util-utf8/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smithy/util-utf8@3.0.0",
+      "name": "@smithy/util-utf8",
+      "version": "3.0.0",
+      "purl": "pkg:npm/smithy/util-utf8@3.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "053d0ab507b5f854a76d2523c1b34a62244268dd5632c44d1bc5b3cdf93be4a3"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@smithy+signature-v4@3.1.2/node_modules/@smithy/util-utf8/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/smol-toml@1.7.1",
+      "name": "smol-toml",
+      "version": "1.7.1",
+      "purl": "pkg:npm/smol-toml@1.7.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c0739113f867508df34690d0cd2d2691dd247ec8c405390aa8b6545a2ff228d5"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@prismshadow+penguin-core@file++++tmp+modelmirror-upstream-build+vendor+penguin_harness+packages+core/node_modules/smol-toml/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/statuses@2.0.2",
+      "name": "statuses",
+      "version": "2.0.2",
+      "purl": "pkg:npm/statuses@2.0.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "dc2508da5568ba768d94b73126cd20a5df934bc0c651ad681022236484ca156c"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/statuses/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/toidentifier@1.0.1",
+      "name": "toidentifier",
+      "version": "1.0.1",
+      "purl": "pkg:npm/toidentifier@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f34c59f784d43da6e633390d85d14ca60539b4676159444f313c62fcfc3b68dc"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/http-errors@2.0.1/node_modules/toidentifier/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ts-algebra@2.0.0",
+      "name": "ts-algebra",
+      "version": "2.0.0",
+      "purl": "pkg:npm/ts-algebra@2.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6c6f692e1a3ad9943c77b5fa4eb04b0f63cb708353c67dcc5d86b35b2f7e5c30"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/json-schema-to-ts@3.1.1/node_modules/ts-algebra/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tslib@1.14.1",
+      "name": "tslib",
+      "version": "1.14.1",
+      "purl": "pkg:npm/tslib@1.14.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f685f35daa1c75b3e6e3e2e9158de36130e34aee095498f65af9e508ea2d56b0"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "0BSD"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-crypto+crc32@3.0.0/node_modules/tslib/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tslib@2.8.1",
+      "name": "tslib",
+      "version": "2.8.1",
+      "purl": "pkg:npm/tslib@2.8.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "f02b4851df316f29bdfcd404aa1eb41e4e216b5859015f81fcd3e91caf8be931"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "0BSD"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@aws-sdk+client-bedrock-runtime@3.1106.0/node_modules/tslib/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/type-is@1.6.18",
+      "name": "type-is",
+      "version": "1.6.18",
+      "purl": "pkg:npm/type-is@1.6.18",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "87917e3dda1080179447633c3edff7e4b917d62b463893c88cef5be0b2babc63"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/type-is/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/types/node@24.13.3",
+      "name": "@types/node",
+      "version": "24.13.3",
+      "purl": "pkg:npm/types/node@24.13.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a4d29a0f9a3b45be30a130591091ea1f7707d4193489960ef4ee98f35375a4e9"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@types+node@24.13.3/node_modules/@types/node/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/types/retry@0.12.0",
+      "name": "@types/retry",
+      "version": "0.12.0",
+      "purl": "pkg:npm/types/retry@0.12.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5d07cffb225eba4439977949ad9e8729620e51d1acc04f60fc8bad712183e063"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@types+retry@0.12.0/node_modules/@types/retry/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/undici-types@7.18.2",
+      "name": "undici-types",
+      "version": "7.18.2",
+      "purl": "pkg:npm/undici-types@7.18.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "01701286a0441eddf1cd47d488047d363ce7d75466e7b6c89f1c605fba1c3957"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@types+node@24.13.3/node_modules/undici-types/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/unpipe@1.0.0",
+      "name": "unpipe",
+      "version": "1.0.0",
+      "purl": "pkg:npm/unpipe@1.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "28b717f978d2a4fc72cd08236931443b63fe6586102df3d1967e2b21ea8c5e11"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/body-parser@1.20.6/node_modules/unpipe/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/utils-merge@1.0.1",
+      "name": "utils-merge",
+      "version": "1.0.1",
+      "purl": "pkg:npm/utils-merge@1.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6238e6d7e2fddd3e4826014b4e69cb20d332b472999728a7157db454c69121b8"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/utils-merge/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/vary@1.1.2",
+      "name": "vary",
+      "version": "1.1.2",
+      "purl": "pkg:npm/vary@1.1.2",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "73edaee964d527117a9f69d6360fbe6cec534abd9127794be01a6af58a139daa"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/express@4.22.2/node_modules/vary/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/web-streams-polyfill@3.3.3",
+      "name": "web-streams-polyfill",
+      "version": "3.3.3",
+      "purl": "pkg:npm/web-streams-polyfill@3.3.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "13e22b076747f7673afc2afad4b932843844b1ffb2e5bd613442937eacdaf7d7"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/fetch-blob@3.2.0/node_modules/web-streams-polyfill/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/ws@8.21.3",
+      "name": "ws",
+      "version": "8.21.3",
+      "purl": "pkg:npm/ws@8.21.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a56a3fd55945a3ce177e3ca165dafae6f7eb03b7aefd58c092ac723d5741a6fb"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@google+genai@1.52.0/node_modules/ws/package.json"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/yaml@2.9.0",
+      "name": "yaml",
+      "version": "2.9.0",
+      "purl": "pkg:npm/yaml@2.9.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "20b8b197cbd10dad245d45e463dfe58e4c8c25a47e24bc4256ad9ab58bf35683"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "properties": [
+        {
+          "name": "modelmirror:deploy-path",
+          "value": "node_modules/.pnpm/@prismshadow+penguin-core@file++++tmp+modelmirror-upstream-build+vendor+penguin_harness+packages+core/node_modules/yaml/package.json"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:npm/modelmirror/upstream-workbench-worker@0.1.0",
+      "dependsOn": [
+        "pkg:npm/accepts@1.3.8",
+        "pkg:npm/agent-base@7.1.4",
+        "pkg:npm/anthropic-ai/bedrock-sdk@0.26.4",
+        "pkg:npm/anthropic-ai/sdk@0.81.0",
+        "pkg:npm/array-flatten@1.1.1",
+        "pkg:npm/aws-crypto/crc32@3.0.0",
+        "pkg:npm/aws-crypto/sha256-js@4.0.0",
+        "pkg:npm/aws-crypto/util@3.0.0",
+        "pkg:npm/aws-crypto/util@4.0.0",
+        "pkg:npm/aws-sdk/client-bedrock-runtime@3.1106.0",
+        "pkg:npm/aws-sdk/core@3.977.6",
+        "pkg:npm/aws-sdk/credential-provider-cognito-identity@3.972.66",
+        "pkg:npm/aws-sdk/credential-provider-env@3.972.67",
+        "pkg:npm/aws-sdk/credential-provider-http@3.972.69",
+        "pkg:npm/aws-sdk/credential-provider-ini@3.973.12",
+        "pkg:npm/aws-sdk/credential-provider-login@3.972.74",
+        "pkg:npm/aws-sdk/credential-provider-node@3.972.78",
+        "pkg:npm/aws-sdk/credential-provider-process@3.972.67",
+        "pkg:npm/aws-sdk/credential-provider-sso@3.973.11",
+        "pkg:npm/aws-sdk/credential-provider-web-identity@3.972.73",
+        "pkg:npm/aws-sdk/credential-providers@3.1106.0",
+        "pkg:npm/aws-sdk/eventstream-handler-node@3.972.31",
+        "pkg:npm/aws-sdk/middleware-eventstream@3.972.26",
+        "pkg:npm/aws-sdk/middleware-websocket@3.972.49",
+        "pkg:npm/aws-sdk/nested-clients@3.997.41",
+        "pkg:npm/aws-sdk/signature-v4-multi-region@3.996.43",
+        "pkg:npm/aws-sdk/token-providers@3.1103.0",
+        "pkg:npm/aws-sdk/token-providers@3.1106.0",
+        "pkg:npm/aws-sdk/types@3.974.2",
+        "pkg:npm/aws-sdk/util-utf8-browser@3.259.0",
+        "pkg:npm/aws-sdk/xml-builder@3.972.37",
+        "pkg:npm/aws/lambda-invoke-store@0.3.0",
+        "pkg:npm/babel/runtime@7.29.7",
+        "pkg:npm/base64-js@1.5.1",
+        "pkg:npm/bignumber.js@9.3.1",
+        "pkg:npm/body-parser@1.20.6",
+        "pkg:npm/bowser@2.14.1",
+        "pkg:npm/buffer-equal-constant-time@1.0.1",
+        "pkg:npm/bytes@3.1.2",
+        "pkg:npm/call-bind-apply-helpers@1.0.2",
+        "pkg:npm/call-bound@1.0.4",
+        "pkg:npm/content-disposition@0.5.4",
+        "pkg:npm/content-type@1.0.5",
+        "pkg:npm/cookie-signature@1.0.7",
+        "pkg:npm/cookie@0.7.2",
+        "pkg:npm/data-uri-to-buffer@4.0.1",
+        "pkg:npm/debug@2.6.9",
+        "pkg:npm/debug@4.4.3",
+        "pkg:npm/depd@2.0.0",
+        "pkg:npm/destroy@1.2.0",
+        "pkg:npm/dunder-proto@1.0.1",
+        "pkg:npm/ecdsa-sig-formatter@1.0.11",
+        "pkg:npm/ee-first@1.1.1",
+        "pkg:npm/encodeurl@2.0.0",
+        "pkg:npm/es-define-property@1.0.1",
+        "pkg:npm/es-errors@1.3.0",
+        "pkg:npm/es-object-atoms@1.1.2",
+        "pkg:npm/escape-html@1.0.3",
+        "pkg:npm/etag@1.8.1",
+        "pkg:npm/express@4.22.2",
+        "pkg:npm/extend@3.0.2",
+        "pkg:npm/fetch-blob@3.2.0",
+        "pkg:npm/finalhandler@1.3.2",
+        "pkg:npm/formdata-polyfill@4.0.10",
+        "pkg:npm/forwarded@0.2.0",
+        "pkg:npm/fresh@0.5.2",
+        "pkg:npm/function-bind@1.1.2",
+        "pkg:npm/gaxios@7.3.0",
+        "pkg:npm/gcp-metadata@8.1.2",
+        "pkg:npm/get-intrinsic@1.3.0",
+        "pkg:npm/get-proto@1.0.1",
+        "pkg:npm/google-auth-library@10.9.1",
+        "pkg:npm/google-logging-utils@1.1.3",
+        "pkg:npm/google/genai@1.52.0",
+        "pkg:npm/gopd@1.2.0",
+        "pkg:npm/has-symbols@1.1.0",
+        "pkg:npm/hasown@2.0.4",
+        "pkg:npm/http-errors@2.0.1",
+        "pkg:npm/https-proxy-agent@7.0.6",
+        "pkg:npm/iconv-lite@0.4.24",
+        "pkg:npm/inherits@2.0.4",
+        "pkg:npm/ipaddr.js@1.9.1",
+        "pkg:npm/json-bigint@1.0.0",
+        "pkg:npm/json-schema-to-ts@3.1.1",
+        "pkg:npm/jwa@2.0.1",
+        "pkg:npm/jws@4.0.1",
+        "pkg:npm/long@5.3.2",
+        "pkg:npm/math-intrinsics@1.1.0",
+        "pkg:npm/media-typer@0.3.0",
+        "pkg:npm/merge-descriptors@1.0.3",
+        "pkg:npm/methods@1.1.2",
+        "pkg:npm/mime-db@1.52.0",
+        "pkg:npm/mime-types@2.1.35",
+        "pkg:npm/mime@1.6.0",
+        "pkg:npm/ms@2.0.0",
+        "pkg:npm/ms@2.1.3",
+        "pkg:npm/negotiator@0.6.3",
+        "pkg:npm/node-domexception@1.0.0",
+        "pkg:npm/node-fetch@3.3.2",
+        "pkg:npm/object-inspect@1.13.4",
+        "pkg:npm/on-finished@2.4.1",
+        "pkg:npm/openai@6.49.0",
+        "pkg:npm/p-retry@4.6.2",
+        "pkg:npm/parseurl@1.3.3",
+        "pkg:npm/path-to-regexp@0.1.13",
+        "pkg:npm/prismshadow/agenthub@0.4.1",
+        "pkg:npm/prismshadow/penguin-core@0.2.1",
+        "pkg:npm/prismshadow/penguin-skills@0.2.1",
+        "pkg:npm/protobufjs@7.6.5",
+        "pkg:npm/protobufjs/aspromise@1.1.2",
+        "pkg:npm/protobufjs/base64@1.1.2",
+        "pkg:npm/protobufjs/codegen@2.0.5",
+        "pkg:npm/protobufjs/eventemitter@1.1.1",
+        "pkg:npm/protobufjs/fetch@1.1.1",
+        "pkg:npm/protobufjs/float@1.0.2",
+        "pkg:npm/protobufjs/path@1.1.2",
+        "pkg:npm/protobufjs/pool@1.1.0",
+        "pkg:npm/protobufjs/utf8@1.1.2",
+        "pkg:npm/proxy-addr@2.0.7",
+        "pkg:npm/qs@6.15.3",
+        "pkg:npm/range-parser@1.2.1",
+        "pkg:npm/raw-body@2.5.3",
+        "pkg:npm/retry@0.13.1",
+        "pkg:npm/safe-buffer@5.2.1",
+        "pkg:npm/safer-buffer@2.1.2",
+        "pkg:npm/send@0.19.2",
+        "pkg:npm/serve-static@1.16.3",
+        "pkg:npm/setprototypeof@1.2.0",
+        "pkg:npm/side-channel-list@1.0.1",
+        "pkg:npm/side-channel-map@1.0.1",
+        "pkg:npm/side-channel-weakmap@1.0.2",
+        "pkg:npm/side-channel@1.1.1",
+        "pkg:npm/smithy/abort-controller@2.2.0",
+        "pkg:npm/smithy/core@3.31.1",
+        "pkg:npm/smithy/credential-provider-imds@4.4.16",
+        "pkg:npm/smithy/eventstream-codec@2.2.0",
+        "pkg:npm/smithy/eventstream-serde-node@2.2.0",
+        "pkg:npm/smithy/eventstream-serde-universal@2.2.0",
+        "pkg:npm/smithy/fetch-http-handler@2.5.0",
+        "pkg:npm/smithy/fetch-http-handler@5.6.13",
+        "pkg:npm/smithy/is-array-buffer@2.2.0",
+        "pkg:npm/smithy/is-array-buffer@3.0.0",
+        "pkg:npm/smithy/middleware-endpoint@2.5.1",
+        "pkg:npm/smithy/middleware-serde@2.3.0",
+        "pkg:npm/smithy/middleware-stack@2.2.0",
+        "pkg:npm/smithy/node-config-provider@2.3.0",
+        "pkg:npm/smithy/node-http-handler@2.5.0",
+        "pkg:npm/smithy/node-http-handler@4.9.13",
+        "pkg:npm/smithy/property-provider@2.2.0",
+        "pkg:npm/smithy/protocol-http@3.3.0",
+        "pkg:npm/smithy/querystring-builder@2.2.0",
+        "pkg:npm/smithy/querystring-parser@2.2.0",
+        "pkg:npm/smithy/shared-ini-file-loader@2.4.0",
+        "pkg:npm/smithy/signature-v4@3.1.2",
+        "pkg:npm/smithy/signature-v4@5.6.12",
+        "pkg:npm/smithy/smithy-client@2.5.1",
+        "pkg:npm/smithy/types@2.12.0",
+        "pkg:npm/smithy/types@3.7.2",
+        "pkg:npm/smithy/types@4.16.1",
+        "pkg:npm/smithy/url-parser@2.2.0",
+        "pkg:npm/smithy/util-base64@2.3.0",
+        "pkg:npm/smithy/util-buffer-from@2.2.0",
+        "pkg:npm/smithy/util-buffer-from@3.0.0",
+        "pkg:npm/smithy/util-hex-encoding@2.2.0",
+        "pkg:npm/smithy/util-hex-encoding@3.0.0",
+        "pkg:npm/smithy/util-middleware@2.2.0",
+        "pkg:npm/smithy/util-middleware@3.0.11",
+        "pkg:npm/smithy/util-stream@2.2.0",
+        "pkg:npm/smithy/util-uri-escape@2.2.0",
+        "pkg:npm/smithy/util-uri-escape@3.0.0",
+        "pkg:npm/smithy/util-utf8@2.3.0",
+        "pkg:npm/smithy/util-utf8@3.0.0",
+        "pkg:npm/smol-toml@1.7.1",
+        "pkg:npm/statuses@2.0.2",
+        "pkg:npm/toidentifier@1.0.1",
+        "pkg:npm/ts-algebra@2.0.0",
+        "pkg:npm/tslib@1.14.1",
+        "pkg:npm/tslib@2.8.1",
+        "pkg:npm/type-is@1.6.18",
+        "pkg:npm/types/node@24.13.3",
+        "pkg:npm/types/retry@0.12.0",
+        "pkg:npm/undici-types@7.18.2",
+        "pkg:npm/unpipe@1.0.0",
+        "pkg:npm/utils-merge@1.0.1",
+        "pkg:npm/vary@1.1.2",
+        "pkg:npm/web-streams-polyfill@3.3.3",
+        "pkg:npm/ws@8.21.3",
+        "pkg:npm/yaml@2.9.0"
+      ]
+    }
+  ]
+}

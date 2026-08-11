@@ -116,6 +116,31 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## PenguinHarness execution core (R3R-1)
+
+ModelMirror vendors a byte-identical subset of Prism-Shadow/penguin-harness at
+commit `047505dccc0cc16ad92be11011347d635f33ceb0` under the Apache License 2.0.
+
+- Upstream: <https://github.com/Prism-Shadow/penguin-harness>
+- Vendored source: `server/agent_upstream/vendor/penguin_harness/`
+- Upstream license and notices are retained inside that directory.
+- `server/agent_upstream/provenance/vendor-manifest.json` binds 164 files to
+  their upstream Git blob SHA-1 values; all entries have `modified: false`.
+- ModelMirror's Python control plane, Node worker, IPC, safe tools, API, and UI
+  adapters live outside the vendor directory and are ModelMirror-owned changes.
+
+The minimal production dependency closure contains 188 components. Its
+CycloneDX SBOM, license inventory, pnpm audit output, and pinned OSV scan are in
+`server/agent_upstream/provenance/`. The implemented gate rejects unknown or
+copyleft-blocked license declarations and HIGH/CRITICAL advisories. The current
+pinned closure retains one LOW esbuild advisory and one MODERATE
+`@anthropic-ai/sdk` advisory as explicit, non-blocking findings.
+
+ModelMirror does not vendor or run PenguinHarness Server/Hono APIs, database,
+Vault, model/cost center, desktop application, CLI, installer, release tooling,
+MinGit binary, or brand assets. The separate Node 24 runtime used to execute
+the vendored core retains its `/opt/modelmirror-upstream-node/LICENSE` file.
+
 ## opencc-js
 
 - Project: `nk2028/opencc-js`
