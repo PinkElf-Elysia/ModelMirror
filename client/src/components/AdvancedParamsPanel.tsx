@@ -13,6 +13,7 @@ interface AdvancedParamsPanelProps {
   onChange: (params: ChatAdvancedParams) => void;
   onReset: () => void;
   onToggle: () => void;
+  embedded?: boolean;
 }
 
 function numberInputClass() {
@@ -69,35 +70,35 @@ export default function AdvancedParamsPanel({
   onChange,
   onReset,
   onToggle,
+  embedded = false,
 }: AdvancedParamsPanelProps) {
   return (
-    <div className="border-b border-white/10 bg-ink-950/36 px-4 py-3 sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className={embedded ? "px-5 py-4" : "border-b border-white/10 bg-ink-950/36 px-4 py-3 sm:px-5"}>
+      {!embedded ? <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           aria-expanded={isOpen}
           className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
           onClick={onToggle}
           type="button"
         >
-          <span>⚙️</span>
           高级参数
-          <span className={`transition ${isOpen ? "rotate-180" : ""}`}>⌄</span>
+          <span aria-hidden className={`transition ${isOpen ? "rotate-180" : ""}`}>⌄</span>
         </button>
         <p className="text-xs text-slate-400">
           当前：温度 {params.temperature}，Top P {params.topP}，最大 {params.maxTokens}
         </p>
-      </div>
+      </div> : null}
 
       <div
         className={`grid transition-all duration-200 ${
-          isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+          embedded || isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         }`}
       >
         <div className="overflow-hidden">
-          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div className={`${embedded ? "" : "mt-3"} grid gap-3 lg:grid-cols-2`}>
             <SliderRow
               description="越高越有创意，越低越保守。"
-              label="🌡️ Temperature（温度）"
+              label="Temperature（温度）"
               max={2}
               min={0}
               onChange={(temperature) => onChange({ ...params, temperature })}
@@ -106,7 +107,7 @@ export default function AdvancedParamsPanel({
             />
             <SliderRow
               description="控制候选词采样范围，1.0 表示不额外收窄。"
-              label="🎯 Top P（核采样）"
+              label="Top P（核采样）"
               max={1}
               min={0}
               onChange={(topP) => onChange({ ...params, topP })}
@@ -116,7 +117,7 @@ export default function AdvancedParamsPanel({
 
             <label className="rounded-lg border border-white/10 bg-white/[0.04] p-3">
               <span className="text-sm font-semibold text-white">
-                📏 Max Tokens（最大输出长度）
+                Max Tokens（最大输出长度）
               </span>
               <input
                 className={`${numberInputClass()} mt-2`}
@@ -141,7 +142,7 @@ export default function AdvancedParamsPanel({
 
             <label className="rounded-lg border border-white/10 bg-white/[0.04] p-3">
               <span className="text-sm font-semibold text-white">
-                🧭 Seed（随机种子）
+                Seed（随机种子）
               </span>
               <input
                 className={`${numberInputClass()} mt-2`}
@@ -156,7 +157,7 @@ export default function AdvancedParamsPanel({
 
             <label className="rounded-lg border border-white/10 bg-white/[0.04] p-3 lg:col-span-2">
               <span className="text-sm font-semibold text-white">
-                ⛔ Stop Sequences（停止序列）
+                Stop Sequences（停止序列）
               </span>
               <input
                 className={`${numberInputClass()} mt-2`}
