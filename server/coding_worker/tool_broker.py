@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import hashlib
 import json
 import os
@@ -23,6 +24,7 @@ from .contracts import (
     StrictModel,
     TaskState,
 )
+from .changeset import ChangesetEngine, ChangesetError
 from .process_manager import BackgroundProcessManager, ProcessManagerError
 from .network_policy import EgressPolicy, NetworkPolicyError
 from .store import CodingWorkerStore, WorkerConflictError
@@ -111,6 +113,7 @@ class ToolBroker:
         self.egress_proxy_url = self._validate_proxy_url(egress_proxy_url)
         self.max_output_bytes = max_output_bytes
         self.executor = executor
+        self.changesets = ChangesetEngine(workspace_broker)
 
     async def execute(
         self,
@@ -140,6 +143,12 @@ class ToolBroker:
             request=request,
         )
         if operation.state is OperationState.COMPLETED:
+            if operation.tool_name == "apply_changeset":
+                self.changesets.finalize(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                )
             return ToolResult(
                 operation_id=operation_id,
                 tool_name=tool_name,
@@ -170,16 +179,35 @@ class ToolBroker:
             data = await self._dispatch(
                 task_id,
                 task.workspace_id,
+                operation_id,
                 tool_name,
                 request["arguments"],
                 network_lease=network_lease,
             )
-            completed = self.store.transition_operation(
-                operation_id,
-                OperationState.COMPLETED,
-                result=data,
-                expected_state=OperationState.RUNNING,
-            )
+            try:
+                completed = self.store.transition_operation(
+                    operation_id,
+                    OperationState.COMPLETED,
+                    result=data,
+                    expected_state=OperationState.RUNNING,
+                )
+            except Exception as exc:
+                if tool_name == "apply_changeset" and self.changesets.is_applied(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                ):
+                    raise ToolBrokerError(
+                        "Changeset result must be reconciled.",
+                        code="operation_result_unknown",
+                    ) from exc
+                raise
+            if tool_name == "apply_changeset":
+                self.changesets.finalize(
+                    task_id=task_id,
+                    workspace_id=task.workspace_id,
+                    operation_id=operation_id,
+                )
             return ToolResult(
                 operation_id=operation_id,
                 tool_name=tool_name,
@@ -188,6 +216,7 @@ class ToolBroker:
             )
         except (
             ToolBrokerError,
+            ChangesetError,
             WorkerConflictError,
             WorkspaceError,
             ProcessManagerError,
@@ -201,7 +230,21 @@ class ToolBroker:
                 and exc.code == "approval_required"
                 and current.state is OperationState.PREPARED
             )
-            if not awaiting_approval and current.state in {
+            unknown_result = (
+                isinstance(exc, ToolBrokerError)
+                and exc.code == "operation_result_unknown"
+            )
+            if unknown_result and current.state in {
+                OperationState.PREPARED,
+                OperationState.RUNNING,
+            }:
+                self.store.transition_operation(
+                    operation_id,
+                    OperationState.UNKNOWN,
+                    result={"code": "operation_result_unknown"},
+                    expected_state=current.state,
+                )
+            elif not awaiting_approval and current.state in {
                 OperationState.PREPARED,
                 OperationState.RUNNING,
             }:
@@ -211,7 +254,11 @@ class ToolBroker:
                     result={"code": getattr(exc, "code", "tool_failed")},
                     expected_state=current.state,
                 )
-            if isinstance(exc, ToolBrokerError):
+            if isinstance(exc, (ToolBrokerError, ChangesetError)):
+                if isinstance(exc, ChangesetError):
+                    raise ToolBrokerError(
+                        "Changeset operation failed.", code=exc.code
+                    ) from exc
                 raise
             raise ToolBrokerError("Tool operation failed.", code=getattr(exc, "code", "tool_failed")) from exc
         except Exception as exc:
@@ -230,6 +277,12 @@ class ToolBroker:
     def reconcile(self, operation_id: str) -> ToolResult:
         operation = self.store.get_operation(operation_id)
         if operation.state is OperationState.COMPLETED:
+            if operation.tool_name == "apply_changeset":
+                self.changesets.finalize(
+                    task_id=operation.task_id,
+                    workspace_id=str(operation.request["workspace_id"]),
+                    operation_id=operation_id,
+                )
             return ToolResult(
                 operation_id=operation_id,
                 tool_name=operation.tool_name,
@@ -276,6 +329,41 @@ class ToolBroker:
                     state=resolved.state,
                     data=resolved.result or {},
                 )
+        elif operation.tool_name == "apply_changeset":
+            try:
+                outcome = self.changesets.reconcile(
+                    task_id=operation.task_id,
+                    workspace_id=workspace_id,
+                    operation_id=operation_id,
+                )
+            except ChangesetError as exc:
+                if exc.code == "changeset_rolled_back":
+                    self.store.transition_operation(
+                        operation_id,
+                        OperationState.FAILED,
+                        result={"code": exc.code},
+                        expected_state=OperationState.UNKNOWN,
+                    )
+                raise ToolBrokerError(
+                    "Changeset reconciliation failed.", code=exc.code
+                ) from exc
+            resolved = self.store.transition_operation(
+                operation_id,
+                OperationState.COMPLETED,
+                result={"changeset": outcome.model_dump(mode="json")},
+                expected_state=OperationState.UNKNOWN,
+            )
+            self.changesets.finalize(
+                task_id=operation.task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+            )
+            return ToolResult(
+                operation_id=operation_id,
+                tool_name=operation.tool_name,
+                state=resolved.state,
+                data=resolved.result or {},
+            )
         raise ToolBrokerError(
             "Tool result is unknown and must not be replayed.",
             code="operation_result_unknown",
@@ -291,10 +379,23 @@ class ToolBroker:
         request: dict[str, Any],
         network_lease_id: str | None,
     ) -> CapabilityLease | None:
+        v15_tools = {
+            "read_file_range",
+            "glob_files",
+            "search_regex",
+            "apply_changeset",
+        }
+        if tool_name in v15_tools and os.getenv(
+            "CODING_WORKER_V15_ENABLED", "false"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            raise ToolBrokerError("V15 tooling is disabled.", code="tool_not_allowed")
         readonly = {
             "list_files",
             "read_file",
+            "read_file_range",
+            "glob_files",
             "search_text",
+            "search_regex",
             "diff",
             "list_acceptance_checks",
             "service_status",
@@ -304,6 +405,7 @@ class ToolBroker:
         if tool_name in {
             "write_file",
             "delete_file",
+            "apply_changeset",
             "run_check",
             "service_input",
             "stop_service",
@@ -372,6 +474,7 @@ class ToolBroker:
         self,
         task_id: str,
         workspace_id: str,
+        operation_id: str,
         tool_name: str,
         arguments: dict[str, Any],
         *,
@@ -399,6 +502,10 @@ class ToolBroker:
                     "sha256": hashlib.sha256(content).hexdigest(),
                 }
             return {"path": str(arguments["path"]), "binary": False, "content": text}
+        if tool_name == "read_file_range":
+            return self._read_file_range(workspace_id, arguments)
+        if tool_name == "glob_files":
+            return self._glob_files(workspace_id, arguments)
         if tool_name == "search_text":
             needle = str(arguments.get("query", ""))
             if not needle or len(needle) > 512:
@@ -418,6 +525,8 @@ class ToolBroker:
                         if len(matches) >= 1000:
                             return {"matches": matches, "truncated": True}
             return {"matches": matches, "truncated": False}
+        if tool_name == "search_regex":
+            return self._search_regex(workspace_id, arguments)
         if tool_name == "diff":
             value = self.workspace_broker.diff(workspace_id, max_bytes=self.max_output_bytes)
             return {"diff": value.decode("utf-8", errors="replace")}
@@ -438,6 +547,14 @@ class ToolBroker:
             return self._write_file(workspace_id, arguments)
         if tool_name == "delete_file":
             return self._delete_file(workspace_id, arguments)
+        if tool_name == "apply_changeset":
+            outcome = self.changesets.apply(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+                arguments=arguments,
+            )
+            return {"changeset": outcome.model_dump(mode="json")}
         if tool_name == "run_check":
             check_id = str(arguments.get("check_id", ""))
             task = self.store.get_task(task_id)
@@ -632,6 +749,130 @@ class ToolBroker:
         if self.egress_policy is None:
             raise NetworkPolicyError("Worker network access is disabled.", code="network_disabled")
         return self.egress_policy
+
+    def _read_file_range(
+        self, workspace_id: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        path = str(arguments.get("path", ""))
+        start = arguments.get("start_line", 1)
+        end = arguments.get("end_line", 200)
+        if (
+            isinstance(start, bool)
+            or isinstance(end, bool)
+            or not isinstance(start, int)
+            or not isinstance(end, int)
+            or not 1 <= start <= end
+            or end - start >= 1000
+        ):
+            raise ToolBrokerError("Line range is invalid.", code="tool_input_invalid")
+        target = self._target(workspace_id, path)
+        if not target.is_file() or target.is_symlink():
+            raise ToolBrokerError("Target is not a regular file.", code="workspace_changed")
+        content = target.read_bytes()
+        if len(content) > MAX_WRITE_BYTES:
+            raise ToolBrokerError("File is too large.", code="tool_output_too_large")
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ToolBrokerError(
+                "Binary file ranges are unavailable.", code="preview_unavailable"
+            ) from exc
+        lines = text.splitlines(keepends=True)
+        selected = "".join(lines[start - 1 : end])
+        if len(selected.encode("utf-8")) > self.max_output_bytes:
+            raise ToolBrokerError("Range output is too large.", code="tool_output_too_large")
+        return {
+            "path": path,
+            "start_line": start,
+            "end_line": min(end, len(lines)),
+            "total_lines": len(lines),
+            "content": selected,
+            "sha256": hashlib.sha256(content).hexdigest(),
+        }
+
+    def _glob_files(
+        self, workspace_id: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        pattern = self._validate_glob(str(arguments.get("pattern", "")))
+        matches = [
+            entry.model_dump(mode="json")
+            for entry in self.workspace_broker.tree(workspace_id)
+            if self._glob_matches(entry.display_path, pattern)
+        ]
+        return {"entries": matches[:2000], "truncated": len(matches) > 2000}
+
+    def _search_regex(
+        self, workspace_id: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        pattern = str(arguments.get("pattern", ""))
+        file_glob = self._validate_glob(str(arguments.get("glob", "**/*")))
+        case_sensitive = arguments.get("case_sensitive", True)
+        if (
+            not pattern
+            or len(pattern) > 256
+            or not isinstance(case_sensitive, bool)
+            or re.search(r"\\[1-9]|\(\?", pattern)
+            or re.search(r"\([^)]*(?:[*+{]|\|)[^)]*\)[*+{]", pattern)
+        ):
+            raise ToolBrokerError("Regex pattern is unsafe.", code="tool_input_invalid")
+        try:
+            expression = re.compile(pattern, 0 if case_sensitive else re.IGNORECASE)
+        except re.error as exc:
+            raise ToolBrokerError(
+                "Regex pattern is invalid.", code="tool_input_invalid"
+            ) from exc
+        matches: list[dict[str, Any]] = []
+        for entry in self.workspace_broker.tree(workspace_id):
+            if (
+                entry.kind != "file"
+                or entry.size > 1024 * 1024
+                or not self._glob_matches(entry.display_path, file_glob)
+            ):
+                continue
+            target = self._target(workspace_id, entry.display_path)
+            try:
+                lines = target.read_text(encoding="utf-8").splitlines()
+            except UnicodeDecodeError:
+                continue
+            for number, line in enumerate(lines, 1):
+                bounded = line[:16_384]
+                match = expression.search(bounded)
+                if match is None:
+                    continue
+                matches.append(
+                    {
+                        "path": entry.display_path,
+                        "line": number,
+                        "start": match.start(),
+                        "end": match.end(),
+                        "text": bounded[:1000],
+                    }
+                )
+                if len(matches) >= 1000:
+                    return {"matches": matches, "truncated": True}
+        return {"matches": matches, "truncated": False}
+
+    @staticmethod
+    def _validate_glob(value: str) -> str:
+        path = PurePosixPath(value)
+        if (
+            not value
+            or len(value) > 256
+            or "\\" in value
+            or path.is_absolute()
+            or ".." in path.parts
+            or ".git" in path.parts
+            or "\x00" in value
+        ):
+            raise ToolBrokerError("Glob pattern is invalid.", code="tool_input_invalid")
+        return value
+
+    @staticmethod
+    def _glob_matches(path: str, pattern: str) -> bool:
+        return fnmatch.fnmatchcase(path, pattern) or (
+            pattern.startswith("**/")
+            and fnmatch.fnmatchcase(path, pattern.removeprefix("**/"))
+        )
 
     def _write_file(self, workspace_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
         path = str(arguments.get("path", ""))
