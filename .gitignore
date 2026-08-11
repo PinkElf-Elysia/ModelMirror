@@ -60,6 +60,7 @@ server/xpert_runtime/storage/
 server/evaluations/storage/
 server/evolutions/storage/
 server/datax/storage/
+server/data_tables/storage/
 server/toolsets/storage/
 server/model_router/storage/
 server/file_assets/storage/

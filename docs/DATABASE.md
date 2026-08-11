@@ -21,6 +21,7 @@
 | Agent Runtime | `server/xpert_runtime/storage/` 文件型 Store | Goal、Handoff、自动化、审批和执行恢复。 |
 | Toolset | `server/toolsets/storage/` | Toolset 版本、凭据摘要和本地 master key。 |
 | Data X | 项目元数据 + 项目隔离 DuckDB | 文件快照、语义模型和受限查询。 |
+| Native Agent Table | `agent_tables.sqlite3` / SQLite WAL | 本地类型化业务记录、不可变 SchemaVersion、revision、幂等写入账本和安全审计摘要。 |
 | 工作流草稿 | 浏览器 `localStorage` | classic 画布本地草稿；发布 Agent 时进入后端不可变版本。 |
 | 媒体正文 | 不持久化 | STT/TTS/视频请求媒体及视频生成 Prompt、首帧不进入任务数据库。 |
 
@@ -51,6 +52,7 @@ server/rag/storage/
 server/rag/uploads/
 server/xperts/storage/
 server/xpert_runtime/storage/
+server/data_tables/storage/
 server/datax/storage/
 server/toolsets/storage/
 server/skills/installed/
@@ -79,6 +81,10 @@ SQLite repository 已隔离于路由服务实现，可在多租户阶段增加 P
 2. 连接、策略、任务和审计。
 3. Agent/Runtime 文件型 Store。
 4. 需要集中查询的 RAG/Data X 元数据。
+
+Native Agent Table 已通过 Backend-neutral `AgentTableStore` 隔离 SQLite 实现。
+后续引入 PostgreSQL 时必须保持 SchemaVersion、revision、operation ID 和类型校验
+契约；不能通过开放任意 SQL 绕过资源层。
 
 Chroma、对象正文和项目 DuckDB 是否迁移，应按检索规模、保留策略和部署拓扑
 单独决策，不能通过一次通用数据库替换解决。

@@ -27,6 +27,8 @@ import AutomationsPage from "./pages/AutomationsPage";
 import DataXHomePage from "./pages/DataXHomePage";
 import DataXProjectPage from "./pages/DataXProjectPage";
 import DataXInboxPage from "./pages/DataXInboxPage";
+import DataTablesPage from "./pages/DataTablesPage";
+import DataTableDetailPage from "./pages/DataTableDetailPage";
 import ToolsetsPage from "./pages/ToolsetsPage";
 import PromptProfilesPage from "./pages/PromptProfilesPage";
 import PluginsPage from "./pages/PluginsPage";
@@ -87,6 +89,8 @@ export default function App() {
       <Route element={<DataXHomePage />} path="/datax" />
       <Route element={<DataXInboxPage />} path="/datax/:projectId/inbox" />
       <Route element={<DataXProjectPage />} path="/datax/:projectId" />
+      <Route element={<DataTablesPage />} path="/data-tables" />
+      <Route element={<DataTableDetailPage />} path="/data-tables/:tableId" />
       <Route element={<MatrixOasisPage />} path="/matrix-oasis" />
       <Route element={<ExpertTeamPage />} path="/expert-team" />
       <Route element={<McpBrowserPage />} path="/mcps" />

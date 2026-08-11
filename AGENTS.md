@@ -33,6 +33,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - 协作 Runtime：AgentTask、HandoffExecutor、Conversation Goal 与 RunRegistry 共同提供单进程文件型协作闭环。
 - RAG：`/rag` 是本地资料库、版本化 Knowledge Pipeline 与检索增强页面。
 - Data X：`/datax` 提供文件快照、语义模型、版本化指标、受限分析查询和指标提案审批。
+- Agent Table：`/data-tables` 提供本地类型化业务记录、Schema 版本和人工 CRUD；它不是 Data X 或外部 Database MCP。
 - 上下文：Xpert Chat 支持会话附件、文件理解、显式记忆和待确认记忆候选。
 - 运行观测：`/runtime` 聚合 MCP、Tool Registry、RunRegistry、Skill 和脱敏环境状态。
 - 设置：`/settings` 内嵌 newAPI 控制台。
@@ -53,6 +54,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - `/workflow-native`
 - `/rag`
 - `/datax`
+- `/data-tables`
 - `/mcps`
 - `/skills`
 - `/studio`
@@ -650,6 +652,17 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 - 公共 App 的 Data X 默认关闭。启用 `allow_datax_read` 后仍只允许固定 scope 内的已发布指标；提案、原始明细和文件导出永远禁止。
 - API、audit 和 checkpoint 不得保存上传数据、完整查询结果、DuckDB 路径、展开 SQL、密钥或未脱敏工具输出。
 - 修改 Data X 必须运行 `server/tests/test_datax.py`、workflow validate、Xpert App preflight、前端生产构建和容器重启持久化验收。
+
+### 21.1 Native Agent Table 高风险路径
+
+- `AgentTableStore` 必须保持 Backend-neutral；SQLite Backend 使用事务、WAL、外键和 revision，后续 Backend 不得改变 API 语义。
+- Agent Table 禁止接受任意 SQL。Schema 和记录值必须经过字段白名单、JSON-safe 类型和 256 KiB 正文上限校验。
+- 已发布 SchemaVersion 不可变。已有字段不得删除、改名、改类型或改变约束；新增必填字段必须带默认值。
+- 记录写入必须支持稳定 `operation_id`。相同请求重放返回原结果，不同请求复用同一 ID 必须冲突，防止恢复后重复写入。
+- API、审计和前端不得返回 SQLite 物理路径；SQLite、WAL、Runtime Store 和记录数据不得提交。
+- `/data-tables` 是本地业务记录入口；`/datax` 仍是分析入口，外部数据库仍走受控 MCP，三者不得合并 Store 或伪装语义。
+- 当前公共 App 禁用 Agent Table。第三轮工作流 CRUD 节点完成前，Meta Planner 也不得生成数据库节点。
+- 修改 Agent Table 必须运行 `server/tests/test_agent_tables.py`、后端语法、前端生产构建和重启恢复验收。
 
 ## 22. Workflow 资源绑定与 EvoAgentX 复用规则
 

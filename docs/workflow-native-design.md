@@ -818,3 +818,17 @@ published snapshots. It has no ports, cannot connect to a control edge, is
 excluded from variable reachability and topological order, and produces no node
 run, checkpoint, or SSE event. Meta Planner remains unable to generate these new
 nodes until `EVOAGENTX-META-PLANNER-DATA-04` adds typed workflow IR.
+
+## Native Agent Table resource (2026-08-11)
+
+`/data-tables` now provides a local managed business-record resource with typed
+fields, draft revision, immutable SchemaVersion, record revision, transactional
+SQLite persistence, and idempotent operation receipts. It is deliberately
+separate from Data X analytics and external Database MCP connections.
+
+This round adds the resource and management API only. It does not register
+`data_table_query/insert/update/delete` in the Workflow Registry or runner, and
+Meta Planner cannot generate database operations yet. The following round will
+bind those nodes to a fixed SchemaVersion and the existing typed WorkflowValue
+contract. Knowledge pipeline stages remain owned by `/rag`; workflows continue
+to consume them through knowledge bindings and retrieval/citation nodes.

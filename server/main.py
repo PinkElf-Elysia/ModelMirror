@@ -461,6 +461,19 @@ except ModuleNotFoundError:
     )
 
 try:
+    from server.data_tables import (
+        AgentTableStore,
+        agent_tables_router,
+        configure_agent_table_store,
+    )
+except ModuleNotFoundError:
+    from data_tables import (
+        AgentTableStore,
+        agent_tables_router,
+        configure_agent_table_store,
+    )
+
+try:
     from server.mcp.catalog import (
         MCPCatalogService,
         configure_mcp_catalog,
@@ -1026,6 +1039,7 @@ app.add_middleware(
 app.include_router(dify_router)
 app.include_router(rag_router)
 app.include_router(datax_router)
+app.include_router(agent_tables_router)
 app.include_router(file_assets_router)
 app.include_router(skills_router)
 app.include_router(skill_creator_router)
@@ -1107,6 +1121,10 @@ workflow_external_xpert_provider = ExternalXpertToolsetProvider(
 datax_store = DataXStore(os.getenv("DATAX_STORAGE_DIR", "").strip() or None)
 datax_service = DataXService(datax_store)
 configure_datax(datax_service)
+agent_table_store = AgentTableStore(
+    os.getenv("AGENT_TABLE_STORAGE_DIR", "").strip() or None
+)
+configure_agent_table_store(agent_table_store)
 workflow_datax_provider = DataXToolsetProvider(datax_service)
 runtime_approval_store = RuntimeApprovalStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None

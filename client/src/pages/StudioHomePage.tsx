@@ -92,6 +92,13 @@ interface DataXProjectPayload {
   status: string;
 }
 
+interface AgentTablePayload {
+  table_id: string;
+  name: string;
+  status: string;
+  active_schema_version: number | null;
+}
+
 interface ResourceAction {
   disabled?: boolean;
   href?: string;
@@ -193,10 +200,10 @@ const quickActions: QuickAction[] = [
     label: "打开工作台",
   },
   {
-    title: "创建 Data X 项目",
-    description: "导入本地文件，建立语义模型并发布可由 Agent 查询的业务指标。",
-    href: "/datax",
-    label: "打开 Data X",
+    title: "创建本地数据表",
+    description: "定义类型化 Schema，维护供私有工作流使用的本地业务记录。",
+    href: "/data-tables",
+    label: "打开数据表",
   },
   {
     title: "智能体自动化",
@@ -467,6 +474,9 @@ export default function StudioHomePage() {
   const [dataXProjects, setDataXProjects] = useState(
     createLoadable<DataXProjectPayload[]>([]),
   );
+  const [agentTables, setAgentTables] = useState(
+    createLoadable<AgentTablePayload[]>([]),
+  );
 
   useEffect(() => {
     document.title = "模镜 - 组织工作空间";
@@ -568,11 +578,29 @@ export default function StudioHomePage() {
       }
     }
 
+    async function loadAgentTables() {
+      try {
+        const data = await fetchJson<{ items: AgentTablePayload[] }>(
+          "/api/data-tables",
+        );
+        if (cancelled) return;
+        setAgentTables({ data: data.items ?? [], error: "", loading: false });
+      } catch (error) {
+        if (cancelled) return;
+        setAgentTables({
+          data: [],
+          error: error instanceof Error ? error.message : "本地数据表加载失败",
+          loading: false,
+        });
+      }
+    }
+
     void loadKnowledge();
     void loadMcp();
     void loadSkills();
     void loadRuns();
     void loadDataX();
+    void loadAgentTables();
 
     return () => {
       cancelled = true;
@@ -683,24 +711,25 @@ export default function StudioHomePage() {
       },
       {
         category: "database",
-        count: dataXProjects.error ? "0" : String(dataXProjects.data.length),
-        description: "本地文件快照、DuckDB 语义模型、版本化指标与 Agent 数据分析。",
-        error: dataXProjects.error,
-        icon: "DX",
+        count: agentTables.error ? "0" : String(agentTables.data.length),
+        description: "本地托管 Agent Table 用于类型化业务记录；Data X 继续负责文件快照和语义指标分析。",
+        error: agentTables.error,
+        icon: "DB",
         id: "database",
-        items: dataXProjects.error
+        items: agentTables.error
           ? []
           : [
-              ...dataXProjects.data.slice(0, 4).map((project) => project.name),
-              "CSV / XLSX / Parquet",
-              "基础与派生指标",
+              ...agentTables.data.slice(0, 4).map((table) => table.name),
+              `${agentTables.data.filter((table) => table.active_schema_version).length} 个已发布 Schema`,
+              `${dataXProjects.data.length} 个 Data X 分析项目`,
             ],
-        loading: dataXProjects.loading,
-        metricLabel: "Data X 项目",
-        primaryAction: { href: "/datax", label: "打开 Data X" },
+        loading: agentTables.loading,
+        metricLabel: "Agent Table",
+        primaryAction: { href: "/data-tables", label: "管理数据表" },
+        secondaryAction: { href: "/datax", label: "Data X 分析" },
         status: "可运行",
         tags: ["runnable", "creatable", "observable", "xpert"],
-        title: "Data X 语义指标",
+        title: "业务数据表",
         tone: "ready",
       },
       {
@@ -777,6 +806,7 @@ export default function StudioHomePage() {
     ];
   }, [
     artifacts,
+    agentTables,
     dataXProjects,
     fileAssets,
     installedSkills,
