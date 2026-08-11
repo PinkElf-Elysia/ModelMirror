@@ -12,7 +12,12 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 SAFE_ROUTE = re.compile(r"^[a-z0-9][a-z0-9._/-]{0,127}$")
 TERMINAL_STATES: frozenset["TaskState"]
 CapabilityName = Literal[
-    "workspace_write", "command", "dependency_install", "service", "network"
+    "workspace_write",
+    "command",
+    "dependency_install",
+    "service",
+    "network",
+    "shell",
 ]
 
 
@@ -123,6 +128,50 @@ class PolicyProfile(StrEnum):
     INSPECT = "inspect"
     DEVELOP = "develop"
     DEVELOP_NETWORKED = "develop_networked"
+
+
+class ShellMode(StrEnum):
+    INSPECT = "inspect"
+    MUTATE = "mutate"
+
+
+def _normalized_workspace_relative(value: str, *, allow_root: bool = False) -> str:
+    normalized = value.replace("\\", "/")
+    parts = normalized.split("/")
+    if (
+        normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:", normalized)
+        or any(part in {"", ".."} for part in parts)
+        or any(part == "." for part in parts[1:])
+        or (normalized == "." and not allow_root)
+    ):
+        raise ValueError("path must be normalized and workspace-relative")
+    return normalized
+
+
+class ShellApprovalScope(StrictModel):
+    """Exact, single-operation approval binding for a V15 shell invocation."""
+
+    operation_id: str
+    script_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    cwd: str = Field(default=".", min_length=1, max_length=1024)
+    mode: ShellMode
+    timeout_seconds: int = Field(ge=1, le=3600)
+    network_scope_sha256: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
+
+    @field_validator("operation_id")
+    @classmethod
+    def validate_operation_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("operation id must be opaque")
+        return value
+
+    @field_validator("cwd")
+    @classmethod
+    def validate_relative_cwd(cls, value: str) -> str:
+        return _normalized_workspace_relative(value, allow_root=True)
 
 
 class Origin(StrictModel):
@@ -256,6 +305,170 @@ class TaskSpec(TaskCreateRequest):
     origin: Origin
 
 
+class WorkerCapabilities(StrictModel):
+    api_version: Literal["v1"] = "v1"
+    task_runtime: bool
+    professional_file_tools: bool
+    shell: bool
+    operation_output: bool
+    changesets: bool
+    code_intelligence: bool
+
+
+class OperationOutputStream(StrEnum):
+    STDOUT = "stdout"
+    STDERR = "stderr"
+    SYSTEM = "system"
+
+
+class OperationOutputChunk(StrictModel):
+    task_id: str
+    operation_id: str
+    sequence: int = Field(ge=1)
+    stream: OperationOutputStream
+    text: str = Field(max_length=65_536)
+    created_at: float
+    truncated: bool = False
+
+    @field_validator("task_id", "operation_id")
+    @classmethod
+    def validate_output_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("operation output identifier is invalid")
+        return value
+
+
+class ChangesetState(StrEnum):
+    PREPARED = "prepared"
+    APPLIED = "applied"
+    CONFLICT = "conflict"
+    REJECTED = "rejected"
+    UNKNOWN = "unknown"
+
+
+class ChangeKind(StrEnum):
+    ADD = "add"
+    MODIFY = "modify"
+    DELETE = "delete"
+    MOVE = "move"
+
+
+class ChangesetEntry(StrictModel):
+    entry_id: str
+    kind: ChangeKind
+    display_path: str = Field(min_length=1, max_length=1024)
+    destination_display_path: str | None = Field(default=None, max_length=1024)
+    preimage_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    postimage_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    binary: bool = False
+
+    @field_validator("entry_id")
+    @classmethod
+    def validate_entry_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("changeset entry id must be opaque")
+        return value
+
+    @field_validator("display_path", "destination_display_path")
+    @classmethod
+    def validate_display_path(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _normalized_workspace_relative(value)
+
+    @model_validator(mode="after")
+    def validate_hashes(self) -> "ChangesetEntry":
+        if self.kind is ChangeKind.ADD and self.preimage_sha256 is not None:
+            raise ValueError("added entries cannot have a preimage")
+        if self.kind is ChangeKind.DELETE and self.postimage_sha256 is not None:
+            raise ValueError("deleted entries cannot have a postimage")
+        if self.kind is ChangeKind.MOVE and not self.destination_display_path:
+            raise ValueError("moved entries require a destination")
+        if (
+            self.kind is not ChangeKind.MOVE
+            and self.destination_display_path is not None
+        ):
+            raise ValueError("only moved entries have a destination")
+        return self
+
+
+class WorkerChangeset(StrictModel):
+    changeset_id: str
+    task_id: str
+    operation_id: str
+    base_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    result_tree_hash: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    state: ChangesetState
+    entries: tuple[ChangesetEntry, ...] = Field(max_length=4096)
+    artifact_id: str | None = None
+    created_at: float
+    updated_at: float
+
+    @field_validator("changeset_id", "task_id", "operation_id", "artifact_id")
+    @classmethod
+    def validate_changeset_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
+            raise ValueError("changeset identifier is invalid")
+        return value
+
+
+class CodePosition(StrictModel):
+    line: int = Field(ge=0)
+    character: int = Field(ge=0)
+
+
+class CodeRange(StrictModel):
+    start: CodePosition
+    end: CodePosition
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "CodeRange":
+        if (self.end.line, self.end.character) < (
+            self.start.line,
+            self.start.character,
+        ):
+            raise ValueError("code range end precedes start")
+        return self
+
+
+class CodeLocation(StrictModel):
+    entry_id: str
+    range: CodeRange
+
+    @field_validator("entry_id")
+    @classmethod
+    def validate_location_entry(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("code location entry id must be opaque")
+        return value
+
+
+class DiagnosticSeverity(StrEnum):
+    ERROR = "error"
+    WARNING = "warning"
+    INFORMATION = "information"
+    HINT = "hint"
+
+
+class WorkerDiagnostic(StrictModel):
+    diagnostic_id: str
+    task_id: str
+    entry_id: str
+    workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    range: CodeRange
+    severity: DiagnosticSeverity
+    code: str | None = Field(default=None, max_length=128)
+    message: str = Field(min_length=1, max_length=16_384)
+    created_at: float
+
+    @field_validator("diagnostic_id", "task_id", "entry_id")
+    @classmethod
+    def validate_diagnostic_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("diagnostic identifier is invalid")
+        return value
+
+
 class CapabilityLease(StrictModel):
     lease_id: str
     task_id: str
@@ -273,6 +486,10 @@ class CapabilityLease(StrictModel):
             raise ValueError("lease timestamps are invalid")
         if self.expires_at <= self.issued_at:
             raise ValueError("lease expiry must be after issuance")
+        if self.capability == "shell":
+            ShellApprovalScope.model_validate(self.scope)
+            if self.operation_limit != 1:
+                raise ValueError("shell approval is always single-operation")
         return self
 
 

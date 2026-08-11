@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -63,12 +64,49 @@ def teardown_function() -> None:
 
 def test_feature_flag_is_default_deny(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CODING_WORKER_V14_ENABLED", raising=False)
+    monkeypatch.delenv("CODING_WORKER_V15_ENABLED", raising=False)
+    monkeypatch.delenv("CODING_WORKER_SHELL_ENABLED", raising=False)
+    monkeypatch.delenv("CODING_WORKER_CODE_INTELLIGENCE_ENABLED", raising=False)
     configure_coding_worker_for_tests(None, enabled=None)
     app = FastAPI()
     app.include_router(router)
     client = TestClient(app)
-    assert client.get("/api/coding-worker/v1").json()["enabled"] is False
+    status = client.get("/api/coding-worker/v1").json()
+    assert status["enabled"] is False
+    assert status["capabilities"] == {
+        "api_version": "v1",
+        "task_runtime": False,
+        "professional_file_tools": False,
+        "shell": False,
+        "operation_output": False,
+        "changesets": False,
+        "code_intelligence": False,
+    }
     assert client.post("/api/coding-worker/v1/tasks", json=_payload()).status_code == 404
+
+
+def test_v15_capabilities_are_vendor_neutral_and_independently_gated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _service = _client(tmp_path)
+    monkeypatch.setenv("CODING_WORKER_V15_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_SHELL_ENABLED", "true")
+    monkeypatch.setenv("CODING_WORKER_CODE_INTELLIGENCE_ENABLED", "false")
+    with client:
+        response = client.get("/api/coding-worker/v1/capabilities")
+    assert response.status_code == 200
+    capabilities = response.json()
+    assert capabilities == {
+        "api_version": "v1",
+        "task_runtime": True,
+        "professional_file_tools": True,
+        "shell": True,
+        "operation_output": True,
+        "changesets": True,
+        "code_intelligence": False,
+    }
+    encoded = response.text.lower()
+    assert "opencode" not in encoded and "claude" not in encoded
 
 
 def test_enabled_runtime_fails_closed_when_sidecar_tokens_are_missing(
@@ -186,6 +224,38 @@ def test_approval_endpoints_are_task_bound_and_single_decision(tmp_path: Path) -
             json={"approval_id": approval.approval_id, "decision": "reject"},
         )
         assert replay.status_code == 409
+
+
+def test_shell_approval_cannot_be_promoted_to_task_scope(tmp_path: Path) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    with client:
+        task = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        operation_id = "shell-operation-api-01"
+        approval = service.store.create_approval(
+            task_id=task["task_id"],
+            operation_id=operation_id,
+            capability="shell",
+            request={
+                "operation_id": operation_id,
+                "script_sha256": hashlib.sha256(b"pytest -q").hexdigest(),
+                "cwd": ".",
+                "mode": "inspect",
+                "timeout_seconds": 120,
+                "network_scope_sha256": None,
+            },
+        )
+        denied = client.post(
+            f"/api/coding-worker/v1/tasks/{task['task_id']}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "approve_task"},
+        )
+        assert denied.status_code == 409
+        assert denied.json()["detail"]["code"] == "shell_task_approval_forbidden"
+        once = client.post(
+            f"/api/coding-worker/v1/tasks/{task['task_id']}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "approve_once"},
+        )
+        assert once.status_code == 200
+        assert once.json()["lease"]["operation_limit"] == 1
 
 
 def test_evidence_and_artifact_download_are_opaque_and_task_bound(

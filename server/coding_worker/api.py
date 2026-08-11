@@ -20,6 +20,7 @@ from .contracts import (
     TaskRecord,
     TaskState,
     TERMINAL_STATES,
+    WorkerCapabilities,
     WorkerApproval,
     WorkerArtifact,
     WorkerEvidence,
@@ -88,6 +89,30 @@ def is_coding_worker_enabled() -> bool:
     }
 
 
+def _feature_enabled(name: str) -> bool:
+    return os.getenv(name, "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def coding_worker_capabilities() -> WorkerCapabilities:
+    task_runtime = is_coding_worker_enabled() and _service is not None
+    v15 = task_runtime and _feature_enabled("CODING_WORKER_V15_ENABLED")
+    return WorkerCapabilities(
+        task_runtime=task_runtime,
+        professional_file_tools=v15,
+        shell=v15 and _feature_enabled("CODING_WORKER_SHELL_ENABLED"),
+        operation_output=v15,
+        changesets=v15,
+        code_intelligence=(
+            v15 and _feature_enabled("CODING_WORKER_CODE_INTELLIGENCE_ENABLED")
+        ),
+    )
+
+
 def configure_coding_worker_for_tests(
     service: CodingWorkerService | None, *, enabled: bool | None = None
 ) -> None:
@@ -142,6 +167,7 @@ def _raise_worker_error(exc: Exception) -> None:
 @router.get("")
 async def coding_worker_status() -> dict[str, Any]:
     enabled = is_coding_worker_enabled()
+    capabilities = coding_worker_capabilities()
     return {
         "enabled": enabled,
         "available": enabled and _service is not None,
@@ -157,7 +183,13 @@ async def coding_worker_status() -> dict[str, Any]:
             else []
         ),
         "reason": _startup_error,
+        "capabilities": capabilities.model_dump(mode="json"),
     }
+
+
+@router.get("/capabilities", response_model=WorkerCapabilities)
+async def get_worker_capabilities() -> WorkerCapabilities:
+    return coding_worker_capabilities()
 
 
 @router.post("/tasks", response_model=TaskRecord, status_code=202)
@@ -243,6 +275,11 @@ async def decide_task_approval(
         approval = service.store.get_approval(payload.approval_id)
         if approval.task_id != task_id:
             raise WorkerNotFoundError("Approval was not found.", code="approval_not_found")
+        if approval.capability == "shell" and payload.decision == "approve_task":
+            raise WorkerConflictError(
+                "Shell approval is always bound to one exact operation.",
+                code="shell_task_approval_forbidden",
+            )
         decided = service.store.decide_approval(
             payload.approval_id,
             approved=payload.decision != "reject",
