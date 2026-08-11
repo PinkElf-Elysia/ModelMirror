@@ -170,7 +170,7 @@ services:
       - mcp_public_egress
     environment:
       MCP_TOKEN_MAX_SESSIONS: "6"
-      MCP_TOKEN_ALLOWED_ADAPTERS: agentql-mcp,brave-search-mcp,exa-mcp,firecrawl-mcp,perplexity-mcp,tavily-mcp,axiom-mcp,figma-context-mcp,google-maps-mcp,grafana-mcp,graphlit-mcp,kagi-mcp,pinecone-assistant-mcp,shodan-mcp,virustotal-mcp
+      MCP_TOKEN_ALLOWED_ADAPTERS: agentql-mcp,blazickjp-arxiv-mcp-server,brave-brave-search-mcp-server,brave-search-mcp,exa-mcp,fatwang2-search1api-mcp,firecrawl-mcp,perplexity-mcp,tavily-mcp,axiom-mcp,figma-context-mcp,google-maps-mcp,grafana-mcp,graphlit-mcp,kagi-mcp,kagisearch-kagimcp,livetennisapi-livetennisapi-mcp,pinecone-assistant-mcp,shodan-mcp,virustotal-mcp
       MCP_TOKEN_SOCKET_PATH: /run/modelmirror-token-mcp/token-mcp.sock
       MCP_TOKEN_WORKSPACE_ROOT: /workspaces
       MCP_PUBLIC_ALLOW_SYNTHETIC_DNS: "true"

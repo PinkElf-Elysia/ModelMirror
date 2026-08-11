@@ -24,11 +24,155 @@ FRONTEND_PATH = ROOT / "client" / "src" / "data" / "mcpCatalogExpansionV2.genera
 BACKEND_PATH = ROOT / "server" / "mcp" / "catalog_expansion_v2.py"
 
 SNAPSHOT_DATE = "2026-08-09"
-WAVE = 12
-APPROVAL_REASON = (
-    "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，"
-    "尚未完成固定工具契约、隔离策略与真实代表调用验收。"
-)
+WAVE = 13
+
+READY_DECISIONS = {
+    "brave-brave-search-mcp-server": {
+        "reason_code": "ready-official-read-only-token-contract",
+        "reason": (
+            "官方 Brave Search MCP Server v2.1.0 已锁定；仅开放网页搜索与地点搜索两个"
+            "只读工具，并复用固定出口、加密凭据和 Schema 漂移阻断。"
+        ),
+        "adapter_version": "2.1.0",
+        "wave": 13,
+    },
+    "blazickjp-arxiv-mcp-server": {
+        "reason_code": "ready-native-read-only-metadata-facade",
+        "reason": (
+            "arxiv-mcp-server v0.6.2 的公开元数据契约已锁定；仅开放论文搜索与摘要读取，"
+            "下载、全文读取、本地缓存、提醒和导出工具均不可发现、不可调用。"
+        ),
+        "adapter_version": "0.6.2-compatible-native-v1",
+        "wave": 14,
+    },
+    "kagisearch-kagimcp": {
+        "reason_code": "ready-official-native-read-only-api-facade",
+        "reason": (
+            "官方 kagimcp v1.0.2 的 Search/Extract 契约已锁定；原生兼容层仅向 kagi.com "
+            "发送固定 Bearer API 请求，并拒绝携带凭据型查询参数的提取 URL。"
+        ),
+        "adapter_version": "1.0.2-compatible-native-v1",
+        "wave": 14,
+    },
+    "fatwang2-search1api-mcp": {
+        "reason_code": "ready-official-native-discovery-only-facade",
+        "reason": (
+            "官方 search1api-mcp v0.5.3 契约已锁定；原生兼容层仅开放搜索、新闻与"
+            "趋势发现，强制关闭结果抓取，并固定 Search1API 出口与保守限流。"
+        ),
+        "adapter_version": "0.5.3-compatible-native-v1",
+        "wave": 15,
+    },
+    "livetennisapi-livetennisapi-mcp": {
+        "reason_code": "ready-official-native-free-read-only-facade",
+        "reason": (
+            "官方 livetennisapi-mcp v1.4.0 契约已锁定；原生兼容层仅开放 FREE 层"
+            "实时比分、赛程、球员与赛事目录，并剔除赔率、预测和模型字段。"
+        ),
+        "adapter_version": "1.4.0-compatible-native-v1",
+        "wave": 15,
+    },
+}
+
+BLOCKED_DECISION_GROUPS = {
+    "blocked-arbitrary-browser-or-url-surface": {
+        "0xmassi-webclaw",
+        "co-browser-browser-use-mcp-server",
+        "eyalzh-browser-control-mcp",
+        "bytedance-ui-tars-desktop-browser",
+    },
+    "blocked-arbitrary-command-or-code-execution": {
+        "sipyourdrink-ltd-bernstein",
+        "wonderwhy-er-desktopcommandermcp",
+        "oraios-serena",
+        "ckreiling-mcp-server-docker",
+        "datalayer-jupyter-mcp-server",
+        "g0t4-mcp-server-commands",
+    },
+    "blocked-desktop-host-instance-unverified": {
+        "mrexodia-ida-pro-mcp",
+        "samuelgursky-davinci-resolve-mcp",
+        "codergamester-mcp-unity",
+        "coding-solo-godot-mcp",
+        "radareorg-radare2-mcp",
+        "diivi-aseprite-mcp",
+        "ivanmurzak-unity-mcp",
+        "carterlasalle-mac-messages-mcp",
+        "zinja-coder-jadx-ai-mcp",
+    },
+    "blocked-privileged-infrastructure-write": {
+        "flux159-mcp-server-kubernetes",
+        "skyhook-io-radar",
+        "alexei-led-k8s-mcp-server",
+        "alexei-led-aws-mcp-server",
+        "nwiizo-tfmcp",
+    },
+    "blocked-broad-account-or-message-write": {
+        "chigwell-telegram-mcp",
+        "taylorwilsdon-google-workspace-mcp",
+        "inditextech-mcp-teams-server",
+        "tuanle96-mcp-odoo",
+        "xing5-mcp-google-sheets",
+        "integromat-make-mcp-server",
+        "line-line-bot-mcp-server",
+    },
+    "blocked-financial-or-transactional-write": {
+        "flox-foundation-flox-mcp",
+        "mcpdotdirect-evm-mcp-server",
+        "yolfinance-yolfi-agent",
+    },
+    "blocked-social-publishing-or-session-reuse": {
+        "xquik-dev-x-twitter-scraper",
+        "caol64-wenyan-mcp",
+        "taisly-agent",
+    },
+    "blocked-physical-device-control": {
+        "stack-chan-stack-chan",
+        "lpigeon-ros-mcp-server",
+    },
+    "blocked-not-an-executable-mcp-server": {
+        "nteract-semiotic",
+        "public-ui-kolibri",
+        "emiliaprotocol-emilia-protocol",
+    },
+    "blocked-superseded-unbounded-third-party": {
+        "suekou-mcp-notion-server",
+        "alexander-zuev-supabase-mcp-server",
+    },
+}
+
+BLOCKED_REASONS = {
+    "blocked-arbitrary-browser-or-url-surface": (
+        "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。"
+    ),
+    "blocked-arbitrary-command-or-code-execution": (
+        "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。"
+    ),
+    "blocked-desktop-host-instance-unverified": (
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。"
+    ),
+    "blocked-privileged-infrastructure-write": (
+        "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。"
+    ),
+    "blocked-broad-account-or-message-write": (
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。"
+    ),
+    "blocked-financial-or-transactional-write": (
+        "上游包含订单、链上交易或真实资金相关操作；本目录不开放交易执行与签名能力。"
+    ),
+    "blocked-social-publishing-or-session-reuse": (
+        "上游依赖社交账号发布、已登录会话或平台写入；不满足无登录态复用与逐次写审批边界。"
+    ),
+    "blocked-physical-device-control": (
+        "上游可控制机器人或物理设备；当前没有设备身份、急停、权限和现场安全边界。"
+    ),
+    "blocked-not-an-executable-mcp-server": (
+        "固定仓库未证明存在可锁定、可独立运行并可发现工具的 MCP Server 产品身份。"
+    ),
+    "blocked-superseded-unbounded-third-party": (
+        "该第三方实现提供的管理或写入面宽于目录中已存在的官方受控适配器，不再新增重复执行入口。"
+    ),
+}
 
 DESKTOP_REPOSITORIES = {
     "bx33661/wireshark-mcp",
@@ -67,6 +211,85 @@ HIGH_RISK_CATEGORIES = {
     "金融与市场",
     "社交与内容",
 }
+
+
+def _blocked_reason_code(catalog_id: str) -> str | None:
+    matches = [
+        reason_code
+        for reason_code, catalog_ids in BLOCKED_DECISION_GROUPS.items()
+        if catalog_id in catalog_ids
+    ]
+    if len(matches) > 1:
+        raise ValueError(f"multiple blocked decisions for {catalog_id}: {matches}")
+    return matches[0] if matches else None
+
+
+def _planned_reason(candidate: dict[str, Any]) -> tuple[str, str]:
+    category = str(candidate["category"])
+    if category == "数据库":
+        return (
+            "planned-read-only-data-facade",
+            "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+        )
+    if category in {"搜索与研究", "地理与出行"}:
+        return (
+            "planned-fixed-egress-read-only-contract",
+            "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+        )
+    if category in {"文件与存储", "数据分析", "多媒体"}:
+        return (
+            "planned-scoped-file-or-artifact-contract",
+            "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+        )
+    if category == "知识与记忆":
+        return (
+            "planned-stateful-resource-policy",
+            "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+        )
+    if category in {"效率与协作", "通讯与协作", "社交与内容"}:
+        return (
+            "planned-auth-scope-and-write-policy",
+            "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
+        )
+    if category in {"云平台与运维", "金融与市场"}:
+        return (
+            "planned-domain-read-only-facade",
+            "保留为 planned；仅在能够证明固定只读子集、目标作用域与无交易/无变更边界后继续。",
+        )
+    return (
+        "planned-fixed-sandbox-contract",
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+    )
+
+
+def _decision(candidate: dict[str, Any]) -> dict[str, Any]:
+    catalog_id = str(candidate["catalog_id"])
+    ready = READY_DECISIONS.get(catalog_id)
+    if ready is not None:
+        return {
+            "availability": "ready",
+            "reason_code": str(ready["reason_code"]),
+            "reason": str(ready["reason"]),
+            "adapter_version": str(ready["adapter_version"]),
+            "wave": int(ready["wave"]),
+        }
+    blocked_code = _blocked_reason_code(catalog_id)
+    if blocked_code is not None:
+        return {
+            "availability": "blocked",
+            "reason_code": blocked_code,
+            "reason": BLOCKED_REASONS[blocked_code],
+            "adapter_version": "blocked",
+            "wave": WAVE,
+        }
+    reason_code, reason = _planned_reason(candidate)
+    return {
+        "availability": "planned",
+        "reason_code": reason_code,
+        "reason": reason,
+        "adapter_version": "planned",
+        "wave": WAVE,
+    }
 
 
 def _slug(value: str) -> str:
@@ -195,6 +418,119 @@ def _classify(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _classified_adaptation(candidate: dict[str, Any]) -> dict[str, Any]:
+    classification = _classify(candidate)
+    decision = _decision(candidate)
+    availability = decision["availability"]
+    if availability == "ready" and candidate["catalog_id"] == "brave-brave-search-mcp-server":
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "medium",
+                "requirements": ["token"],
+                "required_capabilities": [
+                    "encrypted-credential-binding",
+                    "credential-revocation-check",
+                    "fixed-egress-policy",
+                    "read-only-tool-policy",
+                    "schema-drift-recovery",
+                ],
+                "limitations": [
+                    "仅开放官方 v2.1.0 的 brave_web_search 与 brave_local_search；其余搜索、摘要和媒体工具不可发现、不可调用。",
+                    "Brave API Key 仅由服务端加密库注入，出口固定为 api.search.brave.com；不接受命令、端点、Header 或环境变量。",
+                ],
+            }
+        )
+    elif availability == "ready" and candidate["catalog_id"] == "kagisearch-kagimcp":
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "medium",
+                "requirements": ["token"],
+                "required_capabilities": [
+                    "encrypted-credential-binding",
+                    "credential-revocation-check",
+                    "fixed-egress-policy",
+                    "read-only-tool-policy",
+                    "schema-drift-recovery",
+                ],
+                "limitations": [
+                    "仅开放官方 v1.0.2 的 kagi_search_fetch 与 kagi_extract；搜索结果上限降为 20，域名、Lens 和批量提取参数不开放。",
+                    "Kagi API Key 仅由服务端加密库注入，出口固定为 kagi.com；提取 URL 必须为公网 HTTPS 且不能携带凭据型查询参数。",
+                ],
+            }
+        )
+    elif availability == "ready" and candidate["catalog_id"] == "blazickjp-arxiv-mcp-server":
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "low",
+                "requirements": [],
+                "required_capabilities": [
+                    "fixed-egress-policy",
+                    "read-only-tool-policy",
+                    "schema-drift-recovery",
+                    "provider-rate-limit",
+                ],
+                "limitations": [
+                    "仅开放 v0.6.2 的 search_papers 与 get_abstract 元数据子集；每次最多 20 篇，并强制 3 秒请求间隔。",
+                    "出口固定为 export.arxiv.org；下载、全文读取、本地缓存、提醒、语义索引、引用导出和文件资源均关闭。",
+                ],
+            }
+        )
+    elif availability == "ready" and candidate["catalog_id"] == "fatwang2-search1api-mcp":
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "medium",
+                "requirements": ["token"],
+                "required_capabilities": [
+                    "encrypted-credential-binding",
+                    "credential-revocation-check",
+                    "fixed-egress-policy",
+                    "read-only-tool-policy",
+                    "schema-drift-recovery",
+                    "provider-rate-limit",
+                ],
+                "limitations": [
+                    "仅开放官方 v0.5.3 的 search、news 与 trending；crawl、sitemap、截图、结构化提取和任意页面抓取均关闭。",
+                    "API Key 仅由服务端加密库注入，出口固定为 api.search1api.com；搜索与新闻强制 crawl_results=0，每次最多 20 条。",
+                ],
+            }
+        )
+    elif availability == "ready" and candidate["catalog_id"] == "livetennisapi-livetennisapi-mcp":
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "medium",
+                "requirements": ["token"],
+                "required_capabilities": [
+                    "encrypted-credential-binding",
+                    "credential-revocation-check",
+                    "fixed-egress-policy",
+                    "read-only-tool-policy",
+                    "schema-drift-recovery",
+                    "provider-rate-limit",
+                ],
+                "limitations": [
+                    "仅开放官方 v1.4.0 对应 FREE 层的实时/即将开始比赛、当前比分、球员、赛程与赛事目录；历史、赔率、市场、预测、模型分析、统计和 WebSocket 均关闭。",
+                    "响应按固定字段投影并移除 win_probability、danger、market、analysis 与 stats；API Key 仅由服务端加密库注入，出口固定为 api.livetennisapi.com。",
+                ],
+            }
+        )
+    elif availability == "blocked":
+        classification["limitations"] = [
+            decision["reason"],
+            "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。",
+        ]
+    else:
+        classification["limitations"] = [
+            decision["reason"],
+            *classification["limitations"],
+        ]
+    return {**classification, **decision}
+
+
 def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
     payload = copy.deepcopy(source)
     candidates = payload.get("candidates")
@@ -209,23 +545,51 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"duplicate generated catalog id: {catalog_id}")
         ids.add(catalog_id)
         candidate["catalog_id"] = catalog_id
-        candidate["decision"] = "approved"
-        candidate["proposed_availability"] = "planned"
-        candidate["decision_reason"] = APPROVAL_REASON
-    payload["purpose"] = "approved-catalog-expansion"
-    payload["runtime_catalog_changed"] = True
-    payload["runtime_execution_changed"] = False
-    payload["approval"] = {
-        "approved_at": SNAPSHOT_DATE,
-        "approved_count": 100,
-        "availability": {"planned": 100, "blocked": 0},
-        "execution_boundary": "display-and-non-executable-manifest-only",
+        decision = _decision(candidate)
+        candidate["decision"] = (
+            "adapted-ready"
+            if decision["availability"] == "ready"
+            else "blocked"
+            if decision["availability"] == "blocked"
+            else "deferred-planned"
+        )
+        candidate["proposed_availability"] = decision["availability"]
+        candidate["decision_reason_code"] = decision["reason_code"]
+        candidate["decision_reason"] = decision["reason"]
+        candidate["adapter_version"] = decision["adapter_version"]
+        candidate["adaptation_wave"] = decision["wave"]
+    unknown_blocked = {
+        catalog_id
+        for catalog_ids in BLOCKED_DECISION_GROUPS.values()
+        for catalog_id in catalog_ids
+        if catalog_id not in ids
     }
+    if unknown_blocked:
+        raise ValueError(f"blocked decisions reference unknown ids: {sorted(unknown_blocked)}")
+    if set(READY_DECISIONS) - ids:
+        raise ValueError("ready decisions reference unknown ids")
+    availability = {
+        status: sum(item["proposed_availability"] == status for item in candidates)
+        for status in ("ready", "planned", "blocked")
+    }
+    if availability != {"ready": 5, "planned": 51, "blocked": 44}:
+        raise ValueError(f"unexpected adaptation classification: {availability}")
+    payload["purpose"] = "adaptation-classification"
+    payload["runtime_catalog_changed"] = True
+    payload["runtime_execution_changed"] = True
+    payload["adaptation"] = {
+        "classified_at": SNAPSHOT_DATE,
+        "classified_count": 100,
+        "availability": availability,
+        "ready_boundary": "fixed-read-only-token-sidecar-contract",
+        "non_ready_boundary": "no-command-endpoint-credential-or-tool-policy",
+    }
+    payload.pop("approval", None)
     return payload
 
 
 def _frontend_record(candidate: dict[str, Any]) -> dict[str, Any]:
-    classification = _classify(candidate)
+    classification = _classified_adaptation(candidate)
     github = candidate.get("github")
     if not isinstance(github, dict):
         raise ValueError(f"candidate lacks GitHub metadata: {candidate.get('catalog_id')}")
@@ -253,11 +617,15 @@ def _frontend_record(candidate: dict[str, Any]) -> dict[str, Any]:
         "category": candidate["category"],
         "description": (
             f"{name} 面向“{candidate['category']}”场景提供 MCP 能力；"
-            "本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。"
+            + (
+                "当前已通过固定只读运行时与工具契约验收。"
+                if classification["availability"] == "ready"
+                else "当前保持不可执行，等待后续安全边界完成。"
+            )
         ),
         "readmeSummary": (
             f"{repo_name} 已通过公开仓库、{license_spdx} 许可证与最近维护时间硬门禁；"
-            "上游工具、传输与安全契约仍待逐项冻结。"
+            f"当前判定为 {classification['availability']}，原因码 {classification['reason_code']}。"
         ),
         "stars": int(github.get("stargazerCount") or 0),
         "language": language,
@@ -265,13 +633,17 @@ def _frontend_record(candidate: dict[str, Any]) -> dict[str, Any]:
         "tags": [str(candidate["category"]), language, license_spdx],
         "requirements": classification["requirements"],
         "usageExamples": [
-            f"查看 {name} 的上游用途和当前适配状态",
-            "等待固定工具契约与安全验收后再进行连接测试",
+            f"查看 {name} 的上游用途和当前适配判定",
+            (
+                "保存所需凭据后连接，并仅执行已审核的只读工具"
+                if classification["availability"] == "ready"
+                else "根据阻断或规划原因完成后续门槛后再进行连接测试"
+            ),
         ],
         "sources": source_ids,
         "adaptation": {
-            "wave": WAVE,
-            "availability": "planned",
+            "wave": classification["wave"],
+            "availability": classification["availability"],
             "connectionKind": classification["connection_kind"],
             "risk": classification["risk"],
             "requiredCapabilities": classification["required_capabilities"],
@@ -302,6 +674,10 @@ def render_backend(payload: dict[str, Any]) -> str:
         "@dataclass(frozen=True, slots=True)",
         "class CatalogExpansionV2Adapter:",
         "    project_id: str",
+        "    availability: str",
+        "    decision_reason_code: str",
+        "    adapter_version: str",
+        "    adaptation_wave: int",
         "    connection_kind: str",
         "    risk: str",
         "    required_capabilities: tuple[str, ...]",
@@ -311,11 +687,15 @@ def render_backend(payload: dict[str, Any]) -> str:
         "CATALOG_EXPANSION_V2_ADAPTERS = (",
     ]
     for candidate in payload["candidates"]:
-        classification = _classify(candidate)
+        classification = _classified_adaptation(candidate)
         lines.extend(
             [
                 "    CatalogExpansionV2Adapter(",
                 f"        project_id={candidate['catalog_id']!r},",
+                f"        availability={classification['availability']!r},",
+                f"        decision_reason_code={classification['reason_code']!r},",
+                f"        adapter_version={classification['adapter_version']!r},",
+                f"        adaptation_wave={classification['wave']!r},",
                 f"        connection_kind={classification['connection_kind']!r},",
                 f"        risk={classification['risk']!r},",
                 f"        required_capabilities={tuple(classification['required_capabilities'])!r},",
@@ -330,12 +710,12 @@ def render_backend(payload: dict[str, Any]) -> str:
 def render_report(payload: dict[str, Any]) -> str:
     summary = payload["summary"]
     lines = [
-        "# MCP 双源目录扩充批准清单",
+        "# MCP 双源目录扩充适配判定",
         "",
         f"审查快照日期：{payload['snapshot_date']}",
         "",
-        "> 100 项已经批准进入产品目录，但全部保持 `planned` 且不可执行。",
-        "> 本清单不包含命令、端点、凭据槽、工具 Schema 或功能开关默认启用。",
+        "> 100 项已经逐项归入 `ready`、`planned` 或 `blocked`。只有通过固定工具、隔离和代表调用门槛的条目可执行。",
+        "> 非 ready 条目不包含命令、端点、凭据槽、工具策略或功能开关绕过路径。",
         "",
         "## 固定来源",
         "",
@@ -352,35 +732,36 @@ def render_report(payload: dict[str, Any]) -> str:
             f"- 上游解析记录：{payload['upstream_inventory_summary']['parsed_entries']}",
             f"- 唯一仓库/子包：{payload['upstream_inventory_summary']['unique_repositories']}",
             f"- 结构预筛后的新候选：{payload['upstream_inventory_summary']['eligible_new_candidates']}",
-            f"- 批准纳入目录：{summary['selected']}",
+            f"- 完成适配判定：{summary['selected']}",
             f"- 覆盖分类：{summary['categories']}",
             f"- 中文源命中：{summary['by_source']['awesome-mcp-zh']}",
             f"- 英文源命中：{summary['by_source']['awesome-mcp-servers']}",
-            "- 新增执行能力：0",
+            f"- 本批状态：{payload['adaptation']['availability']['ready']} ready / {payload['adaptation']['availability']['planned']} planned / {payload['adaptation']['availability']['blocked']} blocked",
+            "- 新增执行能力：3（Brave、Kagi 与 arXiv 固定只读子集）",
             "",
             "硬门禁：公开仓库存在，未归档/禁用/私有/派生，许可证 SPDX 明确，且最近 12 个月有推送。每个分类最多 15 项，每个仓库最多 2 项。",
             "",
-            "## 已批准的 100 项",
+            "## 100 项适配判定",
             "",
-            "| 排名 | 目录 ID | 仓库 | 分类 | Stars | 许可证 | 来源 | 状态 |",
+            "| 排名 | 目录 ID | 仓库 | 分类 | Stars | 许可证 | 状态 | 原因码 |",
             "| ---: | --- | --- | --- | ---: | --- | --- | --- |",
         ]
     )
     for item in payload["candidates"]:
         github = item["github"]
         license_spdx = github["licenseInfo"]["spdxId"]
-        source_ids = ", ".join(sorted(source["source_id"] for source in item["sources"]))
         lines.append(
             f"| {item['rank']} | `{item['catalog_id']}` | "
             f"[{github['nameWithOwner']}]({github['url']}) | {item['category']} | "
-            f"{github['stargazerCount']} | {license_spdx} | {source_ids} | 已批准 · planned |"
+            f"{github['stargazerCount']} | {license_spdx} | {item['proposed_availability']} | "
+            f"`{item['decision_reason_code']}` |"
         )
     lines.extend(
         [
             "",
             "## 执行边界",
             "",
-            "这 100 项仅扩充前端发现目录和后端非执行 manifest。每项均为 `planned`、`executable=false`，没有命令、端点、凭据槽、工具策略或 Sidecar。后续若要变为 ready，仍须逐项目冻结上游版本与 Schema，并通过对应隔离、凭据、审批、限流和真实代表调用验收。",
+            "官方 Brave Search v2.1.0 复用既有 Token Sidecar；Kagi v1.0.2 与 arxiv-mcp-server v0.6.2 通过固定原生兼容层，仅开放审核后的只读工具。三者均锁定出口、Schema 与输出上限；其余 97 项没有新增执行配置，53 项保留后续受控 facade 规划，44 项因明确安全、身份或宿主边界阻断。",
             "",
         ]
     )

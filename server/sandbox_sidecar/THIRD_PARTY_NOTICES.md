@@ -64,18 +64,55 @@ installed package and `/usr/share/doc` directories.
 The `modelmirror-mcp-token:wave4-v1` runtime bundles the following pinned MCP
 packages and their locked transitive npm dependencies. Runtime installation and
 update checks are disabled; package license metadata is retained under
-`/opt/modelmirror/node_modules`:
+`/opt/modelmirror/node_modules` or the isolated `/opt/modelmirror/brave/node_modules`:
 
 - AgentQL MCP 1.0.1, Brave Search MCP 0.6.2, Exa MCP 3.4.0, Figma Developer
   MCP 0.13.2, Firecrawl MCP 3.23.4, Google Maps MCP 0.6.2, Graphlit MCP
   1.0.20260112001, Perplexity MCP 1.2.0, Shodan MCP 1.0.22, Tavily MCP
   0.2.22, and VirusTotal MCP 1.0.25: MIT License.
 
+- Official Brave Search MCP Server 2.1.0
+  (`brave/brave-search-mcp-server`, release commit
+  `76106c83f9d57319478b540374ba261061d26c3e`): MIT License. Its independent
+  npm lock is stored under `brave_runtime/`; only `brave_web_search` and
+  `brave_local_search` are enabled, while all other upstream tools are hidden
+  and rejected by the gateway.
+
 The Axiom v0.05, Grafana MCP v1.0.0, Kagi MCP commit `0d62ed3`, and Pinecone
 Assistant MCP v0.1.0 contracts are implemented independently as minimal
 read-only compatibility adapters. No upstream Axiom, Grafana, Kagi, or
 Pinecone server source is copied into the image. Grafana's reviewed upstream
 server is Apache-2.0; the other reviewed contracts are MIT.
+
+The same token image also implements two independently reviewed Wave 14
+compatibility contracts. No source or package from either upstream MCP server
+is copied into the image:
+
+- Official Kagi MCP Server v1.0.2 (`kagisearch/kagimcp`, commit
+  `55b38d20c67f1406f2c284af776de395297a75cc`): MIT License. Only
+  `kagi_search_fetch` and `kagi_extract` are represented; the API host,
+  request fields, output limits, redirects and retries are fixed locally.
+- arXiv MCP Server v0.6.2 (`blazickjp/arxiv-mcp-server`, commit
+  `8f79e8853c1104630a647889abb430fab539130e`): Apache-2.0. Only
+  `search_papers` and `get_abstract` metadata operations are represented;
+  download, local storage, alerts, semantic indexing and citation export are
+  absent.
+
+The token image additionally implements two independently reviewed Wave 15
+compatibility contracts. No source or package from either upstream MCP server
+is copied into the image:
+
+- Official Search1API MCP Server v0.5.3
+  (`superagents-lab/search1api-mcp`, commit
+  `3e5e86c3c1d138c61dd6508caa764c52564628b3`): MIT License. Only `search`,
+  `news`, and `trending` are represented; crawling, sitemaps, screenshots,
+  extraction, OAuth and configurable endpoints are absent.
+- Official Live Tennis API MCP Server v1.4.0
+  (`livetennisapi/livetennisapi-mcp`, commit
+  `46a80cbb25d58a293fcff7a866472043cc6e791d`): MIT License. Only the FREE
+  live/upcoming scores, player, fixture and tournament directory surfaces are
+  represented; odds, markets, predictions, model fields, history, statistics,
+  WebSockets and usage probing are absent.
 
 Snyk MCP 1.15.2 was reviewed under Apache-2.0 but is not included. It remains
 blocked because local project scanning can invoke host-language build tools and

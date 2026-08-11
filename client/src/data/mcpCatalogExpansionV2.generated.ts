@@ -8,8 +8,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "DeusData/codebase-memory-mcp",
     "repoUrl": "https://github.com/DeusData/codebase-memory-mcp",
     "category": "开发与代码",
-    "description": "Codebase Memory MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "DeusData/codebase-memory-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Codebase Memory MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "DeusData/codebase-memory-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 38297,
     "language": "C",
     "verifiedAt": "2026-08-09",
@@ -23,15 +23,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Codebase Memory MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Codebase Memory MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -41,6 +41,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -52,8 +53,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "0xMassi/webclaw",
     "repoUrl": "https://github.com/0xMassi/webclaw",
     "category": "浏览器与网页",
-    "description": "Webclaw MCP 面向“浏览器与网页”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "0xMassi/webclaw 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Webclaw MCP 面向“浏览器与网页”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "0xMassi/webclaw 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-browser-or-url-surface。",
     "stars": 2123,
     "language": "Rust",
     "verifiedAt": "2026-08-09",
@@ -67,16 +68,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Webclaw MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Webclaw MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -85,8 +86,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -96,8 +97,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "kontext-security/browser-use-mcp-server",
     "repoUrl": "https://github.com/kontext-security/browser-use-mcp-server",
     "category": "浏览器与网页",
-    "description": "Browser Use MCP Server 面向“浏览器与网页”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "kontext-security/browser-use-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Browser Use MCP Server 面向“浏览器与网页”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "kontext-security/browser-use-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-browser-or-url-surface。",
     "stars": 842,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -111,16 +112,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Browser Use MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Browser Use MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -129,8 +130,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -140,8 +141,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "sipyourdrink-ltd/bernstein",
     "repoUrl": "https://github.com/sipyourdrink-ltd/bernstein",
     "category": "开发与代码",
-    "description": "Bernstein MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "sipyourdrink-ltd/bernstein 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Bernstein MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "sipyourdrink-ltd/bernstein 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-or-code-execution。",
     "stars": 820,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -155,16 +156,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Bernstein MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Bernstein MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -173,8 +174,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -184,8 +185,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Beever-AI/beever-atlas",
     "repoUrl": "https://github.com/Beever-AI/beever-atlas",
     "category": "知识与记忆",
-    "description": "Beever Atlas MCP 面向“知识与记忆”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Beever-AI/beever-atlas 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Beever Atlas MCP 面向“知识与记忆”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Beever-AI/beever-atlas 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-stateful-resource-policy。",
     "stars": 437,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -199,15 +200,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Beever Atlas MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Beever Atlas MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -217,6 +218,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -228,8 +230,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "googleapis/mcp-toolbox",
     "repoUrl": "https://github.com/googleapis/mcp-toolbox",
     "category": "数据库",
-    "description": "Genai Toolbox MCP 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "googleapis/mcp-toolbox 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Genai Toolbox MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "googleapis/mcp-toolbox 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 16140,
     "language": "Go",
     "verifiedAt": "2026-08-09",
@@ -244,15 +246,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Genai Toolbox MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Genai Toolbox MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -262,6 +264,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -273,8 +276,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "FLOX-Foundation/flox",
     "repoUrl": "https://github.com/FLOX-Foundation/flox",
     "category": "金融与市场",
-    "description": "MCP 面向“金融与市场”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "FLOX-Foundation/flox 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP 面向“金融与市场”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "FLOX-Foundation/flox 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-financial-or-transactional-write。",
     "stars": 219,
     "language": "C++",
     "verifiedAt": "2026-08-09",
@@ -288,16 +291,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -306,8 +309,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游包含订单、链上交易或真实资金相关操作；本目录不开放交易执行与签名能力。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -317,8 +320,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "us/crw",
     "repoUrl": "https://github.com/us/crw",
     "category": "浏览器与网页",
-    "description": "Crw MCP 面向“浏览器与网页”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "us/crw 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Crw MCP 面向“浏览器与网页”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "us/crw 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 549,
     "language": "Rust",
     "verifiedAt": "2026-08-09",
@@ -332,15 +335,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Crw MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Crw MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "high",
@@ -350,6 +353,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -361,8 +365,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "superagents-lab/search1api-mcp",
     "repoUrl": "https://github.com/superagents-lab/search1api-mcp",
     "category": "搜索与研究",
-    "description": "Search1 API MCP 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "superagents-lab/search1api-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Search1 API MCP 面向“搜索与研究”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "superagents-lab/search1api-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-official-native-discovery-only-facade。",
     "stars": 173,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -372,30 +376,32 @@ export const mcpCatalogExpansionV2 = [
       "MIT"
     ],
     "requirements": [
-      "external-runtime",
-      "remote-transport"
+      "token"
     ],
     "usageExamples": [
-      "查看 Search1 API MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Search1 API MCP 的上游用途和当前适配判定",
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
-      "connectionKind": "remote-mcp",
+      "wave": 15,
+      "availability": "ready",
+      "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
-        "fixed-saas-contract",
+        "encrypted-credential-binding",
+        "credential-revocation-check",
         "fixed-egress-policy",
-        "encrypted-credential-binding"
+        "read-only-tool-policy",
+        "schema-drift-recovery",
+        "provider-rate-limit"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "仅开放官方 v0.5.3 的 search、news 与 trending；crawl、sitemap、截图、结构化提取和任意页面抓取均关闭。",
+        "API Key 仅由服务端加密库注入，出口固定为 api.search1api.com；搜索与新闻强制 crawl_results=0，每次最多 20 条。"
       ]
     }
   },
@@ -405,8 +411,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "MarkusPfundstein/mcp-obsidian",
     "repoUrl": "https://github.com/MarkusPfundstein/mcp-obsidian",
     "category": "效率与协作",
-    "description": "MCP Obsidian 面向“效率与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "MarkusPfundstein/mcp-obsidian 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Obsidian 面向“效率与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "MarkusPfundstein/mcp-obsidian 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-auth-scope-and-write-policy。",
     "stars": 4283,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -420,15 +426,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Obsidian 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Obsidian 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "high",
@@ -438,6 +444,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -449,8 +456,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "mrexodia/ida-pro-mcp",
     "repoUrl": "https://github.com/mrexodia/ida-pro-mcp",
     "category": "安全分析",
-    "description": "IDA Pro MCP 面向“安全分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "mrexodia/ida-pro-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "IDA Pro MCP 面向“安全分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "mrexodia/ida-pro-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 11210,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -465,16 +472,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 IDA Pro MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 IDA Pro MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -482,8 +489,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -493,8 +500,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "qdrant/mcp-server-qdrant",
     "repoUrl": "https://github.com/qdrant/mcp-server-qdrant",
     "category": "数据库",
-    "description": "Qdrant MCP 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "qdrant/mcp-server-qdrant 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Qdrant MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "qdrant/mcp-server-qdrant 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 1494,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -509,15 +516,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Qdrant MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Qdrant MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -527,6 +534,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -538,8 +546,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "wonderwhy-er/DesktopCommanderMCP",
     "repoUrl": "https://github.com/wonderwhy-er/DesktopCommanderMCP",
     "category": "开发与代码",
-    "description": "Desktop Commander MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "wonderwhy-er/DesktopCommanderMCP 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Desktop Commander MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "wonderwhy-er/DesktopCommanderMCP 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-or-code-execution。",
     "stars": 9284,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -554,16 +562,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Desktop Commander MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Desktop Commander MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -571,8 +579,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -582,8 +590,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "blazickjp/arxiv-mcp-server",
     "repoUrl": "https://github.com/blazickjp/arxiv-mcp-server",
     "category": "搜索与研究",
-    "description": "Arxiv MCP Server 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "blazickjp/arxiv-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Arxiv MCP Server 面向“搜索与研究”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "blazickjp/arxiv-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-native-read-only-metadata-facade。",
     "stars": 3035,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -592,31 +600,29 @@ export const mcpCatalogExpansionV2 = [
       "Python",
       "Apache-2.0"
     ],
-    "requirements": [
-      "external-runtime",
-      "remote-transport"
-    ],
+    "requirements": [],
     "usageExamples": [
-      "查看 Arxiv MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Arxiv MCP Server 的上游用途和当前适配判定",
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
-      "connectionKind": "remote-mcp",
-      "risk": "medium",
+      "wave": 14,
+      "availability": "ready",
+      "connectionKind": "sandboxed-stdio",
+      "risk": "low",
       "requiredCapabilities": [
-        "fixed-saas-contract",
         "fixed-egress-policy",
-        "encrypted-credential-binding"
+        "read-only-tool-policy",
+        "schema-drift-recovery",
+        "provider-rate-limit"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "仅开放 v0.6.2 的 search_papers 与 get_abstract 元数据子集；每次最多 20 篇，并强制 3 秒请求间隔。",
+        "出口固定为 export.arxiv.org；下载、全文读取、本地缓存、提醒、语义索引、引用导出和文件资源均关闭。"
       ]
     }
   },
@@ -626,8 +632,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Goldentrii/AgentRecall-X",
     "repoUrl": "https://github.com/Goldentrii/AgentRecall-X",
     "category": "知识与记忆",
-    "description": "Agent Recall MCP 面向“知识与记忆”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Goldentrii/AgentRecall-X 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Agent Recall MCP 面向“知识与记忆”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Goldentrii/AgentRecall-X 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-stateful-resource-policy。",
     "stars": 364,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -641,15 +647,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Agent Recall MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Agent Recall MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -659,6 +665,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -670,8 +677,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "zcaceres/markdownify-mcp",
     "repoUrl": "https://github.com/zcaceres/markdownify-mcp",
     "category": "数据分析",
-    "description": "Markdownify MCP 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "zcaceres/markdownify-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Markdownify MCP 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "zcaceres/markdownify-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 2908,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -685,15 +692,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Markdownify MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Markdownify MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -703,6 +710,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -714,8 +722,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "benborla/mcp-server-mysql",
     "repoUrl": "https://github.com/benborla/mcp-server-mysql",
     "category": "数据库",
-    "description": "MCP Server MySQL 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "benborla/mcp-server-mysql 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Server MySQL 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "benborla/mcp-server-mysql 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 2021,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -730,15 +738,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Server MySQL 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Server MySQL 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -748,6 +756,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -759,8 +768,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "samuelgursky/davinci-resolve-mcp",
     "repoUrl": "https://github.com/samuelgursky/davinci-resolve-mcp",
     "category": "多媒体",
-    "description": "Davinci Resolve MCP 面向“多媒体”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "samuelgursky/davinci-resolve-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Davinci Resolve MCP 面向“多媒体”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "samuelgursky/davinci-resolve-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 2060,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -775,16 +784,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Davinci Resolve MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Davinci Resolve MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -792,8 +801,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -803,8 +812,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Aas-ee/open-webSearch",
     "repoUrl": "https://github.com/Aas-ee/open-webSearch",
     "category": "搜索与研究",
-    "description": "Open Web Search MCP 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Aas-ee/open-webSearch 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Open Web Search MCP 面向“搜索与研究”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Aas-ee/open-webSearch 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-egress-read-only-contract。",
     "stars": 1691,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -818,15 +827,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Open Web Search MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Open Web Search MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "medium",
@@ -836,6 +845,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -847,8 +857,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "chigwell/telegram-mcp",
     "repoUrl": "https://github.com/chigwell/telegram-mcp",
     "category": "通讯与协作",
-    "description": "Telegram MCP 面向“通讯与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "chigwell/telegram-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Telegram MCP 面向“通讯与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "chigwell/telegram-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-broad-account-or-message-write。",
     "stars": 1433,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -862,16 +872,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Telegram MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Telegram MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -880,8 +890,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -891,8 +901,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "CoderGamester/mcp-unity",
     "repoUrl": "https://github.com/CoderGamester/mcp-unity",
     "category": "通用工具",
-    "description": "MCP Unity 面向“通用工具”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "CoderGamester/mcp-unity 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Unity 面向“通用工具”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "CoderGamester/mcp-unity 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 1862,
     "language": "C#",
     "verifiedAt": "2026-08-09",
@@ -907,16 +917,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Unity 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Unity 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -924,8 +934,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -935,8 +945,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Flux159/mcp-server-kubernetes",
     "repoUrl": "https://github.com/Flux159/mcp-server-kubernetes",
     "category": "云平台与运维",
-    "description": "MCP Server Kubernetes 面向“云平台与运维”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Flux159/mcp-server-kubernetes 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Server Kubernetes 面向“云平台与运维”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Flux159/mcp-server-kubernetes 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-privileged-infrastructure-write。",
     "stars": 1522,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -950,16 +960,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Server Kubernetes 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Server Kubernetes 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -968,8 +978,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -979,8 +989,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "genomoncology/biomcp",
     "repoUrl": "https://github.com/genomoncology/biomcp",
     "category": "搜索与研究",
-    "description": "Biomcp 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "genomoncology/biomcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Biomcp 面向“搜索与研究”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "genomoncology/biomcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-egress-read-only-contract。",
     "stars": 581,
     "language": "Rust",
     "verifiedAt": "2026-08-09",
@@ -994,15 +1004,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Biomcp 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Biomcp 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "medium",
@@ -1012,6 +1022,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1023,8 +1034,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "nickclyde/duckduckgo-mcp-server",
     "repoUrl": "https://github.com/nickclyde/duckduckgo-mcp-server",
     "category": "搜索与研究",
-    "description": "Duckduckgo MCP Server 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "nickclyde/duckduckgo-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Duckduckgo MCP Server 面向“搜索与研究”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "nickclyde/duckduckgo-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-egress-read-only-contract。",
     "stars": 1405,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1038,15 +1049,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Duckduckgo MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Duckduckgo MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "medium",
@@ -1056,6 +1067,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1067,8 +1079,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "oraios/serena",
     "repoUrl": "https://github.com/oraios/serena",
     "category": "开发与代码",
-    "description": "Serena MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "oraios/serena 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Serena MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "oraios/serena 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-or-code-execution。",
     "stars": 27782,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1082,16 +1094,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Serena MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Serena MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -1100,8 +1112,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1111,8 +1123,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "taylorwilsdon/google_workspace_mcp",
     "repoUrl": "https://github.com/taylorwilsdon/google_workspace_mcp",
     "category": "效率与协作",
-    "description": "Google Workspace MCP 面向“效率与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "taylorwilsdon/google_workspace_mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Google Workspace MCP 面向“效率与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "taylorwilsdon/google_workspace_mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-broad-account-or-message-write。",
     "stars": 2991,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1126,15 +1138,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Google Workspace MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Google Workspace MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -1143,8 +1155,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1154,8 +1166,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "mnemox-ai/idea-reality-mcp",
     "repoUrl": "https://github.com/mnemox-ai/idea-reality-mcp",
     "category": "搜索与研究",
-    "description": "Idea Reality MCP 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "mnemox-ai/idea-reality-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Idea Reality MCP 面向“搜索与研究”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "mnemox-ai/idea-reality-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-egress-read-only-contract。",
     "stars": 775,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1169,14 +1181,14 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Idea Reality MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Idea Reality MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "medium",
@@ -1186,6 +1198,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1197,8 +1210,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "headroomlabs-ai/headroom",
     "repoUrl": "https://github.com/headroomlabs-ai/headroom",
     "category": "知识与记忆",
-    "description": "Headroom MCP 面向“知识与记忆”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "headroomlabs-ai/headroom 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Headroom MCP 面向“知识与记忆”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "headroomlabs-ai/headroom 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-stateful-resource-policy。",
     "stars": 65654,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1212,14 +1225,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Headroom MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Headroom MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -1229,6 +1242,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1240,8 +1254,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "designcomputer/mysql_mcp_server",
     "repoUrl": "https://github.com/designcomputer/mysql_mcp_server",
     "category": "数据库",
-    "description": "MySQL MCP Server 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "designcomputer/mysql_mcp_server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MySQL MCP Server 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "designcomputer/mysql_mcp_server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 1353,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1256,15 +1270,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MySQL MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MySQL MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -1274,6 +1288,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1285,8 +1300,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "FreePeak/db-mcp-server",
     "repoUrl": "https://github.com/FreePeak/db-mcp-server",
     "category": "数据库",
-    "description": "DB MCP Server 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "FreePeak/db-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "DB MCP Server 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "FreePeak/db-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 409,
     "language": "Go",
     "verifiedAt": "2026-08-09",
@@ -1301,15 +1316,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 DB MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 DB MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -1319,6 +1334,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1330,8 +1346,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "ihor-sokoliuk/mcp-searxng",
     "repoUrl": "https://github.com/ihor-sokoliuk/mcp-searxng",
     "category": "搜索与研究",
-    "description": "MCP Searxng 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "ihor-sokoliuk/mcp-searxng 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Searxng 面向“搜索与研究”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "ihor-sokoliuk/mcp-searxng 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-egress-read-only-contract。",
     "stars": 1105,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -1345,15 +1361,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Searxng 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Searxng 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "medium",
@@ -1363,6 +1379,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1374,8 +1391,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "InditexTech/mcp-teams-server",
     "repoUrl": "https://github.com/InditexTech/mcp-teams-server",
     "category": "通讯与协作",
-    "description": "MCP Teams Server 面向“通讯与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "InditexTech/mcp-teams-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Teams Server 面向“通讯与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "InditexTech/mcp-teams-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-broad-account-or-message-write。",
     "stars": 390,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1389,16 +1406,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Teams Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Teams Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -1407,8 +1424,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1418,8 +1435,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "kagisearch/kagimcp",
     "repoUrl": "https://github.com/kagisearch/kagimcp",
     "category": "搜索与研究",
-    "description": "Kagi Search MCP 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "kagisearch/kagimcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Kagi Search MCP 面向“搜索与研究”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "kagisearch/kagimcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-official-native-read-only-api-facade。",
     "stars": 472,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1429,30 +1446,31 @@ export const mcpCatalogExpansionV2 = [
       "MIT"
     ],
     "requirements": [
-      "external-runtime",
-      "remote-transport"
+      "token"
     ],
     "usageExamples": [
-      "查看 Kagi Search MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Kagi Search MCP 的上游用途和当前适配判定",
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
-      "connectionKind": "remote-mcp",
+      "wave": 14,
+      "availability": "ready",
+      "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
-        "fixed-saas-contract",
+        "encrypted-credential-binding",
+        "credential-revocation-check",
         "fixed-egress-policy",
-        "encrypted-credential-binding"
+        "read-only-tool-policy",
+        "schema-drift-recovery"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "仅开放官方 v1.0.2 的 kagi_search_fetch 与 kagi_extract；搜索结果上限降为 20，域名、Lens 和批量提取参数不开放。",
+        "Kagi API Key 仅由服务端加密库注入，出口固定为 kagi.com；提取 URL 必须为公网 HTTPS 且不能携带凭据型查询参数。"
       ]
     }
   },
@@ -1462,8 +1480,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "mcpdotdirect/evm-mcp-server",
     "repoUrl": "https://github.com/mcpdotdirect/evm-mcp-server",
     "category": "金融与市场",
-    "description": "EVM MCP Server 面向“金融与市场”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "mcpdotdirect/evm-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "EVM MCP Server 面向“金融与市场”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "mcpdotdirect/evm-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-financial-or-transactional-write。",
     "stars": 381,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -1477,16 +1495,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 EVM MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 EVM MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -1495,8 +1513,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游包含订单、链上交易或真实资金相关操作；本目录不开放交易执行与签名能力。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1506,8 +1524,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "CodeGraphContext/CodeGraphContext",
     "repoUrl": "https://github.com/CodeGraphContext/CodeGraphContext",
     "category": "开发与代码",
-    "description": "Code Graph Context MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "CodeGraphContext/CodeGraphContext 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Code Graph Context MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "CodeGraphContext/CodeGraphContext 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 4058,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1521,14 +1539,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Code Graph Context MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Code Graph Context MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -1538,6 +1556,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1549,8 +1568,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "erpipe-org/mcp-odoo",
     "repoUrl": "https://github.com/erpipe-org/mcp-odoo",
     "category": "效率与协作",
-    "description": "MCP Odoo 面向“效率与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "erpipe-org/mcp-odoo 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Odoo 面向“效率与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "erpipe-org/mcp-odoo 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-broad-account-or-message-write。",
     "stars": 384,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1564,15 +1583,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Odoo 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Odoo 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -1581,8 +1600,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1592,8 +1611,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "ckreiling/mcp-server-docker",
     "repoUrl": "https://github.com/ckreiling/mcp-server-docker",
     "category": "开发与代码",
-    "description": "MCP Server Docker 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "ckreiling/mcp-server-docker 已通过公开仓库、GPL-3.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Server Docker 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "ckreiling/mcp-server-docker 已通过公开仓库、GPL-3.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-or-code-execution。",
     "stars": 736,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1607,15 +1626,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Server Docker 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Server Docker 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -1624,8 +1643,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1635,8 +1654,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Coding-Solo/godot-mcp",
     "repoUrl": "https://github.com/Coding-Solo/godot-mcp",
     "category": "通用工具",
-    "description": "Godot MCP 面向“通用工具”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Coding-Solo/godot-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Godot MCP 面向“通用工具”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Coding-Solo/godot-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 5138,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -1651,16 +1670,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Godot MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Godot MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -1668,8 +1687,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1679,8 +1698,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "cyberchitta/llm-context.py",
     "repoUrl": "https://github.com/cyberchitta/llm-context.py",
     "category": "文件与存储",
-    "description": "Llm Context Py MCP 面向“文件与存储”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "cyberchitta/llm-context.py 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Llm Context Py MCP 面向“文件与存储”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "cyberchitta/llm-context.py 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 305,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1694,15 +1713,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Llm Context Py MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Llm Context Py MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -1712,6 +1731,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1723,8 +1743,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "haris-musa/excel-mcp-server",
     "repoUrl": "https://github.com/haris-musa/excel-mcp-server",
     "category": "数据分析",
-    "description": "Excel (by Haris Musa) MCP 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "haris-musa/excel-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Excel (by Haris Musa) MCP 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "haris-musa/excel-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 4096,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -1738,15 +1758,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Excel (by Haris Musa) MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Excel (by Haris Musa) MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -1756,6 +1776,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1767,8 +1788,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "idosal/git-mcp",
     "repoUrl": "https://github.com/idosal/git-mcp",
     "category": "开发与代码",
-    "description": "Git MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "idosal/git-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Git MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "idosal/git-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 8319,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -1782,15 +1803,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Git MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Git MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -1800,6 +1821,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -1811,8 +1833,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "nteract/semiotic",
     "repoUrl": "https://github.com/nteract/semiotic",
     "category": "数据分析",
-    "description": "Semiotic MCP 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "nteract/semiotic 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Semiotic MCP 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "nteract/semiotic 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-not-an-executable-mcp-server。",
     "stars": 2691,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -1826,15 +1848,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Semiotic MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Semiotic MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -1843,8 +1865,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "固定仓库未证明存在可锁定、可独立运行并可发现工具的 MCP Server 产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1854,8 +1876,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "public-ui/kolibri",
     "repoUrl": "https://github.com/public-ui/kolibri",
     "category": "开发与代码",
-    "description": "Kolibri MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "public-ui/kolibri 已通过公开仓库、EUPL-1.2 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Kolibri MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "public-ui/kolibri 已通过公开仓库、EUPL-1.2 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-not-an-executable-mcp-server。",
     "stars": 274,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -1869,15 +1891,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Kolibri MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Kolibri MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -1886,8 +1908,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "固定仓库未证明存在可锁定、可独立运行并可发现工具的 MCP Server 产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1897,8 +1919,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "radareorg/radare2-mcp",
     "repoUrl": "https://github.com/radareorg/radare2-mcp",
     "category": "安全分析",
-    "description": "Radare2 MCP 面向“安全分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "radareorg/radare2-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Radare2 MCP 面向“安全分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "radareorg/radare2-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 283,
     "language": "C",
     "verifiedAt": "2026-08-09",
@@ -1913,15 +1935,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Radare2 MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Radare2 MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -1929,8 +1951,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1940,8 +1962,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "skyhook-io/radar",
     "repoUrl": "https://github.com/skyhook-io/radar",
     "category": "开发与代码",
-    "description": "Radar MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "skyhook-io/radar 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Radar MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "skyhook-io/radar 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-privileged-infrastructure-write。",
     "stars": 2763,
     "language": "Go",
     "verifiedAt": "2026-08-09",
@@ -1955,15 +1977,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Radar MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Radar MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -1972,8 +1994,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -1983,8 +2005,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "suekou/mcp-notion-server",
     "repoUrl": "https://github.com/suekou/mcp-notion-server",
     "category": "效率与协作",
-    "description": "MCP Notion Server 面向“效率与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "suekou/mcp-notion-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Notion Server 面向“效率与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "suekou/mcp-notion-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-superseded-unbounded-third-party。",
     "stars": 919,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -1998,16 +2020,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Notion Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Notion Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -2016,8 +2038,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "该第三方实现提供的管理或写入面宽于目录中已存在的官方受控适配器，不再新增重复执行入口。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -2027,8 +2049,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "xing5/mcp-google-sheets",
     "repoUrl": "https://github.com/xing5/mcp-google-sheets",
     "category": "数据库",
-    "description": "MCP Google Sheets 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "xing5/mcp-google-sheets 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Google Sheets 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "xing5/mcp-google-sheets 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-broad-account-or-message-write。",
     "stars": 979,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2043,16 +2065,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Google Sheets 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Google Sheets 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
@@ -2061,8 +2083,8 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -2072,8 +2094,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "comet-ml/opik-mcp",
     "repoUrl": "https://github.com/comet-ml/opik-mcp",
     "category": "数据分析",
-    "description": "Comet Opik MCP 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "comet-ml/opik-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Comet Opik MCP 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "comet-ml/opik-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 216,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2087,15 +2109,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Comet Opik MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Comet Opik MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2105,6 +2127,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2116,8 +2139,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "quarkiverse/quarkus-mcp-servers",
     "repoUrl": "https://github.com/quarkiverse/quarkus-mcp-servers",
     "category": "文件与存储",
-    "description": "Filesystem MCP 面向“文件与存储”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "quarkiverse/quarkus-mcp-servers 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Filesystem MCP 面向“文件与存储”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "quarkiverse/quarkus-mcp-servers 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 195,
     "language": "Java",
     "verifiedAt": "2026-08-09",
@@ -2131,15 +2154,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Filesystem MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Filesystem MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2149,6 +2172,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2160,8 +2184,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "quarkiverse/quarkus-mcp-servers",
     "repoUrl": "https://github.com/quarkiverse/quarkus-mcp-servers",
     "category": "数据库",
-    "description": "MCP Server Jdbc 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "quarkiverse/quarkus-mcp-servers 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Server Jdbc 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "quarkiverse/quarkus-mcp-servers 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 195,
     "language": "Java",
     "verifiedAt": "2026-08-09",
@@ -2176,15 +2200,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Server Jdbc 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Server Jdbc 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -2194,6 +2218,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2205,8 +2230,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "samvallad33/vestige",
     "repoUrl": "https://github.com/samvallad33/vestige",
     "category": "知识与记忆",
-    "description": "Vestige MCP 面向“知识与记忆”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "samvallad33/vestige 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Vestige MCP 面向“知识与记忆”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "samvallad33/vestige 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-stateful-resource-policy。",
     "stars": 603,
     "language": "Rust",
     "verifiedAt": "2026-08-09",
@@ -2220,15 +2245,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Vestige MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Vestige MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2238,6 +2263,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2249,8 +2275,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "vivekVells/mcp-pandoc",
     "repoUrl": "https://github.com/vivekVells/mcp-pandoc",
     "category": "开发与代码",
-    "description": "MCP Pandoc 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "vivekVells/mcp-pandoc 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Pandoc 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "vivekVells/mcp-pandoc 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 573,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2264,15 +2290,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Pandoc 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Pandoc 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2282,6 +2308,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2293,8 +2320,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "yolfinance/yolfi-agent",
     "repoUrl": "https://github.com/yolfinance/yolfi-agent",
     "category": "金融与市场",
-    "description": "Yolfi Agent MCP 面向“金融与市场”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "yolfinance/yolfi-agent 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Yolfi Agent MCP 面向“金融与市场”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "yolfinance/yolfi-agent 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-financial-or-transactional-write。",
     "stars": 198,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -2308,15 +2335,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Yolfi Agent MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Yolfi Agent MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -2325,8 +2352,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游包含订单、链上交易或真实资金相关操作；本目录不开放交易执行与签名能力。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -2336,8 +2363,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "zilliztech/mcp-server-milvus",
     "repoUrl": "https://github.com/zilliztech/mcp-server-milvus",
     "category": "数据库",
-    "description": "Milvus MCP 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "zilliztech/mcp-server-milvus 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Milvus MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "zilliztech/mcp-server-milvus 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 238,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2352,15 +2379,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Milvus MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Milvus MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -2370,6 +2397,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2381,8 +2409,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "alexei-led/k8s-mcp-server",
     "repoUrl": "https://github.com/alexei-led/k8s-mcp-server",
     "category": "云平台与运维",
-    "description": "K8s MCP Server 面向“云平台与运维”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "alexei-led/k8s-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "K8s MCP Server 面向“云平台与运维”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "alexei-led/k8s-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-privileged-infrastructure-write。",
     "stars": 213,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2396,16 +2424,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 K8s MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 K8s MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -2414,8 +2442,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -2425,8 +2453,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "anypost/emailmd",
     "repoUrl": "https://github.com/anypost/emailmd",
     "category": "通讯与协作",
-    "description": "Emailmd MCP 面向“通讯与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "anypost/emailmd 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Emailmd MCP 面向“通讯与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "anypost/emailmd 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-auth-scope-and-write-policy。",
     "stars": 1297,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2440,14 +2468,14 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Emailmd MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Emailmd MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "high",
@@ -2457,6 +2485,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2468,8 +2497,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "brave/brave-search-mcp-server",
     "repoUrl": "https://github.com/brave/brave-search-mcp-server",
     "category": "搜索与研究",
-    "description": "Brave Search (官方) MCP 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "brave/brave-search-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Brave Search (官方) MCP 面向“搜索与研究”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "brave/brave-search-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-official-read-only-token-contract。",
     "stars": 1362,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2479,30 +2508,31 @@ export const mcpCatalogExpansionV2 = [
       "MIT"
     ],
     "requirements": [
-      "external-runtime",
-      "remote-transport"
+      "token"
     ],
     "usageExamples": [
-      "查看 Brave Search (官方) MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Brave Search (官方) MCP 的上游用途和当前适配判定",
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
-      "connectionKind": "remote-mcp",
+      "wave": 13,
+      "availability": "ready",
+      "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
-        "fixed-saas-contract",
+        "encrypted-credential-binding",
+        "credential-revocation-check",
         "fixed-egress-policy",
-        "encrypted-credential-binding"
+        "read-only-tool-policy",
+        "schema-drift-recovery"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "仅开放官方 v2.1.0 的 brave_web_search 与 brave_local_search；其余搜索、摘要和媒体工具不可发现、不可调用。",
+        "Brave API Key 仅由服务端加密库注入，出口固定为 api.search.brave.com；不接受命令、端点、Header 或环境变量。"
       ]
     }
   },
@@ -2512,8 +2542,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "cablate/mcp-google-map",
     "repoUrl": "https://github.com/cablate/mcp-google-map",
     "category": "地理与出行",
-    "description": "MCP Google Map 面向“地理与出行”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "cablate/mcp-google-map 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Google Map 面向“地理与出行”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "cablate/mcp-google-map 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-egress-read-only-contract。",
     "stars": 419,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2527,14 +2557,14 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Google Map 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Google Map 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "medium",
@@ -2544,6 +2574,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2555,8 +2586,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "diivi/aseprite-mcp",
     "repoUrl": "https://github.com/diivi/aseprite-mcp",
     "category": "多媒体",
-    "description": "Aseprite MCP 面向“多媒体”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "diivi/aseprite-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Aseprite MCP 面向“多媒体”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "diivi/aseprite-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 399,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2571,16 +2602,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Aseprite MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Aseprite MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -2588,8 +2619,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -2599,8 +2630,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "docker/hub-mcp",
     "repoUrl": "https://github.com/docker/hub-mcp",
     "category": "开发与代码",
-    "description": "Hub MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "docker/hub-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Hub MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "docker/hub-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 159,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2614,14 +2645,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Hub MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Hub MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2631,6 +2662,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2642,8 +2674,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "integromat/make-mcp-server",
     "repoUrl": "https://github.com/integromat/make-mcp-server",
     "category": "效率与协作",
-    "description": "Make MCP 面向“效率与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "integromat/make-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Make MCP 面向“效率与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "integromat/make-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-broad-account-or-message-write。",
     "stars": 166,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2657,16 +2689,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Make MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Make MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -2675,8 +2707,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -2686,8 +2718,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "IvanMurzak/Unity-MCP",
     "repoUrl": "https://github.com/IvanMurzak/Unity-MCP",
     "category": "通用工具",
-    "description": "Unity MCP 面向“通用工具”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "IvanMurzak/Unity-MCP 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Unity MCP 面向“通用工具”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "IvanMurzak/Unity-MCP 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 3845,
     "language": "C#",
     "verifiedAt": "2026-08-09",
@@ -2702,15 +2734,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Unity MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Unity MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -2718,8 +2750,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -2729,8 +2761,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "juyterman1000/entroly",
     "repoUrl": "https://github.com/juyterman1000/entroly",
     "category": "知识与记忆",
-    "description": "Entroly MCP 面向“知识与记忆”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "juyterman1000/entroly 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Entroly MCP 面向“知识与记忆”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "juyterman1000/entroly 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-stateful-resource-policy。",
     "stars": 435,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2744,14 +2776,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Entroly MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Entroly MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2761,6 +2793,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2772,8 +2805,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "livetennisapi/livetennisapi-mcp",
     "repoUrl": "https://github.com/livetennisapi/livetennisapi-mcp",
     "category": "通用工具",
-    "description": "Livetennisapi MCP 面向“通用工具”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "livetennisapi/livetennisapi-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Livetennisapi MCP 面向“通用工具”场景提供 MCP 能力；当前已通过固定只读运行时与工具契约验收。",
+    "readmeSummary": "livetennisapi/livetennisapi-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 ready，原因码 ready-official-native-free-read-only-facade。",
     "stars": 190,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2783,29 +2816,31 @@ export const mcpCatalogExpansionV2 = [
       "MIT"
     ],
     "requirements": [
-      "external-runtime",
-      "system-permission"
+      "token"
     ],
     "usageExamples": [
-      "查看 Livetennisapi MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Livetennisapi MCP 的上游用途和当前适配判定",
+      "保存所需凭据后连接，并仅执行已审核的只读工具"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 15,
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
-        "maintained-upstream-contract",
-        "scoped-filesystem",
-        "resource-limits"
+        "encrypted-credential-binding",
+        "credential-revocation-check",
+        "fixed-egress-policy",
+        "read-only-tool-policy",
+        "schema-drift-recovery",
+        "provider-rate-limit"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "仅开放官方 v1.4.0 对应 FREE 层的实时/即将开始比赛、当前比分、球员、赛程与赛事目录；历史、赔率、市场、预测、模型分析、统计和 WebSocket 均关闭。",
+        "响应按固定字段投影并移除 win_probability、danger、market、analysis 与 stats；API Key 仅由服务端加密库注入，出口固定为 api.livetennisapi.com。"
       ]
     }
   },
@@ -2815,8 +2850,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "neo4j-contrib/mcp-neo4j",
     "repoUrl": "https://github.com/neo4j-contrib/mcp-neo4j",
     "category": "数据库",
-    "description": "Neo4j MCP 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "neo4j-contrib/mcp-neo4j 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Neo4j MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "neo4j-contrib/mcp-neo4j 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 979,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2831,15 +2866,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Neo4j MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Neo4j MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -2849,6 +2884,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2860,8 +2896,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "pab1it0/prometheus-mcp-server",
     "repoUrl": "https://github.com/pab1it0/prometheus-mcp-server",
     "category": "数据库",
-    "description": "Prometheus MCP Server 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "pab1it0/prometheus-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Prometheus MCP Server 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "pab1it0/prometheus-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 512,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -2876,15 +2912,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Prometheus MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Prometheus MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -2894,6 +2930,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2905,8 +2942,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "PV-Bhat/vibe-check-mcp-server",
     "repoUrl": "https://github.com/PV-Bhat/vibe-check-mcp-server",
     "category": "通用工具",
-    "description": "Vibe Check MCP Server 面向“通用工具”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "PV-Bhat/vibe-check-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Vibe Check MCP Server 面向“通用工具”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "PV-Bhat/vibe-check-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 503,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2920,15 +2957,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Vibe Check MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Vibe Check MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2938,6 +2975,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2949,8 +2987,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "r-huijts/strava-mcp",
     "repoUrl": "https://github.com/r-huijts/strava-mcp",
     "category": "通用工具",
-    "description": "Strava MCP 面向“通用工具”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "r-huijts/strava-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Strava MCP 面向“通用工具”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "r-huijts/strava-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 465,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -2964,15 +3002,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Strava MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Strava MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -2982,6 +3020,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -2993,8 +3032,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "runekaagaard/mcp-alchemy",
     "repoUrl": "https://github.com/runekaagaard/mcp-alchemy",
     "category": "数据库",
-    "description": "MCP Alchemy 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "runekaagaard/mcp-alchemy 已通过公开仓库、MPL-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Alchemy 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "runekaagaard/mcp-alchemy 已通过公开仓库、MPL-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 414,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -3009,15 +3048,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Alchemy 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Alchemy 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -3027,6 +3066,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3038,8 +3078,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "safedep/vet",
     "repoUrl": "https://github.com/safedep/vet",
     "category": "安全分析",
-    "description": "MCP Md 面向“安全分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "safedep/vet 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Md 面向“安全分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "safedep/vet 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 1096,
     "language": "Go",
     "verifiedAt": "2026-08-09",
@@ -3053,14 +3093,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Md 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Md 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -3070,6 +3110,7 @@ export const mcpCatalogExpansionV2 = [
         "terminal-action-approval"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结输入范围、只读工具子集、进程隔离与终止性操作审批。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3081,8 +3122,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "stack-chan/stack-chan",
     "repoUrl": "https://github.com/stack-chan/stack-chan",
     "category": "通用工具",
-    "description": "Stack Chan MCP 面向“通用工具”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "stack-chan/stack-chan 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Stack Chan MCP 面向“通用工具”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "stack-chan/stack-chan 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-physical-device-control。",
     "stars": 1646,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3096,15 +3137,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Stack Chan MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Stack Chan MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -3113,8 +3154,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游可控制机器人或物理设备；当前没有设备身份、急停、权限和现场安全边界。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3124,8 +3165,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "tacticlaunch/mcp-linear",
     "repoUrl": "https://github.com/tacticlaunch/mcp-linear",
     "category": "效率与协作",
-    "description": "MCP Linear 面向“效率与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "tacticlaunch/mcp-linear 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Linear 面向“效率与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "tacticlaunch/mcp-linear 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-auth-scope-and-write-policy。",
     "stars": 146,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3139,15 +3180,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 MCP Linear 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Linear 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "high",
@@ -3157,6 +3198,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3168,8 +3210,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Tiberriver256/mcp-server-azure-devops",
     "repoUrl": "https://github.com/Tiberriver256/mcp-server-azure-devops",
     "category": "版本控制",
-    "description": "MCP Server Azure Devops 面向“版本控制”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Tiberriver256/mcp-server-azure-devops 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Server Azure Devops 面向“版本控制”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Tiberriver256/mcp-server-azure-devops 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 382,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3183,15 +3225,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Server Azure Devops 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Server Azure Devops 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -3201,6 +3243,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3212,8 +3255,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Xquik-dev/x-twitter-scraper",
     "repoUrl": "https://github.com/Xquik-dev/x-twitter-scraper",
     "category": "通讯与协作",
-    "description": "Xquik MCP 面向“通讯与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Xquik-dev/x-twitter-scraper 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Xquik MCP 面向“通讯与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Xquik-dev/x-twitter-scraper 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-social-publishing-or-session-reuse。",
     "stars": 178,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -3227,16 +3270,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Xquik MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Xquik MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -3245,8 +3288,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖社交账号发布、已登录会话或平台写入；不满足无登录态复用与逐次写审批边界。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3256,8 +3299,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "alexei-led/cloud-mcp-server",
     "repoUrl": "https://github.com/alexei-led/cloud-mcp-server",
     "category": "云平台与运维",
-    "description": "AWS MCP Server 面向“云平台与运维”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "alexei-led/cloud-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "AWS MCP Server 面向“云平台与运维”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "alexei-led/cloud-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-privileged-infrastructure-write。",
     "stars": 185,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -3271,16 +3314,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 AWS MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 AWS MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -3289,8 +3332,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3300,8 +3343,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "ArcadeData/arcadedb",
     "repoUrl": "https://github.com/ArcadeData/arcadedb",
     "category": "数据库",
-    "description": "Arcadedb MCP 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "ArcadeData/arcadedb 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Arcadedb MCP 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "ArcadeData/arcadedb 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 1068,
     "language": "Java",
     "verifiedAt": "2026-08-09",
@@ -3316,14 +3359,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Arcadedb MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Arcadedb MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -3333,6 +3376,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3344,8 +3388,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "carterlasalle/mac_messages_mcp",
     "repoUrl": "https://github.com/carterlasalle/mac_messages_mcp",
     "category": "通讯与协作",
-    "description": "Mac Messages MCP 面向“通讯与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "carterlasalle/mac_messages_mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Mac Messages MCP 面向“通讯与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "carterlasalle/mac_messages_mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 313,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -3360,16 +3404,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Mac Messages MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Mac Messages MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -3377,8 +3421,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3388,8 +3432,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "cr7258/elasticsearch-mcp-server",
     "repoUrl": "https://github.com/cr7258/elasticsearch-mcp-server",
     "category": "数据库",
-    "description": "Elasticsearch MCP Server 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "cr7258/elasticsearch-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Elasticsearch MCP Server 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "cr7258/elasticsearch-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 302,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -3404,15 +3448,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Elasticsearch MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Elasticsearch MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -3422,6 +3466,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3433,8 +3478,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "datalayer/jupyter-mcp-server",
     "repoUrl": "https://github.com/datalayer/jupyter-mcp-server",
     "category": "数据分析",
-    "description": "Jupyter MCP Server 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "datalayer/jupyter-mcp-server 已通过公开仓库、BSD-3-Clause 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Jupyter MCP Server 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "datalayer/jupyter-mcp-server 已通过公开仓库、BSD-3-Clause 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-or-code-execution。",
     "stars": 1239,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -3448,15 +3493,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Jupyter MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Jupyter MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -3465,8 +3510,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3476,8 +3521,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "emiliaprotocol/emilia-protocol",
     "repoUrl": "https://github.com/emiliaprotocol/emilia-protocol",
     "category": "安全分析",
-    "description": "Emilia Protocol MCP 面向“安全分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "emiliaprotocol/emilia-protocol 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Emilia Protocol MCP 面向“安全分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "emiliaprotocol/emilia-protocol 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-not-an-executable-mcp-server。",
     "stars": 799,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3491,15 +3536,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Emilia Protocol MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Emilia Protocol MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
@@ -3508,8 +3553,8 @@ export const mcpCatalogExpansionV2 = [
         "terminal-action-approval"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结输入范围、只读工具子集、进程隔离与终止性操作审批。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "固定仓库未证明存在可锁定、可独立运行并可发现工具的 MCP Server 产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3519,8 +3564,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "eyalzh/browser-control-mcp",
     "repoUrl": "https://github.com/eyalzh/browser-control-mcp",
     "category": "浏览器与网页",
-    "description": "Browser Control MCP 面向“浏览器与网页”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "eyalzh/browser-control-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Browser Control MCP 面向“浏览器与网页”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "eyalzh/browser-control-mcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-browser-or-url-surface。",
     "stars": 314,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3534,16 +3579,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Browser Control MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Browser Control MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -3552,8 +3597,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3563,8 +3608,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "ferdousbhai/investor-agent",
     "repoUrl": "https://github.com/ferdousbhai/investor-agent",
     "category": "金融与市场",
-    "description": "Investor Agent MCP 面向“金融与市场”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "ferdousbhai/investor-agent 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Investor Agent MCP 面向“金融与市场”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "ferdousbhai/investor-agent 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-domain-read-only-facade。",
     "stars": 344,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3578,15 +3623,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Investor Agent MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Investor Agent MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "high",
@@ -3596,6 +3641,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；仅在能够证明固定只读子集、目标作用域与无交易/无变更边界后继续。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3607,8 +3653,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Jpisnice/shadcn-ui-mcp-server",
     "repoUrl": "https://github.com/Jpisnice/shadcn-ui-mcp-server",
     "category": "开发与代码",
-    "description": "Shadcn UI MCP Server 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Jpisnice/shadcn-ui-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Shadcn UI MCP Server 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Jpisnice/shadcn-ui-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 2923,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3622,14 +3668,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Shadcn UI MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Shadcn UI MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -3639,6 +3685,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3650,8 +3697,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "kiliczsh/mcp-mongo-server",
     "repoUrl": "https://github.com/kiliczsh/mcp-mongo-server",
     "category": "数据库",
-    "description": "MCP Mongo Server 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "kiliczsh/mcp-mongo-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Mongo Server 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "kiliczsh/mcp-mongo-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-read-only-data-facade。",
     "stars": 281,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3666,15 +3713,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Mongo Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Mongo Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
@@ -3684,6 +3731,7 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
+        "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
         "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3695,8 +3743,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "robotmcp/ros-mcp-server",
     "repoUrl": "https://github.com/robotmcp/ros-mcp-server",
     "category": "开发与代码",
-    "description": "ROS MCP Server 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "robotmcp/ros-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "ROS MCP Server 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "robotmcp/ros-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-physical-device-control。",
     "stars": 1381,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -3711,15 +3759,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 ROS MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 ROS MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -3727,8 +3775,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游可控制机器人或物理设备；当前没有设备身份、急停、权限和现场安全边界。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3738,8 +3786,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "nwiizo/tfmcp",
     "repoUrl": "https://github.com/nwiizo/tfmcp",
     "category": "云平台与运维",
-    "description": "Tfmcp 面向“云平台与运维”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "nwiizo/tfmcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Tfmcp 面向“云平台与运维”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "nwiizo/tfmcp 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-privileged-infrastructure-write。",
     "stars": 371,
     "language": "Rust",
     "verifiedAt": "2026-08-09",
@@ -3753,16 +3801,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Tfmcp 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Tfmcp 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -3771,8 +3819,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3782,8 +3830,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "vectorize-io/vectorize-mcp-server",
     "repoUrl": "https://github.com/vectorize-io/vectorize-mcp-server",
     "category": "搜索与研究",
-    "description": "Vectorize MCP Server 面向“搜索与研究”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "vectorize-io/vectorize-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Vectorize MCP Server 面向“搜索与研究”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "vectorize-io/vectorize-mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-egress-read-only-contract。",
     "stars": 110,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -3797,15 +3845,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Vectorize MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Vectorize MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "remote-mcp",
       "risk": "medium",
@@ -3815,6 +3863,7 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
+        "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
         "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
         "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3826,8 +3875,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "antvis/mcp-server-chart",
     "repoUrl": "https://github.com/antvis/mcp-server-chart",
     "category": "数据分析",
-    "description": "MCP Server Chart 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "antvis/mcp-server-chart 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Server Chart 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "antvis/mcp-server-chart 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 4307,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3841,14 +3890,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Server Chart 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Server Chart 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -3858,6 +3907,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3869,8 +3919,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "caol64/wenyan-mcp",
     "repoUrl": "https://github.com/caol64/wenyan-mcp",
     "category": "效率与协作",
-    "description": "Wenyan MCP 面向“效率与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "caol64/wenyan-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Wenyan MCP 面向“效率与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "caol64/wenyan-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-social-publishing-or-session-reuse。",
     "stars": 1294,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -3884,16 +3934,16 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Wenyan MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Wenyan MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -3902,8 +3952,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖社交账号发布、已登录会话或平台写入；不满足无登录态复用与逐次写审批边界。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -3913,8 +3963,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "MigoXLab/dingo",
     "repoUrl": "https://github.com/MigoXLab/dingo",
     "category": "数据分析",
-    "description": "Dingo MCP 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "MigoXLab/dingo 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Dingo MCP 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "MigoXLab/dingo 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 736,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -3928,14 +3978,14 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Dingo MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Dingo MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -3945,6 +3995,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -3956,8 +4007,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "g0t4/mcp-server-commands",
     "repoUrl": "https://github.com/g0t4/mcp-server-commands",
     "category": "开发与代码",
-    "description": "MCP Server Commands 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "g0t4/mcp-server-commands 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "MCP Server Commands 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "g0t4/mcp-server-commands 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-command-or-code-execution。",
     "stars": 232,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -3971,16 +4022,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 MCP Server Commands 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 MCP Server Commands 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
@@ -3989,8 +4040,8 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -4000,8 +4051,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "keboola/mcp-server",
     "repoUrl": "https://github.com/keboola/mcp-server",
     "category": "数据分析",
-    "description": "Keboola MCP 面向“数据分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "keboola/mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Keboola MCP 面向“数据分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "keboola/mcp-server 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-scoped-file-or-artifact-contract。",
     "stars": 84,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -4015,15 +4066,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Keboola MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Keboola MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -4033,6 +4084,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -4044,8 +4096,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "line/line-bot-mcp-server",
     "repoUrl": "https://github.com/line/line-bot-mcp-server",
     "category": "通讯与协作",
-    "description": "Line Bot MCP Server 面向“通讯与协作”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "line/line-bot-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Line Bot MCP Server 面向“通讯与协作”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "line/line-bot-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-broad-account-or-message-write。",
     "stars": 756,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -4059,15 +4111,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Line Bot MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Line Bot MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -4076,8 +4128,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -4087,8 +4139,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "ozgurcd/gograph",
     "repoUrl": "https://github.com/ozgurcd/gograph",
     "category": "开发与代码",
-    "description": "Gograph MCP 面向“开发与代码”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "ozgurcd/gograph 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Gograph MCP 面向“开发与代码”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "ozgurcd/gograph 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 209,
     "language": "Go",
     "verifiedAt": "2026-08-09",
@@ -4102,15 +4154,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Gograph MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Gograph MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -4120,6 +4172,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -4131,8 +4184,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "Patdolitse/piia-engram",
     "repoUrl": "https://github.com/Patdolitse/piia-engram",
     "category": "知识与记忆",
-    "description": "Piia Engram MCP 面向“知识与记忆”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "Patdolitse/piia-engram 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Piia Engram MCP 面向“知识与记忆”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "Patdolitse/piia-engram 已通过公开仓库、AGPL-3.0 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-stateful-resource-policy。",
     "stars": 169,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -4146,15 +4199,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Piia Engram MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Piia Engram MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
@@ -4164,6 +4217,7 @@ export const mcpCatalogExpansionV2 = [
         "resource-limits"
       ],
       "limitations": [
+        "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
         "仅完成双源目录身份核验；尚未冻结上游版本、工具 Schema、文件范围与资源上限。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -4175,8 +4229,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "taisly/agent",
     "repoUrl": "https://github.com/taisly/agent",
     "category": "社交与内容",
-    "description": "Agent MCP 面向“社交与内容”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "taisly/agent 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Agent MCP 面向“社交与内容”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "taisly/agent 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-social-publishing-or-session-reuse。",
     "stars": 264,
     "language": "JavaScript",
     "verifiedAt": "2026-08-09",
@@ -4190,15 +4244,15 @@ export const mcpCatalogExpansionV2 = [
       "remote-transport"
     ],
     "usageExamples": [
-      "查看 Agent MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Agent MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "remote-mcp",
       "risk": "high",
       "requiredCapabilities": [
@@ -4207,8 +4261,8 @@ export const mcpCatalogExpansionV2 = [
         "encrypted-credential-binding"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结远程传输、服务域名、凭据槽、工具副作用与限流策略。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖社交账号发布、已登录会话或平台写入；不满足无登录态复用与逐次写审批边界。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -4218,8 +4272,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "zinja-coder/jadx-ai-mcp",
     "repoUrl": "https://github.com/zinja-coder/jadx-ai-mcp",
     "category": "安全分析",
-    "description": "JADX Ai MCP 面向“安全分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "zinja-coder/jadx-ai-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "JADX Ai MCP 面向“安全分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "zinja-coder/jadx-ai-mcp 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-desktop-host-instance-unverified。",
     "stars": 2621,
     "language": "Java",
     "verifiedAt": "2026-08-09",
@@ -4234,15 +4288,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 JADX Ai MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 JADX Ai MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -4250,8 +4304,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -4261,8 +4315,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "alexander-zuev/supabase-mcp-server",
     "repoUrl": "https://github.com/alexander-zuev/supabase-mcp-server",
     "category": "数据库",
-    "description": "Supabase MCP Server 面向“数据库”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "alexander-zuev/supabase-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Supabase MCP Server 面向“数据库”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "alexander-zuev/supabase-mcp-server 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-superseded-unbounded-third-party。",
     "stars": 830,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -4277,16 +4331,16 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Supabase MCP Server 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Supabase MCP Server 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "sandboxed-stdio",
       "risk": "high",
       "requiredCapabilities": [
@@ -4295,8 +4349,8 @@ export const mcpCatalogExpansionV2 = [
         "query-limits"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚未冻结数据库目标、原生只读模式、查询上限与凭据作用域。",
-        "当前没有命令、端点、凭据槽、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "该第三方实现提供的管理或写入面宽于目录中已存在的官方受控适配器，不再新增重复执行入口。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   },
@@ -4306,8 +4360,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "bx33661/Wireshark-MCP",
     "repoUrl": "https://github.com/bx33661/Wireshark-MCP",
     "category": "安全分析",
-    "description": "Wireshark MCP 面向“安全分析”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "bx33661/Wireshark-MCP 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Wireshark MCP 面向“安全分析”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "bx33661/Wireshark-MCP 已通过公开仓库、MIT 许可证与最近维护时间硬门禁；当前判定为 planned，原因码 planned-fixed-sandbox-contract。",
     "stars": 192,
     "language": "Python",
     "verifiedAt": "2026-08-09",
@@ -4322,15 +4376,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Wireshark MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Wireshark MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers",
       "awesome-mcp-zh"
     ],
     "adaptation": {
-      "wave": 12,
+      "wave": 13,
       "availability": "planned",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
@@ -4339,6 +4393,7 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
+        "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
         "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
         "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
       ]
@@ -4350,8 +4405,8 @@ export const mcpCatalogExpansionV2 = [
     "repoName": "bytedance/UI-TARS-desktop",
     "repoUrl": "https://github.com/bytedance/UI-TARS-desktop",
     "category": "浏览器与网页",
-    "description": "Browser MCP 面向“浏览器与网页”场景提供 MCP 能力；本轮只纳入经双源与仓库硬门禁核验的目录资料，尚未接入模镜运行时。",
-    "readmeSummary": "bytedance/UI-TARS-desktop 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；上游工具、传输与安全契约仍待逐项冻结。",
+    "description": "Browser MCP 面向“浏览器与网页”场景提供 MCP 能力；当前保持不可执行，等待后续安全边界完成。",
+    "readmeSummary": "bytedance/UI-TARS-desktop 已通过公开仓库、Apache-2.0 许可证与最近维护时间硬门禁；当前判定为 blocked，原因码 blocked-arbitrary-browser-or-url-surface。",
     "stars": 38534,
     "language": "TypeScript",
     "verifiedAt": "2026-08-09",
@@ -4366,15 +4421,15 @@ export const mcpCatalogExpansionV2 = [
       "system-permission"
     ],
     "usageExamples": [
-      "查看 Browser MCP 的上游用途和当前适配状态",
-      "等待固定工具契约与安全验收后再进行连接测试"
+      "查看 Browser MCP 的上游用途和当前适配判定",
+      "根据阻断或规划原因完成后续门槛后再进行连接测试"
     ],
     "sources": [
       "awesome-mcp-servers"
     ],
     "adaptation": {
-      "wave": 12,
-      "availability": "planned",
+      "wave": 13,
+      "availability": "blocked",
       "connectionKind": "desktop-bridge",
       "risk": "critical",
       "requiredCapabilities": [
@@ -4382,8 +4437,8 @@ export const mcpCatalogExpansionV2 = [
         "per-app-consent"
       ],
       "limitations": [
-        "仅完成双源目录身份核验；尚无可信桌面宿主、实例所有权证明或逐应用授权。",
-        "当前没有命令、端点、工具或连接入口，环境功能开关也不能使该条目可执行。"
+        "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+        "该条目保持不可执行；没有命令、端点、凭据槽、工具策略或连接入口，功能开关不能绕过。"
       ]
     }
   }

@@ -935,6 +935,89 @@ WAVE_FOUR_ADAPTERS: dict[str, WaveFourAdapterSpec] = {
 }
 
 
+WAVE_THIRTEEN_TOKEN_ADAPTERS: dict[str, WaveFourAdapterSpec] = {
+    "brave-brave-search-mcp-server": WaveFourAdapterSpec(
+        "2.1.0",
+        ("brave_web_search", "brave_local_search"),
+        (_credential("api_key", "Brave Search API Key", "用于网页与地点搜索。"),),
+        network_policy="allowlist:api.search.brave.com",
+        limitations=(
+            "仅开放官方 v2.1.0 的网页搜索与地点搜索；LLM Context、摘要、图片、视频和新闻工具均不可发现、不可调用。",
+            "凭据由服务端加密库按固定槽位注入；客户端不能提交 Token、Header、环境变量、命令或 MCP URL。",
+        ),
+    ),
+}
+
+
+WAVE_FOURTEEN_TOKEN_ADAPTERS: dict[str, WaveFourAdapterSpec] = {
+    "blazickjp-arxiv-mcp-server": WaveFourAdapterSpec(
+        "0.6.2-compatible-native-v1",
+        ("search_papers", "get_abstract"),
+        (),
+        network_policy="allowlist:export.arxiv.org",
+        limitations=(
+            "原生兼容层仅复现 v0.6.2 的论文搜索与摘要元数据读取；不运行上游宽工具进程。",
+            "下载、全文读取、本地缓存、提醒、语义索引、引用导出和文件资源全部关闭；每次最多 20 篇，出口请求至少间隔 3 秒。",
+        ),
+    ),
+    "kagisearch-kagimcp": WaveFourAdapterSpec(
+        "1.0.2-compatible-native-v1",
+        ("kagi_search_fetch", "kagi_extract"),
+        (_credential("api_key", "Kagi API Key", "用于官方 Kagi Search 与 Extract API。"),),
+        network_policy="allowlist:kagi.com",
+        limitations=(
+            "原生兼容层仅复现官方 v1.0.2 的搜索与单页提取；不运行可覆盖 API Host 或重试策略的上游进程。",
+            "搜索上限固定为 20；提取 URL 必须为公网 HTTPS 且不得携带 Token、签名或其他凭据型查询参数。",
+        ),
+    ),
+}
+
+
+WAVE_FIFTEEN_TOKEN_ADAPTERS: dict[str, WaveFourAdapterSpec] = {
+    "fatwang2-search1api-mcp": WaveFourAdapterSpec(
+        "0.5.3-compatible-native-v1",
+        ("search", "news", "trending"),
+        (
+            _credential(
+                "api_key",
+                "Search1API Key",
+                "用于官方 Search1API 的网页、新闻与趋势只读发现。",
+            ),
+        ),
+        network_policy="allowlist:api.search1api.com",
+        limitations=(
+            "原生兼容层仅开放官方 v0.5.3 的 search、news 与 trending；crawl、sitemap、截图、结构化提取和任意页面抓取均不可发现、不可调用。",
+            "搜索与新闻强制 crawl_results=0，每次最多 20 条，出口固定为 api.search1api.com，并按官方账户级限流保守节流。",
+        ),
+    ),
+    "livetennisapi-livetennisapi-mcp": WaveFourAdapterSpec(
+        "1.4.0-compatible-native-v1",
+        (
+            "get_live_matches",
+            "get_upcoming_matches",
+            "get_match_score",
+            "search_players",
+            "get_player",
+            "get_fixtures",
+            "search_tournaments",
+            "get_tournament",
+        ),
+        (
+            _credential(
+                "api_key",
+                "Live Tennis API Key",
+                "用于 FREE 层实时比分、赛程、球员与赛事目录只读查询。",
+            ),
+        ),
+        network_policy="allowlist:api.livetennisapi.com",
+        limitations=(
+            "仅开放官方 v1.4.0 对应 FREE 层的实时/即将开始比赛、当前比分、球员、赛程与赛事目录；历史、赔率、市场、预测、模型分析、统计、WebSocket 与用量探测均关闭。",
+            "响应按固定字段投影并移除 win_probability、danger、market、analysis 与 stats；每页最多 20 条、offset 最多 1000，出口请求至少间隔 2.1 秒。",
+        ),
+    ),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class WaveFiveAdapterSpec:
     adapter_version: str
@@ -2502,16 +2585,71 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
             raise RuntimeError(
                 f"duplicate approved catalog expansion id: {adapter.project_id}"
             )
+        if adapter.availability == "ready":
+            spec = (
+                WAVE_THIRTEEN_TOKEN_ADAPTERS
+                | WAVE_FOURTEEN_TOKEN_ADAPTERS
+                | WAVE_FIFTEEN_TOKEN_ADAPTERS
+            ).get(adapter.project_id)
+            if spec is None:
+                raise RuntimeError(
+                    f"ready catalog expansion lacks runtime contract: {adapter.project_id}"
+                )
+            manifests[adapter.project_id] = CatalogAdapterManifest(
+                project_id=adapter.project_id,
+                wave=adapter.adaptation_wave,
+                availability="ready",
+                connection_kind="sandboxed-stdio",
+                risk="medium",
+                required_capabilities=adapter.required_capabilities,
+                limitations=spec.limitations,
+                adapter_version=spec.adapter_version,
+                runtime_image="modelmirror-mcp-token:wave4-v1",
+                network_policy=spec.network_policy,
+                filesystem_policy="read-only-empty-workspace",
+                resource_limits=(
+                    ("cpu", "1.5 cores / 60 CPU seconds per call"),
+                    ("memory", "768 MiB sidecar"),
+                    ("processes", "maximum 6 sessions / 128 sidecar PIDs"),
+                    ("operation_timeout", "60 seconds"),
+                    ("tool_output", "256 KiB"),
+                ),
+                server_command=(*TOKEN_SANDBOX_PROXY, adapter.project_id),
+                preparation_kind="bundled",
+                credential_slots=tuple(item.key for item in spec.credential_policies),
+                credential_policies=spec.credential_policies,
+                tool_policies={
+                    name: CatalogToolPolicy(read_only=True, effect="read")
+                    for name in spec.tools
+                },
+                enabled_by_default=True,
+                operation_timeout=60.0,
+                max_output_bytes=256 * 1024,
+            )
+            continue
+        if adapter.project_id in (
+            WAVE_THIRTEEN_TOKEN_ADAPTERS
+            | WAVE_FOURTEEN_TOKEN_ADAPTERS
+            | WAVE_FIFTEEN_TOKEN_ADAPTERS
+        ):
+            raise RuntimeError(
+                f"non-ready catalog expansion has runtime contract: {adapter.project_id}"
+            )
+        if adapter.availability not in {"planned", "blocked"}:
+            raise RuntimeError(
+                f"invalid catalog expansion availability: {adapter.availability}"
+            )
         manifests[adapter.project_id] = CatalogAdapterManifest(
             project_id=adapter.project_id,
-            wave=12,
-            availability="planned",
+            wave=adapter.adaptation_wave,
+            availability=adapter.availability,  # type: ignore[arg-type]
             connection_kind=adapter.connection_kind,  # type: ignore[arg-type]
             risk=adapter.risk,  # type: ignore[arg-type]
             required_capabilities=adapter.required_capabilities,
             limitations=adapter.limitations,
-            network_policy="planned:no-runtime",
-            filesystem_policy="planned:no-runtime",
+            adapter_version=adapter.adapter_version,
+            network_policy=f"{adapter.availability}:{adapter.decision_reason_code}",
+            filesystem_policy=f"{adapter.availability}:no-runtime",
         )
 
     if len(manifests) != 200:
