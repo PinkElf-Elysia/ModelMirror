@@ -36,6 +36,7 @@ COPY THIRD_PARTY_NOTICES.md /usr/share/doc/modelmirror/THIRD_PARTY_NOTICES.md
 RUN pip install --no-cache-dir --retries 5 --timeout 120 -r requirements.txt
 
 COPY main.py .
+COPY expert_team_agency.py .
 COPY data ./data
 COPY api ./api
 COPY mcp ./mcp

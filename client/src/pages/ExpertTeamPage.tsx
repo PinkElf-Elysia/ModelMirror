@@ -11,6 +11,86 @@ import {
 
 type ExpertDesk = "fusion" | "route" | "team";
 type RunStatus = "idle" | "running" | "done" | "error";
+type RoutePlannerMode = "quick" | "agency";
+
+interface AgencyPlannerCapabilities {
+  enabled: boolean;
+  worker_available: boolean;
+  upstream_project: string;
+  upstream_revision: string;
+  supported_modes: Array<"auto" | "pinned">;
+  max_agents: number;
+  max_steps: number;
+}
+
+interface AgencyPlanTask {
+  task_id: string;
+  title: string;
+  objective: string;
+  depends_on: string[];
+  input_contract: string[];
+  output_contract: string;
+  agent_id?: string | null;
+  acceptance: string;
+}
+
+interface AgencyValidationIssue {
+  code?: string;
+  message?: string;
+  severity?: string;
+  node_id?: string;
+}
+
+interface AgencyWorkflow {
+  id: string;
+  title: string;
+  version?: string;
+  source?: string;
+  nodes: Array<{
+    id: string;
+    type?: string;
+    position?: { x: number; y: number };
+    data: Record<string, unknown>;
+  }>;
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    sourceHandle?: string;
+    targetHandle?: string;
+  }>;
+}
+
+interface AgencyPlanPreview {
+  plan: {
+    summary: string;
+    assumptions: string[];
+    tasks: AgencyPlanTask[];
+  };
+  candidate: {
+    name: string;
+    description: string;
+    draft: { workflow: AgencyWorkflow };
+  };
+  workflow: AgencyWorkflow;
+  validation: {
+    valid: boolean;
+    issues?: AgencyValidationIssue[];
+    stages?: Array<{
+      id: string;
+      valid: boolean;
+      issues: AgencyValidationIssue[];
+    }>;
+  };
+  selected_agents: AgentSummary[];
+  baseline_matches: AgentSummary[];
+  warnings: string[];
+  repair_used: boolean;
+  capability_snapshot_version: string;
+  capability_snapshot_hash: string;
+  upstream_project: string;
+  upstream_revision: string;
+}
 
 interface AgentSummary {
   id: string;
@@ -123,6 +203,85 @@ function readSavedTeams(): TeamSavedConfig[] {
 
 function saveTeams(teams: TeamSavedConfig[]) {
   window.localStorage.setItem(savedTeamStorageKey, JSON.stringify(teams));
+}
+
+async function responseJson<T>(response: Response): Promise<T> {
+  const payload = (await response.json()) as T & { error?: string };
+  if (!response.ok) {
+    throw new Error(payload.error || `请求失败（${response.status}）`);
+  }
+  return payload;
+}
+
+function syncWorkflowToPlan(
+  workflow: AgencyWorkflow,
+  tasks: AgencyPlanTask[],
+): AgencyWorkflow {
+  const taskIds = new Set(tasks.map((task) => task.task_id));
+  const nodeId = (taskId: string) => `agent_${taskId}`;
+  const outputVariables = new Map(
+    tasks.map((task) => {
+      const node = workflow.nodes.find((item) => item.id === nodeId(task.task_id));
+      return [
+        task.task_id,
+        String(node?.data.outputVariable || `${task.task_id}_output`),
+      ] as const;
+    }),
+  );
+  const nodes = workflow.nodes.map((node) => {
+    const task = tasks.find((item) => node.id === nodeId(item.task_id));
+    if (!task) return node;
+    const dependencyText = task.depends_on
+      .map((dependency) => {
+        const variable = outputVariables.get(dependency) || `${dependency}_output`;
+        return `${dependency}: {{${variable}}}`;
+      })
+      .join("\n");
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        title: task.title,
+        description: task.objective,
+        taskInput: dependencyText
+          ? `${task.objective}\n\n依赖结果：\n${dependencyText}`
+          : `${task.objective}\n\n用户任务：\n{{user_input}}`,
+        acceptanceCriteria: task.acceptance,
+      },
+    };
+  });
+  const preservedEdges = workflow.edges.filter(
+    (edge) =>
+      edge.id.startsWith("edge_resource_") ||
+      edge.id.startsWith("edge_middleware_"),
+  );
+  const controlEdges = tasks.flatMap((task) =>
+    task.depends_on.length > 0
+      ? task.depends_on
+          .filter((dependency) => taskIds.has(dependency))
+          .map((dependency) => ({
+            id: `edge_${dependency}_${task.task_id}`,
+            source: nodeId(dependency),
+            target: nodeId(task.task_id),
+          }))
+      : [
+          {
+            id: `edge_input_${task.task_id}`,
+            source: "input",
+            target: nodeId(task.task_id),
+          },
+        ],
+  );
+  const dependedOn = new Set(tasks.flatMap((task) => task.depends_on));
+  const sink = [...tasks].reverse().find((task) => !dependedOn.has(task.task_id));
+  if (sink) {
+    controlEdges.push({
+      id: `edge_${sink.task_id}_output`,
+      source: nodeId(sink.task_id),
+      target: "output",
+    });
+  }
+  return { ...workflow, nodes, edges: [...preservedEdges, ...controlEdges] };
 }
 
 function FeatureTab({
@@ -250,6 +409,24 @@ export default function ExpertTeamPage() {
   const [routeAnswer, setRouteAnswer] = useState("");
   const [routeStatus, setRouteStatus] = useState<RunStatus>("idle");
   const [routeError, setRouteError] = useState("");
+  const [routePlannerMode, setRoutePlannerMode] =
+    useState<RoutePlannerMode>("quick");
+  const [agencyCapabilities, setAgencyCapabilities] =
+    useState<AgencyPlannerCapabilities | null>(null);
+  const [agencyCapabilitiesError, setAgencyCapabilitiesError] = useState("");
+  const [agencyPlannerModelId, setAgencyPlannerModelId] =
+    useState(DEFAULT_CHAT_MODEL_ID);
+  const [agencyAgentModelId, setAgencyAgentModelId] =
+    useState(DEFAULT_CHAT_MODEL_ID);
+  const [agencyLineupMode, setAgencyLineupMode] =
+    useState<"auto" | "pinned">("auto");
+  const [agencyMaxAgents, setAgencyMaxAgents] = useState(5);
+  const [agencyStatus, setAgencyStatus] = useState<RunStatus>("idle");
+  const [agencyError, setAgencyError] = useState("");
+  const [agencyPreview, setAgencyPreview] =
+    useState<AgencyPlanPreview | null>(null);
+  const [agencyValidationStale, setAgencyValidationStale] = useState(false);
+  const [agencyAppliedNotice, setAgencyAppliedNotice] = useState(false);
 
   const [teamTask, setTeamTask] = useState(
     "为一个新上线的 AI 模型浏览器制定产品发布方案，包括技术风险、设计亮点和增长打法。",
@@ -277,6 +454,25 @@ export default function ExpertTeamPage() {
       setActiveDesk(desk);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/expert-team/planner-capabilities")
+      .then((response) => responseJson<AgencyPlannerCapabilities>(response))
+      .then((payload) => {
+        if (active) setAgencyCapabilities(payload);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setAgencyCapabilitiesError(
+            error instanceof Error ? error.message : "无法读取智能组队状态。",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const filteredAgents = useMemo(() => {
     const normalizedSearch = agentSearch.trim().toLowerCase();
@@ -453,6 +649,172 @@ export default function ExpertTeamPage() {
     }
   }
 
+  async function runAgencyPreview() {
+    if (!routeMessage.trim() || !agencyCapabilities?.enabled) return;
+    if (agencyLineupMode === "pinned" && selectedAgentIds.length === 0) {
+      setAgencyError("固定阵容至少需要一位已选 AI Team 专家。");
+      return;
+    }
+    setAgencyStatus("running");
+    setAgencyError("");
+    setAgencyPreview(null);
+    setAgencyValidationStale(false);
+    try {
+      const response = await fetch("/api/expert-team/plan-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal: routeMessage,
+          planner_model_id: agencyPlannerModelId,
+          default_agent_model_id: agencyAgentModelId,
+          mode: agencyLineupMode,
+          pinned_agent_ids:
+            agencyLineupMode === "pinned" ? selectedAgentIds : [],
+          max_agents: agencyMaxAgents,
+          temperature: 0.2,
+        }),
+      });
+      const preview = await responseJson<AgencyPlanPreview>(response);
+      setAgencyPreview(preview);
+      setAgencyStatus("done");
+    } catch (error) {
+      setAgencyStatus("error");
+      setAgencyError(
+        error instanceof Error ? error.message : "智能组队预览失败。",
+      );
+    }
+  }
+
+  function updateAgencyTask(
+    taskId: string,
+    patch: Partial<Pick<AgencyPlanTask, "title" | "objective" | "acceptance">>,
+  ) {
+    setAgencyPreview((current) => {
+      if (!current) return current;
+      const tasks = current.plan.tasks.map((task) =>
+        task.task_id === taskId ? { ...task, ...patch } : task,
+      );
+      const workflow = syncWorkflowToPlan(current.workflow, tasks);
+      return {
+        ...current,
+        plan: { ...current.plan, tasks },
+        workflow,
+        candidate: {
+          ...current.candidate,
+          draft: { ...current.candidate.draft, workflow },
+        },
+      };
+    });
+    setAgencyValidationStale(true);
+  }
+
+  function toggleAgencyDependency(taskId: string, dependencyId: string) {
+    setAgencyPreview((current) => {
+      if (!current) return current;
+      const tasks = current.plan.tasks.map((task) => {
+        if (task.task_id !== taskId) return task;
+        const depends_on = task.depends_on.includes(dependencyId)
+          ? task.depends_on.filter((item) => item !== dependencyId)
+          : [...task.depends_on, dependencyId];
+        return { ...task, depends_on };
+      });
+      const workflow = syncWorkflowToPlan(current.workflow, tasks);
+      return {
+        ...current,
+        plan: { ...current.plan, tasks },
+        workflow,
+        candidate: {
+          ...current.candidate,
+          draft: { ...current.candidate.draft, workflow },
+        },
+      };
+    });
+    setAgencyValidationStale(true);
+  }
+
+  async function revalidateAgencyWorkflow() {
+    if (!agencyPreview) return;
+    setAgencyStatus("running");
+    setAgencyError("");
+    try {
+      const response = await fetch("/api/workflow-native/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflow: agencyPreview.workflow }),
+      });
+      const validation = await responseJson<{
+        valid: boolean;
+        issues: AgencyValidationIssue[];
+      }>(response);
+      setAgencyPreview((current) =>
+        current
+          ? {
+              ...current,
+              validation: {
+                valid: validation.valid,
+                issues: validation.issues,
+                stages: [
+                  {
+                    id: "workflow",
+                    valid: validation.valid,
+                    issues: validation.issues,
+                  },
+                ],
+              },
+            }
+          : current,
+      );
+      setAgencyValidationStale(false);
+      setAgencyStatus("done");
+    } catch (error) {
+      setAgencyStatus("error");
+      setAgencyError(
+        error instanceof Error ? error.message : "工作流重新校验失败。",
+      );
+    }
+  }
+
+  function applyAgencyPlanToTeam() {
+    if (!agencyPreview || agencyValidationStale || !agencyPreview.validation.valid) {
+      return;
+    }
+    const selectedIds = agencyPreview.selected_agents
+      .map((agent) => agent.id)
+      .filter((id) => agents.some((agent) => agent.id === id))
+      .slice(0, 6);
+    const tasksByAgent: Record<string, string[]> = {};
+    agencyPreview.plan.tasks.forEach((task) => {
+      if (!task.agent_id || !selectedIds.includes(task.agent_id)) return;
+      const details = [
+        task.objective,
+        task.depends_on.length > 0
+          ? `依赖：${task.depends_on.join("、")}`
+          : "",
+        task.acceptance ? `验收：${task.acceptance}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      tasksByAgent[task.agent_id] = [
+        ...(tasksByAgent[task.agent_id] || []),
+        details,
+      ];
+    });
+    setSelectedAgentIds(selectedIds);
+    setAgentTasks(
+      Object.fromEntries(
+        Object.entries(tasksByAgent).map(([agentId, tasks]) => [
+          agentId,
+          tasks.join("\n\n"),
+        ]),
+      ),
+    );
+    setTeamTask(routeMessage);
+    setTeamName(agencyPreview.candidate.name || "智能组队专家团");
+    setSharedModelId(agencyAgentModelId);
+    setAgencyAppliedNotice(true);
+    setActiveDesk("team");
+  }
+
   async function runTeam() {
     if (!teamTask.trim() || selectedAgentIds.length === 0) return;
     setTeamStatus("running");
@@ -560,7 +922,7 @@ export default function ExpertTeamPage() {
         />
         <FeatureTab
           active={activeDesk === "route"}
-          description="输入需求，系统从 215 位专家中自动匹配岗位。"
+          description={`输入需求，系统从 ${agents.length} 位专家中自动匹配岗位。`}
           icon="派"
           onClick={() => setActiveDesk("route")}
           title="自动路由派工"
@@ -719,88 +1081,493 @@ export default function ExpertTeamPage() {
       ) : null}
 
       {activeDesk === "route" ? (
-        <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <div className="surface-panel rounded-lg p-5">
-            <h2 className="text-xl font-semibold text-white">自动路由派工</h2>
-            <p className="mt-1 text-sm text-slate-400">
-              输入需求，系统按名称、部门、专长和场景从 215 位专家里匹配最合适的人。
-            </p>
-            <div className="mt-5">
-              <ModelSelector
-                label="执行模型"
-                onChange={setSharedModelId}
-                value={sharedModelId}
-              />
-            </div>
-            <textarea
-              className="mt-5 min-h-44 w-full rounded-lg border border-white/10 bg-ink-950/76 p-4 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
-              onChange={(event) => setRouteMessage(event.target.value)}
-              placeholder="描述你要完成的任务"
-              value={routeMessage}
-            />
-            <button
-              className="mt-5 w-full rounded-full bg-hire-300 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={routeStatus === "running" || !routeMessage.trim()}
-              onClick={runRouteAgent}
-              type="button"
-            >
-              {routeStatus === "running" ? "正在自动派工..." : "自动匹配专家并作答"}
-            </button>
+        <section className="mt-6">
+          <div
+            aria-label="派工方式"
+            className="inline-flex rounded-full border border-white/10 bg-white/[0.045] p-1"
+            role="tablist"
+          >
+            {(
+              [
+                ["quick", "快速单专家"],
+                ["agency", "智能组队预览"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                aria-selected={routePlannerMode === mode}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  routePlannerMode === mode
+                    ? "bg-hire-300 text-ink-950"
+                    : "text-slate-300 hover:text-white"
+                }`}
+                key={mode}
+                onClick={() => setRoutePlannerMode(mode)}
+                role="tab"
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          <div className="space-y-4">
-            <div className="surface-panel rounded-lg p-5">
-              <h3 className="text-lg font-semibold text-white">匹配到的专家</h3>
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                {routeMatches.length > 0 ? (
-                  routeMatches.map((agent, index) => (
-                    <article
-                      className={`rounded-lg border p-3 ${
-                        index === 0
-                          ? "border-hire-300/45 bg-hire-300/10"
-                          : "border-white/10 bg-white/[0.045]"
-                      }`}
-                      key={agent.id}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{agent.emoji || "专"}</span>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-white">
-                            {agent.name}
+          {routePlannerMode === "quick" ? (
+            <div className="mt-4 grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="surface-panel rounded-lg p-5">
+                <h2 className="text-xl font-semibold text-white">自动路由派工</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  按名称、部门、专长和场景匹配一位专家，随后直接作答。
+                </p>
+                <div className="mt-5">
+                  <ModelSelector
+                    label="执行模型"
+                    onChange={setSharedModelId}
+                    value={sharedModelId}
+                  />
+                </div>
+                <textarea
+                  className="mt-5 min-h-44 w-full rounded-lg border border-white/10 bg-ink-950/76 p-4 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
+                  onChange={(event) => setRouteMessage(event.target.value)}
+                  placeholder="描述你要完成的任务"
+                  value={routeMessage}
+                />
+                <button
+                  className="mt-5 w-full rounded-full bg-hire-300 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={routeStatus === "running" || !routeMessage.trim()}
+                  onClick={runRouteAgent}
+                  type="button"
+                >
+                  {routeStatus === "running"
+                    ? "正在自动派工..."
+                    : "匹配专家并作答"}
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="surface-panel rounded-lg p-5">
+                  <h3 className="text-lg font-semibold text-white">匹配到的专家</h3>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    {routeMatches.length > 0 ? (
+                      routeMatches.map((agent, index) => (
+                        <article
+                          className={`rounded-lg border p-3 ${
+                            index === 0
+                              ? "border-hire-300/45 bg-hire-300/10"
+                              : "border-white/10 bg-white/[0.045]"
+                          }`}
+                          key={agent.id}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">{agent.emoji || "专"}</span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-white">
+                                {agent.name}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {agent.department} · 匹配 {agent.score ?? "-"}
+                              </p>
+                            </div>
+                          </div>
+                          <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-400">
+                            {agent.expertise}
                           </p>
-                          <p className="text-xs text-slate-400">
-                            {agent.department} · 匹配 {agent.score ?? "-"}
+                        </article>
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-500">尚未派工。</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="surface-panel rounded-lg p-5">
+                  <h3 className="text-lg font-semibold text-hire-100">专家回复</h3>
+                  {routeError ? (
+                    <p className="mt-3 rounded-lg border border-red-300/20 bg-red-300/10 p-3 text-sm text-red-100">
+                      {routeError}
+                    </p>
+                  ) : null}
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
+                    {routeAnswer || "自动路由完成后，专家会在这里回复。"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-6 xl:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
+              <div className="surface-panel self-start rounded-lg p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">
+                      智能组队预览
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-400">
+                      显式生成任务 DAG，不会自动启动团队或执行计划。
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                      agencyCapabilities?.enabled
+                        ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                        : "border-slate-400/20 bg-white/[0.045] text-slate-400"
+                    }`}
+                  >
+                    {agencyCapabilities?.enabled ? "已启用" : "默认关闭"}
+                  </span>
+                </div>
+
+                {agencyCapabilitiesError ? (
+                  <p className="mt-4 rounded-lg border border-red-300/20 bg-red-300/10 p-3 text-sm text-red-100">
+                    {agencyCapabilitiesError}
+                  </p>
+                ) : null}
+                {!agencyCapabilities?.enabled ? (
+                  <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] p-3 text-sm leading-6 text-slate-300">
+                    服务端设置 EXPERT_TEAM_AGENCY_PLANNER_ENABLED=1 后可用。状态读取不调用模型。
+                  </p>
+                ) : null}
+
+                <textarea
+                  className="mt-5 min-h-36 w-full rounded-lg border border-white/10 bg-ink-950/76 p-4 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
+                  onChange={(event) => setRouteMessage(event.target.value)}
+                  placeholder="描述需要拆解并组队的目标"
+                  value={routeMessage}
+                />
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <ModelSelector
+                    label="规划模型"
+                    onChange={setAgencyPlannerModelId}
+                    value={agencyPlannerModelId}
+                  />
+                  <ModelSelector
+                    label="专家执行模型"
+                    onChange={setAgencyAgentModelId}
+                    value={agencyAgentModelId}
+                  />
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">
+                      组队范围
+                    </span>
+                    <select
+                      className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-sm text-white outline-none focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
+                      onChange={(event) =>
+                        setAgencyLineupMode(
+                          event.target.value as "auto" | "pinned",
+                        )
+                      }
+                      value={agencyLineupMode}
+                    >
+                      <option value="auto">从全部专家自动选择</option>
+                      <option value="pinned">固定当前 AI Team 阵容</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-400">
+                      最多专家数
+                    </span>
+                    <select
+                      className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-sm text-white outline-none focus:border-hire-300/70 focus:ring-4 focus:ring-hire-300/10"
+                      onChange={(event) =>
+                        setAgencyMaxAgents(Number(event.target.value))
+                      }
+                      value={agencyMaxAgents}
+                    >
+                      {[1, 2, 3, 4, 5, 6].map((value) => (
+                        <option key={value} value={value}>
+                          {value} 位
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {agencyLineupMode === "pinned" ? (
+                  <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] p-3">
+                    <p className="text-xs font-semibold text-slate-300">
+                      当前固定阵容（{selectedAgentIds.length}/6）
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-slate-400">
+                      {selectedAgentIds
+                        .map(
+                          (id) => agents.find((agent) => agent.id === id)?.name,
+                        )
+                        .filter(Boolean)
+                        .join("、") || "请先在 AI Team 选择专家。"}
+                    </p>
+                  </div>
+                ) : null}
+
+                {agencyError ? (
+                  <p className="mt-4 rounded-lg border border-red-300/20 bg-red-300/10 p-3 text-sm text-red-100">
+                    {agencyError}
+                  </p>
+                ) : null}
+                <button
+                  className="mt-5 w-full rounded-full bg-hire-300 px-5 py-3 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={
+                    agencyStatus === "running" ||
+                    !agencyCapabilities?.enabled ||
+                    !routeMessage.trim() ||
+                    (agencyLineupMode === "pinned" &&
+                      selectedAgentIds.length === 0)
+                  }
+                  onClick={runAgencyPreview}
+                  type="button"
+                >
+                  {agencyStatus === "running"
+                    ? "正在生成组队计划..."
+                    : "生成智能组队预览"}
+                </button>
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  只有点击此按钮才会调用规划模型。最多 3 次模型调用，具体费用由所选模型决定。
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {agencyPreview ? (
+                  <>
+                    <div className="surface-panel rounded-lg p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">
+                            {agencyPreview.candidate.name}
+                          </h3>
+                          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">
+                            {agencyPreview.plan.summary}
                           </p>
                         </div>
+                        <span className="rounded-full border border-hire-300/25 bg-hire-300/10 px-3 py-1.5 text-xs font-semibold text-hire-100">
+                          {agencyPreview.plan.tasks.length} 个任务 · {agencyPreview.selected_agents.length} 位专家
+                        </span>
                       </div>
-                      <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-400">
-                        {agent.expertise}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {agencyPreview.selected_agents.map((agent) => (
+                          <span
+                            className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1.5 text-xs text-slate-200"
+                            key={agent.id}
+                          >
+                            {agent.emoji || "专"} {agent.name} · {agent.department}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-4 text-xs leading-5 text-slate-500">
+                        规则路由基线：
+                        {agencyPreview.baseline_matches
+                          .map((agent) => agent.name)
+                          .join("、") || "无匹配"}
                       </p>
-                    </article>
-                  ))
+                    </div>
+
+                    <div className="space-y-3">
+                      {agencyPreview.plan.tasks.map((task, index) => {
+                        const expert = agencyPreview.selected_agents.find(
+                          (item) => item.id === task.agent_id,
+                        );
+                        return (
+                          <article
+                            className="surface-card rounded-lg p-4"
+                            key={task.task_id}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-hire-100">
+                                任务 {index + 1} · {task.task_id}
+                              </p>
+                              <span className="text-xs text-slate-400">
+                                {expert?.emoji || "专"} {expert?.name || task.agent_id}
+                              </span>
+                            </div>
+                            <input
+                              aria-label={`${task.task_id} 任务标题`}
+                              className="mt-3 h-10 w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 text-sm font-semibold text-white outline-none focus:border-hire-300/70"
+                              onChange={(event) =>
+                                updateAgencyTask(task.task_id, {
+                                  title: event.target.value,
+                                })
+                              }
+                              value={task.title}
+                            />
+                            <textarea
+                              aria-label={`${task.task_id} 任务目标`}
+                              className="mt-3 min-h-24 w-full rounded-lg border border-white/10 bg-ink-950/70 p-3 text-sm leading-6 text-slate-200 outline-none focus:border-hire-300/70"
+                              onChange={(event) =>
+                                updateAgencyTask(task.task_id, {
+                                  objective: event.target.value,
+                                })
+                              }
+                              value={task.objective}
+                            />
+                            <fieldset className="mt-3">
+                              <legend className="text-xs font-semibold text-slate-400">
+                                依赖任务
+                              </legend>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {agencyPreview.plan.tasks
+                                  .filter((candidate) => candidate.task_id !== task.task_id)
+                                  .map((candidate) => (
+                                    <label
+                                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-slate-300"
+                                      key={candidate.task_id}
+                                    >
+                                      <input
+                                        checked={task.depends_on.includes(
+                                          candidate.task_id,
+                                        )}
+                                        className="h-3.5 w-3.5 accent-orange-400"
+                                        onChange={() =>
+                                          toggleAgencyDependency(
+                                            task.task_id,
+                                            candidate.task_id,
+                                          )
+                                        }
+                                        type="checkbox"
+                                      />
+                                      {candidate.task_id}
+                                    </label>
+                                  ))}
+                                {agencyPreview.plan.tasks.length === 1 ? (
+                                  <span className="text-xs text-slate-500">无依赖</span>
+                                ) : null}
+                              </div>
+                            </fieldset>
+                            <textarea
+                              aria-label={`${task.task_id} 验收标准`}
+                              className="mt-3 min-h-20 w-full rounded-lg border border-white/10 bg-ink-950/70 p-3 text-sm leading-6 text-slate-200 outline-none placeholder:text-slate-500 focus:border-hire-300/70"
+                              onChange={(event) =>
+                                updateAgencyTask(task.task_id, {
+                                  acceptance: event.target.value,
+                                })
+                              }
+                              placeholder="填写可检查的验收标准"
+                              value={task.acceptance}
+                            />
+                          </article>
+                        );
+                      })}
+                    </div>
+
+                    <div className="surface-panel rounded-lg p-5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="text-lg font-semibold text-white">验证结果</h3>
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                            agencyValidationStale
+                              ? "border-amber-300/25 bg-amber-300/10 text-amber-100"
+                              : agencyPreview.validation.valid
+                                ? "border-emerald-300/25 bg-emerald-300/10 text-emerald-100"
+                                : "border-red-300/25 bg-red-300/10 text-red-100"
+                          }`}
+                        >
+                          {agencyValidationStale
+                            ? "编辑后待校验"
+                            : agencyPreview.validation.valid
+                              ? "通过"
+                              : "未通过"}
+                        </span>
+                      </div>
+                      {(agencyPreview.validation.issues || []).filter(
+                        (issue) => issue.severity !== "warning",
+                      ).length > 0 ? (
+                        <ul className="mt-3 space-y-2 text-sm text-red-100">
+                          {(agencyPreview.validation.issues || [])
+                            .filter((issue) => issue.severity !== "warning")
+                            .map((issue, index) => (
+                              <li
+                                className="rounded-lg border border-red-300/15 bg-red-300/[0.07] px-3 py-2"
+                                key={`${issue.code || "issue"}-${index}`}
+                              >
+                                {issue.message || issue.code || "工作流校验失败"}
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-3 text-sm text-slate-400">
+                          当前计划未发现工作流结构错误。
+                        </p>
+                      )}
+                      {(agencyPreview.validation.issues || []).some(
+                        (issue) => issue.severity === "warning",
+                      ) ? (
+                        <ul className="mt-3 space-y-2 text-sm text-amber-100">
+                          {(agencyPreview.validation.issues || [])
+                            .filter((issue) => issue.severity === "warning")
+                            .map((issue, index) => (
+                              <li
+                                className="rounded-lg border border-amber-300/15 bg-amber-300/[0.07] px-3 py-2"
+                                key={`${issue.code || "warning"}-${index}`}
+                              >
+                                {issue.message || issue.code || "工作流校验警告"}
+                              </li>
+                            ))}
+                        </ul>
+                      ) : null}
+                      {agencyPreview.warnings.length > 0 ? (
+                        <ul className="mt-3 space-y-1 text-xs leading-5 text-amber-100">
+                          {agencyPreview.warnings.map((warning, index) => (
+                            <li key={`${warning}-${index}`}>{warning}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          className="rounded-full border border-white/10 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-hire-300/35 hover:text-hire-100 disabled:opacity-50"
+                          disabled={agencyStatus === "running"}
+                          onClick={revalidateAgencyWorkflow}
+                          type="button"
+                        >
+                          重新校验工作流
+                        </button>
+                        <button
+                          className="rounded-full bg-hire-300 px-4 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={
+                            agencyValidationStale ||
+                            !agencyPreview.validation.valid
+                          }
+                          onClick={applyAgencyPlanToTeam}
+                          type="button"
+                        >
+                          应用到 AI Team
+                        </button>
+                      </div>
+                      <p className="mt-4 break-all text-xs leading-5 text-slate-500">
+                        来源：{agencyPreview.upstream_project}@
+                        {agencyPreview.upstream_revision} · 快照 {agencyPreview.capability_snapshot_version} / {agencyPreview.capability_snapshot_hash}
+                        {agencyPreview.repair_used ? " · 已使用一次修复" : ""}
+                      </p>
+                    </div>
+                  </>
                 ) : (
-                  <p className="text-sm text-slate-500">尚未派工。</p>
+                  <div className="surface-panel rounded-lg p-8 text-center">
+                    <p className="text-sm font-semibold text-white">尚未生成组队计划</p>
+                    <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-400">
+                      填写目标并点击“生成智能组队预览”。计划生成后可编辑任务、依赖和验收标准，再载入现有 AI Team。
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
-
-            <div className="surface-panel rounded-lg p-5">
-              <h3 className="text-lg font-semibold text-hire-100">专家回复</h3>
-              {routeError ? (
-                <p className="mt-3 rounded-lg border border-red-300/20 bg-red-300/10 p-3 text-sm text-red-100">
-                  {routeError}
-                </p>
-              ) : null}
-              <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-200">
-                {routeAnswer || "自动路由完成后，专家会在这里回复。"}
-              </p>
-            </div>
-          </div>
+          )}
         </section>
       ) : null}
 
       {activeDesk === "team" ? (
         <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          {agencyAppliedNotice ? (
+            <div className="rounded-lg border border-hire-300/25 bg-hire-300/10 p-4 text-sm leading-6 text-hire-50 xl:col-span-2">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <p>
+                  智能组队计划已载入。当前按 AI Team 接力/辩论模式执行，DAG 自动执行尚未启用。
+                </p>
+                <button
+                  className="rounded-full border border-hire-200/25 px-3 py-1 text-xs font-semibold text-hire-100 transition hover:bg-hire-300/10"
+                  onClick={() => setAgencyAppliedNotice(false)}
+                  type="button"
+                >
+                  关闭提示
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="surface-panel rounded-lg p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>

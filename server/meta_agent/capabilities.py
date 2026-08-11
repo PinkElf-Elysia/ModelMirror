@@ -70,6 +70,7 @@ def build_capability_snapshot(
     plugins: Iterable[Any],
     prompt_profiles: Iterable[Any],
     model_ids: Iterable[str],
+    agents: Iterable[Any] = (),
 ) -> MetaPlannerCapabilitySnapshot:
     node_payload = workflow_registry.to_payload()
     nodes: list[dict[str, Any]] = []
@@ -223,6 +224,39 @@ def build_capability_snapshot(
         {"id": model_id, "label": model_id, "safe": True}
         for model_id in sorted({str(value).strip() for value in model_ids if value})
     ]
+    expert_summaries: list[dict[str, Any]] = []
+    seen_agent_ids: set[str] = set()
+    for item in agents:
+        if isinstance(item, dict):
+            agent_id = str(item.get("id") or "").strip()
+            name = str(item.get("name") or agent_id).strip()
+            department = str(item.get("department") or "未分类").strip()
+            description = str(
+                item.get("expertise") or item.get("description") or ""
+            ).strip()
+        else:
+            agent_id = str(getattr(item, "id", "") or "").strip()
+            name = str(getattr(item, "name", agent_id) or agent_id).strip()
+            department = str(
+                getattr(item, "department", "未分类") or "未分类"
+            ).strip()
+            description = str(
+                getattr(item, "expertise", "")
+                or getattr(item, "description", "")
+                or ""
+            ).strip()
+        if not agent_id or agent_id in seen_agent_ids:
+            continue
+        seen_agent_ids.add(agent_id)
+        expert_summaries.append(
+            {
+                "id": agent_id[:160],
+                "name": name[:200],
+                "department": department[:120],
+                "description": description[:600],
+            }
+        )
+    expert_summaries.sort(key=lambda item: item["id"])
 
     core_node_kinds = {
         "input",
@@ -242,6 +276,7 @@ def build_capability_snapshot(
         plugin_ids=[item["id"] for item in safe_plugins],
         prompt_profile_ids=[item["id"] for item in prompts],
         middleware_ids=sorted(safe_middleware_ids),
+        agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
         "version": "evoagentx-meta-planner-capabilities-v1",
@@ -254,6 +289,7 @@ def build_capability_snapshot(
         "plugins": safe_plugins,
         "prompt_profiles": prompts,
         "models": models,
+        "agents": expert_summaries,
         "default_scope": default_scope.model_dump(mode="json"),
     }
     return MetaPlannerCapabilitySnapshot(
@@ -275,6 +311,7 @@ def assert_scope_is_authorized(
         "plugin_ids": {item["id"] for item in snapshot.plugins},
         "prompt_profile_ids": {item["id"] for item in snapshot.prompt_profiles},
         "middleware_ids": {item["id"] for item in snapshot.middleware},
+        "agent_ids": {item["id"] for item in snapshot.agents},
     }
     for field_name, known_values in allowed.items():
         requested = set(getattr(scope, field_name))

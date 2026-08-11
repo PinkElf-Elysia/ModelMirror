@@ -59,6 +59,7 @@
 | [SKILL_INTEGRATION.md](./SKILL_INTEGRATION.md) | 当前 | Skill 安装、注入和供应链边界。 |
 | [SKILL_EXPERIENCE_AUDIT.md](./SKILL_EXPERIENCE_AUDIT.md) | 当前 | Skill 目录治理、Creator V1 质量门与后续资源化增强边界。 |
 | [META_AGENT.md](./META_AGENT.md) | 当前 | Meta Planner 当前契约。 |
+| [AGENCY_ORCHESTRATOR_INTEGRATION.md](./AGENCY_ORCHESTRATOR_INTEGRATION.md) | 当前/可选 | 专家团智能组队预览、Worker 边界、开关与回退。 |
 | [BENCHMARKS.md](./BENCHMARKS.md) | 当前 | 标准 Benchmark 目录、数据来源、实例化和后续生成边界。 |
 | [workflow-native-design.md](./workflow-native-design.md) | 当前设计记录 | classic/shared 能力增量和 native 实验边界。 |
 

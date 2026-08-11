@@ -13,6 +13,8 @@ from .schemas import (
     MetaAgentPlan,
     MetaPlannerGenerateRequest,
     MetaPlannerGenerateResponse,
+    MetaPlannerPreviewResponse,
+    MetaPlannerScope,
 )
 from .capabilities import build_capability_snapshot
 from .meta_planner_v2 import MetaPlannerV2Service
@@ -23,6 +25,8 @@ __all__ = [
     "MetaAgentPlan",
     "MetaPlannerGenerateRequest",
     "MetaPlannerGenerateResponse",
+    "MetaPlannerPreviewResponse",
+    "MetaPlannerScope",
     "MetaPlannerV2Service",
     "build_capability_snapshot",
     "build_meta_agent_prompt",
