@@ -78,3 +78,12 @@ def test_v15_claude_provider_has_a_pinned_private_image_and_secret_only_mount() 
     assert ".ssh" not in provider
     assert "internal: true" in compose
     assert "CODING_WORKER_ROUTE_SLOTS_JSON" in compose
+    assert "coding-worker-claude-egress:" in compose
+    assert "CODING_WORKER_PROVIDER_NETWORK_DOMAINS: api.anthropic.com" in compose
+    assert "CODING_WORKER_PROVIDER_EGRESS_TOKEN" in compose
+    assert "CODING_WORKER_PROVIDER_PROXY_URL: http://provider:" in provider
+    proxy = compose.split("\n  coding-worker-claude-egress:", 1)[1].split(
+        "secrets:", 1
+    )[0]
+    assert "modelmirror_claude_api_key" not in proxy
+    assert "coding_worker_provider_b" not in proxy
