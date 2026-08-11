@@ -260,15 +260,48 @@ class WorkspaceBroker:
         return tuple(sorted(entries, key=lambda entry: (entry.display_path, entry.kind)))
 
     def read_entry(self, workspace_id: str, entry_id: str, *, max_bytes: int = 1024 * 1024) -> bytes:
+        entry, target = self.resolve_entry(workspace_id, entry_id, require_file=True)
+        if entry.size is None or entry.size > max_bytes:
+            raise WorkspaceError(
+                "Workspace entry is not previewable.", code="preview_unavailable"
+            )
+        return target.read_bytes()
+
+    def get_entry(self, workspace_id: str, entry_id: str) -> WorkspaceEntry:
         for entry in self.tree(workspace_id):
             if entry.entry_id == entry_id:
-                if entry.kind != "file" or entry.size > max_bytes:
-                    raise WorkspaceError("Workspace entry is not previewable.", code="preview_unavailable")
-                target = self.repository_path(workspace_id).joinpath(
-                    *PurePosixPath(entry.display_path).parts
-                )
-                return target.read_bytes()
+                return entry
         raise WorkspaceError("Workspace entry was not found.", code="entry_not_found")
+
+    def resolve_entry(
+        self,
+        workspace_id: str,
+        entry_id: str,
+        *,
+        require_file: bool = False,
+    ) -> tuple[WorkspaceEntry, Path]:
+        entry = self.get_entry(workspace_id, entry_id)
+        if require_file and entry.kind != "file":
+            raise WorkspaceError(
+                "Workspace entry is not a file.", code="entry_not_found"
+            )
+        repository = self.repository_path(workspace_id)
+        target = repository.joinpath(*PurePosixPath(entry.display_path).parts)
+        try:
+            resolved = target.resolve(strict=True)
+        except OSError as exc:
+            raise WorkspaceError(
+                "Workspace entry changed.", code="workspace_changed"
+            ) from exc
+        if target.is_symlink() or not resolved.is_relative_to(repository):
+            raise WorkspaceError(
+                "Workspace entry changed.", code="workspace_changed"
+            )
+        if require_file and not target.is_file():
+            raise WorkspaceError(
+                "Workspace entry changed.", code="workspace_changed"
+            )
+        return entry, target
 
     def current_tree_hash(self, workspace_id: str) -> str:
         return self._tree_hash(self.repository_path(workspace_id))

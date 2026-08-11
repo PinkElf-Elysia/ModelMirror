@@ -77,6 +77,46 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         return await call("diff", {})
 
     @mcp.tool()
+    async def code_symbols(entry_id: str) -> dict[str, Any]:
+        """List symbols for one opaque Python or TypeScript workspace entry."""
+        return await call("code_symbols", {"entry_id": entry_id})
+
+    @mcp.tool()
+    async def code_definition(
+        entry_id: str, line: int, character: int
+    ) -> dict[str, Any]:
+        """Resolve a position to task-bound opaque workspace entries."""
+        return await call(
+            "code_definition",
+            {"entry_id": entry_id, "line": line, "character": character},
+        )
+
+    @mcp.tool()
+    async def code_references(
+        entry_id: str, line: int, character: int
+    ) -> dict[str, Any]:
+        """Find references without exposing Executor paths or LSP frames."""
+        return await call(
+            "code_references",
+            {"entry_id": entry_id, "line": line, "character": character},
+        )
+
+    @mcp.tool()
+    async def code_hover(
+        entry_id: str, line: int, character: int
+    ) -> dict[str, Any]:
+        """Return bounded hover text for one task-bound source position."""
+        return await call(
+            "code_hover",
+            {"entry_id": entry_id, "line": line, "character": character},
+        )
+
+    @mcp.tool()
+    async def code_diagnostics(entry_id: str) -> dict[str, Any]:
+        """Return diagnostics bound to one entry and current workspace tree."""
+        return await call("code_diagnostics", {"entry_id": entry_id})
+
+    @mcp.tool()
     async def write_file(operation_id: str, path: str, content: str) -> dict[str, Any]:
         """Atomically write UTF-8 text using a stable operation id."""
         content_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()

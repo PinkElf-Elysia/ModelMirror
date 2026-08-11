@@ -11,20 +11,25 @@ import tempfile
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
+from time import time
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from .contracts import (
     CapabilityLease,
     CapabilityName,
+    CodeLocation,
+    CodeRange,
+    DiagnosticSeverity,
     OperationState,
     PolicyProfile,
     ShellApprovalScope,
     ShellMode,
     StrictModel,
     TaskState,
+    WorkerDiagnostic,
 )
 from .changeset import ChangesetEngine, ChangesetError
 from .process_manager import BackgroundProcessManager, ProcessManagerError
@@ -57,6 +62,13 @@ ALWAYS_DENIED_EXECUTABLES = frozenset(
 DENIED_GIT_SUBCOMMANDS = frozenset(
     {"clone", "fetch", "ls-remote", "pull", "push", "remote", "submodule"}
 )
+CODE_INTELLIGENCE_TO_OPERATION = {
+    "code_symbols": "symbols",
+    "code_definition": "definition",
+    "code_references": "references",
+    "code_hover": "hover",
+    "code_diagnostics": "diagnostics",
+}
 
 
 class ToolBrokerError(RuntimeError):
@@ -85,6 +97,7 @@ class ToolExecutor(Protocol):
     async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]: ...
     async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
     async def run_shell(self, *, task_id: str, workspace_id: str, operation_id: str, script: str, cwd: str, mode: str, timeout_seconds: int, output_callback: Any = None) -> dict[str, Any]: ...
+    async def code_intelligence(self, *, task_id: str, workspace_id: str, operation_id: str, operation: str, path: str, line: int, character: int) -> dict[str, Any]: ...
 
 
 class ToolBroker:
@@ -391,6 +404,11 @@ class ToolBroker:
             "search_regex",
             "apply_changeset",
             "run_shell",
+            "code_symbols",
+            "code_definition",
+            "code_references",
+            "code_hover",
+            "code_diagnostics",
         }
         if tool_name in v15_tools and os.getenv(
             "CODING_WORKER_V15_ENABLED", "false"
@@ -400,6 +418,12 @@ class ToolBroker:
             "CODING_WORKER_SHELL_ENABLED", "false"
         ).strip().lower() not in {"1", "true", "yes", "on"}:
             raise ToolBrokerError("V15 shell is disabled.", code="tool_not_allowed")
+        if tool_name.startswith("code_") and os.getenv(
+            "CODING_WORKER_CODE_INTELLIGENCE_ENABLED", "false"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            raise ToolBrokerError(
+                "Code intelligence is disabled.", code="tool_not_allowed"
+            )
         readonly = {
             "list_files",
             "read_file",
@@ -410,6 +434,11 @@ class ToolBroker:
             "diff",
             "list_acceptance_checks",
             "service_status",
+            "code_symbols",
+            "code_definition",
+            "code_references",
+            "code_hover",
+            "code_diagnostics",
         }
         if tool_name in readonly:
             return None
@@ -571,6 +600,20 @@ class ToolBroker:
                     for check in task.spec.acceptance.required_checks
                 ]
             }
+        if tool_name in {
+            "code_symbols",
+            "code_definition",
+            "code_references",
+            "code_hover",
+            "code_diagnostics",
+        }:
+            return await self._run_code_intelligence(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
         if tool_name == "write_file":
             return self._write_file(workspace_id, arguments)
         if tool_name == "delete_file":
@@ -750,6 +793,304 @@ class ToolBroker:
             )
             return {**result, "source_artifact_id": artifact.artifact_id}
         raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
+
+    async def _run_code_intelligence(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        tool_name: str,
+        arguments: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        operation = CODE_INTELLIGENCE_TO_OPERATION[tool_name]
+        positional = operation in {"definition", "references", "hover"}
+        expected_keys = (
+            {"entry_id", "line", "character"}
+            if positional
+            else {"entry_id"}
+        )
+        if set(arguments) != expected_keys:
+            raise ToolBrokerError(
+                "Code intelligence input is invalid.", code="tool_input_invalid"
+            )
+        entry_id = arguments.get("entry_id")
+        line = arguments.get("line", 0)
+        character = arguments.get("character", 0)
+        if (
+            not isinstance(entry_id, str)
+            or isinstance(line, bool)
+            or isinstance(character, bool)
+            or not isinstance(line, int)
+            or not isinstance(character, int)
+            or not 0 <= line <= 10_000_000
+            or not 0 <= character <= 10_000_000
+        ):
+            raise ToolBrokerError(
+                "Code intelligence input is invalid.", code="tool_input_invalid"
+            )
+        entry, _ = self.workspace_broker.resolve_entry(
+            workspace_id, entry_id, require_file=True
+        )
+        suffix = PurePosixPath(entry.display_path).suffix.lower()
+        expected_language = {
+            ".py": "python",
+            ".ts": "typescript",
+            ".tsx": "typescriptreact",
+            ".js": "javascript",
+            ".jsx": "javascriptreact",
+        }.get(suffix)
+        if expected_language is None:
+            raise ToolBrokerError(
+                "Code entry language is unsupported.",
+                code="code_intelligence_unsupported",
+            )
+        if self.executor is None:
+            raise ToolBrokerError(
+                "Code intelligence executor is unavailable.",
+                code="code_intelligence_unavailable",
+            )
+        tree_hash = self.workspace_broker.current_tree_hash(workspace_id)
+        raw = await self.executor.code_intelligence(
+            task_id=task_id,
+            workspace_id=workspace_id,
+            operation_id=operation_id,
+            operation=operation,
+            path=entry.display_path,
+            line=line,
+            character=character,
+        )
+        if self.workspace_broker.current_tree_hash(workspace_id) != tree_hash:
+            raise ToolBrokerError(
+                "Workspace changed during code intelligence.",
+                code="workspace_tree_changed",
+            )
+        result = self._normalize_code_intelligence_result(
+            task_id=task_id,
+            workspace_id=workspace_id,
+            entry_id=entry_id,
+            display_path=entry.display_path,
+            tree_hash=tree_hash,
+            operation=operation,
+            expected_language=expected_language,
+            raw=raw,
+        )
+        if len(
+            json.dumps(result, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ) > self.max_output_bytes:
+            raise ToolBrokerError(
+                "Code intelligence output is too large.",
+                code="tool_output_too_large",
+            )
+        return result
+
+    def _normalize_code_intelligence_result(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        entry_id: str,
+        display_path: str,
+        tree_hash: str,
+        operation: str,
+        expected_language: str,
+        raw: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        value_key = {
+            "symbols": "symbols",
+            "definition": "locations",
+            "references": "locations",
+            "hover": "hover",
+            "diagnostics": "diagnostics",
+        }[operation]
+        if (
+            not isinstance(raw, Mapping)
+            or set(raw) != {"language", "path", value_key}
+            or raw.get("language") != expected_language
+            or raw.get("path") != display_path
+        ):
+            raise ToolBrokerError(
+                "Code intelligence response is invalid.",
+                code="code_intelligence_invalid_response",
+            )
+        result: dict[str, Any] = {
+            "task_id": task_id,
+            "entry_id": entry_id,
+            "workspace_tree_hash": tree_hash,
+            "operation": operation,
+            "language": expected_language,
+        }
+        if operation == "symbols":
+            symbols = raw.get("symbols")
+            if not isinstance(symbols, list) or len(symbols) > 2000:
+                raise self._invalid_code_response()
+            result["symbols"] = [self._code_symbol(item) for item in symbols]
+        elif operation in {"definition", "references"}:
+            locations = raw.get("locations")
+            if not isinstance(locations, list) or len(locations) > 2000:
+                raise self._invalid_code_response()
+            entries_by_path = {
+                item.display_path: item.entry_id
+                for item in self.workspace_broker.tree(workspace_id)
+                if item.kind == "file"
+            }
+            normalized_locations = []
+            for item in locations:
+                if not isinstance(item, Mapping) or set(item) != {"path", "range"}:
+                    raise self._invalid_code_response()
+                location_entry_id = entries_by_path.get(item.get("path"))
+                if location_entry_id is None:
+                    raise self._invalid_code_response()
+                try:
+                    location = CodeLocation(
+                        entry_id=location_entry_id,
+                        range=CodeRange.model_validate(item.get("range")),
+                    )
+                except ValidationError as exc:
+                    raise self._invalid_code_response() from exc
+                normalized_locations.append(location.model_dump(mode="json"))
+            result["locations"] = normalized_locations
+        elif operation == "hover":
+            hover = raw.get("hover")
+            if hover is None:
+                result["hover"] = None
+            elif (
+                isinstance(hover, Mapping)
+                and set(hover) == {"text", "range"}
+                and isinstance(hover.get("text"), str)
+                and len(hover["text"]) <= 65_536
+            ):
+                range_value = hover.get("range")
+                try:
+                    normalized_range = (
+                        CodeRange.model_validate(range_value).model_dump(mode="json")
+                        if range_value is not None
+                        else None
+                    )
+                except ValidationError as exc:
+                    raise self._invalid_code_response() from exc
+                result["hover"] = {
+                    "text": hover["text"],
+                    "range": normalized_range,
+                }
+            else:
+                raise self._invalid_code_response()
+        else:
+            diagnostics = raw.get("diagnostics")
+            if not isinstance(diagnostics, list) or len(diagnostics) > 2000:
+                raise self._invalid_code_response()
+            result["diagnostics"] = [
+                self._worker_diagnostic(
+                    task_id=task_id,
+                    entry_id=entry_id,
+                    tree_hash=tree_hash,
+                    value=item,
+                ).model_dump(mode="json")
+                for item in diagnostics
+            ]
+        return result
+
+    def _code_symbol(self, value: Any) -> dict[str, Any]:
+        if (
+            not isinstance(value, Mapping)
+            or set(value)
+            != {"name", "kind", "range", "selection_range", "container_name"}
+            or not isinstance(value.get("name"), str)
+            or not value["name"]
+            or len(value["name"]) > 1024
+            or isinstance(value.get("kind"), bool)
+            or not isinstance(value.get("kind"), int)
+            or (
+                value.get("container_name") is not None
+                and (
+                    not isinstance(value.get("container_name"), str)
+                    or len(value["container_name"]) > 1024
+                )
+            )
+        ):
+            raise self._invalid_code_response()
+        try:
+            range_value = CodeRange.model_validate(value.get("range"))
+            selection = CodeRange.model_validate(value.get("selection_range"))
+        except ValidationError as exc:
+            raise self._invalid_code_response() from exc
+        return {
+            "name": value["name"],
+            "kind": value["kind"],
+            "range": range_value.model_dump(mode="json"),
+            "selection_range": selection.model_dump(mode="json"),
+            "container_name": value.get("container_name"),
+        }
+
+    def _worker_diagnostic(
+        self,
+        *,
+        task_id: str,
+        entry_id: str,
+        tree_hash: str,
+        value: Any,
+    ) -> WorkerDiagnostic:
+        if (
+            not isinstance(value, Mapping)
+            or set(value) != {"range", "severity", "code", "message"}
+            or isinstance(value.get("severity"), bool)
+            or not isinstance(value.get("severity"), int)
+            or value["severity"] not in {1, 2, 3, 4}
+            or not isinstance(value.get("message"), str)
+            or not value["message"]
+            or len(value["message"]) > 16_384
+            or (
+                value.get("code") is not None
+                and (
+                    not isinstance(value.get("code"), str)
+                    or len(value["code"]) > 128
+                )
+            )
+        ):
+            raise self._invalid_code_response()
+        try:
+            code_range = CodeRange.model_validate(value.get("range"))
+        except ValidationError as exc:
+            raise self._invalid_code_response() from exc
+        severity = {
+            1: DiagnosticSeverity.ERROR,
+            2: DiagnosticSeverity.WARNING,
+            3: DiagnosticSeverity.INFORMATION,
+            4: DiagnosticSeverity.HINT,
+        }[value["severity"]]
+        identity = json.dumps(
+            {
+                "entry_id": entry_id,
+                "tree_hash": tree_hash,
+                "range": code_range.model_dump(mode="json"),
+                "severity": severity.value,
+                "code": value.get("code"),
+                "message": value["message"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return WorkerDiagnostic(
+            diagnostic_id="diagnostic_"
+            + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32],
+            task_id=task_id,
+            entry_id=entry_id,
+            workspace_tree_hash=tree_hash,
+            range=code_range,
+            severity=severity,
+            code=value.get("code"),
+            message=value["message"],
+            created_at=time(),
+        )
+
+    @staticmethod
+    def _invalid_code_response() -> ToolBrokerError:
+        return ToolBrokerError(
+            "Code intelligence response is invalid.",
+            code="code_intelligence_invalid_response",
+        )
 
     @staticmethod
     def _shell_approval_scope(

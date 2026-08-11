@@ -125,6 +125,11 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
         "search_text",
         "search_regex",
         "workspace_diff",
+        "code_symbols",
+        "code_definition",
+        "code_references",
+        "code_hover",
+        "code_diagnostics",
         "write_file",
         "delete_file",
         "apply_changeset",
@@ -155,6 +160,16 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
     assert set(shell.inputSchema["required"]) == {"operation_id", "script"}
     assert "lease_id" not in shell.inputSchema["properties"]
     assert "provider" not in shell.inputSchema["properties"]
+    symbols = next(tool for tool in tools if tool.name == "code_symbols")
+    assert set(symbols.inputSchema["required"]) == {"entry_id"}
+    assert "path" not in symbols.inputSchema["properties"]
+    definition = next(tool for tool in tools if tool.name == "code_definition")
+    assert set(definition.inputSchema["required"]) == {
+        "entry_id",
+        "line",
+        "character",
+    }
+    assert "provider" not in definition.inputSchema["properties"]
     install = next(tool for tool in tools if tool.name == "install_dependencies")
     assert set(install.inputSchema["required"]) == {"operation_id"}
     assert "lease_id" not in install.inputSchema["properties"]
