@@ -8,8 +8,11 @@ import { fileURLToPath } from "node:url";
 import {
   GDUNIT4_COMMIT,
   GDUNIT4_SOURCE_ARCHIVE_SHA256,
+  GODOT_DEMO_REFERENCE_COMMIT,
+  GODOT_DEMO_REFERENCE_SHA256,
   VendorIntegrityError,
   computeVendorTree,
+  verifyGodotDemoReference,
   verifyGodotVendor,
 } from "../scripts/lib/vendor-core.mjs";
 
@@ -21,12 +24,52 @@ async function readManifest(root = moduleRoot) {
   );
 }
 
+async function readReferenceManifest(root = moduleRoot) {
+  return JSON.parse(
+    await fs.readFile(
+      path.join(root, "third-party", "godot-demo-projects", "reference.lock.json"),
+      "utf8",
+    ),
+  );
+}
+
 test("the committed GdUnit4 tree matches the exact approved lock", async () => {
   const manifest = await readManifest();
   const tree = await verifyGodotVendor({ moduleRoot, manifest });
   assert.equal(manifest.commit, GDUNIT4_COMMIT);
   assert.equal(manifest.sourceArchiveSha256, GDUNIT4_SOURCE_ARCHIVE_SHA256);
   assert.deepEqual(tree, Object.freeze({ ...manifest.tree }));
+});
+
+test("the official Godot movement reference is exact and non-executable", async () => {
+  const manifest = await readReferenceManifest();
+  const result = await verifyGodotDemoReference({ moduleRoot, manifest });
+  assert.equal(result.commit, GODOT_DEMO_REFERENCE_COMMIT);
+  assert.equal(result.referenceSha256, GODOT_DEMO_REFERENCE_SHA256);
+  assert.equal(result.referenceByteLength, 2303);
+  assert.equal(manifest.runtimeDependency, false);
+  assert.equal(manifest.executable, false);
+  assert.match(manifest.referencePath, /\.reference\.txt$/);
+});
+
+test("Godot movement reference verification rejects drift and expanded manifests", async () => {
+  const manifest = await readReferenceManifest();
+  await assert.rejects(
+    verifyGodotDemoReference({
+      moduleRoot,
+      manifest: { ...manifest, unexpected: true },
+    }),
+    (error) => error instanceof VendorIntegrityError &&
+      error.code === "GODOT_DEMO_REFERENCE_MANIFEST_INVALID",
+  );
+  await assert.rejects(
+    verifyGodotDemoReference({
+      moduleRoot,
+      manifest: { ...manifest, referenceSha256: "0".repeat(64) },
+    }),
+    (error) => error instanceof VendorIntegrityError &&
+      error.code === "GODOT_DEMO_REFERENCE_MANIFEST_INVALID",
+  );
 });
 
 test("Git preserves vendor bytes and scopes whitespace exceptions exactly", async () => {

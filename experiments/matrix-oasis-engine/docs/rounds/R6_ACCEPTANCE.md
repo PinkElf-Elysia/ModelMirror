@@ -9,7 +9,7 @@
 ## 批次
 
 - [x] R6.1 治理与冻结迁移
-- [ ] R6.2 第一人称移动骨架
+- [x] R6.2 第一人称移动骨架
 - [ ] R6.3 3D Action 终端
 - [ ] R6.4 Runtime 与 3D 世界接通
 - [ ] R6.5 自动验证与固定帧
@@ -30,6 +30,19 @@
 - `git diff --check` 通过；相对固定基线的父仓路径、R1–R5 冻结路径与 `apps/runtime-godot/project.godot` 均零差异。
 
 本批提交 SHA 在 R6.2 验收记录或仓外交付清单中记录，避免提交内自引用。单独 revert 本批只移除 R6 治理与版本迁移，恢复完整 R5。
+
+## R6.2 证据
+
+R6.1 提交：`6c1b13e`。本批精确变更 14 个模块内文件：唯一批准的 `project.godot` 设置例外、独立第一人称控制器/player/primitive 碰撞测试舱、1 个 R6 GdUnit 测试、4 个官方参考供应链文件、vendor 验证扩展、命令接线和本验收记录。R4 主场景、R5 Runtime/HUD、GdUnit4 vendor、Creator、examples 与 packages 零差异。
+
+- Godot 官方 demo 固定 commit `b4eff8de9d7ba5a4f1a2dea8bae60f28816b7eea`；非执行参考 2303 bytes，SHA-256 `dfda0bc36b5cfb719af3d9d104b274aff3b5387ec2c47e882178be02301bcb25`；MIT License 与适配说明独立锁定。
+- `npm.cmd run verify:vendor`：GdUnit4 599 文件与官方参考均通过；`node --test tests/vendor.test.mjs`：7/7。
+- `npm.cmd run verify:godot:import`：Godot 4.6.3 导入/解析通过。
+- `npm.cmd run verify:godot:3d:controller`：GdUnit 通过，覆盖 60 Hz/Jolt/插值、InputMap、CharacterBody3D、碰撞层、输入归一、帧率无关加减速、pitch、重力落地、墙体阻挡与坡面稳定。
+- 最新树 `npm.cmd run verify`：12/12 步通过；433/433 Node、Godot adapter 9 cases、parity 7 cases/26 runs/2 labs、Godot import/GdUnit/smoke、Creator 247 modules build 与 HTTP 200 smoke 全绿。
+- `check:godot-boundary`：15 个第一方脚本通过；`check:round-scope`、`check:boundary` 与 `git diff --check` 通过。
+
+本批不加入 RayCast3D、Action 终端或 Runtime playable lab；这些属于 R6.3–R6.4。单独 revert R6.2 恢复 R6.1 的纯治理状态。
 
 ## 未运行项
 
