@@ -41,7 +41,8 @@
 
 ## 当前进度（2026-08-11）
 
-PR A 已作为 Draft PR #151 发布；PR B 的实现与自动门禁已完成，尚未进行真实 Provider/人工验收，也未开始 PR C：
+PR A 已作为 Draft PR #151 发布，PR B 已作为 Draft PR #155 发布；PR C 的实现与自动门禁也已完成，
+尚未进行真实 Provider、共享栈或 v13 写回人工验收：
 
 - 契约与文件工具：`d0e955b`、`50d933e`、`29c135b`。
 - Shell 执行、审批、changeset 与查询：`ad831ac`、`0a56605`、`45df707`。
@@ -79,6 +80,30 @@ PR B 实际自动验证：
 - 有效 Compose 配置确认 Claude Provider 不继承 route key、gateway base URL 或 Workspace 挂载；Provider 只接内部网络和受控 socket/secret，独立代理只允许 `api.anthropic.com:443`。
 
 上述 PR B 证据证明契约、隔离、恢复对账和镜像构造，不等同于使用真实 Anthropic 凭据完成任务。真实 OpenCode/Claude 双任务、逐组件重启和 v13 Host 写回仍属于 PR C 后的人工验收，完成前 V15 保持非 Ready。
+
+PR C 实现提交：
+
+- 共享 Console 的中立 capability、公开计划、operation output、changeset、diagnostics 与精确 Shell
+  批准：`d553877`。
+- 持续复核 `origin(module, business_object)` 的模块任务查询、事件、steering 与生命周期控制：
+  `201602d`。
+- 两个实现提交分别修改 4 个和 2 个文件，均未扩大公共 TaskSpec，也未新增依赖。
+
+PR C 实际自动验证：
+
+- Linux 无网络只读源码环境全部 Worker：145 passed、5 skipped、1 条既有框架告警。
+- Agent Workspace：44 passed；全部 Coding：768 passed、14 skipped、1 条既有框架告警。
+- 后端全量：2617 passed、27 skipped、7 failed、6 warnings。5 项仍为 Agency Worker 测试镜像缺少
+  构建产物，1 项仍为 Node 20 无法直接导入 `.ts`；二者已在 PR B 基线复现。另 1 项 Host Apply
+  同内容替换身份测试在本次全量中波动失败，但同一 PR C 的 Coding 全量已通过，随后在 PR C 与
+  PR B 基线分别精确复跑均为 1 passed；未把该波动写成全绿或跨范围修改。
+- 前端 TypeScript 检查通过；35 个测试文件、170 项测试全部通过；production build 成功，仅有
+  既有大 chunk 告警。
+- 变更 Python 文件 `py_compile` 通过；V14 与 V15 Claude overlay 合并后的 Compose
+  `config --quiet` 通过；`git diff --check` 通过。
+
+上述 PR C 证据证明公共 Console、模块 origin 隔离和受影响回归，不等同于真实双引擎任务、
+逐组件重启、网络/依赖 lease 或 v13 Host 写回。PR C 必须保持 Draft，人工验收通过前 V15 非 Ready。
 
 ## 开关与回退
 
