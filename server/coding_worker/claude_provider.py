@@ -565,9 +565,17 @@ class ClaudeCodeProvider(CodingAgentProvider):
                     code="provider_credential_unavailable",
                     failure_kind=ProviderFailureKind.AUTHENTICATION,
                 )
-            value = os.read(descriptor, MAX_SECRET_BYTES + 1).decode("utf-8").strip()
+            encoded = os.read(descriptor, MAX_SECRET_BYTES + 1)
         finally:
             os.close(descriptor)
+        try:
+            value = encoded.decode("utf-8").strip()
+        except UnicodeError as exc:
+            raise ClaudeCodeProviderError(
+                "Claude credential is invalid.",
+                code="provider_credential_unavailable",
+                failure_kind=ProviderFailureKind.AUTHENTICATION,
+            ) from exc
         if not value or len(value.encode("utf-8")) > MAX_SECRET_BYTES:
             raise ClaudeCodeProviderError(
                 "Claude credential is invalid.",
