@@ -41,6 +41,16 @@ interface SkillInstallApproval {
   current_sha?: string | null;
   target_sha: string;
   install_action: "install" | "upgrade";
+  authorization_scope: "global_install_current_run_only";
+  trust: {
+    riskLevel?: string | null;
+    trustStatus?: string;
+    installPolicy?: string;
+    compatibilityStatus?: string;
+    routerEligible?: boolean;
+    reasonCodes?: string[];
+    missingCapabilities?: string[];
+  };
 }
 
 function skillInstallApproval(approval: RuntimeApproval): SkillInstallApproval | null {
@@ -52,7 +62,8 @@ function skillInstallApproval(approval: RuntimeApproval): SkillInstallApproval |
     typeof candidate.name !== "string" ||
     typeof candidate.repo_url !== "string" ||
     typeof candidate.sub_path !== "string" ||
-    typeof candidate.target_sha !== "string"
+    typeof candidate.target_sha !== "string" ||
+    candidate.authorization_scope !== "global_install_current_run_only"
   ) {
     return null;
   }
@@ -64,6 +75,11 @@ function skillInstallApproval(approval: RuntimeApproval): SkillInstallApproval |
     current_sha: typeof candidate.current_sha === "string" ? candidate.current_sha : null,
     target_sha: candidate.target_sha,
     install_action: candidate.install_action === "upgrade" ? "upgrade" : "install",
+    authorization_scope: candidate.authorization_scope,
+    trust:
+      candidate.trust && typeof candidate.trust === "object" && !Array.isArray(candidate.trust)
+        ? (candidate.trust as SkillInstallApproval["trust"])
+        : {},
   };
 }
 
@@ -316,6 +332,20 @@ export default function RuntimeApprovalPanel({
                       <dd className="mt-0.5 break-all font-mono text-emerald-200">{skillApproval.target_sha}</dd>
                     </div>
                   </dl>
+                  <div className="mt-3 border-t border-cyan-200/10 pt-3 text-[11px] leading-5">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <span className="text-slate-400">风险：<strong className="text-amber-100">{skillApproval.trust.riskLevel || "未知"}</strong></span>
+                      <span className="text-slate-400">兼容性：<strong className="text-slate-200">{skillApproval.trust.compatibilityStatus || "未知"}</strong></span>
+                      <span className="text-slate-400">Router：<strong className="text-slate-200">{skillApproval.trust.routerEligible === false ? "不纳入自动发现" : "当前候选可用"}</strong></span>
+                    </div>
+                    {skillApproval.trust.reasonCodes?.length ? (
+                      <p className="mt-2 break-words text-slate-400">发现：{skillApproval.trust.reasonCodes.join("、")}</p>
+                    ) : null}
+                    {skillApproval.trust.missingCapabilities?.length ? (
+                      <p className="mt-2 break-words text-rose-100">当前运行缺少：{skillApproval.trust.missingCapabilities.join("、")}</p>
+                    ) : null}
+                    <p className="mt-2 text-amber-100/85">批准只授权当前 Agent 运行；来源参数和固定 SHA 不可编辑。</p>
+                  </div>
                 </div>
               ) : approval.request_type === "tool_call" || approval.request_type === "browser_domain" ? (
                 <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-black/25 p-2.5 text-[11px] leading-5 text-slate-300">

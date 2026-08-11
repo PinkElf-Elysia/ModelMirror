@@ -10,8 +10,13 @@ from fastapi import HTTPException
 
 from server.skills.api import (
     SkillInstallRequest,
+    SkillTrustAcknowledgementRequest,
+    acknowledge_installed_skill,
     get_skill_content as get_skill_content_api,
+    get_skill_trust_index,
+    get_skill_trust_receipt,
     install_skill as install_skill_api,
+    revoke_installed_skill_acknowledgement,
     set_skill_manager_for_tests,
 )
 from server.skills.skill_manager import InstalledSkill, SkillManager, SkillValidationError
@@ -427,6 +432,31 @@ def test_runtime_capability_check_and_ephemeral_router_authorization(
         )
     assert incompatible.value.code == "skill_runtime_incompatible"
 
+    manager = SkillManager(
+        installed_dir=tmp_path / "installed",
+        tmp_dir=tmp_path / "tmp",
+        allow_local_repos=True,
+        trust_service=service,
+    )
+    installed_skill_id = SkillManager._build_skill_id(
+        source["repoUrl"], source["subPath"]
+    )
+    service.acknowledge(
+        skill_id=installed_skill_id,
+        trust_fingerprint=receipt["trustFingerprint"],
+        confirmed=True,
+    )
+    installed = manager.install_skill(
+        source["repoUrl"], source["subPath"], source["verifiedCommit"]
+    )
+    assert installed.skill_id == installed_skill_id
+    with pytest.raises(SkillValidationError) as activation_denied:
+        manager.require_activation(
+            installed.skill_id,
+            runtime_environment=environment,
+        )
+    assert activation_denied.value.code == "skill_runtime_incompatible"
+
     compatible = SkillRuntimeEnvironment(
         tool_names=frozenset(
             {"skill_read", "skill_stage", "sandbox_shell"}
@@ -643,6 +673,133 @@ async def test_install_api_keeps_request_shape_and_returns_structured_trust_erro
     assert denied.value.status_code == 400
     assert denied.value.detail["code"] == "skill_trust_receipt_missing"
     assert set(denied.value.detail) == {"code", "message", "details"}
+
+
+@pytest.mark.asyncio
+async def test_trust_api_exposes_compact_index_and_detached_receipt(
+    tmp_path: Path,
+) -> None:
+    repo, commit, tree = _repo(tmp_path)
+    index_path, receipt = _write_index(tmp_path, repo, commit, tree)
+    manager = SkillManager(
+        installed_dir=tmp_path / "installed",
+        tmp_dir=tmp_path / "tmp",
+        allow_local_repos=True,
+        trust_service=_service(tmp_path, index_path, mode="enforce"),
+    )
+    set_skill_manager_for_tests(manager)
+    try:
+        summary_response = await get_skill_trust_index()
+        receipt_response = await get_skill_trust_receipt(receipt["receiptId"])
+    finally:
+        set_skill_manager_for_tests(None)
+
+    assert summary_response["gateMode"] == "enforce"
+    summary = summary_response["index"]
+    assert summary["trustIndexFingerprint"] == json.loads(
+        index_path.read_text(encoding="utf-8")
+    )["fingerprint"]
+    assert summary["candidateReceipts"]["catalog:project:safe-skill"] == receipt["receiptId"]
+    assert list(summary_response["sourceReceipts"].values()) == [receipt["receiptId"]]
+    assert set(summary["receipts"][0]) == {
+        "receiptId",
+        "trustFingerprint",
+        "riskLevel",
+        "trustStatus",
+        "installPolicy",
+        "compatibilityStatus",
+        "routerEligible",
+        "summary",
+    }
+    assert receipt_response["receipt"]["source"]["verifiedCommit"] == commit
+    receipt_response["receipt"]["findings"].append({"code": "mutated"})
+    assert manager.trust_service.receipt_by_id(receipt["receiptId"])["findings"] == []
+
+
+@pytest.mark.asyncio
+async def test_confirmed_install_persists_exact_ack_and_revoke_blocks_activation(
+    tmp_path: Path,
+) -> None:
+    repo, commit, tree = _repo(tmp_path, with_script=True)
+    index_path, receipt = _write_index(tmp_path, repo, commit, tree)
+    assert receipt["installPolicy"] == "confirm"
+    manager = SkillManager(
+        installed_dir=tmp_path / "installed",
+        tmp_dir=tmp_path / "tmp",
+        allow_local_repos=True,
+        trust_service=_service(tmp_path, index_path, mode="enforce"),
+    )
+    set_skill_manager_for_tests(manager)
+    try:
+        installed = await install_skill_api(
+            SkillInstallRequest(
+                repo_url=str(repo),
+                sub_path="skills/safe-skill",
+                ref=commit,
+                expected_trust_fingerprint=receipt["trustFingerprint"],
+                confirmed=True,
+            )
+        )
+        assert installed.trust_activation_status == "ready"
+        assert installed.trust_acknowledgement_satisfied is True
+        assert manager.trust_service.acknowledgements.get(installed.skill_id)
+
+        revoked = await revoke_installed_skill_acknowledgement(installed.skill_id)
+        assert revoked.trust_activation_status == "ack_required"
+        assert revoked.trust_activation_allowed is False
+
+        restored = await acknowledge_installed_skill(
+            installed.skill_id,
+            SkillTrustAcknowledgementRequest(
+                expected_trust_fingerprint=receipt["trustFingerprint"],
+                confirmed=True,
+            ),
+        )
+        assert restored.trust_activation_status == "ready"
+
+        with pytest.raises(HTTPException) as stale:
+            await acknowledge_installed_skill(
+                installed.skill_id,
+                SkillTrustAcknowledgementRequest(
+                    expected_trust_fingerprint="0" * 64,
+                    confirmed=True,
+                ),
+            )
+        assert stale.value.status_code == 409
+        assert stale.value.detail["code"] == "skill_trust_candidate_stale"
+    finally:
+        set_skill_manager_for_tests(None)
+
+
+def test_skill_trust_gate_defaults_to_enforce(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("SKILL_TRUST_GATE_MODE", raising=False)
+    service = SkillTrustService(index_path=tmp_path / "missing.json")
+    assert service.mode == "enforce"
+
+
+@pytest.mark.asyncio
+async def test_trust_index_unavailable_keeps_off_mode_as_a_complete_fallback(
+    tmp_path: Path,
+) -> None:
+    manager = SkillManager(
+        installed_dir=tmp_path / "installed",
+        tmp_dir=tmp_path / "tmp",
+        allow_local_repos=True,
+        trust_service=SkillTrustService(
+            index_path=tmp_path / "missing.json",
+            mode="off",
+        ),
+    )
+    set_skill_manager_for_tests(manager)
+    try:
+        response = await get_skill_trust_index()
+    finally:
+        set_skill_manager_for_tests(None)
+
+    assert response["gateMode"] == "off"
+    assert response["index"] is None
+    assert response["sourceReceipts"] == {}
+    assert response["warning"]["code"] == "skill_trust_index_unavailable"
 
 
 @pytest.mark.asyncio

@@ -65,11 +65,11 @@ VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skil
 
 目录中具备固定提交安装源的顶层 Skill 与 SkillSet 成员，会在维护期按完整 Git tree 生成本地、确定性的 `SkillTrustReceipt`。扫描过程不执行脚本、不加载 Skill、不调用模型，也不会在运行时访问 GitHub；同一个 `repoUrl + subPath + verifiedCommit` 只保存一份凭据，重叠集合成员共享该凭据。
 
-凭据同时绑定目录 tree SHA、按排序路径与原始字节计算的 package digest、扫描器版本和凭据指纹。扫描范围包括严格 YAML、路径、凭据、引用、Python/JavaScript 静态语法、脚本与命令、依赖、网络、宿主能力和被动二进制资源。PNG、JPEG、GIF、WebP、PDF、WOFF/WOFF2、MP3、WAV、MP4 只在扩展名与 magic 一致时作为不透明资源记录，不解析或执行。只有已确认的秘密、动态下载执行、链接或 Git 对象逃逸，以及无法完整扫描、定位或摘要的包才形成 `blocked` 凭据；可执行位、归档、未知二进制、magic 失配、活动文本或混淆迹象等可疑但仍可精确复制安装的内容改为显式确认，并从 Agent Router 候选中排除。
+凭据同时绑定目录 tree SHA、按排序路径与原始字节计算的 package digest、扫描器版本和凭据指纹。扫描范围包括严格 YAML、路径、凭据、引用、Python/JavaScript 静态语法、脚本与命令、依赖、网络、宿主能力和被动二进制资源。PNG、JPEG、GIF、WebP、PDF、WOFF/WOFF2、MP3、WAV、MP4 只在扩展名与 magic 一致时作为不透明资源记录，不解析或执行。只有高置信秘密、链接或 Git 对象逃逸，以及无法完整扫描、定位、摘要或按固定提交复制的包才形成 `blocked` 凭据；动态下载执行、归档、未知二进制、magic 失配、活动文本或混淆迹象等可疑但仍可精确复制安装的内容改为显式确认，并从 Agent Router 候选中排除。合法的 Python/JavaScript 脚本、Git 可执行位、仓库根参考文件和自定义资源目录本身不构成阻断；语法、引用与来源闭合后可进入 Router，实际运行仍受能力门约束。
 
-信任门由 `SKILL_TRUST_GATE_MODE=off|audit|enforce` 控制，本阶段默认 `audit`：安装器会解析固定来源、checkout 后复核 HEAD、Git tree、文件模式和原始字节摘要，并把信任状态写入安装元数据，但不改变旧安装行为。`enforce` 会要求 Git 来源使用 40 位固定提交；索引缺失或失配、确定恶意或无法完整安装的内容、未确认的条件凭据、未核验旧安装和运行能力不足都会拒绝安装或激活。用户对可疑但可安装的精确版本完成本机确认后仍可手工安装和激活；该确认不会把它加入 Router。`off` 完整回退旧行为。
+信任门由 `SKILL_TRUST_GATE_MODE=off|audit|enforce` 控制，当前默认 `enforce`：安装器会解析固定来源、checkout 后复核 HEAD、Git tree、文件模式和原始字节摘要，并把信任状态写入安装元数据。Git 来源必须使用 40 位固定提交；索引缺失或失配、确定恶意或无法完整安装的内容、未确认的条件凭据和未核验旧安装会拒绝安装或激活。用户对其他风险的精确版本完成本机确认后可以安装；安装不要求当前聊天或工作流已经具备全部运行能力。激活时才检查必需工具、命令、网络、凭据与宿主能力，不兼容时保持已安装但拒绝本次激活。可疑内容的手工确认不会把它加入 Router；通过语法与引用校验的本地 Python/JavaScript 脚本可以进入 Router。`audit` 只记录相同判断而不改变旧行为，`off` 完整回退旧行为。
 
-中高风险及可疑内容的本机授权绑定 `skill_id + trustFingerprint`，凭据或版本变化后自动失效；普通可路由候选的 Router 人工批准只进入当前运行恢复状态，不写永久授权。`routerEligible=false` 的可疑凭据不会出现在 `skill_find` 结果中，也不能通过伪造候选调用 `skill_enable` 或 `skill_install`。统一激活检查覆盖静态 `skill_ids`、`skill_read`、`skill_stage`、`skill_enable`、`skill_install` 与插件 Hook；即使已确认，运行能力不足仍会返回不兼容。Workspace Creator、插件和内置 Skill 继续使用各自既有质量与来源合同，不套用第三方目录评级。三份索引共享同一目录指纹，任一映射或指纹不一致都会失败关闭，但不会拖垮 Server 其他模块启动。
+中高风险及可疑内容的本机授权绑定 `skill_id + trustFingerprint`，凭据或版本变化后自动失效；普通可路由候选的 Router 人工批准只进入当前运行恢复状态，不写永久授权。`routerEligible=false` 的可疑凭据不会出现在 `skill_find` 结果中，也不能通过伪造候选调用 `skill_enable` 或 `skill_install`。市场、SkillSet 成员和已安装页面均展示同一份服务端凭据；聊天与工作流选择器保留被阻断项但禁用选择，服务端仍执行最终门禁。统一激活检查覆盖静态 `skill_ids`、`skill_read`、`skill_stage`、`skill_enable`、`skill_install` 与插件 Hook；即使已确认，运行能力不足仍会返回不兼容。Workspace Creator、插件和内置 Skill 继续使用各自既有质量与来源合同，不套用第三方目录评级。三份索引共享同一目录指纹，任一映射或指纹不一致都会失败关闭，但不会拖垮 Server 其他模块启动。
 
 ## 2. 如何添加新的 Skill 到市场
 

@@ -12,6 +12,13 @@ from server.skills.api import set_skill_manager_for_tests
 from server.skills.skill_manager import SkillManager
 
 
+@pytest.fixture(autouse=True)
+def legacy_git_install_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep pre-trust install integration tests scoped to the rollback mode."""
+
+    monkeypatch.setenv("SKILL_TRUST_GATE_MODE", "off")
+
+
 def create_local_skill_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "skill-source"
     skill_dir = repo / "skills" / "pdf"
@@ -317,4 +324,3 @@ async def test_install_rejects_non_github_sources_by_default(
 async def test_unknown_skill_returns_404(client: httpx.AsyncClient) -> None:
     response = await client.get("/api/skills/not-installed/content")
     assert response.status_code == 404
-

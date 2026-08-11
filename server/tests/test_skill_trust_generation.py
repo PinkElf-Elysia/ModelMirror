@@ -14,6 +14,14 @@ from scripts.sync_skill_trust_index import (
 )
 
 
+PUBLISHED_TRUST_INDEX = (
+    Path(__file__).resolve().parents[1]
+    / "skills"
+    / "data"
+    / "skill_trust_index.json"
+)
+
+
 def _git(repo: Path, *arguments: str) -> str:
     completed = subprocess.run(
         ["git", "-C", str(repo), *arguments],
@@ -164,3 +172,35 @@ def test_atomic_publication_failure_restores_every_previous_output(
     assert second.read_bytes() == b"old-second"
     assert not list(tmp_path.glob(".*.tmp-*"))
     assert not list(tmp_path.glob(".*.bak-*"))
+
+
+def test_published_pdf_and_tdd_packages_are_confirmable_and_router_eligible() -> None:
+    payload = json.loads(PUBLISHED_TRUST_INDEX.read_text(encoding="utf-8"))
+    receipts = {
+        (
+            receipt["source"]["repoUrl"],
+            receipt["source"]["subPath"],
+        ): receipt
+        for receipt in payload["receipts"]
+    }
+    expected_sources = (
+        ("https://github.com/anthropics/skills", "skills/pdf"),
+        ("https://github.com/mattpocock/skills", "skills/engineering/tdd"),
+    )
+    false_positive_codes = {
+        "credential_assignment",
+        "file_path_unsafe",
+        "local_reference_missing",
+        "trust_download_execute_blocked",
+        "trust_executable_mode_blocked",
+    }
+
+    for source in expected_sources:
+        receipt = receipts[source]
+        finding_codes = {
+            finding["code"] for finding in receipt.get("findings", [])
+        }
+        assert receipt["trustStatus"] in {"verified", "conditional"}
+        assert receipt["installPolicy"] in {"allow", "confirm"}
+        assert receipt["routerEligible"] is True
+        assert finding_codes.isdisjoint(false_positive_codes)
