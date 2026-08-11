@@ -246,6 +246,11 @@ except ModuleNotFoundError:
     from agent_workspace.api import router as agent_workspace_router
 
 try:
+    from server.coding_worker.api import router as coding_worker_router
+except ModuleNotFoundError:
+    from coding_worker.api import router as coding_worker_router
+
+try:
     from server.plugins.api import router as plugins_router
     from server.plugins.registry import get_plugin_store
     from server.prompts import (
@@ -961,6 +966,7 @@ app.include_router(file_assets_router)
 app.include_router(skills_router)
 app.include_router(skill_creator_router)
 app.include_router(agent_workspace_router)
+app.include_router(coding_worker_router)
 app.include_router(xperts_router)
 app.include_router(xpert_apps_router)
 app.include_router(workflow_native_router)
