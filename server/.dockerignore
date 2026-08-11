@@ -33,6 +33,10 @@ office_host/certs
 office_host/certs/**
 
 # Caches and local logs
+**/node_modules
+**/node_modules/**
+orchestration_worker/dist
+orchestration_worker/dist/**
 **/__pycache__
 **/__pycache__/**
 **/.pytest_cache

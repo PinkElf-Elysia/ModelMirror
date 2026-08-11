@@ -61,6 +61,12 @@ jobs:
           cache-dependency-path: server/requirements.txt
       - name: Install backend dependencies
         run: python -m pip install -r server/requirements.txt
+      - name: Install Agency worker dependencies
+        run: npm ci --prefix server/orchestration_worker
+      - name: Build Agency worker
+        run: npm run build --prefix server/orchestration_worker
+      - name: Test Agency worker core and provenance
+        run: npm run test:all --prefix server/orchestration_worker
       - name: Run workflow contract tests
         run: python -m pytest server/tests/test_workflow_run_contract.py -q
         env:

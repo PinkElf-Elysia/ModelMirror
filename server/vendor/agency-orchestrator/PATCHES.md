@@ -16,6 +16,18 @@ recorded upstream Blob SHA. There are no inline modifications in round 0.
   stable import path.
 - The boundary fails closed until a caller explicitly injects a connector.
 
+## Round 1 inline adaptation
+
+- `src/cli/compose.ts`
+  - Original upstream Blob SHA:
+    `8b946bfa49f92f95a795d3bbd0e2c4dd5d10bcf8`
+  - Adds a host-provided `RoleSummary[]` injection point so ModelMirror can use
+    its existing expert catalog without creating a second role directory.
+  - Makes pinned line-ups fail closed when any requested role path is absent.
+  - Reports whether the upstream repair chain changed the initial YAML.
+  - The generation, deterministic role correction, dependency/variable repair,
+    DAG validation and at-most-one LLM repair behavior remain upstream logic.
+
 ## Deliberately excluded
 
 The upstream Provider Factory and all provider implementations, website/Web

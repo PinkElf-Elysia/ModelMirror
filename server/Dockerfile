@@ -1,5 +1,19 @@
 FROM registry.cn-hangzhou.aliyuncs.com/metad/xpert-api:latest AS node_runtime
 
+FROM node_runtime AS agency_worker_builder
+
+USER root
+WORKDIR /build
+
+COPY orchestration_worker/package.json orchestration_worker/package-lock.json ./orchestration_worker/
+RUN npm ci --include=dev --prefix orchestration_worker
+COPY orchestration_worker/tsconfig.json ./orchestration_worker/tsconfig.json
+COPY orchestration_worker/src ./orchestration_worker/src
+COPY orchestration_worker/scripts ./orchestration_worker/scripts
+COPY vendor/agency-orchestrator ./vendor/agency-orchestrator
+RUN npm run build --prefix orchestration_worker \
+    && npm prune --prefix orchestration_worker --omit=dev
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -50,6 +64,10 @@ COPY model_router ./model_router
 COPY context_engine ./context_engine
 COPY coding_runtime ./coding_runtime
 COPY coding_worker ./coding_worker
+COPY orchestration_worker/*.py ./orchestration_worker/
+COPY orchestration_worker/package.json ./orchestration_worker/package.json
+COPY --from=agency_worker_builder /build/orchestration_worker/dist ./orchestration_worker/dist
+COPY --from=agency_worker_builder /build/orchestration_worker/node_modules ./orchestration_worker/node_modules
 
 EXPOSE 8000
 

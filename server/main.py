@@ -34,6 +34,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
+from orchestration_worker import (
+    AgencyModelRequest,
+    AgencyModelResponse,
+    AgencyWorkerClient,
+)
+
 try:
     from server.api.dify_proxy import router as dify_router
 except ModuleNotFoundError:
@@ -3319,6 +3325,42 @@ async def collect_chat_completion_text(
                 }
             )
         return text
+
+
+async def collect_agency_worker_model(
+    request: AgencyModelRequest,
+) -> AgencyModelResponse:
+    """Keep model gateway credentials and calls in the Python host process."""
+
+    usage: dict[str, int] = {}
+
+    def observe_usage(values: dict[str, int]) -> None:
+        usage.update(values)
+
+    content = await collect_chat_completion_text(
+        request.model_id,
+        [
+            ChatMessage(role=message.role, content=message.content)
+            for message in request.messages
+        ],
+        temperature=request.temperature,
+        max_tokens=request.max_tokens,
+        usage_observer=observe_usage,
+    )
+    return AgencyModelResponse(
+        content=content,
+        usage={
+            "input_tokens": int(
+                usage.get("input_tokens", usage.get("prompt_tokens", 0))
+            ),
+            "output_tokens": int(
+                usage.get("output_tokens", usage.get("completion_tokens", 0))
+            ),
+        },
+    )
+
+
+agency_worker_client = AgencyWorkerClient(model_runner=collect_agency_worker_model)
 
 
 async def stream_chat_toolset_text(

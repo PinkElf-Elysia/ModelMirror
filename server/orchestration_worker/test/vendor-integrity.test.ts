@@ -10,6 +10,8 @@ interface ManifestFile {
   local_path: string;
   blob_sha: string;
   sha256: string;
+  modified?: boolean;
+  local_sha256?: string;
 }
 
 interface Manifest {
@@ -41,8 +43,14 @@ test('verifies every copied file against its upstream Blob SHA and SHA-256', () 
   assert.ok(manifest.files.length >= 20);
   for (const entry of manifest.files) {
     const content = readFileSync(join(vendorRoot, entry.local_path));
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    if (entry.modified) {
+      assert.equal(sha256, entry.local_sha256, entry.upstream_path);
+      assert.match(content.toString('utf8'), /MODELMIRROR MODIFICATION/);
+      continue;
+    }
     assert.equal(gitBlobSha(content), entry.blob_sha, entry.upstream_path);
-    assert.equal(createHash('sha256').update(content).digest('hex'), entry.sha256, entry.upstream_path);
+    assert.equal(sha256, entry.sha256, entry.upstream_path);
   }
 });
 
