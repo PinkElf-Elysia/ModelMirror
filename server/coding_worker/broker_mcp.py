@@ -40,9 +40,36 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         return await call("read_file", {"path": path})
 
     @mcp.tool()
+    async def read_file_range(
+        path: str, start_line: int = 1, end_line: int = 200
+    ) -> dict[str, Any]:
+        """Read a bounded line range from one workspace-relative UTF-8 file."""
+        return await call(
+            "read_file_range",
+            {"path": path, "start_line": start_line, "end_line": end_line},
+        )
+
+    @mcp.tool()
+    async def glob_files(pattern: str) -> dict[str, Any]:
+        """List workspace entries matching one bounded workspace-relative glob."""
+        return await call("glob_files", {"pattern": pattern})
+
+    @mcp.tool()
     async def search_text(query: str) -> dict[str, Any]:
         """Search text inside the current task workspace."""
         return await call("search_text", {"query": query})
+
+    @mcp.tool()
+    async def search_regex(
+        pattern: str,
+        glob: str = "**/*",
+        case_sensitive: bool = True,
+    ) -> dict[str, Any]:
+        """Run one bounded safe-regex search inside matching workspace files."""
+        return await call(
+            "search_regex",
+            {"pattern": pattern, "glob": glob, "case_sensitive": case_sensitive},
+        )
 
     @mcp.tool()
     async def workspace_diff() -> dict[str, Any]:
@@ -67,6 +94,19 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         return await call(
             "delete_file",
             {"path": path, "expected_sha256": expected_sha256},
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
+    async def apply_changeset(
+        operation_id: str,
+        base_tree_hash: str,
+        changes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Atomically publish a preimage-bound write, patch, move, or delete batch."""
+        return await call(
+            "apply_changeset",
+            {"base_tree_hash": base_tree_hash, "changes": changes},
             operation_id=operation_id,
         )
 
