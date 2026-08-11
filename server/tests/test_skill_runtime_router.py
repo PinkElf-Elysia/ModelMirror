@@ -92,6 +92,14 @@ def write_runtime_index(path: Path, repo: Path, source_ref: str) -> dict[str, ob
             "verifiedCommit": source_ref,
         },
         "directoryTreeSha": None,
+        "trust": {
+            "receiptId": "skill-trust-" + "1" * 24,
+            "trustFingerprint": "2" * 64,
+            "riskLevel": "low",
+            "trustStatus": "verified",
+            "installPolicy": "allow",
+            "compatibilityStatus": "portable",
+        },
     }
     candidate = {
         **candidate_payload,
@@ -99,9 +107,11 @@ def write_runtime_index(path: Path, repo: Path, source_ref: str) -> dict[str, ob
         "stableNameOrder": 0,
     }
     fingerprint_payload = {
-        "version": 1,
+        "version": 2,
         "rankerVersion": "skill-need-local-v3",
         "memberIndexFingerprint": "fixture",
+        "catalogFingerprint": "3" * 64,
+        "trustIndexFingerprint": "4" * 64,
         "supersededCandidateIds": [],
         "candidates": [candidate],
     }
@@ -157,6 +167,8 @@ async def test_find_install_activate_read_and_install_limit(tmp_path: Path) -> N
     )
     payload = json.loads(found.output)
     assert payload["results"][0]["availability"] == "missing"
+    assert payload["results"][0]["trust"] == candidate["trust"]
+    assert payload["trustCatalogFingerprint"] == "3" * 64
     assert found.metadata["query_hash"]
     assert "need" not in found.metadata
 

@@ -2141,6 +2141,14 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
             "verifiedCommit": source_ref,
         },
         "directoryTreeSha": None,
+        "trust": {
+            "receiptId": "skill-trust-" + "1" * 24,
+            "trustFingerprint": "2" * 64,
+            "riskLevel": "low",
+            "trustStatus": "verified",
+            "installPolicy": "allow",
+            "compatibilityStatus": "portable",
+        },
     }
     candidate = {
         **candidate_payload,
@@ -2148,9 +2156,11 @@ async def test_skill_router_install_resume_activates_only_current_agent_run(
         "stableNameOrder": 0,
     }
     index_payload = {
-        "version": 1,
+        "version": 2,
         "rankerVersion": "skill-need-local-v3",
         "memberIndexFingerprint": "fixture",
+        "catalogFingerprint": "3" * 64,
+        "trustIndexFingerprint": "4" * 64,
         "supersededCandidateIds": [],
         "candidates": [candidate],
     }

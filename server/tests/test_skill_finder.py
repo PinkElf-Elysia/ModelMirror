@@ -59,6 +59,8 @@ def test_runtime_index_is_complete_and_search_is_explainable() -> None:
         result = finder.find(query)
         assert 0 < len(result["results"]) <= 6
         assert result["catalogFingerprint"] == finder.fingerprint
+        assert result["trustCatalogFingerprint"] == finder._load_index()["catalogFingerprint"]
+        assert all(item["trust"]["trustFingerprint"] for item in result["results"])
         assert all(item["reasons"] for item in result["results"])
         assert all(
             reason["origin"] in {"direct", "expanded"}

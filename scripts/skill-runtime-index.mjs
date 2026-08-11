@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const SKILL_RUNTIME_INDEX_VERSION = 1;
+export const SKILL_RUNTIME_INDEX_VERSION = 2;
 export const SKILL_RUNTIME_RANKER_VERSION = "skill-need-local-v3";
 
 function sha256(value) {
@@ -25,6 +25,14 @@ function installSource(target) {
 }
 
 function sourceKey(source) {
+  return [
+    source.repoUrl.trim().toLowerCase().replace(/\.git$/i, ""),
+    source.subPath.trim().replace(/^\/+|\/+$/g, ""),
+    source.verifiedCommit.trim().toLowerCase(),
+  ].join("#");
+}
+
+function trustSourceKey(source) {
   return [
     source.repoUrl.trim().toLowerCase().replace(/\.git$/i, ""),
     source.subPath.trim().replace(/^\/+|\/+$/g, ""),
@@ -78,10 +86,73 @@ function candidatePayload(target) {
   };
 }
 
+function trustCatalogFingerprint(candidates) {
+  return sha256(
+    canonicalJson(
+      candidates
+        .map((candidate) => ({
+          candidateId: candidate.candidateId,
+          repoUrl: candidate.installSource.repoUrl
+            .trim()
+            .toLowerCase()
+            .replace(/\.git$/i, ""),
+          subPath: candidate.installSource.subPath.trim().replace(/^\/+|\/+$/g, ""),
+          verifiedCommit: candidate.installSource.verifiedCommit.trim().toLowerCase(),
+        }))
+        .sort((left, right) => left.candidateId.localeCompare(right.candidateId, "en")),
+    ),
+  );
+}
+
+function validateTrustIndex(trustIndex) {
+  if (
+    !trustIndex ||
+    trustIndex.version !== 1 ||
+    !Array.isArray(trustIndex.receipts) ||
+    !trustIndex.candidateReceipts ||
+    typeof trustIndex.candidateReceipts !== "object" ||
+    !/^[0-9a-f]{64}$/.test(trustIndex.catalogFingerprint ?? "") ||
+    !/^[0-9a-f]{64}$/.test(trustIndex.fingerprint ?? "")
+  ) {
+    throw new Error("Skill trust index is unavailable or invalid.");
+  }
+  const fingerprintPayload = Object.fromEntries(
+    Object.entries(trustIndex).filter(([key]) => key !== "fingerprint"),
+  );
+  if (sha256(canonicalJson(fingerprintPayload)) !== trustIndex.fingerprint) {
+    throw new Error("Skill trust index fingerprint does not match its content.");
+  }
+  const receiptsById = new Map();
+  const receiptsBySource = new Map();
+  for (const receipt of trustIndex.receipts) {
+    const fingerprintPayload = Object.fromEntries(
+      Object.entries(receipt).filter(([key]) => key !== "trustFingerprint"),
+    );
+    if (
+      !receipt?.receiptId ||
+      !receipt?.source ||
+      !/^[0-9a-f]{64}$/.test(receipt.trustFingerprint ?? "") ||
+      sha256(canonicalJson(fingerprintPayload)) !== receipt.trustFingerprint ||
+      receiptsById.has(receipt.receiptId)
+    ) {
+      throw new Error("Skill trust index contains an invalid receipt.");
+    }
+    const key = trustSourceKey(receipt.source);
+    if (receiptsBySource.has(key)) {
+      throw new Error("Skill trust index contains a duplicate source receipt.");
+    }
+    receiptsById.set(receipt.receiptId, receipt);
+    receiptsBySource.set(key, receipt);
+  }
+  return { receiptsById, receiptsBySource };
+}
+
 export function buildSkillRuntimeIndex({
   candidates,
   memberIndexFingerprint,
+  trustIndex,
 }) {
+  const { receiptsById, receiptsBySource } = validateTrustIndex(trustIndex);
   const readyBeforeDeduplication = candidates
     .filter((candidate) => candidate.installStatus === "ready" && !candidate.deprecated)
     .map(candidatePayload)
@@ -116,7 +187,34 @@ export function buildSkillRuntimeIndex({
     supersededCandidateIds.push(superseded.candidateId);
     byInstallMapping.set(key, preferred);
   }
-  const ready = [...byInstallMapping.values()];
+  const readyWithoutTrust = [...byInstallMapping.values()];
+  const catalogFingerprint = trustCatalogFingerprint(readyWithoutTrust);
+  if (catalogFingerprint !== trustIndex.catalogFingerprint) {
+    throw new Error("Skill runtime candidates do not match the Skill trust catalog fingerprint.");
+  }
+  const ready = readyWithoutTrust.map((candidate) => {
+    const receiptId = trustIndex.candidateReceipts[candidate.candidateId];
+    const receipt = receiptsById.get(receiptId);
+    if (!receipt || receiptsBySource.get(trustSourceKey(candidate.installSource)) !== receipt) {
+      throw new Error(`Skill trust receipt is missing for ${candidate.candidateId}.`);
+    }
+    const trust = {
+      receiptId: receipt.receiptId,
+      trustFingerprint: receipt.trustFingerprint,
+      riskLevel: receipt.riskLevel,
+      trustStatus: receipt.trustStatus,
+      installPolicy: receipt.installPolicy,
+      compatibilityStatus: receipt.compatibilityStatus,
+    };
+    const payload = Object.fromEntries(
+      Object.entries(candidate).filter(([key]) => key !== "candidateFingerprint"),
+    );
+    const trustedPayload = { ...payload, trust };
+    return {
+      ...trustedPayload,
+      candidateFingerprint: sha256(canonicalJson(trustedPayload)),
+    };
+  });
   const seenSources = new Map();
   for (const candidate of ready) {
     const key = sourceKey(candidate.installSource);
@@ -148,6 +246,8 @@ export function buildSkillRuntimeIndex({
     version: SKILL_RUNTIME_INDEX_VERSION,
     rankerVersion: SKILL_RUNTIME_RANKER_VERSION,
     memberIndexFingerprint,
+    catalogFingerprint,
+    trustIndexFingerprint: trustIndex.fingerprint,
     supersededCandidateIds: supersededCandidateIds.sort((left, right) =>
       left.localeCompare(right, "en"),
     ),
@@ -165,6 +265,8 @@ export function fingerprintSkillRuntimeIndex(index) {
       version: index.version,
       rankerVersion: index.rankerVersion,
       memberIndexFingerprint: index.memberIndexFingerprint,
+      catalogFingerprint: index.catalogFingerprint,
+      trustIndexFingerprint: index.trustIndexFingerprint,
       supersededCandidateIds: index.supersededCandidateIds ?? [],
       candidates: index.candidates,
     }),
