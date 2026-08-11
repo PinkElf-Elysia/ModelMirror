@@ -11,10 +11,13 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 import httpx
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from .contracts import (
     Origin,
+    CodeDiagnosticsSnapshot,
+    CodeIntelligenceSnapshot,
+    OperationState,
     StrictModel,
     TaskCreateRequest,
     TaskRecord,
@@ -25,6 +28,7 @@ from .contracts import (
     WorkerArtifact,
     WorkerChangeset,
     WorkerEvidence,
+    WorkerDiagnostic,
     OperationOutputChunk,
 )
 from .service import CodingWorkerService
@@ -378,6 +382,141 @@ async def task_operation_output(
             if len(events) < 1000:
                 break
         return {"chunks": chunks}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+def _code_intelligence_snapshot(
+    service: CodingWorkerService,
+    task_id: str,
+    operation_id: str,
+) -> CodeIntelligenceSnapshot:
+    task = service.store.get_task(task_id)
+    operation = service.store.get_operation(operation_id)
+    operation_kind = {
+        "code_symbols": "symbols",
+        "code_definition": "definition",
+        "code_references": "references",
+        "code_hover": "hover",
+        "code_diagnostics": "diagnostics",
+    }.get(operation.tool_name)
+    if operation.task_id != task_id or operation_kind is None:
+        raise WorkerNotFoundError(
+            "Code intelligence result was not found.",
+            code="code_intelligence_not_found",
+        )
+    if operation.state is not OperationState.COMPLETED:
+        raise WorkerConflictError(
+            "Code intelligence result is not available.",
+            code="code_intelligence_result_unavailable",
+        )
+    if task.workspace_id is None:
+        raise WorkerConflictError(
+            "Task workspace is unavailable.", code="workspace_unavailable"
+        )
+    result = operation.result
+    value_key = {
+        "symbols": "symbols",
+        "definition": "locations",
+        "references": "locations",
+        "hover": "hover",
+        "diagnostics": "diagnostics",
+    }[operation_kind]
+    expected_keys = {
+        "task_id",
+        "entry_id",
+        "workspace_tree_hash",
+        "operation",
+        "language",
+        value_key,
+    }
+    if (
+        not isinstance(result, dict)
+        or set(result) != expected_keys
+        or result.get("task_id") != task_id
+        or result.get("operation") != operation_kind
+    ):
+        raise WorkerStoreError(
+            "Code intelligence result is corrupt.", code="worker_data_corrupt"
+        )
+    current_tree_hash = service.workspace_broker.current_tree_hash(task.workspace_id)
+    try:
+        return CodeIntelligenceSnapshot(
+            task_id=task_id,
+            operation_id=operation_id,
+            entry_id=result["entry_id"],
+            operation=operation_kind,
+            language=result["language"],
+            workspace_tree_hash=result["workspace_tree_hash"],
+            current_tree_hash=current_tree_hash,
+            stale=result["workspace_tree_hash"] != current_tree_hash,
+            result={value_key: result[value_key]},
+        )
+    except (KeyError, ValidationError) as exc:
+        raise WorkerStoreError(
+            "Code intelligence result is corrupt.", code="worker_data_corrupt"
+        ) from exc
+
+
+@router.get(
+    "/tasks/{task_id}/code-intelligence/{operation_id}",
+    response_model=CodeIntelligenceSnapshot,
+)
+async def task_code_intelligence(
+    task_id: str, operation_id: str
+) -> CodeIntelligenceSnapshot:
+    try:
+        return _code_intelligence_snapshot(
+            get_coding_worker_service(), task_id, operation_id
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/diagnostics/{operation_id}",
+    response_model=CodeDiagnosticsSnapshot,
+)
+async def task_diagnostics(
+    task_id: str, operation_id: str
+) -> CodeDiagnosticsSnapshot:
+    try:
+        snapshot = _code_intelligence_snapshot(
+            get_coding_worker_service(), task_id, operation_id
+        )
+        if snapshot.operation != "diagnostics":
+            raise WorkerNotFoundError(
+                "Diagnostics were not found.", code="diagnostics_not_found"
+            )
+        diagnostics = tuple(
+            WorkerDiagnostic.model_validate(item)
+            for item in snapshot.result.get("diagnostics", [])
+        )
+        if any(
+            item.task_id != task_id
+            or item.entry_id != snapshot.entry_id
+            or item.workspace_tree_hash != snapshot.workspace_tree_hash
+            for item in diagnostics
+        ):
+            raise WorkerStoreError(
+                "Diagnostics result is corrupt.", code="worker_data_corrupt"
+            )
+        return CodeDiagnosticsSnapshot(
+            task_id=task_id,
+            operation_id=operation_id,
+            entry_id=snapshot.entry_id,
+            language=snapshot.language,
+            workspace_tree_hash=snapshot.workspace_tree_hash,
+            current_tree_hash=snapshot.current_tree_hash,
+            stale=snapshot.stale,
+            diagnostics=diagnostics,
+        )
+    except ValidationError as exc:
+        _raise_worker_error(
+            WorkerStoreError(
+                "Diagnostics result is corrupt.", code="worker_data_corrupt"
+            )
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 

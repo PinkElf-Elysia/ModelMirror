@@ -401,6 +401,89 @@ def test_operation_output_and_changeset_queries_are_replayable_and_task_bound(
         assert foreign_changeset.status_code == 404
 
 
+def test_code_intelligence_queries_are_task_bound_and_mark_stale_diagnostics(
+    tmp_path: Path,
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    with client:
+        first = client.post("/api/coding-worker/v1/tasks", json=_payload()).json()
+        second = client.post(
+            "/api/coding-worker/v1/tasks", json=_payload("api-task-code-02")
+        ).json()
+        task_id = first["task_id"]
+        task = asyncio.run(
+            service.wait_for(task_id, lambda item: item.workspace_id is not None)
+        )
+        assert task.workspace_id is not None
+        entry = next(
+            item
+            for item in service.workspace_broker.tree(task.workspace_id)
+            if item.display_path == "main.py"
+        )
+        tree_hash = service.workspace_broker.current_tree_hash(task.workspace_id)
+        operation_id = "code_api_diagnostics"
+        operation = service.store.create_operation(
+            task_id=task_id,
+            operation_id=operation_id,
+            tool_name="code_diagnostics",
+            intent_sha256="e" * 64,
+            request={"arguments": {"entry_id": entry.entry_id}},
+        )
+        service.store.transition_operation(operation_id, OperationState.RUNNING)
+        diagnostic = {
+            "diagnostic_id": "diagnostic_" + "f" * 32,
+            "task_id": task_id,
+            "entry_id": entry.entry_id,
+            "workspace_tree_hash": tree_hash,
+            "range": {
+                "start": {"line": 0, "character": 0},
+                "end": {"line": 0, "character": 5},
+            },
+            "severity": "error",
+            "code": "reportAssignmentType",
+            "message": "Type is not assignable",
+            "created_at": 1.0,
+        }
+        service.store.transition_operation(
+            operation.operation_id,
+            OperationState.COMPLETED,
+            result={
+                "task_id": task_id,
+                "entry_id": entry.entry_id,
+                "workspace_tree_hash": tree_hash,
+                "operation": "diagnostics",
+                "language": "python",
+                "diagnostics": [diagnostic],
+            },
+        )
+
+        queried = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/code-intelligence/{operation_id}"
+        )
+        diagnostics = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/diagnostics/{operation_id}"
+        )
+        assert queried.status_code == 200
+        assert queried.json()["stale"] is False
+        assert queried.json()["result"] == {"diagnostics": [diagnostic]}
+        assert diagnostics.status_code == 200
+        assert diagnostics.json()["diagnostics"] == [diagnostic]
+
+        repository = service.workspace_broker.repository_path(task.workspace_id)
+        repository.joinpath("main.py").write_text("print('changed')\n", encoding="utf-8")
+        stale = client.get(
+            f"/api/coding-worker/v1/tasks/{task_id}/diagnostics/{operation_id}"
+        )
+        assert stale.status_code == 200
+        assert stale.json()["stale"] is True
+        assert stale.json()["current_tree_hash"] != tree_hash
+        foreign = client.get(
+            f"/api/coding-worker/v1/tasks/{second['task_id']}/diagnostics/"
+            f"{operation_id}"
+        )
+        assert foreign.status_code == 404
+
+
 def test_preview_proxy_uses_only_task_slot_and_registered_port(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

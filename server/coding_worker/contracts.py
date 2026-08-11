@@ -469,6 +469,75 @@ class WorkerDiagnostic(StrictModel):
         return value
 
 
+class CodeIntelligenceSnapshot(StrictModel):
+    task_id: str
+    operation_id: str
+    entry_id: str
+    operation: Literal["symbols", "definition", "references", "hover", "diagnostics"]
+    language: Literal[
+        "python", "typescript", "typescriptreact", "javascript", "javascriptreact"
+    ]
+    workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    current_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    stale: bool
+    result: dict[str, Any]
+
+    @field_validator("task_id", "operation_id", "entry_id")
+    @classmethod
+    def validate_snapshot_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("code intelligence identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_snapshot_binding(self) -> "CodeIntelligenceSnapshot":
+        expected_key = {
+            "symbols": "symbols",
+            "definition": "locations",
+            "references": "locations",
+            "hover": "hover",
+            "diagnostics": "diagnostics",
+        }[self.operation]
+        if set(self.result) != {expected_key}:
+            raise ValueError("code intelligence result kind is invalid")
+        if self.stale != (self.workspace_tree_hash != self.current_tree_hash):
+            raise ValueError("code intelligence stale state is invalid")
+        return self
+
+
+class CodeDiagnosticsSnapshot(StrictModel):
+    task_id: str
+    operation_id: str
+    entry_id: str
+    language: Literal[
+        "python", "typescript", "typescriptreact", "javascript", "javascriptreact"
+    ]
+    workspace_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    current_tree_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    stale: bool
+    diagnostics: tuple[WorkerDiagnostic, ...] = Field(max_length=2000)
+
+    @field_validator("task_id", "operation_id", "entry_id")
+    @classmethod
+    def validate_diagnostics_snapshot_id(cls, value: str) -> str:
+        if SAFE_ID.fullmatch(value) is None:
+            raise ValueError("diagnostics snapshot identifier is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_diagnostics_binding(self) -> "CodeDiagnosticsSnapshot":
+        if self.stale != (self.workspace_tree_hash != self.current_tree_hash):
+            raise ValueError("diagnostics stale state is invalid")
+        if any(
+            item.task_id != self.task_id
+            or item.entry_id != self.entry_id
+            or item.workspace_tree_hash != self.workspace_tree_hash
+            for item in self.diagnostics
+        ):
+            raise ValueError("diagnostics snapshot binding is invalid")
+        return self
+
+
 class CapabilityLease(StrictModel):
     lease_id: str
     task_id: str
