@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from .contracts import (
     EvidenceStatus,
@@ -96,6 +96,19 @@ class CodingWorkerService:
         self._started = False
 
     async def create_task(self, origin: Origin, request: TaskCreateRequest) -> TaskRecord:
+        frozen_checks = getattr(self.tool_broker, "frozen_checks", None)
+        if isinstance(frozen_checks, Mapping):
+            unknown = [
+                check.check_id
+                for check in request.acceptance.required_checks
+                if check.kind == "command"
+                and check.check_id not in frozen_checks
+            ]
+            if unknown:
+                raise WorkerConflictError(
+                    "Acceptance check is not registered.",
+                    code="worker_acceptance_not_registered",
+                )
         await self.start()
         spec = TaskSpec(**request.model_dump(), origin=origin)
         task = self.store.create_task(spec)

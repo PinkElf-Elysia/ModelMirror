@@ -37,7 +37,7 @@ Dify 不再承载 `/workflow` 或 `/rag` 主路径。仓库仍保留
 | DuckDB | Data X 项目隔离分析。 |
 | Browser / Sandbox sidecar | 受控浏览器和无网络沙箱执行。 |
 | OmniRoute sidecar | 可选兼容、诊断和紧急回退；不是普通用户控制面。 |
-| OpenCode + 最小 ACP Worker | 实验性代码问答与修改草稿执行面；单实例、默认关闭。 |
+| Coding Worker V14 | 供应商中立的持久任务控制面；双槽、默认关闭，OpenCode 1.18.9 为首个内部 Provider，ACP 为回退。 |
 | Coding Project Source | 无网络的受控项目清单与单槽 Git HEAD 快照服务；只有它可读取清单 `CODING_PROJECTS_ROOT`。 |
 | Coding Project Writer | 对清单中逐项目授权的无远程本地克隆执行原子写入、撤销、本地提交与对账。 |
 | Windows Project Host v2 | 在用户电脑上保存项目路径并执行受控原子写入、当前分支本地提交和精确对账；Server 只看到不透明项目 ID。 |
@@ -288,3 +288,38 @@ flowchart LR
   远端合并、目录操作、多 Agent、分布式
   Worker 或生产多租户。
 - Dify 代理属于 legacy compatibility；除非形成新的产品决策，不恢复为主路由。
+
+## V14 通用 Coding Worker
+
+V14 将新的平台级代码任务放入 `server/coding_worker/`，不再把任务控制、工具执行和验收继续堆进 `coding_runtime/api.py`。现有 Coding Runtime 与 Agent Workspace 的活动会话保持 legacy；新会话仅在 `CODING_WORKER_V14_ENABLED=true` 且 Worker 健康时渐进转发。
+
+```mermaid
+flowchart LR
+  MODULE["平台模块 / 浏览器"] --> API["/api/coding-worker/v1"]
+  API --> STORE["加密 Worker Store + Event Log"]
+  API --> SCHED["双槽调度器"]
+  SOURCE["builtin / manifest / host_snapshot"] --> WS["任务独立合成 Git H0"]
+  SCHED --> PA["Provider A"]
+  SCHED --> PB["Provider B"]
+  PA --> BROKER["Tool Broker"]
+  PB --> BROKER
+  BROKER --> EA["Executor A"]
+  BROKER --> EB["Executor B"]
+  EA -. "批准的网络租约" .-> EGRESS["allowlisted egress proxy"]
+  EB -. "批准的网络租约" .-> EGRESS
+  WS --> EVIDENCE["Harness Runner + Evidence Ledger"]
+  EVIDENCE --> CONSOLE["共享 Worker Console"]
+  CONSOLE -. "完成的 Host Snapshot" .-> V13["v13 写回确认链"]
+```
+
+核心边界：
+
+- `TaskSpec.origin` 由 Server 写入；浏览器和模块不能传物理路径、环境变量、remote URL、凭据、供应商名或原始执行端点。
+- 每个任务使用独立 Workspace、事件、审批、进程、Artifact 与 checkpoint；两个固定槽可并行，第三个任务持久排队。
+- Provider 与 Executor 分离。Provider 只连接受控模型网络；Executor 只连接内部 `coding_worker_tools` 网络，无法直接访问 Server/newAPI。网络租约只能经独立 egress proxy 生效。
+- OpenCode 1.18.9 的端口、认证和原始帧属于 Provider 私有实现；公共契约只包含 capability、open、message、event stream、cancel、checkpoint、restore、close。
+- 必需检查由后端冻结并绑定 Workspace tree hash。模型停止调用工具只进入验收阶段；全部必需 Evidence 通过后才能 `completed`，树变化会使旧证据失效。
+- 重启不会恢复旧进程或重放未知副作用。只恢复与当前 tree hash 匹配的确定 checkpoint；其余任务进入 `interrupted`，等待显式 resume。
+- `host_snapshot` 在任务真正出队时才向 Windows Helper 请求一次性快照并导入 Project Source；Server 始终不获得宿主物理路径。完成后仅能显式交给现有 v13 写回链，Worker 本身不写用户仓库。
+
+`/coding` 和 `/agents/workbench` 使用同一个 Worker Console。前者保留 v13 apply/commit/undo/publish 领域动作；后者只显示通用任务、文件、Diff、审批、Evidence、Artifact 与终端语义。下游 Skill/MCP 创建、AI 应用、3D 引擎和用户开发模块只注册来源、上下文和验收适配器，不向 Worker 内核加入领域逻辑。

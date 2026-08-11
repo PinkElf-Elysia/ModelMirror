@@ -13,6 +13,11 @@ from .service import CodingWorkerService
 from .store import CodingWorkerStore, DEFAULT_RETENTION_SECONDS
 from .tool_broker import FrozenCheck, ToolBroker
 from .workspace import WorkspaceBroker, WorkspaceSourceAdapter
+from .source_adapters import (
+    BuiltinGitWorkspaceSourceAdapter,
+    HostSnapshotWorkspaceSourceAdapter,
+    ProjectSnapshotWorkspaceSourceAdapter,
+)
 
 
 class CodingWorkerRuntimeError(RuntimeError):
@@ -160,6 +165,27 @@ class CodingWorkerRuntime:
 
 _SOURCE_ADAPTERS: dict[str, WorkspaceSourceAdapter] = {}
 _FROZEN_CHECKS: dict[str, FrozenCheck] = {}
+_DEFAULT_FROZEN_CHECKS = {
+    "python-compile": FrozenCheck(
+        check_id="python-compile",
+        argv=("python", "-m", "compileall", "-q", "."),
+    ),
+    "python-pytest": FrozenCheck(
+        check_id="python-pytest",
+        argv=("python", "-m", "pytest", "-q"),
+        timeout_seconds=900,
+    ),
+    "react-test": FrozenCheck(
+        check_id="react-test",
+        argv=("npm", "test", "--", "--run"),
+        timeout_seconds=900,
+    ),
+    "react-build": FrozenCheck(
+        check_id="react-build",
+        argv=("npm", "run", "build"),
+        timeout_seconds=900,
+    ),
+}
 
 
 def register_workspace_source_adapter(
@@ -174,7 +200,9 @@ def register_workspace_source_adapter(
 
 
 def register_frozen_check(check: FrozenCheck) -> None:
-    existing = _FROZEN_CHECKS.get(check.check_id)
+    existing = _DEFAULT_FROZEN_CHECKS.get(check.check_id) or _FROZEN_CHECKS.get(
+        check.check_id
+    )
     if existing is not None and existing != check:
         raise CodingWorkerRuntimeError(
             "Frozen check is already registered.",
@@ -236,11 +264,61 @@ def build_runtime_from_environment() -> CodingWorkerRuntime:
         for value in os.getenv("CODING_WORKER_NETWORK_DOMAINS", "").split(",")
         if value.strip()
     )
+    source_adapters = dict(_SOURCE_ADAPTERS)
+    builtin_root = os.getenv("CODING_WORKER_BUILTIN_SOURCE_ROOT")
+    builtin_revision = os.getenv("CODING_WORKER_BUILTIN_REVISION")
+    if bool(builtin_root) != bool(builtin_revision):
+        raise CodingWorkerRuntimeError(
+            "Builtin Worker source configuration is incomplete.",
+            code="coding_worker_config_invalid",
+        )
+    if builtin_root and builtin_revision:
+        source_adapters.setdefault(
+            "builtin",
+            BuiltinGitWorkspaceSourceAdapter(
+                Path(builtin_root),
+                source_id=os.getenv("CODING_WORKER_BUILTIN_SOURCE_ID", "modelmirror"),
+                revision=builtin_revision,
+            ),
+        )
+    project_source_socket = os.getenv("CODING_PROJECT_SOURCE_SOCKET_PATH")
+    if project_source_socket:
+        try:
+            from server.coding_runtime.project_source_client import (
+                CodingProjectSourceClient,
+            )
+        except ModuleNotFoundError:
+            from coding_runtime.project_source_client import CodingProjectSourceClient
+        project_source_client = CodingProjectSourceClient(project_source_socket)
+        project_adapter = ProjectSnapshotWorkspaceSourceAdapter(
+            project_source_client,
+            Path(os.getenv("CODING_WORKER_PROJECT_SNAPSHOT_ROOT", "/project-snapshots")),
+        )
+        source_adapters.setdefault("manifest", project_adapter)
+        try:
+            from server.coding_runtime.api import get_coding_service
+        except ModuleNotFoundError:
+            from coding_runtime.api import get_coding_service
+        coding_service = get_coding_service()
+        if coding_service.project_host is not None:
+            source_adapters.setdefault(
+                "host_snapshot",
+                HostSnapshotWorkspaceSourceAdapter(
+                    coding_service.project_host,
+                    project_source_client,
+                    Path(
+                        os.getenv(
+                            "CODING_WORKER_PROJECT_SNAPSHOT_ROOT",
+                            "/project-snapshots",
+                        )
+                    ),
+                ),
+            )
     return CodingWorkerRuntime(
         storage_root=root,
         slot_roots=slot_roots,
-        source_adapters=_SOURCE_ADAPTERS,
-        frozen_checks=_FROZEN_CHECKS,
+        source_adapters=source_adapters,
+        frozen_checks={**_DEFAULT_FROZEN_CHECKS, **_FROZEN_CHECKS},
         provider_endpoints=endpoints,
         provider_tokens=tokens,
         executor_endpoints=executor_endpoints,

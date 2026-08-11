@@ -29,7 +29,7 @@ from server.coding_worker.provider import (
     ProviderSession,
 )
 from server.coding_worker.service import CodingWorkerService
-from server.coding_worker.store import CodingWorkerStore
+from server.coding_worker.store import CodingWorkerStore, WorkerConflictError
 from server.coding_worker.tool_broker import FrozenCheck, ToolBroker
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
 
@@ -130,9 +130,42 @@ def _service_with_harness(
             workspace_broker=workspace,
             provider=provider,
             harness_runner=harness,
+            tool_broker=broker,
         ),
         broker,
     )
+
+
+@pytest.mark.asyncio
+async def test_unregistered_command_check_is_rejected_before_queue(
+    tmp_path: Path,
+) -> None:
+    service, _broker = _service_with_harness(
+        tmp_path, FakeCodingAgentProvider()
+    )
+    request = _request("unknown-check").model_copy(
+        update={
+            "acceptance": AcceptanceContract(
+                contract_id="unknown-contract",
+                required_checks=(
+                    AcceptanceCheck(
+                        check_id="caller-shell",
+                        label="Caller shell",
+                        kind="command",
+                    ),
+                ),
+            )
+        }
+    )
+
+    with pytest.raises(WorkerConflictError) as caught:
+        await service.create_task(
+            Origin(module="test", object_id="unknown-check"), request
+        )
+
+    assert caught.value.code == "worker_acceptance_not_registered"
+    assert service.store.list_tasks() == []
+    await service.shutdown()
 
 
 @pytest.mark.asyncio

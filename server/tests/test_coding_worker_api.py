@@ -93,6 +93,7 @@ def test_enabled_runtime_fails_closed_when_sidecar_tokens_are_missing(
 def test_create_is_idempotent_and_server_owns_origin(tmp_path: Path) -> None:
     client, _service = _client(tmp_path)
     with client:
+        assert client.get("/api/coding-worker/v1").json()["acceptance_checks"] == []
         first = client.post("/api/coding-worker/v1/tasks", json=_payload())
         second = client.post("/api/coding-worker/v1/tasks", json=_payload())
     assert first.status_code == 202
