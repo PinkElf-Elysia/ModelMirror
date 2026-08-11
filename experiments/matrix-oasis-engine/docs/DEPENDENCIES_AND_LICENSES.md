@@ -76,6 +76,12 @@ R5 不新增 npm、Godot addon、GDExtension 或其他第三方运行依赖。Go
 
 任何新增 addon、原生扩展或 vendored 源码都必须先提交依赖变更申请并取得人工批准，不能混入 R5 功能批次。
 
+## R6 官方参考源码
+
+R6 不新增运行依赖或 Godot addon。仅按已批准方案保存 `godotengine/godot-demo-projects` commit `b4eff8de9d7ba5a4f1a2dea8bae60f28816b7eea` 的 `3d/kinematic_character/player/cubio.gd` 作为非可执行参考，并保留仓库 MIT License、源文件 SHA-256、来源锁和适配说明。正式控制器是独立第一方实现，参考文件不被 Godot 导入、加载或执行。
+
+该参考只用于 CharacterBody3D 重力、相机方向移动、加减速和重置插值模式；不引入社区 FPS 插件、状态机、镜头特效或资产。任何来源 commit、文件字节、许可证或用途变化均需重新人工审批。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；
