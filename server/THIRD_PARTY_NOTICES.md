@@ -89,6 +89,22 @@ distributed under the MIT License or the Unlicense.
 
 Project: https://github.com/BurntSushi/ripgrep
 
+## Coding Worker code intelligence
+
+The V15 Coding Worker Executor image installs Pyright 1.1.411 under the MIT
+License, TypeScript Language Server 5.3.0 under the Apache License 2.0, and
+TypeScript 5.9.3 under the Apache License 2.0. These packages provide fixed
+Python and TypeScript/JavaScript language intelligence inside the isolated
+Executor. They are pinned and verified against their published npm SHA-512
+integrity values during image build; package and license metadata remain in
+the image's global Node.js modules directory.
+
+Projects:
+
+- https://github.com/microsoft/pyright
+- https://github.com/typescript-language-server/typescript-language-server
+- https://github.com/microsoft/TypeScript
+
 ## Coding Verifier, Applier, and Committer
 
 The optional `coding-verify` profile uses the project's locked CPython and
