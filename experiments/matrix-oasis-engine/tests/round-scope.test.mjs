@@ -79,12 +79,14 @@ function makeParentFixture(t) {
   write(fixture, `${MODULE_PREFIX}/docs/adr/0004-r3-runtime-pack-governance.md`);
   write(fixture, `${MODULE_PREFIX}/docs/adr/0005-r4-godot-foundation-governance.md`);
   write(fixture, `${MODULE_PREFIX}/docs/adr/0006-r5-godot-runtime-adapter-governance.md`);
+  write(fixture, `${MODULE_PREFIX}/docs/adr/0007-r6-playable-3d-governance.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R0_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R1_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R2_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R3_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R4_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/rounds/R5_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R6_ACCEPTANCE.md`);
   write(fixture, `${MODULE_PREFIX}/docs/RUNTIME_GAME_PACK.md`);
   write(fixture, `${MODULE_PREFIX}/docs/RUNTIME_PACK_THREAT_MODEL.md`);
   write(fixture, `${MODULE_PREFIX}/docs/GODOT_FOUNDATION.md`);
@@ -99,8 +101,11 @@ function makeParentFixture(t) {
   write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/addons/gdUnit4/plugin.cfg`);
   write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/runtime/runtime_session.gd`);
   write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/test/r5/test_runtime_session.gd`);
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/playable/playable_lab.gd`);
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/test/r6/test_playable_lab.gd`);
   write(fixture, `${MODULE_PREFIX}/third-party/gdunit4.lock.json`);
   write(fixture, `${MODULE_PREFIX}/third-party/gdunit4/LICENSE`);
+  write(fixture, `${MODULE_PREFIX}/third-party/godot-demo-projects/reference.lock.json`);
   write(fixture, `${MODULE_PREFIX}/scripts/validate-pack.mjs`);
   write(fixture, `${MODULE_PREFIX}/tests/game-pack-simulator-semantics.test.mjs`);
   write(fixture, "client/fixture.txt", "parent fixture\n");
@@ -117,12 +122,12 @@ function expectCode(fn, expected) {
   });
 }
 
-test("machine boundary and code expose the same ordered R6 policy", () => {
+test("machine boundary and code expose the same ordered R7 policy", () => {
   const policy = JSON.parse(
     readFileSync(path.join(committedModuleRoot, "module-boundary.json"), "utf8"),
   );
 
-  assert.equal(policy.schemaVersion, 6);
+  assert.equal(policy.schemaVersion, 7);
   assert.equal(policy.activeRound, ACTIVE_ROUND);
   assert.equal(policy.activeRoundBaselineSha, ACTIVE_ROUND_BASELINE_SHA);
   assert.deepEqual(
@@ -139,18 +144,18 @@ test("machine boundary and code expose the same ordered R6 policy", () => {
   );
 });
 
-test("accepts exact R6 files and playable prefixes in every Git status source", (t) => {
+test("accepts exact R7 files and scene binding prefixes in every Git status source", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/playable/first_person_controller.gd`, "extends CharacterBody3D\n");
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/scene_binding/scene_lab.gd`, "extends Node3D\n");
   git(fixture, ["add", "."]);
   git(fixture, ["commit", "--quiet", "-m", "round change"]);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/test/r6/test_first_person_controller.gd`);
-  git(fixture, ["add", `${MODULE_PREFIX}/apps/runtime-godot/test/r6/test_first_person_controller.gd`]);
+  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/test/r7/test_scene_lab.gd`);
+  git(fixture, ["add", `${MODULE_PREFIX}/apps/runtime-godot/test/r7/test_scene_lab.gd`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "staged\n");
   git(fixture, ["add", `${MODULE_PREFIX}/scripts/run-verify.mjs`]);
   write(fixture, `${MODULE_PREFIX}/scripts/run-verify.mjs`, "unstaged update\n");
-  write(fixture, `${MODULE_PREFIX}/docs/rounds/R6_ACCEPTANCE.md`);
-  write(fixture, `${MODULE_PREFIX}/apps/runtime-godot/project.godot`, "approved settings\n");
+  write(fixture, `${MODULE_PREFIX}/docs/rounds/R7_ACCEPTANCE.md`);
+  write(fixture, `${MODULE_PREFIX}/packages/scene-pack-contracts/src/index.mjs`, "export {};\n");
 
   const result = checkRoundScope({ moduleRoot, base, expectedBase: base });
   assert.equal(result.status, "ok");
@@ -181,9 +186,9 @@ test("rejects a staged R1 validator change", (t) => {
   );
 });
 
-test("rejects an unstaged R1 example change", (t) => {
+test("rejects an unstaged frozen R1 example change", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
-  write(fixture, `${MODULE_PREFIX}/examples/neutral.json`, "changed\n");
+  write(fixture, `${MODULE_PREFIX}/examples/mechanics-conformance.authoring-game-pack.json`, "changed\n");
 
   expectCode(
     () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
@@ -191,13 +196,13 @@ test("rejects an unstaged R1 example change", (t) => {
   );
 });
 
-test("rejects an untracked file under frozen R1 examples", (t) => {
+test("rejects an untracked unapproved file under examples", (t) => {
   const { fixture, moduleRoot, base } = makeParentFixture(t);
   write(fixture, `${MODULE_PREFIX}/examples/new-story.json`);
 
   expectCode(
     () => checkRoundScope({ moduleRoot, base, expectedBase: base }),
-    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
+    "ROUND_SCOPE_PATH_NOT_ALLOWLISTED",
   );
 });
 
@@ -208,6 +213,7 @@ for (const acceptance of [
   "R3_ACCEPTANCE.md",
   "R4_ACCEPTANCE.md",
   "R5_ACCEPTANCE.md",
+  "R6_ACCEPTANCE.md",
 ]) {
   test(`rejects byte changes to historical ${acceptance}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -228,6 +234,7 @@ for (const historicalPath of [
   "docs/adr/0004-r3-runtime-pack-governance.md",
   "docs/adr/0005-r4-godot-foundation-governance.md",
   "docs/adr/0006-r5-godot-runtime-adapter-governance.md",
+  "docs/adr/0007-r6-playable-3d-governance.md",
   "docs/RUNTIME_GAME_PACK.md",
   "docs/RUNTIME_PACK_THREAT_MODEL.md",
   "docs/GODOT_FOUNDATION.md",
@@ -235,6 +242,8 @@ for (const historicalPath of [
   "docs/MCP_QUALIFICATION.md",
   "docs/GODOT_RUNTIME_ADAPTER.md",
   "docs/GODOT_RUNTIME_THREAT_MODEL.md",
+  "docs/GODOT_PLAYABLE_3D.md",
+  "docs/GODOT_PLAYABLE_3D_THREAT_MODEL.md",
 ]) {
   test(`rejects byte changes to frozen ${historicalPath}`, (t) => {
     const { fixture, moduleRoot, base } = makeParentFixture(t);
@@ -255,6 +264,8 @@ for (const frozenPath of [
   "tests/game-pack-simulator-semantics.test.mjs",
   "apps/runtime-godot/runtime/runtime_session.gd",
   "apps/runtime-godot/test/r5/test_runtime_session.gd",
+  "apps/runtime-godot/playable/playable_lab.gd",
+  "apps/runtime-godot/test/r6/test_playable_lab.gd",
   "apps/runtime-godot/scenes/bootstrap.tscn",
   "apps/runtime-godot/scripts/bootstrap.gd",
   "apps/runtime-godot/test/test_foundation.gd",
@@ -340,18 +351,26 @@ test("rejects a caller-selected base", (t) => {
   );
 });
 
-test("round path classifier exposes stable guard categories", () => {
+test("round path classifier exposes stable R7 guard categories", () => {
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/playable/first_person_controller.gd`),
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/scene_binding/scene_lab.gd`),
     null,
   );
   assert.equal(
-    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/test/r6/test_first_person_controller.gd`),
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/test/r7/test_scene_lab.gd`),
     null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/packages/scene-pack-validator/src/index.mjs`),
+    null,
+  );
+  assert.equal(
+    classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/playable/first_person_controller.gd`),
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/project.godot`),
-    null,
+    "ROUND_GUARD_FROZEN_ARTIFACT_CHANGED",
   );
   assert.equal(
     classifyRoundPath(`${MODULE_PREFIX}/apps/runtime-godot/runtime/runtime_session.gd`),

@@ -151,7 +151,7 @@ const STATIC_SECRET_PATTERNS = [
 ];
 const ASSIGNED_SECRET = /\b(?:OPENROUTER_API_KEY|LLM_GATEWAY_KEY|DIFY_API_KEY|GITHUB_TOKEN|NPM_TOKEN|_authToken|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*(?:"([^"]+)"|'([^']+)'|([^\s#;,]+))/gi;
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 6],
+  [["schemaVersion"], 7],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -163,7 +163,8 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "creatorSource"], "none"],
   [["networkPolicy", "godotFirstPartySource"], "none"],
   [["networkPolicy", "verificationScripts"], "loopback-only"],
-  [["networkPolicy", "mcpQualification"], "loopback-disposable-only"],
+  [["networkPolicy", "providerCalls"], "none-in-r7"],
+  [["networkPolicy", "splatQualification"], "source-checkout-and-loopback-disposable-only"],
   [["runtimeArtifactInputPolicy", "mode"], "paired-local-files-only"],
   [["runtimeArtifactInputPolicy", "runtimeMaxBytes"], 16 * 1024 * 1024],
   [["runtimeArtifactInputPolicy", "receiptMaxBytes"], 16 * 1024],
@@ -177,6 +178,21 @@ const REQUIRED_POLICY_VALUES = [
     ["runtimeArtifactInputPolicy", "isolatedUtf16Surrogates"],
     "reject-with-static-diagnostic",
   ],
+  [["scenePackInputPolicy", "mode"], "local-manifest-and-glb-only"],
+  [["scenePackInputPolicy", "manifestMaxBytes"], 256 * 1024],
+  [["scenePackInputPolicy", "assetMaxBytes"], 32 * 1024 * 1024],
+  [["scenePackInputPolicy", "totalAssetMaxBytes"], 128 * 1024 * 1024],
+  [["scenePackInputPolicy", "assetMaxCount"], 16],
+  [["scenePackInputPolicy", "placementMaxCount"], 128],
+  [["scenePackInputPolicy", "nodeBindingMaxCount"], 4096],
+  [["scenePackInputPolicy", "format"], "matrix-oasis.scene-pack"],
+  [["scenePackInputPolicy", "formatVersion"], "0.1.0"],
+  [["scenePackInputPolicy", "canonicalization"], "matrix-oasis.canonical-json/1"],
+  [["scenePackInputPolicy", "allowedAssetFormats"], ["glb"]],
+  [["scenePackInputPolicy", "readOnly"], true],
+  [["scenePackInputPolicy", "networkAllowed"], false],
+  [["scenePackInputPolicy", "providerCallsAllowed"], false],
+  [["scenePackInputPolicy", "symlinksAllowed"], false],
   [
     ["forbiddenParentRoots"],
     ["client", "server", ".github", "docker-compose.yml", "Dockerfile", "node_modules"],
@@ -256,6 +272,8 @@ const REQUIRED_POLICY_VALUES = [
     ["artifactRestrictions", "allowedFirstPartyGodotExtensions"],
     [".gd", ".gdshader", ".tscn", ".tres", ".uid"],
   ],
+  [["artifactRestrictions", "allowedSceneAssetRoot"], "examples/scene-bundles/kenney-prototype/assets"],
+  [["artifactRestrictions", "allowedSceneAssetExtensions"], [".glb"]],
   [["artifactRestrictions", "restrictedAddonDirectoryName"], "addons"],
   [
     ["artifactRestrictions", "forbiddenGodotExtensions"],
@@ -275,9 +293,15 @@ const REQUIRED_POLICY_VALUES = [
   ],
   [["artifactRestrictions", "rotatedLogsForbidden"], true],
   [["thirdPartyPolicy", "vendorManifest"], "third-party/gdunit4.lock.json"],
+  [["thirdPartyPolicy", "referenceManifest"], "third-party/godot-demo-projects/reference.lock.json"],
+  [["thirdPartyPolicy", "sceneAssetManifest"], "third-party/kenney-prototype-kit/asset.lock.json"],
   [
     ["thirdPartyPolicy", "allowedVendoredRoots"],
-    ["apps/runtime-godot/addons/gdUnit4"],
+    ["apps/runtime-godot/addons/gdUnit4", "examples/scene-bundles/kenney-prototype/assets"],
+  ],
+  [
+    ["thirdPartyPolicy", "allowedReferenceRoots"],
+    ["third-party/godot-demo-projects", "third-party/kenney-prototype-kit"],
   ],
   [["thirdPartyPolicy", "modificationsRequireHumanApproval"], true],
   [["licensePolicy", "moduleLicense"], "UNLICENSED"],
@@ -285,6 +309,7 @@ const REQUIRED_POLICY_VALUES = [
     ["licensePolicy", "allowedDependencyLicenses"],
     ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"],
   ],
+  [["licensePolicy", "approvedAssetLicenses"], ["CC0-1.0"]],
   [
     ["licensePolicy", "approvedDependencyLicenseExceptions"],
     [

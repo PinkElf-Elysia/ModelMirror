@@ -82,6 +82,13 @@ R6 不新增运行依赖或 Godot addon。仅按已批准方案保存 `godotengi
 
 该参考只用于 CharacterBody3D 重力、相机方向移动、加减速和重置插值模式；不引入社区 FPS 插件、状态机、镜头特效或资产。任何来源 commit、文件字节、许可证或用途变化均需重新人工审批。
 
+## R7 场景资产与资格候选
+
+- Kenney Prototype Kit 1.0：CC0-1.0。只 vendoring `floor-square.glb`、`wall.glb`、`crate.glb`、`figurine.glb` 四个固定文件和许可证/来源锁；不复制整包。
+- `ReconWorldLab/godot-gaussian-splatting` commit `d9de8db86a63e8bf9067c869dcdbd0614922fd1e`：MIT，仅在仓外副本资格验证，不加入正式工程、package lock 或 Godot addon。
+- R7 不增加 registry 依赖；Scene contracts/validator 只复用模块内 Runtime contracts、Ajv 与 jsonc-parser。
+- Marble/Meshy 均不作为依赖，R7 不调用其 API/MCP、不读取凭据或下载生成物。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；
