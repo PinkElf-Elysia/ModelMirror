@@ -58,7 +58,10 @@ class _LspClient:
             "javascript",
             "javascriptreact",
         }:
-            initialization_options["tsserver"] = {"path": TYPESCRIPT_SERVER_PATH}
+            initialization_options["tsserver"] = {
+                "path": TYPESCRIPT_SERVER_PATH,
+                "useSyntaxServer": "never",
+            }
         await self.request(
             "initialize",
             {
