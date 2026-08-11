@@ -405,7 +405,7 @@ class WorkspaceBroker:
         text: bool = True,
     ) -> str | bytes:
         result = subprocess.run(
-            ["git", *args],
+            ["git", "-c", f"safe.directory={repository}", *args],
             cwd=repository,
             env=env,
             stdin=subprocess.DEVNULL,

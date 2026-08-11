@@ -117,6 +117,30 @@ async def test_workspace_tree_detects_links_and_diff_uses_private_index(tmp_path
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name == "nt" or not hasattr(os, "geteuid") or os.geteuid() != 0,
+    reason="requires Linux root to reproduce the sidecar ownership boundary",
+)
+async def test_diff_accepts_worker_owned_synthetic_repository(tmp_path: Path) -> None:
+    source = _source()
+    broker = WorkspaceBroker(
+        tmp_path / "control",
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {(source.source_id, source.revision): {"tracked.txt": b"old\n"}}
+            )
+        },
+        id_key=b"o" * 32,
+        slot_roots={"slot-a": tmp_path / "slot-a"},
+        slot_owner=(65532, 65532),
+    )
+    record = await broker.prepare(source, slot_id="slot-a")
+    (broker.repository_path(record.workspace_id) / "tracked.txt").write_bytes(b"new\n")
+
+    assert b"tracked.txt" in broker.diff(record.workspace_id)
+
+
+@pytest.mark.asyncio
 async def test_dedicated_slots_keep_workspace_files_in_separate_roots(
     tmp_path: Path,
 ) -> None:
