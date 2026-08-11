@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import tempfile
@@ -68,6 +69,13 @@ class OutputRendererSidecarTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    @unittest.skipUnless(
+        all(
+            importlib.util.find_spec(module) is not None
+            for module in ("reportlab", "docx", "openpyxl", "pptx")
+        ),
+        "isolated renderer dependencies are not installed",
+    )
     def test_generates_safe_local_files(self) -> None:
         cases = [
             ("pdf", ".pdf", {"blocks": _blocks()}),

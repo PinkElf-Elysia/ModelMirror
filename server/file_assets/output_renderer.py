@@ -20,11 +20,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-try:
-    from server.mcp.manager import MCPClientManager
-except ModuleNotFoundError:
-    from mcp.manager import MCPClientManager
-
 
 MAX_RENDER_SPEC_BYTES = 2 * 1024 * 1024
 MAX_RENDERED_BYTES = 50 * 1024 * 1024
@@ -254,8 +249,22 @@ class OutputRenderSidecar:
         self.now = now
 
     @staticmethod
-    def _default_manager() -> MCPClientManager:
-        return MCPClientManager(operation_timeout=OUTPUT_RENDER_TIMEOUT_SECONDS, idle_timeout_seconds=60)
+    def _default_manager() -> Any:
+        try:
+            from server.mcp.manager import MCPClientManager
+        except ModuleNotFoundError as primary_error:
+            try:
+                from mcp.manager import MCPClientManager
+            except ModuleNotFoundError as fallback_error:
+                raise OutputRenderError(
+                    503,
+                    "output_renderer_unavailable",
+                    "The isolated file renderer is unavailable.",
+                ) from primary_error
+        return MCPClientManager(
+            operation_timeout=OUTPUT_RENDER_TIMEOUT_SECONDS,
+            idle_timeout_seconds=60,
+        )
 
     def render(self, spec: OutputRenderSpec) -> tuple[bytes, tuple[str, ...]]:
         if spec.format_id not in _SIDECAR_FORMATS:
