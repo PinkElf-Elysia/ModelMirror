@@ -374,12 +374,108 @@ export interface SkillResourcePlan {
   updated_at: number;
 }
 
+export type SkillResourceBuildState =
+  | "planned"
+  | "generating"
+  | "awaiting_review"
+  | "accepted"
+  | "revision_requested"
+  | "failed"
+  | "stale";
+
+export interface SkillResourceScriptTestResult {
+  test_id: string;
+  passed: boolean;
+  exit_code: number;
+  stdout_sha256: string;
+  stderr_sha256: string;
+  duration_ms: number;
+  issues: string[];
+}
+
+export interface SkillResourceScriptReceipt {
+  receipt_id: string;
+  script_digest: string;
+  profile: string;
+  passed: boolean;
+  results: SkillResourceScriptTestResult[];
+  created_at: number;
+}
+
+export interface SkillResourceBuildItem {
+  resource_id: string;
+  spec_digest: string;
+  kind: "script" | "reference" | "asset";
+  action: "keep" | "create" | "update" | "delete";
+  path: string;
+  purpose: string;
+  source_ids: string[];
+  used_by_steps: string[];
+  depends_on: string[];
+  acceptance_checks: string[];
+  state: SkillResourceBuildState;
+  attempt: number;
+  repair_count: number;
+  chunks: string[];
+  content?: string | null;
+  content_digest?: string | null;
+  base_content?: string | null;
+  base_digest?: string | null;
+  script_tests: Array<{
+    test_id: string;
+    args: string[];
+    fixtures: Array<{ path: string; content: string }>;
+    expected_exit_code: number;
+    stdout_contains: string[];
+    stderr_contains: string[];
+  }>;
+  script_receipt?: SkillResourceScriptReceipt | null;
+  validation_issues: SkillPackageIssue[];
+  feedback: string;
+}
+
+export interface SkillResourceBuild {
+  build_id: string;
+  session_id: string;
+  revision: number;
+  digest: string;
+  state: SkillResourceBuildState;
+  phase: "resources" | "skill_markdown" | "proposal";
+  session_revision: number;
+  plan_id: string;
+  plan_revision: number;
+  plan_digest: string;
+  draft_id?: string | null;
+  draft_revision?: number | null;
+  draft_digest?: string | null;
+  skill_name: string;
+  skill_description: string;
+  workflow_steps: SkillResourcePlanStep[];
+  output_contract: string[];
+  failure_modes: string[];
+  resources: SkillResourceBuildItem[];
+  current_resource_id?: string | null;
+  skill_chunks: string[];
+  skill_markdown?: string | null;
+  skill_markdown_digest?: string | null;
+  skill_attempt: number;
+  skill_repair_count: number;
+  skill_validation_issues: SkillPackageIssue[];
+  skill_feedback: string;
+  requirement_coverage: Array<Record<string, unknown>>;
+  proposal_id?: string | null;
+  stale?: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface SkillCreatorSession {
   session_id: string;
   session_revision: number;
   draft_state_revision: number;
   mode: "blank" | "run";
   assistant_agent_id: "skill-creator-assistant-v1" | string;
+  authoring_flow?: "legacy" | "resource";
   intent: string;
   positive_examples: string[];
   near_miss_examples: string[];
@@ -420,6 +516,7 @@ export interface SkillCreatorSession {
   proposal?: SkillCreatorProposal | null;
   draft?: SkillCreatorDraft | null;
   resource_plan?: SkillResourcePlan | null;
+  resource_build?: SkillResourceBuild | null;
   created_at: number;
   updated_at: number;
 }
@@ -435,6 +532,10 @@ export interface SkillCreatorStatus {
   resource_authoring_enabled?: boolean;
   resource_authoring_version?: string | null;
   resource_planner_available?: boolean;
+  resource_build_enabled?: boolean;
+  resource_build_version?: string | null;
+  resource_builder_available?: boolean;
+  script_sandbox_configured?: boolean;
 }
 
 export interface SkillCreatorListResponse {
@@ -525,6 +626,7 @@ function unwrapSession(
         cases_revision?: number;
         evaluation_run?: SkillEvaluationRun | null;
         resource_plan?: SkillResourcePlan | null;
+        resource_build?: SkillResourceBuild | null;
       },
 ): SkillCreatorSession {
   if (!("session" in payload)) return payload;
@@ -536,6 +638,7 @@ function unwrapSession(
     cases_revision: payload.cases_revision ?? payload.session.cases_revision,
     evaluation_run: payload.evaluation_run ?? payload.session.evaluation_run,
     resource_plan: payload.resource_plan ?? payload.session.resource_plan,
+    resource_build: payload.resource_build ?? payload.session.resource_build,
   };
 }
 
@@ -912,6 +1015,100 @@ export async function confirmSkillCreatorResourcePlan(session: SkillCreatorSessi
     `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/resource-plan/confirm`,
     jsonRequest("POST", resourcePlanWritePayload(session, plan)),
   ));
+}
+
+function resourceBuildMutationPayload(
+  session: SkillCreatorSession,
+  build: SkillResourceBuild,
+) {
+  return {
+    expected_session_revision: session.session_revision,
+    expected_revision: build.revision,
+    expected_digest: build.digest,
+  };
+}
+
+function unwrapResourceBuild(
+  payload: SkillResourceBuild | { resource_build: SkillResourceBuild },
+) {
+  return "resource_build" in payload ? payload.resource_build : payload;
+}
+
+export async function startSkillCreatorResourceBuild(session: SkillCreatorSession) {
+  const plan = session.resource_plan;
+  if (!plan) throw new Error("Resource plan is unavailable.");
+  return unwrapResourceBuild(await request<{ resource_build: SkillResourceBuild }>(
+    `/api/skills/creator/sessions/${encodeURIComponent(session.session_id)}/resource-build`,
+    jsonRequest("POST", resourcePlanWritePayload(session, plan)),
+  ));
+}
+
+export async function readSkillCreatorResourceBuild(buildId: string) {
+  return unwrapResourceBuild(await request<{ resource_build: SkillResourceBuild }>(
+    `/api/skills/creator/resource-builds/${encodeURIComponent(buildId)}`,
+  ));
+}
+
+export async function advanceSkillCreatorResourceBuild(
+  session: SkillCreatorSession,
+  build: SkillResourceBuild,
+) {
+  return unwrapResourceBuild(await request<{ resource_build: SkillResourceBuild }>(
+    `/api/skills/creator/resource-builds/${encodeURIComponent(build.build_id)}/next`,
+    jsonRequest("POST", resourceBuildMutationPayload(session, build)),
+  ));
+}
+
+export async function reviewSkillCreatorResource(
+  session: SkillCreatorSession,
+  build: SkillResourceBuild,
+  resourceId: string,
+  decision: "accept" | "revise",
+  feedback = "",
+) {
+  return unwrapResourceBuild(await request<{ resource_build: SkillResourceBuild }>(
+    `/api/skills/creator/resource-builds/${encodeURIComponent(build.build_id)}/resources/${encodeURIComponent(resourceId)}/review`,
+    jsonRequest("POST", {
+      ...resourceBuildMutationPayload(session, build),
+      decision,
+      feedback,
+    }),
+  ));
+}
+
+export async function editSkillCreatorResource(
+  session: SkillCreatorSession,
+  build: SkillResourceBuild,
+  resourceId: string,
+  content: string,
+) {
+  return unwrapResourceBuild(await request<{ resource_build: SkillResourceBuild }>(
+    `/api/skills/creator/resource-builds/${encodeURIComponent(build.build_id)}/resources/${encodeURIComponent(resourceId)}`,
+    jsonRequest("PUT", {
+      ...resourceBuildMutationPayload(session, build),
+      content,
+    }),
+  ));
+}
+
+export async function finalizeSkillCreatorResourceBuild(
+  session: SkillCreatorSession,
+  build: SkillResourceBuild,
+  decision: "accept" | "revise",
+  feedback = "",
+) {
+  const result = await request<{
+    resource_build: SkillResourceBuild;
+    proposal?: SkillCreatorProposal | null;
+  }>(
+    `/api/skills/creator/resource-builds/${encodeURIComponent(build.build_id)}/finalize`,
+    jsonRequest("POST", {
+      ...resourceBuildMutationPayload(session, build),
+      decision,
+      feedback,
+    }),
+  );
+  return { build: result.resource_build, proposal: result.proposal ?? null };
 }
 
 export async function generateSkillCreatorProposal(session: SkillCreatorSession) {

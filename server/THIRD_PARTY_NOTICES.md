@@ -184,7 +184,8 @@ ModelMirror includes a modified creation-stage authoring playbook derived from
   `/app/skills/creator_reference/LICENSE-ANTHROPIC-SKILL-CREATOR.txt`
 
 The playbook was rewritten for ModelMirror's typed proposal, UTF-8 package,
-trusted requirement-coverage and PR2/PR3 quality contracts. It excludes the
+interactive resource-planning and build flow, trusted requirement coverage,
+and separate evaluation and installation gates. It excludes the
 upstream evaluator, graders, result viewer, description optimizer, packaging
 scripts and Claude-specific execution paths. Anthropic does not endorse
 ModelMirror; this notice uses the project name only to identify provenance.

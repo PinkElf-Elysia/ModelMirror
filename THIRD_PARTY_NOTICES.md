@@ -13,10 +13,11 @@
   `server/skills/creator_reference/authoring-playbook-v1.md`
 
 ModelMirror adapts only the upstream creation-stage method: capture concrete
-usage intent, plan reusable resources, write progressively disclosed Skill
-instructions, and validate the resulting package. The local playbook was
-rewritten for ModelMirror's typed proposal contract, UTF-8-only package rules,
-trusted session requirement coverage, and PR2/PR3 quality boundary. It omits
+usage intent, plan reusable resources, confirm the plan, build resources in
+dependency order, write progressively disclosed Skill instructions, and
+validate the resulting package. The local playbook was rewritten for
+ModelMirror's typed proposal contract, UTF-8-only package rules, trusted
+session requirement coverage, and separate evaluation and installation gates. It omits
 the upstream evaluation runner, graders, result viewer, description optimizer,
 packaging scripts, and Claude-specific execution paths.
 
