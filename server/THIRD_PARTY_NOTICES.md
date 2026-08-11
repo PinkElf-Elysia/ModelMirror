@@ -6,7 +6,7 @@ ModelMirror uses third-party libraries under their respective licenses.
 
 ModelMirror selectively vendors the Apache-2.0 orchestration core from
 `jnMetaCode/agency-orchestrator` at commit
-`3b7c43042325a9091393de6ecfa7e9936b0c7932`. The source, license, exact Blob
+`e3f69fdf9da8a4630edbb8abeb116893b983b57d`. The source, license, exact Blob
 SHA map and ModelMirror modification log are stored under
 `server/vendor/agency-orchestrator/` in the source repository. The service
 image contains only the compiled Worker closure and its production dependency;

@@ -2,7 +2,7 @@
 
 模镜选择性迁入 Apache-2.0 的
 [`agency-orchestrator`](https://github.com/jnMetaCode/agency-orchestrator)，固定上游提交为
-`3b7c43042325a9091393de6ecfa7e9936b0c7932`。第三方源码、Blob SHA、许可证和本地映射见
+`e3f69fdf9da8a4630edbb8abeb116893b983b57d`。第三方源码、Blob SHA、许可证和本地映射见
 `server/vendor/agency-orchestrator/`。
 
 ## 当前边界

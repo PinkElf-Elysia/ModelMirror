@@ -33,7 +33,7 @@ function gitBlobSha(content: Buffer): string {
 
 test('pins the approved upstream revision and Apache-2.0 license', () => {
   const revision = readFileSync(join(vendorRoot, 'UPSTREAM_REVISION'), 'utf8').trim();
-  assert.equal(revision, '3b7c43042325a9091393de6ecfa7e9936b0c7932');
+  assert.equal(revision, 'e3f69fdf9da8a4630edbb8abeb116893b983b57d');
   assert.equal(manifest.revision, revision);
   assert.equal(manifest.license, 'Apache-2.0');
   assert.match(readFileSync(join(vendorRoot, 'LICENSE'), 'utf8'), /Apache License/);

@@ -13,7 +13,7 @@
     "pretest": "npm run link:vendor-deps",
     "test": "node --import tsx --test test/*.test.ts",
     "pretest:upstream": "npm run link:vendor-deps",
-    "test:upstream": "tsx ../vendor/agency-orchestrator/test/condition.ts && tsx ../vendor/agency-orchestrator/test/compose.ts && tsx ../vendor/agency-orchestrator/test/compose-name.ts && tsx ../vendor/agency-orchestrator/test/team.ts && tsx ../vendor/agency-orchestrator/test/roles.ts && tsx ../vendor/agency-orchestrator/test/skills.ts && tsx ../vendor/agency-orchestrator/test/acceptance.ts && tsx ../vendor/agency-orchestrator/test/verify.ts",
+    "test:upstream": "tsx ../vendor/agency-orchestrator/test/condition.ts && tsx ../vendor/agency-orchestrator/test/compose.ts && tsx ../vendor/agency-orchestrator/test/depends-on-ids.ts && tsx ../vendor/agency-orchestrator/test/compose-name.ts && tsx ../vendor/agency-orchestrator/test/team.ts && tsx ../vendor/agency-orchestrator/test/roles.ts && tsx ../vendor/agency-orchestrator/test/skills.ts && tsx ../vendor/agency-orchestrator/test/acceptance.ts && tsx ../vendor/agency-orchestrator/test/verify.ts",
     "test:all": "npm run test && npm run test:upstream"
   },
   "dependencies": {
