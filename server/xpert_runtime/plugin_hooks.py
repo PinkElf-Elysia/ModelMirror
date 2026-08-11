@@ -9,6 +9,13 @@ from .middleware import AgentMiddleware
 from .models import MiddlewareContext, ToolCallRequest, ToolCallResponse
 from .toolset import RuntimeToolCall
 
+try:
+    from server.skills.trust_service import SkillRuntimeEnvironment
+except ModuleNotFoundError as exc:
+    if exc.name != "server":
+        raise
+    from skills.trust_service import SkillRuntimeEnvironment
+
 
 SUPPORTED_HOOK_EVENTS = {"SessionStart", "PreToolUse", "PostToolUse", "SessionEnd"}
 
@@ -27,7 +34,28 @@ def build_plugin_hooks_middleware(
     async def invoke(event: str, context: MiddlewareContext, tool_name: str | None = None) -> None:
         for skill_id in skill_ids:
             try:
+                _require_plugin_skill_trust(
+                    skill_manager,
+                    skill_id,
+                    context.metadata,
+                    check_runtime=False,
+                )
                 manifest = _load_manifest(skill_manager, skill_id)
+                hook_commands = {
+                    str(hook.get("argv", [""])[0]).strip()
+                    for hook in manifest.get("hooks", [])
+                    if isinstance(hook, dict)
+                    and isinstance(hook.get("argv"), list)
+                    and hook.get("argv")
+                    and isinstance(hook["argv"][0], str)
+                    and str(hook["argv"][0]).strip()
+                }
+                _require_plugin_skill_trust(
+                    skill_manager,
+                    skill_id,
+                    context.metadata,
+                    commands=hook_commands,
+                )
                 for index, hook in enumerate(manifest.get("hooks", [])):
                     if not isinstance(hook, dict) or hook.get("event") != event:
                         continue
@@ -109,6 +137,36 @@ def _load_manifest(skill_manager: Any, skill_id: str) -> dict[str, Any]:
         if not isinstance(hook, dict) or hook.get("event") not in SUPPORTED_HOOK_EVENTS:
             raise ValueError("Plugin hook event is not supported.")
     return payload
+
+
+def _require_plugin_skill_trust(
+    skill_manager: Any,
+    skill_id: str,
+    metadata: dict[str, Any],
+    *,
+    commands: set[str] | None = None,
+    check_runtime: bool = True,
+) -> None:
+    require_activation = getattr(skill_manager, "require_activation", None)
+    if not callable(require_activation):
+        return
+    environment = SkillRuntimeEnvironment(
+        tool_names=frozenset({"skill_read", "skill_stage", "sandbox_shell"}),
+        tool_providers=frozenset({"skill", "sandbox"}),
+        sandbox_commands=frozenset(commands or set()),
+        credentials_available=False,
+        host_filesystem_available=False,
+        desktop_control_available=False,
+    )
+    authorizations = metadata.get("skill_trust_authorizations")
+    require_activation(
+        skill_id,
+        runtime_environment=environment,
+        ephemeral_authorizations=(
+            authorizations if isinstance(authorizations, dict) else None
+        ),
+        check_runtime=check_runtime,
+    )
 
 
 def _csv(value: Any) -> list[str]:

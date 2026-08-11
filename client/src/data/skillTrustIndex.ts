@@ -10,6 +10,7 @@ export interface SkillTrustReceiptSummary {
   trustStatus: SkillTrustStatus;
   installPolicy: SkillTrustInstallPolicy;
   compatibilityStatus: SkillCompatibilityStatus;
+  routerEligible: boolean;
   summary: {
     fileCount: number;
     totalBytes: number;

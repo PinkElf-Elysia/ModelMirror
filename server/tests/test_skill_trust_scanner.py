@@ -67,6 +67,7 @@ def test_pure_text_skill_is_low_risk_and_directly_installable() -> None:
     assert receipt["trustStatus"] == "verified"
     assert receipt["installPolicy"] == "allow"
     assert receipt["compatibilityStatus"] == "portable"
+    assert receipt["routerEligible"] is True
     assert receipt["packageDigest"]
     assert receipt["scannerVersion"] == SKILL_TRUST_SCANNER_VERSION
     assert receipt["findings"] == []
@@ -81,6 +82,7 @@ def test_local_python_and_file_write_are_medium_risk() -> None:
 
     assert receipt["riskLevel"] == "medium"
     assert receipt["installPolicy"] == "confirm"
+    assert receipt["routerEligible"] is True
     assert receipt["summary"]["scriptCount"] == 1
     assert {"trust_local_script", "trust_sandbox_write_required"} <= _codes(receipt)
 
@@ -92,32 +94,39 @@ def test_python_subprocess_is_high_risk_shell_capability() -> None:
     )
 
     assert receipt["riskLevel"] == "high"
+    assert receipt["routerEligible"] is True
     assert receipt["capabilities"]["shell"] is True
     assert "trust_shell_required" in _codes(receipt)
 
 
-def test_matching_passive_binary_is_medium_and_magic_mismatch_blocks() -> None:
+def test_matching_passive_binary_is_medium_and_magic_mismatch_needs_manual_confirmation() -> None:
     markdown = _markdown("## Workflow\n\n1. Use `assets/pixel.png` as a passive template.\n2. Return the result.\n")
     valid = _scan(_entry("SKILL.md", markdown), _entry("assets/pixel.png", b"\x89PNG\r\n\x1a\nrest"))
     mismatch = _scan(_entry("SKILL.md", markdown), _entry("assets/pixel.png", b"GIF89arest"))
 
     assert valid["riskLevel"] == "medium"
     assert valid["summary"]["opaqueResourceCount"] == 1
+    assert valid["routerEligible"] is True
     assert mismatch["riskLevel"] == "critical"
+    assert mismatch["trustStatus"] == "conditional"
+    assert mismatch["installPolicy"] == "confirm"
+    assert mismatch["routerEligible"] is False
     assert "trust_opaque_magic_mismatch" in _codes(mismatch)
 
 
-def test_passive_binary_outside_allowed_package_roots_is_blocked() -> None:
+def test_passive_binary_outside_allowed_package_roots_needs_manual_confirmation() -> None:
     receipt = _scan(
         _entry("SKILL.md", _markdown()),
         _entry("pixel.png", b"\x89PNG\r\n\x1a\nrest"),
     )
 
     assert receipt["riskLevel"] == "critical"
+    assert receipt["installPolicy"] == "confirm"
+    assert receipt["routerEligible"] is False
     assert "file_path_unsafe" in _codes(receipt)
 
 
-def test_unknown_binary_and_invalid_script_syntax_are_blocked() -> None:
+def test_unknown_binary_and_invalid_script_syntax_require_manual_confirmation() -> None:
     unknown = _scan(_entry("SKILL.md", _markdown()), _entry("assets/data.dat", b"\x00\xff\x00\xff"))
     invalid_script = _scan(
         _entry("SKILL.md", _markdown("## Workflow\n\n1. Run `python scripts/tool.py`.\n2. Return the result.\n")),
@@ -126,25 +135,32 @@ def test_unknown_binary_and_invalid_script_syntax_are_blocked() -> None:
 
     assert "trust_unknown_binary_blocked" in _codes(unknown)
     assert "python_syntax_invalid" in _codes(invalid_script)
-    assert unknown["installPolicy"] == invalid_script["installPolicy"] == "block"
+    assert unknown["installPolicy"] == invalid_script["installPolicy"] == "confirm"
+    assert unknown["routerEligible"] is False
+    assert invalid_script["routerEligible"] is False
 
 
 @pytest.mark.parametrize(
-    ("path", "content", "code"),
+    ("path", "content", "code", "expected_policy"),
     [
         (
             "assets/model.dat",
             b"version https://git-lfs.github.com/spec/v1\noid sha256:" + b"a" * 64 + b"\nsize 42\n",
             "trust_git_lfs_pointer_blocked",
+            "block",
         ),
-        ("assets/template.html", b"<html><script>alert(1)</script></html>", "trust_active_text_blocked"),
-        ("assets/payload.txt", b"A" * 2048, "trust_encoded_payload_blocked"),
+        ("assets/template.html", b"<html><script>alert(1)</script></html>", "trust_active_text_blocked", "confirm"),
+        ("assets/payload.txt", b"A" * 2048, "trust_encoded_payload_blocked", "confirm"),
     ],
 )
-def test_external_or_active_text_payloads_are_blocked(path: str, content: bytes, code: str) -> None:
+def test_external_or_active_text_payloads_follow_balanced_policy(
+    path: str, content: bytes, code: str, expected_policy: str
+) -> None:
     receipt = _scan(_entry("SKILL.md", _markdown()), _entry(path, content))
     assert receipt["riskLevel"] == "critical"
     assert code in _codes(receipt)
+    assert receipt["installPolicy"] == expected_policy
+    assert receipt["routerEligible"] is False
 
 
 def test_network_credentials_and_unknown_tool_are_high_risk() -> None:
@@ -161,22 +177,26 @@ def test_network_credentials_and_unknown_tool_are_high_risk() -> None:
     assert receipt["riskLevel"] == "high"
     assert receipt["trustStatus"] == "conditional"
     assert receipt["installPolicy"] == "confirm"
+    assert receipt["routerEligible"] is False
     assert {"trust_network_required", "trust_credentials_required", "trust_tool_unknown"} <= _codes(receipt)
 
 
 @pytest.mark.parametrize(
-    ("entries", "code"),
+    ("entries", "code", "expected_policy"),
     [
-        ((lambda: (_entry("SKILL.md", _markdown()), _entry("scripts/tool.zip", b"PK\x03\x04payload")))(), "trust_archive_blocked"),
-        ((lambda: (_entry("SKILL.md", _markdown()), _entry("scripts/run.sh", b"#!/bin/sh\necho ok\n", mode="100755")))(), "trust_executable_mode_blocked"),
-        ((lambda: (_entry("SKILL.md", _markdown()), SkillTrustTreeEntry("assets/link", "120000", "blob", "c" * 40, 8, None)))(), "trust_symlink_blocked"),
-        ((lambda: (_entry("SKILL.md", _markdown()), SkillTrustTreeEntry("vendor", "160000", "commit", "c" * 40, None, None)))(), "trust_gitlink_blocked"),
+        ((lambda: (_entry("SKILL.md", _markdown()), _entry("scripts/tool.zip", b"PK\x03\x04payload")))(), "trust_archive_blocked", "confirm"),
+        ((lambda: (_entry("SKILL.md", _markdown()), _entry("scripts/run.sh", b"#!/bin/sh\necho ok\n", mode="100755")))(), "trust_executable_mode_blocked", "confirm"),
+        ((lambda: (_entry("SKILL.md", _markdown()), SkillTrustTreeEntry("assets/link", "120000", "blob", "c" * 40, 8, None)))(), "trust_symlink_blocked", "block"),
+        ((lambda: (_entry("SKILL.md", _markdown()), SkillTrustTreeEntry("vendor", "160000", "commit", "c" * 40, None, None)))(), "trust_gitlink_blocked", "block"),
     ],
 )
-def test_unsafe_git_and_binary_content_is_critical(entries: tuple[SkillTrustTreeEntry, ...], code: str) -> None:
+def test_unsafe_git_and_binary_content_uses_balanced_policy(
+    entries: tuple[SkillTrustTreeEntry, ...], code: str, expected_policy: str
+) -> None:
     receipt = _scan(*entries)
     assert receipt["riskLevel"] == "critical"
-    assert receipt["installPolicy"] == "block"
+    assert receipt["installPolicy"] == expected_policy
+    assert receipt["routerEligible"] is False
     assert code in _codes(receipt)
 
 
@@ -191,6 +211,8 @@ def test_secrets_and_dynamic_download_execution_block_without_echoing_secret() -
     serialized = str(receipt)
 
     assert receipt["riskLevel"] == "critical"
+    assert receipt["installPolicy"] == "block"
+    assert receipt["routerEligible"] is False
     assert "trust_download_execute_blocked" in _codes(receipt)
     assert any(code.startswith("credential_") for code in _codes(receipt))
     assert secret not in serialized
@@ -230,6 +252,7 @@ def test_custom_dependency_is_preserved_as_conditional_compatibility() -> None:
 
     assert receipt["riskLevel"] == "medium"
     assert receipt["compatibilityStatus"] == "conditional"
+    assert receipt["routerEligible"] is True
     assert receipt["dependencies"] == ["pandas>=2", "python"]
     assert "frontmatter_field_unsupported" in _codes(receipt)
     assert "trust_nonstandard_dependencies" in _codes(receipt)
@@ -265,6 +288,8 @@ def test_index_deduplicates_receipts_but_maps_every_candidate() -> None:
     assert report["uniqueReceiptCount"] == 1
     assert report["licenseMissingCount"] == 1
     assert report["riskDistribution"] == {"low": 1}
+    assert report["routerEligibleCount"] == 1
+    assert report["routerExcludedCount"] == 0
 
 
 def test_tampered_receipt_fingerprint_is_rejected() -> None:
@@ -305,3 +330,5 @@ def test_scan_limits_and_incomplete_content_fail_closed() -> None:
     assert "trust_path_unsafe" in _codes(depth_receipt)
     assert "trust_scan_content_incomplete" in _codes(incomplete_receipt)
     assert all(receipt["packageDigest"] is None for receipt in (count_receipt, depth_receipt, incomplete_receipt))
+    assert all(receipt["installPolicy"] == "block" for receipt in (count_receipt, depth_receipt, incomplete_receipt))
+    assert all(receipt["routerEligible"] is False for receipt in (count_receipt, depth_receipt, incomplete_receipt))

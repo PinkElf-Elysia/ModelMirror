@@ -44,6 +44,7 @@ try:
     from server.prompts import get_prompt_profile_store
     from server.prompts.models import ResolvedPromptProfile
     from server.skills.api import get_skill_manager
+    from server.skills.skill_manager import SkillManagerError
     from server.workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
@@ -53,6 +54,7 @@ except ModuleNotFoundError:
     from prompts import get_prompt_profile_store
     from prompts.models import ResolvedPromptProfile
     from skills.api import get_skill_manager
+    from skills.skill_manager import SkillManagerError
     from workflow_native.schemas import NativeWorkflowDefinition, ValidationIssue
 
 
@@ -66,9 +68,8 @@ def _validate_installed_skills(
     xpert: XpertDefinition,
     validation: XpertValidationResult,
 ) -> XpertValidationResult:
-    installed = {
-        item.skill_id for item in get_skill_manager().list_installed_skills()
-    }
+    manager = get_skill_manager()
+    installed = {item.skill_id for item in manager.list_installed_skills()}
     issues = list(validation.issues)
     for node in xpert.draft.workflow.nodes:
         data = node.data if isinstance(node.data, dict) else {}
@@ -91,6 +92,20 @@ def _validate_installed_skills(
                     node_id=node.id,
                 )
             )
+        for skill_id in sorted(skill_ids - set(missing)):
+            try:
+                manager.require_activation(skill_id, check_runtime=False)
+            except SkillManagerError as exc:
+                issues.append(
+                    ValidationIssue(
+                        code=str(
+                            getattr(exc, "code", "")
+                            or "skill_trust_receipt_missing"
+                        ),
+                        message=str(exc),
+                        node_id=node.id,
+                    )
+                )
     return validation.model_copy(
         update={
             "valid": not any(issue.severity == "error" for issue in issues),
