@@ -61,9 +61,13 @@ func test_grid_rebuild_clears_old_nodes_and_rejects_more_than_sixty_four() -> vo
 	assert_int(grid.get_child_count()).is_equal(4)
 	assert_bool(grid.rebuild(_actions(2))).is_true()
 	assert_int(grid.get_child_count()).is_equal(2)
+	var first_terminal := grid.get_terminal(0)
+	var second_terminal := grid.get_terminal(1)
 	assert_bool(grid.rebuild(_actions(65))).is_false()
-	assert_int(grid.get_terminal_count()).is_equal(0)
-	assert_int(grid.get_child_count()).is_equal(0)
+	assert_int(grid.get_terminal_count()).is_equal(2)
+	assert_int(grid.get_child_count()).is_equal(2)
+	assert_object(grid.get_terminal(0)).is_same(first_terminal)
+	assert_object(grid.get_terminal(1)).is_same(second_terminal)
 
 
 func test_center_ray_ignores_world_layer_and_requests_only_available_terminal(timeout := 5000) -> void:

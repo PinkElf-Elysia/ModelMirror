@@ -14,6 +14,10 @@ var _available := false
 var _declaration_index := -1
 
 
+func _ready() -> void:
+	_render_state()
+
+
 func configure(action: Dictionary, declaration_index: int) -> bool:
 	if (
 		typeof(action.get("id")) != TYPE_STRING or

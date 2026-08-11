@@ -12,20 +12,23 @@ var _terminals: Array[MatrixOasisActionTerminal3D] = []
 
 
 func rebuild(actions: Array) -> bool:
-	clear_terminals()
 	if actions.size() > MAX_TERMINALS:
 		return false
+	var candidates: Array[MatrixOasisActionTerminal3D] = []
 	for index in actions.size():
 		if typeof(actions[index]) != TYPE_DICTIONARY:
-			clear_terminals()
+			_free_candidates(candidates)
 			return false
 		var terminal := TERMINAL_SCENE.instantiate() as MatrixOasisActionTerminal3D
 		if terminal == null or not terminal.configure(actions[index], index):
 			if terminal != null:
 				terminal.free()
-			clear_terminals()
+			_free_candidates(candidates)
 			return false
 		terminal.position = terminal_position(index, actions.size())
+		candidates.append(terminal)
+	clear_terminals()
+	for terminal in candidates:
 		add_child(terminal)
 		_terminals.append(terminal)
 	return true
@@ -37,6 +40,12 @@ func clear_terminals() -> void:
 			remove_child(terminal)
 			terminal.free()
 	_terminals.clear()
+
+
+func _free_candidates(candidates: Array[MatrixOasisActionTerminal3D]) -> void:
+	for terminal in candidates:
+		if is_instance_valid(terminal):
+			terminal.free()
 
 
 func get_terminal_count() -> int:

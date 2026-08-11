@@ -1,6 +1,6 @@
 # R6 验收记录
 
-状态：R6.3 已验证，等待本地提交；Runtime 与 3D 世界尚未接通。
+状态：R6.4 已验证，等待本地提交；自动差分与固定帧门尚未接入。
 
 固定基线：`430f24a4fd8510a0d54f14bcd240a80423d16719`
 分支：`codex/matrix-oasis-r6-playable-3d-skeleton`
@@ -11,7 +11,7 @@
 - [x] R6.1 治理与冻结迁移
 - [x] R6.2 第一人称移动骨架
 - [x] R6.3 3D Action 终端
-- [ ] R6.4 Runtime 与 3D 世界接通
+- [x] R6.4 Runtime 与 3D 世界接通
 - [ ] R6.5 自动验证与固定帧
 - [ ] R6.6 standalone 与人工验收收口
 
@@ -54,6 +54,18 @@ R6.2 提交：`fe87636`。本批精确变更 9 个模块内文件：6 个独立 
 - `check:godot-boundary`：19 个第一方脚本通过；`check:round-scope` 为 `checked=38 changed=35`；`check:parent-scope` 为 `checked=38 changed=35`；`check:boundary` 为 `checked=803 tracked=797`；`git diff --check` 通过。
 
 本批只建立通用终端与交互器，不载入 Runtime Pack、不执行 Runtime action、不包含样例题材分支。单独 revert R6.3 恢复只有移动与碰撞的 R6.2 状态。
+
+## R6.4 证据
+
+R6.3 提交：`f0c78f9`。本批精确变更 7 个模块内文件：独立 playable lab 场景/脚本与 GdUnit，终端配置补充 ready 渲染，网格重建升级为失败不清空旧世界，并更新相应交互测试和本验收记录。冻结的 R5 loader/runtime/HUD 与 R4 Bootstrap 均零差异。
+
+- playable lab 只通过冻结的 `MatrixOasisRuntimeArtifactLoader` 和 `MatrixOasisGodotRuntime` 加载、create 与 apply；Runtime 成功候选完整验证并完成终端重建后才一次性替换会话字段。
+- GdUnit 共 34 个 Godot 用例通过；新增覆盖 Pack 派生 HUD、可用/禁用终端、真实 Runtime action 后变量与终端刷新、ending 清空、reset 恢复入口与玩家 transform、unknown/unavailable action 保持 snapshot 和终端对象引用不变。
+- 独立场景使用第一方 primitive 封闭测试舱、R6 玩家与确定性终端网格；稳定 readiness 为 `MATRIX_OASIS_R6_PLAYABLE_3D_READY`，不修改 R4 主场景或 R5 Runtime Lab。
+- 最新树 `npm.cmd run verify`：12/12 步通过；433/433 Node、Godot import/adapter/parity/34 GdUnit/smoke、Creator 247 modules build 与 HTTP 200 smoke 全绿。
+- `check:godot-boundary`：21 个第一方脚本通过；`check:round-scope` 与 `check:parent-scope` 均为 `checked=42 changed=38`；`check:boundary` 为 `checked=806 tracked=803`；`git diff --check` 通过。
+
+本批不增加样例驱动 CLI、trace runner、固定帧捕获或人工预览；这些属于 R6.5。单独 revert R6.4 恢复仅可交互但未接 Runtime 的 R6.3 状态。
 
 ## 未运行项
 
