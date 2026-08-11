@@ -7,6 +7,7 @@ from .contracts import (
     Origin,
     TaskCreateRequest,
     TaskRecord,
+    WorkerEvent,
 )
 from .runtime import register_frozen_check, register_workspace_source_adapter
 from .service import CodingWorkerService
@@ -75,6 +76,68 @@ class CodingWorkerModuleClient:
         return await self.service.create_task(
             Origin(module=self.module, object_id=business_object_id), request
         )
+
+    def get_task(self, *, business_object_id: str, task_id: str) -> TaskRecord:
+        """Return one task only when its immutable origin belongs to this module."""
+
+        return self._require_owned_task(business_object_id, task_id)
+
+    def list_events(
+        self,
+        *,
+        business_object_id: str,
+        task_id: str,
+        after: int = 0,
+        limit: int = 500,
+    ) -> tuple[WorkerEvent, ...]:
+        """Read provider-neutral public events without exposing provider sessions."""
+
+        self._require_owned_task(business_object_id, task_id)
+        if after < 0 or limit < 1 or limit > 1000:
+            raise CodingWorkerSDKError(
+                "Event cursor is invalid.", code="worker_event_cursor_invalid"
+            )
+        return tuple(self.service.store.list_events(task_id, after=after, limit=limit))
+
+    async def append_message(
+        self, *, business_object_id: str, task_id: str, message: str
+    ) -> TaskRecord:
+        self._require_owned_task(business_object_id, task_id)
+        if not message.strip() or len(message) > 1_048_576:
+            raise CodingWorkerSDKError(
+                "Worker message is invalid.", code="worker_message_invalid"
+            )
+        return await self.service.append_message(task_id, message)
+
+    async def pause_task(
+        self, *, business_object_id: str, task_id: str
+    ) -> TaskRecord:
+        self._require_owned_task(business_object_id, task_id)
+        return await self.service.pause(task_id)
+
+    async def resume_task(
+        self, *, business_object_id: str, task_id: str
+    ) -> TaskRecord:
+        self._require_owned_task(business_object_id, task_id)
+        return await self.service.resume(task_id)
+
+    async def cancel_task(
+        self, *, business_object_id: str, task_id: str
+    ) -> TaskRecord:
+        self._require_owned_task(business_object_id, task_id)
+        return await self.service.cancel(task_id)
+
+    def _require_owned_task(
+        self, business_object_id: str, task_id: str
+    ) -> TaskRecord:
+        task = self.service.store.get_task(task_id)
+        expected = Origin(module=self.module, object_id=business_object_id)
+        if task.spec.origin != expected:
+            raise CodingWorkerSDKError(
+                "Worker task is not available to this module.",
+                code="worker_task_not_owned",
+            )
+        return task
 
     def _validate_context(self, references: tuple[ContextReference, ...]) -> None:
         for reference in references:
