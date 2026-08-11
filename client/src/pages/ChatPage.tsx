@@ -136,6 +136,10 @@ export const CHAT_SHELL_HEADER_CLASSES = "sticky top-0 h-16";
 export const CHAT_MESSAGE_COLUMN_CLASSES = "mx-auto w-full max-w-[920px]";
 export const CHAT_COMPOSER_COLUMN_CLASSES = "mx-auto w-full max-w-[1000px]";
 
+export function skillActivationContentUrl(skillId: string) {
+  return `/api/skills/${encodeURIComponent(skillId)}/content?purpose=activate`;
+}
+
 interface UploadedImage {
   id: string;
   name: string;
@@ -2075,12 +2079,12 @@ function ChatConversationPage() {
     }
   }
 
-  async function loadSkillContent(skillId: string) {
+  async function loadSkillContent(skillId: string, forceActivationCheck = false) {
     if (!skillId) return "";
     const cached = skillContentCache[skillId];
-    if (cached) return cached;
+    if (cached && !forceActivationCheck) return cached;
 
-    const response = await fetch(`/api/skills/${encodeURIComponent(skillId)}/content`);
+    const response = await fetch(skillActivationContentUrl(skillId));
     if (!response.ok) throw new Error(await readApiError(response));
     const data = (await response.json()) as SkillContentResponse;
     setSkillContentCache((current) => ({
@@ -2534,7 +2538,7 @@ function ChatConversationPage() {
     let activeSkillContent = "";
     if (selectedSkillId) {
       try {
-        activeSkillContent = await loadSkillContent(selectedSkillId);
+        activeSkillContent = await loadSkillContent(selectedSkillId, true);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Skill 内容加载失败");
         return false;

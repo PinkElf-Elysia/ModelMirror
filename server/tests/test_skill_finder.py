@@ -70,6 +70,31 @@ def test_runtime_index_is_complete_and_search_is_explainable() -> None:
     assert finder.find("量子引力弦理论")["results"] == []
 
 
+def test_router_search_excludes_suspicious_catalog_candidates() -> None:
+    finder = SkillFinder(index_path=INDEX_PATH, skill_manager=StubSkillManager())
+    excluded = next(
+        candidate
+        for candidate in finder.candidates()
+        if candidate["sourceType"] == "catalog"
+        and not candidate["trust"]["routerEligible"]
+    )
+
+    regular = finder.find(excluded["name"], limit=6)
+    routed = finder.find(
+        excluded["name"],
+        limit=6,
+        router_eligible_only=True,
+    )
+
+    assert excluded["candidateId"] in {
+        item["candidateId"] for item in regular["results"]
+    }
+    assert excluded["candidateId"] not in {
+        item["candidateId"] for item in routed["results"]
+    }
+    assert all(item["trust"]["routerEligible"] for item in routed["results"])
+
+
 def test_installed_only_skill_can_be_found_and_resolved() -> None:
     skill = installed_skill(
         skill_id="workspace-invoice-review",

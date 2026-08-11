@@ -3,6 +3,7 @@ import {
   CHAT_COMPOSER_COLUMN_CLASSES,
   CHAT_MESSAGE_COLUMN_CLASSES,
   CHAT_SHELL_HEADER_CLASSES,
+  skillActivationContentUrl,
 } from "./ChatPage";
 
 const BREAKPOINTS: Record<string, number> = {
@@ -28,5 +29,11 @@ describe("ChatPage conversation-first shell", () => {
     expect(CHAT_MESSAGE_COLUMN_CLASSES).toContain("max-w-[920px]");
     expect(CHAT_COMPOSER_COLUMN_CLASSES).toContain("max-w-[1000px]");
     expect(CHAT_SHELL_HEADER_CLASSES).not.toContain("top-24");
+  });
+
+  it("requests Skill content through the server activation gate", () => {
+    expect(skillActivationContentUrl("skill id/with spaces")).toBe(
+      "/api/skills/skill%20id%2Fwith%20spaces/content?purpose=activate",
+    );
   });
 });

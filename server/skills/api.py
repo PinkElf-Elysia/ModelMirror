@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -13,6 +14,7 @@ from .skill_manager import (
     SkillNotFoundError,
     SkillValidationError,
 )
+from .trust_service import SkillRuntimeEnvironment
 from .draft_store import (
     SkillDraftConflictError,
     SkillDraftError,
@@ -75,6 +77,16 @@ class SkillPayload(BaseModel):
     source_revision: int | None = None
     content_digest: str = ""
     package_subpath: str = ""
+    trust_state: str = "not_applicable"
+    trust_receipt_id: str | None = None
+    trust_fingerprint: str | None = None
+    trust_risk_level: str | None = None
+    trust_status: str | None = None
+    trust_install_policy: str | None = None
+    trust_compatibility_status: str | None = None
+    trust_package_digest: str | None = None
+    trust_directory_tree_sha: str | None = None
+    trust_verified_at: float | None = None
 
 
 class InstalledSkillsResponse(BaseModel):
@@ -287,6 +299,16 @@ def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
         source_revision=skill.source_revision,
         content_digest=skill.content_digest,
         package_subpath=skill.package_subpath,
+        trust_state=skill.trust_state,
+        trust_receipt_id=skill.trust_receipt_id,
+        trust_fingerprint=skill.trust_fingerprint,
+        trust_risk_level=skill.trust_risk_level,
+        trust_status=skill.trust_status,
+        trust_install_policy=skill.trust_install_policy,
+        trust_compatibility_status=skill.trust_compatibility_status,
+        trust_package_digest=skill.trust_package_digest,
+        trust_directory_tree_sha=skill.trust_directory_tree_sha,
+        trust_verified_at=skill.trust_verified_at,
     )
 
 
@@ -443,6 +465,19 @@ async def install_skill(payload: SkillInstallRequest) -> SkillPayload:
         )
         return _payload_from_skill(skill)
     except SkillValidationError as exc:
+        if exc.code:
+            status_code = 409 if exc.code in {
+                "skill_trust_ack_required",
+                "skill_trust_candidate_stale",
+            } else 400
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "code": exc.code,
+                    "message": str(exc),
+                    "details": exc.details,
+                },
+            ) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SkillInstallError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -488,15 +523,33 @@ async def uninstall_skill(skill_id: str) -> dict[str, bool]:
 
 
 @router.get("/{skill_id}/content", response_model=SkillContentResponse)
-async def get_skill_content(skill_id: str) -> SkillContentResponse:
+async def get_skill_content(
+    skill_id: str,
+    purpose: Literal["view", "activate"] = Query(default="view"),
+) -> SkillContentResponse:
     try:
+        manager = get_skill_manager()
+        if purpose == "activate":
+            await asyncio.to_thread(
+                manager.require_activation,
+                skill_id,
+                runtime_environment=SkillRuntimeEnvironment(),
+            )
         content = await asyncio.to_thread(
-            get_skill_manager().get_skill_content,
+            manager.get_skill_content,
             skill_id,
         )
         return SkillContentResponse(skill_id=skill_id, content=content)
     except SkillNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except SkillValidationError as exc:
+        if exc.code:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": exc.code,
+                    "message": str(exc),
+                    "details": exc.details,
+                },
+            ) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-

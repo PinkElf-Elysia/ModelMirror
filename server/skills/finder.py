@@ -281,6 +281,7 @@ class SkillFinder:
                 or trust.get("trustStatus") not in {"verified", "conditional", "blocked"}
                 or trust.get("installPolicy") not in {"allow", "confirm", "block"}
                 or trust.get("compatibilityStatus") not in {"portable", "conditional", "unsupported"}
+                or not isinstance(trust.get("routerEligible"), bool)
             ):
                 raise SkillRuntimeIndexError("Skill runtime index contains an invalid install source.")
             candidate_payload = {
@@ -340,6 +341,7 @@ class SkillFinder:
                     "subPath": skill.sub_path,
                     "sourceRef": skill.source_ref,
                     "installedAt": skill.installed_at,
+                    "sourceKind": skill.source_kind,
                 },
             }
             dynamic.append(
@@ -426,6 +428,7 @@ class SkillFinder:
         *,
         limit: int = MAX_RESULTS,
         active_skill_ids: Iterable[str] = (),
+        router_eligible_only: bool = False,
     ) -> dict[str, Any]:
         query = _extract_query(need)
         safe_limit = max(1, min(int(limit), MAX_RESULTS))
@@ -438,6 +441,23 @@ class SkillFinder:
                 "results": [],
             }
         candidates = self.candidates()
+        if router_eligible_only:
+            candidates = [
+                candidate
+                for candidate in candidates
+                if (
+                    candidate.get("sourceType") == "catalog"
+                    and bool((candidate.get("trust") or {}).get("routerEligible"))
+                )
+                or (
+                    candidate.get("sourceType") == "installed"
+                    and str(
+                        ((candidate.get("installedSource") or {}).get("sourceKind"))
+                        or "git"
+                    )
+                    != "git"
+                )
+            ]
         prepared: list[dict[str, Any]] = []
         for candidate in candidates:
             fields = []

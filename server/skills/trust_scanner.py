@@ -26,7 +26,7 @@ from .package_validation import (
 
 
 SKILL_TRUST_INDEX_VERSION = 1
-SKILL_TRUST_SCANNER_VERSION = "skill-trust-scanner-v1"
+SKILL_TRUST_SCANNER_VERSION = "skill-trust-scanner-v2"
 SKILL_TRUST_SUMMARY_VERSION = 1
 
 MAX_TRUST_FILES = 500
@@ -47,6 +47,39 @@ _RISK_ORDER: dict[RiskLevel, int] = {
     "high": 2,
     "critical": 3,
 }
+
+# Only findings that prove malicious content or prevent exact, portable
+# installation remain hard blocks. Other critical findings require an explicit
+# local-console acknowledgement and are excluded from Agent Router discovery.
+_HARD_BLOCK_FINDING_CODES = {
+    "credential_path",
+    "file_directory_conflict",
+    "file_path_case_collision",
+    "file_path_too_long",
+    "file_path_type",
+    "file_path_windows_unsafe",
+    "package_file_count_exceeded",
+    "package_files_type",
+    "package_size_exceeded",
+    "skill_markdown_empty",
+    "trust_directory_tree_missing",
+    "trust_download_execute_blocked",
+    "trust_file_count_exceeded",
+    "trust_file_size_exceeded",
+    "trust_git_lfs_pointer_blocked",
+    "trust_git_mode_unsupported",
+    "trust_git_object_unsupported",
+    "trust_gitlink_blocked",
+    "trust_package_digest_unavailable",
+    "trust_package_size_exceeded",
+    "trust_path_collision",
+    "trust_path_unsafe",
+    "trust_scan_content_incomplete",
+    "trust_skill_markdown_missing",
+    "trust_source_ref_invalid",
+    "trust_symlink_blocked",
+}
+_HARD_BLOCK_FINDING_PREFIXES = ("credential_",)
 _SCRIPT_SUFFIXES = {".py": "python", ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript"}
 _SHELL_SUFFIXES = {".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd"}
 _ARCHIVE_SUFFIXES = {
@@ -420,7 +453,7 @@ def scan_skill_trust_receipt(
             state.add("trust_git_mode_unsupported", "critical", "The Git file mode is unsupported.", risk="critical", path=finding_path)
             content_complete = False
         if entry.mode == "100755":
-            state.add("trust_executable_mode_blocked", "critical", "Executable Git files are not allowed in third-party Skill packages.", risk="critical", path=finding_path)
+            state.add("trust_executable_mode_blocked", "critical", "Executable Git files require explicit confirmation and are excluded from Agent Router discovery.", risk="critical", path=finding_path)
         if entry.size is None or entry.size > MAX_TRUST_FILE_BYTES:
             state.add("trust_file_size_exceeded", "critical", "A package file exceeds the 10 MiB trust scan limit.", risk="critical", path=finding_path)
             content_complete = False
@@ -435,16 +468,16 @@ def scan_skill_trust_receipt(
         raw_files[path] = content
         suffix = PurePosixPath(path).suffix.casefold()
         if suffix in _EXECUTABLE_SUFFIXES or _looks_executable(content):
-            state.add("trust_executable_binary_blocked", "critical", "Executable binary content is not allowed in third-party Skill packages.", risk="critical", path=finding_path)
+            state.add("trust_executable_binary_blocked", "critical", "Executable binary content requires explicit confirmation and is excluded from Agent Router discovery.", risk="critical", path=finding_path)
             continue
         if suffix in _ARCHIVE_SUFFIXES or _looks_archive(content):
-            state.add("trust_archive_blocked", "critical", "Archive packages are not allowed inside third-party Skill packages.", risk="critical", path=finding_path)
+            state.add("trust_archive_blocked", "critical", "Embedded archives require explicit confirmation and are excluded from Agent Router discovery.", risk="critical", path=finding_path)
             continue
         binary_kind = _binary_kind(content)
         expected_kind = _OPAQUE_EXTENSIONS.get(suffix)
         if binary_kind or expected_kind:
             if binary_kind != expected_kind:
-                state.add("trust_opaque_magic_mismatch", "critical", "Opaque resource extension and file signature do not match.", risk="critical", path=finding_path)
+                state.add("trust_opaque_magic_mismatch", "critical", "Opaque resource extension and file signature do not match; explicit confirmation is required and Agent Router discovery is disabled.", risk="critical", path=finding_path)
                 continue
             opaque_files.append({"path": finding_path, "kind": binary_kind, "sizeBytes": len(content)})
             state.add("trust_opaque_resource", "warning", "The package contains a passive opaque resource that is not executed or parsed.", risk="medium", path=finding_path)
@@ -452,10 +485,10 @@ def scan_skill_trust_receipt(
         try:
             text = content.decode("utf-8", errors="strict")
         except UnicodeDecodeError:
-            state.add("trust_unknown_binary_blocked", "critical", "Unknown binary content is not allowed in third-party Skill packages.", risk="critical", path=finding_path)
+            state.add("trust_unknown_binary_blocked", "critical", "Unknown binary content requires explicit confirmation and is excluded from Agent Router discovery.", risk="critical", path=finding_path)
             continue
         if "\x00" in text:
-            state.add("trust_unknown_binary_blocked", "critical", "Unknown binary content is not allowed in third-party Skill packages.", risk="critical", path=finding_path)
+            state.add("trust_unknown_binary_blocked", "critical", "Unknown binary content requires explicit confirmation and is excluded from Agent Router discovery.", risk="critical", path=finding_path)
             continue
         text_files[path] = text
         if _GIT_LFS_RE.fullmatch(text):
@@ -470,7 +503,7 @@ def scan_skill_trust_receipt(
             state.add(
                 "trust_active_text_blocked",
                 "critical",
-                "Active browser-executable text content is not allowed in third-party Skill packages.",
+                "Active browser-executable text requires explicit confirmation and is excluded from Agent Router discovery.",
                 risk="critical",
                 path=finding_path,
             )
@@ -478,7 +511,7 @@ def scan_skill_trust_receipt(
             state.add(
                 "trust_encoded_payload_blocked",
                 "critical",
-                "Large encoded payloads are treated as obfuscated content and are not allowed.",
+                "Large encoded payloads require explicit confirmation and are excluded from Agent Router discovery.",
                 risk="critical",
                 path=finding_path,
             )
@@ -572,7 +605,7 @@ def scan_skill_trust_receipt(
         if capabilities[key]:
             state.add(code, "error", message, risk="high")
     if _OBFUSCATION_RE.search(all_text):
-        state.add("trust_obfuscated_command_blocked", "critical", "Obfuscated or dynamic code execution patterns are not allowed.", risk="critical", line=_first_line(all_text, _OBFUSCATION_RE))
+        state.add("trust_obfuscated_command_blocked", "critical", "Obfuscated or dynamic code patterns require explicit confirmation and are excluded from Agent Router discovery.", risk="critical", line=_first_line(all_text, _OBFUSCATION_RE))
     if any(_DOWNLOAD_RE.search(text) and _EXECUTE_RE.search(text) for text in text_files.values()):
         state.add("trust_download_execute_blocked", "critical", "Dynamic download-and-execute behavior is not allowed.", risk="critical")
 
@@ -611,7 +644,18 @@ def scan_skill_trust_receipt(
             item.line or 0,
         ),
     )
-    blocked = state.risk_level == "critical"
+    finding_codes = {item.code for item in findings}
+    blocked = any(
+        code in _HARD_BLOCK_FINDING_CODES
+        or any(code.startswith(prefix) for prefix in _HARD_BLOCK_FINDING_PREFIXES)
+        for code in finding_codes
+    )
+    router_eligible = (
+        not blocked
+        and state.risk_level != "critical"
+        and "trust_destructive_capability" not in finding_codes
+        and "trust_tool_unknown" not in finding_codes
+    )
     trust_status: TrustStatus = "blocked" if blocked else "verified" if state.risk_level == "low" else "conditional"
     install_policy: InstallPolicy = "block" if blocked else "allow" if state.risk_level == "low" else "confirm"
     compatibility: CompatibilityStatus = "unsupported" if blocked else "portable" if state.risk_level == "low" else "conditional"
@@ -630,6 +674,7 @@ def scan_skill_trust_receipt(
         "trustStatus": trust_status,
         "installPolicy": install_policy,
         "compatibilityStatus": compatibility,
+        "routerEligible": router_eligible,
         "summary": {
             "fileCount": len(entries),
             "totalBytes": total_bytes,
@@ -706,7 +751,7 @@ def build_skill_trust_summary(index: Mapping[str, Any]) -> dict[str, Any]:
             {
                 key: receipt.get(key)
                 for key in (
-                    "receiptId", "trustFingerprint", "riskLevel", "trustStatus", "installPolicy", "compatibilityStatus", "summary",
+                    "receiptId", "trustFingerprint", "riskLevel", "trustStatus", "installPolicy", "compatibilityStatus", "routerEligible", "summary",
                 )
             }
         )
@@ -759,6 +804,8 @@ def build_skill_trust_report(index: Mapping[str, Any]) -> dict[str, Any]:
         "riskDistribution": distribution("riskLevel"),
         "trustDistribution": distribution("trustStatus"),
         "compatibilityDistribution": distribution("compatibilityStatus"),
+        "routerEligibleCount": sum(bool(receipt.get("routerEligible")) for receipt in index["receipts"]),
+        "routerExcludedCount": sum(not bool(receipt.get("routerEligible")) for receipt in index["receipts"]),
         "dependencyDeclarationCount": dependency_count,
         "dependencyReceiptCount": dependency_receipt_count,
         "licenseDeclaredCount": license_declared_count,

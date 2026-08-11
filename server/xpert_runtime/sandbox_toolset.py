@@ -13,10 +13,20 @@ from typing import Any, Callable
 
 try:
     from server.skills.finder import SkillFinder, SkillFinderError
+    from server.skills.trust_service import (
+        SkillRuntimeEnvironment,
+        SkillTrustError,
+        SkillTrustService,
+    )
 except ModuleNotFoundError as exc:  # Docker image copies server/* directly into /app.
     if exc.name != "server":
         raise
     from skills.finder import SkillFinder, SkillFinderError
+    from skills.trust_service import (
+        SkillRuntimeEnvironment,
+        SkillTrustError,
+        SkillTrustService,
+    )
 
 from .capabilities import CapabilityRegistry
 from .sandbox_client import SandboxClientError, SandboxClientProtocol
@@ -52,12 +62,16 @@ class SandboxToolsetProvider:
         *,
         skill_manager: Any,
         skill_finder: SkillFinder | None = None,
+        trust_service: SkillTrustService | None = None,
         context_store: Any | None = None,
     ) -> None:
         self.store = store
         self.client = client
         self.skill_manager = skill_manager
         self.skill_finder = skill_finder or SkillFinder(skill_manager=skill_manager)
+        self.trust_service = trust_service or getattr(
+            skill_manager, "trust_service", None
+        )
         self.context_store = context_store
         self._evaluation_overlay_resolver: Callable[[str], Any] | None = None
         self._evaluation_guard = threading.RLock()
@@ -281,6 +295,12 @@ class SandboxToolsetProvider:
                 code="skill_already_installed",
             )
         source = dict(candidate.get("installSource") or {})
+        trust_decision = self._candidate_trust_decision(
+            call,
+            candidate,
+            ephemeral=True,
+            allow_pending_confirmation=True,
+        )
         call.metadata["skill_approval"] = {
             "candidate_id": candidate["candidateId"],
             "candidate_fingerprint": candidate["candidateFingerprint"],
@@ -293,6 +313,7 @@ class SandboxToolsetProvider:
                 "upgrade" if candidate.get("availability") == "stale" else "install"
             ),
             "authorization_scope": "global_install_current_run_only",
+            "trust": trust_decision,
         }
         call.metadata["approval_action_key"] = (
             f"{call.metadata.get('task_id')}:{call.metadata.get('node_id')}:"
@@ -587,9 +608,48 @@ class SandboxToolsetProvider:
                 need,
                 limit=limit,
                 active_skill_ids=self._active_skill_ids(call),
+                router_eligible_only=True,
             )
         except SkillFinderError as exc:
             raise RuntimeToolError(call.tool_name, str(exc), code=exc.code) from exc
+        for candidate in result.get("results", []):
+            if not isinstance(candidate, dict):
+                continue
+            try:
+                installed_skill_id = str(
+                    candidate.get("installedSkillId") or ""
+                ).strip()
+                installed_item = (
+                    self._installed_skill(installed_skill_id)
+                    if installed_skill_id
+                    else None
+                )
+                if installed_item is not None and str(
+                    getattr(installed_item, "source_kind", "git")
+                ) != "git":
+                    decision = {
+                        "mode": getattr(self.trust_service, "mode", "off"),
+                        "allowed": True,
+                        "trustStatus": "not_applicable",
+                        "reasonCodes": [],
+                    }
+                else:
+                    decision = self._candidate_trust_decision(
+                        call,
+                        candidate,
+                        skill_id=installed_skill_id or None,
+                        allow_pending_confirmation=(
+                            candidate.get("availability") in {"missing", "stale"}
+                        ),
+                    )
+            except RuntimeToolError as exc:
+                decision = {
+                    "allowed": False,
+                    "errorCode": exc.code,
+                    "reasonCodes": [exc.code],
+                }
+            candidate["trustDecision"] = decision
+            candidate["trustActionable"] = bool(decision.get("allowed", False))
         query_hash = hashlib.sha256(need.encode("utf-8")).hexdigest()
         return RuntimeToolResult(
             output=json.dumps(result, ensure_ascii=False),
@@ -613,6 +673,12 @@ class SandboxToolsetProvider:
                 "Skill is not installed at the candidate fingerprint.",
                 code="skill_enable_requires_install",
             )
+        installed_item = self._installed_skill(skill_id)
+        if installed_item is None or str(
+            getattr(installed_item, "source_kind", "git")
+        ) == "git":
+            self._candidate_trust_decision(call, candidate, skill_id=skill_id)
+        self._require_skill_trust(call, skill_id)
         source = dict(candidate.get("installSource") or {})
         source_ref = source.get("verifiedCommit") or candidate.get("installedSourceRef")
         payload = {
@@ -641,6 +707,11 @@ class SandboxToolsetProvider:
             )
         self._require_install_budget(call)
         source = dict(candidate["installSource"])
+        trust_decision = self._candidate_trust_decision(
+            call,
+            candidate,
+            ephemeral=True,
+        )
         action = "upgrade" if candidate.get("availability") == "stale" else "install"
         if candidate.get("availability") in {"active", "installed"}:
             raise RuntimeToolError(
@@ -650,22 +721,26 @@ class SandboxToolsetProvider:
             )
         try:
             installed = await asyncio.to_thread(
-                self.skill_manager.install_skill,
-                source["repoUrl"],
-                source["subPath"],
-                source["verifiedCommit"],
+                self._install_catalog_skill,
+                call,
+                source,
+                trust_decision,
             )
         except Exception as exc:
             raise RuntimeToolError(
                 call.tool_name,
                 f"Verified Skill {action} failed: {str(exc)[:500]}",
-                code="skill_install_failed",
+                code=str(getattr(exc, "code", "") or "skill_install_failed"),
             ) from exc
         payload = {
             "activated_skill_id": installed.skill_id,
             "candidate_id": candidate["candidateId"],
             "source_ref": installed.source_ref,
             "install_action": action,
+            "trust_authorization": {
+                "skill_id": installed.skill_id,
+                "trust_fingerprint": trust_decision.get("trustFingerprint"),
+            },
         }
         return RuntimeToolResult(
             output=json.dumps(payload, ensure_ascii=False),
@@ -868,6 +943,121 @@ class SandboxToolsetProvider:
     def _require_enabled_skill(self, call: RuntimeToolCall, skill_id: str) -> None:
         if not skill_id or skill_id not in self._enabled_skills(call):
             raise RuntimeToolError(call.tool_name, "Skill is not enabled for this Agent.", code="skill_denied")
+        self._require_skill_trust(call, skill_id)
+
+    def _candidate_trust_decision(
+        self,
+        call: RuntimeToolCall,
+        candidate: dict[str, Any],
+        *,
+        skill_id: str | None = None,
+        ephemeral: bool = False,
+        allow_pending_confirmation: bool = False,
+    ) -> dict[str, Any]:
+        trust = dict(candidate.get("trust") or {})
+        if trust.get("routerEligible") is False:
+            raise RuntimeToolError(
+                call.tool_name,
+                "This Skill requires manual installation and is excluded from Agent Router discovery.",
+                code="skill_trust_policy_blocked",
+            )
+        if self.trust_service is None:
+            return {"mode": "off", "allowed": True}
+        fingerprint = (
+            str(trust.get("trustFingerprint") or "").strip()
+            if ephemeral
+            else None
+        )
+        try:
+            decision, _receipt = self.trust_service.candidate_decision(
+                candidate,
+                skill_id=skill_id,
+                ephemeral_trust_fingerprint=fingerprint,
+                allow_pending_confirmation=allow_pending_confirmation,
+                require_router_eligible=True,
+                environment=self._trust_environment(call),
+            )
+        except SkillTrustError as exc:
+            raise RuntimeToolError(
+                call.tool_name,
+                str(exc),
+                code=exc.code,
+            ) from exc
+        return decision.to_dict()
+
+    def _require_skill_trust(self, call: RuntimeToolCall, skill_id: str) -> None:
+        require_activation = getattr(self.skill_manager, "require_activation", None)
+        if not callable(require_activation):
+            return
+        try:
+            require_activation(
+                skill_id,
+                runtime_environment=self._trust_environment(call),
+                ephemeral_authorizations=self._trust_authorizations(call),
+            )
+        except Exception as exc:
+            code = str(getattr(exc, "code", "") or "skill_trust_receipt_missing")
+            raise RuntimeToolError(
+                call.tool_name,
+                str(exc),
+                code=code,
+            ) from exc
+
+    def _install_catalog_skill(
+        self,
+        call: RuntimeToolCall,
+        source: dict[str, Any],
+        trust_decision: dict[str, Any],
+    ) -> Any:
+        if self.trust_service is None:
+            return self.skill_manager.install_skill(
+                source["repoUrl"],
+                source["subPath"],
+                source["verifiedCommit"],
+            )
+        return self.skill_manager.install_skill(
+            source["repoUrl"],
+            source["subPath"],
+            source["verifiedCommit"],
+            ephemeral_trust_fingerprint=trust_decision.get(
+                "trustFingerprint"
+            ),
+            runtime_environment=self._trust_environment(call),
+        )
+
+    def _installed_skill(self, skill_id: str) -> Any | None:
+        getter = getattr(self.skill_manager, "get_installed_skill", None)
+        if callable(getter):
+            try:
+                return getter(skill_id)
+            except Exception:
+                return None
+        try:
+            return next(
+                (
+                    item
+                    for item in self.skill_manager.list_installed_skills()
+                    if str(getattr(item, "skill_id", "")) == skill_id
+                ),
+                None,
+            )
+        except Exception:
+            return None
+
+    @staticmethod
+    def _trust_environment(call: RuntimeToolCall) -> SkillRuntimeEnvironment:
+        return SkillRuntimeEnvironment.from_metadata(call.metadata)
+
+    @staticmethod
+    def _trust_authorizations(call: RuntimeToolCall) -> dict[str, str]:
+        raw = call.metadata.get("skill_trust_authorizations")
+        if not isinstance(raw, dict):
+            return {}
+        return {
+            str(skill_id): str(fingerprint)
+            for skill_id, fingerprint in raw.items()
+            if str(skill_id).strip() and str(fingerprint).strip()
+        }
 
     @staticmethod
     def _is_skill_evaluation(call: RuntimeToolCall) -> bool:

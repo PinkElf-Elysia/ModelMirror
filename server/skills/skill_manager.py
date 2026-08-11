@@ -12,11 +12,16 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, Mapping
 from urllib.parse import urlparse
 
 from .draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
 from .package_validation import compute_package_digest
+from .trust_service import (
+    SkillRuntimeEnvironment,
+    SkillTrustError,
+    SkillTrustService,
+)
 
 
 class SkillManagerError(Exception):
@@ -33,6 +38,17 @@ class SkillNotFoundError(SkillManagerError):
 
 class SkillValidationError(SkillManagerError):
     """Raised when a Skill source or identifier is invalid."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = dict(details or {})
 
 
 @dataclass(frozen=True)
@@ -51,6 +67,16 @@ class InstalledSkill:
     source_revision: int | None = None
     content_digest: str = ""
     package_subpath: str = ""
+    trust_state: str = "not_applicable"
+    trust_receipt_id: str | None = None
+    trust_fingerprint: str | None = None
+    trust_risk_level: str | None = None
+    trust_status: str | None = None
+    trust_install_policy: str | None = None
+    trust_compatibility_status: str | None = None
+    trust_package_digest: str | None = None
+    trust_directory_tree_sha: str | None = None
+    trust_verified_at: float | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +118,7 @@ class SkillManager:
         *,
         allow_local_repos: bool = False,
         git_timeout_seconds: int = 30,
+        trust_service: SkillTrustService | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.installed_dir = Path(
@@ -105,13 +132,18 @@ class SkillManager:
         self.allow_local_repos = allow_local_repos
         self.git_timeout_seconds = git_timeout_seconds
         self.metadata_path = self.installed_dir / "installed.json"
+        self.trust_service = trust_service or SkillTrustService()
         self._lock = threading.RLock()
+        self._trust_reconciled = False
 
     def install_skill(
         self,
         repo_url: str,
         sub_path: str = "",
         source_ref: str | None = None,
+        *,
+        ephemeral_trust_fingerprint: str | None = None,
+        runtime_environment: SkillRuntimeEnvironment | None = None,
     ) -> InstalledSkill:
         """Install a Skill from a GitHub repository subdirectory.
 
@@ -129,6 +161,22 @@ class SkillManager:
         normalized_sub_path = self._validate_sub_path(sub_path)
         normalized_source_ref = self._validate_source_ref(source_ref)
         skill_id = self._build_skill_id(normalized_repo_url, normalized_sub_path)
+        try:
+            _decision, trust_receipt = self.trust_service.install_decision(
+                skill_id=skill_id,
+                repo_url=normalized_repo_url,
+                sub_path=normalized_sub_path,
+                source_ref=normalized_source_ref,
+                ephemeral_trust_fingerprint=ephemeral_trust_fingerprint,
+                environment=(
+                    runtime_environment
+                    or SkillRuntimeEnvironment.installation_baseline()
+                ),
+            )
+        except SkillTrustError as exc:
+            raise SkillValidationError(
+                str(exc), code=exc.code, details=exc.details
+            ) from exc
 
         with self._lock:
             self._ensure_dirs()
@@ -154,13 +202,30 @@ class SkillManager:
                         f"SKILL.md not found in '{normalized_sub_path or '.'}'"
                     )
 
-                shutil.copytree(source_dir, staging_dir)
+                try:
+                    trust_metadata = self.trust_service.verify_checkout(
+                        checkout_dir=checkout_dir,
+                        source_dir=source_dir,
+                        receipt=trust_receipt,
+                        source_ref=normalized_source_ref,
+                    )
+                except SkillTrustError as exc:
+                    raise SkillValidationError(
+                        str(exc), code=exc.code, details=exc.details
+                    ) from exc
+
+                shutil.copytree(
+                    source_dir,
+                    staging_dir,
+                    ignore=shutil.ignore_patterns(".git"),
+                )
                 metadata = self._parse_skill_metadata(
                     skill_id,
                     normalized_repo_url,
                     normalized_sub_path,
                     staging_dir / "SKILL.md",
                     normalized_source_ref,
+                    trust_metadata=trust_metadata,
                 )
                 installed = self._read_metadata()
                 installed[skill_id] = asdict(metadata)
@@ -479,6 +544,7 @@ class SkillManager:
         """Return installed Skill metadata sorted by installation time."""
 
         with self._lock:
+            self._reconcile_trust_metadata_unlocked()
             return [
                 self._installed_skill_from_record(item)
                 for item in sorted(
@@ -493,6 +559,7 @@ class SkillManager:
 
         normalized_skill_id = self._validate_skill_id(skill_id)
         with self._lock:
+            self._reconcile_trust_metadata_unlocked()
             installed = self._read_metadata()
             if normalized_skill_id not in installed:
                 raise SkillNotFoundError(f"Skill '{normalized_skill_id}' is not installed")
@@ -508,12 +575,63 @@ class SkillManager:
 
         normalized_skill_id = self._validate_skill_id(skill_id)
         with self._lock:
+            self._reconcile_trust_metadata_unlocked()
             installed = self._read_metadata()
             if normalized_skill_id not in installed:
                 raise SkillNotFoundError(f"Skill '{normalized_skill_id}' is not installed")
             return self._resolve_package_directory(
                 normalized_skill_id, installed[normalized_skill_id]
             )
+
+    def get_installed_skill(self, skill_id: str) -> InstalledSkill:
+        """Return one installed Skill after trust metadata reconciliation."""
+
+        normalized_skill_id = self._validate_skill_id(skill_id)
+        with self._lock:
+            self._reconcile_trust_metadata_unlocked()
+            installed = self._read_metadata()
+            record = installed.get(normalized_skill_id)
+            if record is None:
+                raise SkillNotFoundError(
+                    f"Skill '{normalized_skill_id}' is not installed"
+                )
+            return self._installed_skill_from_record(record)
+
+    def require_activation(
+        self,
+        skill_id: str,
+        *,
+        runtime_environment: SkillRuntimeEnvironment | None = None,
+        ephemeral_authorizations: Mapping[str, str] | None = None,
+        check_runtime: bool = True,
+    ) -> InstalledSkill:
+        """Apply the final server-side third-party activation gate."""
+
+        normalized_skill_id = self._validate_skill_id(skill_id)
+        with self._lock:
+            installed = self._read_metadata()
+            record = installed.get(normalized_skill_id)
+            if record is None:
+                raise SkillNotFoundError(
+                    f"Skill '{normalized_skill_id}' is not installed"
+                )
+            if self._reconcile_skill_trust_metadata_unlocked(
+                normalized_skill_id, record
+            ):
+                self._write_metadata(installed)
+            item = self._installed_skill_from_record(record)
+        try:
+            self.trust_service.activation_decision(
+                item,
+                environment=runtime_environment,
+                ephemeral_authorizations=ephemeral_authorizations,
+                check_runtime=check_runtime,
+            )
+        except SkillTrustError as exc:
+            raise SkillValidationError(
+                str(exc), code=exc.code, details=exc.details
+            ) from exc
+        return item
 
     @staticmethod
     def _workspace_skill_id(draft_id: str) -> str:
@@ -577,6 +695,7 @@ class SkillManager:
         except SkillValidationError:
             package_subpath = ""
         source_ref_value = record.get("source_ref")
+        trust_verified_at_value = record.get("trust_verified_at")
         return InstalledSkill(
             skill_id=str(record.get("skill_id") or ""),
             name=str(record.get("name") or ""),
@@ -592,7 +711,69 @@ class SkillManager:
             source_revision=source_revision,
             content_digest=content_digest,
             package_subpath=package_subpath,
+            trust_state=str(record.get("trust_state") or "not_applicable"),
+            trust_receipt_id=_optional_string(record.get("trust_receipt_id")),
+            trust_fingerprint=_optional_string(record.get("trust_fingerprint")),
+            trust_risk_level=_optional_string(record.get("trust_risk_level")),
+            trust_status=_optional_string(record.get("trust_status")),
+            trust_install_policy=_optional_string(
+                record.get("trust_install_policy")
+            ),
+            trust_compatibility_status=_optional_string(
+                record.get("trust_compatibility_status")
+            ),
+            trust_package_digest=_optional_string(
+                record.get("trust_package_digest")
+            ),
+            trust_directory_tree_sha=_optional_string(
+                record.get("trust_directory_tree_sha")
+            ),
+            trust_verified_at=(
+                float(trust_verified_at_value)
+                if isinstance(trust_verified_at_value, (int, float))
+                and not isinstance(trust_verified_at_value, bool)
+                and trust_verified_at_value > 0
+                else None
+            ),
         )
+
+    def _reconcile_trust_metadata_unlocked(self) -> None:
+        if self._trust_reconciled or self.trust_service.mode == "off":
+            return
+        installed = self._read_metadata()
+        changed = False
+        for skill_id, record in installed.items():
+            changed = (
+                self._reconcile_skill_trust_metadata_unlocked(skill_id, record)
+                or changed
+            )
+        if changed:
+            self._write_metadata(installed)
+        self._trust_reconciled = True
+
+    def _reconcile_skill_trust_metadata_unlocked(
+        self,
+        skill_id: str,
+        record: dict[str, object],
+    ) -> bool:
+        item = self._installed_skill_from_record(record)
+        if item.source_kind != "git" or self.trust_service.mode == "off":
+            return False
+        package_dir: Path | None
+        try:
+            package_dir = self._resolve_package_directory(skill_id, record)
+        except SkillManagerError:
+            package_dir = None
+        trust_metadata = self.trust_service.reconcile_metadata(
+            record=record,
+            package_dir=package_dir,
+        )
+        if not any(
+            record.get(key) != value for key, value in trust_metadata.items()
+        ):
+            return False
+        record.update(trust_metadata)
+        return True
 
     def _resolve_package_directory(
         self, skill_id: str, record: dict[str, object]
@@ -913,6 +1094,7 @@ class SkillManager:
         source_revision: int | None = None,
         content_digest: str | None = None,
         package_subpath: str = "",
+        trust_metadata: Mapping[str, Any] | None = None,
     ) -> InstalledSkill:
         content = skill_md.read_text(encoding="utf-8", errors="replace")
         frontmatter = self._parse_frontmatter(content)
@@ -928,6 +1110,7 @@ class SkillManager:
             or self._title_from_path(sub_path)
         )
 
+        trust_values = dict(trust_metadata or {})
         return InstalledSkill(
             skill_id=skill_id,
             name=name[:120],
@@ -941,6 +1124,31 @@ class SkillManager:
             source_revision=source_revision,
             content_digest=content_digest or "",
             package_subpath=package_subpath,
+            trust_state=str(
+                trust_values.get("trust_state")
+                or ("unverified_legacy" if source_kind == "git" else "not_applicable")
+            ),
+            trust_receipt_id=_optional_string(trust_values.get("trust_receipt_id")),
+            trust_fingerprint=_optional_string(trust_values.get("trust_fingerprint")),
+            trust_risk_level=_optional_string(trust_values.get("trust_risk_level")),
+            trust_status=_optional_string(trust_values.get("trust_status")),
+            trust_install_policy=_optional_string(
+                trust_values.get("trust_install_policy")
+            ),
+            trust_compatibility_status=_optional_string(
+                trust_values.get("trust_compatibility_status")
+            ),
+            trust_package_digest=_optional_string(
+                trust_values.get("trust_package_digest")
+            ),
+            trust_directory_tree_sha=_optional_string(
+                trust_values.get("trust_directory_tree_sha")
+            ),
+            trust_verified_at=(
+                float(trust_values["trust_verified_at"])
+                if isinstance(trust_values.get("trust_verified_at"), (int, float))
+                else None
+            ),
         )
 
     @staticmethod
@@ -1060,3 +1268,7 @@ class SkillManager:
         slug = re.sub(r"[^a-zA-Z0-9]+", "-", raw).strip("-").lower()
         return slug[:140] or "skill"
 
+
+def _optional_string(value: object) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None

@@ -67,7 +67,13 @@ def create_skill_repo(tmp_path: Path) -> tuple[Path, str]:
     return repo, source_ref
 
 
-def write_runtime_index(path: Path, repo: Path, source_ref: str) -> dict[str, object]:
+def write_runtime_index(
+    path: Path,
+    repo: Path,
+    source_ref: str,
+    *,
+    router_eligible: bool = True,
+) -> dict[str, object]:
     candidate_payload: dict[str, object] = {
         "candidateId": "catalog:project:pdf-extractor",
         "sourceType": "catalog",
@@ -95,10 +101,11 @@ def write_runtime_index(path: Path, repo: Path, source_ref: str) -> dict[str, ob
         "trust": {
             "receiptId": "skill-trust-" + "1" * 24,
             "trustFingerprint": "2" * 64,
-            "riskLevel": "low",
-            "trustStatus": "verified",
-            "installPolicy": "allow",
-            "compatibilityStatus": "portable",
+            "riskLevel": "low" if router_eligible else "critical",
+            "trustStatus": "verified" if router_eligible else "conditional",
+            "installPolicy": "allow" if router_eligible else "confirm",
+            "compatibilityStatus": "portable" if router_eligible else "conditional",
+            "routerEligible": router_eligible,
         },
     }
     candidate = {
@@ -142,6 +149,48 @@ def provider_fixture(tmp_path: Path):
     return provider, manager, candidate
 
 
+def test_router_omits_and_rejects_manual_only_candidate(tmp_path: Path) -> None:
+    repo, source_ref = create_skill_repo(tmp_path)
+    index_path = tmp_path / "runtime-index.json"
+    candidate = write_runtime_index(
+        index_path,
+        repo,
+        source_ref,
+        router_eligible=False,
+    )
+    manager = SkillManager(
+        installed_dir=tmp_path / "installed",
+        tmp_dir=tmp_path / "tmp",
+        allow_local_repos=True,
+    )
+    provider = SandboxToolsetProvider(
+        SandboxWorkspaceStore(
+            tmp_path / "runtime", workspace_root=tmp_path / "workspaces"
+        ),
+        FakeSandboxClient(),
+        skill_manager=manager,
+        skill_finder=SkillFinder(index_path=index_path, skill_manager=manager),
+    )
+
+    found = provider._skill_find(
+        RuntimeToolCall("skill_find", {"need": "提取 PDF 合同"}, metadata())
+    )
+    assert json.loads(found.output)["results"] == []
+
+    with pytest.raises(RuntimeToolError) as denied:
+        provider.prepare_call(
+            RuntimeToolCall(
+                "skill_install",
+                {
+                    "candidate_id": candidate["candidateId"],
+                    "candidate_fingerprint": candidate["candidateFingerprint"],
+                },
+                metadata(),
+            )
+        )
+    assert denied.value.code == "skill_trust_policy_blocked"
+
+
 def metadata(**updates: object) -> dict[str, object]:
     return {
         "task_id": "task-1",
@@ -168,6 +217,8 @@ async def test_find_install_activate_read_and_install_limit(tmp_path: Path) -> N
     payload = json.loads(found.output)
     assert payload["results"][0]["availability"] == "missing"
     assert payload["results"][0]["trust"] == candidate["trust"]
+    assert payload["results"][0]["trustDecision"]["allowed"] is True
+    assert payload["results"][0]["trustActionable"] is True
     assert payload["trustCatalogFingerprint"] == "3" * 64
     assert found.metadata["query_hash"]
     assert "need" not in found.metadata
