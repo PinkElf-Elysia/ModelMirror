@@ -90,6 +90,14 @@ node scripts/audit-skill-experience.mjs
 
 “待核验”不代表来源恶意，只表示当前证据不足以让模镜替用户执行安装。
 
+### 3.4 第三方 Skill 信任与兼容性基线
+
+固定提交来源核验只证明“仓库、提交和目录真实存在”，不等同于脚本安全、依赖可用或运行权限兼容。第一轮信任治理新增纯本地 `SkillTrustReceipt`：按完整 Git tree 读取原始字节，不执行任何第三方代码，并以结构安全、脚本、依赖、权限、网络、凭据、文件写入和宿主能力生成可解释 findings。
+
+风险分级固定为：纯说明、reference 或文本 asset 为低风险；本地 Python/JavaScript、Sandbox 写入、被动二进制或非标准依赖为中风险；网络、凭据、浏览器、MCP、宿主文件系统、包管理器、Shell、桌面控制及敏感能力为高风险；秘密、链接逃逸、可执行或归档文件、未知二进制、动态下载执行、混淆内容及扫描不完整为严重风险。自定义 frontmatter 字段保留为兼容性发现，不改写上游文件，也不把“可安装”表述成原生规范认证。
+
+本 PR 只建立确定性扫描器与三份一致索引；安装确认、既有安装迁移、统一激活门和市场体验按后续串行 PR 实施。扫描公共固定提交仅发生在维护期，运行时不会联网判断风险。
+
 ## 4. 候选能力审计
 
 本节记录三项候选能力的审计结论与当前落地边界。“按需求寻找 Skill”与私有控制台 Creator V1（含资源化创作）已实现；上传 Skill 与外部市场继续延后。
@@ -158,6 +166,7 @@ SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验�
 
 ```bash
 node scripts/audit-skill-experience.mjs
+python scripts/audit_skill_trust_index.py
 node scripts/audit-skill-need-matcher.mjs
 node scripts/audit-official-skill-source-resolver.mjs
 node scripts/audit-github-skill-path-history.mjs

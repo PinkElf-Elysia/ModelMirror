@@ -61,6 +61,14 @@ VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skil
 
 市场展示层将来源细分类收敛为 10 个稳定任务大类，并把晦涩英文说明转换成面向用户的中文能力说明。上游原文保留在 `sourceDescription` 中，用于搜索和追溯。完整治理规则与候选能力结论见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md)。三项候选能力没有排期或实施承诺，新增目录和 SkillHub 等外部市场继续延后。
 
+### 1.1 第三方目录信任索引
+
+目录中具备固定提交安装源的顶层 Skill 与 SkillSet 成员，会在维护期按完整 Git tree 生成本地、确定性的 `SkillTrustReceipt`。扫描过程不执行脚本、不加载 Skill、不调用模型，也不会在运行时访问 GitHub；同一个 `repoUrl + subPath + verifiedCommit` 只保存一份凭据，重叠集合成员共享该凭据。
+
+凭据同时绑定目录 tree SHA、按排序路径与原始字节计算的 package digest、扫描器版本和凭据指纹。扫描范围包括严格 YAML、路径、凭据、引用、Python/JavaScript 静态语法、脚本与命令、依赖、网络、宿主能力和被动二进制资源。PNG、JPEG、GIF、WebP、PDF、WOFF/WOFF2、MP3、WAV、MP4 只在扩展名与 magic 一致时作为不透明资源记录，不解析或执行；链接逃逸、Git submodule、可执行文件、归档、未知二进制、秘密、动态下载执行、混淆内容或扫描不完整会形成 `blocked` 凭据。
+
+本阶段只发布服务端完整索引、前端懒加载摘要、Runtime Finder 信任摘要及离线分布报告。安装与激活门在后续串行 PR 接入；因此本阶段的风险结果是审计证据，不改变当前安装 API 行为。三份索引共享同一目录指纹，任一映射或指纹不一致都会使审计失败。
+
 ## 2. 如何添加新的 Skill 到市场
 
 手工精选市场数据位于：
@@ -266,6 +274,7 @@ node scripts/sync-anbeime-skill-catalog.mjs <anbeime-checkout> <其余快照参�
 node scripts/sync-voltagent-skill-index.mjs <voltagent-checkout> <其余快照参数> --check
 node scripts/audit-github-skill-tree.mjs
 node scripts/audit-skill-experience.mjs
+python scripts/audit_skill_trust_index.py
 cd client && npm.cmd run build
 ```
 

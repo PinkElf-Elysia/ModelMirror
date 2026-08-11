@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-RUNTIME_INDEX_VERSION = 1
+RUNTIME_INDEX_VERSION = 2
 RANKER_VERSION = "skill-need-local-v3"
 MAX_QUERY_LENGTH = 500
 MAX_RESULTS = 6
@@ -243,6 +243,8 @@ class SkillFinder:
             payload.get("version") != RUNTIME_INDEX_VERSION
             or payload.get("rankerVersion") != RANKER_VERSION
             or not isinstance(payload.get("candidates"), list)
+            or not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("catalogFingerprint") or ""))
+            or not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("trustIndexFingerprint") or ""))
             or not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("fingerprint") or ""))
         ):
             raise SkillRuntimeIndexError("Skill runtime index version is invalid.")
@@ -251,6 +253,8 @@ class SkillFinder:
                 "version": payload.get("version"),
                 "rankerVersion": payload.get("rankerVersion"),
                 "memberIndexFingerprint": payload.get("memberIndexFingerprint"),
+                "catalogFingerprint": payload.get("catalogFingerprint"),
+                "trustIndexFingerprint": payload.get("trustIndexFingerprint"),
                 "supersededCandidateIds": payload.get("supersededCandidateIds", []),
                 "candidates": payload.get("candidates"),
             }
@@ -264,11 +268,19 @@ class SkillFinder:
                 raise SkillRuntimeIndexError("Skill runtime index contains an invalid candidate.")
             candidate_id = str(candidate.get("candidateId") or "")
             source = candidate.get("installSource")
+            trust = candidate.get("trust")
             if (
                 not candidate_id.startswith("catalog:")
                 or candidate_id in catalog_by_id
                 or not isinstance(source, dict)
+                or not isinstance(trust, dict)
                 or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("verifiedCommit") or ""))
+                or not str(trust.get("receiptId") or "").startswith("skill-trust-")
+                or not re.fullmatch(r"[0-9a-f]{64}", str(trust.get("trustFingerprint") or ""))
+                or trust.get("riskLevel") not in {"low", "medium", "high", "critical"}
+                or trust.get("trustStatus") not in {"verified", "conditional", "blocked"}
+                or trust.get("installPolicy") not in {"allow", "confirm", "block"}
+                or trust.get("compatibilityStatus") not in {"portable", "conditional", "unsupported"}
             ):
                 raise SkillRuntimeIndexError("Skill runtime index contains an invalid install source.")
             candidate_payload = {
@@ -422,6 +434,7 @@ class SkillFinder:
                 "version": RUNTIME_INDEX_VERSION,
                 "rankerVersion": RANKER_VERSION,
                 "catalogFingerprint": self.fingerprint,
+                "trustCatalogFingerprint": self._load_index()["catalogFingerprint"],
                 "results": [],
             }
         candidates = self.candidates()
@@ -520,6 +533,7 @@ class SkillFinder:
                     "sourceDescription": candidate.get("sourceDescription") or "",
                     "parentNames": candidate.get("parentNames") or [],
                     "installSource": candidate.get("installSource"),
+                    "trust": candidate.get("trust"),
                     "installedSkillId": installed_skill.skill_id if installed_skill else None,
                     "installedSourceRef": installed_skill.source_ref if installed_skill else None,
                     "availability": availability,
@@ -565,6 +579,7 @@ class SkillFinder:
             "version": RUNTIME_INDEX_VERSION,
             "rankerVersion": RANKER_VERSION,
             "catalogFingerprint": self.fingerprint,
+            "trustCatalogFingerprint": self._load_index()["catalogFingerprint"],
             "results": matches[:safe_limit],
         }
 

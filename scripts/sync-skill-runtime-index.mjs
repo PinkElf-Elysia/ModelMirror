@@ -1,5 +1,5 @@
 import { build } from "../client/node_modules/esbuild/lib/main.js";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { buildSkillRuntimeIndex } from "./skill-runtime-index.mjs";
 
@@ -38,7 +38,10 @@ async function loadNeedCandidates() {
 
 async function main() {
   const source = await loadNeedCandidates();
-  const index = buildSkillRuntimeIndex(source);
+  const trustIndex = JSON.parse(
+    await readFile("server/skills/data/skill_trust_index.json", "utf8"),
+  );
+  const index = buildSkillRuntimeIndex({ ...source, trustIndex });
   await mkdir(dirname(OUTPUT_PATH), { recursive: true });
   const temporaryPath = `${OUTPUT_PATH}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(index)}\n`, "utf8");
