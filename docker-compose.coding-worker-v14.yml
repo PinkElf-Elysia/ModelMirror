@@ -1,0 +1,196 @@
+services:
+  server:
+    environment:
+      CODING_WORKER_V14_ENABLED: ${CODING_WORKER_V14_ENABLED:-false}
+      CODING_WORKER_STATE_ROOT: /var/lib/modelmirror/coding-worker
+      CODING_WORKER_SLOT_A_ROOT: /worker-slots/slot-a
+      CODING_WORKER_SLOT_B_ROOT: /worker-slots/slot-b
+      CODING_WORKER_SLOT_A_ENDPOINT: unix:/run/modelmirror-coding-slot-a/provider.sock
+      CODING_WORKER_SLOT_B_ENDPOINT: unix:/run/modelmirror-coding-slot-b/provider.sock
+      CODING_WORKER_SLOT_A_TOKEN: ${CODING_WORKER_SLOT_A_TOKEN:?set a random V14 slot A token}
+      CODING_WORKER_SLOT_B_TOKEN: ${CODING_WORKER_SLOT_B_TOKEN:?set a random V14 slot B token}
+      CODING_WORKER_EXECUTOR_A_ENDPOINT: unix:/run/modelmirror-coding-executor-a/executor.sock
+      CODING_WORKER_EXECUTOR_B_ENDPOINT: unix:/run/modelmirror-coding-executor-b/executor.sock
+      CODING_WORKER_EXECUTOR_A_TOKEN: ${CODING_WORKER_EXECUTOR_A_TOKEN:?set a random V14 executor A token}
+      CODING_WORKER_EXECUTOR_B_TOKEN: ${CODING_WORKER_EXECUTOR_B_TOKEN:?set a random V14 executor B token}
+      CODING_WORKER_BROKER_SOCKET: /run/modelmirror-coding-broker/broker.sock
+      CODING_WORKER_MAX_ACTIVE_TASKS: ${CODING_WORKER_MAX_ACTIVE_TASKS:-2}
+      CODING_WORKER_RETENTION_SECONDS: ${CODING_WORKER_RETENTION_SECONDS:-604800}
+      CODING_WORKER_NETWORK_ENABLED: ${CODING_WORKER_NETWORK_ENABLED:-false}
+      CODING_WORKER_NETWORK_DOMAINS: ${CODING_WORKER_NETWORK_DOMAINS:-registry.npmjs.org}
+      CODING_WORKER_EGRESS_PROXY_URL: http://coding-worker-egress:8080
+      CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}
+      CODING_WORKER_PROJECT_SNAPSHOT_ROOT: /project-snapshots
+      CODING_WORKER_BUILTIN_SOURCE_ROOT: /builtin-source
+      CODING_WORKER_BUILTIN_SOURCE_ID: modelmirror
+      CODING_WORKER_BUILTIN_REVISION: ${CODING_WORKER_BUILTIN_REVISION:?set the full ModelMirror source commit}
+    volumes:
+      - coding_worker_state:/var/lib/modelmirror/coding-worker
+      - coding_worker_slot_a:/worker-slots/slot-a
+      - coding_worker_slot_b:/worker-slots/slot-b
+      - coding_worker_provider_a:/run/modelmirror-coding-slot-a
+      - coding_worker_provider_b:/run/modelmirror-coding-slot-b
+      - coding_worker_executor_a:/run/modelmirror-coding-executor-a
+      - coding_worker_executor_b:/run/modelmirror-coding-executor-b
+      - coding_worker_broker:/run/modelmirror-coding-broker
+      - coding_project_snapshot:/project-snapshots:ro
+      - type: bind
+        source: ${CODING_IMPLEMENTATION_WORKTREE:?set the absolute ModelMirror implementation worktree}
+        target: /builtin-source
+        read_only: true
+        bind:
+          create_host_path: false
+
+  coding-worker-provider-a:
+    image: modelmirror-coding-worker-v14:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    container_name: modelmirror-coding-worker-provider-a
+    depends_on:
+      new-api:
+        condition: service_healthy
+    networks:
+      - coding_internal
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 192
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m,uid=65532,gid=65532,mode=0700
+      - /home/coding:rw,nosuid,size=128m,uid=65532,gid=65532,mode=0700
+      - /worker-runtime:rw,nosuid,size=512m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_WORKER_PROVIDER_SOCKET: /run/modelmirror-coding/provider.sock
+      CODING_WORKER_SIDECAR_TOKEN: ${CODING_WORKER_SLOT_A_TOKEN:?set a random V14 slot A token}
+      CODING_WORKER_ROUTE_ID: coding/default
+      CODING_WORKER_MODEL_ID: ${CODING_WORKER_MODEL_ID:?set the controlled V14 model id}
+      CODING_WORKER_MODEL_BASE_URL: ${CODING_WORKER_MODEL_BASE_URL:-http://new-api:3000/v1}
+      CODING_WORKER_ROUTE_KEY: ${CODING_WORKER_ROUTE_KEY:?set a dedicated V14 route key}
+    volumes:
+      - coding_worker_slot_a:/worker-data:ro
+      - coding_worker_provider_a:/run/modelmirror-coding
+      - coding_worker_broker:/run/modelmirror-coding-broker:ro
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/provider.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_SIDECAR_TOKEN'],'action':'capabilities','payload':{}})+'\\n').encode()); assert json.loads(s.recv(65536))['ok']"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+  coding-worker-provider-b:
+    extends:
+      service: coding-worker-provider-a
+    container_name: modelmirror-coding-worker-provider-b
+    environment:
+      CODING_WORKER_PROVIDER_SOCKET: /run/modelmirror-coding/provider.sock
+      CODING_WORKER_SIDECAR_TOKEN: ${CODING_WORKER_SLOT_B_TOKEN:?set a random V14 slot B token}
+      CODING_WORKER_ROUTE_ID: coding/default
+      CODING_WORKER_MODEL_ID: ${CODING_WORKER_MODEL_ID:?set the controlled V14 model id}
+      CODING_WORKER_MODEL_BASE_URL: ${CODING_WORKER_MODEL_BASE_URL:-http://new-api:3000/v1}
+      CODING_WORKER_ROUTE_KEY: ${CODING_WORKER_ROUTE_KEY:?set a dedicated V14 route key}
+    volumes:
+      - coding_worker_slot_b:/worker-data:ro
+      - coding_worker_provider_b:/run/modelmirror-coding
+      - coding_worker_broker:/run/modelmirror-coding-broker:ro
+
+  coding-worker-slot-a:
+    image: modelmirror-coding-worker-v14:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    container_name: modelmirror-coding-worker-slot-a
+    networks:
+      - coding_worker_tools
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 192
+    mem_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,nosuid,size=256m,uid=65532,gid=65532,mode=0700
+      - /worker-runtime:rw,nosuid,size=512m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_WORKER_MODE: executor
+      CODING_WORKER_PROVIDER_SOCKET: /run/modelmirror-coding/executor.sock
+      CODING_WORKER_EXECUTOR_TOKEN: ${CODING_WORKER_EXECUTOR_A_TOKEN:?set a random V14 executor A token}
+    volumes:
+      - coding_worker_slot_a:/worker-data
+      - coding_worker_executor_a:/run/modelmirror-coding
+    restart: unless-stopped
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/executor.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EXECUTOR_TOKEN'],'action':'bind_task','payload':{'task_id':'healthcheck','workspace_id':'healthcheck'}})+'\\n').encode()); assert json.loads(s.recv(65536))['error']['code']=='executor_failed'"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  coding-worker-slot-b:
+    extends:
+      service: coding-worker-slot-a
+    container_name: modelmirror-coding-worker-slot-b
+    environment:
+      CODING_WORKER_MODE: executor
+      CODING_WORKER_PROVIDER_SOCKET: /run/modelmirror-coding/executor.sock
+      CODING_WORKER_EXECUTOR_TOKEN: ${CODING_WORKER_EXECUTOR_B_TOKEN:?set a random V14 executor B token}
+    volumes:
+      - coding_worker_slot_b:/worker-data
+      - coding_worker_executor_b:/run/modelmirror-coding
+
+  coding-worker-egress:
+    profiles:
+      - coding-worker-network
+    image: modelmirror-coding-worker-v14:local
+    build:
+      context: .
+      dockerfile: server/coding_worker/Dockerfile.v14
+    container_name: modelmirror-coding-worker-egress
+    command: ["python", "-m", "coding_worker.egress_proxy"]
+    networks:
+      - coding_worker_tools
+      - coding_worker_egress
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=8m,uid=65532,gid=65532,mode=0700
+    environment:
+      CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}
+      CODING_WORKER_NETWORK_DOMAINS: ${CODING_WORKER_NETWORK_DOMAINS:-registry.npmjs.org}
+    restart: unless-stopped
+
+volumes:
+  coding_project_snapshot:
+  coding_worker_state:
+  coding_worker_slot_a:
+  coding_worker_slot_b:
+  coding_worker_provider_a:
+  coding_worker_provider_b:
+  coding_worker_executor_a:
+  coding_worker_executor_b:
+  coding_worker_broker:
+
+networks:
+  coding_worker_tools:
+    driver: bridge
+    internal: true
+  coding_worker_egress:
+    driver: bridge

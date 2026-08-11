@@ -481,6 +481,8 @@ describe("AgentWorkbenchPage", () => {
 
     expect(await screen.findByText("Agent 工作区已关闭")).toBeVisible();
     expect(screen.getByRole("button", { name: "一句话创建 Agent" })).toBeDisabled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/coding-worker/v1", undefined);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/agent-workspace/status", undefined);
   });
 });

@@ -5,11 +5,12 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from server.coding_runtime.api import (
     CodingService,
@@ -33,6 +34,8 @@ from server.coding_runtime.project_host_api import (
 )
 from server.coding_runtime.project_writer_client import ProjectWriterClientError
 from server.coding_runtime.projects import ProjectFeatures, ProjectKind
+from server.coding_worker.api import configure_coding_worker_for_tests
+from server.coding_worker.contracts import TaskState
 from server.coding_runtime.recovery import CodingRecoveryStore, RecoveryProjectContext
 from server.coding_runtime.worker import CodingWorkerError, CodingWorkerServer
 from server.tests.test_coding_runtime_api import FakeWorker
@@ -505,6 +508,111 @@ async def test_host_project_catalog_and_session_use_one_path_free_snapshot() -> 
     await service.shutdown()
     assert source.released == [(PROJECT_ID, "lease_host_k8r3_202608")]
     configure_coding_service(None)
+
+
+@pytest.mark.asyncio
+async def test_completed_worker_patch_enters_existing_host_recovery_chain(
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "worker-handoff-recovery")
+    service, worker, source, host = _service(store)
+    patch = worker._diff_content()
+
+    record = await service.adopt_worker_patch(
+        project_id=PROJECT_ID,
+        expected_head=PROJECT_HEAD,
+        patch=patch,
+        paths=[worker.change_path],
+    )
+
+    assert record.project["kind"] == "host_git"
+    assert record.project_source == _lease()
+    assert worker.restore_calls == [
+        {
+            "revision": 1,
+            "patch": patch,
+            "paths": [worker.change_path],
+            "snapshot_fingerprint": PROJECT_FINGERPRINT,
+            "verification": None,
+            "source": _lease(),
+        }
+    ]
+    recovery = store.load()
+    assert recovery is not None
+    assert recovery.payload.patch == patch
+    context = store.load_project_context(recovery.recovery_id)
+    assert context is not None
+    assert context.project_id == PROJECT_ID
+    assert source.released == []
+    assert host.snapshot_calls == [(PROJECT_ID, PROJECT_HEAD, None, None)]
+
+
+@pytest.mark.asyncio
+async def test_worker_handoff_rejects_binary_patch_before_host_snapshot(
+    tmp_path: Path,
+) -> None:
+    service, worker, _source, host = _service(
+        CodingRecoveryStore(tmp_path / "binary-handoff-recovery")
+    )
+    patch = (
+        "diff --git a/image.png b/image.png\n"
+        "Binary files a/image.png and b/image.png differ\n"
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await service.adopt_worker_patch(
+            project_id=PROJECT_ID,
+            expected_head=PROJECT_HEAD,
+            patch=patch,
+            paths=["image.png"],
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "worker_writeback_patch_unsupported"
+    assert worker.restore_calls == []
+    assert host.snapshot_calls == []
+
+
+@pytest.mark.asyncio
+async def test_completed_worker_task_handoff_route_uses_v13_recovery(
+    tmp_path: Path,
+) -> None:
+    store = CodingRecoveryStore(tmp_path / "worker-route-recovery")
+    service, worker, _source, _host = _service(store)
+    task_id = "task_" + "a" * 32
+    task = SimpleNamespace(
+        state=TaskState.COMPLETED,
+        workspace_id="workspace_" + "b" * 32,
+        spec=SimpleNamespace(
+            workspace_source=SimpleNamespace(
+                kind="host_snapshot",
+                source_id=PROJECT_ID,
+                revision=PROJECT_HEAD,
+            )
+        ),
+    )
+    worker_service = SimpleNamespace(
+        store=SimpleNamespace(get_task=lambda value: task if value == task_id else None),
+        harness_runner=SimpleNamespace(acceptance_satisfied=lambda value: value == task_id),
+        workspace_broker=SimpleNamespace(
+            diff=lambda value: worker._diff_content().encode("utf-8")
+        ),
+    )
+    configure_coding_worker_for_tests(worker_service, enabled=True)  # type: ignore[arg-type]
+    try:
+        async with _client(service) as client:
+            response = await client.post(f"/api/coding/worker-tasks/{task_id}/handoff")
+    finally:
+        configure_coding_worker_for_tests(None, enabled=None)
+        configure_coding_service(None)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["task_id"] == task_id
+    assert response.json()["project"]["id"] == PROJECT_ID
+    assert response.json()["revision"] == 1
+    recovery = store.load()
+    assert recovery is not None
+    assert recovery.payload.patch == worker._diff_content()
 
 
 @pytest.mark.asyncio
