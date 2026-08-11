@@ -1,5 +1,25 @@
 # Third-party notices
 
+## Agency Orchestrator core
+
+- Project: `jnMetaCode/agency-orchestrator`
+- License: Apache License 2.0
+- Fixed source commit: `3b7c43042325a9091393de6ecfa7e9936b0c7932`
+- Vendored location: `server/vendor/agency-orchestrator/`
+- Provenance manifest: `server/vendor/agency-orchestrator/UPSTREAM_FILES.json`
+- Local license copy: `server/vendor/agency-orchestrator/LICENSE`
+
+ModelMirror selectively vendors the Types, DAG, Parser, Template, Condition,
+Executor, Verify, Compare, Agent/Skill Loader, Reporter/Resume, Compose and Team
+core plus focused upstream tests. The upstream Provider Factory, provider and
+CLI connectors, website/Web Studio, Electron code, role libraries, creative
+assets and third-party integrations are excluded. A ModelMirror-authored
+connector boundary fails closed until the host worker injects a connector;
+ModelMirror credentials are never owned by the vendored code. Exact upstream
+Blob SHAs and local SHA-256 values are recorded in the provenance manifest,
+and all local boundaries or future modifications are documented in
+`PATCHES.md`.
+
 ## Anthropic skill-creator authoring guidance
 
 - Project: `anthropics/skills`
