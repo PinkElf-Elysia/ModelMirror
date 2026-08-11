@@ -2,6 +2,7 @@ class_name MatrixOasisPlayableLab
 extends Node3D
 
 const READINESS_MARKER := "MATRIX_OASIS_R6_PLAYABLE_3D_READY"
+const SMOKE_ARGUMENT := "--matrix-oasis-3d-smoke"
 const READY_COLOR := Color(0.53, 0.88, 0.77, 1.0)
 const ERROR_COLOR := Color(1.0, 0.58, 0.58, 1.0)
 
@@ -25,10 +26,21 @@ var _snapshot: Dictionary
 var _inspection: Dictionary
 var _latest_cues: Array = []
 var _latest_transition: Variant = null
+var _created_result: Dictionary
+var _latest_runtime_result: Dictionary
+var _step_limit_override := 0
+var _smoke_requested := false
 
 
 func set_prepared_for_test(prepared: MatrixOasisPreparedRuntimePack) -> void:
 	_prepared_override = prepared
+
+
+func set_step_limit_for_trace(step_limit: int) -> bool:
+	if is_node_ready() or step_limit < 1 or step_limit > MatrixOasisGodotRuntime.MAX_STEP_LIMIT:
+		return false
+	_step_limit_override = step_limit
+	return true
 
 
 func _ready() -> void:
@@ -38,7 +50,16 @@ func _ready() -> void:
 	if _prepared_override != null:
 		_activate_prepared(_prepared_override)
 		return
-	var loaded := MatrixOasisRuntimeArtifactLoader.load_from_arguments(OS.get_cmdline_user_args())
+	var artifact_arguments := PackedStringArray()
+	for argument in OS.get_cmdline_user_args():
+		if argument == SMOKE_ARGUMENT:
+			if _smoke_requested:
+				_show_failure("GODOT_PLAYABLE_ARGUMENT_INVALID")
+				return
+			_smoke_requested = true
+		else:
+			artifact_arguments.append(argument)
+	var loaded := MatrixOasisRuntimeArtifactLoader.load_from_arguments(artifact_arguments)
 	if not loaded["ok"]:
 		_show_failure(loaded["diagnostics"][0]["code"])
 		return
@@ -52,7 +73,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _activate_prepared(prepared: MatrixOasisPreparedRuntimePack) -> void:
-	var created := MatrixOasisGodotRuntime.create_game_session(prepared)
+	var created := MatrixOasisGodotRuntime.create_game_session(prepared, _session_options())
 	if not created["ok"]:
 		_show_failure(created["diagnostics"][0]["code"])
 		return
@@ -67,6 +88,8 @@ func _activate_prepared(prepared: MatrixOasisPreparedRuntimePack) -> void:
 		return
 	_set_status("Runtime ready")
 	print(READINESS_MARKER)
+	if _smoke_requested:
+		_complete_smoke.call_deferred()
 
 
 func _apply_action(action_id: String) -> bool:
@@ -79,6 +102,7 @@ func _apply_action(action_id: String) -> bool:
 		action_id,
 	)
 	if not result["ok"]:
+		_latest_runtime_result = result
 		_set_status(result["diagnostics"][0]["code"], true)
 		return false
 	if not _commit_session_candidate(
@@ -88,8 +112,10 @@ func _apply_action(action_id: String) -> bool:
 		result["transition"]["emittedCues"],
 		result["transition"],
 	):
+		_latest_runtime_result = _internal_failure()
 		_show_failure("PACK_GODOT_RUNTIME_INTERNAL_ERROR")
 		return false
+	_latest_runtime_result = result
 	_set_status("Action applied")
 	return true
 
@@ -98,7 +124,7 @@ func _reset_session() -> bool:
 	if _prepared == null:
 		_show_failure("PACK_GODOT_RUNTIME_INTERNAL_ERROR")
 		return false
-	var created := MatrixOasisGodotRuntime.create_game_session(_prepared)
+	var created := MatrixOasisGodotRuntime.create_game_session(_prepared, _session_options())
 	if not created["ok"]:
 		_show_failure(created["diagnostics"][0]["code"])
 		return false
@@ -133,8 +159,37 @@ func _commit_session_candidate(
 	_inspection = inspection
 	_latest_cues = emitted_cues
 	_latest_transition = transition
+	if transition == null:
+		_created_result = {
+			"ok": true,
+			"snapshot": snapshot,
+			"inspection": inspection,
+			"emittedCues": emitted_cues,
+		}
 	_render_session()
 	return true
+
+
+func _session_options() -> Dictionary:
+	return {} if _step_limit_override == 0 else {"stepLimit": _step_limit_override}
+
+
+func apply_terminal_action_for_trace(action_id: String) -> Dictionary:
+	for index in terminal_grid.get_terminal_count():
+		var terminal := terminal_grid.get_terminal(index)
+		if terminal.get_action_id() != action_id:
+			continue
+		if terminal.request_interaction():
+			interaction_ray.action_requested.emit(action_id)
+		else:
+			_apply_action(action_id)
+		return _latest_runtime_result
+	_apply_action(action_id)
+	return _latest_runtime_result
+
+
+func created_result_for_trace() -> Dictionary:
+	return _created_result
 
 
 func _valid_candidate(
@@ -209,6 +264,8 @@ func _on_focus_changed(label: String, available: bool) -> void:
 
 func _show_failure(code: String) -> void:
 	_set_status(code, true)
+	if _smoke_requested:
+		get_tree().quit(1)
 
 
 func _set_status(text: String, is_error := false) -> void:
@@ -218,3 +275,22 @@ func _set_status(text: String, is_error := false) -> void:
 
 func snapshot_copy_for_test() -> Dictionary:
 	return _snapshot.duplicate(true)
+
+
+func _internal_failure() -> Dictionary:
+	return {
+		"ok": false,
+		"diagnostics": [{
+			"phase": "runtime",
+			"severity": "error",
+			"code": "PACK_GODOT_RUNTIME_INTERNAL_ERROR",
+			"path": "/runtime",
+			"message": "PACK_GODOT_RUNTIME_INTERNAL_ERROR",
+		}],
+	}
+
+
+func _complete_smoke() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	get_tree().quit(0)

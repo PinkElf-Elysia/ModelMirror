@@ -22,10 +22,13 @@ mesh = SubResource("Mesh_terminal")
 shape = SubResource("Shape_terminal")
 
 [node name="Label3D" type="Label3D" parent="."]
-position = Vector3(0, 1.1, 0.27)
-pixel_size = 0.004
+position = Vector3(0, 1.18, 0.27)
+pixel_size = 0.007
 billboard = 1
 text = "Action"
 font_size = 28
 outline_size = 8
+width = 150.0
+autowrap_mode = 2
+horizontal_alignment = 1
 modulate = Color(0.92, 0.96, 1, 1)

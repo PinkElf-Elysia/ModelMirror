@@ -1,6 +1,6 @@
 # R6 验收记录
 
-状态：R6.4 已验证，等待本地提交；自动差分与固定帧门尚未接入。
+状态：R6.5 已验证，等待本地提交；standalone 与最终人工验收尚未收口。
 
 固定基线：`430f24a4fd8510a0d54f14bcd240a80423d16719`
 分支：`codex/matrix-oasis-r6-playable-3d-skeleton`
@@ -12,7 +12,7 @@
 - [x] R6.2 第一人称移动骨架
 - [x] R6.3 3D Action 终端
 - [x] R6.4 Runtime 与 3D 世界接通
-- [ ] R6.5 自动验证与固定帧
+- [x] R6.5 自动验证与固定帧
 - [ ] R6.6 standalone 与人工验收收口
 
 每批记录精确 diff、命令/退出码、测试数量、冻结路径零差异、风险与回退。最终 HEAD、split tree、archive SHA-256、参考源码 SHA-256 和仓外截图只写入提交后的交付清单，避免文档自引用。
@@ -66,6 +66,20 @@ R6.3 提交：`f0c78f9`。本批精确变更 7 个模块内文件：独立 playa
 - `check:godot-boundary`：21 个第一方脚本通过；`check:round-scope` 与 `check:parent-scope` 均为 `checked=42 changed=38`；`check:boundary` 为 `checked=806 tracked=803`；`git diff --check` 通过。
 
 本批不增加样例驱动 CLI、trace runner、固定帧捕获或人工预览；这些属于 R6.5。单独 revert R6.4 恢复仅可交互但未接 Runtime 的 R6.3 状态。
+
+## R6.5 证据
+
+R6.4 提交：`859c264`。本批精确变更 12 个模块内文件：playable trace runner、R6 Node harness、verify/preview/capture CLI、3 个合同测试、根命令接线、终端标签可读性调整、playable lab trace/smoke seam 和本验收记录。R1–R5 冻结文件与父仓路径零差异。
+
+- `npm.cmd run verify:godot:3d`：13/13 Node 合同、34 个 Godot 用例、7 个 Runtime case、26 次独立 Godot trace 与 2 个 playable scene smoke 全通过。
+- mechanics 权威轨迹通过真实终端 signal 进入冻结 R5 Runtime，20 次 JSON trace 完全一致；末班地铁三个 ending、显式循环与 step limit，以及 unknown/unavailable/ended、正负溢出均与冻结 R3 Runtime Simulator 的可观察结果逐字段一致。
+- `npm.cmd run smoke:godot:3d`：两个冻结样例均从仓外临时 Runtime Pack/Receipt 启动独立 playable scene，唯一 readiness marker 通过。
+- `npm.cmd run capture:godot:3d`：mechanics 12 帧 960×540、末班地铁 12 帧 640×540；PNG 非空、尺寸、帧数与逐帧 SHA-256 均由仓外 manifest 锁定。首次 mechanics 捕获仅产生 0 字节音频占位并 fail closed，随后宽/窄两次独立复跑均成功；脚本不自动重试或伪装通过。
+- 代表帧人工检查确认 primitive 场景、HUD、准星和中英文终端可见；终端标签增加固定宽度换行，640×540 不裁切关键 HUD。交互键与完整三 ending 仍留给 R6.6 人工实机验收。
+- 最新树 `npm.cmd run verify`：12/12 步通过；446/446 Node、Godot 4.6.3 import/adapter/parity/R6 3D/GdUnit/smoke、Creator 247 modules build 与 HTTP 200 smoke 全绿。
+- `check:godot-boundary`：22 个第一方脚本通过；`check:round-scope` 与 `check:parent-scope` 均为 `checked=50 changed=46`；`check:boundary` 为 `checked=814 tracked=806`；`git diff --check` 通过。
+
+本批固定帧和临时生成物仅在仓外；不提交 Pack、Receipt、PNG、日志或 `.godot/`。单独 revert R6.5 恢复 R6.4 的可玩场景，但移除自动差分、预览、捕获与稳定 R6 trace 门。
 
 ## 未运行项
 
