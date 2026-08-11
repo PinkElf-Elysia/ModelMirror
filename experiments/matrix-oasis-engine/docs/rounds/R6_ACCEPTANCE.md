@@ -1,6 +1,6 @@
 # R6 验收记录
 
-状态：R6.1 已验证，等待本地提交；功能批次尚未开始。
+状态：R6.3 已验证，等待本地提交；Runtime 与 3D 世界尚未接通。
 
 固定基线：`430f24a4fd8510a0d54f14bcd240a80423d16719`
 分支：`codex/matrix-oasis-r6-playable-3d-skeleton`
@@ -10,7 +10,7 @@
 
 - [x] R6.1 治理与冻结迁移
 - [x] R6.2 第一人称移动骨架
-- [ ] R6.3 3D Action 终端
+- [x] R6.3 3D Action 终端
 - [ ] R6.4 Runtime 与 3D 世界接通
 - [ ] R6.5 自动验证与固定帧
 - [ ] R6.6 standalone 与人工验收收口
@@ -43,6 +43,17 @@ R6.1 提交：`6c1b13e`。本批精确变更 14 个模块内文件：唯一批�
 - `check:godot-boundary`：15 个第一方脚本通过；`check:round-scope`、`check:boundary` 与 `git diff --check` 通过。
 
 本批不加入 RayCast3D、Action 终端或 Runtime playable lab；这些属于 R6.3–R6.4。单独 revert R6.2 恢复 R6.1 的纯治理状态。
+
+## R6.3 证据
+
+R6.2 提交：`fe87636`。本批精确变更 9 个模块内文件：6 个独立 Action 终端、确定性网格、中心射线、交互实验场景与 GdUnit 文件，`player.tscn` 增加相机中心 `RayCast3D`，模块命令增加交互门禁，并更新本验收记录。R4/R5 场景与 Runtime、GdUnit4 vendor、Creator、examples、packages 和历史验收记录零差异。
+
+- `npm.cmd run verify:godot:3d:interaction`：Godot 4.6.3 GdUnit 通过；覆盖终端标签与可用状态、非法/禁用 action、0/1/64 个 action 的声明顺序与 8 列确定性布局、重建与清理，以及射线忽略世界层并只触发交互层中的可用终端。
+- `RayCast3D` 固定距离 3 m、collision mask 仅逻辑交互层 3，并只检测 Area；终端世界碰撞为 layer 3，玩家与世界碰撞设置保持 R6.2 不变。
+- 最新树 `npm.cmd run verify`：12/12 步通过；433/433 Node、Godot import/adapter/parity/GdUnit/smoke、Creator 247 modules build 与 HTTP 200 smoke 全绿。
+- `check:godot-boundary`：19 个第一方脚本通过；`check:round-scope` 为 `checked=38 changed=35`；`check:parent-scope` 为 `checked=38 changed=35`；`check:boundary` 为 `checked=803 tracked=797`；`git diff --check` 通过。
+
+本批只建立通用终端与交互器，不载入 Runtime Pack、不执行 Runtime action、不包含样例题材分支。单独 revert R6.3 恢复只有移动与碰撞的 R6.2 状态。
 
 ## 未运行项
 

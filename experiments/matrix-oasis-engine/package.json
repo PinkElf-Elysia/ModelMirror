@@ -38,6 +38,7 @@
     "verify:godot:adapter": "node scripts/verify-godot-runtime-adapter.mjs",
     "verify:godot:parity": "node scripts/verify-godot-runtime-parity.mjs",
     "verify:godot:3d:controller": "node scripts/run-godot.mjs test",
+    "verify:godot:3d:interaction": "node scripts/run-godot.mjs test",
     "verify:vendor": "node scripts/verify-godot-vendor.mjs",
     "check:godot-boundary": "node scripts/check-godot-boundary.mjs",
     "test:godot": "node scripts/run-godot.mjs test",
