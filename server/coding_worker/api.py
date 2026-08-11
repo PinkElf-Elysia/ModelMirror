@@ -3,16 +3,29 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import PurePosixPath
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
+import httpx
 from pydantic import Field
 
-from .contracts import Origin, StrictModel, TaskCreateRequest, TaskRecord, TERMINAL_STATES
+from .contracts import (
+    Origin,
+    StrictModel,
+    TaskCreateRequest,
+    TaskRecord,
+    TaskState,
+    TERMINAL_STATES,
+    WorkerApproval,
+    WorkerArtifact,
+    WorkerEvidence,
+)
 from .service import CodingWorkerService
+from .runtime import CodingWorkerRuntime, build_runtime_from_environment
 from .store import WorkerConflictError, WorkerNotFoundError, WorkerStoreError
 from .workspace import WorkspaceError
 
@@ -21,16 +34,40 @@ class TaskMessageRequest(StrictModel):
     message: str = Field(min_length=1, max_length=1_048_576)
 
 
+class ApprovalDecisionRequest(StrictModel):
+    approval_id: str = Field(pattern=r"^approval_[a-f0-9]{32}$")
+    decision: Literal["approve_once", "approve_task", "reject"]
+    ttl_seconds: int = Field(default=900, ge=30, le=3600)
+
+
 _service: CodingWorkerService | None = None
 _enabled_override: bool | None = None
+_runtime: CodingWorkerRuntime | None = None
+_startup_error: str | None = None
 _CONSOLE_ORIGIN = Origin(module="worker-console", object_id="local-user")
 
 
 @asynccontextmanager
 async def _lifespan(_app: object) -> AsyncIterator[None]:
-    yield
-    if _service is not None:
-        await _service.shutdown()
+    global _service, _runtime, _startup_error
+    if is_coding_worker_enabled() and _service is None:
+        try:
+            _runtime = build_runtime_from_environment()
+            _service = await _runtime.start()
+            _startup_error = None
+        except Exception as exc:
+            _startup_error = getattr(
+                exc, "code", "coding_worker_provider_unavailable"
+            )
+    try:
+        yield
+    finally:
+        if _runtime is not None:
+            await _runtime.close()
+            _runtime = None
+            _service = None
+        elif _service is not None:
+            await _service.shutdown()
 
 
 router = APIRouter(
@@ -54,9 +91,10 @@ def is_coding_worker_enabled() -> bool:
 def configure_coding_worker_for_tests(
     service: CodingWorkerService | None, *, enabled: bool | None = None
 ) -> None:
-    global _service, _enabled_override
+    global _service, _enabled_override, _startup_error
     _service = service
     _enabled_override = enabled
+    _startup_error = None
 
 
 def get_coding_worker_service() -> CodingWorkerService:
@@ -66,7 +104,8 @@ def get_coding_worker_service() -> CodingWorkerService:
             status_code=503,
             detail={
                 "code": "coding_worker_provider_unavailable",
-                "message": "The V14 Worker provider is not configured yet.",
+                "message": "The V14 Worker provider is unavailable.",
+                "reason": _startup_error,
             },
         )
     return _service
@@ -111,7 +150,13 @@ async def coding_worker_status() -> dict[str, Any]:
         "retention_seconds": (
             _service.store.retention_seconds if _service is not None else 604800
         ),
-        "network_enabled": False,
+        "network_enabled": _runtime.network_enabled if _runtime is not None else False,
+        "acceptance_checks": (
+            sorted(_service.tool_broker.frozen_checks)
+            if _service is not None and _service.tool_broker is not None
+            else []
+        ),
+        "reason": _startup_error,
     }
 
 
@@ -177,6 +222,99 @@ async def task_events(
 async def append_task_message(task_id: str, payload: TaskMessageRequest) -> TaskRecord:
     try:
         return await get_coding_worker_service().append_message(task_id, payload.message)
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/approvals", response_model=dict[str, list[WorkerApproval]])
+async def task_approvals(task_id: str) -> dict[str, list[WorkerApproval]]:
+    try:
+        return {"approvals": get_coding_worker_service().store.list_approvals(task_id)}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.post("/tasks/{task_id}/approvals", response_model=WorkerApproval)
+async def decide_task_approval(
+    task_id: str, payload: ApprovalDecisionRequest
+) -> WorkerApproval:
+    service = get_coding_worker_service()
+    try:
+        approval = service.store.get_approval(payload.approval_id)
+        if approval.task_id != task_id:
+            raise WorkerNotFoundError("Approval was not found.", code="approval_not_found")
+        decided = service.store.decide_approval(
+            payload.approval_id,
+            approved=payload.decision != "reject",
+            task_scope=payload.decision == "approve_task",
+            ttl_seconds=payload.ttl_seconds,
+        )
+        task = service.store.get_task(task_id)
+        if task.state is TaskState.WAITING_APPROVAL:
+            service.store.transition(
+                task_id,
+                TaskState.RUNNING,
+                expected_state=TaskState.WAITING_APPROVAL,
+            )
+        return decided
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/evidence", response_model=dict[str, list[WorkerEvidence]]
+)
+async def task_evidence(task_id: str) -> dict[str, list[WorkerEvidence]]:
+    service = get_coding_worker_service()
+    try:
+        task = service.store.get_task(task_id)
+        tree_hash = (
+            service.workspace_broker.current_tree_hash(task.workspace_id)
+            if task.workspace_id is not None
+            else None
+        )
+        return {
+            "evidence": service.store.list_evidence(
+                task_id, current_tree_hash=tree_hash
+            )
+        }
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get(
+    "/tasks/{task_id}/artifacts", response_model=dict[str, list[WorkerArtifact]]
+)
+async def task_artifacts(task_id: str) -> dict[str, list[WorkerArtifact]]:
+    try:
+        return {"artifacts": get_coding_worker_service().store.list_artifacts(task_id)}
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/artifacts/{artifact_id}")
+async def task_artifact(task_id: str, artifact_id: str) -> Response:
+    service = get_coding_worker_service()
+    try:
+        artifact = next(
+            (
+                item
+                for item in service.store.list_artifacts(task_id)
+                if item.artifact_id == artifact_id
+            ),
+            None,
+        )
+        if artifact is None:
+            raise WorkerNotFoundError("Artifact was not found.", code="artifact_not_found")
+        content = service.store.read_artifact(artifact_id, task_id=task_id)
+        return Response(
+            content,
+            media_type=artifact.media_type,
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{artifact_id}.bin"',
+            },
+        )
     except Exception as exc:
         _raise_worker_error(exc)
 
@@ -281,6 +419,89 @@ async def workspace_diff(task_id: str) -> Response:
         )
     except Exception as exc:
         _raise_worker_error(exc)
+
+
+@router.get("/tasks/{task_id}/services/{service_id}/preview/{preview_path:path}")
+async def service_preview(
+    task_id: str,
+    service_id: str,
+    preview_path: str,
+    request: Request,
+) -> Response:
+    service, task = _task_workspace(task_id)
+    try:
+        if service.tool_broker is None or service.tool_broker.executor is None:
+            raise WorkerConflictError(
+                "Preview service is unavailable.", code="preview_unavailable"
+            )
+        path = PurePosixPath(preview_path or ".")
+        if "\\" in preview_path or any(part == ".." for part in path.parts):
+            raise WorkerConflictError(
+                "Preview path is invalid.", code="preview_path_invalid"
+            )
+        result = await service.tool_broker.executor.service_status(
+            task_id=task_id,
+            workspace_id=task.workspace_id,
+            service_id=service_id,
+        )
+        port = result.get("preview_port")
+        if result.get("state") != "running" or isinstance(port, bool) or not isinstance(port, int):
+            raise WorkerConflictError(
+                "Preview service is not running.", code="preview_unavailable"
+            )
+        slot_id = service.workspace_broker.workspace_slot(task.workspace_id)
+        host = os.getenv(
+            f"CODING_WORKER_{slot_id.replace('-', '_').upper()}_PREVIEW_HOST",
+            f"coding-worker-{slot_id}",
+        )
+        query = request.url.query
+        upstream = await _fetch_preview(
+            f"http://{host}:{port}/{preview_path}" + (f"?{query}" if query else "")
+        )
+        if 300 <= upstream.status_code < 400:
+            raise WorkerConflictError(
+                "Preview redirects are not allowed.", code="preview_redirect_denied"
+            )
+        return Response(
+            upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type", "application/octet-stream"),
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Security-Policy": "sandbox allow-scripts allow-forms; default-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as exc:
+        _raise_worker_error(exc)
+
+
+async def _fetch_preview(url: str) -> httpx.Response:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(15.0, connect=3.0),
+        follow_redirects=False,
+        trust_env=False,
+    ) as client:
+        request = client.build_request("GET", url)
+        response = await client.send(request, stream=True)
+        try:
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.aiter_bytes(64 * 1024):
+                size += len(chunk)
+                if size > 4 * 1024 * 1024:
+                    raise WorkerConflictError(
+                        "Preview response is too large.",
+                        code="preview_response_too_large",
+                    )
+                chunks.append(chunk)
+            return httpx.Response(
+                response.status_code,
+                headers=response.headers,
+                content=b"".join(chunks),
+            )
+        finally:
+            await response.aclose()
 
 
 def _task_workspace(task_id: str) -> tuple[CodingWorkerService, TaskRecord]:

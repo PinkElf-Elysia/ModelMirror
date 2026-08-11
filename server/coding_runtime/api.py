@@ -1318,6 +1318,149 @@ class CodingService:
                 self._sessions[session_id] = record
             return record
 
+    async def adopt_worker_patch(
+        self,
+        *,
+        project_id: str,
+        expected_head: str,
+        patch: str,
+        paths: list[str],
+    ) -> CodingApiSession:
+        """Import a completed V14 patch into the existing v13 writeback chain."""
+
+        async with self._create_lock:
+            return await self._adopt_worker_patch_locked(
+                project_id=project_id,
+                expected_head=expected_head,
+                patch=patch,
+                paths=paths,
+            )
+
+    async def _adopt_worker_patch_locked(
+        self,
+        *,
+        project_id: str,
+        expected_head: str,
+        patch: str,
+        paths: list[str],
+    ) -> CodingApiSession:
+        if "GIT binary patch" in patch or "Binary files " in patch:
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_writeback_patch_unsupported"
+            )
+
+        await self._require_available()
+        if self.mode != "draft":
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_unavailable")
+        if not self.recovery_enabled or self.recovery_store is None:
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                self.recovery_reason or "recovery_unavailable",
+            )
+        safe_patch = _safe_diff(patch)
+        safe_paths = _diff_paths(safe_patch)
+        if not safe_patch or safe_paths != paths:
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_writeback_patch_unsupported"
+            )
+        await self.cleanup_expired()
+        if await self._load_recovery_record() is not None:
+            raise _http_error(status.HTTP_409_CONFLICT, "recovery_pending")
+        async with self._lock:
+            if self._sessions:
+                raise _http_error(status.HTTP_409_CONFLICT, "concurrency_limit")
+
+        source: dict[str, Any] | None = None
+        try:
+            source, project = await self._acquire_host_project(
+                project_id,
+                expected_head=expected_head,
+            )
+            fingerprint = source.get("fingerprint")
+            if (
+                not isinstance(fingerprint, str)
+                or SNAPSHOT_FINGERPRINT_PATTERN.fullmatch(fingerprint) is None
+            ):
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "invalid_project_source_response",
+                )
+            result = await self.worker.restore_session(
+                revision=1,
+                patch=safe_patch,
+                paths=safe_paths,
+                snapshot_fingerprint=fingerprint,
+                verification=None,
+                source=source,
+            )
+        except CodingWorkerError as exc:
+            await self._release_project_source(source)
+            raise _worker_http_error(exc) from exc
+        except Exception:
+            await self._release_project_source(source)
+            raise
+
+        session_id = result.get("session_id")
+        event_data = result.get("event")
+        restored_changes = _public_changes(result.get("changes"))
+        if (
+            not isinstance(session_id, str)
+            or SAFE_IDENTIFIER.fullmatch(session_id) is None
+            or result.get("mode") != self.mode
+            or not isinstance(event_data, dict)
+            or not _worker_project_matches(result.get("project"), project)
+            or restored_changes["revision"] != 1
+            or [item["path"] for item in restored_changes["files"]] != safe_paths
+            or restored_changes["can_download"] is not True
+        ):
+            if isinstance(session_id, str) and session_id:
+                await self._close_worker_session_and_release(
+                    session_id, source, required=False
+                )
+            else:
+                await self._release_project_source(source)
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "invalid_worker_response"
+            )
+        record = CodingApiSession(
+            session_id=session_id,
+            worker_session_id=session_id,
+            project=project,
+            project_source=source,
+        )
+        initial = _event_from_payload(event_data)
+        if (
+            initial.kind is not CodingEventKind.SESSION_STARTED
+            or initial.seq != 1
+            or initial.session_id != session_id
+        ):
+            await self._close_worker_session_and_release(
+                session_id, source, required=False
+            )
+            raise _http_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "invalid_worker_response"
+            )
+        await self._append_event(record, initial)
+        try:
+            persisted = await self._persist_recovery(record, required=True)
+            if not persisted:
+                raise _http_error(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "recovery_storage_unavailable",
+                )
+            async with self._lock:
+                if self._sessions:
+                    raise _http_error(
+                        status.HTTP_409_CONFLICT, "concurrency_limit"
+                    )
+                self._sessions[session_id] = record
+        except Exception:
+            await self._close_worker_session_and_release(
+                session_id, source, required=False
+            )
+            raise
+        return record
+
     async def _acquire_host_project(
         self,
         project_id: str,
@@ -5099,6 +5242,18 @@ async def coding_projects(response: Response) -> dict[str, Any]:
     return await get_coding_service().project_catalog()
 
 
+@router.get("/worker-sources/{project_id}")
+async def coding_worker_source(project_id: str, response: Response) -> dict[str, str]:
+    response.headers["Cache-Control"] = "no-store"
+    service = get_coding_service()
+    if service.project_host is None:
+        raise _http_error(status.HTTP_503_SERVICE_UNAVAILABLE, "project_host_unavailable")
+    try:
+        return service.project_host.worker_source(project_id)
+    except ProjectHostError as exc:
+        raise _project_host_http_error(exc) from exc
+
+
 @router.get("/recovery")
 async def coding_recovery_status(response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -5152,6 +5307,76 @@ async def create_coding_session(
         "status": record.state,
         "project": record.project,
     }
+
+
+@router.post(
+    "/worker-tasks/{task_id}/handoff",
+    status_code=status.HTTP_201_CREATED,
+)
+async def handoff_coding_worker_task(task_id: str) -> dict[str, Any]:
+    try:
+        try:
+            from server.coding_worker.api import get_coding_worker_service
+            from server.coding_worker.contracts import TaskState
+        except ModuleNotFoundError:
+            from coding_worker.api import get_coding_worker_service
+            from coding_worker.contracts import TaskState
+
+        worker_service = get_coding_worker_service()
+        task = worker_service.store.get_task(task_id)
+        if (
+            task.state is not TaskState.COMPLETED
+            or task.workspace_id is None
+            or task.spec.workspace_source.kind != "host_snapshot"
+        ):
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_task_not_writeback_ready"
+            )
+        if (
+            worker_service.harness_runner is None
+            or not worker_service.harness_runner.acceptance_satisfied(task_id)
+        ):
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_acceptance_invalidated"
+            )
+        patch_bytes = worker_service.workspace_broker.diff(task.workspace_id)
+        try:
+            patch = patch_bytes.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_writeback_patch_unsupported"
+            ) from exc
+        if not worker_service.harness_runner.acceptance_satisfied(task_id):
+            raise _http_error(
+                status.HTTP_409_CONFLICT, "worker_acceptance_invalidated"
+            )
+        paths = _diff_paths(patch)
+        if not paths:
+            raise _http_error(status.HTTP_409_CONFLICT, "draft_is_empty")
+        record = await get_coding_service().adopt_worker_patch(
+            project_id=task.spec.workspace_source.source_id,
+            expected_head=task.spec.workspace_source.revision,
+            patch=patch,
+            paths=paths,
+        )
+        changes = await get_coding_service().changes(record.session_id)
+        return {
+            "id": record.session_id,
+            "status": record.state,
+            "project": record.project,
+            "revision": changes["revision"],
+            "task_id": task_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        code = getattr(exc, "code", "worker_handoff_failed")
+        http_status = (
+            status.HTTP_404_NOT_FOUND
+            if code in {"task_not_found", "workspace_not_found"}
+            else status.HTTP_409_CONFLICT
+        )
+        raise _http_error(http_status, _safe_code(code)) from exc
 
 
 @router.post(

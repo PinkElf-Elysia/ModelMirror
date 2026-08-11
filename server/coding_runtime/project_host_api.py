@@ -173,6 +173,20 @@ class ProjectHostRuntime:
             project.to_public_dict(host_online=host.status == "online")
         )
 
+    def worker_source(self, project_id: str) -> dict[str, str]:
+        project = self.store.require_project(project_id)
+        host = self.store.require_host(project.host_id)
+        if host.status != "online":
+            raise ProjectHostError("project_host_offline")
+        if project.state != "available":
+            raise ProjectHostError(project.reason or "project_changed")
+        return {
+            "source_id": project.project_id,
+            "name": project.name,
+            "branch": project.branch,
+            "revision": project.head,
+        }
+
     def check_project(self, project_id: str, head: str, branch: str | None) -> dict[str, Any]:
         project = self.store.require_project(project_id)
         host = self.store.require_host(project.host_id)

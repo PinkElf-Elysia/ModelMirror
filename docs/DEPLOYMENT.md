@@ -550,3 +550,45 @@ curl http://localhost:5173/studio
 - 可选 profile 故障不得通过删除核心数据解决。
 
 legacy `/api/dify/*` 健康只表示兼容代理配置状态，不是平台健康门禁。
+
+## Coding Worker V14 部署
+
+V14 默认关闭，使用独立 overlay `docker-compose.coding-worker-v14.yml`。它增加两个 Provider、两个单槽 Executor、持久 Store/Workspace 卷，以及可选的网络 egress proxy；不替换 v13 Project Host、Coding Recovery 或 Agent Workspace 数据。
+
+在绝对 `MODELMIRROR_DATA_ROOT` 对应的 `server/.env` 中设置以下值，不要把真实值提交到仓库：
+
+```dotenv
+CODING_WORKER_V14_ENABLED=false
+CODING_WORKER_MAX_ACTIVE_TASKS=2
+CODING_WORKER_RETENTION_SECONDS=604800
+CODING_WORKER_NETWORK_ENABLED=false
+CODING_WORKER_SLOT_A_TOKEN=<random>
+CODING_WORKER_SLOT_B_TOKEN=<random>
+CODING_WORKER_EXECUTOR_A_TOKEN=<random>
+CODING_WORKER_EXECUTOR_B_TOKEN=<random>
+CODING_WORKER_MODEL_ID=<controlled-model-id>
+CODING_WORKER_ROUTE_KEY=<dedicated-route-key>
+CODING_WORKER_BUILTIN_REVISION=<full-source-commit>
+```
+
+`CODING_WORKER_MODEL_BASE_URL` 默认使用 `http://new-api:3000/v1`。若启用 `develop_networked`，还必须显式设置 `CODING_WORKER_NETWORK_ENABLED=true`、随机 `CODING_WORKER_EGRESS_GRANT_KEY` 和最小 `CODING_WORKER_NETWORK_DOMAINS`，并加载 `coding-worker-network` profile。不要把模型网关密钥复用为 slot、executor 或 egress token。
+
+只做配置展开检查、不启动服务：
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.coding-worker-v14.yml -p modelmirror --profile coding config --quiet
+```
+
+Host Snapshot 场景还需按既有顺序加载 Project Host overlay；若同时启用清单项目，继续遵守 project-source/full compatibility overlay 的顺序。`CODING_IMPLEMENTATION_WORKTREE` 必须是当前验收 HEAD 的绝对只读来源，`CODING_WORKER_BUILTIN_REVISION` 必须是同一完整 commit。
+
+只有在用户确认共享栈独占窗口、最新主线和正式环境变量后，才可执行重建：
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.coding-project-host.yml -f docker-compose.coding-worker-v14.yml -p modelmirror --profile coding up -d --build --force-recreate server coding-worker-provider-a coding-worker-provider-b coding-worker-slot-a coding-worker-slot-b
+```
+
+网络默认保持关闭；需要依赖下载时再追加 `--profile coding-worker-network`，批准结束后关闭 profile。Provider 在 `coding_internal` 访问受控模型网关，Executor 仅在内部 `coding_worker_tools`；只有 egress proxy 同时加入工具网络和外部网络。
+
+验收至少包括：两个任务并行、第三个排队；失败检查后的自动修复与复测；审批拒绝/过期；SSE 断线补发；Server、两个 Provider/Executor 逐个重启；Host Snapshot 经过 v13 写回。真实 OpenCode、Windows Helper 和用户项目写回必须单列人工结果，不能用 Fake Provider 或 Compose `config` 代替。
+
+回退只需设置 `CODING_WORKER_V14_ENABLED=false` 并重建 Server，使新会话回到 legacy。不要删除 `coding_worker_state`、slot Workspace 卷、v13 Recovery 或 Agent Workspace 数据；已有任务保持可审计，已有宿主副作用不会自动撤销。

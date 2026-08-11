@@ -10,7 +10,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from server.coding_runtime.apply_models import (
     APPLY_ID_PATTERN,
@@ -548,7 +548,7 @@ class CodingApplierEngine:
                     entries.add(("file", relative))
                     file_hashes.append((relative, content_hash))
                     next_cache[relative] = (signature, content_hash)
-            file_hashes.sort()
+            file_hashes.sort(key=lambda item: PurePosixPath(item[0]).parts)
             for relative, content_hash in file_hashes:
                 size = next_cache[relative][0][0]
                 digest.update(relative.encode("utf-8"))

@@ -49,6 +49,7 @@ COPY multimodal ./multimodal
 COPY model_router ./model_router
 COPY context_engine ./context_engine
 COPY coding_runtime ./coding_runtime
+COPY coding_worker ./coding_worker
 
 EXPOSE 8000
 
