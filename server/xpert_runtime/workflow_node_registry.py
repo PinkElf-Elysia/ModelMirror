@@ -291,6 +291,40 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     tags=["json", "extract"],
                 ),
                 WorkflowPaletteItem(
+                    kind="json_serialize",
+                    icon="JSON",
+                    title="JSON 序列化",
+                    description="将一个类型化工作流变量转换为 JSON 字符串。",
+                    category="transform",
+                    tags=["json", "serialize", "typed-value"],
+                    planner_default_data={
+                        "inputVariable": "json_value",
+                        "outputVariable": "json_text",
+                        "format": "compact",
+                    },
+                    planner_config_constraints={
+                        "required": ["inputVariable", "outputVariable"],
+                        "format": ["compact", "pretty"],
+                    },
+                    planner_enabled=False,
+                ),
+                WorkflowPaletteItem(
+                    kind="json_deserialize",
+                    icon="JSON",
+                    title="JSON 反序列化",
+                    description="将 JSON 字符串解析为真实的类型化工作流变量。",
+                    category="transform",
+                    tags=["json", "deserialize", "typed-value"],
+                    planner_default_data={
+                        "inputVariable": "json_text",
+                        "outputVariable": "json_value",
+                    },
+                    planner_config_constraints={
+                        "required": ["inputVariable", "outputVariable"],
+                    },
+                    planner_enabled=False,
+                ),
+                WorkflowPaletteItem(
                     kind="document_extractor",
                     icon="DOC",
                     title="文档提取器",
@@ -325,24 +359,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="收尾交付最终变量，展示运行结果。",
                     category="transform",
                     tags=["output", "answer"],
-                ),
-            ],
-            placeholders=[
-                WorkflowPalettePlaceholder(
-                    id="json_serialize",
-                    icon="JSON",
-                    title="JSON 序列化",
-                    description="把变量对象序列化为 JSON。",
-                    category="transform",
-                    tags=["json", "serialize"],
-                ),
-                WorkflowPalettePlaceholder(
-                    id="json_deserialize",
-                    icon="JSON",
-                    title="JSON 反序列化",
-                    description="把 JSON 字符串解析为结构化变量。",
-                    category="transform",
-                    tags=["json", "deserialize"],
                 ),
             ],
         )
@@ -547,14 +563,21 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
             tab="workflow",
             label="其他",
             description="画布辅助节点。",
-            placeholders=[
-                WorkflowPalettePlaceholder(
-                    id="annotation",
+            items=[
+                WorkflowPaletteItem(
+                    kind="annotation",
                     icon="NOTE",
                     title="注释",
-                    description="仅用于画布说明，不参与运行。",
+                    description="仅保存画布说明，不进入拓扑、执行或运行记录。",
                     category="other",
-                    tags=["note", "annotation"],
+                    tags=["note", "annotation", "canvas"],
+                    metadata={
+                        "ports": [],
+                        "runtime": "ignored",
+                        "max_content_length": 20_000,
+                    },
+                    planner_default_data={"content": ""},
+                    planner_enabled=False,
                 )
             ],
         )

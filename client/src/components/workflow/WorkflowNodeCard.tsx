@@ -306,7 +306,8 @@ function outputName(data: WorkflowNode["data"]) {
 }
 
 export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowNode>) {
-  const meta = nodeMeta[data.kind];
+  const meta =
+    nodeMeta[data.kind as keyof typeof nodeMeta] ?? nodeMeta.template_transform;
 
   return (
     <div

@@ -17,7 +17,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 本文件是模镜仓库内 AI Agent、人类开发者和自动化任务的项目级操作说明。任何代码生成、重构、测试、提交和发布都必须优先遵守本文档。
 
-最后更新日期：2026-08-08
+最后更新日期：2026-08-11
 维护人：模镜团队
 
 ## 1. 项目边界
@@ -245,6 +245,26 @@ workflow-native 是实验线。经典工作流是 `/workflow` 默认入口。任
 - 每新增一类节点至少补一条合法样例和一条非法样例测试。
 - 工作流执行面板应按节点聚合 `node_delta`，不得把同一节点的流式片段无限堆成大量独立卡片。
 - React Flow Controls 在深色画布上必须保持图标可见；修改 `client/src/index.css` 后需在 `/workflow` 手动检查。
+
+### 7.1 Typed workflow value contract
+
+- Classic workflow inputs and runtime variables are JSON-safe values: `null`,
+  string, finite number, boolean, object, or array.
+- Text-only consumers must use the shared stable conversion: strings stay
+  unchanged and all other values become compact JSON. Do not add node-local
+  `str(...)` coercion for workflow values.
+- Continuations and durable execution snapshots must preserve value types across
+  pause, resume, and process restart.
+- `json_serialize` outputs JSON text; `json_deserialize` outputs a typed value and
+  must emit an error for invalid JSON instead of returning the source text.
+- `annotation` is snapshot-only metadata. It cannot connect to control edges and
+  must never enter topology, execution, RunRegistry, or SSE node events.
+- The SSE event vocabulary and string `final_output` contract remain stable;
+  only values inside the existing `variables` object may now be typed JSON.
+- Changes to this boundary must run
+  `server/tests/test_workflow_typed_values.py` and
+  `server/tests/test_workflow_run_contract.py` in addition to affected workflow
+  and Xpert regressions.
 
 ## 8. 元智能体规则
 

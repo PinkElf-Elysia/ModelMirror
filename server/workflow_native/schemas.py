@@ -33,6 +33,9 @@ NativeNodeKind = Literal[
     "http_request",
     "list_operation",
     "iteration",
+    "json_serialize",
+    "json_deserialize",
+    "annotation",
     "runtime_middleware",
     "output",
 ]

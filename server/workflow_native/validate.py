@@ -76,6 +76,12 @@ NODE_KIND_ALIASES = {
     "list-operation": "list_operation",
     "list-operator": "list_operation",
     "iteration": "iteration",
+    "json_serialize": "json_serialize",
+    "json-serialize": "json_serialize",
+    "json_deserialize": "json_deserialize",
+    "json-deserialize": "json_deserialize",
+    "annotation": "annotation",
+    "note": "annotation",
     "runtime_middleware": "runtime_middleware",
     "runtime-middleware": "runtime_middleware",
     "end": "output",
@@ -112,6 +118,9 @@ SUPPORTED_NODE_KINDS = {
     "http_request",
     "list_operation",
     "iteration",
+    "json_serialize",
+    "json_deserialize",
+    "annotation",
     "runtime_middleware",
     "output",
 }
@@ -493,6 +502,71 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="invalid_aggregator_output_variable",
                     message="Variable aggregator outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind in {"json_serialize", "json_deserialize"}:
+        input_variable = str(data.get("inputVariable") or "").strip()
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if not input_variable:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{kind}_input_variable",
+                    message=f"{kind} node needs data.inputVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(input_variable):
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{kind}_input_variable",
+                    message=f"{kind} inputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        if not output_variable:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{kind}_output_variable",
+                    message=f"{kind} node needs data.outputVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(output_variable):
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{kind}_output_variable",
+                    message=f"{kind} outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        if kind == "json_serialize":
+            output_format = str(data.get("format") or "compact").strip()
+            if output_format not in {"compact", "pretty"}:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_json_serialize_format",
+                        message="json_serialize format must be compact or pretty.",
+                        node_id=node.id,
+                    )
+                )
+
+    if kind == "annotation":
+        content = data.get("content", "")
+        if not isinstance(content, str):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_annotation_content",
+                    message="Annotation content must be a string.",
+                    node_id=node.id,
+                )
+            )
+        elif len(content) > 20_000:
+            issues.append(
+                ValidationIssue(
+                    code="annotation_content_too_long",
+                    message="Annotation content must not exceed 20,000 characters.",
                     node_id=node.id,
                 )
             )
@@ -2235,6 +2309,8 @@ def collect_declared_variables(
             "http_request",
             "list_operation",
             "iteration",
+            "json_serialize",
+            "json_deserialize",
         }:
             variable = str(data.get("outputVariable") or "").strip()
             if is_variable_name(variable):
@@ -2365,6 +2441,17 @@ def validate_variable_references(
                         node_id=node.id,
                     )
                 )
+
+    if kind in {"json_serialize", "json_deserialize"}:
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if input_variable and input_variable not in available_variables:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{kind}_input_variable_reference",
+                    message=f"{kind} references undefined variable '{input_variable}'.",
+                    node_id=node.id,
+                )
+            )
 
     if kind == "parameter_extractor":
         input_variable = str(data.get("inputVariable") or "").strip()
@@ -2644,6 +2731,18 @@ def validate_edges(
                 ValidationIssue(
                     code="invalid_edge_reference",
                     message="Edge references a missing source or target node.",
+                    edge_id=edge.id,
+                )
+            )
+            continue
+        if (
+            kinds_by_id.get(edge.source) == "annotation"
+            or kinds_by_id.get(edge.target) == "annotation"
+        ):
+            issues.append(
+                ValidationIssue(
+                    code="annotation_edge_forbidden",
+                    message="Annotation nodes cannot connect to workflow edges.",
                     edge_id=edge.id,
                 )
             )
@@ -3384,7 +3483,9 @@ def topological_order(
         edge.source for edge in edges if is_non_control_binding_edge(edge)
     }
     node_ids = {
-        node.id for node in nodes if node.id not in bound_resource_ids
+        node.id
+        for node in nodes
+        if node.id not in bound_resource_ids and node_kind(node) != "annotation"
     }
     indegree = {node_id: 0 for node_id in node_ids}
     outgoing: dict[str, list[str]] = defaultdict(list)

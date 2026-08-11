@@ -790,3 +790,31 @@ The Xpert Studio fields `enableFileUnderstanding`, `memoryReadEnabled`, `memoryR
 画布节点现在可以通过选中后的删除按钮或 Delete/Backspace 删除，关联边同步清理。classic `/workflow/:id` 草稿（包括 MetaAgent 导入草稿）可显式转为服务端 Xpert 草稿，转换后进入同一 Xpert Studio 编辑和发布路径。
 
 Data X 的数据模型、受限查询 DSL、提案/发布边界和 App 策略见 `docs/XPERT_DATAX.md`。
+
+## Typed values, JSON transforms, and annotations (2026-08-11)
+
+Classic workflow state uses a JSON-safe `WorkflowValue` contract: `null`, string,
+finite number, boolean, object, or array. Existing string inputs remain unchanged.
+Objects and arrays are no longer coerced with Python `str()` during request setup
+or continuation recovery.
+
+Text-only nodes consume values through one stable conversion rule. Strings retain
+their exact content; primitives, objects, and arrays use compact JSON. This rule
+applies to templates, prompts, code-node input, retrieval queries, HTTP bodies,
+and the final output adapter. The existing `workflow_end.final_output` field
+remains a string, while `workflow_end.variables` can contain typed JSON values.
+No new SSE event type is introduced.
+
+`json_serialize` accepts any available typed variable and writes JSON text. It
+supports compact output or two-space indentation. `json_deserialize` accepts only
+a string and writes the parsed typed value. Invalid JSON emits the existing error
+event and writes an explicit `null` result; it never silently returns the source
+text. List operations, iteration, conditions, and variable aggregation preserve
+their legacy string behavior while accepting typed arrays, objects, and
+primitives.
+
+`annotation` stores canvas content and display metadata in workflow drafts and
+published snapshots. It has no ports, cannot connect to a control edge, is
+excluded from variable reachability and topological order, and produces no node
+run, checkpoint, or SSE event. Meta Planner remains unable to generate these new
+nodes until `EVOAGENTX-META-PLANNER-DATA-04` adds typed workflow IR.
