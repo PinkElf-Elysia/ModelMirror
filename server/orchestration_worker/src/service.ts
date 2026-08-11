@@ -3,11 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { RoleSummary } from '../../vendor/agency-orchestrator/src/cli/compose.js';
-import { composeWorkflow } from '../../vendor/agency-orchestrator/src/cli/compose.js';
+import {
+  composeWorkflow,
+  extractYamlFromResponse,
+} from '../../vendor/agency-orchestrator/src/cli/compose.js';
 import { setConnectorFactory, resetConnectorFactory } from '../../vendor/agency-orchestrator/src/connectors/factory.js';
 import { buildDAG } from '../../vendor/agency-orchestrator/src/core/dag.js';
 import { parseWorkflow, validateWorkflow } from '../../vendor/agency-orchestrator/src/core/parser.js';
-import type { WorkflowDefinition } from '../../vendor/agency-orchestrator/src/types.js';
+import type {
+  LLMConfig,
+  WorkflowDefinition,
+} from '../../vendor/agency-orchestrator/src/types.js';
 
 import { BridgeConnector } from './bridge_connector.js';
 import { JsonlChannel } from './channel.js';
@@ -30,6 +36,8 @@ interface ExpertDefinition {
   system_prompt: string;
   emoji?: string;
 }
+
+const MAX_WORKFLOW_STEPS = 8;
 
 function stringField(
   source: Record<string, unknown>,
@@ -101,10 +109,34 @@ function validateWorkflowText(yamlText: string, agents: ExpertDefinition[]): Rec
     writeFileSync(workflowPath, yamlText, 'utf8');
     const workflow = parseWorkflow(workflowPath);
     const errors = validateWorkflow(workflow);
+    if ((workflow.inputs?.length ?? 0) > 0) {
+      errors.push(
+        'top-level workflow inputs are unsupported in Expert Team preview; embed the planning goal directly in expert tasks',
+      );
+    }
+    if (workflow.steps.length > MAX_WORKFLOW_STEPS) {
+      errors.push(`workflow contains more than ${MAX_WORKFLOW_STEPS} steps`);
+    }
     const known = new Set(agents.map(agent => agent.id));
+    const dependedOn = new Set(
+      workflow.steps.flatMap(step => step.depends_on ?? []),
+    );
     for (const step of workflow.steps) {
+      if (step.type === 'approval' || step.type === 'human_input') {
+        errors.push(
+          `step "${step.id}" uses unsupported type "${step.type}" in Expert Team preview`,
+        );
+      }
       if (step.role && !known.has(step.role)) {
         errors.push(`step "${step.id}" references unknown ModelMirror agent "${step.role}"`);
+      }
+      if (
+        !dependedOn.has(step.id)
+        && step.type !== 'approval'
+        && step.type !== 'human_input'
+        && (typeof step.acceptance !== 'string' || !step.acceptance.trim())
+      ) {
+        errors.push(`final step "${step.id}" must define non-empty acceptance criteria`);
       }
     }
     let dag: Record<string, unknown> | null = null;
@@ -117,6 +149,40 @@ function validateWorkflowText(yamlText: string, agents: ExpertDefinition[]): Rec
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+function validationErrors(validation: Record<string, unknown>): string[] {
+  return Array.isArray(validation.errors)
+    ? validation.errors.map(error => String(error)).slice(0, 20)
+    : [];
+}
+
+async function repairInvalidWorkflowOnce(options: {
+  connector: BridgeConnector;
+  yaml: string;
+  validation: Record<string, unknown>;
+  llmConfig: LLMConfig;
+  allowedRoleIds: string[];
+  goal: string;
+}): Promise<string | null> {
+  const errors = validationErrors(options.validation);
+  if (errors.length === 0 || options.connector.calls >= MAX_MODEL_CALLS) return null;
+  const systemPrompt = `You repair Agency Orchestrator workflow YAML for ModelMirror Expert Team preview.
+Return one complete YAML code block and nothing else. Preserve the workflow goal and useful task intent.
+Fix every validator error. The result must have 1-${MAX_WORKFLOW_STEPS} regular expert steps, an acyclic DAG,
+unique step ids and output variables, scalar-string acceptance fields, boolean verify fields, and variable
+references sourced only from upstream step outputs. Do not create a top-level inputs section and do not use
+approval or human_input steps. Embed the supplied planning goal directly into the regular expert task text.
+Every final DAG sink step must define concrete, non-empty acceptance criteria.
+Use only these exact role ids and keep every listed role represented: ${options.allowedRoleIds.join(', ')}.`;
+  const userPrompt = `Planning goal:\n${options.goal}\n\nValidator errors:\n${errors.map(error => `- ${error}`).join('\n')}\n\nPrevious YAML:\n\n\`\`\`yaml\n${options.yaml}\n\`\`\``;
+  const result = await options.connector.chat(systemPrompt, userPrompt, {
+    ...options.llmConfig,
+    temperature: 0,
+    max_tokens: options.llmConfig.max_tokens || 4096,
+  });
+  const repaired = extractYamlFromResponse(result.content);
+  return repaired && repaired.includes('steps:') ? repaired : null;
 }
 
 function pinnedIds(params: Record<string, unknown>, agents: ExpertDefinition[]): string[] | undefined {
@@ -158,9 +224,10 @@ async function compose(
 
   const connector = new BridgeConnector(channel, request.id);
   const outputRoot = mkdtempSync(join(tmpdir(), 'mm-agency-compose-'));
-  const boundedGoal = pins
-    ? goal
-    : `${goal}\n\nModelMirror constraint: select at most ${maxAgents} experts from the catalog.`;
+  const boundedGoal = `${goal}\n\nModelMirror constraints: select at most ${maxAgents} experts from the catalog; `
+    + `generate no more than ${MAX_WORKFLOW_STEPS} regular expert task steps; do not generate approval or human_input steps. `
+    + 'Every acceptance value must be a YAML scalar string, every final step must have non-empty acceptance criteria, '
+    + 'and the DAG must be acyclic.';
   setConnectorFactory(() => connector);
   try {
     const generated = await composeWorkflow({
@@ -175,12 +242,54 @@ async function compose(
         retry: 0,
       },
       outputName: 'plan.yaml',
+      autoRun: true,
       saveDir: outputRoot,
       agentsDirName: 'modelmirror-experts',
       pinnedRoles: pins,
       lang: 'zh',
     });
-    const validation = validateWorkflowText(generated.yaml, agents);
+    let finalYaml = generated.yaml;
+    let validation = validateWorkflowText(finalYaml, agents);
+    const warnings = [...generated.warnings];
+    let repairUsed = generated.repairUsed;
+    if (validation.valid !== true && connector.calls < MAX_MODEL_CALLS) {
+      const workflow = asObject(validation.workflow);
+      const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
+      const known = new Set(agents.map(agent => agent.id));
+      const generatedRoleIds = [...new Set(
+        steps
+          .map(step => asObject(step).role)
+          .filter(role => typeof role === 'string' && known.has(role)),
+      )] as string[];
+      const allowedRoleIds = pins ?? generatedRoleIds;
+      if (allowedRoleIds.length > 0) {
+        try {
+          const repaired = await repairInvalidWorkflowOnce({
+            connector,
+            yaml: finalYaml,
+            validation,
+            llmConfig: {
+              provider: 'modelmirror',
+              model: modelId,
+              max_tokens: 4096,
+              temperature,
+              retry: 0,
+            },
+            allowedRoleIds,
+            goal,
+          });
+          if (repaired) {
+            finalYaml = repaired;
+            validation = validateWorkflowText(finalYaml, agents);
+            repairUsed = true;
+          }
+        } catch (error) {
+          warnings.push(
+            `ModelMirror final validation repair failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    }
     const validationObject = asObject(validation);
     const workflow = asObject(validationObject.workflow);
     const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
@@ -199,9 +308,9 @@ async function compose(
       throw new AgencyBridgeError('max_agents_exceeded', 'Generated workflow selected too many experts.');
     }
     return {
-      yaml: generated.yaml,
-      warnings: generated.warnings,
-      repair_used: generated.repairUsed,
+      yaml: finalYaml,
+      warnings,
+      repair_used: repairUsed,
       model_calls: connector.calls,
       validation,
       selected_agent_ids: selectedIds,

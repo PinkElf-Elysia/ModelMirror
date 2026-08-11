@@ -147,6 +147,176 @@ steps:
     assert "{{research_output}}" in result["yaml"]
 
 
+def test_compose_uses_remaining_call_for_final_validation_repair() -> None:
+    responses = [
+        """```yaml
+name: 重复输出初稿
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: research
+    role: agent-alpha
+    task: 先做调研
+    output: shared_output
+  - id: delivery
+    role: agent-beta
+    depends_on: [research]
+    task: 基于 {{shared_output}} 交付结果
+    output: shared_output
+```""",
+        """```yaml
+name: 已修复工作流
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: research
+    role: agent-alpha
+    task: 先做调研
+    output: research_output
+  - id: delivery
+    role: agent-beta
+    depends_on: [research]
+    task: 基于 {{research_output}} 交付结果
+    acceptance: 结论必须可执行
+    output: final_output
+```""",
+    ]
+    requests = []
+
+    async def fake_gateway(request):
+        requests.append(request)
+        return responses[len(requests) - 1]
+
+    client = AgencyWorkerClient(model_runner=fake_gateway, timeout_seconds=20)
+    result = run(
+        client.compose(
+            goal="为新产品制定研究与交付计划",
+            model_id="fake-model",
+            agents=agents(),
+            mode="auto",
+            max_agents=2,
+            temperature=0.2,
+        )
+    )
+
+    assert len(requests) == 2
+    assert result["model_calls"] == 2
+    assert result["repair_used"] is True
+    assert result["validation"]["valid"] is True
+    assert result["selected_agent_ids"] == ["agent-alpha", "agent-beta"]
+
+
+def test_compose_repairs_top_level_inputs_into_self_contained_tasks() -> None:
+    responses = [
+        """```yaml
+name: 需要输入的初稿
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+inputs:
+  - name: product_description
+    description: 产品描述
+    required: true
+steps:
+  - id: research
+    role: agent-alpha
+    task: 分析 {{product_description}}
+    output: research_output
+```""",
+        """```yaml
+name: 自包含工作流
+agents_dir: modelmirror-experts
+llm:
+  provider: modelmirror
+  model: fake-model
+steps:
+  - id: research
+    role: agent-alpha
+    task: 分析用户目标中描述的新产品，并整理证据
+    acceptance: 至少列出三项证据
+    output: research_output
+```""",
+    ]
+    requests = []
+
+    async def fake_gateway(request):
+        requests.append(request)
+        return responses[len(requests) - 1]
+
+    client = AgencyWorkerClient(model_runner=fake_gateway, timeout_seconds=20)
+    result = run(
+        client.compose(
+            goal="为新产品制定研究计划并整理证据",
+            model_id="fake-model",
+            agents=agents(),
+            mode="auto",
+            max_agents=2,
+            temperature=0.2,
+        )
+    )
+
+    assert len(requests) == 2
+    assert "不要生成 inputs" in requests[0].messages[0].content
+    assert "top-level workflow inputs" in requests[1].messages[1].content
+    assert result["validation"]["valid"] is True
+    assert result["repair_used"] is True
+    assert "inputs:" not in result["yaml"]
+    assert "product_description" not in result["yaml"]
+
+
+def test_validate_rejects_top_level_inputs_without_model_call() -> None:
+    client = AgencyWorkerClient(timeout_seconds=10)
+    result = run(
+        client.validate(
+            yaml="""name: bad-inputs
+llm:
+  provider: modelmirror
+  model: fake
+inputs:
+  - name: product_description
+    description: 产品描述
+    required: true
+steps:
+  - id: research
+    role: agent-alpha
+    task: 分析 {{product_description}}
+    output: research_output
+""",
+            agents=agents(),
+        )
+    )
+
+    assert result["valid"] is False
+    assert any("top-level workflow inputs" in error for error in result["errors"])
+
+
+def test_validate_requires_acceptance_on_final_step_without_model_call() -> None:
+    client = AgencyWorkerClient(timeout_seconds=10)
+    result = run(
+        client.validate(
+            yaml="""name: missing-acceptance
+llm:
+  provider: modelmirror
+  model: fake
+steps:
+  - id: research
+    role: agent-alpha
+    task: 分析用户目标
+    output: research_output
+""",
+            agents=agents(),
+        )
+    )
+
+    assert result["valid"] is False
+    assert any("must define non-empty acceptance" in error for error in result["errors"])
+
+
 def test_pinned_mode_rejects_unknown_agent_before_model_call() -> None:
     calls = 0
 

@@ -41,6 +41,27 @@ interface AgencyValidationIssue {
   node_id?: string;
 }
 
+interface GroupedAgencyValidationIssue extends AgencyValidationIssue {
+  count: number;
+}
+
+function groupAgencyValidationIssues(
+  issues: AgencyValidationIssue[] = [],
+): GroupedAgencyValidationIssue[] {
+  const grouped = new Map<string, GroupedAgencyValidationIssue>();
+  issues.forEach((issue) => {
+    const message = issue.message || issue.code || "工作流校验失败";
+    const key = `${issue.severity || "error"}\u0000${message}`;
+    const current = grouped.get(key);
+    if (current) {
+      current.count += 1;
+      return;
+    }
+    grouped.set(key, { ...issue, message, count: 1 });
+  });
+  return [...grouped.values()];
+}
+
 interface AgencyWorkflow {
   id: string;
   title: string;
@@ -1465,11 +1486,11 @@ export default function ExpertTeamPage() {
                               : "未通过"}
                         </span>
                       </div>
-                      {(agencyPreview.validation.issues || []).filter(
+                      {groupAgencyValidationIssues(agencyPreview.validation.issues).filter(
                         (issue) => issue.severity !== "warning",
                       ).length > 0 ? (
                         <ul className="mt-3 space-y-2 text-sm text-red-100">
-                          {(agencyPreview.validation.issues || [])
+                          {groupAgencyValidationIssues(agencyPreview.validation.issues)
                             .filter((issue) => issue.severity !== "warning")
                             .map((issue, index) => (
                               <li
@@ -1477,6 +1498,7 @@ export default function ExpertTeamPage() {
                                 key={`${issue.code || "issue"}-${index}`}
                               >
                                 {issue.message || issue.code || "工作流校验失败"}
+                                {issue.count > 1 ? `（重复 ${issue.count} 次）` : ""}
                               </li>
                             ))}
                         </ul>
@@ -1485,11 +1507,11 @@ export default function ExpertTeamPage() {
                           当前计划未发现工作流结构错误。
                         </p>
                       )}
-                      {(agencyPreview.validation.issues || []).some(
+                      {groupAgencyValidationIssues(agencyPreview.validation.issues).some(
                         (issue) => issue.severity === "warning",
                       ) ? (
                         <ul className="mt-3 space-y-2 text-sm text-amber-100">
-                          {(agencyPreview.validation.issues || [])
+                          {groupAgencyValidationIssues(agencyPreview.validation.issues)
                             .filter((issue) => issue.severity === "warning")
                             .map((issue, index) => (
                               <li
@@ -1497,6 +1519,7 @@ export default function ExpertTeamPage() {
                                 key={`${issue.code || "warning"}-${index}`}
                               >
                                 {issue.message || issue.code || "工作流校验警告"}
+                                {issue.count > 1 ? `（重复 ${issue.count} 次）` : ""}
                               </li>
                             ))}
                         </ul>

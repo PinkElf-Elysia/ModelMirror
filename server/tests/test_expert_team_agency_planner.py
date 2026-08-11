@@ -88,6 +88,7 @@ def test_agency_mapping_rejects_reverse_variable_and_unknown_expert() -> None:
         raise AssertionError("invalid Agency workflow was accepted")
     except ValueError as exc:
         assert "valid workflow" in str(exc)
+        assert "reverse variable dependency" in str(exc)
 
     unknown = agency_result(experts[0].id, "missing-agent")
     try:
@@ -100,6 +101,38 @@ def test_agency_mapping_rejects_reverse_variable_and_unknown_expert() -> None:
         raise AssertionError("unknown expert was accepted")
     except ValueError as exc:
         assert "unknown expert" in str(exc)
+
+    top_level_inputs = agency_result(experts[0].id, experts[1].id)
+    top_level_inputs["validation"]["workflow"]["inputs"] = [
+        {"name": "product_description", "required": True}
+    ]
+    try:
+        build_meta_planner_inputs(
+            top_level_inputs,
+            experts,
+            default_agent_model_id="model/agent",
+            goal="研究新产品并形成可执行的发布方案。",
+        )
+        raise AssertionError("unsupported Agency inputs were accepted")
+    except ValueError as exc:
+        assert "unsupported top-level inputs" in str(exc)
+        assert "product_description" in str(exc)
+
+    missing_acceptance = agency_result(experts[0].id, experts[1].id)
+    missing_acceptance["validation"]["workflow"]["steps"][-1].pop(
+        "acceptance", None
+    )
+    try:
+        build_meta_planner_inputs(
+            missing_acceptance,
+            experts,
+            default_agent_model_id="model/agent",
+            goal="研究新产品并形成可执行的发布方案。",
+        )
+        raise AssertionError("final task without acceptance was accepted")
+    except ValueError as exc:
+        assert "missing acceptance criteria" in str(exc)
+        assert "delivery" in str(exc)
 
 
 def test_planner_capabilities_remain_visible_when_feature_is_disabled(
@@ -175,6 +208,51 @@ def test_plan_preview_auto_compiles_without_authoring_proposal(
     assert expert_run.metadata["backend"] == "agency_orchestrator"
 
 
+def test_plan_preview_allows_more_tasks_than_distinct_experts(monkeypatch) -> None:
+    experts = main_module.AGENT_RECORDS[:2]
+    result = agency_result(experts[0].id, experts[1].id)
+    steps = result["validation"]["workflow"]["steps"]
+    expanded_steps = [steps[0]]
+    for index in range(1, 5):
+        expanded_steps.append(
+            {
+                "id": f"analysis_{index}",
+                "role": experts[index % 2].id,
+                "depends_on": [expanded_steps[-1]["id"]],
+                "task": f"完成第 {index} 轮分析。",
+                "acceptance": "结论可复核。",
+                "output": f"analysis_{index}_output",
+            }
+        )
+    steps[1]["depends_on"] = [expanded_steps[-1]["id"]]
+    expanded_steps.append(steps[1])
+    result["validation"]["workflow"]["steps"] = expanded_steps
+
+    async def fake_compose(**_kwargs):
+        return result
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module.agency_worker_client, "compose", fake_compose)
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={
+            "goal": "研究新产品并形成可执行的发布方案。",
+            "planner_model_id": "model/planner",
+            "default_agent_model_id": "model/agent",
+            "mode": "auto",
+            "max_agents": 2,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["plan"]["tasks"]) == 6
+    assert len(payload["selected_agents"]) == 2
+
+
 def test_pinned_lineup_and_invalid_requests_are_rejected(monkeypatch) -> None:
     experts = main_module.AGENT_RECORDS[:2]
 
@@ -213,6 +291,11 @@ def test_pinned_lineup_and_invalid_requests_are_rejected(monkeypatch) -> None:
         json={**base, "max_agents": 7},
     )
     assert too_many.status_code == 422
+    pinned_over_limit = client.post(
+        "/api/expert-team/plan-preview",
+        json={**base, "max_agents": 1},
+    )
+    assert pinned_over_limit.status_code == 422
 
 
 def test_preview_rejects_cycle_from_worker(monkeypatch) -> None:

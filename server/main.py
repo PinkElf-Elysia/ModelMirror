@@ -44,6 +44,7 @@ from orchestration_worker import (
 )
 from expert_team_agency import (
     AGENCY_UPSTREAM_PROJECT,
+    EXPERT_TEAM_AGENCY_MAX_STEPS,
     ExpertTeamAgencyCapabilities,
     ExpertTeamPlanPreviewRequest,
     ExpertTeamPlanPreviewResponse,
@@ -4701,6 +4702,14 @@ async def preview_expert_team_plan(
             goal=payload.goal,
         )
         selected_ids = [item["id"] for item in selected_agents]
+        if len(selected_ids) > payload.max_agents:
+            raise ValueError(
+                "Agency Orchestrator selected more experts than max_agents."
+            )
+        if len(plan.tasks) > EXPERT_TEAM_AGENCY_MAX_STEPS:
+            raise ValueError(
+                "Agency Orchestrator generated more tasks than max_steps."
+            )
         if payload.mode == "pinned" and set(selected_ids) != set(
             payload.pinned_agent_ids
         ):
@@ -4712,7 +4721,10 @@ async def preview_expert_team_plan(
             planner_model_id=payload.planner_model_id,
             default_agent_model_id=payload.default_agent_model_id,
             temperature=payload.temperature,
-            max_agents=payload.max_agents,
+            # Meta Planner V2's legacy max_agents field bounds task blueprints.
+            # Agency's public max_agents instead bounds distinct selected experts,
+            # while its DAG may legitimately contain up to max_steps tasks.
+            max_agents=len(plan.tasks),
             scope=MetaPlannerScope(
                 allowed_node_kinds=sorted(
                     {"input", "output", "workflow_agent"}

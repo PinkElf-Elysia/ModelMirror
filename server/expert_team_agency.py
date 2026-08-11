@@ -23,6 +23,7 @@ except ModuleNotFoundError:
 
 
 AGENCY_UPSTREAM_PROJECT = "jnMetaCode/agency-orchestrator"
+EXPERT_TEAM_AGENCY_MAX_STEPS = 8
 
 
 class ExpertTeamPlanPreviewRequest(BaseModel):
@@ -40,6 +41,11 @@ class ExpertTeamPlanPreviewRequest(BaseModel):
             raise ValueError("pinned_agent_ids must be unique")
         if self.mode == "pinned" and not self.pinned_agent_ids:
             raise ValueError("pinned mode requires pinned_agent_ids")
+        if (
+            self.mode == "pinned"
+            and len(self.pinned_agent_ids) > self.max_agents
+        ):
+            raise ValueError("pinned_agent_ids cannot exceed max_agents")
         if self.mode == "auto" and self.pinned_agent_ids:
             raise ValueError("auto mode cannot set pinned_agent_ids")
         return self
@@ -54,7 +60,7 @@ class ExpertTeamAgencyCapabilities(BaseModel):
         default_factory=lambda: ["auto", "pinned"]
     )
     max_agents: int = 6
-    max_steps: int = 8
+    max_steps: int = EXPERT_TEAM_AGENCY_MAX_STEPS
 
 
 class ExpertTeamPlanPreviewResponse(BaseModel):
@@ -107,10 +113,30 @@ def build_meta_planner_inputs(
 
     validation = worker_result.get("validation")
     if not isinstance(validation, Mapping) or validation.get("valid") is not True:
-        raise ValueError("Agency Orchestrator did not return a valid workflow.")
+        raw_errors = validation.get("errors") if isinstance(validation, Mapping) else []
+        details = [
+            str(item).replace("\r", " ").replace("\n", " ")[:500]
+            for item in (raw_errors if isinstance(raw_errors, list) else [])[:6]
+        ]
+        suffix = f": {'; '.join(details)}" if details else "."
+        raise ValueError(
+            f"Agency Orchestrator did not return a valid workflow{suffix}"
+        )
     workflow = validation.get("workflow")
     if not isinstance(workflow, Mapping):
         raise ValueError("Agency Orchestrator workflow payload is missing.")
+    raw_inputs = workflow.get("inputs") or []
+    if raw_inputs:
+        input_names = [
+            str(item.get("name") or "").strip()
+            for item in raw_inputs
+            if isinstance(item, Mapping)
+        ]
+        detail = ", ".join(name for name in input_names if name) or "unnamed"
+        raise ValueError(
+            "Agency Orchestrator workflow contains unsupported top-level "
+            f"inputs: {detail}."
+        )
     raw_steps = workflow.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise ValueError("Agency Orchestrator workflow has no steps.")
@@ -123,6 +149,24 @@ def build_meta_planner_inputs(
     ]
     if len(raw_ids) != len(raw_steps) or len(raw_ids) != len(set(raw_ids)):
         raise ValueError("Agency Orchestrator task IDs are missing or duplicated.")
+    depended_on_ids = {
+        str(dependency)
+        for step in raw_steps
+        if isinstance(step, Mapping)
+        for dependency in (step.get("depends_on") or [])
+    }
+    missing_sink_acceptance = [
+        str(step.get("id") or "")
+        for step in raw_steps
+        if isinstance(step, Mapping)
+        and str(step.get("id") or "") not in depended_on_ids
+        and not str(step.get("acceptance") or "").strip()
+    ]
+    if missing_sink_acceptance:
+        raise ValueError(
+            "Agency Orchestrator final tasks are missing acceptance criteria: "
+            + ", ".join(missing_sink_acceptance)
+        )
     task_ids = {raw_id: _task_identifier(raw_id) for raw_id in raw_ids}
     if len(set(task_ids.values())) != len(task_ids):
         raise ValueError("Agency Orchestrator task IDs collide after normalization.")
