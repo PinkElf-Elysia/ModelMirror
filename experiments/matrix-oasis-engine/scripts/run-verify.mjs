@@ -17,6 +17,7 @@ const steps = [
   ["runtime-simulator", ["run", "verify:runtime-simulator"]],
   ["parity", ["run", "verify:parity"]],
   ["scene-pack", ["run", "verify:scene-pack"]],
+  ["prototype-generation", ["run", "verify:prototype-generation"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],

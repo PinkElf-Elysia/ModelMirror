@@ -203,7 +203,77 @@ test("a valid isolated fixture passes", async () => {
   });
 });
 
+test("the exact R8 provider adapter may use fetch without reading process environment", async () => {
+  await withFixture(async ({ root }) => {
+    const operation = ["fet", "ch"].join("");
+    const providerRoot = path.join(
+      root,
+      "packages",
+      "prototype-generator",
+      "src",
+    );
+    await fs.mkdir(providerRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(providerRoot, "openai-compatible.mjs"),
+      `export const request = (endpoint, options) => ${operation}(endpoint, options);\n`,
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.report.ok, true);
+  });
+});
+
+test("secret scanning permits an indirect credential reference but not embedded values", async () => {
+  await withFixture(async ({ root }) => {
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "src", "config.js"),
+      [
+        "const config = Object.freeze({ credential: readCredential() });",
+        "export const options = { apiKey: config.credential };",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.report.ok, true);
+  });
+});
+
 const negativeCases = [
+  {
+    name: "network call outside the exact provider adapter",
+    expectedRule: "module-network-forbidden",
+    setup: async ({ root }) => {
+      const operation = ["fet", "ch"].join("");
+      const sourceRoot = path.join(root, "packages", "prototype-generator", "src");
+      await fs.mkdir(sourceRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sourceRoot, "helper.mjs"),
+        `export const request = (endpoint) => ${operation}(endpoint);\n`,
+        "utf8",
+      );
+    },
+  },
+  {
+    name: "approved provider adapter reads process environment",
+    expectedRule: "provider-network-capability-forbidden",
+    setup: async ({ root }) => {
+      const operation = ["fet", "ch"].join("");
+      const processEnvironment = ["process", "env"].join(".");
+      const sourceRoot = path.join(root, "packages", "prototype-generator", "src");
+      await fs.mkdir(sourceRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sourceRoot, "openai-compatible.mjs"),
+        `export const request = (endpoint) => ${operation}(endpoint, { headers: ${processEnvironment} });\n`,
+        "utf8",
+      );
+    },
+  },
   {
     name: "import escape toward client source",
     expectedRule: "import-outside-module",
@@ -771,6 +841,42 @@ const negativeCases = [
     setup: async ({ root }) => {
       const policy = boundaryPolicy();
       policy.parentIntegration = "adapter";
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered OpenRouter provider boundary policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.openRouterHost = "router.example.invalid";
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered provider schema transform policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.providerSchemaKeywordTransforms[0].to = "oneOf";
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered provider required-property policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.providerSchemaRequiresAllProperties = false;
+      await writeJson(path.join(root, "module-boundary.json"), policy);
+    },
+  },
+  {
+    name: "tampered provider definition-flattening policy",
+    expectedRule: "boundary-policy-invalid",
+    setup: async ({ root }) => {
+      const policy = boundaryPolicy();
+      policy.prototypeGenerationPolicy.providerSchemaFlattensNestedDefinitions = false;
       await writeJson(path.join(root, "module-boundary.json"), policy);
     },
   },

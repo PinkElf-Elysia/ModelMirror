@@ -90,6 +90,12 @@ R6 不新增运行依赖或 Godot addon。仅按已批准方案保存 `godotengi
 - R7 不增加 registry 依赖；Scene contracts/validator 只复用模块内 Runtime contracts、Ajv 与 jsonc-parser。
 - Marble/Meshy 均不作为依赖，R7 不调用其 API/MCP、不读取凭据或下载生成物。
 
+## R8 原型生成合同
+
+R8.2 新增私有 `@matrix-oasis/prototype-generation-contracts@0.1.0-r8`。该包只精确依赖冻结的 Authoring contracts/validator、Runtime contracts，以及 lockfile 中既有的 Ajv `8.20.0` 与 jsonc-parser `3.3.1`；没有新增 registry 包或许可证例外。合同验证与 canonical 输出完全离线，不调用模型、资产供应商或其他网络服务。
+
+R8.3 新增私有 `@matrix-oasis/prototype-generator@0.1.0-r8`。R8.4 为同一包增加冻结的内部 Compiler、Runtime contracts 与 Runtime simulator 精确依赖，用于生成后的编译、Receipt canonical 化和初始会话门禁；全部为模块内 workspace。OpenAI兼容适配器使用Node 24原生`fetch`、`AbortSignal`、`TextEncoder`和`TextDecoder`，CLI事务使用Node内建文件API，不增加模型SDK、HTTP库、文件事务库或其他registry依赖。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；

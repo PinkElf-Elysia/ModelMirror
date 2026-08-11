@@ -11,22 +11,20 @@
 5. 一批只解决一个可验证目标；先验证后提交；失败不得进入下一批。
 6. 回退只使用 `git revert`，不得重置、覆盖或清理用户工作区。
 
-## R7 专属限制
+## R8 专属限制
 
-- R7 只建立独立 Scene Pack、本地 GLB 严格入口、Godot 场景组合与 R6 可玩层绑定；不做 NPC、导航、SPZ、AI、存档或父项目接入。
-- R1–R6 的 Creator、既有 examples/packages、Bootstrap、Runtime、playable、GdUnit4 vendor、历史 ADR/验收记录及既有语义测试字节冻结；发现问题必须停报并单独申请修复。
-- 新 Godot 第一方文件只允许落在 `apps/runtime-godot/scene_binding/**` 与 `apps/runtime-godot/test/r7/**`；`project.godot` 与 R6 playable 不得修改。
-- GdUnit4 必须保持上游 v6.2.0 指定 commit 原样；任何补丁、版本切换或许可证变化需要人工审批。
-- Godot 可执行文件、导出模板和 MCP 工具只放仓外；仓内禁止 `.exe`、`.dll`、`.pck`、导出物和 MCP 配置。
-- 自动验证只允许 headless 与自身 loopback；图形固定帧输出必须位于仓外临时目录。
-- MCP 只在一次性仓外副本资格验证，不得操作正式 worktree，也不得使用凭据或非 loopback 网络。
-- Runtime Pack、Receipt 与 Scene Pack 只允许成组、本地、只读加载；第一方 Godot 仍禁止网络、进程、环境变量、动态脚本和文件写入。
-- R7 不得查询、创建、轮询或下载任何 Marble/Meshy 真实任务，不读取其凭据或额度。未来调用必须逐次获得用户人工批准。
-- Kenney 仅允许固定 CC0 子集与精确哈希；gdgs 仅在仓外固定提交副本做资格验证，不 vendoring、不修改上游、不进入正式工程。
-- 官方 demo 只允许以非 Godot 可执行参考文件、MIT License、来源锁和适配说明进入 `third-party/godot-demo-projects/**`，不得直接执行或静默修改。
-- 每次验证使用固定 R7 基线 `a4a2a68d2fc5cf056c741cd3101fcf36a250ad6e`；committed、staged、unstaged、untracked 一视同仁。
-- 不 push、不创建 PR，直至用户明确回复“R7验收通过，可以创建PR”。
-- 不删除 R0–R7 分支/worktree；不重建共享栈。主线前进时先报告差异，不擅自 rebase。
+- R8 只实现纯文本到严格 Generation Proposal、Authoring Pack、私有 Scene Blueprint 和 Runtime 验证；不生成资产、不启动 Godot、不修改 Creator。
+- R1–R7 的 apps、examples、既有 packages、Godot、vendor、历史 ADR/验收和语义测试全部字节冻结；发现问题必须停报并单独申请修复。
+- 只有 `packages/prototype-generator/src/openai-compatible.mjs` 可以使用受控 `fetch`；Creator、Godot、其他 package 与脚本仍禁止外部网络。
+- Provider package 只接受调用方注入的配置，不读取环境；专用环境变量只能由生成 CLI 读取，且不得读取父仓 `LLM_GATEWAY_*` 或其他既有密钥变量。
+- 输入仅允许最大 32 KiB fatal UTF-8 纯文本；禁止图片、全景、视频、3D 文件、目录或父仓数据。
+- 最多一次初始请求与两次修复请求；禁止工具调用、流式输出、自动网络重试和无限 Agent 循环。
+- R8 不得查询或调用 Marble/Meshy，不读取其凭据、额度或任务状态。
+- 真实模型资格验证必须逐次获得用户人工批准；批准前只允许 loopback 假 Provider。
+- 生成物、模型响应和详细日志只放 `C:\tmp` 的新目录；仓内不得提交真实输出或凭据。
+- 每次验证使用固定 R8 基线 `21cbbb8b943b6f9d9799f014c44a6349e6124a63`；committed、staged、unstaged、untracked 一视同仁。
+- 不 push、不创建 PR，直至用户明确回复“R8验收通过，可以创建PR”。
+- 不删除 R0–R8 分支/worktree；不重建共享栈。主线前进时先报告差异，不擅自 rebase。
 
 ## 提交前检查
 

@@ -1,33 +1,30 @@
 # 模块边界
 
-## R7 允许范围
+## R8允许范围
 
 - 只修改 `experiments/matrix-oasis-engine/**`。
-- R1–R6 Creator、既有 examples/packages、Bootstrap、Runtime、playable、GdUnit4、历史 ADR/验收与语义测试全部冻结。
-- 新 Godot 内容只允许在 `apps/runtime-godot/scene_binding/**` 与 `apps/runtime-godot/test/r7/**`。
-- `apps/runtime-godot/project.godot` 完全冻结；R7 使用独立场景和 CLI 参数。
-- 官方 Godot demo 参考只允许在 `third-party/godot-demo-projects/**` 以非可执行扩展、MIT License、锁文件和适配说明保存。
-- Godot 二进制、缓存、导出模板、PCK、图形证据和生成的 Pack/Receipt 均只放仓外。
+- R1–R7 apps、examples、既有packages、Godot、资产、vendor和历史验收全部冻结。
+- 新代码只允许进入两个R8私有workspace、精确CLI/harness文件和R8文档。
+- Creator、Godot、父路由、父API、Docker和共享栈不变。
 
-## 场景与资产边界
+## 输入、网络与输出
 
-- Scene Pack 最大 256 KiB，只接受 canonical JSON 与本地 `.glb`；禁止 archive、SPZ、网络 URI、外部 buffer/texture、绝对路径和链接。
-- 单资产最大 32 MiB、总资产 128 MiB、最多 16 assets/128 placements/4096 node bindings。
-- 所有空间数据使用毫米、毫度与千分比安全整数；不增加浮点 canonical profile。
-- collider 必须显式引用；静态 collider 保持世界层 1，R6 玩家/交互层不变。
-- 场景、Runtime action、ending 与 reset 候选全部成功后才一次提交；失败必须保留旧世界、snapshot、HUD、终端和玩家状态。
+- 输入只允许最大32 KiB、fatal UTF-8纯文本；不读取图片、视频、全景、3D文件或父仓数据。
+- 只有 `packages/prototype-generator/src/openai-compatible.mjs` 可以发起模型请求；它不读取环境变量。
+- CLI可以读取三个R8专用模型环境变量，但不得打印或持久化其值，也不得读取父仓模型变量。
+- endpoint只允许HTTPS，或用于自动测试的loopback HTTP；禁止redirect、stream、tools和自动网络重试。
+- 每次生成最多3个请求：1次初始生成和2次定向修复。
+- prompt必须是 `C:\tmp` 内的普通真实文件；读取前后使用bigint设备/文件身份核对，拒绝symlink、junction、越界、超过32 KiB及非fatal UTF-8输入。
+- 生成物只能事务发布到 `C:\tmp` 的新一级子目录；五个固定文件先以独占FileHandle写入、同步、回读和复验，再通过单次目录rename发布，不覆盖既有目标。
+- 生成成功目录只包含Authoring、Blueprint、Runtime、Receipt和脱敏generation report；不得跟踪真实模型输出、原始HTTP响应或详细日志。
 
-## 能力与供应链边界
+## 初版防偏离门
 
-- 第一方 GDScript 禁止网络、Socket、`OS.execute`、环境变量、动态脚本加载、模块外路径和文件写入。
-- GdUnit4 不套用第一方能力扫描，继续由冻结 vendor integrity 约束。
-- 官方 demo 参考不进入 Godot 资源扫描，不参与运行；其来源 commit、文件 SHA-256、License 与适配说明由独立锁验证。
-- 固定帧捕获只能写入 `C:\tmp` 新目录，不纳入自动 `verify`，也不建立跨 GPU 像素 golden。
-- Marble/Meshy 真实调用、额度查询、任务轮询和下载在 R7 全部禁止；gdgs 只在仓外固定 commit 副本资格验证。
+R8只消除“人工编写结构化原型”的步骤。图片输入、资产生成、Marble、Meshy、NPC、记忆、任务规划、世界事件、运行期AI和Godot启动均不属于本轮。
 
-## 自动范围门与回退
+## 自动范围与回退
 
-- schema v7 固定 `activeRound=R7` 与基线 `a4a2a68d2fc5cf056c741cd3101fcf36a250ad6e`。
-- round scope 同时检查 committed、staged、unstaged、untracked；冻结路径优先、未知路径失败关闭。
-- parent scope 拒绝全部模块外变化；standalone 只在模块等于仓库根时返回 not-applicable。
-- R7 不启动父服务、Docker 或共享栈。每批可逆序 revert，整体回退后恢复完整 R6。
+- schema v8固定 `activeRound=R8` 和基线 `21cbbb8b943b6f9d9799f014c44a6349e6124a63`。
+- 精确allowlist优先于广义冻结根；未明确放行的旧路径和新路径全部失败关闭。
+- 普通verify只使用loopback假Provider，不产生费用。
+- 每批逆序revert；整体回退恢复完整R7，不涉及数据库、服务或运行数据。
