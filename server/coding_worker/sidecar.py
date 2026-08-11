@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from .contracts import SAFE_ID
+from .claude_provider import ClaudeCodeProvider, ClaudeCodeRoute
 from .opencode_provider import OpenCodeProvider, OpenCodeRoute
 from .provider_rpc import ProviderRPCServer
 from .executor import ExecutorRPCServer, SidecarExecutor
@@ -61,19 +62,7 @@ async def run() -> None:
         await executor_server.start_unix(socket_path)
         await _wait_for_stop(executor_server.close)
         return
-    route_id = os.getenv("CODING_WORKER_ROUTE_ID", "coding/default").strip()
-    route = OpenCodeRoute(
-        route_id=route_id,
-        model_id=_required_environment("CODING_WORKER_MODEL_ID"),
-        base_url=_required_environment("CODING_WORKER_MODEL_BASE_URL"),
-        api_key=_required_environment("CODING_WORKER_ROUTE_KEY"),
-    )
-    provider = OpenCodeProvider(
-        workspace_resolver=_workspace_resolver(workspace_root),
-        runtime_root=runtime_root,
-        routes={route_id: route},
-        tool_broker_command=("python", "-m", "coding_worker.broker_mcp"),
-    )
+    provider = _provider_from_environment(workspace_root, runtime_root)
     server = ProviderRPCServer(
         provider,
         token=_required_environment("CODING_WORKER_SIDECAR_TOKEN"),
@@ -82,6 +71,38 @@ async def run() -> None:
     )
     await server.start_unix(socket_path)
     await _wait_for_stop(server.close)
+
+
+def _provider_from_environment(
+    workspace_root: Path, runtime_root: Path
+) -> OpenCodeProvider | ClaudeCodeProvider:
+    provider_kind = os.getenv("CODING_WORKER_PROVIDER_KIND", "opencode").strip()
+    route_id = os.getenv("CODING_WORKER_ROUTE_ID", "coding/default").strip()
+    model_id = _required_environment("CODING_WORKER_MODEL_ID")
+    command = ("python", "-m", "coding_worker.broker_mcp")
+    if provider_kind == "claude-code":
+        route = ClaudeCodeRoute(route_id=route_id, model_id=model_id)
+        return ClaudeCodeProvider(
+            runtime_root=runtime_root,
+            routes={route_id: route},
+            secret_path=Path(_required_environment("CODING_WORKER_CLAUDE_SECRET_PATH")),
+            tool_broker_command=command,
+            provider_proxy_url=os.getenv("CODING_WORKER_PROVIDER_PROXY_URL") or None,
+        )
+    if provider_kind != "opencode":
+        raise RuntimeError("CODING_WORKER_PROVIDER_KIND is invalid")
+    route = OpenCodeRoute(
+        route_id=route_id,
+        model_id=model_id,
+        base_url=_required_environment("CODING_WORKER_MODEL_BASE_URL"),
+        api_key=_required_environment("CODING_WORKER_ROUTE_KEY"),
+    )
+    return OpenCodeProvider(
+        workspace_resolver=_workspace_resolver(workspace_root),
+        runtime_root=runtime_root,
+        routes={route_id: route},
+        tool_broker_command=command,
+    )
 
 
 async def _wait_for_stop(close: Callable[[], Awaitable[None]]) -> None:
