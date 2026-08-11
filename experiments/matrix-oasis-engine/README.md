@@ -35,9 +35,13 @@ npm.cmd ls --all
 npm.cmd run doctor:godot
 npm.cmd run verify:scene-pack
 npm.cmd run verify:godot:scene
+npm.cmd run preview:godot:scene -- --example mechanics-conformance
+npm.cmd run capture:godot:scene -- --example mechanics-conformance --output C:\tmp\matrix-oasis-r7-capture
 npm.cmd run verify
 npm.cmd run verify:extraction
 npm.cmd run check:parent-scope -- --base a4a2a68d2fc5cf056c741cd3101fcf36a250ad6e
 ```
+
+`qualify:godot-splat` 只针对仓外固定 checkout 生成资格报告，不会把 addon 写入正式工程。当前固定提交因实际版本 `3.3.0` 与计划锁定的 `3.2.0-beta` 不一致，结论为 `defer`。
 
 任何父仓修改或共享栈重建都必须另行人工批准。各批可逆序 `git revert`；没有数据库、服务、路由或运行数据需要恢复。

@@ -102,6 +102,18 @@ func _placement_collision_layer_for_test(placement_id: String) -> int:
 	return 0 if colliders.is_empty() else (colliders[0] as StaticBody3D).collision_layer
 
 
+func _visible_placement_ids_for_runtime(ordered_ids: Array) -> Array:
+	var visible: Array = []
+	if _disposed:
+		return visible
+	for placement_id in ordered_ids:
+		if typeof(placement_id) == TYPE_STRING and _placements.has(placement_id) and (
+			_placements[placement_id]["node"] as Node3D
+		).visible:
+			visible.append(placement_id)
+	return visible
+
+
 static func _make_read_only(value: Variant) -> void:
 	if typeof(value) == TYPE_DICTIONARY:
 		for key in value.keys():

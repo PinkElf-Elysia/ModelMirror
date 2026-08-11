@@ -31,13 +31,23 @@ var _snapshot: Dictionary
 var _inspection: Dictionary
 var _latest_cues: Array = []
 var _latest_transition: Variant = null
+var _created_result: Dictionary
 var _latest_runtime_result: Dictionary
+var _step_limit_override := 0
+var _last_active_node_id := ""
 var _smoke_requested := false
 
 
 func set_prepared_for_test(runtime: MatrixOasisPreparedRuntimePack, scene: MatrixOasisPreparedScene) -> void:
 	_runtime_override = runtime
 	_scene_override = scene
+
+
+func set_step_limit_for_trace(step_limit: int) -> bool:
+	if is_node_ready() or step_limit < 1 or step_limit > MatrixOasisGodotRuntime.MAX_STEP_LIMIT:
+		return false
+	_step_limit_override = step_limit
+	return true
 
 
 func _ready() -> void:
@@ -75,7 +85,7 @@ func _activate_pair(runtime: MatrixOasisPreparedRuntimePack, scene: MatrixOasisP
 		_show_failure(composed["diagnostics"][0]["code"])
 		return false
 	var candidate_world: MatrixOasisComposedScene = composed["world"]
-	var created := MatrixOasisGodotRuntime.create_game_session(runtime)
+	var created := MatrixOasisGodotRuntime.create_game_session(runtime, _session_options())
 	if not created["ok"]:
 		candidate_world._dispose_for_runtime()
 		_show_failure(created["diagnostics"][0]["code"])
@@ -102,6 +112,7 @@ func _activate_pair(runtime: MatrixOasisPreparedRuntimePack, scene: MatrixOasisP
 	_inspection = created["inspection"]
 	_latest_cues = created["emittedCues"]
 	_latest_transition = null
+	_created_result = created
 	_latest_runtime_result = created
 	var scene_pack := scene._copy_scene_for_runtime()
 	scene_title.text = scene_pack["scene"]["title"]
@@ -137,7 +148,7 @@ func _reset_session() -> bool:
 	if _prepared_runtime == null or _composed_world == null:
 		_show_failure("PACK_GODOT_SCENE_INTERNAL_ERROR")
 		return false
-	var created := MatrixOasisGodotRuntime.create_game_session(_prepared_runtime)
+	var created := MatrixOasisGodotRuntime.create_game_session(_prepared_runtime, _session_options())
 	if not created["ok"]:
 		_show_failure(created["diagnostics"][0]["code"])
 		return false
@@ -184,7 +195,12 @@ func _apply_world_candidate(world: MatrixOasisComposedScene, inspection: Diction
 		return false
 	terminal_grid.global_transform = MatrixOasisSceneComposer.anchor_transform(binding["actionAnchor"])
 	player.set_start_transform(MatrixOasisSceneComposer.anchor_transform(binding["playerSpawn"]))
+	_last_active_node_id = node_id
 	return true
+
+
+func _session_options() -> Dictionary:
+	return {} if _step_limit_override == 0 else {"stepLimit": _step_limit_override}
 
 
 func apply_terminal_action_for_trace(action_id: String) -> Dictionary:
@@ -260,6 +276,33 @@ func _set_status(text: String, is_error := false) -> void:
 
 func snapshot_copy_for_test() -> Dictionary:
 	return _snapshot.duplicate(true)
+
+
+func created_result_for_trace() -> Dictionary:
+	return _created_result
+
+
+func scene_state_for_trace() -> Dictionary:
+	if _prepared_scene == null or _composed_world == null or _inspection.is_empty() or _last_active_node_id.is_empty():
+		return {}
+	var scene_pack := _prepared_scene._copy_scene_for_runtime()
+	var ordered_ids: Array = []
+	for placement in scene_pack["placements"]:
+		ordered_ids.append(placement["id"])
+	var binding := _composed_world._binding_for_runtime(_last_active_node_id)
+	if binding.is_empty():
+		return {}
+	var state := {
+		"manifestSha256": _prepared_scene.manifest_sha256(),
+		"runtimeArtifactSha256": _prepared_scene.runtime_artifact_sha256(),
+		"status": _inspection["status"],
+		"locationId": _inspection["location"]["id"],
+		"visiblePlacementIds": _composed_world._visible_placement_ids_for_runtime(ordered_ids),
+		"playerSpawn": binding["playerSpawn"].duplicate(true),
+		"actionAnchor": binding["actionAnchor"].duplicate(true),
+		"terminalCount": terminal_grid.get_terminal_count(),
+	}
+	return state
 
 
 func world_for_test() -> MatrixOasisComposedScene:

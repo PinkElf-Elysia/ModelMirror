@@ -13,11 +13,12 @@
       "docs/adr/0008-r7-scene-pack-governance.md", "docs/rounds/R7_ACCEPTANCE.md",
       "scripts/check-round-scope.mjs", "scripts/check-godot-boundary.mjs", "scripts/capture-godot-scene.mjs", "scripts/doctor.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/doctor-core.mjs", "scripts/lib/godot-core.mjs", "scripts/lib/godot-scene-core.mjs",
+      "scripts/lib/godot-scene-verification-core.mjs", "scripts/lib/godot-splat-qualification-core.mjs",
       "scripts/lib/parent-scope-core.mjs", "scripts/lib/scene-pack-bundle-core.mjs", "scripts/lib/scope-policy.mjs", "scripts/lib/vendor-core.mjs",
       "scripts/prepare-godot-scene.mjs", "scripts/preview-godot-scene.mjs", "scripts/qualify-godot-splat.mjs", "scripts/run-godot.mjs",
       "scripts/run-verify.mjs", "scripts/validate-scene-pack.mjs", "scripts/verify-extraction.mjs", "scripts/verify-godot-scene.mjs", "scripts/verify-godot-vendor.mjs",
       "tests/boundary.test.mjs", "tests/doctor.test.mjs", "tests/extraction-contract.test.mjs", "tests/godot-boundary.test.mjs",
-      "tests/godot-harness.test.mjs", "tests/godot-scene-binding.test.mjs", "tests/godot-scene-preview.test.mjs", "tests/round-scope.test.mjs",
+      "tests/godot-harness.test.mjs", "tests/godot-scene-binding.test.mjs", "tests/godot-scene-preview.test.mjs", "tests/godot-scene-verification.test.mjs", "tests/round-scope.test.mjs",
       "tests/scene-pack-bundle.test.mjs", "tests/splat-qualification.test.mjs", "tests/vendor.test.mjs"
     ],
     "allowedModulePrefixes": [

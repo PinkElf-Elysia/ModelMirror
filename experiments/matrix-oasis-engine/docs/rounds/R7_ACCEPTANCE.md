@@ -1,6 +1,6 @@
 # R7 验收记录
 
-状态：R7.4 已验证，等待本地提交；R7.5–R7.6 未开始。
+状态：R7.5 已验证，等待本地提交；R7.6 未开始。
 
 固定基线：`a4a2a68d2fc5cf056c741cd3101fcf36a250ad6e`
 分支：`codex/matrix-oasis-r7-scene-binding`
@@ -12,7 +12,7 @@
 - [x] R7.2 Scene Pack contracts/validator
 - [x] R7.3 Kenney GLB 与 Godot loader
 - [x] R7.4 Runtime 场景组合
-- [ ] R7.5 自动验证与 Splat 资格
+- [x] R7.5 自动验证与 Splat 资格
 - [ ] R7.6 standalone 与人工验收收口
 
 ## R7.1 证据
@@ -72,6 +72,22 @@ R7.3 提交：`0862a8d`（`feature: 接入矩阵绿洲本地 GLB 场景资产`�
 - 玩家坐标断言沿用 R6 的物理容差：X/Z 绑定精确到 0.02 m，Y 允许重力结算后的 0.15 m 容差；Runtime trace 与 placement 顺序不使用跨平台浮点 golden。
 
 本批提交 SHA 在 R7.5 或仓外交付清单记录，避免自引用。单独 revert 本提交移除 scene lab、组合器和预览 harness，R7.3 的严格 Scene/GLB loader 仍保持独立可测试。
+
+R7.4 提交：`49b1ef1`（`feature: 接通矩阵绿洲 Runtime 与场景刷新`）。
+
+## R7.5 证据
+
+本批新增 Scene trace runner、跨 Runtime/Scene 差分 harness、固定帧捕获和 gdgs 仓外资格器。正式工程没有新增 addon、SPZ 转换、供应商连接或题材分支；Marble/Meshy 仍为零调用。
+
+- `npm.cmd run verify:godot:scene`：15/15 Node 场景/资格测试、45/45 Godot/GdUnit 回归、7 个 Scene 差分案例共 26 次运行和 2 个双样例 smoke 全部通过。
+- 差分覆盖 mechanics 五步、全部九种 condition/三种 effect/两种 target、unknown/unavailable/ended、正负溢出、step limit、末班地铁三 ending 与显式循环；mechanics 的 Runtime + Scene trace 重复 20 次序列化完全一致。
+- 注入固定 Godot 4.6.3 后 `npm.cmd test`：481/481 通过；R1–R6、Scene Pack、vendor、边界与全部新增 harness 无回归。
+- 固定帧：mechanics 12 帧 960×540，capture manifest SHA-256 `23b32ffda51b747498c5f2cd423e1c70364159495a975a39d276eb646735b0cd`；last-train 12 帧 640×540，manifest SHA-256 `37377ebbce46d2ba76e85f98e72e096dd19a6a4f9daaccd9b03739db16d0f206`。图片与详细 manifest 仅在仓外 `C:\tmp`。
+- gdgs 固定提交 `d9de8db86a63e8bf9067c869dcdbd0614922fd1e` 的 import、smoke/backend/raster/collision/lighting 和固定帧 7 项均退出 0；源 tree `af2ca6aae12b8203186341370d09e8a8e811e60d`，测试前后 checkout 干净不变。
+- gdgs 资格结论为 `defer`：固定提交实际 `plugin.cfg` 为 `3.3.0`，与批准计划的 `3.2.0-beta` 不一致；该候选不支持 SPZ，未复制进正式工程。完整报告见 `docs/SPLAT_QUALIFICATION.md`，机器日志仅在仓外。
+- `node --test tests/round-scope.test.mjs tests/boundary.test.mjs`：113/113 通过；`check:round-scope` 与固定基线 parent scope 均为 `checked=85 changed=78`，模块 boundary 为 `checked=871 tracked=862`，Godot 一方边界检查 34 文件，`git diff --check` 通过。
+
+本批提交 SHA 在 R7.6 或仓外交付清单记录，避免自引用。单独 revert 本提交移除 trace/capture/资格 harness，R7.4 的 scene lab 仍可独立预览与测试。
 
 ## 外部调用事实
 
