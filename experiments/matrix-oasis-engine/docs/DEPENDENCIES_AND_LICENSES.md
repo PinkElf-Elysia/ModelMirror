@@ -84,7 +84,8 @@ R6 不新增运行依赖或 Godot addon。仅按已批准方案保存 `godotengi
 
 ## R7 场景资产与资格候选
 
-- Kenney Prototype Kit 1.0：CC0-1.0。只 vendoring `floor-square.glb`、`wall.glb`、`crate.glb`、`figurine.glb` 四个固定文件和许可证/来源锁；不复制整包。
+- Kenney Prototype Kit 1.0：CC0-1.0。只 vendoring `floor-square.glb`、`wall.glb`、`crate.glb`、`figurine.glb` 四个固定文件、它们共同引用的精确 `Textures/colormap.png`（8,706 bytes，SHA-256 `0d4947d34ff32acf4a359c7f22ca784e057e7e72f622170a9a77b6fc88fdb70e`）以及许可证/来源锁；不复制整包。
+- 精确 `figurine.glb`（SHA-256 `ae0ea82089e66215684b0b2f5a162be9f6c71475085c81c3b80e53abd08b6bd8`）含 27 条上游 animation 声明，仅作为静态角色占位：原始字节先通过供应链/GLB 门禁，再在内存候选中移除 `animations` 后交给 Godot，并断言不产生 `AnimationPlayer`。此例外不扩展到任何其他资产。
 - `ReconWorldLab/godot-gaussian-splatting` commit `d9de8db86a63e8bf9067c869dcdbd0614922fd1e`：MIT，仅在仓外副本资格验证，不加入正式工程、package lock 或 Godot addon。
 - R7 不增加 registry 依赖；Scene contracts/validator 只复用模块内 Runtime contracts、Ajv 与 jsonc-parser。
 - Marble/Meshy 均不作为依赖，R7 不调用其 API/MCP、不读取凭据或下载生成物。

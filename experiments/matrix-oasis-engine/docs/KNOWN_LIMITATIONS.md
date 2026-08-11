@@ -1,7 +1,7 @@
 # R7 已知限制
 
 - R7 是本地 Scene Pack 与 GLB 场景绑定底座，不是完整资产管线或关卡编辑器。
-- 只提供四个 Kenney CC0 静态验证资产；不提供 NPC、NavigationAgent3D、动画、音频或生产级碰撞烘焙。
+- 只提供四个 Kenney CC0 静态验证资产及其固定共享纹理；figurine 上游 animation 声明会在通过原始字节验证后于内存中移除，运行时仍是静态占位。不提供 NPC、NavigationAgent3D、动画播放、音频或生产级碰撞烘焙。
 - 控制器不含跳跃、冲刺、蹲伏、手柄、无障碍替代输入或可配置键位 UI。
 - Runtime Pack 仍不描述 3D 坐标；Scene Pack 是独立 sidecar，Action 终端仍按 R6 确定性网格生成。
 - 只接受 GLB 2.0；不支持 glTF 外部资源、SPZ、PLY、SOG、压缩包、远程 URL 或流式加载。

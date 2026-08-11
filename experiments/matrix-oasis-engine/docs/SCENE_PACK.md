@@ -24,7 +24,7 @@ npm.cmd run validate:scene-pack -- \
 
 ## GLB 门禁
 
-Node 入口在交给 Godot 前先验证 GLB 2.0 header、chunk 与声明长度，并拒绝外部 URI、动画、skin、camera、required extension 和复杂度超限。Godot 组合层还会使用 `GLTFDocument` 做独立运行时解析与一致的功能/复杂度门禁。
+Node 入口在交给 Godot 前先验证 GLB 2.0 header、chunk 与声明长度，并拒绝未经批准的外部 URI、动画、skin、camera、required extension 和复杂度超限。四个固定 Kenney GLB 只允许引用同目录树内已锁长度与 SHA-256 的 `Textures/colormap.png`；精确哈希的 figurine 可在原始字节验证后于内存移除 animation 声明，且 Godot 结果必须无 `AnimationPlayer`。这些是固定供应链例外，不是 Scene Pack 的通用能力。Godot 组合层还会使用 `GLTFDocument` 做独立运行时解析与一致的功能/复杂度门禁。
 
 Scene manifest canonical SHA 与每个本地资产 hash 只证明所读字节的完整性，不是签名，不证明作者、服务商或生成来源。
 

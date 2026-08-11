@@ -172,13 +172,33 @@ test("rejects asset byte length, hash and missing-file failures without path dis
   }
 });
 
-test("GLB gate accepts version 2 and rejects header, external URI and forbidden features", () => {
+test("GLB gate accepts version 2, permits only the approved Kenney texture edge, and rejects other external URIs", async () => {
   assert.equal(validateGlbBuffer(validGlb()).ok, true);
   const invalidHeader = validGlb();
   invalidHeader[0] = 0;
   assert.equal(validateGlbBuffer(invalidHeader).code, "SCENE_PACK_GLB_INVALID");
   assert.equal(
     validateGlbBuffer(validGlb({ buffers: [{ uri: "outside.bin", byteLength: 0 }] })).code,
+    "SCENE_PACK_GLB_EXTERNAL_URI",
+  );
+  const kenney = await fs.readFile(
+    new URL("../examples/scene-bundles/kenney-prototype/assets/crate.glb", import.meta.url),
+  );
+  assert.equal(validateGlbBuffer(kenney).ok, true);
+  const figurine = await fs.readFile(
+    new URL("../examples/scene-bundles/kenney-prototype/assets/figurine.glb", import.meta.url),
+  );
+  assert.equal(validateGlbBuffer(figurine).ok, true);
+  assert.equal(
+    validateGlbBuffer(validGlb({images: [{uri: "Textures/colormap.png"}]})).code,
+    "SCENE_PACK_GLB_EXTERNAL_URI",
+  );
+  assert.equal(
+    validateGlbBuffer(validGlb({images: [{uri: "data:image/png;base64,AA=="}]})).code,
+    "SCENE_PACK_GLB_EXTERNAL_URI",
+  );
+  assert.equal(
+    validateGlbBuffer(validGlb({buffers: [{uri: "Textures/colormap.png", byteLength: 0}]})).code,
     "SCENE_PACK_GLB_EXTERNAL_URI",
   );
   assert.equal(

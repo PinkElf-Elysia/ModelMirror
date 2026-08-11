@@ -1,6 +1,6 @@
 # R7 验收记录
 
-状态：R7.2 已验证，等待本地提交；R7.3–R7.6 未开始。
+状态：R7.3 已验证，等待本地提交；R7.4–R7.6 未开始。
 
 固定基线：`a4a2a68d2fc5cf056c741cd3101fcf36a250ad6e`
 分支：`codex/matrix-oasis-r7-scene-binding`
@@ -10,7 +10,7 @@
 
 - [x] R7.1 治理与冻结迁移
 - [x] R7.2 Scene Pack contracts/validator
-- [ ] R7.3 Kenney GLB 与 Godot loader
+- [x] R7.3 Kenney GLB 与 Godot loader
 - [ ] R7.4 Runtime 场景组合
 - [ ] R7.5 自动验证与 Splat 资格
 - [ ] R7.6 standalone 与人工验收收口
@@ -41,6 +41,23 @@ R7.1 提交：`3cadaa6`（`chore: 建立矩阵绿洲 R7 场景绑定边界`）�
 - `git diff --check` 通过；R1–R6 冻结路径、父仓路径和 `apps/runtime-godot/**` 相对本批 HEAD 均零差异。
 
 本批提交 SHA 在 R7.3 或仓外交付清单记录，避免自引用。单独 revert 本提交移除 Scene Pack Node 合同/校验层，不影响 R7.1 治理基线。
+
+R7.2 提交：`ebced26`（`feature: 定义矩阵绿洲 Scene Pack 与离线资产校验`）。
+
+## R7.3 证据
+
+本批原样接入四个固定 Kenney Prototype Kit 1.0 GLB、许可证与来源锁，并新增 Godot 运行时 GLTF loader、静态 collider 和原子 prepared scene。没有调用 Marble/Meshy、没有新增网络依赖或修改冻结的 R4–R6 场景/runtime/controller。
+
+- 用户批准四个 GLB 共用的精确 `Textures/colormap.png` 例外：8,706 bytes，SHA-256 `0d4947d34ff32acf4a359c7f22ca784e057e7e72f622170a9a77b6fc88fdb70e`；其他外部 URI、data URI 与网络 URI 继续拒绝。
+- 用户批准精确 `figurine.glb` SHA-256 `ae0ea82089e66215684b0b2f5a162be9f6c71475085c81c3b80e53abd08b6bd8` 的静态占位例外：先验证原始 27 条 animation 声明，再只在内存候选字节中移除 `animations` 后交给 `GLTFDocument`，并断言结果不含 `AnimationPlayer`；其他含 animation 的资产继续拒绝。
+- `npm.cmd run verify:vendor`：GdUnit4 与 R6 demo reference 未漂移；Kenney 5 个运行文件共 150,894 bytes，`matrix-oasis.vendor-tree/1` SHA-256 `ebe687657bc1c6eee2914be74208f553c82e2d05e8361aff1b322d0c6efadfdb`。
+- `node --test tests/godot-boundary.test.mjs tests/vendor.test.mjs tests/scene-pack-bundle.test.mjs`：28/28 通过；覆盖精确供应链、纹理/动画例外、GLB URI/feature gate 与 Godot 一方源码边界。
+- `node --test tests/vendor.test.mjs tests/extraction-contract.test.mjs`：17/17 通过；Git index、`core.autocrlf=true` standalone checkout 与模块 `.gitattributes` 均保持 Kenney 原始许可证 716 bytes 不变。
+- 注入已核验 Godot 4.6.3 后 `npm.cmd run test:godot`：通过；Godot loader 成功加载四个固定 GLB，figurine 无 `AnimationPlayer`，collider 使用世界层 1，失败候选不替换旧 prepared scene。
+- 注入同一 Godot 后 `npm.cmd test`：466/466 通过，包含冻结 R1–R6、Scene Pack、Godot harness 与新增 R7 loader 回归。
+- `npm.cmd run check:godot-boundary`：`GODOT_BOUNDARY_OK checked=27`；`npm.cmd run check:boundary`：`BOUNDARY_OK checked=850 tracked=850`；`npm.cmd run check:round-scope` 与固定基线 parent scope 均为 `checked=64 changed=57`；`git diff --check` 通过。
+
+本批提交 SHA 在 R7.4 或仓外交付清单记录，避免自引用。单独 revert 本提交移除 Kenney 资产、来源锁与 Godot GLTF loader，R7.2 的纯 Node Scene Pack 合同/验证器仍可独立运行。
 
 ## 外部调用事实
 
