@@ -14,6 +14,7 @@ from typing import Any, Literal, Mapping
 from .package_validation import compute_skill_content_digest
 from .trust_scanner import (
     SKILL_TRUST_INDEX_VERSION,
+    build_skill_trust_summary,
     sha256_json,
     source_key,
 )
@@ -324,9 +325,9 @@ class SkillTrustService:
             index_path
             or Path(__file__).resolve().parent / "data" / "skill_trust_index.json"
         )
-        raw_mode = str(mode or os.getenv("SKILL_TRUST_GATE_MODE") or "audit").strip().lower()
+        raw_mode = str(mode or os.getenv("SKILL_TRUST_GATE_MODE") or "enforce").strip().lower()
         if raw_mode not in {"off", "audit", "enforce"}:
-            raw_mode = "audit"
+            raw_mode = "enforce"
         self.mode: SkillTrustGateMode = raw_mode  # type: ignore[assignment]
         self.acknowledgements = acknowledgement_store or SkillTrustAcknowledgementStore()
         self.git_timeout_seconds = max(5, min(int(git_timeout_seconds), 120))
@@ -383,6 +384,34 @@ class SkillTrustService:
             "Skill trust receipt is unavailable.",
             code="skill_trust_receipt_missing",
         )
+
+    def receipt_by_id(self, receipt_id: str) -> dict[str, Any]:
+        """Return one validated, detached trust receipt for UI inspection."""
+
+        clean_receipt_id = _receipt_id(receipt_id)
+        self._require_index()
+        receipt = self._receipts_by_id.get(clean_receipt_id)
+        if receipt is None:
+            raise SkillTrustError(
+                "Skill trust receipt is unavailable.",
+                code="skill_trust_receipt_missing",
+            )
+        return json.loads(json.dumps(receipt, ensure_ascii=False))
+
+    def summary_index(self) -> dict[str, Any]:
+        """Return the deterministic compact index used by the Skill shelf."""
+
+        index = self._require_index()
+        return build_skill_trust_summary(index)
+
+    def source_receipt_map(self) -> dict[str, str]:
+        """Map each unique fixed install source to its shared receipt."""
+
+        self._require_index()
+        return {
+            key: str(receipt["receiptId"])
+            for key, receipt in sorted(self._receipts_by_source.items())
+        }
 
     def resolve_source(
         self,

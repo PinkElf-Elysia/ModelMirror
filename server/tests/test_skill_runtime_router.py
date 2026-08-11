@@ -209,7 +209,10 @@ def metadata(**updates: object) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
-async def test_find_install_activate_read_and_install_limit(tmp_path: Path) -> None:
+async def test_find_install_activate_read_and_install_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SKILL_TRUST_GATE_MODE", "off")
     provider, manager, candidate = provider_fixture(tmp_path)
     found = await provider.call_tool(
         RuntimeToolCall("skill_find", {"need": "提取 PDF 合同"}, metadata())
@@ -297,7 +300,9 @@ def test_candidate_fingerprint_and_rejection_are_enforced(tmp_path: Path) -> Non
 @pytest.mark.asyncio
 async def test_skill_install_approval_is_server_resolved_and_not_editable(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("SKILL_TRUST_GATE_MODE", "off")
     provider, _manager, candidate = provider_fixture(tmp_path)
     arguments = {
         "candidate_id": candidate["candidateId"],

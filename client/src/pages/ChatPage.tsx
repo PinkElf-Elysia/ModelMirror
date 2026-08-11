@@ -58,6 +58,9 @@ import RealtimeVoiceWorkspace from "../components/RealtimeVoiceWorkspace";
 import ResourceNav from "../components/ResourceNav";
 import SpeechWorkspace from "../components/SpeechWorkspace";
 import TranscriptionWorkspace from "../components/TranscriptionWorkspace";
+import TrustedSkillSelect, {
+  type TrustSelectableSkill,
+} from "../components/skill-trust/TrustedSkillSelect";
 import VideoAnalysisWorkspace from "../components/VideoAnalysisWorkspace";
 import VideoGenerationWorkspace from "../components/VideoGenerationWorkspace";
 import {
@@ -323,7 +326,7 @@ interface RagQueryResponse {
   sources: RagSource[];
 }
 
-interface InstalledSkill {
+interface InstalledSkill extends TrustSelectableSkill {
   skill_id: string;
   name: string;
   description: string;
@@ -2029,7 +2032,11 @@ function ChatConversationPage() {
       setInstalledSkills(data.skills);
       if (
         selectedSkillId &&
-        !data.skills.some((skill) => skill.skill_id === selectedSkillId)
+        !data.skills.some(
+          (skill) =>
+            skill.skill_id === selectedSkillId &&
+            skill.trust_activation_allowed,
+        )
       ) {
         setSelectedSkillId("");
       }
@@ -2095,13 +2102,22 @@ function ChatConversationPage() {
   }
 
   async function handleSkillSelection(skillId: string) {
-    setSelectedSkillId(skillId);
     setError("");
-    if (!skillId || skillContentCache[skillId]) return;
+    if (!skillId) {
+      setSelectedSkillId("");
+      return;
+    }
+    const selected = installedSkills.find((skill) => skill.skill_id === skillId);
+    if (!selected?.trust_activation_allowed) {
+      setError("该 Skill 当前不可激活，请前往已安装 Skill 查看信任状态。");
+      setSelectedSkillId("");
+      return;
+    }
 
     try {
       setIsLoadingSkills(true);
-      await loadSkillContent(skillId);
+      await loadSkillContent(skillId, true);
+      setSelectedSkillId(skillId);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Skill 内容加载失败");
       setSelectedSkillId("");
@@ -3703,18 +3719,13 @@ function ChatConversationPage() {
       description: "为本轮加入一个已安装 Skill",
       icon: Sparkles,
       control: (
-        <select
-          aria-label="选择 Skill"
-          className="min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+        <TrustedSkillSelect
+          ariaLabel="选择 Skill"
           disabled={isSending || isLoadingSkills}
-          onChange={(event) => void handleSkillSelection(event.target.value)}
+          onChange={(skillId) => void handleSkillSelection(skillId)}
+          skills={installedSkills}
           value={selectedSkillId}
-        >
-          <option value="">不使用 Skill</option>
-          {installedSkills.map((skill) => (
-            <option key={skill.skill_id} value={skill.skill_id}>{skill.name}</option>
-          ))}
-        </select>
+        />
       ),
     },
     {

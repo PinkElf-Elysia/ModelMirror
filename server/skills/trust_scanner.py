@@ -18,7 +18,6 @@ from .package_validation import (
     _check_static_syntax,
     _parse_skill_frontmatter,
     _scan_credentials,
-    _validate_file_path,
     _validate_frontmatter,
     compute_skill_content_digest,
     scan_skill_package_credentials,
@@ -26,7 +25,7 @@ from .package_validation import (
 
 
 SKILL_TRUST_INDEX_VERSION = 1
-SKILL_TRUST_SCANNER_VERSION = "skill-trust-scanner-v2"
+SKILL_TRUST_SCANNER_VERSION = "skill-trust-scanner-v4"
 SKILL_TRUST_SUMMARY_VERSION = 1
 
 MAX_TRUST_FILES = 500
@@ -48,11 +47,14 @@ _RISK_ORDER: dict[RiskLevel, int] = {
     "critical": 3,
 }
 
-# Only findings that prove malicious content or prevent exact, portable
-# installation remain hard blocks. Other critical findings require an explicit
-# local-console acknowledgement and are excluded from Agent Router discovery.
+# Only findings that expose high-confidence secrets or make the fixed package
+# impossible to install exactly remain hard blocks. Risky-but-installable
+# content requires explicit local-console confirmation instead.
 _HARD_BLOCK_FINDING_CODES = {
     "credential_path",
+    "credential_private_key",
+    "credential_token",
+    "credential_url",
     "file_directory_conflict",
     "file_path_case_collision",
     "file_path_too_long",
@@ -63,7 +65,6 @@ _HARD_BLOCK_FINDING_CODES = {
     "package_size_exceeded",
     "skill_markdown_empty",
     "trust_directory_tree_missing",
-    "trust_download_execute_blocked",
     "trust_file_count_exceeded",
     "trust_file_size_exceeded",
     "trust_git_lfs_pointer_blocked",
@@ -79,7 +80,27 @@ _HARD_BLOCK_FINDING_CODES = {
     "trust_source_ref_invalid",
     "trust_symlink_blocked",
 }
-_HARD_BLOCK_FINDING_PREFIXES = ("credential_",)
+_ROUTER_EXCLUDED_FINDING_CODES = _HARD_BLOCK_FINDING_CODES | {
+    "credential_assignment",
+    "javascript_syntax_invalid",
+    "local_reference_case_mismatch",
+    "local_reference_missing",
+    "local_reference_unsafe",
+    "python_syntax_invalid",
+    "trust_active_text_blocked",
+    "trust_archive_blocked",
+    "trust_destructive_capability",
+    "trust_download_execute_blocked",
+    "trust_encoded_payload_blocked",
+    "trust_executable_binary_blocked",
+    "trust_git_lfs_pointer_blocked",
+    "trust_obfuscated_command_blocked",
+    "trust_opaque_magic_mismatch",
+    "trust_security_sensitive",
+    "trust_shell_script",
+    "trust_tool_unknown",
+    "trust_unknown_binary_blocked",
+}
 _SCRIPT_SUFFIXES = {".py": "python", ".js": "javascript", ".mjs": "javascript", ".cjs": "javascript"}
 _SHELL_SUFFIXES = {".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd"}
 _ARCHIVE_SUFFIXES = {
@@ -118,8 +139,8 @@ _FILE_WRITE_RE = re.compile(
     re.IGNORECASE,
 )
 _HOST_FS_RE = re.compile(
-    r"(?:[A-Za-z]:[/\\](?:Users|Program Files|Windows)\b|/(?:home|Users|etc|var|opt)/|host filesystem|本机文件|宿主文件)",
-    re.IGNORECASE,
+    r"(?i:[A-Za-z]:[/\\](?:Users|Program Files|Windows)\b|host filesystem|本机文件|宿主文件)"
+    r"|/(?:home|etc|var|opt)/|/Users/",
 )
 _BROWSER_RE = re.compile(r"\b(?:playwright|selenium|puppeteer|browser automation|browser access|use (?:the )?browser|chrome extension)\b|浏览器(?:自动化|访问|控制)", re.IGNORECASE)
 _MCP_RE = re.compile(r"\bMCP\b|model context protocol", re.IGNORECASE)
@@ -142,9 +163,9 @@ _GIT_LFS_RE = re.compile(
 )
 _ACTIVE_TEXT_RE = re.compile(r"<script\b|\bjavascript\s*:|\bon(?:load|error|click)\s*=", re.IGNORECASE)
 _LONG_BASE64_RE = re.compile(r"(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{2048,}={0,2}(?![A-Za-z0-9+/])")
-_DOWNLOAD_RE = re.compile(r"\b(?:curl|wget)\b|requests\.|urllib\.|fetch\s*\(|\b(?:download|fetch)\b[^\n]{0,100}https?://", re.IGNORECASE)
-_EXECUTE_RE = re.compile(
-    r"\b(?:bash|sh|powershell|pwsh|cmd|subprocess\.|os\.system|child_process|eval\s*\(|exec\s*\()",
+_DOWNLOAD_EXECUTE_RE = re.compile(
+    r"\b(?:curl|wget)\b[^\n|;&]{0,240}(?:\|\s*|&&\s*|;\s*)(?:bash|sh|powershell|pwsh|cmd)\b"
+    r"|\b(?:fetch\s*\(|requests\.(?:get|post)\s*\(|urllib\.)[^\n]{0,240}\b(?:eval|exec)\s*\(",
     re.IGNORECASE,
 )
 _SHELL_API_RE = re.compile(
@@ -152,6 +173,11 @@ _SHELL_API_RE = re.compile(
     re.IGNORECASE,
 )
 _DEPENDENCY_KEYS = ("dependency", "dependencies", "requires", "requirements")
+_WINDOWS_RESERVED_SEGMENTS = frozenset(
+    {"con", "prn", "aux", "nul", "clock$"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +245,43 @@ def sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _runtime_capability_text(path: str, text: str) -> str:
+    """Remove fenced examples from reference prose before capability inference.
+
+    SKILL.md and executable source remain byte-for-byte visible to capability
+    rules. Markdown references remain visible too, except for fenced examples:
+    those are often code-under-test (for example a mocked ``fetch('/users')``)
+    rather than an instruction for the Skill runtime itself.
+    """
+
+    if path == "SKILL.md" or PurePosixPath(path).suffix.casefold() not in {
+        ".md",
+        ".markdown",
+    }:
+        return text
+    visible: list[str] = []
+    fence_character: str | None = None
+    fence_length = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip(" \t")
+        match = re.match(r"(?P<fence>`{3,}|~{3,})", stripped)
+        if fence_character is None:
+            if match is None:
+                visible.append(line)
+                continue
+            fence = match.group("fence")
+            fence_character = fence[0]
+            fence_length = len(fence)
+            continue
+        if re.match(
+            rf"^{re.escape(fence_character)}{{{fence_length},}}[ \t]*(?:\r?\n)?$",
+            stripped,
+        ):
+            fence_character = None
+            fence_length = 0
+    return "".join(visible)
+
+
 def normalize_repo_url(value: str) -> str:
     return value.strip().removesuffix(".git").casefold()
 
@@ -266,13 +329,25 @@ def _safe_relative_path(path: str) -> bool:
         return False
     normalized = posixpath.normpath(path)
     parts = PurePosixPath(path).parts
-    return (
+    structurally_safe = (
         normalized == path
         and normalized not in {".", ".."}
         and ".." not in parts
         and len(parts) <= MAX_TRUST_DIRECTORY_DEPTH + 1
         and all(part and part not in {".", ".."} for part in parts)
     )
+    if not structurally_safe:
+        return False
+    for part in parts:
+        stem = part.split(".", 1)[0].casefold()
+        if (
+            ":" in part
+            or part.endswith((".", " "))
+            or len(part.encode("utf-8")) > 255
+            or stem in _WINDOWS_RESERVED_SEGMENTS
+        ):
+            return False
+    return True
 
 
 def _binary_kind(content: bytes) -> str | None:
@@ -383,8 +458,6 @@ def scan_skill_trust_receipt(
     opaque_files: list[dict[str, Any]] = []
     scripts: list[dict[str, Any]] = []
     sensitive_paths: set[str] = set()
-    portable_paths: set[str] = {"SKILL.md"}
-    path_validation_issues: list[SkillPackageIssue] = []
     seen_identities: dict[str, str] = {}
     total_bytes = sum(entry.size or 0 for entry in entries if entry.object_type == "blob")
     content_complete = True
@@ -429,8 +502,11 @@ def scan_skill_trust_receipt(
             )
             content_complete = False
             continue
-        if path != "SKILL.md" and _validate_file_path(path, path_validation_issues) is not None:
-            portable_paths.add(path)
+        # Third-party Agent Skills may keep Markdown references at the root or
+        # in custom folders. They are installable when the Git-relative path
+        # passes the stricter traversal, depth, Windows-name and collision
+        # checks above; ModelMirror's Creator-only folder allowlist must not be
+        # reused as a third-party malware verdict.
         identity = unicodedata.normalize("NFC", path).casefold()
         if identity in seen_identities:
             state.add("trust_path_collision", "critical", "Package paths collide after case and Unicode normalization.", risk="critical", path=finding_path)
@@ -453,7 +529,13 @@ def scan_skill_trust_receipt(
             state.add("trust_git_mode_unsupported", "critical", "The Git file mode is unsupported.", risk="critical", path=finding_path)
             content_complete = False
         if entry.mode == "100755":
-            state.add("trust_executable_mode_blocked", "critical", "Executable Git files require explicit confirmation and are excluded from Agent Router discovery.", risk="critical", path=finding_path)
+            state.add(
+                "trust_executable_mode_declared",
+                "warning",
+                "The Git executable bit is set; reviewed Python or JavaScript files may still be used by Agent Router.",
+                risk="medium",
+                path=finding_path,
+            )
         if entry.size is None or entry.size > MAX_TRUST_FILE_BYTES:
             state.add("trust_file_size_exceeded", "critical", "A package file exceeds the 10 MiB trust scan limit.", risk="critical", path=finding_path)
             content_complete = False
@@ -524,7 +606,7 @@ def scan_skill_trust_receipt(
     if "SKILL.md" not in text_files:
         state.add("trust_skill_markdown_missing", "critical", "The package does not contain a readable UTF-8 SKILL.md at its root.", risk="critical", path="SKILL.md")
 
-    package_issues: list[SkillPackageIssue] = list(path_validation_issues)
+    package_issues: list[SkillPackageIssue] = []
     frontmatter: dict[str, Any] | None = None
     parsed: dict[str, Any] | None = None
     skill_markdown = text_files.get("SKILL.md")
@@ -534,10 +616,7 @@ def scan_skill_trust_receipt(
         if root_name is None and isinstance(frontmatter, Mapping) and isinstance(frontmatter.get("name"), str):
             root_name = str(frontmatter["name"])
         parsed = _validate_frontmatter(frontmatter, root_name, package_issues)
-    portable_text_paths: dict[str, str] = {}
     for path, text in text_files.items():
-        if path in portable_paths:
-            portable_text_paths[path] = text
         # compile() may emit SyntaxWarning text from third-party files. The
         # deterministic syntax result is captured as structured issues; source
         # warnings must not spill into maintenance logs.
@@ -545,9 +624,9 @@ def scan_skill_trust_receipt(
             warnings.simplefilter("ignore", SyntaxWarning)
             _check_static_syntax(path, text, package_issues)
     _check_file_directory_conflicts(raw_files, package_issues)
-    reference_files = {path: text for path, text in portable_text_paths.items()}
+    reference_files = {path: text for path, text in text_files.items()}
     reference_files.update(
-        {item["path"]: "" for item in opaque_files if item["path"] in portable_paths}
+        {item["path"]: "" for item in opaque_files if item["path"] is not None}
     )
     _check_local_references(reference_files, package_issues)
     package_issues.extend(
@@ -557,6 +636,19 @@ def scan_skill_trust_receipt(
         )
     )
     for issue in package_issues:
+        if issue.code == "credential_assignment" and (
+            issue.path == "SKILL.md"
+            or PurePosixPath(issue.path or "").suffix.casefold() in {".md", ".markdown"}
+        ):
+            state.add(
+                "trust_credential_example",
+                "error",
+                "Documentation contains a credential-like example that requires review before installation.",
+                risk="high",
+                path=issue.path,
+                line=issue.line,
+            )
+            continue
         severity, risk = _convert_package_issue(issue)
         state.add(
             issue.code,
@@ -569,12 +661,16 @@ def scan_skill_trust_receipt(
         )
 
     all_text = "\n".join(text_files[path] for path in sorted(text_files))
+    capability_text = "\n".join(
+        _runtime_capability_text(path, text_files[path])
+        for path in sorted(text_files)
+    )
     commands = sorted({(match.group("line") or match.group("inline")).casefold() for match in _COMMAND_RE.finditer(all_text)})
     capabilities = {
-        "network": bool(_NETWORK_RE.search(all_text)),
+        "network": bool(_NETWORK_RE.search(capability_text)),
         "credentials": bool(_CREDENTIAL_REQUIREMENT_RE.search(all_text)),
         "fileWrite": bool(_FILE_WRITE_RE.search(all_text)),
-        "hostFilesystem": bool(_HOST_FS_RE.search(all_text)),
+        "hostFilesystem": bool(_HOST_FS_RE.search(capability_text)),
         "browser": bool(_BROWSER_RE.search(all_text)),
         "mcp": bool(_MCP_RE.search(all_text)),
         "shell": (
@@ -606,8 +702,17 @@ def scan_skill_trust_receipt(
             state.add(code, "error", message, risk="high")
     if _OBFUSCATION_RE.search(all_text):
         state.add("trust_obfuscated_command_blocked", "critical", "Obfuscated or dynamic code patterns require explicit confirmation and are excluded from Agent Router discovery.", risk="critical", line=_first_line(all_text, _OBFUSCATION_RE))
-    if any(_DOWNLOAD_RE.search(text) and _EXECUTE_RE.search(text) for text in text_files.values()):
-        state.add("trust_download_execute_blocked", "critical", "Dynamic download-and-execute behavior is not allowed.", risk="critical")
+    for path, text in sorted(text_files.items()):
+        match = _DOWNLOAD_EXECUTE_RE.search(text)
+        if match is not None:
+            state.add(
+                "trust_download_execute_blocked",
+                "critical",
+                "A direct download-and-execute command requires explicit confirmation and is excluded from Agent Router discovery.",
+                risk="critical",
+                path=path,
+                line=text.count("\n", 0, match.start()) + 1,
+            )
 
     dependencies: list[str] = []
     if isinstance(frontmatter, Mapping):
@@ -645,16 +750,10 @@ def scan_skill_trust_receipt(
         ),
     )
     finding_codes = {item.code for item in findings}
-    blocked = any(
-        code in _HARD_BLOCK_FINDING_CODES
-        or any(code.startswith(prefix) for prefix in _HARD_BLOCK_FINDING_PREFIXES)
-        for code in finding_codes
-    )
+    blocked = bool(finding_codes.intersection(_HARD_BLOCK_FINDING_CODES))
     router_eligible = (
         not blocked
-        and state.risk_level != "critical"
-        and "trust_destructive_capability" not in finding_codes
-        and "trust_tool_unknown" not in finding_codes
+        and not finding_codes.intersection(_ROUTER_EXCLUDED_FINDING_CODES)
     )
     trust_status: TrustStatus = "blocked" if blocked else "verified" if state.risk_level == "low" else "conditional"
     install_policy: InstallPolicy = "block" if blocked else "allow" if state.risk_level == "low" else "confirm"

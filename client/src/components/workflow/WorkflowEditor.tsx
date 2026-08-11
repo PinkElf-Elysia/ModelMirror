@@ -55,6 +55,9 @@ import {
 import NodePalette from "./NodePalette";
 import WorkflowNodeCard from "./WorkflowNodeCard";
 import WorkflowRun from "./WorkflowRun";
+import TrustedSkillSelect, {
+  type TrustSelectableSkill,
+} from "../skill-trust/TrustedSkillSelect";
 
 const nodeTypes = {
   workflowNode: WorkflowNodeCard,
@@ -1970,6 +1973,7 @@ function NodeConfig({
   const [registryToolsError, setRegistryToolsError] = useState("");
   const [publishedXperts, setPublishedXperts] = useState<XpertSummary[]>([]);
   const [publishedXpertsError, setPublishedXpertsError] = useState("");
+  const [installedSkills, setInstalledSkills] = useState<TrustSelectableSkill[]>([]);
   const [clientHosts, setClientHosts] = useState<Array<{
     host_id: string;
     name: string;
@@ -2040,9 +2044,23 @@ function NodeConfig({
       }
     }
 
+    async function loadInstalledSkills() {
+      try {
+        const response = await fetch("/api/skills/installed");
+        const payload = (await response.json()) as { skills?: TrustSelectableSkill[] };
+        if (!response.ok || !Array.isArray(payload.skills)) {
+          throw new Error("已安装 Skill 列表暂不可用");
+        }
+        if (!cancelled) setInstalledSkills(payload.skills);
+      } catch {
+        if (!cancelled) setInstalledSkills([]);
+      }
+    }
+
     void loadRegistryTools();
     void loadPublishedXperts();
     void loadClientHosts();
+    void loadInstalledSkills();
 
     return () => {
       cancelled = true;
@@ -2062,6 +2080,15 @@ function NodeConfig({
   const runtimeMiddlewareConfig = isRecord(data.runtimeMiddlewareConfig)
     ? data.runtimeMiddlewareConfig
     : undefined;
+  const appendTrustedSkill = (skillId: string) => {
+    if (!skillId || !runtimeMiddlewareConfig) return;
+    const current = String(runtimeMiddlewareConfig.skill_ids ?? "")
+      .split(/[,\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!current.includes(skillId)) current.push(skillId);
+    onRuntimeMiddlewareConfigChange(node.id, "skill_ids", current.join(", "));
+  };
   const boundMiddlewares =
     data.kind === "workflow_agent"
       ? edges
@@ -3115,7 +3142,37 @@ function NodeConfig({
                     />
                   ) : null}
 
-                  {field.type === "textarea" ? (
+                  {field.type === "textarea" && field.name === "skill_ids" ? (
+                    <div className="space-y-2">
+                      <TrustedSkillSelect
+                        ariaLabel="添加已安装 Skill"
+                        onChange={appendTrustedSkill}
+                        placeholder="选择一个可激活 Skill 添加"
+                        skills={installedSkills}
+                        value=""
+                      />
+                      <textarea
+                        className={`${textInputClass()} min-h-24 resize-none leading-6`}
+                        onChange={(event) =>
+                          updateRuntimeMiddlewareConfig(
+                            field.name,
+                            event.target.value,
+                          )
+                        }
+                        placeholder={field.placeholder}
+                        rows={field.rows ?? 3}
+                        value={runtimeMiddlewareStringValue(
+                          runtimeMiddlewareConfig,
+                          field,
+                        )}
+                      />
+                      <p className="text-[11px] leading-5 text-slate-500">
+                        手工输入仍会在保存和运行时由 Server 重新校验；禁用项不能通过选择器加入。
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {field.type === "textarea" && field.name !== "skill_ids" ? (
                     <textarea
                       className={`${textInputClass()} min-h-24 resize-none leading-6`}
                       onChange={(event) =>
@@ -3985,4 +4042,3 @@ export default function WorkflowEditor(props: WorkflowCanvasProps) {
     </ReactFlowProvider>
   );
 }
-

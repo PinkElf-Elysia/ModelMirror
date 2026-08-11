@@ -14,7 +14,7 @@ from .skill_manager import (
     SkillNotFoundError,
     SkillValidationError,
 )
-from .trust_service import SkillRuntimeEnvironment
+from .trust_service import SkillRuntimeEnvironment, SkillTrustError
 from .draft_store import (
     SkillDraftConflictError,
     SkillDraftError,
@@ -62,6 +62,13 @@ class SkillInstallRequest(BaseModel):
         max_length=40,
         pattern=r"^[0-9a-fA-F]{40}$",
     )
+    expected_trust_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+    confirmed: bool = False
 
 
 class SkillPayload(BaseModel):
@@ -87,6 +94,21 @@ class SkillPayload(BaseModel):
     trust_package_digest: str | None = None
     trust_directory_tree_sha: str | None = None
     trust_verified_at: float | None = None
+    trust_router_eligible: bool = False
+    trust_activation_status: str = "not_applicable"
+    trust_activation_allowed: bool = True
+    trust_acknowledgement_required: bool = False
+    trust_acknowledgement_satisfied: bool = True
+    trust_reason_codes: list[str] = Field(default_factory=list)
+
+
+class SkillTrustAcknowledgementRequest(BaseModel):
+    expected_trust_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+    )
+    confirmed: bool
 
 
 class InstalledSkillsResponse(BaseModel):
@@ -286,6 +308,7 @@ async def materialize_skillset(
 
 
 def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
+    trust_projection = _trust_projection(skill)
     return SkillPayload(
         skill_id=skill.skill_id,
         name=skill.name,
@@ -309,7 +332,95 @@ def _payload_from_skill(skill: InstalledSkill) -> SkillPayload:
         trust_package_digest=skill.trust_package_digest,
         trust_directory_tree_sha=skill.trust_directory_tree_sha,
         trust_verified_at=skill.trust_verified_at,
+        **trust_projection,
     )
+
+
+def _trust_projection(skill: InstalledSkill) -> dict[str, object]:
+    if skill.source_kind != "git":
+        return {
+            "trust_router_eligible": True,
+            "trust_activation_status": "not_applicable",
+            "trust_activation_allowed": True,
+            "trust_acknowledgement_required": False,
+            "trust_acknowledgement_satisfied": True,
+            "trust_reason_codes": [],
+        }
+    try:
+        decision = get_skill_manager().trust_service.activation_decision(
+            skill,
+            environment=None,
+            check_runtime=False,
+        ).to_dict()
+    except SkillTrustError as exc:
+        decision = dict(exc.details)
+    allowed = bool(decision.get("allowed", False))
+    acknowledgement_required = bool(
+        decision.get("acknowledgementRequired", False)
+    )
+    acknowledgement_satisfied = bool(
+        decision.get("acknowledgementSatisfied", False)
+    )
+    if allowed:
+        status = "ready"
+    elif acknowledgement_required and not acknowledgement_satisfied:
+        status = "ack_required"
+    else:
+        status = "blocked"
+    return {
+        "trust_router_eligible": bool(decision.get("routerEligible", False)),
+        "trust_activation_status": status,
+        "trust_activation_allowed": allowed,
+        "trust_acknowledgement_required": acknowledgement_required,
+        "trust_acknowledgement_satisfied": acknowledgement_satisfied,
+        "trust_reason_codes": [
+            str(code)
+            for code in decision.get("reasonCodes", [])
+            if isinstance(code, str)
+        ][:20],
+    }
+
+
+def _raise_trust_error(exc: SkillTrustError) -> None:
+    status_code = 404 if exc.code == "skill_trust_receipt_missing" else 409
+    if exc.code == "skill_trust_index_unavailable":
+        status_code = 503
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "code": exc.code,
+            "message": str(exc),
+            "details": exc.details,
+        },
+    ) from exc
+
+
+@router.get("/trust-index")
+async def get_skill_trust_index():
+    service = get_skill_manager().trust_service
+    try:
+        summary = await asyncio.to_thread(service.summary_index)
+        sources = await asyncio.to_thread(service.source_receipt_map)
+        return {"gateMode": service.mode, "index": summary, "sourceReceipts": sources}
+    except SkillTrustError as exc:
+        if service.mode in {"off", "audit"}:
+            return {
+                "gateMode": service.mode,
+                "index": None,
+                "sourceReceipts": {},
+                "warning": {"code": exc.code, "message": str(exc)},
+            }
+        _raise_trust_error(exc)
+
+
+@router.get("/trust/{receipt_id}")
+async def get_skill_trust_receipt(receipt_id: str):
+    try:
+        service = get_skill_manager().trust_service
+        receipt = await asyncio.to_thread(service.receipt_by_id, receipt_id)
+        return {"gateMode": service.mode, "receipt": receipt}
+    except SkillTrustError as exc:
+        _raise_trust_error(exc)
 
 
 @router.get("/installed", response_model=InstalledSkillsResponse)
@@ -457,13 +568,40 @@ async def archive_skill_draft(draft_id: str, payload: SkillDraftActionRequest):
 @router.post("/install", response_model=SkillPayload)
 async def install_skill(payload: SkillInstallRequest) -> SkillPayload:
     try:
+        if payload.expected_trust_fingerprint and not payload.confirmed:
+            raise SkillTrustError(
+                "Skill trust acknowledgement requires explicit confirmation.",
+                code="skill_trust_ack_required",
+            )
+        manager = get_skill_manager()
         skill = await asyncio.to_thread(
-            get_skill_manager().install_skill,
+            manager.install_skill,
             payload.repo_url,
             payload.sub_path,
             payload.ref,
+            ephemeral_trust_fingerprint=(
+                payload.expected_trust_fingerprint.lower()
+                if payload.confirmed and payload.expected_trust_fingerprint
+                else None
+            ),
         )
+        if (
+            payload.confirmed
+            and payload.expected_trust_fingerprint
+            and skill.trust_install_policy == "confirm"
+        ):
+            await asyncio.to_thread(
+                manager.trust_service.acknowledge,
+                skill_id=skill.skill_id,
+                trust_fingerprint=payload.expected_trust_fingerprint,
+                confirmed=True,
+            )
+            skill = await asyncio.to_thread(
+                manager.get_installed_skill, skill.skill_id
+            )
         return _payload_from_skill(skill)
+    except SkillTrustError as exc:
+        _raise_trust_error(exc)
     except SkillValidationError as exc:
         if exc.code:
             status_code = 409 if exc.code in {
@@ -483,6 +621,60 @@ async def install_skill(payload: SkillInstallRequest) -> SkillPayload:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SkillManagerError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{skill_id}/trust-acknowledgement",
+    response_model=SkillPayload,
+)
+async def acknowledge_installed_skill(
+    skill_id: str,
+    payload: SkillTrustAcknowledgementRequest,
+) -> SkillPayload:
+    try:
+        manager = get_skill_manager()
+        skill = await asyncio.to_thread(manager.get_installed_skill, skill_id)
+        expected = payload.expected_trust_fingerprint.lower()
+        if (
+            skill.source_kind != "git"
+            or skill.trust_state != "receipt_matched"
+            or skill.trust_fingerprint != expected
+        ):
+            raise SkillTrustError(
+                "Installed Skill trust receipt changed. Reload before confirming.",
+                code="skill_trust_candidate_stale",
+                details={
+                    "skillId": skill.skill_id,
+                    "trustFingerprint": skill.trust_fingerprint,
+                },
+            )
+        await asyncio.to_thread(
+            manager.trust_service.acknowledge,
+            skill_id=skill.skill_id,
+            trust_fingerprint=expected,
+            confirmed=payload.confirmed,
+        )
+        return _payload_from_skill(skill)
+    except SkillNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SkillTrustError as exc:
+        _raise_trust_error(exc)
+
+
+@router.delete(
+    "/{skill_id}/trust-acknowledgement",
+    response_model=SkillPayload,
+)
+async def revoke_installed_skill_acknowledgement(skill_id: str) -> SkillPayload:
+    try:
+        manager = get_skill_manager()
+        skill = await asyncio.to_thread(manager.get_installed_skill, skill_id)
+        await asyncio.to_thread(manager.trust_service.revoke, skill.skill_id)
+        return _payload_from_skill(skill)
+    except SkillNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SkillTrustError as exc:
+        _raise_trust_error(exc)
 
 
 @router.delete("/{skill_id}")

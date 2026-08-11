@@ -168,10 +168,14 @@ class SkillManager:
                 sub_path=normalized_sub_path,
                 source_ref=normalized_source_ref,
                 ephemeral_trust_fingerprint=ephemeral_trust_fingerprint,
-                environment=(
-                    runtime_environment
-                    or SkillRuntimeEnvironment.installation_baseline()
-                ),
+                # Installing an exact, audited package is intentionally
+                # separate from activating it in a particular runtime.  The
+                # local console may keep a compatible package even when the
+                # current chat/workflow lacks one of its declared tools.  A
+                # Router install passes its concrete environment explicitly
+                # because that operation also intends to activate the Skill
+                # in the current run.
+                environment=runtime_environment,
             )
         except SkillTrustError as exc:
             raise SkillValidationError(

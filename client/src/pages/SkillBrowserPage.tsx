@@ -24,8 +24,27 @@ import {
 import type { SkillInstallStatus } from "../data/skillCatalogPolicy";
 import type { BuiltinSkill } from "../types/agentWorkspace";
 import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
+import SkillTrustPanel, {
+  SkillTrustBadge,
+  SkillTrustSummaryLine,
+} from "../components/skill-trust/SkillTrustPanel";
+import {
+  effectiveTrustInstallPolicy,
+  loadSkillTrustReceipt,
+  loadSkillTrustSummaryIndex,
+  memberTrustCandidateId,
+  projectTrustCandidateId,
+  readSkillTrustApiError,
+  trustSummaryForCandidate,
+  trustSummaryForSource,
+  type InstalledSkillTrustFields,
+  type SkillTrustReceipt,
+  type SkillTrustReceiptSummary,
+  type SkillTrustGateMode,
+  type SkillTrustSummaryIndex,
+} from "../data/skillTrustIndex";
 
-interface InstalledSkill {
+interface InstalledSkill extends InstalledSkillTrustFields {
   skill_id: string;
   name: string;
   description: string;
@@ -33,6 +52,7 @@ interface InstalledSkill {
   sub_path: string;
   installed_at: number;
   source_ref?: string | null;
+  source_kind: string;
 }
 
 interface InstalledSkillsResponse {
@@ -50,6 +70,28 @@ type SkillTab = "builtin" | "market" | "installed" | "drafts" | "proposals";
 type SkillKindFilter = "all" | SkillProjectKind;
 type SkillAvailabilityFilter = "all" | SkillInstallStatus;
 type NeedSearchStatus = "idle" | "loading" | "ready" | "error";
+type TrustIndexStatus = "loading" | "ready" | "error";
+type PendingTrustAction =
+  | {
+      kind: "inspect";
+      title: string;
+      receiptId: string;
+    }
+  | {
+      kind: "install";
+      title: string;
+      receiptId: string;
+      installId: string;
+      label: string;
+      source: SkillInstallSource | SkillSetMemberSource;
+      typeLabel: string;
+    }
+  | {
+      kind: "acknowledge";
+      title: string;
+      receiptId: string;
+      skill: InstalledSkill;
+    };
 const MARKET_PAGE_SIZE = 48;
 const SKILLSET_MEMBER_PAGE_SIZE = 50;
 const NEED_EXAMPLES = [
@@ -122,12 +164,7 @@ function formatInstallTime(value: number) {
 }
 
 async function readApiError(response: Response) {
-  try {
-    const data = (await response.json()) as { detail?: string; error?: string };
-    return data.detail ?? data.error ?? `请求失败：${response.status}`;
-  } catch {
-    return `请求失败：${response.status}`;
-  }
+  return readSkillTrustApiError(response);
 }
 
 function isSourceInstalled(
@@ -162,17 +199,23 @@ function repositoryName(repoUrl: string) {
 }
 
 function MarketSkillCard({
+  gateMode,
   installingId,
   installed,
   onInstall,
+  onInspectTrust,
   onOpenSkillSet,
   project,
+  trustSummary,
 }: {
+  gateMode: SkillTrustGateMode;
   installingId: string;
   installed: boolean;
   onInstall: (project: SkillProject) => void;
+  onInspectTrust: (title: string, receiptId: string) => void;
   onOpenSkillSet: (project: SkillProject) => void;
   project: SkillProject;
+  trustSummary: SkillTrustReceiptSummary | null;
 }) {
   const canInstall = project.installMode === "direct" && Boolean(project.installSource);
   const canBrowseMembers =
@@ -180,6 +223,10 @@ function MarketSkillCard({
   const isInstalling = installingId === project.id;
   const installLabel = project.kind === "skillset" ? "安装技能包" : "安装技能";
   const installStatus = installStatusDetailsFor(project);
+  const effectivePolicy = effectiveTrustInstallPolicy(
+    gateMode,
+    trustSummary,
+  );
   const hasIncludedSkills =
     project.skillSet?.mode === "package" && (project.includedSkills?.length ?? 0) > 0;
 
@@ -281,6 +328,16 @@ function MarketSkillCard({
         </div>
       </div>
 
+      {canInstall ? (
+        <SkillTrustSummaryLine
+          gateMode={gateMode}
+          onInspect={() =>
+            trustSummary && onInspectTrust(project.name, trustSummary.receiptId)
+          }
+          summary={trustSummary}
+        />
+      ) : null}
+
       <div className="mt-5 flex items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <a
@@ -305,11 +362,21 @@ function MarketSkillCard({
         {canInstall ? (
           <button
             className="rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 shadow-[0_0_22px_rgba(251,146,60,0.22)] transition hover:bg-hire-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 disabled:shadow-none"
-            disabled={installed || Boolean(installingId)}
+            disabled={
+              installed ||
+              Boolean(installingId) ||
+              effectivePolicy === "block"
+            }
             onClick={() => onInstall(project)}
             type="button"
           >
-            {isInstalling ? "安装中..." : installed ? "已安装" : installLabel}
+            {isInstalling
+              ? "安装中..."
+              : installed
+                ? "已安装"
+                : effectivePolicy === "block"
+                  ? "信任策略已阻断"
+                  : installLabel}
           </button>
         ) : canBrowseMembers ? (
           <button
@@ -335,21 +402,27 @@ function MarketSkillCard({
 }
 
 function NeedMatchCard({
+  gateMode,
   installed,
   installingId,
   match,
   onInstallMember,
   onInstallProject,
+  onInspectTrust,
   onLocate,
   onOpenSkillSet,
+  trustSummary,
 }: {
+  gateMode: SkillTrustGateMode;
   installed: boolean;
   installingId: string;
   match: SkillNeedMatch<SkillNeedTarget>;
   onInstallMember: (member: SkillSetMemberSource) => void;
   onInstallProject: (project: SkillProject) => void;
+  onInspectTrust: (title: string, receiptId: string) => void;
   onLocate: (project: SkillProject) => void;
   onOpenSkillSet: (project: SkillProject, memberId?: string) => void;
+  trustSummary: SkillTrustReceiptSummary | null;
 }) {
   const { project: target, reasons } = match;
   const isMember = target.targetType === "member";
@@ -374,6 +447,10 @@ function NeedMatchCard({
   const sourceName = isMember
     ? repositoryName(target.member.repoUrl)
     : catalogProject.repoName;
+  const effectivePolicy = effectiveTrustInstallPolicy(
+    gateMode,
+    trustSummary,
+  );
 
   return (
     <article className="rounded-lg border border-brand-300/20 bg-ink-950/65 p-4">
@@ -444,6 +521,16 @@ function NeedMatchCard({
         </p>
       ) : null}
 
+      {canInstall ? (
+        <SkillTrustSummaryLine
+          gateMode={gateMode}
+          onInspect={() =>
+            trustSummary && onInspectTrust(target.name, trustSummary.receiptId)
+          }
+          summary={trustSummary}
+        />
+      ) : null}
+
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-brand-300/35 hover:bg-brand-300/10 hover:text-white"
@@ -467,7 +554,11 @@ function NeedMatchCard({
         {canInstall ? (
           <button
             className="ml-auto rounded-full bg-hire-300 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-hire-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-            disabled={installed || Boolean(installingId)}
+            disabled={
+              installed ||
+              Boolean(installingId) ||
+              effectivePolicy === "block"
+            }
             onClick={() =>
               isMember
                 ? onInstallMember(target.member)
@@ -475,7 +566,13 @@ function NeedMatchCard({
             }
             type="button"
           >
-            {isInstalling ? "安装中..." : installed ? "已安装" : "一键安装"}
+            {isInstalling
+              ? "安装中..."
+              : installed
+                ? "已安装"
+                : effectivePolicy === "block"
+                  ? "已阻断"
+                  : "一键安装"}
           </button>
         ) : canBrowseMembers ? (
           <button
@@ -499,7 +596,9 @@ function SkillSetMemberPanel({
   onClose,
   onInstallAll,
   onInstallMember,
+  onInspectTrust,
   project,
+  trustIndex,
 }: {
   batchProgress: SkillSetBatchProgress | null;
   focusedMemberId?: string;
@@ -508,7 +607,9 @@ function SkillSetMemberPanel({
   onClose: () => void;
   onInstallAll: (members: SkillSetMemberSource[]) => void;
   onInstallMember: (member: SkillSetMemberSource) => void;
+  onInspectTrust: (title: string, receiptId: string) => void;
   project: SkillProject;
+  trustIndex: SkillTrustSummaryIndex | null;
 }) {
   const panelRef = useRef<HTMLElement>(null);
   const [members, setMembers] = useState<SkillSetMemberSource[] | null>(null);
@@ -590,6 +691,24 @@ function SkillSetMemberPanel({
         .length ?? 0,
     [installedSkills, members],
   );
+  const memberTrustCounts = useMemo(() => {
+    const counts = { allow: 0, confirm: 0, blocked: 0 };
+    for (const member of members ?? []) {
+      if (isSourceInstalled(member, installedSkills)) continue;
+      const summary =
+        trustSummaryForCandidate(
+          trustIndex,
+          memberTrustCandidateId(member.id),
+        ) ?? trustSummaryForSource(trustIndex, member);
+      const policy = effectiveTrustInstallPolicy(
+        trustIndex?.gateMode ?? "enforce",
+        summary,
+      );
+      if (policy === "allow" || policy === "confirm") counts[policy] += 1;
+      else counts.blocked += 1;
+    }
+    return counts;
+  }, [installedSkills, members, trustIndex]);
   const activeBatchProgress =
     batchProgress?.projectId === project.id ? batchProgress : null;
   const isBatchInstalling = Boolean(activeBatchProgress);
@@ -613,7 +732,7 @@ function SkillSetMemberPanel({
             {project.name}
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            该集合没有可整体安装的父级 SKILL.md。可逐项安装，也可让系统按顺序安装全部成员；不会下载集合中的其他目录。
+            该集合没有可整体安装的父级 SKILL.md。低风险成员可批量安装，需确认成员必须逐项核对；不会下载集合中的其他目录。
           </p>
         </div>
         <button
@@ -664,14 +783,14 @@ function SkillSetMemberPanel({
               {activeBatchProgress
                 ? `正在安装 ${activeBatchProgress.completed} / ${activeBatchProgress.total}：${activeBatchProgress.currentMemberName}`
                 : remainingMemberCount > 0
-                  ? `将依次调用现有安装接口，已安装成员自动跳过；当前还需安装 ${remainingMemberCount} 个。`
+                  ? `${memberTrustCounts.allow} 个低风险成员可直接批量安装；${memberTrustCounts.confirm} 个需逐项确认，${memberTrustCounts.blocked} 个被阻断或缺少凭据。`
                   : "该集合的全部成员均已安装。"}
             </p>
           </div>
           <button
             className="shrink-0 rounded-full bg-hire-300 px-5 py-2.5 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
             disabled={
-              remainingMemberCount === 0 ||
+              memberTrustCounts.allow === 0 ||
               Boolean(installingId) ||
               isBatchInstalling
             }
@@ -682,7 +801,9 @@ function SkillSetMemberPanel({
               ? `安装中 ${activeBatchProgress.completed}/${activeBatchProgress.total}`
               : remainingMemberCount === 0
                 ? "全部成员已安装"
-                : `一键安装全部成员（${remainingMemberCount}）`}
+                : memberTrustCounts.allow === 0
+                  ? "无可直接批量安装成员"
+                  : `批量安装低风险成员（${memberTrustCounts.allow}）`}
           </button>
         </div>
       ) : null}
@@ -745,6 +866,15 @@ function SkillSetMemberPanel({
             {visibleMembers.map((member) => {
               const installed = isSourceInstalled(member, installedSkills);
               const isInstalling = installingId === member.id;
+              const trustSummary =
+                trustSummaryForCandidate(
+                  trustIndex,
+                  memberTrustCandidateId(member.id),
+                ) ?? trustSummaryForSource(trustIndex, member);
+              const effectivePolicy = effectiveTrustInstallPolicy(
+                trustIndex?.gateMode ?? "enforce",
+                trustSummary,
+              );
               return (
                 <li
                   className={`flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between ${
@@ -766,16 +896,37 @@ function SkillSetMemberPanel({
                     <p className="mt-1 break-all font-mono text-xs leading-5 text-slate-500">
                       {member.subPath}
                     </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <SkillTrustBadge summary={trustSummary} />
+                      {trustSummary ? (
+                        <button
+                          className="min-h-8 text-xs font-semibold text-slate-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
+                          onClick={() => onInspectTrust(member.name, trustSummary.receiptId)}
+                          type="button"
+                        >
+                          查看凭据
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <button
                     className="shrink-0 rounded-full bg-hire-300 px-4 py-2 text-sm font-semibold text-ink-950 transition hover:bg-hire-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-100 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
                     disabled={
-                      installed || Boolean(installingId) || isBatchInstalling
+                      installed ||
+                      Boolean(installingId) ||
+                      isBatchInstalling ||
+                      effectivePolicy === "block"
                     }
                     onClick={() => onInstallMember(member)}
                     type="button"
                   >
-                    {isInstalling ? "安装中..." : installed ? "已安装" : "安装成员"}
+                    {isInstalling
+                      ? "安装中..."
+                      : installed
+                        ? "已安装"
+                        : effectivePolicy === "block"
+                          ? "已阻断"
+                          : "安装成员"}
                   </button>
                 </li>
               );
@@ -810,12 +961,20 @@ function SkillSetMemberPanel({
 }
 
 function InstalledSkillCard({
+  onAcknowledge,
+  onInspectTrust,
+  onRevokeAcknowledgement,
   onUninstall,
   skill,
+  trustSummary,
   uninstallingId,
 }: {
+  onAcknowledge: (skill: InstalledSkill) => void;
+  onInspectTrust: (title: string, receiptId: string) => void;
+  onRevokeAcknowledgement: (skill: InstalledSkill) => void;
   onUninstall: (skill: InstalledSkill) => void;
   skill: InstalledSkill;
+  trustSummary: SkillTrustReceiptSummary | null;
   uninstallingId: string;
 }) {
   const isUninstalling = uninstallingId === skill.skill_id;
@@ -835,9 +994,74 @@ function InstalledSkillCard({
         </span>
       </div>
       <p className="mt-4 text-sm leading-6 text-slate-300">{skill.description}</p>
-      <div className="mt-5 flex justify-end">
+      <div className="mt-4 rounded-lg border border-white/10 bg-ink-950/55 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {skill.source_kind === "git" ? (
+            <SkillTrustBadge summary={trustSummary} />
+          ) : (
+            <span className="rounded-full border border-sky-300/25 bg-sky-300/10 px-2.5 py-1 text-xs font-semibold text-sky-100">
+              本地来源合同
+            </span>
+          )}
+          <span className={`text-xs font-semibold ${skill.trust_activation_allowed ? "text-emerald-100" : "text-amber-100"}`}>
+            {skill.trust_activation_status === "ready"
+              ? "可激活"
+              : skill.trust_activation_status === "ack_required"
+                ? "等待本机确认"
+                : skill.trust_activation_status === "not_applicable"
+                  ? "本地来源"
+                  : "已禁止激活"}
+          </span>
+          {!skill.trust_router_eligible && skill.source_kind === "git" ? (
+            <span className="text-xs text-slate-500">不纳入 Router</span>
+          ) : null}
+        </div>
+        {skill.source_ref ? (
+          <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
+            SHA {skill.source_ref}
+          </p>
+        ) : null}
+        {skill.trust_state === "unverified_legacy" ? (
+          <p className="mt-2 text-xs leading-5 text-rose-100">
+            此 Git Skill 未匹配当前固定凭据，可继续查看或卸载，但不能用于聊天、工作流或 Router。
+          </p>
+        ) : null}
+        {skill.trust_reason_codes.length ? (
+          <p className="mt-2 break-words text-[11px] leading-5 text-slate-500">
+            原因：{skill.trust_reason_codes.join("、")}
+          </p>
+        ) : null}
+      </div>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        {skill.trust_receipt_id ? (
+          <button
+            className="min-h-10 rounded-full border border-white/15 px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+            onClick={() => onInspectTrust(skill.name, skill.trust_receipt_id!)}
+            type="button"
+          >
+            查看凭据
+          </button>
+        ) : null}
+        {skill.trust_activation_status === "ack_required" ? (
+          <button
+            className="min-h-10 rounded-full bg-amber-300 px-4 text-sm font-semibold text-ink-950 transition hover:bg-amber-200"
+            onClick={() => onAcknowledge(skill)}
+            type="button"
+          >
+            确认此版本
+          </button>
+        ) : null}
+        {skill.trust_acknowledgement_required && skill.trust_acknowledgement_satisfied ? (
+          <button
+            className="min-h-10 rounded-full border border-amber-300/30 bg-amber-300/10 px-4 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/20"
+            onClick={() => onRevokeAcknowledgement(skill)}
+            type="button"
+          >
+            撤销激活授权
+          </button>
+        ) : null}
         <button
-          className="rounded-full border border-rose-300/30 bg-rose-300/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+          className="min-h-10 rounded-full border border-rose-300/30 bg-rose-300/10 px-4 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={isUninstalling}
           onClick={() => onUninstall(skill)}
           type="button"
@@ -853,7 +1077,10 @@ export default function SkillBrowserPage() {
   const { status: creatorStatus } = useSkillCreatorStatus();
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
   const [activeTab, setActiveTab] = useState<SkillTab>(
-    requestedTab === "builtin" || requestedTab === "drafts" || requestedTab === "proposals"
+    requestedTab === "builtin" ||
+      requestedTab === "installed" ||
+      requestedTab === "drafts" ||
+      requestedTab === "proposals"
       ? requestedTab
       : "market",
   );
@@ -875,6 +1102,11 @@ export default function SkillBrowserPage() {
   const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([]);
   const [isLoadingInstalled, setIsLoadingInstalled] = useState(false);
   const [isLoadingBuiltin, setIsLoadingBuiltin] = useState(false);
+  const [trustIndex, setTrustIndex] = useState<SkillTrustSummaryIndex | null>(null);
+  const [trustIndexStatus, setTrustIndexStatus] = useState<TrustIndexStatus>("loading");
+  const [pendingTrustAction, setPendingTrustAction] = useState<PendingTrustAction | null>(null);
+  const [selectedTrustReceipt, setSelectedTrustReceipt] = useState<SkillTrustReceipt | null>(null);
+  const [trustActionBusy, setTrustActionBusy] = useState(false);
   const [installingId, setInstallingId] = useState("");
   const [uninstallingId, setUninstallingId] = useState("");
   const [selectedSkillSetId, setSelectedSkillSetId] = useState("");
@@ -1015,17 +1247,59 @@ export default function SkillBrowserPage() {
     }
   }
 
+  async function loadTrustIndex() {
+    setTrustIndexStatus("loading");
+    try {
+      const index = await loadSkillTrustSummaryIndex(true);
+      setTrustIndex(index);
+      setTrustIndexStatus("ready");
+    } catch (loadError) {
+      setTrustIndex(null);
+      setTrustIndexStatus("error");
+      setError(
+        loadError instanceof Error
+          ? `Skill 信任索引加载失败：${loadError.message}`
+          : "Skill 信任索引加载失败",
+      );
+    }
+  }
+
+  async function openTrustAction(action: PendingTrustAction) {
+    setError("");
+    setSelectedTrustReceipt(null);
+    setPendingTrustAction(action);
+    try {
+      const receipt = await loadSkillTrustReceipt(action.receiptId);
+      setSelectedTrustReceipt(receipt);
+      window.requestAnimationFrame(() =>
+        document.getElementById("skill-trust-panel")?.scrollIntoView({
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+          block: "start",
+        }),
+      );
+    } catch (loadError) {
+      setPendingTrustAction(null);
+      setError(
+        loadError instanceof Error ? loadError.message : "Skill 信任凭据加载失败",
+      );
+    }
+  }
+
   async function installFromSource({
     announceSuccess = true,
     installId,
     label,
     source,
+    trustConfirmation,
     typeLabel,
   }: {
     announceSuccess?: boolean;
     installId: string;
     label: string;
     source: SkillInstallSource | SkillSetMemberSource;
+    trustConfirmation?: SkillTrustReceiptSummary;
     typeLabel: string;
   }) {
     if (installingId) return false;
@@ -1042,6 +1316,12 @@ export default function SkillBrowserPage() {
           repo_url: source.repoUrl,
           sub_path: source.subPath,
           ref: source.verifiedCommit,
+          ...(trustConfirmation
+            ? {
+                expected_trust_fingerprint: trustConfirmation.trustFingerprint,
+                confirmed: true,
+              }
+            : {}),
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
@@ -1066,7 +1346,8 @@ export default function SkillBrowserPage() {
 
   async function installSkill(project: SkillProject) {
     if (!project.installSource || project.installMode !== "direct") return;
-    await installFromSource({
+    await requestTrustedInstall({
+      candidateId: projectTrustCandidateId(project.id),
       installId: project.id,
       label: project.name,
       source: project.installSource,
@@ -1075,12 +1356,61 @@ export default function SkillBrowserPage() {
   }
 
   async function installSkillSetMember(member: SkillSetMemberSource) {
-    await installFromSource({
+    await requestTrustedInstall({
+      candidateId: memberTrustCandidateId(member.id),
       installId: member.id,
       label: member.name,
       source: member,
       typeLabel: "成员",
     });
+  }
+
+  async function requestTrustedInstall({
+    candidateId,
+    installId,
+    label,
+    source,
+    typeLabel,
+  }: {
+    candidateId: string;
+    installId: string;
+    label: string;
+    source: SkillInstallSource | SkillSetMemberSource;
+    typeLabel: string;
+  }) {
+    const summary =
+      trustSummaryForCandidate(trustIndex, candidateId) ??
+      trustSummaryForSource(trustIndex, source);
+    const policy = effectiveTrustInstallPolicy(
+      trustIndex?.gateMode ?? "enforce",
+      summary,
+    );
+    if (!summary && policy === "block") {
+      setError("该来源没有匹配的信任凭据，本次不会安装。");
+      return false;
+    }
+    if (policy === "block" && summary) {
+      setError("该来源已被信任策略阻断；可查看凭据了解原因，但不能安装。");
+      await openTrustAction({
+        kind: "inspect",
+        title: label,
+        receiptId: summary.receiptId,
+      });
+      return false;
+    }
+    if (policy === "confirm" && summary) {
+      await openTrustAction({
+        kind: "install",
+        title: label,
+        receiptId: summary.receiptId,
+        installId,
+        label,
+        source,
+        typeLabel,
+      });
+      return false;
+    }
+    return installFromSource({ installId, label, source, typeLabel });
   }
 
   async function installAllSkillSetMembers(
@@ -1099,15 +1429,47 @@ export default function SkillBrowserPage() {
       return;
     }
 
+    const automaticallyInstallable = pendingMembers.filter(
+      (member) => {
+        const summary = trustSummaryForCandidate(
+          trustIndex,
+          memberTrustCandidateId(member.id),
+        ) ?? trustSummaryForSource(trustIndex, member);
+        return effectiveTrustInstallPolicy(
+          trustIndex?.gateMode ?? "enforce",
+          summary,
+        ) === "allow";
+      },
+    );
+    const confirmationCount = pendingMembers.filter(
+      (member) => {
+        const summary = trustSummaryForCandidate(
+          trustIndex,
+          memberTrustCandidateId(member.id),
+        ) ?? trustSummaryForSource(trustIndex, member);
+        return effectiveTrustInstallPolicy(
+          trustIndex?.gateMode ?? "enforce",
+          summary,
+        ) === "confirm";
+      },
+    ).length;
+    const blockedCount = pendingMembers.length - automaticallyInstallable.length - confirmationCount;
+    if (automaticallyInstallable.length === 0) {
+      setNotice(
+        `该集合没有可直接批量安装的低风险成员；${confirmationCount} 个需逐项确认，${blockedCount} 个被阻断或缺少凭据。`,
+      );
+      return;
+    }
+
     setError("");
     setNotice("");
     let completed = 0;
 
-    for (const member of pendingMembers) {
+    for (const member of automaticallyInstallable) {
       setSkillSetBatchProgress({
         projectId: project.id,
         completed,
-        total: pendingMembers.length,
+        total: automaticallyInstallable.length,
         currentMemberName: member.name,
       });
       const installed = await installFromSource({
@@ -1119,7 +1481,7 @@ export default function SkillBrowserPage() {
       });
       if (!installed) {
         setNotice(
-          `「${project.name}」已安装 ${completed} / ${pendingMembers.length} 个待安装成员；失败后已停止，可再次一键安装继续。`,
+          `「${project.name}」已安装 ${completed} / ${automaticallyInstallable.length} 个可直接安装成员；失败后已停止，可再次继续。`,
         );
         setSkillSetBatchProgress(null);
         return;
@@ -1128,17 +1490,82 @@ export default function SkillBrowserPage() {
       setSkillSetBatchProgress({
         projectId: project.id,
         completed,
-        total: pendingMembers.length,
+        total: automaticallyInstallable.length,
         currentMemberName: member.name,
       });
     }
 
     setSkillSetBatchProgress(null);
     setNotice(
-      `「${project.name}」已按顺序安装 ${completed} 个成员${
+      `「${project.name}」已按顺序安装 ${completed} 个低风险成员${
         skippedCount > 0 ? `，并跳过 ${skippedCount} 个已安装成员` : ""
-      }。`,
+      }${confirmationCount ? `；另有 ${confirmationCount} 个需逐项确认` : ""}${blockedCount ? `，${blockedCount} 个不可安装` : ""}。`,
     );
+  }
+
+  async function confirmPendingTrustAction() {
+    if (!pendingTrustAction || !selectedTrustReceipt) return;
+    setTrustActionBusy(true);
+    setError("");
+    try {
+      if (pendingTrustAction.kind === "install") {
+        const installed = await installFromSource({
+          installId: pendingTrustAction.installId,
+          label: pendingTrustAction.label,
+          source: pendingTrustAction.source,
+          trustConfirmation: selectedTrustReceipt,
+          typeLabel: pendingTrustAction.typeLabel,
+        });
+        if (!installed) return;
+      } else if (pendingTrustAction.kind === "acknowledge") {
+        const response = await fetch(
+          `/api/skills/${encodeURIComponent(pendingTrustAction.skill.skill_id)}/trust-acknowledgement`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              expected_trust_fingerprint: selectedTrustReceipt.trustFingerprint,
+              confirmed: true,
+            }),
+          },
+        );
+        if (!response.ok) throw new Error(await readApiError(response));
+        const updated = (await response.json()) as InstalledSkill;
+        setInstalledSkills((current) =>
+          current.map((skill) =>
+            skill.skill_id === updated.skill_id ? updated : skill,
+          ),
+        );
+        setNotice(`「${updated.name}」已授权当前固定版本在本机激活。`);
+      }
+      setPendingTrustAction(null);
+      setSelectedTrustReceipt(null);
+    } catch (actionError) {
+      setError(
+        actionError instanceof Error ? actionError.message : "Skill 信任确认失败",
+      );
+    } finally {
+      setTrustActionBusy(false);
+    }
+  }
+
+  async function revokeTrustAcknowledgement(skill: InstalledSkill) {
+    if (!window.confirm(`撤销「${skill.name}」当前版本的激活授权吗？`)) return;
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/skills/${encodeURIComponent(skill.skill_id)}/trust-acknowledgement`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) throw new Error(await readApiError(response));
+      const updated = (await response.json()) as InstalledSkill;
+      setInstalledSkills((current) =>
+        current.map((item) => (item.skill_id === updated.skill_id ? updated : item)),
+      );
+      setNotice(`「${updated.name}」的激活授权已撤销；仍可查看或卸载。`);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "撤销授权失败");
+    }
   }
 
   async function submitNeedSearch(value: string) {
@@ -1174,7 +1601,7 @@ export default function SkillBrowserPage() {
 
   async function refreshSkillResources() {
     setError("");
-    await Promise.all([loadInstalledSkills(), loadBuiltinSkills()]);
+    await Promise.all([loadInstalledSkills(), loadBuiltinSkills(), loadTrustIndex()]);
   }
 
   function locateRecommendedSkill(project: SkillProject) {
@@ -1264,6 +1691,17 @@ export default function SkillBrowserPage() {
           <p className="mt-4 text-xs leading-5 text-slate-500">
             社区 Skill 安装时只复制目录，不自动执行脚本。激活前请检查依赖、外部服务和凭据要求。
           </p>
+          <p className={`mt-2 text-xs font-semibold ${trustIndexStatus === "ready" ? trustIndex?.gateMode === "enforce" ? "text-emerald-200" : "text-amber-100" : trustIndexStatus === "error" ? "text-rose-200" : "text-slate-400"}`}>
+            {trustIndexStatus === "ready"
+              ? trustIndex?.gateMode === "enforce"
+                ? "信任目录已核对 · 强制门禁"
+                : trustIndex?.gateMode === "audit"
+                  ? "信任门处于审计模式 · 不阻断"
+                  : "信任门已关闭 · 按旧行为运行"
+              : trustIndexStatus === "error"
+                ? "信任目录不可用 · 安装已关闭"
+                : "正在核对信任目录…"}
+          </p>
         </div>
       }
     >
@@ -1349,11 +1787,11 @@ export default function SkillBrowserPage() {
             ) : null}
             <button
               className="w-fit rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-slate-300 transition hover:border-hire-300/30 hover:bg-hire-300/10 hover:text-hire-100 disabled:opacity-50"
-              disabled={isLoadingInstalled || isLoadingBuiltin}
+              disabled={isLoadingInstalled || isLoadingBuiltin || trustIndexStatus === "loading"}
               onClick={() => void refreshSkillResources()}
               type="button"
             >
-              {isLoadingInstalled || isLoadingBuiltin ? "刷新中..." : "刷新资源"}
+              {isLoadingInstalled || isLoadingBuiltin || trustIndexStatus === "loading" ? "刷新中..." : "刷新资源"}
             </button>
           </div>
         </div>
@@ -1490,6 +1928,7 @@ export default function SkillBrowserPage() {
                   <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
                     {needMatches.map((match) => (
                       <NeedMatchCard
+                        gateMode={trustIndex?.gateMode ?? "enforce"}
                         installed={
                           match.project.targetType === "member"
                             ? isSourceInstalled(
@@ -1508,8 +1947,17 @@ export default function SkillBrowserPage() {
                           void installSkillSetMember(member)
                         }
                         onInstallProject={(project) => void installSkill(project)}
+                        onInspectTrust={(title, receiptId) =>
+                          void openTrustAction({ kind: "inspect", title, receiptId })
+                        }
                         onLocate={locateRecommendedSkill}
                         onOpenSkillSet={openSkillSet}
+                        trustSummary={trustSummaryForCandidate(
+                          trustIndex,
+                          match.project.targetType === "member"
+                            ? memberTrustCandidateId(match.project.member.id)
+                            : projectTrustCandidateId(match.project.project.id),
+                        )}
                       />
                     ))}
                   </div>
@@ -1633,6 +2081,24 @@ export default function SkillBrowserPage() {
           </div>
         ) : null}
 
+        {pendingTrustAction && selectedTrustReceipt ? (
+          <SkillTrustPanel
+            action={pendingTrustAction.kind}
+            busy={trustActionBusy}
+            onCancel={() => {
+              setPendingTrustAction(null);
+              setSelectedTrustReceipt(null);
+            }}
+            onConfirm={() => void confirmPendingTrustAction()}
+            receipt={selectedTrustReceipt}
+            title={pendingTrustAction.title}
+          />
+        ) : pendingTrustAction ? (
+          <div aria-live="polite" className="mb-6 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
+            正在加载固定版本的信任凭据…
+          </div>
+        ) : null}
+
         {activeTab === "market" && selectedSkillSetProject ? (
           <SkillSetMemberPanel
             batchProgress={skillSetBatchProgress}
@@ -1647,7 +2113,11 @@ export default function SkillBrowserPage() {
               void installAllSkillSetMembers(selectedSkillSetProject, members)
             }
             onInstallMember={(member) => void installSkillSetMember(member)}
+            onInspectTrust={(title, receiptId) =>
+              void openTrustAction({ kind: "inspect", title, receiptId })
+            }
             project={selectedSkillSetProject}
+            trustIndex={trustIndex}
           />
         ) : null}
 
@@ -1700,12 +2170,20 @@ export default function SkillBrowserPage() {
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               {visibleProjects.map((project) => (
                 <MarketSkillCard
+                  gateMode={trustIndex?.gateMode ?? "enforce"}
                   installed={isProjectInstalled(project, installedSkills)}
                   installingId={installingId}
                   key={project.id}
                   onInstall={(item) => void installSkill(item)}
+                  onInspectTrust={(title, receiptId) =>
+                    void openTrustAction({ kind: "inspect", title, receiptId })
+                  }
                   onOpenSkillSet={openSkillSet}
                   project={project}
+                  trustSummary={trustSummaryForCandidate(
+                    trustIndex,
+                    projectTrustCandidateId(project.id),
+                  )}
                 />
               ))}
             </div>
@@ -1742,8 +2220,31 @@ export default function SkillBrowserPage() {
             {installedSkills.map((skill) => (
               <InstalledSkillCard
                 key={skill.skill_id}
+                onAcknowledge={(item) => {
+                  if (!item.trust_receipt_id) {
+                    setError("该 Skill 没有可确认的信任凭据。");
+                    return;
+                  }
+                  void openTrustAction({
+                    kind: "acknowledge",
+                    title: item.name,
+                    receiptId: item.trust_receipt_id,
+                    skill: item,
+                  });
+                }}
+                onInspectTrust={(title, receiptId) =>
+                  void openTrustAction({ kind: "inspect", title, receiptId })
+                }
+                onRevokeAcknowledgement={(item) =>
+                  void revokeTrustAcknowledgement(item)
+                }
                 onUninstall={(item) => void uninstallSkill(item)}
                 skill={skill}
+                trustSummary={
+                  trustIndex?.receipts.find(
+                    (receipt) => receipt.receiptId === skill.trust_receipt_id,
+                  ) ?? null
+                }
                 uninstallingId={uninstallingId}
               />
             ))}
@@ -1776,4 +2277,3 @@ export default function SkillBrowserPage() {
     </PageContainer>
   );
 }
-
