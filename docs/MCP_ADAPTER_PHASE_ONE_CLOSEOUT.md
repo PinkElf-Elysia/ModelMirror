@@ -14,8 +14,8 @@ MCP 目录第一阶段已完成“固定目录、分批威胁建模、可执行�
 - `planned` 与 `blocked` 项没有运行镜像、服务命令、端点、配置/凭据字段或工具策略；环境功能开关不能把它们变为可执行。
 
 本文件冻结的是第一阶段 100 项基线。第二阶段另行批准并集成的 100 项见
-[MCP 双源目录扩充批准清单](./MCP_CATALOG_EXPANSION_REVIEW.md)；它们全部为不可执行的
-`planned`，不改变本表第一阶段的 Ready/Planned/Blocked 结论。
+[MCP 双源目录扩充适配判定](./MCP_CATALOG_EXPANSION_REVIEW.md)；后续批次 13 已将其归为
+5 ready / 51 planned / 44 blocked，但不改变本表第一阶段的 Ready/Planned/Blocked 结论。
 
 各批次状态冻结如下：
 

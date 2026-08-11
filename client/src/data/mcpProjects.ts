@@ -1741,13 +1741,20 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
     isReady && adaptation.connectionKind === "sandboxed-stdio";
   const isPublicSandbox = isBundledSandbox && adaptation.wave === 2;
   const isFileSandbox = isBundledSandbox && adaptation.wave === 3;
-  const isCredentialSandbox = isBundledSandbox && adaptation.wave === 4;
+  const isCredentialSandbox =
+    isBundledSandbox &&
+    (adaptation.wave === 4 ||
+      adaptation.wave === 13 ||
+      adaptation.wave === 14 ||
+      adaptation.wave === 15);
   const isDatabaseSandbox = isBundledSandbox && adaptation.wave === 5;
   const isDatabaseFileSandbox = isDatabaseSandbox && seed.id === "duckdb-mcp";
   const isStatefulSaas = isReady && adaptation.wave === 6;
   const isBrowserSandbox = isBundledSandbox && adaptation.wave === 7;
   const requirements: McpRequirement[] = isCredentialSandbox
-    ? ["token"]
+    ? seed.id === "blazickjp-arxiv-mcp-server"
+      ? []
+      : ["token"]
     : isDatabaseSandbox
       ? seed.id === "supabase-mcp"
         ? ["token"]
@@ -1785,7 +1792,9 @@ function normalizeMcpProject(seed: McpProjectSeed): McpProject {
       : isFileSandbox
         ? "先在卡片中创建受控工作区并上传文件；封存后输入只读，写入和持久记忆操作由一次性确认保护。"
       : isCredentialSandbox
-        ? "直接在当前卡片的“加密凭据”区域保存 Token；凭据按项目和固定槽位隔离，固定出口、只读工具与撤销失效均由服务端执行。"
+        ? seed.id === "blazickjp-arxiv-mcp-server"
+          ? "无需凭据；服务端通过固定出口读取公开 arXiv 元数据，下载、全文读取和本地缓存工具均不可用。"
+          : "直接在当前卡片的“加密凭据”区域保存 Token；凭据按项目和固定槽位隔离，固定出口、只读工具与撤销失效均由服务端执行。"
       : isDatabaseFileSandbox
         ? "先上传并封存本地 DuckDB 文件；适配器断网运行且只读打开数据文件，不接入 MotherDuck 或宿主路径。"
       : isDatabaseSandbox

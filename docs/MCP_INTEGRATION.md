@@ -83,7 +83,8 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **45 ready / 114 planned / 41 blocked**。第二阶段新增 100 项全部属于批次 12，只提供展示资料和非执行 manifest；批次 10 的 14 项继续 planned，批次 11 的 13 项全部 blocked。planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **50 ready / 65 planned / 85 blocked**。第二阶段新增 100 项由批次 12 纳入目录，批次 13 完成初次判定，批次 14—15 将其中 5 项提升为 ready，当前为 5 ready / 51 planned / 44 blocked；批次 10 的 14 项继续 planned，批次 11 的 13 项全部 blocked。planned 与 blocked 项没有可执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 批次 13 的官方 Brave Search MCP Server v2.1.0 只开放 `brave_web_search` 与 `brave_local_search`。批次 14 新增官方 Kagi v1.0.2 的 `kagi_search_fetch`、`kagi_extract`，以及 arxiv-mcp-server v0.6.2 的 `search_papers`、`get_abstract` 原生只读兼容契约。批次 15 新增 Search1API v0.5.3 的 `search`、`news`、`trending`，以及 Live Tennis v1.4.0 的 8 项 FREE 层比分/赛程/目录工具；全部固定出口、工具 Schema、输出上限和服务端加密凭据槽，不运行可扩张能力的上游进程。
 - 第一阶段的完整状态表、已交付边界与阶段二准入条件见 [MCP 适配第一阶段收口](./MCP_ADAPTER_PHASE_ONE_CLOSEOUT.md)。
 - 新适配器若没有显式工具读写与审批策略，工具调用会 fail-closed。
 - 日志只记录项目 ID、工具名、状态和耗时，不记录参数、返回正文或 Secret。
@@ -194,7 +195,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 
 ## 2. 如何适配冻结目录中的 MCP Server
 
-目录总数固定为 200 项；第二阶段新增 100 项在逐项目安全适配前不再改变状态。中文展示数据与后端执行清单分别位于：
+目录总数固定为 200 项；第二阶段新增 100 项已完成逐项目适配判定，后续状态变化仍必须单项通过安全门槛。中文展示数据与后端执行清单分别位于：
 
 ```text
 client/src/data/mcpProjects.ts
