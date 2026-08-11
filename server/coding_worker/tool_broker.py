@@ -291,7 +291,14 @@ class ToolBroker:
         request: dict[str, Any],
         network_lease_id: str | None,
     ) -> CapabilityLease | None:
-        readonly = {"list_files", "read_file", "search_text", "diff", "service_status"}
+        readonly = {
+            "list_files",
+            "read_file",
+            "search_text",
+            "diff",
+            "list_acceptance_checks",
+            "service_status",
+        }
         if tool_name in readonly:
             return None
         if tool_name in {
@@ -414,12 +421,33 @@ class ToolBroker:
         if tool_name == "diff":
             value = self.workspace_broker.diff(workspace_id, max_bytes=self.max_output_bytes)
             return {"diff": value.decode("utf-8", errors="replace")}
+        if tool_name == "list_acceptance_checks":
+            task = self.store.get_task(task_id)
+            return {
+                "checks": [
+                    {
+                        "check_id": check.check_id,
+                        "label": check.label,
+                        "kind": check.kind,
+                        "required": check.required,
+                    }
+                    for check in task.spec.acceptance.required_checks
+                ]
+            }
         if tool_name == "write_file":
             return self._write_file(workspace_id, arguments)
         if tool_name == "delete_file":
             return self._delete_file(workspace_id, arguments)
         if tool_name == "run_check":
             check_id = str(arguments.get("check_id", ""))
+            task = self.store.get_task(task_id)
+            if check_id not in {
+                check.check_id for check in task.spec.acceptance.required_checks
+            }:
+                raise ToolBrokerError(
+                    "Check is not in the task acceptance contract.",
+                    code="check_not_allowed",
+                )
             check = self.frozen_checks.get(check_id)
             if check is None:
                 raise ToolBrokerError("Check is not registered.", code="check_not_found")

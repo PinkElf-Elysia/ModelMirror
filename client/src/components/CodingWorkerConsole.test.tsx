@@ -24,6 +24,15 @@ const api = vi.hoisted(() => ({
 
 vi.mock("../utils/codingWorkerApi", () => api);
 
+const projectApi = vi.hoisted(() => ({
+  createCodingProjectSelection: vi.fn(),
+  getCodingProjectSelection: vi.fn(),
+  getCodingProjects: vi.fn(),
+  getCodingWorkerHostSource: vi.fn(),
+}));
+
+vi.mock("../utils/codingApi", () => projectApi);
+
 const task = {
   task_id: "task_1234567890abcdef1234567890abcdef",
   spec: {
@@ -53,6 +62,7 @@ const task = {
 
 beforeEach(() => {
   Object.values(api).forEach((mock) => "mockReset" in mock && mock.mockReset());
+  Object.values(projectApi).forEach((mock) => "mockReset" in mock && mock.mockReset());
   api.codingWorkerArtifactUrl.mockImplementation((taskId: string, artifactId: string) => `/artifact/${taskId}/${artifactId}`);
   api.getCodingWorkerStatus.mockResolvedValue({ enabled: true, available: true, version: "v1", max_active_tasks: 2, retention_seconds: 604800, network_enabled: false, acceptance_checks: ["python-pytest", "react-build"], reason: null });
   api.listCodingWorkerTasks.mockResolvedValue([task]);
@@ -64,6 +74,44 @@ beforeEach(() => {
   api.readCodingWorkerDiff.mockResolvedValue("diff --git a/src/app.py b/src/app.py");
   api.connectCodingWorkerEvents.mockReturnValue(() => undefined);
   api.decideCodingWorkerApproval.mockResolvedValue({});
+  projectApi.getCodingProjects.mockResolvedValue({
+    enabled: true,
+    configured: true,
+    available: true,
+    selection: true,
+    default_project_id: "modelmirror",
+    max_projects: 50,
+    projects: [{
+      id: "hostgit_existing",
+      name: "现有项目",
+      kind: "host_git",
+      state: "available",
+      reason: null,
+      branch: "main",
+      head: "a".repeat(40),
+      features: {
+        chat: true,
+        draft: true,
+        diff: true,
+        download: true,
+        recovery: true,
+        verification: true,
+        apply: true,
+        commit: true,
+        publish: false,
+        commands: true,
+      },
+      writeback_reason: null,
+    }],
+  });
+  projectApi.getCodingWorkerHostSource.mockImplementation(async (projectId: string) => ({
+    source_id: projectId,
+    name: "已授权项目",
+    branch: "main",
+    revision: projectId === "hostgit_python_sample"
+      ? "c8c27a695d3a6562b5ff8fe3df28548ecc388df4"
+      : "b".repeat(40),
+  }));
 });
 
 describe("CodingWorkerConsole", () => {
@@ -109,5 +157,109 @@ describe("CodingWorkerConsole", () => {
 
     await waitFor(() => expect(api.handoffCodingWorkerTask).toHaveBeenCalledWith(task.task_id));
     expect(onCodingHandoff).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }));
+  });
+
+  it("requests a Helper folder selection and binds the returned project revision", async () => {
+    const newProject = {
+      id: "hostgit_python_sample",
+      name: "Python 折扣样例",
+      kind: "host_git",
+      state: "available",
+      reason: null,
+      branch: "main",
+      head: "c8c27a695d3a6562b5ff8fe3df28548ecc388df4",
+      features: {
+        chat: true,
+        draft: true,
+        diff: true,
+        download: true,
+        recovery: true,
+        verification: true,
+        apply: true,
+        commit: true,
+        publish: false,
+        commands: true,
+      },
+      writeback_reason: null,
+    } as const;
+    projectApi.createCodingProjectSelection.mockResolvedValue({
+      request_id: "selection_1",
+      status: "completed",
+      project_id: newProject.id,
+      error: null,
+      expires_at: 100,
+    });
+    projectApi.getCodingProjects
+      .mockResolvedValueOnce(await projectApi.getCodingProjects())
+      .mockResolvedValueOnce({
+        enabled: true,
+        configured: true,
+        available: true,
+        selection: true,
+        default_project_id: "modelmirror",
+        max_projects: 50,
+        projects: [newProject],
+      });
+
+    const user = userEvent.setup();
+    render(<CodingWorkerConsole context="coding" />);
+    await user.click(await screen.findByRole("button", { name: "创建任务" }));
+    await user.click(screen.getByRole("button", { name: "添加本地项目" }));
+
+    await waitFor(() => expect(screen.getByLabelText("本地项目")).toHaveValue(newProject.id));
+    expect(screen.getByLabelText("基准 revision")).toHaveValue(newProject.head);
+    expect(projectApi.createCodingProjectSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a project registered after the selection request expires", async () => {
+    const lateProject = {
+      id: "hostgit_late_sample",
+      name: "延迟返回样例",
+      kind: "host_git",
+      state: "available",
+      reason: null,
+      branch: "main",
+      head: "b".repeat(40),
+      features: {
+        chat: true,
+        draft: true,
+        diff: true,
+        download: true,
+        recovery: true,
+        verification: true,
+        apply: true,
+        commit: true,
+        publish: false,
+        commands: true,
+      },
+      writeback_reason: null,
+    } as const;
+    projectApi.createCodingProjectSelection.mockResolvedValue({
+      request_id: "selection_late",
+      status: "expired",
+      project_id: null,
+      error: "project_selection_expired",
+      expires_at: 100,
+    });
+    projectApi.getCodingProjects
+      .mockResolvedValueOnce(await projectApi.getCodingProjects())
+      .mockResolvedValueOnce({
+        enabled: true,
+        configured: true,
+        available: true,
+        selection: true,
+        default_project_id: "modelmirror",
+        max_projects: 50,
+        projects: [lateProject],
+      });
+
+    const user = userEvent.setup();
+    render(<CodingWorkerConsole context="coding" />);
+    await user.click(await screen.findByRole("button", { name: "创建任务" }));
+    await user.click(screen.getByRole("button", { name: "添加本地项目" }));
+
+    await waitFor(() => expect(screen.getByLabelText("本地项目")).toHaveValue(lateProject.id));
+    expect(screen.getByLabelText("基准 revision")).toHaveValue(lateProject.head);
+    expect(screen.queryByText("选择请求已超时", { exact: false })).not.toBeInTheDocument();
   });
 });

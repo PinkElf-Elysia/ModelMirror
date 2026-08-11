@@ -22,6 +22,7 @@ from server.coding_worker.opencode_provider import (
     OpenCodeProvider,
     OpenCodeRoute,
     OpenCodeServerHandle,
+    TOOL_BROKER_MCP_NAME,
 )
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.tool_broker import ToolBroker
@@ -60,12 +61,68 @@ def test_config_disables_direct_tools_plugins_sharing_and_supplier_surface(tmp_p
     permission = config["permission"]
     assert permission["*"] == "deny"
     assert permission["modelmirror-tool-broker_*"] == "allow"
+    assert Path(
+        config["mcp"][TOOL_BROKER_MCP_NAME]["environment"]["PYTHONPATH"]
+    ).name == "server"
     assert config["plugin"] == [] and config["share"] == "disabled"
     assert config["instructions"] == []
     assert config["provider"]["modelmirror"]["options"]["apiKey"] == (
         "{env:CODING_WORKER_ROUTE_KEY}"
     )
     assert all(provider._prompt_tools()[name] is False for name in DIRECT_TOOL_NAMES)
+
+
+@pytest.mark.asyncio
+async def test_open_waits_for_connected_broker_before_creating_session(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = {"mcp": 0, "session": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/mcp":
+            calls["mcp"] += 1
+            status = "connecting" if calls["mcp"] == 1 else "connected"
+            return httpx.Response(
+                200,
+                json={TOOL_BROKER_MCP_NAME: {"status": status}},
+            )
+        if request.url.path == "/session" and request.method == "POST":
+            calls["session"] += 1
+            return httpx.Response(200, json={"id": "ses_ready"})
+        return httpx.Response(404)
+
+    async def factory(
+        request: ProviderOpenRequest, resolved: Path, route: OpenCodeRoute
+    ) -> OpenCodeServerHandle:
+        client = httpx.AsyncClient(
+            base_url="http://127.0.0.1:4096",
+            transport=httpx.MockTransport(handler),
+        )
+
+        async def close() -> None:
+            await client.aclose()
+
+        return OpenCodeServerHandle(
+            task_id=request.task_id,
+            workspace=resolved,
+            state_root=tmp_path / "state",
+            client=client,
+            close_callback=close,
+        )
+
+    provider = OpenCodeProvider(
+        workspace_resolver=lambda _workspace_id: workspace,
+        runtime_root=tmp_path / "runtime",
+        routes={"coding/default": _route()},
+        tool_broker_command=("python", "-m", "coding_worker.broker_mcp"),
+        server_factory=factory,
+    )
+    session = await provider.open(_request())
+    assert session.session_id == "ses_ready"
+    assert calls == {"mcp": 2, "session": 1}
+    await provider.close(session)
 
 
 @pytest.mark.asyncio

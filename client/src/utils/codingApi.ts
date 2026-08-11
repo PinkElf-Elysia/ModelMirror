@@ -87,6 +87,15 @@ export function getCodingProjects() {
   return requestJson<CodingProjectsResponse>("/api/coding/projects");
 }
 
+export function getCodingWorkerHostSource(projectId: string) {
+  return requestJson<{
+    source_id: string;
+    name: string;
+    branch: string;
+    revision: string;
+  }>(`/api/coding/worker-sources/${encodeURIComponent(projectId)}`);
+}
+
 export function getCodingProjectHost() {
   return requestJson<CodingProjectHostStatus>("/api/coding/project-host");
 }

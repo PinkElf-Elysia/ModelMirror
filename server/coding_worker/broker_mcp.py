@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import uuid
 from typing import Any
@@ -49,10 +50,9 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         return await call("diff", {})
 
     @mcp.tool()
-    async def write_file(
-        operation_id: str, path: str, content: str, content_sha256: str
-    ) -> dict[str, Any]:
-        """Atomically write UTF-8 text using a stable operation id and content digest."""
+    async def write_file(operation_id: str, path: str, content: str) -> dict[str, Any]:
+        """Atomically write UTF-8 text using a stable operation id."""
+        content_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
         return await call(
             "write_file",
             {"path": path, "content": content, "content_sha256": content_sha256},
@@ -71,47 +71,45 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         )
 
     @mcp.tool()
+    async def list_acceptance_checks() -> dict[str, Any]:
+        """List the immutable acceptance checks allowed for this task."""
+        return await call("list_acceptance_checks", {})
+
+    @mcp.tool()
     async def run_check(check_id: str) -> dict[str, Any]:
-        """Run one immutable server-defined acceptance check."""
+        """Run one check returned by list_acceptance_checks."""
         return await call("run_check", {"check_id": check_id})
 
     @mcp.tool()
     async def run_command(
         operation_id: str,
         argv: list[str],
-        lease_id: str,
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        """Run an argv-only command after an exact command lease is approved."""
+        """Request approval, then run one exact argv-only command."""
         return await call(
             "run_command",
             {"argv": argv, "timeout_seconds": timeout_seconds},
             operation_id=operation_id,
-            lease_id=lease_id,
         )
 
     @mcp.tool()
-    async def install_dependencies(
-        operation_id: str, lease_id: str, network_lease_id: str
-    ) -> dict[str, Any]:
-        """Run frozen npm-ci through the approved egress lease and proxy."""
+    async def install_dependencies(operation_id: str) -> dict[str, Any]:
+        """Request approval, then run frozen npm-ci through controlled egress."""
         return await call(
             "install_dependencies",
             {"manager": "npm", "action": "ci"},
             operation_id=operation_id,
-            lease_id=lease_id,
-            network_lease_id=network_lease_id,
         )
 
     @mcp.tool()
     async def start_service(
         operation_id: str,
         argv: list[str],
-        lease_id: str,
         ttl_seconds: int = 900,
         preview_port: int | None = None,
     ) -> dict[str, Any]:
-        """Start one approved task-owned background service."""
+        """Request approval, then start one task-owned background service."""
         return await call(
             "start_service",
             {
@@ -120,7 +118,6 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
                 "preview_port": preview_port,
             },
             operation_id=operation_id,
-            lease_id=lease_id,
         )
 
     @mcp.tool()

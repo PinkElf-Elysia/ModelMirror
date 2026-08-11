@@ -117,6 +117,24 @@ def test_apply_is_atomic_and_idempotent(
     assert staging.exists() is False
 
 
+def test_health_uses_source_path_part_ordering(
+    roots: tuple[Path, Path, Path],
+) -> None:
+    source, target, staging = roots
+    for root in (source, target):
+        nested = root / "experiments/matrix/third-party/gdunit4"
+        nested.mkdir(parents=True)
+        (nested / "LICENSE").write_text("license\n", encoding="utf-8")
+        (root / "experiments/matrix/third-party/gdunit4.lock.json").write_text(
+            "{}\n",
+            encoding="utf-8",
+        )
+
+    engine = CodingApplierEngine(source, target, staging)
+
+    assert engine.health()["available"] is True
+
+
 def test_apply_and_revert_support_delete_and_move(
     roots: tuple[Path, Path, Path],
 ) -> None:
