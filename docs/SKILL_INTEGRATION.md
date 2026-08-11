@@ -61,6 +61,14 @@ VoltAgent 仓库自身不包含 `SKILL.md`，不能把仓库根目录当成 Skil
 
 市场展示层将来源细分类收敛为 10 个稳定任务大类，并把晦涩英文说明转换成面向用户的中文能力说明。上游原文保留在 `sourceDescription` 中，用于搜索和追溯。完整治理规则与候选能力结论见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md)。三项候选能力没有排期或实施承诺，新增目录和 SkillHub 等外部市场继续延后。
 
+### 1.1 第三方目录信任索引
+
+目录中具备固定提交安装源的顶层 Skill 与 SkillSet 成员，会在维护期按完整 Git tree 生成本地、确定性的 `SkillTrustReceipt`。扫描过程不执行脚本、不加载 Skill、不调用模型，也不会在运行时访问 GitHub；同一个 `repoUrl + subPath + verifiedCommit` 只保存一份凭据，重叠集合成员共享该凭据。
+
+凭据同时绑定目录 tree SHA、按排序路径与原始字节计算的 package digest、扫描器版本和凭据指纹。扫描范围包括严格 YAML、路径、凭据、引用、Python/JavaScript 静态语法、脚本与命令、依赖、网络、宿主能力和被动二进制资源。PNG、JPEG、GIF、WebP、PDF、WOFF/WOFF2、MP3、WAV、MP4 只在扩展名与 magic 一致时作为不透明资源记录，不解析或执行；链接逃逸、Git submodule、可执行文件、归档、未知二进制、秘密、动态下载执行、混淆内容或扫描不完整会形成 `blocked` 凭据。
+
+本阶段只发布服务端完整索引、前端懒加载摘要、Runtime Finder 信任摘要及离线分布报告。安装与激活门在后续串行 PR 接入；因此本阶段的风险结果是审计证据，不改变当前安装 API 行为。三份索引共享同一目录指纹，任一映射或指纹不一致都会使审计失败。
+
 ## 2. 如何添加新的 Skill 到市场
 
 手工精选市场数据位于：
@@ -230,7 +238,7 @@ curl -X DELETE http://localhost:8000/api/skills/anthropics-skills-skills-pdf
 - `技能市场`：合并手工精选与两个生成目录，支持关键词、功能分类、Skill/SkillSet、可安装状态筛选；默认分批渲染 48 项，避免一次挂载全部索引卡片。
 - 父级组合包显示“安装技能包”；成员集合显示“成员可安装”和“查看成员”，详情支持本地名称/路径搜索、每页 50 项分页、成员逐项安装，以及按顺序调用现有接口的“一键安装全部成员”。该操作会跳过已安装成员并在首个失败处停止，不使用整仓安装或新增后端批量协议。
 - `已安装`：调用 `/api/skills/installed`，展示本地已安装 Skill，提供卸载按钮。
-- `工作区草稿`、`待审提案`：保留通用创作与审批入口；默认开启的私有 `/skills/create` 提供 Creator V1 工作台。Creator 草稿须完成当前摘要的三例隔离对照评测，或仅对主观创作类记录明确人工豁免。质量门通过后仍需独立确认安装，评测不会自动安装。其后的 `scripts/`、`references/`、可选 `assets/` 资源化增强边界见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md#43-通过-skill-creator-创建-skill)。
+- `工作区草稿`、`待审提案`：保留通用创作与审批入口；默认开启的私有 `/skills/create` 提供 Creator V1 工作台。新 Session 先确认资源计划，再按需生成和验证 `scripts/`、`references/`、可选 `assets/`，最后评审 `SKILL.md`；简单 Skill 可以不生成附加资源。Creator 草稿仍须完成当前摘要的三例隔离对照评测，或仅对主观创作类记录明确人工豁免。质量门通过后仍需独立确认安装，评测不会自动安装。详细边界见 [Skill 体验治理与候选能力审计](./SKILL_EXPERIENCE_AUDIT.md#43-通过-skill-creator-创建-skill)。
 
 社区资源卡片同时显示原始来源与收录索引。安装第三方条目只会复制目录，不会在安装阶段自动执行脚本；用户仍需在激活前检查依赖、外部服务和凭据要求。
 
@@ -266,6 +274,7 @@ node scripts/sync-anbeime-skill-catalog.mjs <anbeime-checkout> <其余快照参�
 node scripts/sync-voltagent-skill-index.mjs <voltagent-checkout> <其余快照参数> --check
 node scripts/audit-github-skill-tree.mjs
 node scripts/audit-skill-experience.mjs
+python scripts/audit_skill_trust_index.py
 cd client && npm.cmd run build
 ```
 
@@ -291,4 +300,3 @@ cd client && npm.cmd run build
 4. 切换到 `已安装`，确认可见。
 5. 打开任意 `/chat/:modelId`，在 Skill 下拉框选择刚安装的 Skill。
 6. 发送“你能做什么？”，观察回复是否体现该 Skill 的能力。
-

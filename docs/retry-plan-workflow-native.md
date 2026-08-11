@@ -1,7 +1,7 @@
-# 原生工作流重试路线归档
+# 自研工作流引擎重试路线（历史归档）
 
-> **状态：已完成并被后续实现取代。** 本文记录 2026-06-10 的恢复思路，
-> 不是当前排期。当前入口和边界见
+> **状态：已完成并被后续实现取代。** 本文记录 2026-06-10 P0 回退后的恢复思路，
+> 不是当前排期；其中 Dify 主路径、`/rag-native` 与计划中的 native run API 都只属于历史阶段假设。当前入口和边界见
 > [ARCHITECTURE.md](./ARCHITECTURE.md) 与
 > [workflow-native-design.md](./workflow-native-design.md)。
 

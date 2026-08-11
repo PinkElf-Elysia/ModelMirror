@@ -7,11 +7,17 @@ import BrowserSessionPanel from "../components/runtime/BrowserSessionPanel";
 import ClientToolPanel from "../components/runtime/ClientToolPanel";
 import SandboxWorkspacePanel from "../components/runtime/SandboxWorkspacePanel";
 import DataXResultCard from "../components/datax/DataXResultCard";
+import FileOutputTray from "../components/FileOutputTray";
 import FileMemoryPanel from "../components/xpert/FileMemoryPanel";
 import SkillCreatorCaptureButton, {
   xpertMessageCaptureSource,
 } from "../components/skill-creator/SkillCreatorCaptureButton";
 import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
+import {
+  fetchFileOutputs,
+  type FileOutput,
+  type FileOutputReuseConfirmation,
+} from "../data/fileOutputs";
 import {
   type XpertConversationMessage,
   type XpertConversation,
@@ -89,6 +95,41 @@ export function consumeSelectedXpertFiles(
     fileAssetIdsForRun: fileUploadEnabled ? [...selectedFileIds] : [],
     nextSelectedFileIds: [],
   };
+}
+
+export function xpertOutputScopeId(xpertId: string, conversationId: string) {
+  return `xpert:${xpertId}:${conversationId}`;
+}
+
+export function fileOutputsForRun(outputs: FileOutput[], runId: string | null | undefined) {
+  if (!runId) return [];
+  return outputs.filter((output) => output.source_run_id === runId);
+}
+
+export function unassociatedXpertFileOutputs(
+  outputs: FileOutput[],
+  messages: XpertConversationMessage[],
+) {
+  const associatedRunIds = new Set(
+    messages
+      .filter((message) => message.role === "assistant" && message.source_run_id)
+      .map((message) => message.source_run_id as string),
+  );
+  return outputs.filter(
+    (output) => !output.source_run_id || !associatedRunIds.has(output.source_run_id),
+  );
+}
+
+export function replaceFileOutputSubset(
+  current: FileOutput[],
+  previousSubset: FileOutput[],
+  nextSubset: FileOutput[],
+) {
+  const previousIds = new Set(previousSubset.map((output) => output.output_id));
+  return [
+    ...current.filter((output) => !previousIds.has(output.output_id)),
+    ...nextSubset,
+  ];
 }
 
 export function isCurrentXpertConversationRequest(
@@ -262,6 +303,7 @@ export default function XpertChatPage() {
   const [conversationId, setConversationId] = useState("");
   const [summaryRevision, setSummaryRevision] = useState(0);
   const [files, setFiles] = useState<XpertFileAsset[]>([]);
+  const [fileOutputs, setFileOutputs] = useState<FileOutput[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [memories, setMemories] = useState<XpertMemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<XpertMemoryCandidate[]>([]);
@@ -425,13 +467,18 @@ export default function XpertChatPage() {
     setMessages([]);
     setInput("");
     setFiles([]);
+    setFileOutputs([]);
     setSelectedFileIds([]);
     setContextLoading(true);
     setError("");
     try {
-      const [conversation, filePayload, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
+      const [conversation, filePayload, outputItems, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
         getXpertConversation(selectedXpertId, nextConversationId),
         listXpertFiles(selectedXpertId, nextConversationId),
+        fetchFileOutputs(
+          "agent",
+          xpertOutputScopeId(selectedXpertId, nextConversationId),
+        ).catch(() => []),
         listXpertMemories(selectedXpertId, nextConversationId),
         listXpertMemoryCandidates(selectedXpertId, nextConversationId),
         listConversationTodos(selectedXpertId, nextConversationId),
@@ -446,6 +493,7 @@ export default function XpertChatPage() {
       setMessages(conversation.messages ?? []);
       setSummaryRevision(conversation.summary_revision ?? 0);
       setFiles(filePayload.items);
+      setFileOutputs(outputItems);
       setSelectedFileIds(selectedXpertFilesAfterConversationRestore(filePayload.items));
       setMemories(memoryPayload.items);
       setMemoryCandidates(candidatePayload.items);
@@ -477,9 +525,13 @@ export default function XpertChatPage() {
     const selectedConversationId = conversationIdRef.current || conversationId;
     const requestToken = conversationRequestTokenRef.current;
     if (!selectedXpertId || !selectedConversationId) return;
-    const [conversationPayload, filePayload, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
+    const [conversationPayload, filePayload, outputItems, memoryPayload, candidatePayload, todoItems, toolMemoryPayload] = await Promise.all([
       listXpertConversations(selectedXpertId),
       listXpertFiles(selectedXpertId, selectedConversationId),
+      fetchFileOutputs(
+        "agent",
+        xpertOutputScopeId(selectedXpertId, selectedConversationId),
+      ).catch(() => []),
       listXpertMemories(selectedXpertId, selectedConversationId),
       listXpertMemoryCandidates(selectedXpertId, selectedConversationId),
       listConversationTodos(selectedXpertId, selectedConversationId),
@@ -493,11 +545,25 @@ export default function XpertChatPage() {
     )) return;
     setConversations(conversationPayload.items);
     setFiles(filePayload.items);
+    setFileOutputs(outputItems);
     setSelectedFileIds((current) => selectedXpertFilesAfterRefresh(current, filePayload.items));
     setMemories(memoryPayload.items);
     setMemoryCandidates(candidatePayload.items);
     setTodos(todoItems);
     setToolMemories(toolMemoryPayload.items);
+  }
+
+  async function prepareXpertOutputReuse(
+    _output: FileOutput,
+    confirmation: FileOutputReuseConfirmation,
+  ) {
+    if (selectedFileIds.length >= maxFilesPerRun) {
+      throw new Error(`本轮最多选择 ${maxFilesPerRun} 个文件，请先移除一个附件。`);
+    }
+    await refreshContext();
+    setSelectedFileIds((current) =>
+      Array.from(new Set([...current, confirmation.asset_id])).slice(0, maxFilesPerRun),
+    );
   }
 
   async function syncCompletedAssistantMessage(
@@ -1233,6 +1299,9 @@ export default function XpertChatPage() {
                   const captureSource = xpert
                     ? xpertMessageCaptureSource(message, xpert.id, conversationId)
                     : null;
+                  const messageOutputs = message.role === "assistant"
+                    ? fileOutputsForRun(fileOutputs, message.source_run_id)
+                    : [];
                   return (
                     <article className={`max-w-[86%] rounded-lg border p-3 ${message.role === "user" ? "ml-auto border-hire-300/25 bg-hire-300/10" : "border-white/10 bg-white/[0.045]"}`} key={`${message.role}-${message.message_id ?? index}`}>
                     <p className="text-[10px] font-semibold uppercase text-slate-500">{roleCopy(message.role)}</p>
@@ -1279,9 +1348,37 @@ export default function XpertChatPage() {
                         ))}
                       </div>
                     ) : null}
+                    {messageOutputs.length > 0 ? (
+                      <FileOutputTray
+                        onChange={(next) => setFileOutputs((current) =>
+                          replaceFileOutputSubset(current, messageOutputs, next))}
+                        onReuse={prepareXpertOutputReuse}
+                        outputs={messageOutputs}
+                        purpose="agent"
+                        reuseTargetId={xpert.id}
+                        scopeId={xpertOutputScopeId(xpert.id, conversationId)}
+                        title="本次运行文件输出"
+                      />
+                    ) : null}
                     </article>
                   );
                 })}
+                {unassociatedXpertFileOutputs(fileOutputs, messages).length > 0 ? (
+                  <FileOutputTray
+                    onChange={(next) => setFileOutputs((current) =>
+                      replaceFileOutputSubset(
+                        current,
+                        unassociatedXpertFileOutputs(current, messages),
+                        next,
+                      ))}
+                    outputs={unassociatedXpertFileOutputs(fileOutputs, messages)}
+                    purpose="agent"
+                    onReuse={prepareXpertOutputReuse}
+                    reuseTargetId={xpert.id}
+                    scopeId={xpertOutputScopeId(xpert.id, conversationId)}
+                    title="已恢复的文件输出"
+                  />
+                ) : null}
                 {running ? (
                   <div className="max-w-[86%] rounded-lg border border-white/10 bg-white/[0.04] p-3 text-sm text-slate-400">智能体正在执行已发布工作流...</div>
                 ) : null}

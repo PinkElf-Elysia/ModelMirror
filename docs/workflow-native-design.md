@@ -165,9 +165,9 @@ Classic workflow 每次运行会登记一条 `workflow` run，并在 `workflow_m
 
 `/workflow` 布局恢复为“画布 + 单一右侧工作台”：节点库位于画布顶部附近的下拉/浮层中，避免常驻左栏；右侧工作台使用 `配置 / 运行` tabs 承载 `NodeConfig` 与 `WorkflowRun`，点击运行时切到运行页。该调整只恢复布局体验，不改变节点数据结构、拖拽 payload、SSE 协议或后端执行逻辑。
 
-workflow-native 是模镜自研工作流的渐进式实验线。它不替换当前稳定的
-classic `/workflow`，也不另建第二套 `/rag`。该入口主要承担静态图校验与
-设计验证；真实工作流执行继续复用 classic runner。
+workflow-native 是模镜自研工作流的渐进式、隔离实验线。它不替换当前稳定的
+classic `/workflow`，也不另建第二套 `/rag`。当前页面只调用模板与静态校验 API，
+不执行工作流；真实节点执行继续由 classic `/api/workflow/run` 按各节点成熟度提供。
 
 最后更新日期：2026-07-23
 维护人：模镜团队

@@ -18,7 +18,10 @@ import {
   CAPTURE_FRAME_COUNT,
   CAPTURE_HEIGHT,
   CAPTURE_WIDTH,
+  NARROW_CAPTURE_WIDTH,
+  RUNTIME_CAPTURE_FRAME_PREFIX,
   parseCaptureArguments,
+  parseCaptureRequest,
   readPngDimensions,
   validateCaptureOutput,
 } from "../scripts/capture-godot.mjs";
@@ -100,18 +103,20 @@ test("Godot output gates reject errors and duplicate readiness", () => {
   );
 });
 
-test("GdUnit output gate requires the exact four-test clean summary", () => {
+test("GdUnit output gate requires complete zero-failure accounting", () => {
   const success = [
     "Overall Summary:",
-    "4 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans",
-    "Executed test suites: (1/1)",
-    "Executed test cases : (4/4)",
+    "11 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans",
+    "Executed test suites: (2/2)",
+    "Executed test cases : (11/11)",
   ].join("\n");
   assert.doesNotThrow(() => assertGdUnitSuccess(success));
   for (const invalid of [
     "No test cases found",
-    success.replace("4 test cases", "3 test cases"),
+    success.replace("11 test cases", "3 test cases").replace("(11/11)", "(3/3)"),
     success.replace("0 failures", "1 failures"),
+    success.replace("(11/11)", "(10/11)"),
+    success.replace("(2/2)", "(1/2)"),
   ]) {
     assert.throws(
       () => assertGdUnitSuccess(invalid),
@@ -155,6 +160,70 @@ test("capture contract fixes PNG dimensions and twelve frames", () => {
   assert.throws(
     () => readPngDimensions(Buffer.from("not-png")),
     (error) => error instanceof GodotHarnessError && error.code === "GODOT_CAPTURE_PNG_INVALID",
+  );
+});
+
+test("runtime capture preserves the R4 command and accepts only frozen examples", () => {
+  const output = path.join(path.parse(moduleRoot).root, "tmp", "runtime-capture-fixture");
+  assert.deepEqual(parseCaptureRequest(["--output", output]), {
+    output,
+    example: null,
+    width: CAPTURE_WIDTH,
+  });
+  assert.deepEqual(parseCaptureRequest([
+    "--output",
+    output,
+    "--example",
+    "mechanics-conformance",
+  ]), {
+    output,
+    example: "mechanics-conformance",
+    width: CAPTURE_WIDTH,
+  });
+  assert.deepEqual(parseCaptureRequest([
+    "--output",
+    output,
+    "--example",
+    "last-train-r1",
+  ]), {
+    output,
+    example: "last-train-r1",
+    width: CAPTURE_WIDTH,
+  });
+  assert.deepEqual(parseCaptureRequest([
+    "--output",
+    output,
+    "--example",
+    "last-train-r1",
+    "--narrow",
+  ]), {
+    output,
+    example: "last-train-r1",
+    width: NARROW_CAPTURE_WIDTH,
+  });
+  assert.equal(NARROW_CAPTURE_WIDTH, 640);
+  assert.equal(RUNTIME_CAPTURE_FRAME_PREFIX, "runtime-lab");
+  assert.throws(
+    () => parseCaptureRequest(["--output", output, "--example", "unapproved"]),
+    (error) => error instanceof GodotHarnessError &&
+      error.code === "GODOT_CAPTURE_ARGUMENT_ERROR",
+  );
+  const source = readFileSync(path.join(moduleRoot, "scripts", "capture-godot.mjs"), "utf8");
+  assert.match(source, /"--quit-after", String\(CAPTURE_FRAME_COUNT\)/u);
+  assert.match(source, /"res:\/\/runtime\/runtime_lab\.tscn"/u);
+  assert.match(source, /GODOT_RUNTIME_READY_MARKER/u);
+  assert.match(source, /configureDisposableViewport\(disposable\.projectRoot, request\.width\)/u);
+  assert.match(source, /\["viewport_width", "window_width_override"\]/u);
+  assert.throws(
+    () => parseCaptureRequest([
+      "--output",
+      output,
+      "--example",
+      "last-train-r1",
+      "--wide",
+    ]),
+    (error) => error instanceof GodotHarnessError &&
+      error.code === "GODOT_CAPTURE_ARGUMENT_ERROR",
   );
 });
 

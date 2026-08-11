@@ -715,7 +715,7 @@ class BenchmarkJobExecutor:
             system,
             user,
             0.2,
-            12_000,
+            16_000 if int(request.get("case_count") or 12) > 30 else 12_000,
         )
         attempts = [{
             "attempt": "initial",
@@ -755,7 +755,7 @@ class BenchmarkJobExecutor:
                 repair_system,
                 repair_user,
                 0.0,
-                12_000,
+                16_000 if int(request.get("case_count") or 12) > 30 else 12_000,
             )
             attempts.append({
                 "attempt": "repair",
@@ -789,6 +789,9 @@ class BenchmarkJobExecutor:
             cases=generated["cases"],
             provenance={
                 "generator": "modelmirror-targeted-rag-benchmark-v1",
+                "generation_purpose": str(
+                    request.get("generation_purpose") or "general"
+                ),
                 "generation_job_id": job["job_id"],
                 "generator_model_id": str(request.get("generator_model_id") or "")[:300],
                 "target_reference": copy.deepcopy(reference),
@@ -807,6 +810,9 @@ class BenchmarkJobExecutor:
                 "available": list(context["available_coverage"]),
                 "locales": list(request.get("locales") or ["zh-CN", "en-US"]),
                 "targeting": copy.deepcopy(generated.get("targeting") or []),
+                "generation_purpose": str(
+                    request.get("generation_purpose") or "general"
+                ),
             },
             calibration={
                 "status": "pending",
@@ -821,6 +827,9 @@ class BenchmarkJobExecutor:
             status="validating",
             generation={
                 "case_count": len(generated["cases"]),
+                "generation_purpose": str(
+                    request.get("generation_purpose") or "general"
+                ),
                 "repair_used": repair_used,
                 "attempt_diagnostics": copy.deepcopy(attempts),
                 "assumptions": generated["assumptions"],

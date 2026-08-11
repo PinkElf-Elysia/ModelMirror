@@ -18,11 +18,11 @@ from pathlib import Path
 
 
 ALLOWED_ADAPTERS = {
-    "agentql-mcp", "brave-search-mcp", "exa-mcp", "firecrawl-mcp",
-    "perplexity-mcp", "tavily-mcp", "axiom-mcp", "figma-context-mcp",
-    "google-maps-mcp", "grafana-mcp", "graphlit-mcp", "kagi-mcp",
+    "agentql-mcp", "blazickjp-arxiv-mcp-server", "brave-search-mcp", "brave-brave-search-mcp-server", "exa-mcp", "firecrawl-mcp",
+    "perplexity-mcp", "tavily-mcp", "axiom-mcp", "figma-context-mcp", "fatwang2-search1api-mcp",
+    "google-maps-mcp", "grafana-mcp", "graphlit-mcp", "kagi-mcp", "kagisearch-kagimcp",
     "pinecone-assistant-mcp", "shodan-mcp", "virustotal-mcp",
-    "terraform-mcp",
+    "terraform-mcp", "livetennisapi-livetennisapi-mcp",
 }
 SOCKET_PATH = Path(
     os.getenv(

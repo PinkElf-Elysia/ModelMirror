@@ -28,3 +28,4 @@
 
 # Preserve the approved upstream bytes and its fixture whitespace exactly.
 apps/runtime-godot/addons/gdUnit4/** -text -whitespace
+third-party/kenney-prototype-kit/LICENSE.txt -text -whitespace

@@ -15,6 +15,7 @@ from .creator_evaluation import (
     SkillEvaluationValidationError,
 )
 from .creator_evaluation_service import SkillCreatorEvaluationService
+from .creator_resource_build_service import SkillCreatorResourceBuildService
 from .creator_resource_service import SkillCreatorResourcePlanningService
 from .creator_service import SkillCreatorService
 from .creator_store import (
@@ -44,6 +45,7 @@ router = APIRouter(prefix="/api/skills/creator", tags=["skill-creator"])
 _service: SkillCreatorService | None = None
 _evaluation_service: SkillCreatorEvaluationService | None = None
 _resource_planning_service: SkillCreatorResourcePlanningService | None = None
+_resource_build_service: SkillCreatorResourceBuildService | None = None
 
 
 class CreatorSessionCreateRequest(BaseModel):
@@ -123,6 +125,34 @@ class CreatorResourcePlanPatchRequest(CreatorResourcePlanWriteRequest):
     output_contract: list[str] | None = Field(default=None, max_length=20)
     failure_modes: list[str] | None = Field(default=None, max_length=20)
     resources: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+
+
+class CreatorResourceBuildStartRequest(CreatorResourcePlanWriteRequest):
+    pass
+
+
+class CreatorResourceBuildMutationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_session_revision: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+    expected_digest: str = Field(
+        min_length=64, max_length=64, pattern=r"^[0-9a-fA-F]{64}$"
+    )
+
+
+class CreatorResourceReviewRequest(CreatorResourceBuildMutationRequest):
+    decision: Literal["accept", "revise"]
+    feedback: str = Field(default="", max_length=4_000)
+
+
+class CreatorResourceEditRequest(CreatorResourceBuildMutationRequest):
+    content: str = Field(min_length=1, max_length=24 * 1024)
+
+
+class CreatorResourceFinalizeRequest(CreatorResourceBuildMutationRequest):
+    decision: Literal["accept", "revise"]
+    feedback: str = Field(default="", max_length=4_000)
 
 
 class CreatorBlankDraftRequest(BaseModel):
@@ -214,6 +244,25 @@ class CreatorEvaluationIterateRequest(CreatorEvaluationWriteRequest):
 
 def configure_skill_creator(service: SkillCreatorService | None) -> None:
     global _service
+    global _evaluation_service
+    global _resource_planning_service
+    global _resource_build_service
+    if service is not _service:
+        if (
+            _evaluation_service is not None
+            and getattr(_evaluation_service, "creator_service", None) is not service
+        ):
+            _evaluation_service = None
+        if (
+            _resource_planning_service is not None
+            and getattr(_resource_planning_service, "creator_service", None) is not service
+        ):
+            _resource_planning_service = None
+        if (
+            _resource_build_service is not None
+            and getattr(_resource_build_service, "creator_service", None) is not service
+        ):
+            _resource_build_service = None
     _service = service
 
 
@@ -229,6 +278,13 @@ def configure_skill_creator_resource_planning(
 ) -> None:
     global _resource_planning_service
     _resource_planning_service = service
+
+
+def configure_skill_creator_resource_build(
+    service: SkillCreatorResourceBuildService | None,
+) -> None:
+    global _resource_build_service
+    _resource_build_service = service
 
 
 def get_skill_creator_service() -> SkillCreatorService:
@@ -259,6 +315,17 @@ def get_skill_creator_resource_planning_service() -> SkillCreatorResourcePlannin
         )
     _resource_planning_service.require_enabled()
     return _resource_planning_service
+
+
+def get_skill_creator_resource_build_service() -> SkillCreatorResourceBuildService:
+    get_skill_creator_resource_planning_service()
+    if _resource_build_service is None:
+        raise SkillCreatorValidationError(
+            "Skill Creator resource build is unavailable.",
+            code="skill_creator_resource_authoring_disabled",
+        )
+    _resource_build_service.require_enabled()
+    return _resource_build_service
 
 
 def _api_error(exc: Exception) -> HTTPException:
@@ -311,6 +378,11 @@ def _api_error(exc: Exception) -> HTTPException:
         } else 400
         if code == "model_gateway_unconfigured":
             status = 503
+        elif code in {
+            "skill_creator_sandbox_unavailable",
+            "skill_creator_sandbox_profile_invalid",
+        }:
+            status = 503
         elif code == "skill_creator_source_unavailable":
             status = 501
         elif code in {
@@ -319,6 +391,8 @@ def _api_error(exc: Exception) -> HTTPException:
             "skill_creator_tool_not_called",
             "skill_creator_resource_planner_failed",
             "skill_creator_resource_planner_invalid",
+            "skill_creator_resource_builder_failed",
+            "skill_creator_resource_builder_invalid",
         }:
             status = 502
         elif code == "skill_creator_proposal_binding_invalid":
@@ -379,6 +453,12 @@ def _session_response(
             and _resource_planning_service.enabled
             else None
         ),
+        "resource_build": (
+            _resource_build_service.current_projection(session.session_id)
+            if _resource_build_service is not None
+            and _resource_build_service.enabled
+            else None
+        ),
     }
     return response
 
@@ -398,6 +478,10 @@ async def get_creator_status():
             "resource_authoring_enabled": False,
             "resource_authoring_version": None,
             "resource_planner_available": False,
+            "resource_build_enabled": False,
+            "resource_build_version": None,
+            "resource_builder_available": False,
+            "script_sandbox_configured": False,
         }
     status = _service.status()
     status["evaluation_available"] = _evaluation_service is not None
@@ -414,6 +498,16 @@ async def get_creator_status():
             "resource_authoring_enabled": False,
             "resource_authoring_version": None,
             "resource_planner_available": False,
+        }
+    )
+    status.update(
+        _resource_build_service.status()
+        if _resource_build_service is not None
+        else {
+            "resource_build_enabled": False,
+            "resource_build_version": None,
+            "resource_builder_available": False,
+            "script_sandbox_configured": False,
         }
     )
     return status
@@ -437,8 +531,15 @@ async def list_creator_sessions(limit: int = Query(default=100, ge=1, le=500)):
 async def create_creator_session(payload: CreatorSessionCreateRequest):
     try:
         service = get_skill_creator_service()
+        values = payload.model_dump(mode="python")
+        values["authoring_flow"] = (
+            "resource"
+            if _resource_planning_service is not None
+            and _resource_planning_service.enabled
+            else "legacy"
+        )
         session = await asyncio.to_thread(
-            service.create_session, **payload.model_dump(mode="python")
+            service.create_session, **values
         )
         return _session_response(service, session)
     except (SkillCreatorError, SkillDraftError) as exc:
@@ -678,6 +779,138 @@ async def confirm_creator_resource_plan(
             plan, session=session, draft=draft
         )
         return response
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/resource-build", status_code=201)
+async def start_creator_resource_build(
+    session_id: str, payload: CreatorResourceBuildStartRequest
+):
+    try:
+        build_service = get_skill_creator_resource_build_service()
+        build = await build_service.start(
+            session_id,
+            plan_id=payload.plan_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_plan_revision=payload.expected_plan_revision,
+            expected_plan_digest=payload.expected_plan_digest.lower(),
+        )
+        return {
+            "version": build_service.VERSION,
+            "resource_build": build_service.build_store.serialize(build),
+        }
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.get("/resource-builds/{build_id}")
+async def get_creator_resource_build(build_id: str):
+    try:
+        build_service = get_skill_creator_resource_build_service()
+        build = await asyncio.to_thread(build_service.build_store.require, build_id)
+        projection = build_service.current_projection(build.session_id)
+        if projection is None or projection.get("build_id") != build_id:
+            raise SkillCreatorConflictError("Resource build is no longer current for this session.")
+        return {"version": build_service.VERSION, "resource_build": projection}
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/resource-builds/{build_id}/next")
+async def advance_creator_resource_build(
+    build_id: str, payload: CreatorResourceBuildMutationRequest
+):
+    try:
+        build_service = get_skill_creator_resource_build_service()
+        build = await build_service.next(
+            build_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+        )
+        return {
+            "version": build_service.VERSION,
+            "resource_build": build_service.build_store.serialize(build),
+        }
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/resource-builds/{build_id}/resources/{resource_id}/review")
+async def review_creator_resource(
+    build_id: str,
+    resource_id: str,
+    payload: CreatorResourceReviewRequest,
+):
+    try:
+        build_service = get_skill_creator_resource_build_service()
+        build = await asyncio.to_thread(
+            build_service.review_resource,
+            build_id,
+            resource_id=resource_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+            decision=payload.decision,
+            feedback=payload.feedback,
+        )
+        return {
+            "version": build_service.VERSION,
+            "resource_build": build_service.build_store.serialize(build),
+        }
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.put("/resource-builds/{build_id}/resources/{resource_id}")
+async def edit_creator_resource(
+    build_id: str,
+    resource_id: str,
+    payload: CreatorResourceEditRequest,
+):
+    try:
+        build_service = get_skill_creator_resource_build_service()
+        build = await build_service.edit_resource(
+            build_id,
+            resource_id=resource_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+            content=payload.content,
+        )
+        return {
+            "version": build_service.VERSION,
+            "resource_build": build_service.build_store.serialize(build),
+        }
+    except (SkillCreatorError, SkillDraftError) as exc:
+        raise _api_error(exc) from exc
+
+
+@router.post("/resource-builds/{build_id}/finalize")
+async def finalize_creator_resource_build(
+    build_id: str, payload: CreatorResourceFinalizeRequest
+):
+    try:
+        build_service = get_skill_creator_resource_build_service()
+        build, proposal = await asyncio.to_thread(
+            build_service.finalize,
+            build_id,
+            expected_session_revision=payload.expected_session_revision,
+            expected_revision=payload.expected_revision,
+            expected_digest=payload.expected_digest.lower(),
+            decision=payload.decision,
+            feedback=payload.feedback,
+        )
+        return {
+            "version": build_service.VERSION,
+            "resource_build": build_service.build_store.serialize(build),
+            "proposal": (
+                AuthoringProposalStore.serialize(proposal, include_payload=True)
+                if proposal is not None
+                else None
+            ),
+        }
     except (SkillCreatorError, SkillDraftError) as exc:
         raise _api_error(exc) from exc
 

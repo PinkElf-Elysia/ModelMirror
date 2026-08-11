@@ -11,11 +11,74 @@ import server.benchmarks.api as benchmark_api
 import server.rag.api as rag_api
 from server.benchmarks.executor import BenchmarkJobExecutor
 from server.benchmarks.knowledge_generation import KnowledgeBenchmarkGenerationService
+from server.benchmarks.models import BenchmarkGenerationRequest
 from server.benchmarks.service import BenchmarkGenerationError
 from server.benchmarks.store import BenchmarkJobStore
 from server.main import app
 from server.rag.evaluation import EvaluationStateError, KnowledgeEvaluationStore
 from server.rag.vector_store import StoredVectorChunk
+
+
+def test_strategy_tuning_generation_supports_qualified_positive_and_negative_counts() -> None:
+    request = BenchmarkGenerationRequest.model_validate(
+        {
+            "target": {
+                "kind": "knowledge_version",
+                "kb_id": "kb_target",
+                "pipeline_version_id": "pipeline_v2",
+            },
+            "generator_model_id": "test-model",
+            "generation_purpose": "strategy_tuning",
+            "case_count": 42,
+            "no_result_count": 12,
+        }
+    )
+
+    assert request.case_count - request.no_result_count == 30
+    assert request.no_result_count == 12
+
+
+@pytest.mark.parametrize(
+    ("case_count", "no_result_count", "message"),
+    [
+        (41, 12, "at least 30 answerable cases"),
+        (35, 5, "either 0 or at least 12 hard-negative cases"),
+    ],
+)
+def test_strategy_tuning_generation_rejects_unqualified_counts(
+    case_count: int,
+    no_result_count: int,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        BenchmarkGenerationRequest.model_validate(
+            {
+                "target": {
+                    "kind": "knowledge_version",
+                    "kb_id": "kb_target",
+                    "pipeline_version_id": "pipeline_v2",
+                },
+                "generator_model_id": "test-model",
+                "generation_purpose": "strategy_tuning",
+                "case_count": case_count,
+                "no_result_count": no_result_count,
+            }
+        )
+
+
+def test_general_generation_preserves_legacy_limits() -> None:
+    with pytest.raises(ValueError, match="general generation cannot exceed 30 cases"):
+        BenchmarkGenerationRequest.model_validate(
+            {
+                "target": {
+                    "kind": "knowledge_version",
+                    "kb_id": "kb_target",
+                    "pipeline_version_id": "pipeline_v2",
+                },
+                "generator_model_id": "test-model",
+                "case_count": 31,
+            }
+        )
 
 
 class _VectorStore:

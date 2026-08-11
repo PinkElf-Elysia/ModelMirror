@@ -38,6 +38,52 @@ _RESOURCE_ROOTS = {
     "reference": "references",
     "asset": "assets",
 }
+_RESOURCE_KIND_ALIASES = {
+    "script": "script",
+    "scripts": "script",
+    "脚本": "script",
+    "reference": "reference",
+    "references": "reference",
+    "参考": "reference",
+    "参考资料": "reference",
+    "asset": "asset",
+    "assets": "asset",
+    "template": "asset",
+    "模板": "asset",
+}
+_RESOURCE_ACTION_ALIASES = {
+    "keep": "keep",
+    "retain": "keep",
+    "reuse": "keep",
+    "保留": "keep",
+    "复用": "keep",
+    "create": "create",
+    "add": "create",
+    "new": "create",
+    "generate": "create",
+    "创建": "create",
+    "新增": "create",
+    "update": "update",
+    "modify": "update",
+    "replace": "update",
+    "修改": "update",
+    "更新": "update",
+    "delete": "delete",
+    "remove": "delete",
+    "删除": "delete",
+    "移除": "delete",
+}
+_RESOURCE_COST_ALIASES = {
+    "low": "low",
+    "small": "low",
+    "低": "low",
+    "medium": "medium",
+    "moderate": "medium",
+    "中": "medium",
+    "high": "high",
+    "large": "high",
+    "高": "high",
+}
 _WINDOWS_RESERVED_NAMES = {
     "con", "prn", "aux", "nul",
     *(f"com{index}" for index in range(1, 10)),
@@ -280,9 +326,9 @@ class SkillResourcePlanStore:
             current = self._require_current_unlocked(
                 plan_id, expected_revision=expected_revision, expected_digest=expected_digest
             )
-            if current.state not in {"ready", "needs_regeneration"}:
+            if current.state not in {"ready", "needs_regeneration", "confirmed"}:
                 raise SkillCreatorConflictError(
-                    "Only an unconfirmed ready plan can be edited."
+                    "Only the current resource plan can be revised."
                 )
             path_by_id = {item.resource_id: item.path for item in current.resources}
             resource_payload = []
@@ -423,15 +469,30 @@ class SkillResourcePlanStore:
         for raw in value:
             if not isinstance(raw, dict):
                 raise SkillCreatorValidationError("Invalid resource plan item.")
-            kind = str(raw.get("kind") or "").strip()
-            action = str(raw.get("action") or "create").strip()
-            generation_cost = str(raw.get("generation_cost") or "").strip()
-            if (
-                kind not in _RESOURCE_ROOTS
-                or action not in {"keep", "create", "update", "delete"}
-                or generation_cost not in {"low", "medium", "high"}
-            ):
-                raise SkillCreatorValidationError("Invalid resource kind or action.")
+            kind = _RESOURCE_KIND_ALIASES.get(
+                str(raw.get("kind") or "").strip().casefold()
+            )
+            action = _RESOURCE_ACTION_ALIASES.get(
+                str(raw.get("action") or "create").strip().casefold()
+            )
+            generation_cost = _RESOURCE_COST_ALIASES.get(
+                str(raw.get("generation_cost") or "medium").strip().casefold()
+            )
+            if kind is None:
+                raise SkillCreatorValidationError(
+                    "Invalid resource kind; use script, reference, or asset.",
+                    code="skill_creator_resource_kind_invalid",
+                )
+            if action is None:
+                raise SkillCreatorValidationError(
+                    "Invalid resource action; use keep, create, update, or delete.",
+                    code="skill_creator_resource_action_invalid",
+                )
+            if generation_cost is None:
+                raise SkillCreatorValidationError(
+                    "Invalid resource generation cost; use low, medium, or high.",
+                    code="skill_creator_resource_cost_invalid",
+                )
             path = self._resource_path(raw.get("path"), expected_root=_RESOURCE_ROOTS[kind])
             if path.casefold() in {item.casefold() for item in paths}:
                 raise SkillCreatorValidationError("Resource plan paths must be unique.")

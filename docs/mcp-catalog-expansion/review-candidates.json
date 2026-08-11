@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "snapshot_date": "2026-08-09",
-  "purpose": "approved-catalog-expansion",
+  "purpose": "adaptation-classification",
   "runtime_catalog_changed": true,
   "source_snapshots": [
     {
@@ -120,10 +120,13 @@
           "publishedAt": "2026-07-08T11:16:08Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "deusdata-codebase-memory-mcp"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "deusdata-codebase-memory-mcp",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 2,
@@ -190,10 +193,13 @@
           "publishedAt": "2026-08-07T17:40:37Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "0xmassi-webclaw"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+      "catalog_id": "0xmassi-webclaw",
+      "decision_reason_code": "blocked-arbitrary-browser-or-url-surface",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 3,
@@ -260,10 +266,13 @@
           "publishedAt": "2025-04-15T23:37:23Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "co-browser-browser-use-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+      "catalog_id": "co-browser-browser-use-mcp-server",
+      "decision_reason_code": "blocked-arbitrary-browser-or-url-surface",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 4,
@@ -330,10 +339,13 @@
           "publishedAt": "2026-08-01T16:44:57Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "sipyourdrink-ltd-bernstein"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+      "catalog_id": "sipyourdrink-ltd-bernstein",
+      "decision_reason_code": "blocked-arbitrary-command-or-code-execution",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 5,
@@ -400,10 +412,13 @@
           "publishedAt": "2026-05-18T00:07:57Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "beever-ai-beever-atlas"
+      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "catalog_id": "beever-ai-beever-atlas",
+      "decision_reason_code": "planned-stateful-resource-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 6,
@@ -470,10 +485,13 @@
           "publishedAt": "2026-07-28T01:25:42Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "googleapis-genai-toolbox"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "googleapis-genai-toolbox",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 7,
@@ -540,10 +558,13 @@
           "publishedAt": "2026-08-09T07:25:01Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "flox-foundation-flox-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游包含订单、链上交易或真实资金相关操作；本目录不开放交易执行与签名能力。",
+      "catalog_id": "flox-foundation-flox-mcp",
+      "decision_reason_code": "blocked-financial-or-transactional-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 8,
@@ -610,10 +631,13 @@
           "publishedAt": "2026-08-07T16:05:38Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "us-crw"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "us-crw",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 9,
@@ -680,10 +704,13 @@
           "publishedAt": "2026-08-02T04:03:46Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "fatwang2-search1api-mcp"
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "官方 search1api-mcp v0.5.3 契约已锁定；原生兼容层仅开放搜索、新闻与趋势发现，强制关闭结果抓取，并固定 Search1API 出口与保守限流。",
+      "catalog_id": "fatwang2-search1api-mcp",
+      "decision_reason_code": "ready-official-native-discovery-only-facade",
+      "adapter_version": "0.5.3-compatible-native-v1",
+      "adaptation_wave": 15
     },
     {
       "rank": 10,
@@ -747,10 +774,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "markuspfundstein-mcp-obsidian"
+      "decision_reason": "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
+      "catalog_id": "markuspfundstein-mcp-obsidian",
+      "decision_reason_code": "planned-auth-scope-and-write-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 11,
@@ -817,10 +847,13 @@
           "publishedAt": "2025-10-06T13:28:26Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "mrexodia-ida-pro-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "mrexodia-ida-pro-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 12,
@@ -887,10 +920,13 @@
           "publishedAt": "2025-12-10T10:35:23Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "qdrant-mcp-server-qdrant"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "qdrant-mcp-server-qdrant",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 13,
@@ -957,10 +993,13 @@
           "publishedAt": "2026-07-09T20:15:23Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "wonderwhy-er-desktopcommandermcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+      "catalog_id": "wonderwhy-er-desktopcommandermcp",
+      "decision_reason_code": "blocked-arbitrary-command-or-code-execution",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 14,
@@ -1027,10 +1066,13 @@
           "publishedAt": "2026-07-29T00:50:56Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "blazickjp-arxiv-mcp-server"
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "arxiv-mcp-server v0.6.2 的公开元数据契约已锁定；仅开放论文搜索与摘要读取，下载、全文读取、本地缓存、提醒和导出工具均不可发现、不可调用。",
+      "catalog_id": "blazickjp-arxiv-mcp-server",
+      "decision_reason_code": "ready-native-read-only-metadata-facade",
+      "adapter_version": "0.6.2-compatible-native-v1",
+      "adaptation_wave": 14
     },
     {
       "rank": 15,
@@ -1097,10 +1139,13 @@
           "publishedAt": "2026-07-27T20:01:16Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "goldentrii-agentrecall"
+      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "catalog_id": "goldentrii-agentrecall",
+      "decision_reason_code": "planned-stateful-resource-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 16,
@@ -1167,10 +1212,13 @@
           "publishedAt": "2026-05-01T21:05:36Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "zcaceres-markdownify-mcp"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "zcaceres-markdownify-mcp",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 17,
@@ -1237,10 +1285,13 @@
           "publishedAt": "2026-06-19T04:19:31Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "benborla-mcp-server-mysql"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "benborla-mcp-server-mysql",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 18,
@@ -1307,10 +1358,13 @@
           "publishedAt": "2026-08-09T00:06:39Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "samuelgursky-davinci-resolve-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "samuelgursky-davinci-resolve-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 19,
@@ -1377,10 +1431,13 @@
           "publishedAt": "2026-04-30T07:18:46Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "aas-ee-open-websearch"
+      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "catalog_id": "aas-ee-open-websearch",
+      "decision_reason_code": "planned-fixed-egress-read-only-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 20,
@@ -1447,10 +1504,13 @@
           "publishedAt": "2026-08-07T14:42:16Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "chigwell-telegram-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+      "catalog_id": "chigwell-telegram-mcp",
+      "decision_reason_code": "blocked-broad-account-or-message-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 21,
@@ -1517,10 +1577,13 @@
           "publishedAt": "2026-07-24T08:44:45Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "codergamester-mcp-unity"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "codergamester-mcp-unity",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 22,
@@ -1587,10 +1650,13 @@
           "publishedAt": "2026-08-08T17:08:59Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "flux159-mcp-server-kubernetes"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+      "catalog_id": "flux159-mcp-server-kubernetes",
+      "decision_reason_code": "blocked-privileged-infrastructure-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 23,
@@ -1657,10 +1723,13 @@
           "publishedAt": "2026-07-08T15:48:28Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "genomoncology-biomcp"
+      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "catalog_id": "genomoncology-biomcp",
+      "decision_reason_code": "planned-fixed-egress-read-only-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 24,
@@ -1727,10 +1796,13 @@
           "publishedAt": "2026-07-28T14:23:09Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "nickclyde-duckduckgo-mcp-server"
+      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "catalog_id": "nickclyde-duckduckgo-mcp-server",
+      "decision_reason_code": "planned-fixed-egress-read-only-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 25,
@@ -1797,10 +1869,13 @@
           "publishedAt": "2026-08-09T18:38:06Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "oraios-serena"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+      "catalog_id": "oraios-serena",
+      "decision_reason_code": "blocked-arbitrary-command-or-code-execution",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 26,
@@ -1861,10 +1936,13 @@
           "publishedAt": "2026-08-02T20:45:45Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "taylorwilsdon-google-workspace-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+      "catalog_id": "taylorwilsdon-google-workspace-mcp",
+      "decision_reason_code": "blocked-broad-account-or-message-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 27,
@@ -1925,10 +2003,13 @@
           "publishedAt": "2026-03-11T17:19:08Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "mnemox-ai-idea-reality-mcp"
+      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "catalog_id": "mnemox-ai-idea-reality-mcp",
+      "decision_reason_code": "planned-fixed-egress-read-only-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 28,
@@ -1989,10 +2070,13 @@
           "publishedAt": "2026-08-05T02:45:36Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "chopratejas-headroom"
+      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "catalog_id": "chopratejas-headroom",
+      "decision_reason_code": "planned-stateful-resource-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 29,
@@ -2059,10 +2143,13 @@
           "publishedAt": "2026-07-30T12:28:21Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "designcomputer-mysql-mcp-server"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "designcomputer-mysql-mcp-server",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 30,
@@ -2129,10 +2216,13 @@
           "publishedAt": "2026-04-11T04:25:44Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "freepeak-db-mcp-server"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "freepeak-db-mcp-server",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 31,
@@ -2199,10 +2289,13 @@
           "publishedAt": "2026-08-07T03:19:38Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "ihor-sokoliuk-mcp-searxng"
+      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "catalog_id": "ihor-sokoliuk-mcp-searxng",
+      "decision_reason_code": "planned-fixed-egress-read-only-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 32,
@@ -2269,10 +2362,13 @@
           "publishedAt": "2026-06-12T11:32:01Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "inditextech-mcp-teams-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+      "catalog_id": "inditextech-mcp-teams-server",
+      "decision_reason_code": "blocked-broad-account-or-message-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 33,
@@ -2336,10 +2432,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "kagisearch-kagimcp"
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "官方 kagimcp v1.0.2 的 Search/Extract 契约已锁定；原生兼容层仅向 kagi.com 发送固定 Bearer API 请求，并拒绝携带凭据型查询参数的提取 URL。",
+      "catalog_id": "kagisearch-kagimcp",
+      "decision_reason_code": "ready-official-native-read-only-api-facade",
+      "adapter_version": "1.0.2-compatible-native-v1",
+      "adaptation_wave": 14
     },
     {
       "rank": 34,
@@ -2406,10 +2505,13 @@
           "publishedAt": "2025-11-26T17:09:23Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "mcpdotdirect-evm-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游包含订单、链上交易或真实资金相关操作；本目录不开放交易执行与签名能力。",
+      "catalog_id": "mcpdotdirect-evm-mcp-server",
+      "decision_reason_code": "blocked-financial-or-transactional-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 35,
@@ -2470,10 +2572,13 @@
           "publishedAt": "2026-08-08T18:28:10Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "shashankss1205-codegraphcontext"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "shashankss1205-codegraphcontext",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 36,
@@ -2534,10 +2639,13 @@
           "publishedAt": "2026-07-29T02:50:24Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "tuanle96-mcp-odoo"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+      "catalog_id": "tuanle96-mcp-odoo",
+      "decision_reason_code": "blocked-broad-account-or-message-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 37,
@@ -2598,10 +2706,13 @@
           "publishedAt": "2026-08-07T06:46:34Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "ckreiling-mcp-server-docker"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+      "catalog_id": "ckreiling-mcp-server-docker",
+      "decision_reason_code": "blocked-arbitrary-command-or-code-execution",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 38,
@@ -2665,10 +2776,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "coding-solo-godot-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "coding-solo-godot-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 39,
@@ -2732,10 +2846,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "cyberchitta-llm-context-py"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "cyberchitta-llm-context-py",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 40,
@@ -2802,10 +2919,13 @@
           "publishedAt": "2026-04-12T06:14:45Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "haris-musa-excel-mcp-server"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "haris-musa-excel-mcp-server",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 41,
@@ -2869,10 +2989,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "idosal-git-mcp"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "idosal-git-mcp",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 42,
@@ -2933,10 +3056,13 @@
           "publishedAt": "2026-08-05T03:19:48Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "nteract-semiotic"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "固定仓库未证明存在可锁定、可独立运行并可发现工具的 MCP Server 产品身份。",
+      "catalog_id": "nteract-semiotic",
+      "decision_reason_code": "blocked-not-an-executable-mcp-server",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 43,
@@ -2997,10 +3123,13 @@
           "publishedAt": "2026-08-04T07:12:11Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "public-ui-kolibri"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "固定仓库未证明存在可锁定、可独立运行并可发现工具的 MCP Server 产品身份。",
+      "catalog_id": "public-ui-kolibri",
+      "decision_reason_code": "blocked-not-an-executable-mcp-server",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 44,
@@ -3061,10 +3190,13 @@
           "publishedAt": "2026-08-06T13:03:55Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "radareorg-radare2-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "radareorg-radare2-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 45,
@@ -3125,10 +3257,13 @@
           "publishedAt": "2026-08-10T00:03:05Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "skyhook-io-radar"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+      "catalog_id": "skyhook-io-radar",
+      "decision_reason_code": "blocked-privileged-infrastructure-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 46,
@@ -3195,10 +3330,13 @@
           "publishedAt": "2026-06-22T13:13:54Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "suekou-mcp-notion-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该第三方实现提供的管理或写入面宽于目录中已存在的官方受控适配器，不再新增重复执行入口。",
+      "catalog_id": "suekou-mcp-notion-server",
+      "decision_reason_code": "blocked-superseded-unbounded-third-party",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 47,
@@ -3265,10 +3403,13 @@
           "publishedAt": "2026-05-14T21:09:11Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "xing5-mcp-google-sheets"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+      "catalog_id": "xing5-mcp-google-sheets",
+      "decision_reason_code": "blocked-broad-account-or-message-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 48,
@@ -3335,10 +3476,13 @@
           "publishedAt": "2026-08-05T15:41:47Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "comet-ml-opik-mcp"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "comet-ml-opik-mcp",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 49,
@@ -3405,10 +3549,13 @@
           "publishedAt": "2025-05-22T22:21:28Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "quarkiverse-quarkus-mcp-servers-filesystem"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "quarkiverse-quarkus-mcp-servers-filesystem",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 50,
@@ -3475,10 +3622,13 @@
           "publishedAt": "2025-05-22T22:21:28Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "quarkiverse-quarkus-mcp-servers-jdbc"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "quarkiverse-quarkus-mcp-servers-jdbc",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 51,
@@ -3545,10 +3695,13 @@
           "publishedAt": "2026-07-26T04:18:20Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "samvallad33-vestige"
+      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "catalog_id": "samvallad33-vestige",
+      "decision_reason_code": "planned-stateful-resource-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 52,
@@ -3615,10 +3768,13 @@
           "publishedAt": "2026-08-10T00:26:36Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "vivekvells-mcp-pandoc"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "vivekvells-mcp-pandoc",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 53,
@@ -3679,10 +3835,13 @@
           "publishedAt": "2026-07-20T12:21:48Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "yolfinance-yolfi-agent"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游包含订单、链上交易或真实资金相关操作；本目录不开放交易执行与签名能力。",
+      "catalog_id": "yolfinance-yolfi-agent",
+      "decision_reason_code": "blocked-financial-or-transactional-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 54,
@@ -3746,10 +3905,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "zilliztech-mcp-server-milvus"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "zilliztech-mcp-server-milvus",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 55,
@@ -3816,10 +3978,13 @@
           "publishedAt": "2026-02-27T15:42:19Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "alexei-led-k8s-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+      "catalog_id": "alexei-led-k8s-mcp-server",
+      "decision_reason_code": "blocked-privileged-infrastructure-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 56,
@@ -3880,10 +4045,13 @@
           "publishedAt": "2026-07-26T05:04:52Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "anypost-emailmd"
+      "decision_reason": "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
+      "catalog_id": "anypost-emailmd",
+      "decision_reason_code": "planned-auth-scope-and-write-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 57,
@@ -3950,10 +4118,13 @@
           "publishedAt": "2026-07-18T19:29:56Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "brave-brave-search-mcp-server"
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "官方 Brave Search MCP Server v2.1.0 已锁定；仅开放网页搜索与地点搜索两个只读工具，并复用固定出口、加密凭据和 Schema 漂移阻断。",
+      "catalog_id": "brave-brave-search-mcp-server",
+      "decision_reason_code": "ready-official-read-only-token-contract",
+      "adapter_version": "2.1.0",
+      "adaptation_wave": 13
     },
     {
       "rank": 58,
@@ -4014,10 +4185,13 @@
           "publishedAt": "2026-07-08T04:52:36Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "cablate-mcp-google-map"
+      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "catalog_id": "cablate-mcp-google-map",
+      "decision_reason_code": "planned-fixed-egress-read-only-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 59,
@@ -4081,10 +4255,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "diivi-aseprite-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "diivi-aseprite-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 60,
@@ -4142,10 +4319,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "docker-hub-mcp"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "docker-hub-mcp",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 61,
@@ -4209,10 +4389,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "integromat-make-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+      "catalog_id": "integromat-make-mcp-server",
+      "decision_reason_code": "blocked-broad-account-or-message-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 62,
@@ -4273,10 +4456,13 @@
           "publishedAt": "2026-08-03T23:51:16Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "ivanmurzak-unity-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "ivanmurzak-unity-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 63,
@@ -4337,10 +4523,13 @@
           "publishedAt": "2026-08-04T08:12:49Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "juyterman1000-entroly"
+      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "catalog_id": "juyterman1000-entroly",
+      "decision_reason_code": "planned-stateful-resource-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 64,
@@ -4401,10 +4590,13 @@
           "publishedAt": "2026-08-07T01:06:07Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "livetennisapi-livetennisapi-mcp"
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "官方 livetennisapi-mcp v1.4.0 契约已锁定；原生兼容层仅开放 FREE 层实时比分、赛程、球员与赛事目录，并剔除赔率、预测和模型字段。",
+      "catalog_id": "livetennisapi-livetennisapi-mcp",
+      "decision_reason_code": "ready-official-native-free-read-only-facade",
+      "adapter_version": "1.4.0-compatible-native-v1",
+      "adaptation_wave": 15
     },
     {
       "rank": 65,
@@ -4471,10 +4663,13 @@
           "publishedAt": "2026-04-10T18:53:37Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "neo4j-contrib-mcp-neo4j"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "neo4j-contrib-mcp-neo4j",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 66,
@@ -4541,10 +4736,13 @@
           "publishedAt": "2026-08-03T13:26:36Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "pab1it0-prometheus-mcp-server"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "pab1it0-prometheus-mcp-server",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 67,
@@ -4611,10 +4809,13 @@
           "publishedAt": "2025-11-06T16:59:40Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "pv-bhat-vibe-check-mcp-server"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "pv-bhat-vibe-check-mcp-server",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 68,
@@ -4678,10 +4879,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "r-huijts-strava-mcp"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "r-huijts-strava-mcp",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 69,
@@ -4745,10 +4949,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "runekaagaard-mcp-alchemy"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "runekaagaard-mcp-alchemy",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 70,
@@ -4809,10 +5016,13 @@
           "publishedAt": "2026-07-30T13:44:58Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "safedep-vet"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "safedep-vet",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 71,
@@ -4873,10 +5083,13 @@
           "publishedAt": "2026-07-21T14:54:07Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "stack-chan-stack-chan"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游可控制机器人或物理设备；当前没有设备身份、急停、权限和现场安全边界。",
+      "catalog_id": "stack-chan-stack-chan",
+      "decision_reason_code": "blocked-physical-device-control",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 72,
@@ -4943,10 +5156,13 @@
           "publishedAt": "2026-07-28T18:46:21Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "tacticlaunch-mcp-linear"
+      "decision_reason": "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
+      "catalog_id": "tacticlaunch-mcp-linear",
+      "decision_reason_code": "planned-auth-scope-and-write-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 73,
@@ -5013,10 +5229,13 @@
           "publishedAt": "2026-06-23T02:13:52Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "tiberriver256-mcp-server-azure-devops"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "tiberriver256-mcp-server-azure-devops",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 74,
@@ -5083,10 +5302,13 @@
           "publishedAt": "2026-08-03T10:09:11Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "xquik-dev-x-twitter-scraper"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖社交账号发布、已登录会话或平台写入；不满足无登录态复用与逐次写审批边界。",
+      "catalog_id": "xquik-dev-x-twitter-scraper",
+      "decision_reason_code": "blocked-social-publishing-or-session-reuse",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 75,
@@ -5153,10 +5375,13 @@
           "publishedAt": "2026-02-27T14:31:51Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "alexei-led-aws-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+      "catalog_id": "alexei-led-aws-mcp-server",
+      "decision_reason_code": "blocked-privileged-infrastructure-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 76,
@@ -5217,10 +5442,13 @@
           "publishedAt": "2026-08-03T21:15:22Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "arcadedata-arcadedb"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "arcadedata-arcadedb",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 77,
@@ -5284,10 +5512,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "carterlasalle-mac-messages-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "carterlasalle-mac-messages-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 78,
@@ -5354,10 +5585,13 @@
           "publishedAt": "2026-05-22T14:41:20Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "cr7258-elasticsearch-mcp-server"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "cr7258-elasticsearch-mcp-server",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 79,
@@ -5418,10 +5652,13 @@
           "publishedAt": "2026-08-09T05:38:17Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "datalayer-jupyter-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+      "catalog_id": "datalayer-jupyter-mcp-server",
+      "decision_reason_code": "blocked-arbitrary-command-or-code-execution",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 80,
@@ -5482,10 +5719,13 @@
           "publishedAt": "2026-03-27T00:14:10Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "emiliaprotocol-emilia-protocol"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "固定仓库未证明存在可锁定、可独立运行并可发现工具的 MCP Server 产品身份。",
+      "catalog_id": "emiliaprotocol-emilia-protocol",
+      "decision_reason_code": "blocked-not-an-executable-mcp-server",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 81,
@@ -5552,10 +5792,13 @@
           "publishedAt": "2025-07-29T09:09:43Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "eyalzh-browser-control-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+      "catalog_id": "eyalzh-browser-control-mcp",
+      "decision_reason_code": "blocked-arbitrary-browser-or-url-surface",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 82,
@@ -5619,10 +5862,13 @@
         },
         "latestRelease": null
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "ferdousbhai-investor-agent"
+      "decision_reason": "保留为 planned；仅在能够证明固定只读子集、目标作用域与无交易/无变更边界后继续。",
+      "catalog_id": "ferdousbhai-investor-agent",
+      "decision_reason_code": "planned-domain-read-only-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 83,
@@ -5683,10 +5929,13 @@
           "publishedAt": "2026-01-30T14:47:32Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "jpisnice-shadcn-ui-mcp-server"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "jpisnice-shadcn-ui-mcp-server",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 84,
@@ -5753,10 +6002,13 @@
           "publishedAt": "2026-07-29T11:45:18Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "kiliczsh-mcp-mongo-server"
+      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "catalog_id": "kiliczsh-mcp-mongo-server",
+      "decision_reason_code": "planned-read-only-data-facade",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 85,
@@ -5817,10 +6069,13 @@
           "publishedAt": "2026-06-17T22:50:45Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "lpigeon-ros-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游可控制机器人或物理设备；当前没有设备身份、急停、权限和现场安全边界。",
+      "catalog_id": "lpigeon-ros-mcp-server",
+      "decision_reason_code": "blocked-physical-device-control",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 86,
@@ -5887,10 +6142,13 @@
           "publishedAt": "2026-07-26T09:42:10Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "nwiizo-tfmcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游可直接修改集群、云资源或 Terraform 状态；固定只读 facade 与强制审批尚不存在。",
+      "catalog_id": "nwiizo-tfmcp",
+      "decision_reason_code": "blocked-privileged-infrastructure-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 87,
@@ -5957,10 +6215,13 @@
           "publishedAt": "2025-04-07T08:34:51Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "vectorize-io-vectorize-mcp-server"
+      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "catalog_id": "vectorize-io-vectorize-mcp-server",
+      "decision_reason_code": "planned-fixed-egress-read-only-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 88,
@@ -6021,10 +6282,13 @@
           "publishedAt": "2026-02-25T03:36:41Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "antvis-mcp-server-chart"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "antvis-mcp-server-chart",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 89,
@@ -6091,10 +6355,13 @@
           "publishedAt": "2026-04-29T07:27:30Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "caol64-wenyan-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖社交账号发布、已登录会话或平台写入；不满足无登录态复用与逐次写审批边界。",
+      "catalog_id": "caol64-wenyan-mcp",
+      "decision_reason_code": "blocked-social-publishing-or-session-reuse",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 90,
@@ -6155,10 +6422,13 @@
           "publishedAt": "2026-08-04T11:06:04Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "dataeval-dingo"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "dataeval-dingo",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 91,
@@ -6225,10 +6495,13 @@
           "publishedAt": "2026-04-09T08:38:13Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "g0t4-mcp-server-commands"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游核心能力是任意命令、代码、容器或仓库写入，不能降格为固定只读工具而保持产品身份。",
+      "catalog_id": "g0t4-mcp-server-commands",
+      "decision_reason_code": "blocked-arbitrary-command-or-code-execution",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 92,
@@ -6295,10 +6568,13 @@
           "publishedAt": "2026-08-05T08:20:10Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "keboola-keboola-mcp-server"
+      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "catalog_id": "keboola-keboola-mcp-server",
+      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 93,
@@ -6359,10 +6635,13 @@
           "publishedAt": "2026-05-29T04:51:55Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "line-line-bot-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游覆盖外部账号、消息或协作对象的广泛读写；多租户 OAuth、最小 scope 和目标审批尚未完成。",
+      "catalog_id": "line-line-bot-mcp-server",
+      "decision_reason_code": "blocked-broad-account-or-message-write",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 94,
@@ -6429,10 +6708,13 @@
           "publishedAt": "2026-08-05T21:50:45Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "ozgurcd-gograph"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "ozgurcd-gograph",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 95,
@@ -6499,10 +6781,13 @@
           "publishedAt": "2026-08-06T09:14:42Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "patdolitse-piia-engram"
+      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "catalog_id": "patdolitse-piia-engram",
+      "decision_reason_code": "planned-stateful-resource-policy",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 96,
@@ -6563,10 +6848,13 @@
           "publishedAt": "2026-07-06T08:22:30Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "taisly-agent"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖社交账号发布、已登录会话或平台写入；不满足无登录态复用与逐次写审批边界。",
+      "catalog_id": "taisly-agent",
+      "decision_reason_code": "blocked-social-publishing-or-session-reuse",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 97,
@@ -6627,10 +6915,13 @@
           "publishedAt": "2026-08-06T15:56:52Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "zinja-coder-jadx-ai-mcp"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游依赖桌面应用插件或本机实例；当前没有可信宿主桥接、实例所有权证明和逐应用授权。",
+      "catalog_id": "zinja-coder-jadx-ai-mcp",
+      "decision_reason_code": "blocked-desktop-host-instance-unverified",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 98,
@@ -6697,10 +6988,13 @@
           "publishedAt": "2025-04-03T10:25:36Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "alexander-zuev-supabase-mcp-server"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该第三方实现提供的管理或写入面宽于目录中已存在的官方受控适配器，不再新增重复执行入口。",
+      "catalog_id": "alexander-zuev-supabase-mcp-server",
+      "decision_reason_code": "blocked-superseded-unbounded-third-party",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     },
     {
       "rank": 99,
@@ -6767,10 +7061,13 @@
           "publishedAt": "2026-07-28T07:14:15Z"
         }
       },
-      "decision": "approved",
+      "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "bx33661-wireshark-mcp"
+      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "catalog_id": "bx33661-wireshark-mcp",
+      "decision_reason_code": "planned-fixed-sandbox-contract",
+      "adapter_version": "planned",
+      "adaptation_wave": 13
     },
     {
       "rank": 100,
@@ -6831,20 +7128,25 @@
           "publishedAt": "2025-11-04T16:10:39Z"
         }
       },
-      "decision": "approved",
-      "proposed_availability": "planned",
-      "decision_reason": "用户已批准进入第二阶段产品目录；当前仅作为 planned 展示，尚未完成固定工具契约、隔离策略与真实代表调用验收。",
-      "catalog_id": "bytedance-ui-tars-desktop-browser"
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游开放任意 URL、浏览器状态或反自动化能力，无法复用已冻结的匿名单 Origin 浏览器契约。",
+      "catalog_id": "bytedance-ui-tars-desktop-browser",
+      "decision_reason_code": "blocked-arbitrary-browser-or-url-surface",
+      "adapter_version": "blocked",
+      "adaptation_wave": 13
     }
   ],
-  "runtime_execution_changed": false,
-  "approval": {
-    "approved_at": "2026-08-09",
-    "approved_count": 100,
+  "runtime_execution_changed": true,
+  "adaptation": {
+    "classified_at": "2026-08-09",
+    "classified_count": 100,
     "availability": {
-      "planned": 100,
-      "blocked": 0
+      "ready": 5,
+      "planned": 51,
+      "blocked": 44
     },
-    "execution_boundary": "display-and-non-executable-manifest-only"
+    "ready_boundary": "fixed-read-only-token-sidecar-contract",
+    "non_ready_boundary": "no-command-endpoint-credential-or-tool-policy"
   }
 }

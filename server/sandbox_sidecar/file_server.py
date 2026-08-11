@@ -57,7 +57,7 @@ async def _stdio(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, req
 
     semaphore = (
         OFFICE_PARSER_SEMAPHORE
-        if adapter_id == "office-parser-mcp"
+        if adapter_id in {"office-parser-mcp", "output-renderer-mcp"}
         else SEMAPHORE
     )
     async with semaphore:

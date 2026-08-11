@@ -1112,6 +1112,15 @@ export function createChatFileScopeId() {
   return `chat-${random}`.replace(/[^A-Za-z0-9._:-]/g, "").slice(0, 128);
 }
 
+export function getOrCreateChatFileScopeId(modelId: string) {
+  const key = chatFileScopeStorageKey(modelId);
+  const existing = window.sessionStorage.getItem(key);
+  if (existing && /^[A-Za-z0-9._:-]{1,128}$/.test(existing)) return existing;
+  const scopeId = createChatFileScopeId();
+  window.sessionStorage.setItem(key, scopeId);
+  return scopeId;
+}
+
 export function activateChatFileScope(modelId: string, scopeId: string) {
   const key = chatFileScopeStorageKey(modelId);
   const previousScopeId = window.sessionStorage.getItem(key);

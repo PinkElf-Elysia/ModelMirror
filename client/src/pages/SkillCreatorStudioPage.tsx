@@ -21,6 +21,7 @@ import SkillEvaluationDesigner from "../components/skill-creator/SkillEvaluation
 import SkillEvaluationReview from "../components/skill-creator/SkillEvaluationReview";
 import SkillPackageEditor from "../components/skill-creator/SkillPackageEditor";
 import SkillProposalReview from "../components/skill-creator/SkillProposalReview";
+import SkillResourceBuildPanel from "../components/skill-creator/SkillResourceBuildPanel";
 import SkillResourcePlanPanel from "../components/skill-creator/SkillResourcePlanPanel";
 import { useSkillCreatorStatus } from "../hooks/useSkillCreatorStatus";
 import {
@@ -66,6 +67,8 @@ type CreatorStep = {
 const RESOURCE_STEPS: readonly CreatorStep[] = LEGACY_STEPS.map((step, index) => (
   index === 1
     ? { ...step, title: "素材与资源计划", detail: "确认素材并规划可复用资源" }
+    : index === 2
+      ? { ...step, title: "构建资源", detail: "逐项生成、实测并确认完整文件" }
     : step
 ));
 
@@ -252,6 +255,13 @@ export default function SkillCreatorStudioPage() {
     if (!hydratedProposal && value.proposal_id) {
       hydratedProposal = await readSkillCreatorProposal(value.proposal_id);
     }
+    if (!hydratedProposal && value.resource_build?.proposal_id) {
+      try {
+        hydratedProposal = await readSkillCreatorProposal(value.resource_build.proposal_id);
+      } catch {
+        hydratedProposal = null;
+      }
+    }
     let hydratedRun = value.evaluation_run ?? null;
     const runId = value.active_evaluation_run_id ?? value.latest_evaluation_run_id;
     if (!hydratedRun && runId) {
@@ -268,8 +278,10 @@ export default function SkillCreatorStudioPage() {
     setEvaluationRun(hydratedRun);
     syncSessionForm(value);
     let restoredStep = 0;
+    const resourceFlow = value.authoring_flow === "resource";
     if (!hydratedDraft && value.evidence_confirmed) restoredStep = 1;
-    if (hydratedDraft) restoredStep = 2;
+    if (resourceFlow && (value.resource_build || value.resource_plan?.state === "confirmed")) restoredStep = 2;
+    if (hydratedDraft) restoredStep = resourceFlow ? 3 : 2;
     if (value.state === "designing_tests") restoredStep = 3;
     if (hydratedRun || value.state === "reviewing_results") restoredStep = 4;
     if (
@@ -277,7 +289,7 @@ export default function SkillCreatorStudioPage() {
       value.review_state === "revise" || value.review_state === "accepted" || value.review_state === "waived" ||
       value.quality_status === "accepted" || value.quality_status === "eval_waived"
     ) restoredStep = 5;
-    if (hydratedProposal?.status === "pending" && value.review_state !== "revise") restoredStep = 1;
+    if (hydratedProposal?.status === "pending" && value.review_state !== "revise") restoredStep = resourceFlow ? 2 : 1;
     setActiveStep((current) => Math.max(current, restoredStep));
   }, [syncSessionForm]);
 
@@ -449,7 +461,7 @@ export default function SkillCreatorStudioPage() {
     try {
       await approveSkillCreatorProposal(proposal);
       await loadSession();
-      setActiveStep(2);
+      setActiveStep(session?.authoring_flow === "resource" ? 3 : 2);
       setNotice("提案已写入不可变草稿版本。该草稿仍需完成当前摘要的三例对照评测后才能安装。");
     } catch (caught) {
       handleError(caught, "提案批准失败。");
@@ -567,19 +579,27 @@ export default function SkillCreatorStudioPage() {
     };
   }, [draftDirty]);
 
-  const steps = status?.resource_authoring_enabled ? RESOURCE_STEPS : LEGACY_STEPS;
+  const resourceFlow = Boolean(status?.resource_authoring_enabled && session?.authoring_flow === "resource");
+  const steps = resourceFlow ? RESOURCE_STEPS : LEGACY_STEPS;
   const currentStep = steps[activeStep];
   const qualityStatus = session?.quality_status ?? draft?.quality_status ?? "not_evaluated";
   const installState = session?.install_state ?? draft?.install_state ?? "not_installed";
   const evaluationTerminal = Boolean(evaluationRun && ["completed", "failed", "cancelled", "stale"].includes(evaluationRun.status));
-  const availableSteps = useMemo(() => [
+  const availableSteps = useMemo(() => resourceFlow ? [
+    true,
+    true,
+    Boolean(session?.resource_build || session?.resource_plan?.state === "confirmed"),
+    Boolean(draft),
+    Boolean(evaluationRun),
+    Boolean(draft && (evaluationTerminal || session?.review_state === "revise" || qualityStatus === "accepted" || qualityStatus === "eval_waived")),
+  ] : [
     true,
     true,
     Boolean(draft),
     Boolean(draft),
     Boolean(evaluationRun),
     Boolean(draft && (evaluationTerminal || session?.review_state === "revise" || qualityStatus === "accepted" || qualityStatus === "eval_waived")),
-  ], [draft, evaluationRun, evaluationTerminal, qualityStatus, session?.review_state]);
+  ], [draft, evaluationRun, evaluationTerminal, qualityStatus, resourceFlow, session?.resource_build, session?.resource_plan?.state, session?.review_state]);
 
   async function acceptHydratedSession(value: SkillCreatorSession) {
     await hydrate(value);
@@ -772,7 +792,7 @@ export default function SkillCreatorStudioPage() {
                 <SkillResourcePlanPanel onSession={acceptHydratedSession} session={session} status={status} />
               ) : null}
 
-              {!status.resource_authoring_enabled && proposal?.status !== "pending" ? (
+              {!resourceFlow && proposal?.status !== "pending" ? (
                 <section className={`grid gap-5 ${draft ? "lg:grid-cols-1" : "lg:grid-cols-2"}`}>
                   <div className="rounded-lg border border-brand-300/20 bg-surface-900/80 p-5">
                     <div className="flex items-center gap-3">
@@ -834,9 +854,33 @@ export default function SkillCreatorStudioPage() {
             </div>
           ) : null}
 
-          {activeStep === 2 && draft ? (
+          {activeStep === 2 && resourceFlow ? (
+            <div className="mt-5 space-y-5">
+              <SkillResourceBuildPanel
+                onProposal={async (nextProposal) => {
+                  setProposal(nextProposal);
+                  setNotice("最终资源包已形成标准提案，请检查全包差异后批准写入草稿。");
+                }}
+                onSessionRefresh={loadSession}
+                session={session}
+                status={status}
+              />
+              {proposal?.status === "pending" ? (
+                <SkillProposalReview
+                  approving={busy === "approve"}
+                  baseDraft={draft}
+                  onApprove={approveProposal}
+                  onReject={rejectProposal}
+                  proposal={proposal}
+                  rejecting={busy === "reject"}
+                />
+              ) : null}
+            </div>
+          ) : null}
+
+          {activeStep === 2 && !resourceFlow && draft ? (
             <div className="mt-5">
-              {!status.resource_authoring_enabled && proposal?.status !== "pending" ? (
+              {proposal?.status !== "pending" ? (
                 <section className="mb-4 rounded-lg border border-brand-300/20 bg-brand-300/[0.06] p-4" aria-labelledby="creator-update-proposal-heading">
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-white" id="creator-update-proposal-heading">AI 生成可评测更新初稿</h2>

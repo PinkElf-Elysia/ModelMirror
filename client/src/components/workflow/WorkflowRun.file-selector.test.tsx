@@ -279,7 +279,10 @@ describe("WorkflowRun file selector", () => {
         if (url === "/api/files" && init?.method === "POST") {
           return uploadResponse;
         }
-        if (url.includes("scope_id=workflow%3Aselector-test-next")) {
+        if (
+          url.startsWith("/api/files?") &&
+          url.includes("scope_id=workflow%3Aselector-test-next")
+        ) {
           newScopeListRequests += 1;
           return Promise.resolve(
             new Response(
@@ -299,7 +302,10 @@ describe("WorkflowRun file selector", () => {
             ),
           );
         }
-        if (url.includes("scope_id=workflow%3Aselector-test")) {
+        if (
+          url.startsWith("/api/files?") &&
+          url.includes("scope_id=workflow%3Aselector-test")
+        ) {
           oldScopeListRequests += 1;
           return Promise.resolve(
             new Response(JSON.stringify({ items: [], total: 0 }), {

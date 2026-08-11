@@ -70,6 +70,13 @@ async def discover(adapter_id: str) -> tuple[str, set[str], str]:
         for tool in sorted(response.tools, key=lambda item: item.name)
         if tool.name in contract.tools
     ]
+    if os.getenv("MCP_SMOKE_PRINT_REVIEWED_SCHEMAS") == "1":
+        print(
+            "reviewed_tool_names="
+            + ",".join(item["name"] for item in reviewed_schemas)
+            + f";missing_count={len(missing)};discovered_count={len(discovered)}",
+            flush=True,
+        )
     digest = hashlib.sha256(
         json.dumps(
             reviewed_schemas,
@@ -78,6 +85,15 @@ async def discover(adapter_id: str) -> tuple[str, set[str], str]:
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
+    if os.getenv("MCP_SMOKE_PRINT_REVIEWED_SCHEMAS") == "1":
+        print(
+            json.dumps(
+                {"adapter_id": adapter_id, "reviewed_schemas": reviewed_schemas},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
     if digest != TOKEN_SCHEMA_SHA256.get(adapter_id):
         raise RuntimeError(
             f"{adapter_id} reviewed tool schema drifted: {digest}"

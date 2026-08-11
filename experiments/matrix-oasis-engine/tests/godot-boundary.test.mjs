@@ -21,7 +21,7 @@ function codes(report) {
   return report.violations.map((item) => item.code);
 }
 
-test("the committed first-party Godot source satisfies the R4 boundary", () => {
+test("the committed first-party Godot source satisfies the active round boundary", () => {
   const report = auditGodotBoundary();
   assert.equal(report.ok, true);
   assert.equal(report.checked >= 2, true);
@@ -34,6 +34,48 @@ test("approved static res reads pass and vendored source is excluded", (context)
   );
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
   assert.deepEqual(auditGodotBoundary({ root }), { ok: true, checked: 1, violations: [] });
+});
+
+test("fixed runtime diagnostic pointers pass without allowing arbitrary absolute paths", (context) => {
+  const root = fixture([
+    "extends Node",
+    "const DIAGNOSTIC_PATHS = [\"/prepared\", \"/snapshot/pack\", \"/actionId\"]",
+  ].join("\n"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  assert.equal(auditGodotBoundary({ root }).ok, true);
+  fs.writeFileSync(
+    path.join(root, "scripts", "case.gd"),
+    "extends Node\nconst OUTSIDE = \"/opt/outside\"\n",
+    "utf8",
+  );
+  assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_ABSOLUTE_PATH"), true);
+});
+
+test("only the approved runtime and Scene artifact loaders may open validated dynamic paths read-only", (context) => {
+  const root = fixture("extends Node\n");
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runtime = path.join(root, "runtime");
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.writeFileSync(
+    path.join(runtime, "runtime_artifact_loader.gd"),
+    "extends RefCounted\nfunc read(approved_path):\n\treturn FileAccess.open(approved_path, FileAccess.READ)\n",
+    "utf8",
+  );
+  assert.equal(auditGodotBoundary({ root }).ok, true);
+  const sceneBinding = path.join(root, "scene_binding");
+  fs.mkdirSync(sceneBinding, { recursive: true });
+  fs.writeFileSync(
+    path.join(sceneBinding, "scene_artifact_loader.gd"),
+    "extends RefCounted\nfunc read(path):\n\treturn FileAccess.open(path, FileAccess.READ)\n",
+    "utf8",
+  );
+  assert.equal(auditGodotBoundary({ root }).ok, true);
+  fs.writeFileSync(
+    path.join(root, "scripts", "case.gd"),
+    "extends Node\nfunc read(approved_path):\n\treturn FileAccess.open(approved_path, FileAccess.READ)\n",
+    "utf8",
+  );
+  assert.equal(codes(auditGodotBoundary({ root })).includes("GODOT_FIRST_PARTY_FILESYSTEM_WRITE"), true);
 });
 
 const cases = [

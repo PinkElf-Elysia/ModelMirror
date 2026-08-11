@@ -11,17 +11,18 @@ REVIEW_PATH = ROOT / "docs" / "mcp-catalog-expansion" / "review-candidates.json"
 ALLOWED_SOURCES = {"awesome-mcp-zh", "awesome-mcp-servers"}
 
 
-def test_committed_approved_list_is_balanced_and_non_executable() -> None:
+def test_committed_approved_list_is_balanced_and_classified() -> None:
     payload = json.loads(REVIEW_PATH.read_text(encoding="utf-8"))
     candidates = payload["candidates"]
-    assert payload["purpose"] == "approved-catalog-expansion"
+    assert payload["purpose"] == "adaptation-classification"
     assert payload["runtime_catalog_changed"] is True
-    assert payload["runtime_execution_changed"] is False
-    assert payload["approval"] == {
-        "approved_at": "2026-08-09",
-        "approved_count": 100,
-        "availability": {"planned": 100, "blocked": 0},
-        "execution_boundary": "display-and-non-executable-manifest-only",
+    assert payload["runtime_execution_changed"] is True
+    assert payload["adaptation"] == {
+        "classified_at": "2026-08-09",
+        "classified_count": 100,
+        "availability": {"ready": 5, "planned": 51, "blocked": 44},
+        "ready_boundary": "fixed-read-only-token-sidecar-contract",
+        "non_ready_boundary": "no-command-endpoint-credential-or-tool-policy",
     }
     assert len(candidates) == 100
     assert [item["rank"] for item in candidates] == list(range(1, 101))
@@ -39,10 +40,45 @@ def test_committed_approved_list_is_balanced_and_non_executable() -> None:
             )
             >= 25
         )
+    assert Counter(item["proposed_availability"] for item in candidates) == {
+        "ready": 5,
+        "planned": 51,
+        "blocked": 44,
+    }
+    ready = [item for item in candidates if item["proposed_availability"] == "ready"]
+    assert [item["catalog_id"] for item in ready] == [
+        "fatwang2-search1api-mcp",
+        "blazickjp-arxiv-mcp-server",
+        "kagisearch-kagimcp",
+        "brave-brave-search-mcp-server",
+        "livetennisapi-livetennisapi-mcp",
+    ]
+    ready_by_id = {item["catalog_id"]: item for item in ready}
+    assert ready_by_id["brave-brave-search-mcp-server"]["adapter_version"] == "2.1.0"
+    assert ready_by_id["brave-brave-search-mcp-server"]["adaptation_wave"] == 13
+    assert ready_by_id["kagisearch-kagimcp"]["adapter_version"] == (
+        "1.0.2-compatible-native-v1"
+    )
+    assert ready_by_id["kagisearch-kagimcp"]["adaptation_wave"] == 14
+    assert ready_by_id["blazickjp-arxiv-mcp-server"]["adapter_version"] == (
+        "0.6.2-compatible-native-v1"
+    )
+    assert ready_by_id["blazickjp-arxiv-mcp-server"]["adaptation_wave"] == 14
+    assert ready_by_id["fatwang2-search1api-mcp"]["adapter_version"] == (
+        "0.5.3-compatible-native-v1"
+    )
+    assert ready_by_id["fatwang2-search1api-mcp"]["adaptation_wave"] == 15
+    assert ready_by_id["livetennisapi-livetennisapi-mcp"]["adapter_version"] == (
+        "1.4.0-compatible-native-v1"
+    )
+    assert ready_by_id["livetennisapi-livetennisapi-mcp"]["adaptation_wave"] == 15
     for item in candidates:
-        assert item["decision"] == "approved"
-        assert item["proposed_availability"] == "planned"
-        assert "仅作为 planned 展示" in item["decision_reason"]
+        assert item["decision"] in {"adapted-ready", "deferred-planned", "blocked"}
+        assert item["decision_reason_code"].startswith(
+            ("ready-", "planned-", "blocked-")
+        )
+        assert item["decision_reason"]
+        assert item["adaptation_wave"] in {13, 14, 15}
         assert item["github"]["licenseInfo"]["spdxId"] not in {
             "",
             "NOASSERTION",
@@ -54,7 +90,7 @@ def test_committed_approved_list_is_balanced_and_non_executable() -> None:
         assert "installcommand" not in serialized
         assert "server_command" not in serialized
         assert "credential" not in serialized
-        assert "executable" not in serialized
+        assert "executable" not in item
 
 
 def test_approved_catalog_generated_outputs_are_current() -> None:

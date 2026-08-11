@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -43,6 +45,15 @@ from .analysis import (
     FileAnalysisTargetsResponse,
 )
 from .document_parser import ParsedDocumentPreview
+from .chat_output import verified_chat_output_provider
+from .output_contracts import (
+    FileOutputCapabilitiesResponse,
+    FileOutputListResponse,
+    FileOutputResponse,
+    FileOutputReuseConfirmRequest,
+    FileOutputReuseConfirmResponse,
+)
+from .output_service import FileOutputService, get_file_output_service
 from .registry import get_file_format_registry
 from .service import (
     FileAssetService,
@@ -183,6 +194,198 @@ async def get_file_capabilities(
     return response
 
 
+@router.get(
+    "/output-capabilities",
+    response_model=FileOutputCapabilitiesResponse,
+)
+async def get_file_output_capabilities(
+    purpose: Annotated[FilePurpose, Query()],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+    model_id: Annotated[str | None, Query(min_length=1, max_length=256)] = None,
+) -> FileOutputCapabilitiesResponse:
+    verified_chat_tool: bool | None = None
+    if purpose == FilePurpose.CHAT and model_id is not None:
+        verified_chat_tool = await _verified_chat_output_tool(model_id)
+    return service.capabilities(
+        purpose=purpose,
+        model_id=model_id,
+        verified_chat_tool=verified_chat_tool,
+    )
+
+
+@router.get("/outputs", response_model=FileOutputListResponse)
+def list_file_outputs(
+    purpose: Annotated[FilePurpose, Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+) -> FileOutputListResponse:
+    try:
+        return service.list_outputs(purpose=purpose, scope_id=scope_id)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/outputs/{output_id}", response_model=FileOutputResponse)
+def get_file_output(
+    output_id: Annotated[str, Path(min_length=1, max_length=256)],
+    purpose: Annotated[FilePurpose, Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+) -> FileOutputResponse:
+    try:
+        return service.get_output(output_id, purpose=purpose, scope_id=scope_id)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/outputs/{output_id}/preview")
+def preview_file_output(
+    output_id: Annotated[str, Path(min_length=1, max_length=256)],
+    purpose: Annotated[FilePurpose, Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+) -> Response:
+    try:
+        metadata = service.get_output(output_id, purpose=purpose, scope_id=scope_id)
+        if metadata.preview_kind in {"image", "audio", "video"}:
+            _record, content = service.read_output(
+                output_id, purpose=purpose, scope_id=scope_id
+            )
+            return Response(
+                content=content,
+                media_type=metadata.media_type,
+                headers={
+                    "Content-Disposition": _content_disposition(
+                        metadata.display_name, inline=True
+                    ),
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "sandbox; default-src 'none'; media-src 'self' blob:; img-src 'self' blob:",
+                    "Cache-Control": "private, no-store",
+                },
+            )
+        payload = service.preview_output(
+            output_id, purpose=purpose, scope_id=scope_id
+        )
+        return JSONResponse(
+            content=payload.model_dump(mode="json"),
+            headers={"Cache-Control": "private, no-store"},
+        )
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/outputs/{output_id}/download")
+def download_file_output(
+    output_id: Annotated[str, Path(min_length=1, max_length=256)],
+    purpose: Annotated[FilePurpose, Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+) -> Response:
+    try:
+        metadata = service.get_output(output_id, purpose=purpose, scope_id=scope_id)
+        _record, content = service.read_output(
+            output_id, purpose=purpose, scope_id=scope_id
+        )
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+    return Response(
+        content=content,
+        media_type=metadata.media_type,
+        headers={
+            "Content-Disposition": _content_disposition(metadata.display_name),
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@router.post("/outputs/{output_id}/retry", response_model=FileOutputResponse)
+def retry_file_output(
+    output_id: Annotated[str, Path(min_length=1, max_length=256)],
+    purpose: Annotated[FilePurpose, Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+) -> FileOutputResponse:
+    try:
+        return service.retry_output(output_id, purpose=purpose, scope_id=scope_id)
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/outputs/{output_id}/confirm-reuse",
+    response_model=FileOutputReuseConfirmResponse,
+)
+def confirm_file_output_reuse(
+    output_id: Annotated[str, Path(min_length=1, max_length=256)],
+    payload: FileOutputReuseConfirmRequest,
+    purpose: Annotated[FilePurpose, Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+) -> FileOutputReuseConfirmResponse:
+    try:
+        return service.confirm_reuse(
+            output_id,
+            purpose=purpose,
+            scope_id=scope_id,
+            handling=payload.handling,
+            target_id=payload.target_id,
+            gateway=payload.gateway,
+        )
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.delete(
+    "/outputs/{output_id}",
+    status_code=204,
+    responses={202: {"description": "The output binding was removed; physical cleanup will retry."}},
+)
+def delete_file_output(
+    output_id: Annotated[str, Path(min_length=1, max_length=256)],
+    purpose: Annotated[FilePurpose, Query()],
+    scope_id: Annotated[
+        str,
+        Query(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9._:-]+$"),
+    ],
+    service: Annotated[FileOutputService, Depends(get_file_output_service)],
+) -> Response:
+    try:
+        cleanup_pending = service.delete_output(
+            output_id, purpose=purpose, scope_id=scope_id
+        )
+    except FileAssetServiceError as exc:
+        raise _http_error(exc) from exc
+    if cleanup_pending:
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "cleanup_pending",
+                "message": "The output was detached. Physical cleanup is pending and can be retried.",
+            },
+        )
+    return Response(status_code=204)
+
+
 async def _verified_native_pdf(model_id: str) -> bool:
     if not _active_chat_url_is_openrouter():
         return False
@@ -208,6 +411,16 @@ async def _verified_native_pdf(model_id: str) -> bool:
 
 
 def _active_chat_url_is_openrouter() -> bool:
+    active_url = _active_chat_url()
+    if not active_url:
+        return False
+    return (
+        active_url.strip().lower().rstrip("/")
+        == "https://openrouter.ai/api/v1/chat/completions"
+    )
+
+
+def _active_chat_url() -> str:
     llm_url = os.getenv("LLM_GATEWAY_URL", "").strip()
     llm_key = os.getenv("LLM_GATEWAY_KEY", "").strip()
     if llm_url and llm_key:
@@ -218,11 +431,8 @@ def _active_chat_url_is_openrouter() -> bool:
             "https://openrouter.ai/api/v1/chat/completions",
         )
     else:
-        return False
-    return (
-        active_url.strip().lower().rstrip("/")
-        == "https://openrouter.ai/api/v1/chat/completions"
-    )
+        return ""
+    return active_url
 
 
 @router.post("", response_model=FileAssetResponse, status_code=201)
@@ -570,6 +780,41 @@ def _http_error(exc: FileAssetServiceError) -> HTTPException:
         status_code=exc.status_code,
         detail={"code": exc.error_code, "message": exc.message},
     )
+
+
+async def _verified_chat_output_tool(model_id: str) -> bool:
+    if verified_chat_output_provider(
+        model_id=model_id,
+        gateway_url=_active_chat_url(),
+    ) is None:
+        return False
+    try:
+        catalog = await get_catalog_coordinator().get_catalog()
+    except Exception:
+        return False
+    if (
+        catalog.router_status != "online"
+        or catalog.stale
+        or catalog.source == "bundled"
+    ):
+        return False
+    return any(
+        candidate.invocation_id == model_id
+        and candidate.invocable
+        and candidate.availability == "live"
+        and "text" in candidate.input_modalities
+        and "text" in candidate.output_modalities
+        and "chat" in candidate.operations
+        and "tools" in candidate.capabilities
+        for candidate in catalog.models
+    )
+
+
+def _content_disposition(filename: str, *, inline: bool = False) -> str:
+    disposition = "inline" if inline else "attachment"
+    safe_ascii = re.sub(r"[^A-Za-z0-9._-]+", "_", filename).strip("._") or "output"
+    encoded = quote(filename, safe="")
+    return f"{disposition}; filename=\"{safe_ascii}\"; filename*=UTF-8''{encoded}"
 
 
 def _content_length(request: Request) -> int | None:

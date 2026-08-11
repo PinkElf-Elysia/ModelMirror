@@ -51,7 +51,7 @@ class SkillCreatorResourcePlanningService:
         self.plan_store = plan_store
         self.planner = planner
         self.enabled = (
-            os.getenv("SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED", "false")
+            os.getenv("SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED", "true")
             .strip()
             .lower()
             in {"1", "true", "yes", "on"}
@@ -115,6 +115,12 @@ class SkillCreatorResourcePlanningService:
     ) -> SkillResourcePlan:
         session, draft = self.creator_service.get_session(session_id)
         self._require_session_revision(session, expected_session_revision)
+        if session.authoring_flow == "legacy":
+            self.creator_service._cancel_pending_proposal(session)
+            session = self.creator_service.session_store.activate_resource_authoring(
+                session.session_id,
+                expected_session_revision=session.session_revision,
+            )
         self.creator_service._require_ready_for_generation(session)
         current = self.plan_store.current_for_session(session_id)
         self._require_expected_plan(

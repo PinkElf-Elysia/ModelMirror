@@ -27,7 +27,7 @@ function runDoctor(args) {
   });
 }
 
-test("R4 blocks when the required Godot tool is missing", () => {
+test("R5 blocks when the required Godot tool is missing", () => {
   const report = buildDoctorReport({ ...readyRound, godot: null });
   const godot = report.checks.find((check) => check.id === "godot");
 
@@ -46,7 +46,7 @@ test("required active-round tool mismatch blocks the report", () => {
   assert.equal(report.checks.find((check) => check.id === "node").status, "blocked");
 });
 
-test("R4 accepts only the exact Godot 4.6.3 patch line", () => {
+test("R5 accepts only the exact Godot 4.6.3 patch line", () => {
   const missing = buildDoctorReport(
     { ...readyRound, godot: "4.6.2" },
     { strictGodot: true },

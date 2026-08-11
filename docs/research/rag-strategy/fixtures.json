@@ -1,0 +1,774 @@
+{
+  "schema_version": 1,
+  "license": "ModelMirror project-authored synthetic research data",
+  "corpora": [
+    {
+      "corpus_id": "long_policy",
+      "title": "Long policy and procedure manual",
+      "documents": [
+        {
+          "document_key": "continuity_manual",
+          "name": "业务连续性与变更控制手册.md",
+          "text": "# 业务连续性总则\n\n本手册适用于北辰平台的生产变更、灾备演练和紧急恢复。所有常规变更必须在发布窗口前完成风险登记。\n\n## 常规变更\n\n常规变更需要服务负责人和当班运维双人批准。批准记录保留十二个月，实施前必须完成回滚检查。普通数据库索引调整归入常规变更，不得使用紧急口令。\n\n## 紧急变更\n\n只有影响核心交易且无法等待常规窗口时才可启动紧急变更。紧急授权口令为 ORION-742，口令只能由值班经理在事件频道中确认。使用口令后必须在二十四小时内补交复盘。\n\n## 冷静期\n\n高风险网络策略变更通过审批后仍需等待七十二小时，等待期称为冷静期。安全负责人可以延长冷静期，但不能缩短。演练环境不适用该规则。\n\n## 灾备切换\n\n主站不可用超过十五分钟时，值班经理可以发起 Boreal 流程。Boreal 流程要求先冻结写入，再验证副本延迟低于三十秒，最后切换只读流量。\n\n## 恢复与回切\n\n主站恢复后使用 Mistral 流程回切。Mistral 要求连续观察四十五分钟，并由数据库负责人确认校验和一致。Boreal 的十五分钟触发条件不得用于 Mistral。\n\n## 审计与例外\n\n审计人员每季度抽查十个变更。任何例外都必须关联事件编号、批准人和到期日；没有到期日的例外视为无效。"
+        },
+        {
+          "document_key": "vendor_manual",
+          "name": "供应商访问附录.md",
+          "text": "# 供应商访问\n\n外部供应商只能通过临时账号进入测试环境。账号默认有效八小时，不得访问生产数据库。\n\n## 续期\n\n供应商账号续期需要项目经理批准，每次最多延长四小时。紧急变更口令不适用于账号续期。\n\n## 证据\n\n访问日志保存九十天，屏幕录像保存三十天。发现共享账号时必须立即停用并通知安全团队。"
+        },
+        {
+          "document_key": "policy_dense",
+          "name": "跨区域恢复长段落.md",
+          "text": "# 跨区域恢复补充规则",
+          "append_blocks": [
+            {
+              "heading": "组合审批长段落",
+              "segments": [
+                "跨区域恢复首先由来源区域提交容量证明，容量证明必须覆盖未来六小时的峰值流量。",
+                "目标区域收到证明后核验复制延迟，延迟超过四十秒时只能进入只读准备状态。",
+                "只读准备状态不允许执行账号迁移，也不能提前释放来源区域的写锁。",
+                "网络团队随后检查东西向链路，链路丢包率连续五分钟低于百分之一才算通过。",
+                "数据库团队必须分别验证订单、账单和审计三个校验和，任何一个不一致都应终止。",
+                "缓存预热至少覆盖最近二十四小时的热点键，但不得复制已经吊销的会话。",
+                "完成预热后，值班经理发起百分之十的影子流量，并观察错误率十五分钟。",
+                "影子流量错误率高于千分之三时应回到只读准备状态，而不是继续扩大流量。",
+                "通过观察后可以依次扩大到百分之三十、百分之六十和百分之百。",
+                "每次扩大流量之间必须保留十分钟观察窗口，窗口不能合并。",
+                "客户通知由服务负责人发送，通知中只写影响范围和恢复时间，不包含内部口令。",
+                "安全团队在全量切换后重新签发临时凭据，并撤销来源区域的应急访问。",
+                "审计人员需要关联容量证明、链路报告、三个校验和与客户通知副本。",
+                "如果目标区域在观察期内出现磁盘告警，应立即停止扩大流量并保留现有读流量。",
+                "来源区域恢复后仍需保持一小时热备，之后才能释放灾备资源。",
+                "多区域恢复的唯一协调标识是 POLAR-318，其他事件口令不能替代该标识。",
+                "协调标识只用于关联证据，不赋予绕过审批、冷静期或审计的权限。",
+                "全部步骤完成后，值班经理、数据库负责人和安全负责人必须共同签署关闭记录。"
+              ]
+            }
+          ]
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "lp_fact",
+          "query_type": "fact",
+          "query": "生产紧急变更使用什么授权口令？",
+          "anchors": [
+            {
+              "document_key": "continuity_manual",
+              "phrase": "紧急授权口令为 ORION-742"
+            }
+          ]
+        },
+        {
+          "case_id": "lp_paraphrase",
+          "query_type": "paraphrase",
+          "query": "高风险网络改动获批后，至少还要等多久才能实施？",
+          "anchors": [
+            {
+              "document_key": "continuity_manual",
+              "phrase": "仍需等待七十二小时"
+            }
+          ]
+        },
+        {
+          "case_id": "lp_context",
+          "query_type": "section_context",
+          "query": "Boreal 切换需要依次满足哪些操作和延迟条件？",
+          "anchors": [
+            {
+              "document_key": "continuity_manual",
+              "phrase": "先冻结写入，再验证副本延迟低于三十秒，最后切换只读流量"
+            }
+          ]
+        },
+        {
+          "case_id": "lp_confusable",
+          "query_type": "confusable",
+          "query": "回切主站时需要观察多久，使用哪个流程？",
+          "anchors": [
+            {
+              "document_key": "continuity_manual",
+              "phrase": "Mistral 要求连续观察四十五分钟"
+            }
+          ]
+        },
+        {
+          "case_id": "lp_multi",
+          "query_type": "multi_evidence",
+          "query": "对比供应商账号续期和高风险网络变更的最长延长时间与最短等待时间。",
+          "anchors": [
+            {
+              "document_key": "vendor_manual",
+              "phrase": "每次最多延长四小时"
+            },
+            {
+              "document_key": "continuity_manual",
+              "phrase": "仍需等待七十二小时"
+            }
+          ]
+        },
+        {
+          "case_id": "lp_dense",
+          "query_type": "section_context",
+          "query": "跨区域恢复用于关联全部证据、但不能绕过审批的协调标识是什么？",
+          "anchors": [
+            {
+              "document_key": "policy_dense",
+              "phrase": "唯一协调标识是 POLAR-318"
+            }
+          ]
+        },
+        {
+          "case_id": "lp_none",
+          "query_type": "no_answer",
+          "query": "手册规定月球差旅费用由谁报销？",
+          "anchors": [],
+          "expected_no_result": true
+        }
+      ]
+    },
+    {
+      "corpus_id": "short_faq",
+      "title": "Short independent FAQ entries",
+      "documents": [
+        {
+          "document_key": "account_faq",
+          "name": "账户常见问题.md",
+          "text": "# 账户常见问题\n\n## 如何重置密码？\n\n在登录页选择忘记密码，验证码十分钟内有效。连续请求三次后需等待一小时。\n\n## 如何修改邮箱？\n\n进入安全设置，验证旧邮箱后提交新邮箱。旧邮箱不可用时需要人工工单。\n\n## 如何导出数据？\n\n个人版可导出 JSON，团队版还可导出 CSV。导出链接有效二十四小时。\n\n## 如何关闭账户？\n\n关闭账户有十四天撤销期。撤销期结束后，公开资料先删除，备份在三十天内轮转清除。\n\n## 如何查看登录记录？\n\n安全设置显示最近九十天的登录记录，最多展示五百条。"
+        },
+        {
+          "document_key": "billing_faq",
+          "name": "计费常见问题.md",
+          "text": "# 计费常见问题\n\n## 发票何时生成？\n\n月度发票在次月第三个工作日生成。年度订阅在付款完成后立即生成。\n\n## 如何退款？\n\n首次购买七天内可申请退款，已消耗的按量费用不退。\n\n## 配额何时重置？\n\n月度配额在每个自然月第一天零点重置，未使用配额不结转。\n\n## 支持哪些币种？\n\n结算支持人民币、美元和欧元，显示币种不影响实际税率。"
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "faq_fact",
+          "query_type": "fact",
+          "query": "密码重置验证码能用多久？",
+          "anchors": [
+            {
+              "document_key": "account_faq",
+              "phrase": "验证码十分钟内有效"
+            }
+          ]
+        },
+        {
+          "case_id": "faq_paraphrase",
+          "query_type": "paraphrase",
+          "query": "删除账号后反悔的窗口是多少天？",
+          "anchors": [
+            {
+              "document_key": "account_faq",
+              "phrase": "关闭账户有十四天撤销期"
+            }
+          ]
+        },
+        {
+          "case_id": "faq_exact",
+          "query_type": "exact_term",
+          "query": "团队版导出支持 CSV 吗？",
+          "anchors": [
+            {
+              "document_key": "account_faq",
+              "phrase": "团队版还可导出 CSV"
+            }
+          ]
+        },
+        {
+          "case_id": "faq_confusable",
+          "query_type": "confusable",
+          "query": "月度账单和年度订阅的发票分别何时生成？",
+          "anchors": [
+            {
+              "document_key": "billing_faq",
+              "phrase": "月度发票在次月第三个工作日生成"
+            },
+            {
+              "document_key": "billing_faq",
+              "phrase": "年度订阅在付款完成后立即生成"
+            }
+          ]
+        },
+        {
+          "case_id": "faq_context",
+          "query_type": "section_context",
+          "query": "账户关闭后公开资料和备份按什么顺序清理？",
+          "anchors": [
+            {
+              "document_key": "account_faq",
+              "phrase": "公开资料先删除，备份在三十天内轮转清除"
+            }
+          ]
+        },
+        {
+          "case_id": "faq_none",
+          "query_type": "no_answer",
+          "query": "FAQ 是否支持用比特币结算？",
+          "anchors": [],
+          "expected_no_result": true
+        }
+      ]
+    },
+    {
+      "corpus_id": "technical_ids",
+      "title": "Technical identifiers and exact codes",
+      "documents": [
+        {
+          "document_key": "gateway_codes",
+          "name": "Gateway error registry.md",
+          "text": "# Gateway Error Registry\n\n## GX-104\n\nGX-104 means the request signature timestamp is outside the accepted 90-second window. Refresh the client clock and sign the request again.\n\n## GX-140\n\nGX-140 means the tenant header is missing. Add X-Tenant-Ref but do not reuse the billing account identifier.\n\n## GX-401\n\nGX-401 indicates a revoked service token. Rotating only the request signature does not restore access; issue a new service token.\n\n## GX-410\n\nGX-410 indicates that an idempotency key was reused with a different payload. Preserve the original payload or create a new key.\n\n## Trace format\n\nTrace identifiers use the prefix trc_, followed by sixteen lowercase hexadecimal characters. Example: trc_91af04c220be771d."
+        },
+        {
+          "document_key": "device_codes",
+          "name": "设备型号与寄存器.md",
+          "text": "# 设备型号\n\nALP-9 是低温传感器，采样寄存器为 0x2A，校准寄存器为 0x2B。\n\nALP-90 是高温传感器，采样寄存器为 0x3A，校准寄存器为 0x3B。型号名称相近但寄存器不可互换。\n\nBET-9 是压力传感器，状态寄存器 0x7F 的第三位表示过载。\n\n固件升级命令是 fwctl apply --slot B；查询版本使用 fwctl inspect，不得把 inspect 当作升级操作。"
+        },
+        {
+          "document_key": "technical_dense",
+          "name": "Extended gateway diagnostics.md",
+          "text": "# Extended Gateway Diagnostics",
+          "append_blocks": [
+            {
+              "heading": "Dense diagnostic registry",
+              "segments": [
+                "GX-701 reports that the ingress queue is paused while a routing table is being replaced.",
+                "GX-702 reports a missing regional capability header and should not be confused with tenant identity.",
+                "GX-703 means the request body hash was calculated before content encoding was applied.",
+                "GX-704 identifies a stale certificate chain whose leaf certificate is still locally cached.",
+                "GX-705 indicates that the response envelope exceeded the negotiated compression window.",
+                "GX-706 means a retry arrived before the previous lease had reached its terminal state.",
+                "GX-707 records a shard map mismatch between the gateway and the catalog service.",
+                "GX-708 indicates that a trace identifier used uppercase hexadecimal characters.",
+                "GX-709 means the audit sink acknowledged the event but rejected its retention class.",
+                "GX-710 reports that a read-only token attempted to create a connection profile.",
+                "GX-711 identifies an unsupported locale in a signed metadata field.",
+                "GX-712 indicates that the client compressed a payload marked as identity encoding.",
+                "GX-713 reports that the replay cache has not finished loading after a regional restart.",
+                "GX-714 means the requested schema version predates the minimum compatibility floor.",
+                "GX-715 indicates that a batch contains two records with the same operation identifier.",
+                "GX-716 reports that a callback URL changed after the authorization challenge began.",
+                "GX-717 identifies an attempt to mix sandbox and production workspace identifiers.",
+                "GX-718 means the gateway could not verify the declared content length after decoding.",
+                "GX-777 is the only code for a routing lease that was accepted but never activated.",
+                "For GX-777, operators must release lease amber-17 before creating a replacement lease."
+              ]
+            }
+          ]
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "tid_fact",
+          "query_type": "exact_term",
+          "query": "What does GX-410 mean?",
+          "anchors": [
+            {
+              "document_key": "gateway_codes",
+              "phrase": "an idempotency key was reused with a different payload"
+            }
+          ]
+        },
+        {
+          "case_id": "tid_action",
+          "query_type": "fact",
+          "query": "GX-401 能否只通过重新签名恢复？",
+          "anchors": [
+            {
+              "document_key": "gateway_codes",
+              "phrase": "issue a new service token"
+            }
+          ]
+        },
+        {
+          "case_id": "tid_confusable",
+          "query_type": "confusable",
+          "query": "ALP-90 的采样寄存器是什么？",
+          "anchors": [
+            {
+              "document_key": "device_codes",
+              "phrase": "ALP-90 是高温传感器，采样寄存器为 0x3A"
+            }
+          ]
+        },
+        {
+          "case_id": "tid_format",
+          "query_type": "fact",
+          "query": "Give the required trace identifier prefix and suffix length.",
+          "anchors": [
+            {
+              "document_key": "gateway_codes",
+              "phrase": "prefix trc_, followed by sixteen lowercase hexadecimal characters"
+            }
+          ]
+        },
+        {
+          "case_id": "tid_command",
+          "query_type": "exact_term",
+          "query": "Which command applies firmware to slot B?",
+          "anchors": [
+            {
+              "document_key": "device_codes",
+              "phrase": "fwctl apply --slot B"
+            }
+          ]
+        },
+        {
+          "case_id": "tid_dense",
+          "query_type": "confusable",
+          "query": "Which lease must operators release when error GX-777 occurs?",
+          "anchors": [
+            {
+              "document_key": "technical_dense",
+              "phrase": "release lease amber-17"
+            }
+          ]
+        },
+        {
+          "case_id": "tid_none",
+          "query_type": "no_answer",
+          "query": "What does error GX-999 mean?",
+          "anchors": [],
+          "expected_no_result": true
+        }
+      ]
+    },
+    {
+      "corpus_id": "bilingual_narrative",
+      "title": "Bilingual narrative and cross-language retrieval",
+      "documents": [
+        {
+          "document_key": "harbor_report",
+          "name": "Harbor restoration report.md",
+          "text": "# Harbor Restoration Report\n\nThe Lumen Harbor project began after the eastern breakwater was damaged by winter storms. Engineers selected basalt blocks from Quarry Seven because laboratory tests showed low salt absorption.\n\n## Schedule\n\nThe first closure window starts on 18 September and lasts eleven nights. Fishing boats may use the western channel during daylight hours.\n\n## Monitoring\n\nA yellow buoy named Kestrel records wave height every six minutes. If the rolling average exceeds 2.4 meters, crane work pauses automatically.\n\n## Community notice\n\nResidents asked for quieter work near the old lighthouse. The project therefore prohibits pile driving between 21:00 and 07:00."
+        },
+        {
+          "document_key": "harbor_cn",
+          "name": "港口修复中文简报.md",
+          "text": "# 港口修复中文简报\n\nLumen 港东侧防波堤因冬季风暴受损。工程团队选用七号采石场的玄武岩，原因是实验显示其盐分吸收率较低。\n\n## 航道安排\n\n首次封闭窗口从九月十八日开始，共持续十一个夜晚。渔船白天可以使用西侧航道。\n\n## 波浪监测\n\n名为 Kestrel 的黄色浮标每六分钟记录一次浪高。滚动平均值超过 2.4 米时，起重机作业自动暂停。\n\n## 社区约束\n\n老灯塔附近在晚上九点至早上七点之间禁止打桩，以降低对居民的噪声影响。"
+        },
+        {
+          "document_key": "harbor_dense",
+          "name": "Western channel field journal.md",
+          "text": "# Western Channel Field Journal",
+          "append_blocks": [
+            {
+              "heading": "Long bilingual context source",
+              "segments": [
+                "Survey teams began at the southern marker before sunrise and recorded the tide against the temporary gauge.",
+                "The northern marker was inspected later because a maintenance vessel occupied the approach lane.",
+                "Crews logged seabed samples in sealed grey boxes and photographed every label before transport.",
+                "Samples from shallow water contained shell fragments, while deeper samples were mostly fine sand.",
+                "A separate acoustic pass measured traffic noise during the morning ferry schedule.",
+                "The acoustic instruments were calibrated against the lighthouse clock at 06:30 local time.",
+                "Engineers used orange flags for temporary exclusions and white flags for completed survey lines.",
+                "No dredging was authorized during this survey, even where sediment depth exceeded the planning estimate.",
+                "The weather station reported stable pressure but a rising crosswind after midday.",
+                "Workboats moved to the sheltered berth when the crosswind exceeded the local handling limit.",
+                "The environmental observer recorded two seal sightings outside the active work boundary.",
+                "Both sightings paused sonar transmission for ten minutes but did not stop visual inspection.",
+                "A paper register was kept as a fallback when the mobile network briefly lost coverage.",
+                "The register used blue ink for verified entries and red ink for measurements awaiting review.",
+                "At the end of each shift, the supervisor reconciled the paper register with the digital log.",
+                "The final cross-language handover is identified as the Blue Ledger protocol.",
+                "Under the Blue Ledger protocol, unresolved red entries must be translated and reviewed before the next crew starts.",
+                "The protocol name describes the handover process and does not authorize navigation or dredging."
+              ]
+            }
+          ]
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "bi_en_to_cn",
+          "query_type": "cross_language",
+          "query": "哪一个采石场提供了低盐吸收率的石料？",
+          "anchors": [
+            {
+              "document_key": "harbor_report",
+              "phrase": "basalt blocks from Quarry Seven"
+            }
+          ]
+        },
+        {
+          "case_id": "bi_cn_to_en",
+          "query_type": "cross_language",
+          "query": "When does the first harbor closure begin, and how long does it last?",
+          "anchors": [
+            {
+              "document_key": "harbor_cn",
+              "phrase": "从九月十八日开始，共持续十一个夜晚"
+            }
+          ]
+        },
+        {
+          "case_id": "bi_fact",
+          "query_type": "fact",
+          "query": "Kestrel 多久记录一次浪高？",
+          "anchors": [
+            {
+              "document_key": "harbor_cn",
+              "phrase": "每六分钟记录一次浪高"
+            }
+          ]
+        },
+        {
+          "case_id": "bi_threshold",
+          "query_type": "paraphrase",
+          "query": "At what wave condition must crane operations stop?",
+          "anchors": [
+            {
+              "document_key": "harbor_report",
+              "phrase": "rolling average exceeds 2.4 meters"
+            }
+          ]
+        },
+        {
+          "case_id": "bi_context",
+          "query_type": "section_context",
+          "query": "What daytime alternative remains available while the closure is in effect?",
+          "anchors": [
+            {
+              "document_key": "harbor_report",
+              "phrase": "Fishing boats may use the western channel during daylight hours"
+            }
+          ]
+        },
+        {
+          "case_id": "bi_dense",
+          "query_type": "cross_language",
+          "query": "交接时，哪一项流程要求先翻译并复核尚未解决的红色记录？",
+          "anchors": [
+            {
+              "document_key": "harbor_dense",
+              "phrase": "Under the Blue Ledger protocol"
+            }
+          ]
+        },
+        {
+          "case_id": "bi_none",
+          "query_type": "no_answer",
+          "query": "Which company supplies electric ferries for Lumen Harbor?",
+          "anchors": [],
+          "expected_no_result": true
+        }
+      ]
+    },
+    {
+      "corpus_id": "tables_code",
+      "title": "Markdown tables and code blocks",
+      "documents": [
+        {
+          "document_key": "limits_table",
+          "name": "Service limits.md",
+          "text": "# Service Limits\n\n| Plan | Requests per minute | Burst | Retention |\n| --- | ---: | ---: | ---: |\n| Cedar | 120 | 30 | 7 days |\n| Juniper | 480 | 90 | 30 days |\n| Sequoia | 900 | 150 | 90 days |\n\nLimits are applied per workspace, not per API key. A burst does not increase the sustained requests-per-minute allowance.\n\n## Export limits\n\n| Format | Maximum rows | Compression |\n| JSONL | 250000 | gzip |\n| CSV | 100000 | zip |\n| Parquet | 1000000 | snappy |"
+        },
+        {
+          "document_key": "sdk_config",
+          "name": "SDK configuration.md",
+          "text": "# SDK Configuration\n\nUse the following configuration for deterministic retries:\n\n```python\nclient = MirrorClient(\n    retry_limit=4,\n    backoff_seconds=[1, 2, 5, 10],\n    idempotency_header=\"X-Mirror-Once\",\n)\n```\n\nThe retry_limit counts retries after the initial attempt. Validation errors are never retried.\n\n## JavaScript\n\n```javascript\nconst client = new MirrorClient({\n  retryLimit: 4,\n  requestTimeoutMs: 18000,\n  idempotencyHeader: 'X-Mirror-Once'\n});\n```\n\nThe browser build ignores proxy environment variables."
+        },
+        {
+          "document_key": "code_dense",
+          "name": "Archival worker configuration.md",
+          "text": "# Archival Worker Configuration",
+          "append_blocks": [
+            {
+              "heading": "Complete local configuration",
+              "kind": "code",
+              "lines": [
+                "worker_name = archival_delta",
+                "queue_name = cold_records",
+                "reader_threads = 3",
+                "writer_threads = 2",
+                "scan_interval_seconds = 45",
+                "lease_timeout_seconds = 180",
+                "retry_limit = 5",
+                "retry_backoff_seconds = 8",
+                "checkpoint_every_rows = 5000",
+                "source_format = jsonl",
+                "source_compression = gzip",
+                "destination_format = parquet",
+                "destination_compression = snappy",
+                "partition_field = event_date",
+                "partition_timezone = UTC",
+                "minimum_partition_age_hours = 36",
+                "maximum_open_partitions = 12",
+                "manifest_mode = append_only",
+                "manifest_checksum = sha256",
+                "verify_after_write = true",
+                "delete_source_after_verify = false",
+                "metrics_interval_seconds = 15",
+                "warning_threshold_rows = 900000",
+                "abort_threshold_rows = 1200000",
+                "archive_batch_size = 173",
+                "archive_batch_jitter = 11",
+                "dead_letter_queue = cold_records_failed",
+                "dead_letter_retention_days = 21",
+                "operator_notice_channel = archival_ops",
+                "configuration_marker = CFG-ARCHIVE-62"
+              ]
+            }
+          ]
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "tc_table",
+          "query_type": "table",
+          "query": "What are the Juniper burst limit and retention period?",
+          "anchors": [
+            {
+              "document_key": "limits_table",
+              "phrase": "| Juniper | 480 | 90 | 30 days |"
+            }
+          ]
+        },
+        {
+          "case_id": "tc_table_confusable",
+          "query_type": "confusable",
+          "query": "Which plan permits 900 sustained requests per minute?",
+          "anchors": [
+            {
+              "document_key": "limits_table",
+              "phrase": "| Sequoia | 900 | 150 | 90 days |"
+            }
+          ]
+        },
+        {
+          "case_id": "tc_code",
+          "query_type": "code",
+          "query": "What Python retry schedule is configured?",
+          "anchors": [
+            {
+              "document_key": "sdk_config",
+              "phrase": "backoff_seconds=[1, 2, 5, 10]"
+            }
+          ]
+        },
+        {
+          "case_id": "tc_semantics",
+          "query_type": "section_context",
+          "query": "Does retry_limit=4 mean four total attempts or four retries after the first attempt?",
+          "anchors": [
+            {
+              "document_key": "sdk_config",
+              "phrase": "counts retries after the initial attempt"
+            }
+          ]
+        },
+        {
+          "case_id": "tc_exact",
+          "query_type": "exact_term",
+          "query": "Which idempotency header is shared by both SDK examples?",
+          "anchors": [
+            {
+              "document_key": "sdk_config",
+              "phrase": "X-Mirror-Once"
+            }
+          ]
+        },
+        {
+          "case_id": "tc_dense",
+          "query_type": "code",
+          "query": "What archive batch size is paired with configuration marker CFG-ARCHIVE-62?",
+          "anchors": [
+            {
+              "document_key": "code_dense",
+              "phrase": "archive_batch_size = 173"
+            }
+          ]
+        },
+        {
+          "case_id": "tc_none",
+          "query_type": "no_answer",
+          "query": "What XML export row limit is configured?",
+          "anchors": [],
+          "expected_no_result": true
+        }
+      ]
+    },
+    {
+      "corpus_id": "confusable_sections",
+      "title": "Highly similar and conflicting sections",
+      "documents": [
+        {
+          "document_key": "north_program",
+          "name": "North region programs.md",
+          "text": "# North Region Programs\n\n## Aurora Basic\n\nAurora Basic renews on the first Monday of each quarter. It includes 14 analyst seats and stores reports for 45 days. Support hours are 08:00-17:00 UTC.\n\n## Aurora Plus\n\nAurora Plus renews on the second Monday of each quarter. It includes 41 analyst seats and stores reports for 54 days. Support hours are 07:00-19:00 UTC.\n\n## Aurora Plus exception\n\nFor the North research unit only, Aurora Plus uses contract marker N-PLUS-88 and allows a 6-hour emergency extension. This exception expires on 30 November 2028.\n\n## Borealis Plus\n\nBorealis Plus renews on the second Tuesday of each quarter. It includes 41 operator seats and stores reports for 54 days. It is not an Aurora plan."
+        },
+        {
+          "document_key": "south_program",
+          "name": "South region programs.md",
+          "text": "# South Region Programs\n\n## Aurora Basic\n\nAurora Basic renews on the first Tuesday of each quarter. It includes 14 analyst seats and stores reports for 45 days. Support hours are 09:00-18:00 UTC.\n\n## Aurora Plus\n\nAurora Plus renews on the second Monday of each quarter. It includes 41 analyst seats and stores reports for 54 days. The South contract marker is S-PLUS-61.\n\n## Extension policy\n\nSouth Aurora Plus permits a 4-hour emergency extension after regional approval. The extension does not apply to Borealis Plus."
+        },
+        {
+          "document_key": "confusable_dense",
+          "name": "Aurora regional comparison notes.md",
+          "text": "# Aurora Regional Comparison Notes",
+          "append_blocks": [
+            {
+              "heading": "Dense comparison paragraph",
+              "segments": [
+                "North Aurora Basic uses a Monday renewal, while South Aurora Basic uses a Tuesday renewal.",
+                "North Aurora Plus and South Aurora Plus both renew on the second Monday but use different approval records.",
+                "North Aurora Plus stores reports for 54 days, and South Aurora Plus also stores reports for 54 days.",
+                "North Aurora Basic stores reports for 45 days, matching the retention of South Aurora Basic.",
+                "Borealis Plus has 41 operator seats, while both Aurora Plus variants have 41 analyst seats.",
+                "The North basic support window starts one hour earlier than the South basic support window.",
+                "The North plus support window is wider than either basic support window.",
+                "Only the North research unit receives a six-hour extension under its local exception.",
+                "The South extension is four hours and requires a separate regional approval record.",
+                "Neither extension changes report retention or the quarterly renewal day.",
+                "Borealis Plus cannot inherit an Aurora extension even when its seat count is numerically similar.",
+                "The North marker N-PLUS-88 and South marker S-PLUS-61 identify different contracts.",
+                "A support schedule must be read together with its region and plan tier to avoid a false match.",
+                "A retention value alone is insufficient because several plans share 45-day or 54-day values.",
+                "A seat count alone is also insufficient because Aurora Plus and Borealis Plus both show 41 seats.",
+                "The audit team therefore uses a separate exception code for the North six-hour rule.",
+                "That North-only exception code is AUR-NX-204 and it expires with the N-PLUS-88 contract.",
+                "AUR-NX-204 never applies to South Aurora Plus, Aurora Basic, or Borealis Plus."
+              ]
+            }
+          ]
+        }
+      ],
+      "cases": [
+        {
+          "case_id": "cs_fact",
+          "query_type": "fact",
+          "query": "How many analyst seats does North Aurora Basic include?",
+          "anchors": [
+            {
+              "document_key": "north_program",
+              "phrase": "It includes 14 analyst seats"
+            }
+          ]
+        },
+        {
+          "case_id": "cs_confusable",
+          "query_type": "confusable",
+          "query": "What is the North research unit contract marker for Aurora Plus?",
+          "anchors": [
+            {
+              "document_key": "north_program",
+              "phrase": "contract marker N-PLUS-88"
+            }
+          ]
+        },
+        {
+          "case_id": "cs_region",
+          "query_type": "confusable",
+          "query": "How long is the South Aurora Plus emergency extension?",
+          "anchors": [
+            {
+              "document_key": "south_program",
+              "phrase": "permits a 4-hour emergency extension"
+            }
+          ]
+        },
+        {
+          "case_id": "cs_context",
+          "query_type": "section_context",
+          "query": "When does North Aurora Plus renew and what are its support hours?",
+          "anchors": [
+            {
+              "document_key": "north_program",
+              "phrase": "renews on the second Monday of each quarter"
+            },
+            {
+              "document_key": "north_program",
+              "phrase": "Support hours are 07:00-19:00 UTC"
+            }
+          ]
+        },
+        {
+          "case_id": "cs_negative",
+          "query_type": "confusable",
+          "query": "Which similarly sized plan is explicitly not an Aurora plan?",
+          "anchors": [
+            {
+              "document_key": "north_program",
+              "phrase": "It is not an Aurora plan"
+            }
+          ]
+        },
+        {
+          "case_id": "cs_dense",
+          "query_type": "confusable",
+          "query": "Which code is limited to the North six-hour exception and expires with N-PLUS-88?",
+          "anchors": [
+            {
+              "document_key": "confusable_dense",
+              "phrase": "exception code is AUR-NX-204"
+            }
+          ]
+        },
+        {
+          "case_id": "cs_none",
+          "query_type": "no_answer",
+          "query": "What is the East region Aurora Plus contract marker?",
+          "anchors": [],
+          "expected_no_result": true
+        }
+      ]
+    }
+  ],
+  "chunking_configs": [
+    {
+      "config_id": "recursive_400_o0",
+      "strategy": "recursive_character",
+      "chunk_size": 400,
+      "chunk_overlap": 0
+    },
+    {
+      "config_id": "recursive_400_o40",
+      "strategy": "recursive_character",
+      "chunk_size": 400,
+      "chunk_overlap": 40
+    },
+    {
+      "config_id": "recursive_700_o70",
+      "strategy": "recursive_character",
+      "chunk_size": 700,
+      "chunk_overlap": 70
+    },
+    {
+      "config_id": "recursive_700_o140",
+      "strategy": "recursive_character",
+      "chunk_size": 700,
+      "chunk_overlap": 140
+    },
+    {
+      "config_id": "recursive_1000_o100",
+      "strategy": "recursive_character",
+      "chunk_size": 1000,
+      "chunk_overlap": 100
+    },
+    {
+      "config_id": "parent_child_1200_300",
+      "strategy": "parent_child",
+      "parent_chunk_size": 1200,
+      "parent_chunk_overlap": 120,
+      "child_chunk_size": 300,
+      "child_chunk_overlap": 30
+    },
+    {
+      "config_id": "parent_child_1800_450",
+      "strategy": "parent_child",
+      "parent_chunk_size": 1800,
+      "parent_chunk_overlap": 180,
+      "child_chunk_size": 450,
+      "child_chunk_overlap": 45
+    },
+    {
+      "config_id": "parent_child_2400_600",
+      "strategy": "parent_child",
+      "parent_chunk_size": 2400,
+      "parent_chunk_overlap": 240,
+      "child_chunk_size": 600,
+      "child_chunk_overlap": 60
+    }
+  ]
+}

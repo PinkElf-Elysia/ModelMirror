@@ -174,14 +174,8 @@ def parse_resource_plan_output(value: Any) -> dict[str, Any]:
             code="skill_creator_resource_planner_invalid",
         )
     text = value.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if len(lines) >= 3 and lines[-1].strip() == "```":
-            text = "\n".join(lines[1:-1]).strip()
-            if text.startswith("json\n"):
-                text = text[5:].strip()
     try:
-        payload = json.loads(text)
+        payload = _decode_resource_plan_json(text)
     except (ValueError, json.JSONDecodeError) as exc:
         raise SkillCreatorValidationError(
             "Creator resource planner did not return valid JSON.",
@@ -193,6 +187,49 @@ def parse_resource_plan_output(value: Any) -> dict[str, Any]:
             code="skill_creator_resource_planner_invalid",
         )
     return payload
+
+
+def _decode_resource_plan_json(text: str) -> Any:
+    """Decode one versioned plan while tolerating harmless model narration.
+
+    The planner contract remains strict JSON. This helper only strips transport-style
+    narration or Markdown fences by locating a unique, fully valid JSON object carrying
+    the expected contract version. It never repairs JSON syntax or guesses between
+    different candidate plans.
+    """
+
+    if not text:
+        raise ValueError("empty planner output")
+
+    try:
+        return json.loads(text)
+    except (ValueError, json.JSONDecodeError):
+        pass
+
+    decoder = json.JSONDecoder()
+    candidates: dict[str, dict[str, Any]] = {}
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            candidate, _end = decoder.raw_decode(text[index:])
+        except (ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("resource_plan_version") != RESOURCE_PLAN_VERSION:
+            continue
+        fingerprint = json.dumps(
+            candidate,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        candidates[fingerprint] = candidate
+
+    if len(candidates) != 1:
+        raise ValueError("planner output must contain one versioned JSON object")
+    return next(iter(candidates.values()))
 
 
 def _resource_planner_prompt() -> str:

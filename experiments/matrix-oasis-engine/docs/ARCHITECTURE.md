@@ -1,27 +1,34 @@
 # 架构方向
 
-最后更新：2026-08-09
-状态：R4 Godot 独立工程底座
+最后更新：2026-08-11
+状态：R7 独立 Scene Pack 与离线场景绑定
 
 ## 当前系统
 
-R1–R3 的合同、Validator、Compiler、两套 Simulator、parity harness 与 Creator 均为冻结权威。R4 不修改或接入这些包，只新增独立 Godot 4.6.3 工程和验证 harness。
+R1–R6 的合同、Validator、Compiler、三套 Runtime 执行路径、Creator、Godot Bootstrap、Runtime Lab、playable 与 GdUnit4 vendor 均为冻结权威。R7 只增加独立 Scene Pack、本地 GLB 入口与场景组合层。
 
 ```text
-Authoring / Runtime Pack / parity（R1–R3，冻结）
-                         │ R4 不接线
-                         ▼
-Godot 4.6.3 project → headless import → GdUnit4 → smoke → fixed-frame evidence
+Authoring → Compiler → Runtime Pack + Receipt（R1–R3，冻结）
+                                      │ paired local files
+                                      ▼
+Godot strict adapter → independent GDScript runtime（R5，冻结）
+                                      │
+                                      ▼
+Scene Pack + local GLB → scene composer
+                                      │
+                                      ▼
+frozen first-person controller → ray interaction → dynamic Action terminals
 ```
 
-R4 Bootstrap 仅由 Godot 内建 Node3D、MeshInstance3D、Camera3D、DirectionalLight3D 与 Environment 构成，不包含游戏状态、输入、资产导入或运行包解释器。
+R7 新建独立 scene lab，调用冻结 R5 loader/runtime 与 R6 playable 公开类。Scene Pack 绑定 Runtime 身份、GLB、placement、node spawn 与 action anchor；场景切换采用候选组合后原子替换，不修改 Runtime schema、snapshot 或 `project.godot`。
 
 ## 独立模块原则
 
-- Godot 二进制、MCP 工具、图形证据和详细日志在仓外。
+- Godot 二进制、生成的 Runtime Pack/Receipt、图形证据和详细日志在仓外。
 - 正式源码只依赖 Godot 标准 API；GdUnit4 是 dev-only vendored 测试框架。
 - 自动门只使用 headless；图形捕获是 PR 前人工硬门。
-- 下一轮才能定义 Runtime Pack → Godot 的适配边界。
+- Godot 执行器独立于 JavaScript oracle；差分 harness 只调用冻结包的公开根接口。
+- R7 仍不定义供应商在线协议、SPZ、NPC、导航、存档或网络协议。
 
 ## 决策记录
 
@@ -30,3 +37,6 @@ R4 Bootstrap 仅由 Godot 内建 Node3D、MeshInstance3D、Camera3D、Directiona
 - [ADR-0003：R2 参考模拟器治理](./adr/0003-r2-reference-simulator-governance.md)
 - [ADR-0004：R3 Runtime Pack 与双执行治理](./adr/0004-r3-runtime-pack-governance.md)
 - [ADR-0005：R4 Godot 工程底座治理](./adr/0005-r4-godot-foundation-governance.md)
+- [ADR-0006：R5 Godot Runtime Pack 适配治理](./adr/0006-r5-godot-runtime-adapter-governance.md)
+- [ADR-0007：R6 第一人称可玩 3D 骨架治理](./adr/0007-r6-playable-3d-governance.md)
+- [ADR-0008：R7 Scene Pack 与离线资产治理](./adr/0008-r7-scene-pack-governance.md)

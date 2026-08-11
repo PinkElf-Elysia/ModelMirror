@@ -1,6 +1,6 @@
 # 术语表
 
-最后更新日期：2026-07-28
+最后更新日期：2026-08-09
 维护人：模镜团队
 
 | 中文名称 | 英文 / 缩写 | 解释 | 在项目中的使用场景 |
@@ -48,3 +48,33 @@
 | Pydantic | Pydantic | Python 数据校验库。 | 后端请求体校验。 |
 | Vite | Vite | 前端开发与构建工具。 | `client/`。 |
 | React Flow | React Flow / XYFlow | 节点画布库。 | `/workflow`。 |
+
+## 目标架构术语
+
+本节定义目标架构和研究语境中的统一词汇。术语出现在代码、页面或架构图中，不自动表示对应能力已经完整交付；实际状态见 [AI Capability Compiler 架构成熟度矩阵](./architecture/ai-capability-compiler.md)。
+
+| 中文名称 | 英文 / 缩写 | 统一定义 | 当前语境 |
+| --- | --- | --- | --- |
+| AI 能力编译器 | AI Capability Compiler | 将用户目标转换为结构化能力需求、路由计划和可执行资源组合的目标产品引擎。 | Target Architecture |
+| AI 能力控制平面 | AI Capability Control Plane | 统一承载资源注册、策略、路由、治理和观测的控制层；不直接等同于模型执行数据面。 | Strategic Direction |
+| AI 能力操作系统 | AI Capability OS | 将异构 AI 资源组织为可发现、可组合、可评测和可治理网络的长期平台愿景。 | Research Direction |
+| 自演进元系统 | Self-Evolving Meta-System | 通过评测、测试、审批和发布门禁受控改进知识、策略与系统；不是无约束自修改。 | Research Direction |
+| 统一 AI 资产模型 | Universal AI Asset Schema | 描述资源身份、来源、接口、能力、成本、性能、兼容性和生命周期的版本化 Schema。 | Planned |
+| 能力注册表 | Capability Registry | 保存经过校验的 AI 资产记录、版本、状态和可调用入口。 | 当前有资源目录与局部 Registry；统一模型 Planned |
+| 能力知识图谱 | Capability Knowledge Graph | 连接任务、能力、资源、约束、兼容关系和执行证据的关系图。 | Planned |
+| 能力基因组 | Capability Genome | 由 Model、Prompt、Skill、Tool、Memory、Workflow、Policy 和评测证据组成的结构化、可版本化能力配置。 | Planned |
+| 能力中间表示 | Capability IR | 位于用户目标与具体供应商资源之间，表达复杂度、能力、工具、执行层级和约束的中立结构。 | Planned |
+| 复杂度阶梯 | Complexity Ladder | 从垂类小模型、主流大模型、Fusion、单 Agent 到多 Agent 系统的渐进选择层级。 | Target Architecture |
+| 路由联邦 | Router Federation | 由 Model、Provider、Skill、MCP、RAG、Handoff 等 Domain Router 与 Meta Router 组成的目标路由体系。 | Planned；原生 Model Router 只是已交付的模型域路由 |
+| 元路由器 | Meta Router | 根据 Capability IR、策略结果和运行状态编排 Domain Router、执行层级、fallback 与审批路径。 | Planned |
+| 路由策略引擎 | Routing Policy Engine | 根据质量、成本、时延、可靠性、能力匹配、权限和数据边界评估候选策略。 | Planned；当前原生路由包含模型域策略子集 |
+| 路由计划 | Route Plan | Router 输出的可执行步骤、候选、fallback、预算与审批要求。 | Planned |
+| 路由收据 | Route Receipt | 记录候选集、过滤原因、策略版本、最终选择和实际执行资源的可解释结果。 | 原生 Model Router 已有模型域回执；跨域通用回执 Planned |
+| 元能力 | Meta Intelligence | 生成或优化 Prompt、Skill、MCP、Agent、Workflow 及其评测的能力层。 | 当前有模块级 Creator / Planner；统一能力层 Planned |
+| 执行运行时 | Execution Runtime | 执行规划、模型与工具调用、Workflow、协作、记忆、Trace 和安全护栏的目标运行层。 | 当前各模块有独立 Runtime；统一控制与数据面仍是目标设计 |
+| 执行轨迹数据集 | Execution Trace Dataset | 经授权、脱敏、质量标记和评测的请求、路由、调用、结果与反馈记录集合。 | Research；当前日志和 Run 记录不等同于数据集 |
+| 知识演进 | Knowledge Evolution | 发现、抓取、验证和审核生态更新后再更新 Registry 与 Graph 的受控链路。 | Research |
+| 智能演进 | Intelligence Evolution | 通过 Benchmark 和真实任务评测改进 Prompt、Agent、Workflow 与策略的受控链路。 | Research |
+| 系统演进 | System Evolution | 通过 Observe、Diagnose、Coding Agent、PR、Test、受控发布和回退改进系统的链路。 | Research |
+| 蒸馏引擎 | Distillation Engine | 压缩经评测的路由、规划、工具、记忆和评测策略；不复制第三方闭源模型权重。 | Research |
+| 智能能力内核 | AI Capability Kernel | 由 Small Model、Router、Planner、Tool Policy、Memory 和 Evaluation 组成的轻量系统研究形态。 | Research |

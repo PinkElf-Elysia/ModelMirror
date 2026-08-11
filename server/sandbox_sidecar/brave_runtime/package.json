@@ -1,0 +1,10 @@
+{
+  "name": "modelmirror-mcp-brave-runtime",
+  "version": "13.0.0",
+  "private": true,
+  "description": "Pinned official Brave Search MCP runtime for ModelMirror Wave 13",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@brave/brave-search-mcp-server": "2.1.0"
+  }
+}

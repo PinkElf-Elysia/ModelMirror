@@ -70,6 +70,26 @@ Ajv 8.20.0 的传递依赖已按模块 lockfile 盘点：
 
 ## 变更流程
 
+## R5 依赖状态
+
+R5 不新增 npm、Godot addon、GDExtension 或其他第三方运行依赖。Godot Runtime Pack 适配器、第三执行器、差分 harness 与调试 HUD 均使用现有 Node 24、Godot 4.6.3、GDScript、内建 `HashingContext` 和已冻结的 GdUnit4；R4 的 vendored 字节与来源锁保持不变。
+
+任何新增 addon、原生扩展或 vendored 源码都必须先提交依赖变更申请并取得人工批准，不能混入 R5 功能批次。
+
+## R6 官方参考源码
+
+R6 不新增运行依赖或 Godot addon。仅按已批准方案保存 `godotengine/godot-demo-projects` commit `b4eff8de9d7ba5a4f1a2dea8bae60f28816b7eea` 的 `3d/kinematic_character/player/cubio.gd` 作为非可执行参考，并保留仓库 MIT License、源文件 SHA-256、来源锁和适配说明。正式控制器是独立第一方实现，参考文件不被 Godot 导入、加载或执行。
+
+该参考只用于 CharacterBody3D 重力、相机方向移动、加减速和重置插值模式；不引入社区 FPS 插件、状态机、镜头特效或资产。任何来源 commit、文件字节、许可证或用途变化均需重新人工审批。
+
+## R7 场景资产与资格候选
+
+- Kenney Prototype Kit 1.0：CC0-1.0。只 vendoring `floor-square.glb`、`wall.glb`、`crate.glb`、`figurine.glb` 四个固定文件、它们共同引用的精确 `Textures/colormap.png`（8,706 bytes，SHA-256 `0d4947d34ff32acf4a359c7f22ca784e057e7e72f622170a9a77b6fc88fdb70e`）以及许可证/来源锁；不复制整包。
+- 精确 `figurine.glb`（SHA-256 `ae0ea82089e66215684b0b2f5a162be9f6c71475085c81c3b80e53abd08b6bd8`）含 27 条上游 animation 声明，仅作为静态角色占位：原始字节先通过供应链/GLB 门禁，再在内存候选中移除 `animations` 后交给 Godot，并断言不产生 `AnimationPlayer`。此例外不扩展到任何其他资产。
+- `ReconWorldLab/godot-gaussian-splatting` commit `d9de8db86a63e8bf9067c869dcdbd0614922fd1e`：MIT，仅在仓外副本资格验证，不加入正式工程、package lock 或 Godot addon。
+- R7 不增加 registry 依赖；Scene contracts/validator 只复用模块内 Runtime contracts、Ajv 与 jsonc-parser。
+- Marble/Meshy 均不作为依赖，R7 不调用其 API/MCP、不读取凭据或下载生成物。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；

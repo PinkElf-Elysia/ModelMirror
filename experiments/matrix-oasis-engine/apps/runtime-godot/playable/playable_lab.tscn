@@ -1,0 +1,249 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="PackedScene" path="res://playable/player.tscn" id="1_player"]
+[ext_resource type="Script" path="res://playable/action_terminal_grid.gd" id="2_grid"]
+[ext_resource type="Script" path="res://playable/playable_lab.gd" id="3_lab"]
+
+[sub_resource type="Environment" id="Environment_playable"]
+background_mode = 1
+background_color = Color(0.018, 0.027, 0.043, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.28, 0.34, 0.46, 1)
+ambient_light_energy = 0.62
+
+[sub_resource type="StandardMaterial3D" id="Material_floor"]
+albedo_color = Color(0.16, 0.21, 0.28, 1)
+roughness = 0.92
+
+[sub_resource type="StandardMaterial3D" id="Material_wall"]
+albedo_color = Color(0.25, 0.34, 0.46, 1)
+roughness = 0.82
+
+[sub_resource type="BoxMesh" id="Mesh_floor"]
+material = SubResource("Material_floor")
+size = Vector3(20, 0.2, 32)
+
+[sub_resource type="BoxShape3D" id="Shape_floor"]
+size = Vector3(20, 0.2, 32)
+
+[sub_resource type="BoxMesh" id="Mesh_north_wall"]
+material = SubResource("Material_wall")
+size = Vector3(20, 3, 0.3)
+
+[sub_resource type="BoxShape3D" id="Shape_north_wall"]
+size = Vector3(20, 3, 0.3)
+
+[sub_resource type="BoxMesh" id="Mesh_side_wall"]
+material = SubResource("Material_wall")
+size = Vector3(0.3, 3, 32)
+
+[sub_resource type="BoxShape3D" id="Shape_side_wall"]
+size = Vector3(0.3, 3, 32)
+
+[sub_resource type="StyleBoxFlat" id="Style_hud"]
+bg_color = Color(0.027, 0.043, 0.067, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.22, 0.31, 0.42, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="MatrixOasisR6PlayableLab" type="Node3D"]
+script = ExtResource("3_lab")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_playable")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-52, -30, 0)
+light_energy = 1.2
+shadow_enabled = true
+
+[node name="Ground" type="StaticBody3D" parent="."]
+position = Vector3(0, 0, -7)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("Mesh_floor")
+
+[node name="Collision" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("Shape_floor")
+
+[node name="NorthWall" type="StaticBody3D" parent="."]
+position = Vector3(0, 1.4, -23)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="NorthWall"]
+mesh = SubResource("Mesh_north_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="NorthWall"]
+shape = SubResource("Shape_north_wall")
+
+[node name="SouthWall" type="StaticBody3D" parent="."]
+position = Vector3(0, 1.4, 9)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="SouthWall"]
+mesh = SubResource("Mesh_north_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="SouthWall"]
+shape = SubResource("Shape_north_wall")
+
+[node name="WestWall" type="StaticBody3D" parent="."]
+position = Vector3(-10, 1.4, -7)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="WestWall"]
+mesh = SubResource("Mesh_side_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="WestWall"]
+shape = SubResource("Shape_side_wall")
+
+[node name="EastWall" type="StaticBody3D" parent="."]
+position = Vector3(10, 1.4, -7)
+collision_layer = 1
+collision_mask = 0
+
+[node name="Mesh" type="MeshInstance3D" parent="EastWall"]
+mesh = SubResource("Mesh_side_wall")
+
+[node name="Collision" type="CollisionShape3D" parent="EastWall"]
+shape = SubResource("Shape_side_wall")
+
+[node name="FirstPersonPlayer" parent="." instance=ExtResource("1_player")]
+position = Vector3(0, 1, 4.5)
+
+[node name="ActionTerminalGrid" type="Node3D" parent="."]
+script = ExtResource("2_grid")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+
+[node name="SafeArea" type="MarginContainer" parent="Hud"]
+anchors_preset = 0
+offset_left = 14.0
+offset_top = 14.0
+offset_right = 344.0
+offset_bottom = 318.0
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+theme_override_styles/panel = SubResource("Style_hud")
+
+[node name="Layout" type="VBoxContainer" parent="Hud/SafeArea"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="PackTitle" type="Label" parent="Hud/SafeArea/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.96, 1, 1)
+theme_override_font_sizes/font_size = 18
+text = "Runtime Pack"
+text_overrun_behavior = 3
+
+[node name="LocationTitle" type="Label" parent="Hud/SafeArea/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.87, 0.98, 1)
+theme_override_font_sizes/font_size = 15
+text = "Location"
+text_overrun_behavior = 3
+
+[node name="LocationText" type="Label" parent="Hud/SafeArea/Layout"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.79, 0.88, 1)
+theme_override_font_sizes/font_size = 12
+text = "Waiting for a local Runtime Pack."
+autowrap_mode = 3
+max_lines_visible = 2
+text_overrun_behavior = 4
+
+[node name="Status" type="Label" parent="Hud/SafeArea/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.53, 0.88, 0.77, 1)
+theme_override_font_sizes/font_size = 12
+text = "Loading"
+
+[node name="State" type="Label" parent="Hud/SafeArea/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.72, 0.82, 1)
+theme_override_font_sizes/font_size = 12
+text = "Step 0 / 0"
+
+[node name="Variables" type="Label" parent="Hud/SafeArea/Layout"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.78, 0.88, 1)
+theme_override_font_sizes/font_size = 11
+text = "Variables"
+max_lines_visible = 3
+text_overrun_behavior = 4
+
+[node name="Cues" type="Label" parent="Hud/SafeArea/Layout"]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.78, 0.88, 1)
+theme_override_font_sizes/font_size = 11
+text = "Cues"
+max_lines_visible = 2
+text_overrun_behavior = 4
+
+[node name="Transition" type="Label" parent="Hud/SafeArea/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.72, 0.82, 1)
+theme_override_font_sizes/font_size = 11
+text = "No transition yet."
+text_overrun_behavior = 3
+
+[node name="Reset" type="Button" parent="Hud/SafeArea/Layout"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+focus_mode = 2
+text = "Reset session (R)"
+
+[node name="Crosshair" type="Label" parent="Hud"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -10.0
+offset_top = -15.0
+offset_right = 10.0
+offset_bottom = 15.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.92, 0.96, 1, 0.9)
+theme_override_font_sizes/font_size = 22
+text = "+"
+horizontal_alignment = 1
+vertical_alignment = 1
+mouse_filter = 2
+
+[node name="Prompt" type="Label" parent="Hud"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -58.0
+offset_right = 220.0
+offset_bottom = -18.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.92, 0.96, 1, 1)
+theme_override_font_sizes/font_size = 15
+text = "Aim at an action terminal"
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+mouse_filter = 2

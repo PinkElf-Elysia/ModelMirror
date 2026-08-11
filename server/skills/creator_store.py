@@ -17,6 +17,7 @@ CREATOR_ASSISTANT_AGENT_ID = "skill-creator-assistant-v1"
 CreatorMode = Literal["blank", "run"]
 CreatorSourceKind = Literal["blank", "xpert_chat", "workflow_classic"]
 CreatorQualityMode = Literal["objective", "subjective"]
+CreatorAuthoringFlow = Literal["legacy", "resource"]
 CreatorReviewState = Literal["none", "pending", "accepted", "revise", "waived"]
 CreatorSessionState = Literal[
     "defining",
@@ -59,6 +60,7 @@ class SkillCreatorSession:
     draft_state_revision: int = 0
     mode: CreatorMode = "blank"
     assistant_agent_id: str = CREATOR_ASSISTANT_AGENT_ID
+    authoring_flow: CreatorAuthoringFlow = "legacy"
     intent: str = ""
     positive_examples: list[str] = field(default_factory=list)
     near_miss_examples: list[str] = field(default_factory=list)
@@ -131,10 +133,12 @@ class SkillCreatorSessionStore:
         source_xpert_id: str | None = None,
         source_conversation_id: str | None = None,
         source_message_id: str | None = None,
+        authoring_flow: CreatorAuthoringFlow = "legacy",
     ) -> SkillCreatorSession:
         session = SkillCreatorSession(
             session_id=f"skillcreator_{uuid.uuid4().hex}",
             mode=self._mode(mode),
+            authoring_flow=self._authoring_flow(authoring_flow),
             intent=self._text(intent, "intent", maximum=8_000),
             positive_examples=self._text_list(
                 positive_examples or [], "positive_examples", maximum_items=10
@@ -174,6 +178,29 @@ class SkillCreatorSessionStore:
                 self._items.pop(session.session_id, None)
                 raise
         return self._copy(session)
+
+    def activate_resource_authoring(
+        self,
+        session_id: str,
+        *,
+        expected_session_revision: int,
+    ) -> SkillCreatorSession:
+        """Persist an explicit opt-in for legacy Creator sessions."""
+
+        with self._lock:
+            item = self._require_mutable_unlocked(
+                session_id, expected_session_revision=expected_session_revision
+            )
+            if item.authoring_flow == "resource":
+                return self._copy(item)
+            if item.state == "archived":
+                raise SkillCreatorConflictError("Archived Creator sessions are read-only.")
+            previous = self._copy(item)
+            item.authoring_flow = "resource"
+            item.proposal_id = None
+            item.session_revision += 1
+            item.updated_at = time.time()
+            return self._save_or_restore_unlocked(item, previous)
 
     def require(self, session_id: str) -> SkillCreatorSession:
         with self._lock:
@@ -615,6 +642,12 @@ class SkillCreatorSessionStore:
         return value
 
     @staticmethod
+    def _authoring_flow(value: Any) -> CreatorAuthoringFlow:
+        if value not in {"legacy", "resource"}:
+            raise SkillCreatorValidationError("Invalid Creator authoring flow.")
+        return value
+
+    @staticmethod
     def _review_state(value: Any) -> CreatorReviewState:
         if value not in {"none", "pending", "accepted", "revise", "waived"}:
             raise SkillCreatorValidationError("Invalid Creator review state.")
@@ -836,6 +869,7 @@ class SkillCreatorSessionStore:
         if item.assistant_agent_id != CREATOR_ASSISTANT_AGENT_ID:
             raise ValueError("Creator assistant identity is immutable.")
         item.mode = self._mode(item.mode)
+        item.authoring_flow = self._authoring_flow(item.authoring_flow)
         item.source_kind = self._source_kind(item.source_kind)
         item.quality_mode = self._quality_mode(item.quality_mode)
         item.review_state = self._review_state(item.review_state)

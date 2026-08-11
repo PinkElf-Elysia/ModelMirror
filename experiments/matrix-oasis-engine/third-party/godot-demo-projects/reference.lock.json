@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "name": "godot-demo-projects kinematic character reference",
+  "upstream": "https://github.com/godotengine/godot-demo-projects",
+  "commit": "b4eff8de9d7ba5a4f1a2dea8bae60f28816b7eea",
+  "originalPath": "3d/kinematic_character/player/cubio.gd",
+  "referencePath": "third-party/godot-demo-projects/cubio.gd.reference.txt",
+  "referenceSha256": "dfda0bc36b5cfb719af3d9d104b274aff3b5387ec2c47e882178be02301bcb25",
+  "referenceByteLength": 2303,
+  "license": "MIT",
+  "licensePath": "third-party/godot-demo-projects/LICENSE.md",
+  "licenseSha256": "0339177149b474f7ff676d32218ecb3a8f2538955610023c3769763720d09e4c",
+  "licenseByteLength": 1134,
+  "adaptationPath": "third-party/godot-demo-projects/ADAPTATION.md",
+  "adaptationSha256": "303d0c40f4b0e29ac1425b058c9c7551199f16fd9723a394e07aa288ff1e4b60",
+  "adaptationByteLength": 689,
+  "runtimeDependency": false,
+  "executable": false,
+  "modified": false
+}

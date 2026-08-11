@@ -152,6 +152,128 @@ def test_complex_plan_assigns_stable_ids_and_dependencies(tmp_path: Path) -> Non
     assert patched.digest != plan.digest
 
 
+def test_confirmed_plan_revision_can_update_metadata_and_reuse_resources(
+    tmp_path: Path,
+) -> None:
+    store = SkillResourcePlanStore(tmp_path)
+    plan = _save(
+        store,
+        _payload(
+            resources=[
+                {
+                    "kind": "reference",
+                    "action": "create",
+                    "path": "references/evidence-policy.md",
+                    "purpose": "Keep detailed evidence boundaries out of SKILL.md.",
+                    "source_ids": ["intent"],
+                    "used_by_steps": ["collect"],
+                    "depends_on": [],
+                    "acceptance_checks": ["Contains the supplied evidence policy."],
+                }
+            ]
+        ),
+    )
+    confirmed = store.confirm(
+        plan.plan_id,
+        expected_revision=plan.revision,
+        expected_digest=plan.digest,
+        session_revision=plan.session_revision,
+        draft_revision=None,
+        draft_digest=None,
+    )
+
+    revised = store.patch(
+        confirmed.plan_id,
+        expected_revision=confirmed.revision,
+        expected_digest=confirmed.digest,
+        allowed_source_ids=SOURCE_IDS,
+        changes={
+            "skill_description": (
+                "Create evidence-bound incident reviews. Use when users need a verified "
+                "timeline; do not use for generic rewriting."
+            )
+        },
+    )
+
+    assert revised.state == "ready"
+    assert revised.revision == confirmed.revision + 1
+    assert revised.resources[0].resource_id == confirmed.resources[0].resource_id
+    assert revised.resources[0].spec_digest == confirmed.resources[0].spec_digest
+    assert store.require(confirmed.plan_id, revision=confirmed.revision) == confirmed
+
+
+def test_model_enum_aliases_are_normalized_before_persistence(tmp_path: Path) -> None:
+    store = SkillResourcePlanStore(tmp_path)
+    payload = _payload(
+        resources=[
+            {
+                "kind": "references",
+                "action": "add",
+                "generation_cost": "moderate",
+                "path": "references/rules.md",
+                "purpose": "Keep detailed scoring rules out of SKILL.md.",
+                "source_ids": ["intent"],
+                "used_by_steps": ["collect"],
+                "acceptance_checks": ["Contains the supplied scoring rules."],
+            },
+            {
+                "kind": "脚本",
+                "action": "创建",
+                "generation_cost": "高",
+                "path": "scripts/calculate.py",
+                "purpose": "Calculate standings deterministically.",
+                "source_ids": ["success_criterion:0"],
+                "used_by_steps": ["normalize"],
+                "acceptance_checks": ["Returns a non-zero exit for invalid rows."],
+            },
+            {
+                "kind": "template",
+                "path": "assets/report.md",
+                "purpose": "Provide the reusable report skeleton.",
+                "source_ids": ["expected_output"],
+                "used_by_steps": ["deliver"],
+                "acceptance_checks": ["Contains every required report section."],
+            },
+        ]
+    )
+
+    plan = _save(store, payload)
+
+    assert [(item.kind, item.action, item.generation_cost) for item in plan.resources] == [
+        ("reference", "create", "medium"),
+        ("script", "create", "high"),
+        ("asset", "create", "medium"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("kind", "database", "skill_creator_resource_kind_invalid"),
+        ("action", "publish", "skill_creator_resource_action_invalid"),
+        ("generation_cost", "unbounded", "skill_creator_resource_cost_invalid"),
+    ],
+)
+def test_unknown_model_enum_values_still_fail_closed(
+    tmp_path: Path, field: str, value: str, code: str
+) -> None:
+    resource = {
+        "kind": "reference",
+        "action": "create",
+        "generation_cost": "medium",
+        "path": "references/rules.md",
+        "purpose": "Keep detailed rules out of SKILL.md.",
+        "source_ids": ["intent"],
+        "used_by_steps": ["collect"],
+        "acceptance_checks": ["Contains the supplied rules."],
+    }
+    resource[field] = value
+
+    with pytest.raises(SkillCreatorValidationError) as caught:
+        _save(SkillResourcePlanStore(tmp_path), _payload(resources=[resource]))
+    assert caught.value.code == code
+
+
 def test_clarification_answers_are_immutable_and_require_regeneration(tmp_path: Path) -> None:
     store = SkillResourcePlanStore(tmp_path)
     plan = _save(
@@ -225,13 +347,23 @@ def test_confirm_is_bound_to_session_and_draft_snapshot(tmp_path: Path) -> None:
     assert confirmed.state == "confirmed"
     assert confirmed.revision == plan.revision + 1
 
+    revised = store.patch(
+        plan.plan_id,
+        expected_revision=confirmed.revision,
+        expected_digest=confirmed.digest,
+        allowed_source_ids=SOURCE_IDS,
+        changes={"skill_name": "changed-name"},
+    )
+    assert revised.state == "ready"
+    assert revised.skill_name == "changed-name"
+
     with pytest.raises(SkillCreatorConflictError):
         store.patch(
             plan.plan_id,
             expected_revision=confirmed.revision,
             expected_digest=confirmed.digest,
             allowed_source_ids=SOURCE_IDS,
-            changes={"skill_name": "changed-name"},
+            changes={"skill_name": "stale-write"},
         )
 
 

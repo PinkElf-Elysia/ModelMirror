@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MCP_FILE_MEMORY_ROOT=/memory
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git fonts-dejavu-core \
+    && apt-get install -y --no-install-recommends ca-certificates git fonts-dejavu-core fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 65532 sandbox \
     && useradd --uid 65532 --gid 65532 --home-dir /tmp --no-create-home sandbox \

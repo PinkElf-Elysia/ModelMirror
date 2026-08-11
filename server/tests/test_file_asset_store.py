@@ -82,6 +82,9 @@ def test_repository_creates_tenant_scoped_metadata_tables(tmp_path: Path) -> Non
         "file_analysis_confirmations": True,
         "file_analysis_jobs": True,
         "file_analysis_send_confirmations": True,
+        "file_output_records": True,
+        "file_output_tasks": True,
+        "file_output_confirmations": True,
     }
 
     with sqlite3.connect(repository.database_path) as connection:

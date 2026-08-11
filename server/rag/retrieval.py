@@ -135,7 +135,9 @@ def fuse_rankings(
     if config.mode == "fulltext":
         for item in fulltext_items:
             item.fused_score = max(0.0, min(1.0, float(item.fulltext_score or 0.0)))
-        return sorted(fulltext_items, key=lambda item: (-item.fused_score, item.chunk_id))
+        # The lexical store already orders by BM25. Confidence is used for
+        # thresholding and must not replace the proven lexical rank order.
+        return fulltext_items
 
     by_id: dict[str, RetrievalCandidate] = {}
     raw_scores: dict[str, float] = {}

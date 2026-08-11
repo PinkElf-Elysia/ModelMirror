@@ -6,8 +6,9 @@ import argparse
 import json
 import os
 import re
+import xml.etree.ElementTree as ET
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -57,6 +58,62 @@ def _body(value: object) -> bytes:
     if len(encoded) > 128 * 1024:
         raise ValueError("请求参数超过 128 KiB 上限。")
     return encoded
+
+
+def _bounded_text_response(response: object, provider: str) -> str:
+    status = int(getattr(response, "status", 500))
+    if not 200 <= status < 300:
+        raise ValueError(f"{provider} returned HTTP {status}.")
+    try:
+        text = getattr(response, "body").decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(f"{provider} returned invalid UTF-8.") from exc
+    if len(text.encode("utf-8")) > MAX_RESULT_BYTES:
+        raise ValueError("Tool output exceeds the 256 KiB limit.")
+    return text
+
+
+_SENSITIVE_QUERY_KEYS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "access_token",
+        "oauth_token",
+        "token",
+        "signature",
+        "sig",
+        "key",
+        "credential",
+    }
+)
+
+
+def _public_extract_url(value: object) -> str:
+    from .safe_http import validate_public_https_url
+
+    clean = _text(value, "url", 16_384)
+    normalized, _, _, _ = validate_public_https_url(clean)
+    decoded = clean
+    for _ in range(2):
+        decoded = unquote(decoded)
+    query = decoded.split("?", 1)[1].split("#", 1)[0] if "?" in decoded else ""
+    query_keys = [item[0] for item in parse_qsl(query, keep_blank_values=True)]
+    query_keys.extend(
+        match.group(1)
+        for match in re.finditer(r"(?:^|[?&])([^=?&#]+)=", query)
+    )
+    for raw_key in query_keys:
+        key = re.sub(r"[^a-z0-9]+", "_", raw_key.lower()).strip("_")
+        compact = key.replace("_", "")
+        if (
+            key in _SENSITIVE_QUERY_KEYS
+            or compact in {item.replace("_", "") for item in _SENSITIVE_QUERY_KEYS}
+            or key.startswith("x_amz_")
+            or key.startswith("x_goog_")
+            or "oauth" in key
+        ):
+            raise ValueError("url must not contain credential-like query parameters.")
+    return normalized
 
 
 def build_axiom() -> FastMCP:
@@ -181,6 +238,743 @@ def build_kagi() -> FastMCP:
             headers={"Authorization": f"Bot {token}"},
         )
         return _json(response, "Kagi")
+
+    return mcp
+
+
+def build_kagi_official() -> FastMCP:
+    """Expose the reviewed read-only subset of official kagimcp v1.0.2."""
+
+    token = _required_environment("KAGI_API_KEY")
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({"kagi.com"}),
+        timeout=20.0,
+        max_redirects=0,
+        max_response_bytes=MAX_RESULT_BYTES,
+        additional_allowed_headers=frozenset({"authorization"}),
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json,text/markdown,text/plain",
+    }
+    mcp = FastMCP("ModelMirror Official Kagi Read Only")
+
+    @mcp.tool(annotations=READ_ONLY)
+    def kagi_search_fetch(
+        query: str,
+        workflow: str = "search",
+        limit: int = 10,
+    ) -> str:
+        """Fetch bounded Kagi web, news, video, podcast, or image search results."""
+        clean_workflow = str(workflow or "search").strip().lower()
+        if clean_workflow not in {"search", "news", "videos", "podcasts", "images"}:
+            raise ValueError("workflow is not part of the reviewed Kagi contract.")
+        count = int(limit)
+        if count < 1 or count > 20:
+            raise ValueError("limit must be between 1 and 20.")
+        response = client.request(
+            "https://kagi.com/api/v1/search",
+            method="POST",
+            headers=headers,
+            body=_body(
+                {
+                    "query": _text(query, "query", 1_000),
+                    "workflow": clean_workflow,
+                    "format": "markdown",
+                    "limit": count,
+                }
+            ),
+        )
+        return _bounded_text_response(response, "Kagi Search")
+
+    @mcp.tool(annotations=READ_ONLY)
+    def kagi_extract(url: str) -> str:
+        """Extract one public HTTPS page through Kagi and return bounded markdown."""
+        response = client.request(
+            "https://kagi.com/api/v1/extract",
+            method="POST",
+            headers=headers,
+            body=_body(
+                {
+                    "pages": [{"url": _public_extract_url(url)}],
+                    "format": "json",
+                }
+            ),
+        )
+        payload = _json(response, "Kagi Extract")
+        pages = payload.get("data") if isinstance(payload, dict) else None
+        markdown = pages[0].get("markdown") if (
+            isinstance(pages, list)
+            and pages
+            and isinstance(pages[0], dict)
+        ) else None
+        if not isinstance(markdown, str) or not markdown.strip():
+            raise ValueError("Kagi Extract returned no page content.")
+        if len(markdown.encode("utf-8")) > MAX_RESULT_BYTES:
+            raise ValueError("Tool output exceeds the 256 KiB limit.")
+        return markdown
+
+    return mcp
+
+
+_ARXIV_NAMESPACES = {
+    "atom": "http://www.w3.org/2005/Atom",
+    "arxiv": "http://arxiv.org/schemas/atom",
+}
+_ARXIV_ID = re.compile(
+    r"(?i)(?:[0-9]{4}\.[0-9]{4,5}|[a-z][a-z0-9.-]*/[0-9]{7})(?:v[0-9]+)?"
+)
+_ARXIV_CATEGORY = re.compile(r"(?:[a-z]+(?:-[a-z]+)*)(?:\.[A-Z]{2})?")
+_ARXIV_CATEGORY_PREFIXES = frozenset(
+    {
+        "cs", "econ", "eess", "math", "physics", "q-bio", "q-fin", "stat",
+        "astro-ph", "cond-mat", "gr-qc", "hep-ex", "hep-lat", "hep-ph",
+        "hep-th", "math-ph", "nlin", "nucl-ex", "nucl-th", "quant-ph",
+    }
+)
+
+
+def _arxiv_paper_id(value: object) -> str:
+    clean = _text(value, "paper_id", 80)
+    if _ARXIV_ID.fullmatch(clean) is None:
+        raise ValueError("paper_id must be a current or legacy arXiv identifier.")
+    return clean
+
+
+def _arxiv_categories(values: object) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, list) or len(values) > 12:
+        raise ValueError("categories must contain at most 12 arXiv categories.")
+    output: list[str] = []
+    for raw in values:
+        category = str(raw or "").strip()
+        prefix = category.split(".", 1)[0]
+        if (
+            _ARXIV_CATEGORY.fullmatch(category) is None
+            or prefix not in _ARXIV_CATEGORY_PREFIXES
+        ):
+            raise ValueError("categories contains an invalid arXiv category.")
+        if category not in output:
+            output.append(category)
+    return output
+
+
+def _arxiv_entry_text(entry: ET.Element, tag: str) -> str:
+    element = entry.find(tag, _ARXIV_NAMESPACES)
+    return " ".join(str(element.text or "").split()) if element is not None else ""
+
+
+def _parse_arxiv_feed(xml_text: str) -> list[dict[str, object]]:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        raise ValueError("arXiv returned invalid Atom XML.") from exc
+    papers: list[dict[str, object]] = []
+    for entry in root.findall("atom:entry", _ARXIV_NAMESPACES):
+        raw_id = _arxiv_entry_text(entry, "atom:id").split("/abs/")[-1]
+        if _ARXIV_ID.fullmatch(raw_id) is None:
+            continue
+        short_id = re.sub(r"v[0-9]+$", "", raw_id, flags=re.IGNORECASE)
+        authors = [
+            _arxiv_entry_text(author, "atom:name")
+            for author in entry.findall("atom:author", _ARXIV_NAMESPACES)
+        ]
+        categories: list[str] = []
+        for element in (
+            *entry.findall("arxiv:primary_category", _ARXIV_NAMESPACES),
+            *entry.findall("atom:category", _ARXIV_NAMESPACES),
+        ):
+            category = str(element.get("term") or "").strip()
+            if category and category not in categories:
+                categories.append(category[:80])
+        papers.append(
+            {
+                "id": short_id,
+                "title": _arxiv_entry_text(entry, "atom:title")[:2_000],
+                "authors": [item[:500] for item in authors if item][:100],
+                "abstract": "[EXTERNAL CONTENT] "
+                + _arxiv_entry_text(entry, "atom:summary")[:32_000],
+                "categories": categories[:100],
+                "published": _arxiv_entry_text(entry, "atom:published")[:80],
+                "pdf_url": f"https://arxiv.org/pdf/{short_id}.pdf",
+                "resource_uri": f"arxiv://{short_id}",
+            }
+        )
+    return papers
+
+
+def build_arxiv_readonly() -> FastMCP:
+    """Expose metadata-only tools compatible with arxiv-mcp-server v0.6.2."""
+
+    host = "export.arxiv.org"
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({host}),
+        timeout=30.0,
+        max_redirects=0,
+        max_response_bytes=MAX_RESULT_BYTES,
+        minimum_intervals={host: 3.0},
+    )
+    mcp = FastMCP("ModelMirror arXiv Metadata Read Only")
+
+    def fetch(parameters: dict[str, object]) -> list[dict[str, object]]:
+        response = client.request(
+            f"https://{host}/api/query?{urlencode(parameters)}",
+            headers={"Accept": "application/atom+xml"},
+        )
+        return _parse_arxiv_feed(_bounded_text_response(response, "arXiv"))
+
+    @mcp.tool(annotations=READ_ONLY)
+    def search_papers(
+        query: str,
+        max_results: int = 10,
+        categories: list[str] | None = None,
+        sort_by: str = "relevance",
+    ) -> dict[str, object]:
+        """Search public arXiv metadata without downloading or caching papers."""
+        clean_query = _text(query, "query", 1_000)
+        count = int(max_results)
+        if count < 1 or count > 20:
+            raise ValueError("max_results must be between 1 and 20.")
+        clean_sort = str(sort_by or "relevance").strip().lower()
+        if clean_sort not in {"relevance", "date"}:
+            raise ValueError("sort_by must be relevance or date.")
+        category_values = _arxiv_categories(categories)
+        query_parts = [f"({clean_query})"]
+        if category_values:
+            query_parts.append(
+                "(" + " OR ".join(f"cat:{item}" for item in category_values) + ")"
+            )
+        papers = fetch(
+            {
+                "search_query": " AND ".join(query_parts),
+                "max_results": count,
+                "sortBy": "submittedDate" if clean_sort == "date" else "relevance",
+                "sortOrder": "descending",
+            }
+        )
+        return {"total_results": len(papers), "papers": papers}
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_abstract(paper_id: str) -> dict[str, object]:
+        """Fetch public abstract metadata for one arXiv identifier."""
+        clean_id = _arxiv_paper_id(paper_id)
+        papers = fetch({"id_list": clean_id, "max_results": 1})
+        if not papers:
+            return {
+                "status": "error",
+                "paper_id": clean_id,
+                "message": "Paper was not found on arXiv.",
+            }
+        paper = dict(papers[0])
+        paper.pop("id", None)
+        paper.pop("resource_uri", None)
+        return {"status": "success", "paper_id": clean_id, **paper}
+
+    return mcp
+
+
+_SEARCH1_SEARCH_SERVICES = frozenset(
+    {
+        "google",
+        "bing",
+        "duckduckgo",
+        "yahoo",
+        "github",
+        "youtube",
+        "x",
+        "reddit",
+        "arxiv",
+        "wechat",
+        "bilibili",
+        "imdb",
+        "wikipedia",
+    }
+)
+_SEARCH1_NEWS_SERVICES = frozenset(
+    {"google", "bing", "duckduckgo", "yahoo", "hackernews"}
+)
+_SEARCH1_TRENDING_SERVICES = frozenset({"github", "hackernews"})
+_SEARCH1_TIME_RANGES = frozenset({"day", "month", "year"})
+
+
+def _choice(value: object, name: str, allowed: frozenset[str]) -> str:
+    clean = str(value or "").strip().lower()
+    if clean not in allowed:
+        raise ValueError(f"{name} is outside the reviewed allowlist.")
+    return clean
+
+
+def _bounded_count(value: object, name: str = "max_results") -> int:
+    count = int(value)
+    if count < 1 or count > 20:
+        raise ValueError(f"{name} must be between 1 and 20.")
+    return count
+
+
+def _external_result_url(value: object) -> str:
+    clean = str(value or "").strip()
+    if not clean or len(clean) > 16_384:
+        return ""
+    parsed = urlsplit(clean)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return ""
+    if not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        return ""
+    return clean
+
+
+def _search1_results(payload: object, limit: int) -> list[dict[str, object]]:
+    if not isinstance(payload, dict):
+        raise ValueError("Search1API returned an invalid response shape.")
+    raw_items: object = []
+    for key in ("results", "data", "items", "trending"):
+        candidate = payload.get(key)
+        if isinstance(candidate, list):
+            raw_items = candidate
+            break
+    output: list[dict[str, object]] = []
+    for raw in raw_items[:limit] if isinstance(raw_items, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        item: dict[str, object] = {}
+        for source_key, output_key, maximum in (
+            ("title", "title", 1_000),
+            ("name", "title", 1_000),
+            ("snippet", "snippet", 4_000),
+            ("description", "snippet", 4_000),
+            ("source", "source", 500),
+            ("domain", "domain", 500),
+            ("author", "author", 500),
+            ("date", "published_at", 100),
+            ("published_at", "published_at", 100),
+            ("language", "language", 80),
+        ):
+            value = raw.get(source_key)
+            if output_key in item or not isinstance(value, str) or not value.strip():
+                continue
+            text = " ".join(value.split())[:maximum]
+            item[output_key] = (
+                f"[EXTERNAL CONTENT] {text}"
+                if output_key in {"title", "snippet"}
+                else text
+            )
+        result_url = _external_result_url(raw.get("link") or raw.get("url"))
+        if result_url:
+            item["url"] = result_url
+        for source_key, output_key in (("rank", "rank"), ("stars", "stars")):
+            value = raw.get(source_key)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                item[output_key] = value
+        if item:
+            output.append(item)
+    return output
+
+
+def build_search1api_readonly() -> FastMCP:
+    """Expose only discovery tools from official search1api-mcp v0.5.3."""
+
+    token = _required_environment("SEARCH1API_KEY")
+    host = "api.search1api.com"
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({host}),
+        timeout=25.0,
+        max_redirects=0,
+        max_response_bytes=MAX_RESULT_BYTES,
+        minimum_intervals={host: 0.35},
+        additional_allowed_headers=frozenset({"authorization"}),
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    mcp = FastMCP("ModelMirror Search1API Discovery Read Only")
+
+    def post(path: str, payload: dict[str, object], limit: int) -> dict[str, object]:
+        response = client.request(
+            f"https://{host}{path}",
+            method="POST",
+            headers=headers,
+            body=_body(payload),
+        )
+        return {"results": _search1_results(_json(response, "Search1API"), limit)}
+
+    @mcp.tool(annotations=READ_ONLY)
+    def search(
+        query: str,
+        search_service: str = "google",
+        max_results: int = 10,
+        language: str = "",
+    ) -> dict[str, object]:
+        """Search the public web without crawling result pages."""
+        count = _bounded_count(max_results)
+        payload: dict[str, object] = {
+            "query": _text(query, "query", 1_000),
+            "search_service": _choice(
+                search_service, "search_service", _SEARCH1_SEARCH_SERVICES
+            ),
+            "max_results": count,
+            "crawl_results": 0,
+        }
+        if str(language or "").strip():
+            payload["language"] = _text(language, "language", 32)
+        return post("/search", payload, count)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def news(
+        query: str,
+        search_service: str = "google",
+        max_results: int = 10,
+        language: str = "",
+        time_range: str = "day",
+    ) -> dict[str, object]:
+        """Search recent public news without crawling article pages."""
+        count = _bounded_count(max_results)
+        payload: dict[str, object] = {
+            "query": _text(query, "query", 1_000),
+            "search_service": _choice(
+                search_service, "search_service", _SEARCH1_NEWS_SERVICES
+            ),
+            "max_results": count,
+            "crawl_results": 0,
+            "time_range": _choice(time_range, "time_range", _SEARCH1_TIME_RANGES),
+        }
+        if str(language or "").strip():
+            payload["language"] = _text(language, "language", 32)
+        return post("/news", payload, count)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def trending(
+        search_service: str = "github",
+        max_results: int = 10,
+    ) -> dict[str, object]:
+        """Read bounded trending lists from GitHub or Hacker News."""
+        count = _bounded_count(max_results)
+        return post(
+            "/trending",
+            {
+                "search_service": _choice(
+                    search_service,
+                    "search_service",
+                    _SEARCH1_TRENDING_SERVICES,
+                ),
+                "max_results": count,
+            },
+            count,
+        )
+
+    return mcp
+
+
+_TENNIS_TOURS = frozenset({"atp", "wta", "challenger", "itf", "juniors"})
+_TENNIS_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}")
+
+
+def _positive_id(value: object, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a positive integer.")
+    clean = int(value)
+    if clean < 1 or clean > 9_223_372_036_854_775_807:
+        raise ValueError(f"{name} must be a positive integer.")
+    return clean
+
+
+def _tennis_tour(value: object) -> str:
+    clean = str(value or "").strip().lower()
+    if not clean:
+        return ""
+    return _choice(clean, "tour", _TENNIS_TOURS)
+
+
+def _tennis_page(limit: object, offset: object) -> tuple[int, int]:
+    count = _bounded_count(limit, "limit")
+    start = int(offset)
+    if start < 0 or start > 1_000:
+        raise ValueError("offset must be between 0 and 1000.")
+    return count, start
+
+
+def _compact_string(value: object, maximum: int = 1_000) -> str | None:
+    if value is None:
+        return None
+    return " ".join(str(value).split())[:maximum]
+
+
+def _compact_int(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _project_tennis_score(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    sets = value.get("sets")
+    games = value.get("games")
+    points = value.get("points")
+    projected_games: list[list[int]] = []
+    if isinstance(games, list):
+        for side in games[:2]:
+            projected_games.append(
+                [
+                    int(item)
+                    for item in side[:10]
+                    if isinstance(item, int) and not isinstance(item, bool)
+                ]
+                if isinstance(side, list)
+                else []
+            )
+    return {
+        "sets": [
+            int(item)
+            for item in sets[:2]
+            if isinstance(item, int) and not isinstance(item, bool)
+        ] if isinstance(sets, list) else [],
+        "games": projected_games,
+        "points": [
+            None if item is None else str(item)[:16]
+            for item in points[:2]
+            if item is None or isinstance(item, (str, int))
+        ] if isinstance(points, list) else [],
+        "server": _compact_int(value.get("server")),
+        "is_tiebreak": bool(value.get("is_tiebreak")),
+        "timestamp": _compact_string(value.get("timestamp"), 80),
+    }
+
+
+def _project_tennis_player(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "id": _compact_int(value.get("id")),
+        "name": _compact_string(value.get("name"), 500),
+        "tour": _compact_string(value.get("tour"), 80),
+        "country": _compact_string(value.get("country"), 16),
+        "ranking": _compact_int(value.get("ranking")),
+        "ranking_points": _compact_int(value.get("ranking_points")),
+        "ranking_movement": _compact_string(value.get("ranking_movement"), 16),
+        "hand": _compact_string(value.get("hand"), 8),
+        "backhand": _compact_int(value.get("backhand")),
+        "birthday": _compact_string(value.get("birthday"), 32),
+        "is_doubles_team": bool(value.get("is_doubles_team")),
+    }
+
+
+def _project_tennis_match(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    players = value.get("players")
+    projected_players: dict[str, object] = {}
+    if isinstance(players, dict):
+        for side in ("p1", "p2"):
+            projected = _project_tennis_player(players.get(side))
+            if projected is not None:
+                projected_players[side] = projected
+    return {
+        "id": _compact_int(value.get("id")),
+        "tournament": _compact_string(value.get("tournament"), 500),
+        "tournament_id": _compact_string(value.get("tournament_id"), 120),
+        "tour": _compact_string(value.get("tour"), 80),
+        "surface": _compact_string(value.get("surface"), 32),
+        "indoor": bool(value.get("indoor")),
+        "format": _compact_string(value.get("format"), 16),
+        "round": _compact_string(value.get("round"), 120),
+        "round_code": _compact_string(value.get("round_code"), 16),
+        "status": _compact_string(value.get("status"), 32),
+        "event_status": _compact_string(value.get("event_status"), 32),
+        "is_doubles": bool(value.get("is_doubles")),
+        "scheduled_time": _compact_string(value.get("scheduled_time"), 80),
+        "players": projected_players,
+        "score": _project_tennis_score(value.get("score")),
+    }
+
+
+def _project_tennis_fixture(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        key: (
+            _compact_int(value.get(key))
+            if key in {"id", "player1_id", "player2_id"}
+            else _compact_string(value.get(key), 500)
+        )
+        for key in (
+            "id",
+            "event_date",
+            "tour",
+            "tournament",
+            "round",
+            "surface",
+            "player1_id",
+            "player2_id",
+            "player1_name",
+            "player2_name",
+            "status",
+        )
+    }
+
+
+def _project_tennis_tournament(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        "id": _compact_string(value.get("id"), 120),
+        "name": _compact_string(value.get("name"), 500),
+        "tour": _compact_string(value.get("tour"), 80),
+        "surface": _compact_string(value.get("surface"), 32),
+        "indoor": bool(value.get("indoor")),
+        "city": _compact_string(value.get("city"), 200),
+        "country": _compact_string(value.get("country"), 16),
+        "category": _compact_string(value.get("category"), 80),
+    }
+
+
+def _project_tennis_list(
+    payload: object,
+    projector: object,
+    limit: int,
+) -> dict[str, object]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise ValueError("Live Tennis API returned an invalid list response.")
+    projected = [
+        item
+        for item in (projector(raw) for raw in payload["data"][:limit])
+        if item is not None
+    ]
+    meta = payload.get("meta")
+    safe_meta: dict[str, object] = {}
+    if isinstance(meta, dict):
+        for key in ("limit", "offset", "count", "total"):
+            parsed = _compact_int(meta.get(key))
+            if parsed is not None:
+                safe_meta[key] = parsed
+        if isinstance(meta.get("has_more"), bool):
+            safe_meta["has_more"] = meta["has_more"]
+    return {"data": projected, "meta": safe_meta}
+
+
+def build_livetennisapi_readonly() -> FastMCP:
+    """Expose only the FREE non-financial subset of livetennisapi-mcp v1.4.0."""
+
+    token = _required_environment("LIVE_TENNIS_API_KEY")
+    host = "api.livetennisapi.com"
+    base = f"https://{host}/api/public/v1"
+    client = SafeHttpClient(
+        allowed_hosts=frozenset({host}),
+        timeout=15.0,
+        max_redirects=0,
+        max_response_bytes=MAX_RESULT_BYTES,
+        minimum_intervals={host: 2.1},
+        additional_allowed_headers=frozenset({"authorization"}),
+    )
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    mcp = FastMCP("ModelMirror Live Tennis Free Read Only")
+
+    def get(path: str) -> Any:
+        return _json(client.request(f"{base}{path}", headers=headers), "Live Tennis API")
+
+    def list_matches(status: str, tour: str, limit: int, offset: int) -> dict[str, object]:
+        count, start = _tennis_page(limit, offset)
+        parameters: dict[str, object] = {"status": status, "limit": count, "offset": start}
+        clean_tour = _tennis_tour(tour)
+        if clean_tour:
+            parameters["tour"] = clean_tour
+        return _project_tennis_list(
+            get(f"/matches?{urlencode(parameters)}"), _project_tennis_match, count
+        )
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_live_matches(tour: str = "", limit: int = 10, offset: int = 0) -> dict[str, object]:
+        """List current live matches from the FREE API surface."""
+        return list_matches("live", tour, limit, offset)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_upcoming_matches(tour: str = "", limit: int = 10, offset: int = 0) -> dict[str, object]:
+        """List upcoming matches without completed history or paid analysis."""
+        return list_matches("upcoming", tour, limit, offset)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_match_score(match_id: int) -> dict[str, object]:
+        """Read one point-in-time score with all model fields removed."""
+        clean_id = _positive_id(match_id, "match_id")
+        projected = _project_tennis_score(get(f"/matches/{clean_id}/score"))
+        if projected is None:
+            raise ValueError("Live Tennis API returned an invalid score response.")
+        return projected
+
+    @mcp.tool(annotations=READ_ONLY)
+    def search_players(query: str, limit: int = 10, offset: int = 0) -> dict[str, object]:
+        """Search the FREE player directory without returning cached stats objects."""
+        count, start = _tennis_page(limit, offset)
+        parameters = {
+            "search": _text(query, "query", 200),
+            "limit": count,
+            "offset": start,
+        }
+        return _project_tennis_list(
+            get(f"/players?{urlencode(parameters)}"), _project_tennis_player, count
+        )
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_player(player_id: int) -> dict[str, object]:
+        """Read one FREE player profile with stats and completeness blobs removed."""
+        projected = _project_tennis_player(
+            get(f"/players/{_positive_id(player_id, 'player_id')}")
+        )
+        if projected is None:
+            raise ValueError("Live Tennis API returned an invalid player response.")
+        return projected
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_fixtures(tour: str = "", limit: int = 10, offset: int = 0) -> dict[str, object]:
+        """List upcoming FREE fixtures with bounded pagination."""
+        count, start = _tennis_page(limit, offset)
+        parameters: dict[str, object] = {"limit": count, "offset": start}
+        clean_tour = _tennis_tour(tour)
+        if clean_tour:
+            parameters["tour"] = clean_tour
+        return _project_tennis_list(
+            get(f"/fixtures?{urlencode(parameters)}"), _project_tennis_fixture, count
+        )
+
+    @mcp.tool(annotations=READ_ONLY)
+    def search_tournaments(
+        query: str = "",
+        tour: str = "",
+        limit: int = 10,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        """Search the FREE tournament catalogue."""
+        count, start = _tennis_page(limit, offset)
+        parameters: dict[str, object] = {"limit": count, "offset": start}
+        if str(query or "").strip():
+            parameters["search"] = _text(query, "query", 200)
+        clean_tour = _tennis_tour(tour)
+        if clean_tour:
+            parameters["tour"] = clean_tour
+        return _project_tennis_list(
+            get(f"/tournaments?{urlencode(parameters)}"),
+            _project_tennis_tournament,
+            count,
+        )
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_tournament(tournament_id: str) -> dict[str, object]:
+        """Read one tournament from the FREE stable-id catalogue."""
+        clean_id = _text(tournament_id, "tournament_id", 120)
+        if _TENNIS_ID.fullmatch(clean_id) is None:
+            raise ValueError("tournament_id is invalid.")
+        projected = _project_tennis_tournament(
+            get(f"/tournaments/{quote(clean_id, safe='')}")
+        )
+        if projected is None:
+            raise ValueError("Live Tennis API returned an invalid tournament response.")
+        return projected
 
     return mcp
 
@@ -449,8 +1243,12 @@ def build_terraform() -> FastMCP:
 
 BUILDERS = {
     "axiom-mcp": build_axiom,
+    "blazickjp-arxiv-mcp-server": build_arxiv_readonly,
+    "fatwang2-search1api-mcp": build_search1api_readonly,
     "grafana-mcp": build_grafana,
+    "kagisearch-kagimcp": build_kagi_official,
     "kagi-mcp": build_kagi,
+    "livetennisapi-livetennisapi-mcp": build_livetennisapi_readonly,
     "pinecone-assistant-mcp": build_pinecone,
     "terraform-mcp": build_terraform,
 }

@@ -1,7 +1,7 @@
 # Skill 体验治理与候选能力审计
 
-最后更新日期：2026-08-08
-状态：Creator V1 核心闭环已实现；资源化增强、上传与外部市场接入延后
+最后更新日期：2026-08-10
+状态：Creator V1 与资源化创作闭环已实现；上传与外部市场接入延后
 
 ## 1. 当前边界
 
@@ -90,9 +90,17 @@ node scripts/audit-skill-experience.mjs
 
 “待核验”不代表来源恶意，只表示当前证据不足以让模镜替用户执行安装。
 
+### 3.4 第三方 Skill 信任与兼容性基线
+
+固定提交来源核验只证明“仓库、提交和目录真实存在”，不等同于脚本安全、依赖可用或运行权限兼容。第一轮信任治理新增纯本地 `SkillTrustReceipt`：按完整 Git tree 读取原始字节，不执行任何第三方代码，并以结构安全、脚本、依赖、权限、网络、凭据、文件写入和宿主能力生成可解释 findings。
+
+风险分级固定为：纯说明、reference 或文本 asset 为低风险；本地 Python/JavaScript、Sandbox 写入、被动二进制或非标准依赖为中风险；网络、凭据、浏览器、MCP、宿主文件系统、包管理器、Shell、桌面控制及敏感能力为高风险；秘密、链接逃逸、可执行或归档文件、未知二进制、动态下载执行、混淆内容及扫描不完整为严重风险。自定义 frontmatter 字段保留为兼容性发现，不改写上游文件，也不把“可安装”表述成原生规范认证。
+
+本 PR 只建立确定性扫描器与三份一致索引；安装确认、既有安装迁移、统一激活门和市场体验按后续串行 PR 实施。扫描公共固定提交仅发生在维护期，运行时不会联网判断风险。
+
 ## 4. 候选能力审计
 
-本节记录三项候选能力的审计结论与当前落地边界。“按需求寻找 Skill”与私有控制台 Creator V1 核心闭环已实现；上传 Skill、Creator 资源化创作增强与外部市场继续延后。
+本节记录三项候选能力的审计结论与当前落地边界。“按需求寻找 Skill”与私有控制台 Creator V1（含资源化创作）已实现；上传 Skill 与外部市场继续延后。
 
 ### 4.1 允许用户上传 Skill
 
@@ -131,9 +139,7 @@ node scripts/audit-skill-experience.mjs
 
 评测合同：客观 Skill 必须完成与当前 digest 绑定的恰好 3 个用例；主观创作类 Skill 可运行同一三例，或由本地控制台填写原因并二次确认豁免。新 Skill 的 baseline 不加载 Skill；升级 Skill 的 baseline 固定为会话开始时已安装的 digest；Candidate 使用当前不可变 Overlay。两侧使用同一实际模型与参数，只开放 `skill_read`、`skill_stage` 和固定离线 Sandbox；不开放网络、MCP、浏览器、安装或 HITL。接受或豁免均不会自动安装，当前 digest 仍需单独确认全局安装。
 
-该闭环已建立行为质量证据，但仍不等同于 Creator 已达到官方案例的资源组织质量；需要依据真实评测结果再进入一轮独立的“资源化创作增强”。
-
-后续资源化增强轮聚焦：
+资源化创作在行为质量门之前增加了“澄清 → 资源计划 → 用户确认 → 逐资源生成与验证 → 最终 `SKILL.md` → 提案确认”的阶段：
 
 - 根据任务重复性与确定性，主动判断是否应生成 `scripts/`，并要求脚本具有清晰入口、失败行为、语法检查和实际测试证据；不为凑目录生成脆弱脚本。
 - 将较长的领域规则、格式约定和查证材料拆入 `references/`，在 `SKILL.md` 中提供按需导航；运行时支持按文件读取，并为大量参考资料提供受限的 `rg` 检索路径，避免一次性注入全部上下文。
@@ -142,9 +148,13 @@ node scripts/audit-skill-experience.mjs
 
 该增强轮也不将 `eval/`、`evals/`、`README.md` 或 user-meta 写入 Skill 包；评测数据继续由 ModelMirror 的独立 Evaluation Store 管理，用户与来源元数据继续由 Creator Session 和可信运行记录管理。保存草稿、通过评测、安装到本地和未来发布到共享市场仍是彼此独立的权限动作。
 
-阶段性结论：Creator V1 已能生成“结构完整、可评测的初稿”并建立行为质量证据；下一轮资源化增强再对齐官方 Creator 案例中按需拆分、检索和加载资源的成熟度。
+阶段性结论：Creator V1 已能先规划再生成，并按实际复杂度组织可评测初稿；资源数量不是质量指标，简单 Skill 可以保持零附加资源，复杂 Skill 才按需拆分。
 
-资源化增强 PR 1 已建立 `resource-authoring-v2` 的不可变规划合同：固定 Creator 先提出必要澄清问题，再给出可编辑、可冻结的工作流与资源计划；简单 Skill 可以明确选择零附加资源。该阶段不生成文件，不写 Authoring Proposal，也不改变既有评测和安装门。`SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED` 默认关闭，独立预览验收时才显式开启；PR 2 完成资源构建与脚本实测、PR 3 完成工作台迁移后再成为新 Session 默认流程。
+资源化增强 PR 1 建立了 `resource-authoring-v2` 的不可变规划合同：固定 Creator 先提出必要澄清问题，再给出可编辑、可冻结的工作流与资源计划；简单 Skill 可以明确选择零附加资源。该阶段不生成文件，不写 Authoring Proposal，也不改变既有评测和安装门。
+
+资源化增强 PR 2 补齐了服务端构建合同：确认后的计划按依赖顺序逐项生成，单个资源可在服务端内部拆成最多三个 8 KiB 片段，完整组装、静态校验与脚本离线实测后才进入一次用户评审。`skill_authoring_v1` Sidecar 配置将 `inputs/` 与 `skills/` 设为只读，只允许 `work/`、`.tmp/` 写入及 `python`、`python3`、`node`、`rg` 命令；脚本 receipt 与内容 digest 绑定。所有资源确认后才生成 `SKILL.md`，通过资源闭环与 Creator 初稿完整度门后形成普通待审提案，仍不能绕过三例行为评测或独立安装确认。
+
+资源化增强 PR 3 将该合同接入工作台：新 Session 默认使用资源化流程，旧 Session 只读兼容并需用户主动迁移；页面按完整资源展示一次接受或重做，支持直接编辑生成新构建 revision，并在资源全部确认后单独评审最终 `SKILL.md` 与全包差异。`SKILL_CREATOR_RESOURCE_AUTHORING_ENABLED` 默认开启；设为 `false` 可回退到旧提案流程，不影响 Creator 的评测与安装质量门。
 
 ### 4.4 外部市场
 
@@ -156,6 +166,7 @@ SkillHub 和其他外部市场继续延后。此次来源页读取仅为核验�
 
 ```bash
 node scripts/audit-skill-experience.mjs
+python scripts/audit_skill_trust_index.py
 node scripts/audit-skill-need-matcher.mjs
 node scripts/audit-official-skill-source-resolver.mjs
 node scripts/audit-github-skill-path-history.mjs

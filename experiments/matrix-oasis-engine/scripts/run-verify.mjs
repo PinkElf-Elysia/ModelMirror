@@ -16,6 +16,7 @@ const steps = [
   ["compiler", ["run", "verify:compiler"]],
   ["runtime-simulator", ["run", "verify:runtime-simulator"]],
   ["parity", ["run", "verify:parity"]],
+  ["scene-pack", ["run", "verify:scene-pack"]],
   ["tests", ["test"]],
   ["creator-build", ["run", "build:creator"]],
   ["creator-smoke", ["run", "smoke:creator"]],

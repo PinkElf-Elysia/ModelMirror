@@ -2,12 +2,102 @@
 
 本文件说明模镜本地 RAG 模块的架构、API、扩展方式和测试方法。该模块位于 `server/rag/`，前端入口为 `/rag`，聊天页可选择知识库进行检索增强问答。
 
-最后更新日期：2026-08-09
+最后更新日期：2026-08-11
 
 > **当前状态：** `/rag` 是 ModelMirror 本地主路径。知识流水线已支持候选版本、
 > 人工激活/回滚、Processor、可选视觉理解、向量 + FTS5 双索引、检索评测和
 > Promotion Gate。下方按日期保留的段落是增量记录；较早段落中的“planned”
 > 只代表当时状态。
+
+## 2026-08-10 增量：Benchmark 驱动的 RAG Strategy Auto Tuner
+
+Strategy Router 的规则推荐现在可以进入第二阶段的固定证据调优。Tuner 固定一个
+`ready / active` V2 知识版本、一个已发布 Evaluation Set Version、Router rules 和
+完整来源快照，按固定 seed 将 Gold 分成优化集与 Holdout。预检先执行
+`RAG Strategy Tuning Readiness V1`：标准 Catalog Pack 标记为 `regression_guard`，
+只能做引擎回归，不能单独选择调优胜者；正式检索调优至少需要 30 条正样例。
+
+Threshold 调优额外要求至少 12 条已审核的语料近邻困难负例；证据不足时阈值固定为
+基线值。跨分块比较必须有稳定 `source_block` Gold，并覆盖稀疏、单块密集和多块密集
+问题。多个名义分块方案若产生相同真实索引统计和排序指纹，会自动降级为仅检索调优，
+避免把等价分块误判为改进。
+
+默认均衡预算最多构建 4 个分块索引、比较 24 组检索参数并保留 3 个 finalist。搜索
+覆盖 Full-text、Vector、Hybrid、Top-K、Hybrid 权重和从优化集分数确定性产生的 threshold；
+Hash Embedding 下 Vector/Hybrid 不得自动胜出。Rerank 默认关闭，只有用户明确授权且
+Provider 就绪时才对最多两个 finalist 实测。
+
+`RAG Strategy Tuner V4` 保留 V3 的阈值 Pareto 与语义去重，并增加重复统计验证。V3
+不再以 Recall 的词典序独占阈值选择：它在优化集上构建
+Recall@5、nDCG@10 与困难负例 false-positive rate 的非支配前沿；只有在 Recall 和
+nDCG 各自最多回退 0.02 时，才允许用更高阈值换取至少 0.01 的误召回改善，否则保留
+基线阈值。不同模式下不生效的权重和已关闭 Rerank 字段不再形成重复配置；实际索引、
+排序和有效检索语义均相同时，重复候选不能占用 finalist 或胜者名额。
+
+知识库定向生成器新增“策略调优证据”模式，允许 30–60 条用例。检索调优至少保留
+30 条正样例；需要 threshold 调优时，默认生成 42 条，其中 12 条是语料近邻无答案题。
+这些负样例仍为 `pending`，必须逐题确认并重新校准后才能满足调优资格。
+
+中间 trial 使用隔离 namespace，不可激活，也不会出现在普通版本列表。搜索通过当前
+Evaluation Gate、Pareto 排名及质量/延迟/索引规模有效改善门槛后，才按胜者精确配置重建
+普通 `ready` 版本。该版本固定 `origin.kind=rag_strategy_tuner` 与
+`promotion_required=true`，并在完整评测集上重新比较基线；活动索引始终不自动切换。
+
+运行由文件型 Store 与后台 Coordinator 持久化；进程恢复复用已完成 trial、Holdout 和
+Rerank 结果，显式 Retry 则清空失效搜索进度后重新开始。RunRegistry 仅记录版本、候选
+数量、阶段、耗时与错误摘要，不保存问题、正文、路径、embedding 或密钥。
+
+03C 将 finalist 验证升级为固定 Holdout 内的重复统计：每题查询 3 次，先取每题中位延迟，
+再聚合平均值和 P95；同时进行 3 组固定 seed 的分层重采样与 1,000 次确定性配对
+bootstrap，报告 case-weighted 质量差异的 90% 区间。区间下界不得低于 `-0.02`，且至少
+2/3 重采样不得越过该退化边界。该门禁只证明在固定 Gold 下未观察到明显退化，不能把
+宽区间解释为等价或全局最优。验证计划、基线和 finalist 的安全统计会持久化，重启不会
+重复已完成的 Holdout 查询。优化集的单次延迟只作诊断，不会在稳健 Holdout 前淘汰候选。
+
+接口：
+
+```text
+GET  /api/rag/strategy-tuner/capabilities
+POST /api/rag/strategy-tuner/preflight
+GET  /api/rag/strategy-tuner/runs?kb_id=&status=
+POST /api/rag/strategy-tuner/runs
+GET  /api/rag/strategy-tuner/runs/{run_id}
+POST /api/rag/strategy-tuner/runs/{run_id}/cancel
+POST /api/rag/strategy-tuner/runs/{run_id}/retry
+```
+
+该报告只证明特定语料与固定 Gold 下的相对结果，不宣称存在通用最优 RAG 策略。
+当前资格层、阈值 Pareto、语义去重、重复分层验证和稳健延迟已经阻断已知无效证据；
+真实 known-winner 端到端夹具仍属于下一调优可靠性轮次。
+
+## 2026-08-10 增量：可解释 RAG Strategy Router V1
+
+知识流水线画布新增确定性策略路由。用户选择 `balanced / quality / low_latency`
+目标及精确术语、语义改写、跨语言、长上下文、易混淆内容和引用精度需求后，
+Router 复用现有结构解析器，对最多 100 个文档、500,000 字符生成聚合语料画像。
+
+推荐严格来自 `rag-strategy-rules-v1`，返回主方案、最多两个比较方案、置信度、
+规则/实验依据、warnings 与字段级配置差异。Hash Embedding 不被当作语义检索证据；
+Rerank Provider 未就绪时不会建议启用；`score_threshold` 固定为 `0`，留待固定
+评测集校准。
+
+推荐与语料 hash、活动索引 ID 和 Pipeline Draft version 绑定。语料、活动索引或
+草稿漂移后状态变为 `stale`；低置信方案必须显式确认；`insufficient_data` 不可应用。
+应用只更新 Chunker 与 Retrieval Profile，并同步已有 Pipeline Graph。它不会执行
+流水线、创建候选版本、修改 Processor/视觉/Embedding，或切换活动索引。
+
+接口：
+
+```text
+GET  /api/rag/strategy-router/capabilities
+POST /api/rag/strategy-router/recommendations
+GET  /api/rag/strategy-router/recommendations?kb_id=
+GET  /api/rag/strategy-router/recommendations/{recommendation_id}
+POST /api/rag/strategy-router/recommendations/{recommendation_id}/apply
+```
+
+研究证据、反例和延期策略见 `docs/RAG_STRATEGY_RESEARCH.md`。Router V1 不调用
+LLM，也不实现 Semantic Chunking、Contextual Retrieval、Late Chunking 或 RAPTOR。
 
 ## 2026-08-09 增量：知识库定向 Gold 生成与校准
 

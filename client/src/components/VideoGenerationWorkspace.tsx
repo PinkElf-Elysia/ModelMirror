@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Link } from "react-router-dom";
 import type { Model } from "../data/models";
+import { estimateVideoCost } from "../utils/videoCostEstimate";
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
 
@@ -44,6 +45,7 @@ interface VideoModelProfile {
   operation: "analyze_video" | "generate_video";
   supported_resolutions: string[];
   supported_aspect_ratios: string[];
+  supported_sizes: string[];
   supported_durations: number[];
   supported_frame_types: ("first_frame" | "last_frame")[];
   supports_first_frame: boolean;
@@ -213,72 +215,10 @@ function resolutionRank(value: string) {
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }
 
-function pricingNumber(profile: VideoModelProfile, key: string) {
-  const raw = profile.pricing_skus[key];
-  if (raw === undefined) return null;
-  const value = Number(raw);
-  return Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function estimatedCost(
-  profile: VideoModelProfile,
-  {
-    duration,
-    resolution,
-    generateAudio,
-    imageInputCount,
-  }: {
-    duration: number | null;
-    resolution: string;
-    generateAudio: boolean;
-    imageInputCount: number;
-  },
-) {
-  if (duration === null || !resolution) return null;
-  const resolutionKey = resolution.toLowerCase();
-  const mode = imageInputCount > 0 ? "image_to_video" : "text_to_video";
-  const dollarKeys = [
-    generateAudio
-      ? `duration_seconds_with_audio_${resolutionKey}`
-      : `duration_seconds_without_audio_${resolutionKey}`,
-    `${mode}_duration_seconds_${resolutionKey}`,
-    `duration_seconds_${resolutionKey}`,
-    generateAudio
-      ? "duration_seconds_with_audio"
-      : "duration_seconds_without_audio",
-    `${mode}_duration_seconds`,
-    "duration_seconds",
-  ];
-  let perSecond: number | null = null;
-  for (const key of dollarKeys) {
-    const value = pricingNumber(profile, key);
-    if (value !== null) {
-      perSecond = value;
-      break;
-    }
-  }
-  if (perSecond === null) {
-    const cents =
-      pricingNumber(
-        profile,
-        `cents_per_video_output_second_${resolutionKey}`,
-      ) ??
-      pricingNumber(profile, `cents_per_second_output_${resolutionKey}`) ??
-      pricingNumber(profile, "cents_per_video_output_second") ??
-      pricingNumber(profile, "cents_per_second_output");
-    if (cents !== null) perSecond = cents / 100;
-  }
-  if (perSecond === null) return null;
-  const imageInputCents =
-    imageInputCount > 0
-      ? (pricingNumber(profile, "cents_per_image_input") ?? 0)
-      : 0;
-  return perSecond * duration + (imageInputCents * imageInputCount) / 100;
-}
-
 function defaultResolution(
   profile: VideoModelProfile,
   duration: number | null,
+  aspectRatio: string,
 ) {
   const ranked = [...profile.supported_resolutions].sort(
     (left, right) => resolutionRank(left) - resolutionRank(right),
@@ -286,9 +226,10 @@ function defaultResolution(
   const priced = ranked
     .map((resolution) => ({
       resolution,
-      cost: estimatedCost(profile, {
+      cost: estimateVideoCost(profile, {
         duration,
         resolution,
+        aspectRatio,
         generateAudio: false,
         imageInputCount: 0,
       }),
@@ -479,6 +420,11 @@ export default function VideoGenerationWorkspace({
         (left, right) => left - right,
       );
       const fallbackDuration = sortedDurations[0] ?? null;
+      const fallbackAspectRatio = nextProfile.supported_aspect_ratios.includes(
+        "16:9",
+      )
+        ? "16:9"
+        : (nextProfile.supported_aspect_ratios[0] ?? "");
       setDuration((current) =>
         current !== null &&
         nextProfile.supported_durations.includes(current)
@@ -488,14 +434,16 @@ export default function VideoGenerationWorkspace({
       setResolution((current) =>
         nextProfile.supported_resolutions.includes(current)
           ? current
-          : defaultResolution(nextProfile, fallbackDuration),
+          : defaultResolution(
+              nextProfile,
+              fallbackDuration,
+              fallbackAspectRatio,
+            ),
       );
       setAspectRatio((current) =>
         nextProfile.supported_aspect_ratios.includes(current)
           ? current
-          : nextProfile.supported_aspect_ratios.includes("16:9")
-            ? "16:9"
-            : (nextProfile.supported_aspect_ratios[0] ?? ""),
+          : fallbackAspectRatio,
       );
 
       const supportsFirst =
@@ -850,9 +798,10 @@ export default function VideoGenerationWorkspace({
     catalogStale && enhancedInputsSelected;
 
   const estimate = profile
-    ? estimatedCost(profile, {
+    ? estimateVideoCost(profile, {
         duration,
         resolution,
+        aspectRatio,
         generateAudio,
         imageInputCount,
       })

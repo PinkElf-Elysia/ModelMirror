@@ -1,0 +1,166 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/bootstrap.tscn" id="1_foundation"]
+[ext_resource type="Script" path="res://runtime/runtime_lab.gd" id="2_lab"]
+
+[sub_resource type="StyleBoxFlat" id="Style_runtime_panel"]
+bg_color = Color(0.035, 0.05, 0.075, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.2, 0.28, 0.38, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[node name="MatrixOasisR5RuntimeLab" type="Node3D"]
+script = ExtResource("2_lab")
+
+[node name="Foundation" parent="." instance=ExtResource("1_foundation")]
+
+[node name="Hud" type="CanvasLayer" parent="."]
+
+[node name="SafeArea" type="MarginContainer" parent="Hud"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="Layout" type="HBoxContainer" parent="Hud/SafeArea"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="WorldSpacer" type="Control" parent="Hud/SafeArea/Layout"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="RuntimePanel" type="PanelContainer" parent="Hud/SafeArea/Layout"]
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("Style_runtime_panel")
+
+[node name="PanelMargin" type="MarginContainer" parent="Hud/SafeArea/Layout/RuntimePanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 18
+
+[node name="Panel" type="VBoxContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="PackTitle" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.92, 0.96, 1, 1)
+theme_override_font_sizes/font_size = 22
+text = "Runtime Pack"
+autowrap_mode = 3
+
+[node name="PackMeta" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.72, 0.82, 1)
+theme_override_font_sizes/font_size = 13
+text = "Waiting for a local Runtime Pack"
+autowrap_mode = 3
+
+[node name="Status" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.53, 0.88, 0.77, 1)
+theme_override_font_sizes/font_size = 14
+text = "Loading"
+autowrap_mode = 3
+
+[node name="Divider" type="HSeparator" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+
+[node name="Scroll" type="ScrollContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Content" type="VBoxContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="LocationTitle" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.94, 1, 1)
+theme_override_font_sizes/font_size = 18
+text = "Location"
+autowrap_mode = 3
+
+[node name="LocationText" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.81, 0.89, 1)
+theme_override_font_sizes/font_size = 14
+text = "No content loaded."
+autowrap_mode = 3
+
+[node name="Step" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.72, 0.82, 1)
+theme_override_font_sizes/font_size = 13
+text = "Step 0 / 0"
+
+[node name="VariablesHeading" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.82, 0.87, 0.94, 1)
+theme_override_font_sizes/font_size = 14
+text = "Variables"
+
+[node name="Variables" type="VBoxContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CuesHeading" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.82, 0.87, 0.94, 1)
+theme_override_font_sizes/font_size = 14
+text = "Cues from this step"
+
+[node name="Cues" type="VBoxContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Transition" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/Scroll/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.64, 0.72, 0.82, 1)
+theme_override_font_sizes/font_size = 13
+text = "No transition yet."
+autowrap_mode = 3
+
+[node name="ActionsDivider" type="HSeparator" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+
+[node name="ActionsHeading" type="Label" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.82, 0.87, 0.94, 1)
+theme_override_font_sizes/font_size = 14
+text = "Actions"
+
+[node name="ActionsScroll" type="ScrollContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+custom_minimum_size = Vector2(0, 106)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Actions" type="VBoxContainer" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel/ActionsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Reset" type="Button" parent="Hud/SafeArea/Layout/RuntimePanel/PanelMargin/Panel"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+focus_mode = 2
+text = "Reset session"

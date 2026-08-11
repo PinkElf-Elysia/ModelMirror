@@ -694,6 +694,37 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 
 ## 24. Git 规范
 
+### RAG Strategy Router 护栏
+
+- Router V1 只能读取聚合语料画像并修改 Pipeline Draft 的 Chunker 与 Retrieval Profile；不得创建 Job/Version、切换活动索引或修改 Processor、视觉及 Embedding 模型。
+- 所有推荐必须记录 `rules_version`、语料 hash、活动版本、Draft version、证据分类、反例边界和配置 diff。规则变化必须先更新 `docs/RAG_STRATEGY_RESEARCH.md`。
+- Hash Embedding 不得作为语义或跨语言质量证据。Rerank Provider 未就绪时不得推荐启用；`score_threshold` 在 Auto Tuner 前固定为 `0`。
+- `insufficient_data` 禁止应用；低置信推荐必须显式确认；语料、活动版本或 Draft 漂移必须返回冲突并重新分析。
+- Router API、metadata、日志和前端不得返回完整文档、物理路径、embedding、Prompt、模型隐藏推理或密钥。
+- 修改该路径至少运行 `test_rag_strategy_router.py`、RAG Pipeline/Graph/Integration 回归、前端生产构建和敏感信息扫描。
+
+### RAG Strategy Auto Tuner 护栏
+
+- 调优必须固定 V2 知识版本、来源快照和已发布 Evaluation Set Version；不得跟随活动指针或可编辑评测草稿漂移。
+- 标准 Catalog Pack 必须标记为 `regression_guard`，只能用于引擎回归，禁止作为正式调优胜者和候选版本物化的唯一证据。
+- 正式检索调优至少需要 30 条正样例；threshold 调优至少需要 12 条已审核、语料近邻的困难负例。证据不足必须禁用对应维度，不得用小样本比例伪装成稳定门禁。
+- Threshold 选择必须同时报告 Recall、nDCG 和困难负例误召回；不得恢复“Recall 绝对优先”或仅凭全局 score 分位数选择阈值。质量回退与误召回改善边界必须固定、可测试。
+- 检索候选必须按生效字段生成语义 checksum。模式无关权重、关闭状态下的 Rerank 字段及相同实际排序不得重复占用 trial、finalist 或胜者名额。
+- 生成调优证据时，数量门槛不替代人工审核；生成的无答案题必须逐题批准并重新校准后，才能计入困难负例资格。
+- 跨分块调优必须使用稳定 `source_block` Gold。只有 chunk Gold 时只能比较检索参数，不得伪装成跨分块证据。
+- 分块候选必须记录不含正文的真实索引指纹和固定探针排序指纹；名义配置不同但真实结果一致时，非基线分块候选不得自动胜出。
+- 优化集用于 threshold 和候选选择，Holdout 只用于 finalist 门禁。不得读取 Holdout 后修改 Gold、候选或阈值。
+- Holdout finalist 必须使用固定验证计划：每题重复查询后先按 case 取中位延迟，再聚合 P95；配对 bootstrap 和分层重采样只能使用固定 Holdout，不得混入优化集。统计摘要必须持久化且不得包含 query 或正文。
+- Promotion Gate 与有效改善只是必要条件；配对质量区间未证明非退化时不得物化候选。宽置信区间必须按证据不足展示，不得通过放宽文案伪装为成功。
+- Hash Embedding 下 Vector/Hybrid 不得自动胜出。Rerank 必须由用户明确授权并固定 Provider、模型和调用预算。
+- trial namespace 不得出现在普通版本列表、不得激活，终态必须清理。物化胜者必须重新构建为普通 `promotion_required` 版本并完成全量评测。
+- Tuner 不得修改 Pipeline Draft、Processor、Vision、Embedding Profile 或活动索引；无有效改善必须返回 `no_improvement`。
+- 普通 Evaluation 保持原最大 K 语义；Tuner 搜索与最终复跑必须显式遵守候选 Retrieval Profile 的 Top-K。
+- 调整检索评分、阈值、候选去重、排名、门禁或物化逻辑时，必须运行 03D known-winner 与 already-optimal control；禁止修改夹具 Gold 以迎合当前实现。
+- 与基线完全相同的 Chunker + Retrieval Profile 必须标记为 `baseline_equivalent`，不得因延迟噪声或缓存顺序成为自动胜者。
+- RunRegistry、API、metadata 和日志只记录版本、配置、指标、耗时与安全错误摘要，不得包含问题全集、正文、路径、embedding、Rerank 原始输出或密钥。
+- 修改该路径至少运行 `test_rag_strategy_tuner.py`、Router、Evaluation、Pipeline 回归、全量后端测试和前端生产构建。
+
 ### 自编写高风险路径
 
 - `xpert_authoring` 与 `skill_creator` 只能创建提案，不得加入发布、安装、删除或直接覆盖工具。

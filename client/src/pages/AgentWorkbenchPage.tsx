@@ -16,6 +16,7 @@ import ConversationPanel from "../components/agent-workspace/ConversationPanel";
 import SessionSidebar from "../components/agent-workspace/SessionSidebar";
 import WorkspacePanel from "../components/agent-workspace/WorkspacePanel";
 import EngineShadowPanel from "../components/agent-workspace/EngineShadowPanel";
+import CodingWorkerConsole from "../components/CodingWorkerConsole";
 import PageContainer from "../components/PageContainer";
 import { useModelPreference } from "../context/ModelPreferenceContext";
 import {
@@ -55,6 +56,7 @@ import {
   stopAgentTask,
   updateAgentSessionApprovalMode,
 } from "../utils/agentWorkspaceApi";
+import { getCodingWorkerStatus } from "../utils/codingWorkerApi";
 
 interface WorkspacePreview {
   path: string;
@@ -76,7 +78,7 @@ const refreshEventTypes = new Set([
 
 const workspaceEventTypes = new Set(["tool_output", "completed", "agent_generated"]);
 
-export default function AgentWorkbenchPage() {
+function LegacyAgentWorkbenchPage() {
   const { preferredModelId, setPreferredModelId } = useModelPreference();
   const [enabled, setEnabled] = useState(true);
   const [engineShadowEnabled, setEngineShadowEnabled] = useState(false);
@@ -722,4 +724,28 @@ export default function AgentWorkbenchPage() {
       ) : null}
     </PageContainer>
   );
+}
+
+export default function AgentWorkbenchPage() {
+  const [surface, setSurface] = useState<"loading" | "legacy" | "worker">("loading");
+
+  useEffect(() => {
+    let active = true;
+    void getCodingWorkerStatus()
+      .then(async (status) => {
+        if (!status.enabled || !status.available) return "legacy" as const;
+        const legacySessions = await listAgentSessions();
+        return legacySessions.length === 0 ? "worker" as const : "legacy" as const;
+      })
+      .then((nextSurface) => { if (active) setSurface(nextSurface); })
+      .catch(() => { if (active) setSurface("legacy"); });
+    return () => { active = false; };
+  }, []);
+
+  if (surface === "loading") {
+    return <div className="mx-auto mt-10 min-h-[60vh] max-w-7xl animate-pulse rounded-xl bg-white/5" aria-label="正在选择 Agent 执行面" />;
+  }
+  return surface === "worker"
+    ? <CodingWorkerConsole context="agent" />
+    : <LegacyAgentWorkbenchPage />;
 }

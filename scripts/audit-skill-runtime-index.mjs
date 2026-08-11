@@ -5,9 +5,11 @@ import { fingerprintSkillRuntimeIndex } from "./skill-runtime-index.mjs";
 const index = JSON.parse(
   await readFile("server/skills/data/skill_runtime_index.json", "utf8"),
 );
-assert.equal(index.version, 1);
+assert.equal(index.version, 2);
 assert.equal(index.rankerVersion, "skill-need-local-v3");
 assert.match(index.memberIndexFingerprint, /^[0-9a-f]{64}$/);
+assert.match(index.catalogFingerprint, /^[0-9a-f]{64}$/);
+assert.match(index.trustIndexFingerprint, /^[0-9a-f]{64}$/);
 assert.match(index.fingerprint, /^[0-9a-f]{64}$/);
 assert.equal(fingerprintSkillRuntimeIndex(index), index.fingerprint);
 assert.ok(index.candidates.length > 4_000, "runtime index must cover the verified catalog");
@@ -18,6 +20,10 @@ for (const candidate of index.candidates) {
   assert.match(candidate.candidateId, /^catalog:(project|member):/);
   assert.match(candidate.candidateFingerprint, /^[0-9a-f]{64}$/);
   assert.match(candidate.installSource.verifiedCommit, /^[0-9a-f]{40}$/);
+  assert.match(candidate.trust.receiptId, /^skill-trust-[0-9a-f]{24}$/);
+  assert.match(candidate.trust.trustFingerprint, /^[0-9a-f]{64}$/);
+  assert.ok(["low", "medium", "high", "critical"].includes(candidate.trust.riskLevel));
+  assert.ok(["allow", "confirm", "block"].includes(candidate.trust.installPolicy));
   assert.ok(candidate.name && candidate.description && candidate.category);
   assert.ok(!candidateIds.has(candidate.candidateId), `duplicate candidate ${candidate.candidateId}`);
   candidateIds.add(candidate.candidateId);

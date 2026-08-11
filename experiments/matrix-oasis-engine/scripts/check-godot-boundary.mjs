@@ -68,6 +68,15 @@ function hasUnsafeAbsoluteLiteral(source) {
   const literals = source.matchAll(/(["'])(.*?)\1/gsu);
   for (const match of literals) {
     const value = match[2];
+    const prefix = source.slice(Math.max(0, match.index - 32), match.index);
+    const safeJsonPointer = /^\/(?:runtimePack|receipt|scenePack)(?:\/[^\r\n]*)?$/u.test(value) ||
+      /^\/(?:prepared|options|actionId|runtime)$/u.test(value) ||
+      /^\/snapshot(?:\/(?:pack|status|stepCount|variables))?$/u.test(value) ||
+      (/\b(?:path|action_path)\s*\+\s*$/u.test(prefix) && /^(?:\/[A-Za-z][A-Za-z0-9]*)+$/u.test(value)) ||
+      (value === "/" && /\btrim_prefix\s*\(\s*$/u.test(prefix));
+    if (safeJsonPointer) {
+      continue;
+    }
     if (
       /^[A-Za-z]:[\\/]/u.test(value) ||
       /^(?:\\\\|\/\/)[^/\\]/u.test(value) ||
@@ -94,10 +103,16 @@ function hasUnsafeDynamicLoad(source) {
   return false;
 }
 
-function hasUnsafeFileOpen(source) {
+function hasUnsafeFileOpen(source, relativePath) {
   for (const match of source.matchAll(/\bFileAccess\s*\.\s*open\s*\(([^\n)]*)/gu)) {
     const args = match[1];
-    if (!/^\s*["']res:\/\//u.test(args) || !/\bFileAccess\s*\.\s*READ\b/u.test(args)) {
+    const staticResourceRead = /^\s*["']res:\/\//u.test(args) &&
+      /\bFileAccess\s*\.\s*READ\b/u.test(args);
+    const approvedRuntimeRead = relativePath === "runtime/runtime_artifact_loader.gd" &&
+      /^\s*approved_path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
+    const approvedSceneRead = relativePath === "scene_binding/scene_artifact_loader.gd" &&
+      /^\s*path\s*,\s*FileAccess\s*\.\s*READ\s*$/u.test(args);
+    if (!staticResourceRead && !approvedRuntimeRead && !approvedSceneRead) {
       return true;
     }
   }
@@ -121,7 +136,7 @@ export function auditGodotBoundary({ root = godotRoot } = {}) {
     if (hasUnsafeDynamicLoad(source)) {
       violations.push({ code: "GODOT_FIRST_PARTY_DYNAMIC_LOAD", path: relativePath });
     }
-    if (hasUnsafeFileOpen(source)) {
+    if (hasUnsafeFileOpen(source, relativePath)) {
       violations.push({ code: "GODOT_FIRST_PARTY_FILESYSTEM_WRITE", path: relativePath });
     }
   }

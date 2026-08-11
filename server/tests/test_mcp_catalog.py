@@ -29,6 +29,9 @@ from server.mcp.catalog import (
     WAVE_FIVE_ADAPTERS,
     WAVE_SIX_ADAPTERS,
     WAVE_SEVEN_ADAPTERS,
+    WAVE_THIRTEEN_TOKEN_ADAPTERS,
+    WAVE_FOURTEEN_TOKEN_ADAPTERS,
+    WAVE_FIFTEEN_TOKEN_ADAPTERS,
     WAVE_ELEVEN_BLOCKED_ADAPTERS,
     WAVE_NINE_BLOCKED_ADAPTERS,
     WAVE_NINE_READY_ADAPTERS,
@@ -349,15 +352,15 @@ def test_catalog_freezes_200_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 45
+    ) == 50
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 114
+    ) == 65
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 41
+    ) == 85
     assert {manifest.availability for manifest in CATALOG_ADAPTERS.values()} == {
         "ready",
         "planned",
@@ -399,7 +402,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
     assert not re.search(r"^\s+command:", seed_source, flags=re.MULTILINE)
     assert "server_command" not in expansion_source
     assert '"endpoint"' not in expansion_source
-    assert '"availability": "ready"' not in expansion_source
+    assert expansion_source.count('"availability": "ready"') == 5
     assert 'fetch("/api/mcp/connect"' not in card_source
     assert 'fetch("/api/mcp/install"' not in card_source
     assert not re.search(
@@ -425,16 +428,88 @@ def test_planned_adapter_cannot_be_enabled_by_environment(
     assert not manifest.endpoint
 
 
-def test_approved_catalog_expansion_is_manifest_only_and_non_executable(
+def test_approved_catalog_expansion_freezes_ready_planned_and_blocked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expansion_ids = {item.project_id for item in CATALOG_EXPANSION_V2_ADAPTERS}
     assert len(expansion_ids) == 100
-    for project_id in expansion_ids:
+    by_status = {
+        status: {
+            item.project_id
+            for item in CATALOG_EXPANSION_V2_ADAPTERS
+            if item.availability == status
+        }
+        for status in ("ready", "planned", "blocked")
+    }
+    assert {status: len(ids) for status, ids in by_status.items()} == {
+        "ready": 5,
+        "planned": 51,
+        "blocked": 44,
+    }
+    assert by_status["ready"] == (
+        set(WAVE_THIRTEEN_TOKEN_ADAPTERS)
+        | set(WAVE_FOURTEEN_TOKEN_ADAPTERS)
+        | set(WAVE_FIFTEEN_TOKEN_ADAPTERS)
+    ) == {
+        "brave-brave-search-mcp-server",
+        "blazickjp-arxiv-mcp-server",
+        "kagisearch-kagimcp",
+        "fatwang2-search1api-mcp",
+        "livetennisapi-livetennisapi-mcp",
+    }
+    ready_manifest = CATALOG_ADAPTERS["brave-brave-search-mcp-server"]
+    assert ready_manifest.wave == 13
+    assert ready_manifest.availability == "ready"
+    assert ready_manifest.executable is True
+    assert ready_manifest.runtime_image == "modelmirror-mcp-token:wave4-v1"
+    assert ready_manifest.network_policy == "allowlist:api.search.brave.com"
+    assert ready_manifest.credential_slots == ("api_key",)
+    assert set(ready_manifest.tool_policies) == {
+        "brave_web_search",
+        "brave_local_search",
+    }
+    arxiv_manifest = CATALOG_ADAPTERS["blazickjp-arxiv-mcp-server"]
+    assert arxiv_manifest.wave == 14
+    assert arxiv_manifest.availability == "ready"
+    assert arxiv_manifest.executable is True
+    assert arxiv_manifest.credential_slots == ()
+    assert arxiv_manifest.network_policy == "allowlist:export.arxiv.org"
+    assert set(arxiv_manifest.tool_policies) == {"search_papers", "get_abstract"}
+    kagi_manifest = CATALOG_ADAPTERS["kagisearch-kagimcp"]
+    assert kagi_manifest.wave == 14
+    assert kagi_manifest.availability == "ready"
+    assert kagi_manifest.executable is True
+    assert kagi_manifest.credential_slots == ("api_key",)
+    assert kagi_manifest.network_policy == "allowlist:kagi.com"
+    assert set(kagi_manifest.tool_policies) == {"kagi_search_fetch", "kagi_extract"}
+    search1_manifest = CATALOG_ADAPTERS["fatwang2-search1api-mcp"]
+    assert search1_manifest.wave == 15
+    assert search1_manifest.availability == "ready"
+    assert search1_manifest.executable is True
+    assert search1_manifest.credential_slots == ("api_key",)
+    assert search1_manifest.network_policy == "allowlist:api.search1api.com"
+    assert set(search1_manifest.tool_policies) == {"search", "news", "trending"}
+    tennis_manifest = CATALOG_ADAPTERS["livetennisapi-livetennisapi-mcp"]
+    assert tennis_manifest.wave == 15
+    assert tennis_manifest.availability == "ready"
+    assert tennis_manifest.executable is True
+    assert tennis_manifest.credential_slots == ("api_key",)
+    assert tennis_manifest.network_policy == "allowlist:api.livetennisapi.com"
+    assert set(tennis_manifest.tool_policies) == {
+        "get_live_matches",
+        "get_upcoming_matches",
+        "get_match_score",
+        "search_players",
+        "get_player",
+        "get_fixtures",
+        "search_tournaments",
+        "get_tournament",
+    }
+    for project_id in by_status["planned"] | by_status["blocked"]:
         manifest = CATALOG_ADAPTERS[project_id]
         monkeypatch.setenv(manifest.feature_flag, "true")
-        assert manifest.wave == 12
-        assert manifest.availability == "planned"
+        assert manifest.wave == 13
+        assert manifest.availability in {"planned", "blocked"}
         assert manifest.executable is False
         assert manifest.server_command == ()
         assert manifest.endpoint == ""
@@ -443,8 +518,8 @@ def test_approved_catalog_expansion_is_manifest_only_and_non_executable(
         assert manifest.credential_slots == ()
         assert manifest.tool_policies == {}
         assert manifest.runtime_image == ""
-        assert manifest.network_policy == "planned:no-runtime"
-        assert manifest.filesystem_policy == "planned:no-runtime"
+        assert manifest.network_policy.startswith(f"{manifest.availability}:")
+        assert manifest.filesystem_policy == f"{manifest.availability}:no-runtime"
 
 
 def test_wave_seven_manifest_freezes_ready_blocked_and_public_policy() -> None:
@@ -1562,9 +1637,9 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 200
-            assert payload["ready"] == 45
-            assert payload["planned"] == 114
-            assert payload["blocked"] == 41
+            assert payload["ready"] == 50
+            assert payload["planned"] == 65
+            assert payload["blocked"] == 85
             serialized = response.text.lower()
             assert "server_command" not in serialized
             assert "install_command" not in serialized

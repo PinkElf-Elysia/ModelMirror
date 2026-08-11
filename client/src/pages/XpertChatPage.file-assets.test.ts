@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { XpertFileAsset } from "../types/xpert";
+import type { FileOutput } from "../data/fileOutputs";
 import { deleteXpertFile } from "../utils/xpertApi";
 import {
   consumeSelectedXpertFiles,
+  fileOutputsForRun,
   isCurrentXpertConversationRequest,
   selectedXpertFilesAfterConversationRestore,
   selectedXpertFilesAfterRefresh,
+  unassociatedXpertFileOutputs,
   xpertConversationNavigationLocked,
   xpertFilesAfterPermanentDelete,
   xpertMessageInputLocked,
+  xpertOutputScopeId,
 } from "./XpertChatPage";
 
 afterEach(() => {
@@ -30,6 +34,30 @@ function file(assetId: string): XpertFileAsset {
     extracted_truncated: false,
     created_at: 1,
     archived_at: null,
+  };
+}
+
+function output(outputId: string, sourceRunId: string | null): FileOutput {
+  return {
+    output_id: outputId,
+    asset_id: `file-${outputId}`,
+    purpose: "agent",
+    scope_id: "xpert:xpert-1:conversation-1",
+    producer_kind: "sandbox_publish_artifact",
+    display_name: `${outputId}.txt`,
+    format: "plain_text",
+    media_type: "text/plain",
+    byte_size: 12,
+    preview_kind: "text",
+    status: "completed",
+    expires_at: "2026-08-17T00:00:00Z",
+    warnings: [],
+    error_code: null,
+    source_run_id: sourceRunId,
+    source_message_id: null,
+    source_node_id: null,
+    created_at: "2026-08-10T00:00:00Z",
+    updated_at: "2026-08-10T00:00:00Z",
   };
 }
 
@@ -95,5 +123,27 @@ describe("Xpert per-turn file selection", () => {
       "/api/xperts/xpert-1/conversations/conversation-1/files/file-a/purge",
       { method: "DELETE" },
     );
+  });
+
+  it("derives an opaque conversation output scope and groups recovered outputs", () => {
+    const outputs = [
+      output("output-a", "run-a"),
+      output("output-b", "run-missing"),
+      output("output-c", null),
+    ];
+    const messages = [
+      { role: "assistant" as const, content: "done", source_run_id: "run-a" },
+    ];
+
+    expect(xpertOutputScopeId("xpert-1", "conversation-1")).toBe(
+      "xpert:xpert-1:conversation-1",
+    );
+    expect(fileOutputsForRun(outputs, "run-a").map((item) => item.output_id)).toEqual([
+      "output-a",
+    ]);
+    expect(unassociatedXpertFileOutputs(outputs, messages).map((item) => item.output_id)).toEqual([
+      "output-b",
+      "output-c",
+    ]);
   });
 });

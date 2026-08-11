@@ -47,6 +47,22 @@ from .evaluation import (
     KnowledgeEvaluationStore,
 )
 from .evaluation_executor import KnowledgeEvaluationExecutor
+from .strategy_router import (
+    RagStrategyConflictError,
+    RagStrategyRecommendationNotFoundError,
+    RagStrategyService,
+    RagStrategyStateError,
+    RagStrategyValidationError,
+)
+from .strategy_tuner import (
+    RUNNING_STATUSES as STRATEGY_TUNER_RUNNING_STATUSES,
+    TERMINAL_STATUSES as STRATEGY_TUNER_TERMINAL_STATUSES,
+    RagStrategyTuner,
+    RagStrategyTuningNotFoundError,
+    RagStrategyTuningStateError,
+    RagStrategyTuningStore,
+    RagStrategyTuningValidationError,
+)
 
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -56,6 +72,8 @@ _rag_service: RagService | None = None
 _pipeline_executor: KnowledgePipelineExecutor | None = None
 _evaluation_store: KnowledgeEvaluationStore | None = None
 _evaluation_executor: KnowledgeEvaluationExecutor | None = None
+_strategy_tuning_store: RagStrategyTuningStore | None = None
+_strategy_tuner: RagStrategyTuner | None = None
 
 
 class KnowledgeBaseCreateRequest(BaseModel):
@@ -98,6 +116,31 @@ class FileAnalysisSourcePayload(BaseModel):
         return value
 
 
+class FileOutputSectionSourcePayload(BaseModel):
+    page_number: int | None = Field(default=None, ge=1)
+    slide: int | None = Field(default=None, ge=1)
+    sheet: str | None = Field(default=None, max_length=200)
+    line_range: str | None = Field(default=None, max_length=80)
+    row_range: str | None = Field(default=None, max_length=80)
+    heading_path: list[str] = Field(default_factory=list, max_length=12)
+    time_range: str | None = Field(default=None, max_length=120)
+
+
+class FileOutputSourcePayload(BaseModel):
+    source_filename: str = Field(min_length=1, max_length=255)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    purpose: Literal["chat", "agent", "workflow"]
+    producer_kind: str = Field(min_length=1, max_length=80)
+    format: str = Field(min_length=1, max_length=80)
+    source_run_id: str | None = Field(default=None, max_length=256)
+    source_message_id: str | None = Field(default=None, max_length=256)
+    source_node_id: str | None = Field(default=None, max_length=256)
+    sections: list[FileOutputSectionSourcePayload] = Field(
+        default_factory=list,
+        max_length=2_000,
+    )
+
+
 class DocumentPayload(BaseModel):
     id: str
     kb_id: str
@@ -110,6 +153,8 @@ class DocumentPayload(BaseModel):
     warnings: list[str] = Field(default_factory=list, max_length=20)
     analysis_artifact_id: str | None = None
     analysis_source: FileAnalysisSourcePayload | None = None
+    file_output_id: str | None = None
+    file_output_source: FileOutputSourcePayload | None = None
     created_at: float
 
 
@@ -121,6 +166,16 @@ class FileAnalysisDocumentRequest(BaseModel):
     asset_id: str = Field(min_length=1, max_length=256)
     analysis_artifact_id: str = Field(min_length=1, max_length=256)
     chat_scope_id: str = Field(
+        min_length=1,
+        max_length=256,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+
+
+class FileOutputDocumentRequest(BaseModel):
+    output_id: str = Field(min_length=1, max_length=256)
+    purpose: Literal["chat", "agent", "workflow"]
+    scope_id: str = Field(
         min_length=1,
         max_length=256,
         pattern=r"^[A-Za-z0-9._:-]+$",
@@ -291,6 +346,45 @@ class PipelineDraftUpdateRequest(BaseModel):
     stages: dict[str, PipelineDraftStageUpdate] = Field(default_factory=dict)
     embedding_profile: dict[str, Any] | None = None
     retrieval_profile: RetrievalOptionsPayload | None = None
+
+
+class RagStrategyRequirementsPayload(BaseModel):
+    exact_terms: bool = False
+    semantic_rewrite: bool = False
+    cross_language: bool = False
+    long_context: bool = False
+    confusable_content: bool = False
+    citation_precision: bool = False
+
+
+class RagStrategyRecommendationRequest(BaseModel):
+    kb_id: str = Field(min_length=1, max_length=160)
+    objective: Literal["balanced", "quality", "low_latency"] = "balanced"
+    requirements: RagStrategyRequirementsPayload = Field(
+        default_factory=RagStrategyRequirementsPayload
+    )
+
+
+class RagStrategyApplyRequest(BaseModel):
+    expected_draft_version: int = Field(ge=1)
+    profile_id: str = Field(default="primary", min_length=1, max_length=80)
+    confirm_low_confidence: bool = False
+
+
+class RagStrategyTuningRequest(BaseModel):
+    kb_id: str = Field(min_length=1, max_length=160)
+    base_version_id: str = Field(min_length=1, max_length=200)
+    eval_set_id: str = Field(min_length=1, max_length=200)
+    eval_set_version: int = Field(ge=1)
+    recommendation_id: str | None = Field(default=None, max_length=200)
+    objective: Literal["balanced", "quality", "low_latency"] = "balanced"
+    seed: int = Field(default=42, ge=0, le=2_147_483_647)
+    max_chunk_indexes: int = Field(default=4, ge=1, le=4)
+    max_retrieval_trials: int = Field(default=24, ge=1, le=24)
+    max_finalists: int = Field(default=3, ge=1, le=3)
+    enable_rerank: bool = False
+    rerank_provider: Literal["auto", "api", "llm"] = "auto"
+    rerank_model: str = Field(default="", max_length=200)
 
 
 class PipelineGraphNodePayload(BaseModel):
@@ -622,6 +716,9 @@ class EvaluationSetCreateRequest(BaseModel):
     kb_id: str = Field(min_length=1, max_length=160)
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(default="", max_length=1000)
+    benchmark_role: Literal[
+        "unclassified", "regression_guard", "strategy_tuning", "promotion_evidence"
+    ] = "unclassified"
 
 
 class EvaluationSetUpdateRequest(BaseModel):
@@ -629,6 +726,9 @@ class EvaluationSetUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1000)
     status: str | None = None
+    benchmark_role: Literal[
+        "unclassified", "regression_guard", "strategy_tuning", "promotion_evidence"
+    ] | None = None
 
 
 class EvaluationSetPublishRequest(BaseModel):
@@ -702,10 +802,13 @@ def set_rag_service_for_tests(service: RagService | None) -> None:
     """Replace the global RAG service in tests."""
 
     global _rag_service, _pipeline_executor, _evaluation_store, _evaluation_executor
+    global _strategy_tuning_store, _strategy_tuner
     _rag_service = service
     _pipeline_executor = None
     _evaluation_store = None
     _evaluation_executor = None
+    _strategy_tuning_store = None
+    _strategy_tuner = None
 
 
 def configure_pipeline_executor(*, run_registry: Any | None = None) -> KnowledgePipelineExecutor:
@@ -765,9 +868,53 @@ def set_evaluation_executor_for_tests(executor: KnowledgeEvaluationExecutor | No
     _evaluation_executor = executor
 
 
+def get_strategy_tuning_store() -> RagStrategyTuningStore:
+    global _strategy_tuning_store
+    if _strategy_tuning_store is None:
+        _strategy_tuning_store = RagStrategyTuningStore(
+            get_rag_service().storage_dir / "strategy_tuning_runs.json"
+        )
+    return _strategy_tuning_store
+
+
+def configure_strategy_tuner(*, run_registry: Any | None = None) -> RagStrategyTuner:
+    global _strategy_tuner
+    _strategy_tuner = RagStrategyTuner(
+        get_rag_service(),
+        get_strategy_tuning_store(),
+        get_evaluation_store(),
+        get_pipeline_executor(),
+        get_evaluation_executor(),
+        run_registry=run_registry,
+    )
+    return _strategy_tuner
+
+
+def get_strategy_tuner() -> RagStrategyTuner:
+    global _strategy_tuner
+    if _strategy_tuner is None:
+        _strategy_tuner = RagStrategyTuner(
+            get_rag_service(),
+            get_strategy_tuning_store(),
+            get_evaluation_store(),
+            get_pipeline_executor(),
+            get_evaluation_executor(),
+        )
+    return _strategy_tuner
+
+
+def set_strategy_tuner_for_tests(tuner: RagStrategyTuner | None) -> None:
+    global _strategy_tuner
+    _strategy_tuner = tuner
+
+
 def _require_knowledge_base(kb_id: str) -> None:
     if not any(item["id"] == kb_id for item in get_rag_service().list_knowledge_bases()):
         raise HTTPException(status_code=404, detail="Knowledge base not found.")
+
+
+def get_rag_strategy_service() -> RagStrategyService:
+    return RagStrategyService(get_rag_service())
 
 
 @router.get("/retrieval-capabilities")
@@ -783,6 +930,154 @@ async def get_processor_capabilities() -> dict[str, Any]:
 @router.get("/vision-capabilities")
 async def get_vision_capabilities() -> dict[str, Any]:
     return get_rag_service().vision_capabilities()
+
+
+@router.get("/strategy-router/capabilities")
+async def get_strategy_router_capabilities() -> dict[str, Any]:
+    return get_rag_strategy_service().capabilities()
+
+
+@router.post("/strategy-router/recommendations")
+async def create_strategy_router_recommendation(
+    payload: RagStrategyRecommendationRequest,
+) -> dict[str, Any]:
+    try:
+        return get_rag_strategy_service().create_recommendation(
+            payload.kb_id,
+            objective=payload.objective,
+            requirements=payload.requirements.model_dump(),
+        )
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagStrategyValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/strategy-router/recommendations")
+async def list_strategy_router_recommendations(kb_id: str) -> dict[str, Any]:
+    try:
+        recommendations = get_rag_strategy_service().list_recommendations(kb_id)
+        return {
+            "kb_id": kb_id,
+            "recommendations": recommendations,
+            "recommendation_count": len(recommendations),
+        }
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/strategy-router/recommendations/{recommendation_id}")
+async def get_strategy_router_recommendation(
+    recommendation_id: str,
+) -> dict[str, Any]:
+    try:
+        return get_rag_strategy_service().get_recommendation(recommendation_id)
+    except RagStrategyRecommendationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/strategy-router/recommendations/{recommendation_id}/apply")
+async def apply_strategy_router_recommendation(
+    recommendation_id: str,
+    payload: RagStrategyApplyRequest,
+) -> dict[str, Any]:
+    try:
+        return get_rag_strategy_service().apply_recommendation(
+            recommendation_id,
+            expected_draft_version=payload.expected_draft_version,
+            profile_id=payload.profile_id,
+            confirm_low_confidence=payload.confirm_low_confidence,
+        )
+    except RagStrategyRecommendationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagStrategyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RagStrategyStateError, RagStrategyValidationError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/strategy-tuner/capabilities")
+async def get_strategy_tuner_capabilities() -> dict[str, Any]:
+    return get_strategy_tuner().capabilities()
+
+
+@router.post("/strategy-tuner/preflight")
+async def preflight_strategy_tuner(payload: RagStrategyTuningRequest) -> dict[str, Any]:
+    try:
+        return get_strategy_tuner().preflight(payload.model_dump())
+    except (
+        KnowledgeBaseNotFoundError,
+        PipelineJobNotFoundError,
+        PipelineVersionNotFoundError,
+    ) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (EvaluationSetNotFoundError, RagStrategyRecommendationNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (RagStrategyTuningValidationError, PipelineJobStateError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/strategy-tuner/runs")
+async def list_strategy_tuner_runs(
+    kb_id: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    valid = STRATEGY_TUNER_RUNNING_STATUSES | STRATEGY_TUNER_TERMINAL_STATUSES
+    if status is not None and status not in valid:
+        raise HTTPException(status_code=400, detail="Invalid strategy tuning status.")
+    runs = get_strategy_tuning_store().list_runs(
+        kb_id=kb_id, status=status, limit=limit
+    )
+    return {"runs": runs, "run_count": len(runs)}
+
+
+@router.post("/strategy-tuner/runs", status_code=202)
+async def create_strategy_tuner_run(payload: RagStrategyTuningRequest) -> dict[str, Any]:
+    try:
+        return get_strategy_tuner().create_run(payload.model_dump())
+    except (
+        KnowledgeBaseNotFoundError,
+        PipelineJobNotFoundError,
+        PipelineVersionNotFoundError,
+    ) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (EvaluationSetNotFoundError, RagStrategyRecommendationNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (RagStrategyTuningValidationError, PipelineJobStateError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/strategy-tuner/runs/{run_id}")
+async def get_strategy_tuner_run(run_id: str) -> dict[str, Any]:
+    try:
+        return get_strategy_tuning_store().get_run(run_id)
+    except RagStrategyTuningNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/strategy-tuner/runs/{run_id}/cancel")
+async def cancel_strategy_tuner_run(run_id: str) -> dict[str, Any]:
+    try:
+        run = get_strategy_tuning_store().request_cancel(run_id)
+        get_strategy_tuner().notify()
+        return run
+    except RagStrategyTuningNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagStrategyTuningStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/strategy-tuner/runs/{run_id}/retry")
+async def retry_strategy_tuner_run(run_id: str) -> dict[str, Any]:
+    try:
+        run = get_strategy_tuning_store().retry(run_id)
+        get_strategy_tuner().notify()
+        return run
+    except RagStrategyTuningNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RagStrategyTuningStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/knowledge_bases", response_model=KnowledgeBasePayload)
@@ -905,6 +1200,46 @@ async def create_document_from_file_analysis(
             status_code=422,
             detail={
                 "code": "rag_file_analysis_import_failed",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@router.post(
+    "/knowledge_bases/{kb_id}/documents/from-file-output",
+    response_model=DocumentPayload,
+)
+async def create_document_from_file_output(
+    kb_id: str,
+    payload: FileOutputDocumentRequest,
+) -> dict[str, Any]:
+    try:
+        return await get_rag_service().import_file_output(
+            kb_id,
+            output_id=payload.output_id,
+            output_purpose=payload.purpose,
+            output_scope_id=payload.scope_id,
+        )
+    except KnowledgeBaseDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rag_knowledge_base_deleting",
+                "message": str(exc),
+            },
+        ) from exc
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileAssetServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.error_code, "message": exc.message},
+        ) from exc
+    except (DocumentParseError, EmbeddingError, UnsupportedDocumentError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "rag_file_output_import_failed",
                 "message": str(exc),
             },
         ) from exc
@@ -1468,6 +1803,7 @@ async def create_evaluation_set(payload: EvaluationSetCreateRequest) -> dict[str
         payload.kb_id,
         payload.name,
         payload.description,
+        benchmark_role=payload.benchmark_role,
     )
 
 
@@ -1491,6 +1827,7 @@ async def update_evaluation_set(
             name=payload.name,
             description=payload.description,
             status=payload.status,
+            benchmark_role=payload.benchmark_role,
         )
     except EvaluationSetNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1903,6 +2240,8 @@ async def activate_pipeline_version(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationPromotionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PipelineJobStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/pipeline/versions/{version_id}/promote", response_model=PipelineVersionPayload)
@@ -1934,6 +2273,8 @@ async def promote_pipeline_version(
     except PipelineVersionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except EvaluationPromotionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PipelineJobStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
