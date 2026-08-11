@@ -91,6 +91,8 @@ interface ChatFileItem {
   confirmationRevision: number | null;
   error: string | null;
   errorCode: string | null;
+  outputId?: string;
+  outputConfirmationRevision?: number;
 }
 
 export interface ChatVisualAnalysisHandoff {
@@ -105,9 +107,12 @@ export interface PreparedChatFile {
   displayName: string;
   format: string;
   byteSize: number;
+  mediaType?: string;
   handling: FileHandling;
   preview: ParsedDocumentPreview;
   confirmationRevision: number;
+  outputId?: string;
+  outputConfirmationRevision?: number;
 }
 
 export interface ChatFileComposerState {
@@ -170,6 +175,7 @@ interface ChatFileComposerProps {
   inputBoundary?: HTMLElement | null;
   resetVersion: number;
   discardVersion: number;
+  injectedFile?: PreparedChatFile | null;
   onError: (message: string) => void;
   onStateChange: (state: ChatFileComposerState) => void;
 }
@@ -316,9 +322,12 @@ function toPrepared(items: ChatFileItem[]): PreparedChatFile[] {
             displayName: item.displayName,
             format: item.preview.format,
             byteSize: item.byteSize,
+            mediaType: item.asset.media_type,
             handling: item.handling,
             preview: item.preview,
             confirmationRevision: item.confirmationRevision,
+            outputId: item.outputId,
+            outputConfirmationRevision: item.outputConfirmationRevision,
           },
         ]
       : [],
@@ -336,6 +345,7 @@ export default function ChatFileComposer({
   inputBoundary,
   resetVersion,
   discardVersion,
+  injectedFile,
   onError,
   onStateChange,
 }: ChatFileComposerProps) {
@@ -357,6 +367,7 @@ export default function ChatFileComposer({
   const trackedAssetsRef = useRef(new Map<string, FileAssetResponse>());
   const lastResetVersionRef = useRef(resetVersion);
   const lastDiscardVersionRef = useRef(discardVersion);
+  const injectedAssetIdsRef = useRef(new Set<string>());
   const drawerId = useId();
   const drawerTitleId = `${drawerId}-title`;
 
@@ -470,6 +481,52 @@ export default function ChatFileComposer({
       void deleteChatFile(asset.asset_id, scopeId).catch(() => undefined);
     }
   }, [discardVersion, scopeId]);
+
+  useEffect(() => {
+    if (!injectedFile || injectedAssetIdsRef.current.has(injectedFile.assetId)) {
+      return;
+    }
+    injectedAssetIdsRef.current.add(injectedFile.assetId);
+    if (itemsRef.current.length >= MAX_FILES) {
+      void deleteChatFile(injectedFile.assetId, scopeId).catch(() => undefined);
+      onError(`每轮最多添加 ${MAX_FILES} 个文件；复用副本已清理。`);
+      return;
+    }
+    const localId = `reuse-${injectedFile.assetId}`;
+    const asset: FileAssetResponse = {
+      asset_id: injectedFile.assetId,
+      purpose: "chat",
+      scope_id: scopeId,
+      display_name: injectedFile.displayName,
+      format: injectedFile.format,
+      media_type: injectedFile.mediaType ?? "application/octet-stream",
+      byte_size: injectedFile.byteSize,
+      status: "ready",
+      expires_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    trackedAssetsRef.current.set(localId, asset);
+    setItems((current) => [
+      ...current,
+      {
+        localId,
+        displayName: injectedFile.displayName,
+        byteSize: injectedFile.byteSize,
+        status: "ready",
+        asset,
+        preview: injectedFile.preview,
+        handling: injectedFile.handling,
+        confirmed: true,
+        confirmationRevision: injectedFile.confirmationRevision,
+        error: null,
+        errorCode: null,
+        outputId: injectedFile.outputId,
+        outputConfirmationRevision: injectedFile.outputConfirmationRevision,
+      },
+    ]);
+    onError("");
+  }, [injectedFile, onError, scopeId]);
 
   useEffect(() => {
     return () => {

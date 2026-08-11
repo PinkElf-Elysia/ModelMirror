@@ -218,6 +218,34 @@ class BrowserToolsetProvider:
                     source_node_id=str(call.metadata.get("node_id") or "") or None,
                 )
                 metadata["artifact_id"] = registered.artifact_id
+                try:
+                    try:
+                        from server.file_assets.output_service import get_file_output_service
+                    except ModuleNotFoundError as exc:
+                        if exc.name != "server":
+                            raise
+                        from file_assets.output_service import get_file_output_service
+
+                    file_output = get_file_output_service().register_runtime_artifact(
+                        self.store.artifact_path(registered.artifact_id),
+                        trusted_root=self.store.data_root,
+                        producer_kind="browser",
+                        producer_artifact_id=registered.artifact_id,
+                        filename=registered.filename,
+                        media_type=registered.content_type,
+                        runtime_metadata=dict(call.metadata),
+                        expected_size=registered.size_bytes,
+                    )
+                    if file_output is not None:
+                        metadata["file_output"] = file_output.model_dump(mode="json")
+                except Exception as exc:
+                    metadata["file_output"] = {
+                        "status": "failed",
+                        "producer_kind": "browser",
+                        "producer_artifact_id": registered.artifact_id,
+                        "display_name": registered.filename,
+                        "error_code": str(getattr(exc, "error_code", "output_registration_failed")),
+                    }
             output = self._safe_output(call.tool_name, response)
             self.store.complete_operation(
                 operation_id,

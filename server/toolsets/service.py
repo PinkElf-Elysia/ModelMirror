@@ -850,12 +850,39 @@ class PublishedToolsetProvider:
                     },
                 )
             )
-        return await self.service.call_published_tool(
+        result = await self.service.call_published_tool(
             toolset_id=str(metadata["toolset_id"]),
             version=int(metadata["toolset_version"]),
             exposed_name=str(metadata["toolset_exposed_name"]),
             arguments=call.arguments,
         )
+        if str(metadata.get("toolset_kind") or "") == "mcp":
+            try:
+                try:
+                    from server.file_assets.output_service import get_file_output_service
+                except ModuleNotFoundError as exc:
+                    if exc.name != "server":
+                        raise
+                    from file_assets.output_service import get_file_output_service
+
+                file_outputs = get_file_output_service().register_mcp_embedded_artifacts(
+                    list(result.content),
+                    runtime_metadata=dict(call.metadata),
+                    tool_name=call.tool_name,
+                )
+                if file_outputs:
+                    result.metadata["file_outputs"] = list(file_outputs)
+            except Exception as exc:
+                result.metadata["file_outputs"] = [
+                    {
+                        "status": "failed",
+                        "producer_kind": "mcp",
+                        "error_code": str(
+                            getattr(exc, "error_code", "output_registration_failed")
+                        ),
+                    }
+                ]
+        return result
 
 
 PublishedMCPToolsetProvider = PublishedToolsetProvider

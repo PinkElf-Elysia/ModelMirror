@@ -23,10 +23,12 @@ except ModuleNotFoundError:
 
 try:
     from server.file_assets.contracts import FileInputKind, FilePurpose
+    from server.file_assets.output_service import get_file_output_service
     from server.file_assets.service import FileAssetServiceError, get_file_asset_service
     from server.file_assets.validation import FileUploadValidator
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
+    from file_assets.output_service import get_file_output_service
     from file_assets.service import FileAssetServiceError, get_file_asset_service
     from file_assets.validation import FileUploadValidator
 
@@ -71,6 +73,7 @@ def _safe_env_int(name: str, default: int, *, minimum: int = 1) -> int:
 MAX_DOCUMENT_WARNINGS = 20
 MAX_DOCUMENT_WARNING_CHARACTERS = 500
 MAX_DOCUMENT_WARNINGS_CHARACTERS = 4_000
+MAX_FILE_OUTPUT_SECTION_SOURCES = 2_000
 _WARNING_CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -219,6 +222,7 @@ class RagService:
         self._knowledge_base_delete_claims: set[str] = set()
         self._knowledge_base_write_claims: dict[str, int] = {}
         self._analysis_import_claims: set[tuple[str, str]] = set()
+        self._output_import_claims: set[tuple[str, str]] = set()
         self.embedder = embedder or EmbeddingClient()
         self.vector_store = vector_store or create_vector_store(self.storage_dir)
         self.lexical_store = lexical_store or SqliteLexicalStore(
@@ -1053,6 +1057,251 @@ class RagService:
         finally:
             with self._metadata_lock:
                 self._analysis_import_claims.discard(claim)
+                remaining = self._knowledge_base_write_claims.get(kb_id, 0) - 1
+                if remaining > 0:
+                    self._knowledge_base_write_claims[kb_id] = remaining
+                else:
+                    self._knowledge_base_write_claims.pop(kb_id, None)
+
+    async def import_file_output(
+        self,
+        kb_id: str,
+        *,
+        output_id: str,
+        output_purpose: FilePurpose | str,
+        output_scope_id: str,
+    ) -> dict[str, Any]:
+        """Copy one scoped output into RAG without any external model call."""
+
+        clean_output_id = str(output_id or "").strip()
+        clean_scope_id = str(output_scope_id or "").strip()
+        if not clean_output_id or not clean_scope_id:
+            raise UnsupportedDocumentError("文件输出标识或作用域无效。")
+        purpose = FilePurpose(output_purpose)
+        if purpose not in {FilePurpose.CHAT, FilePurpose.AGENT, FilePurpose.WORKFLOW}:
+            raise UnsupportedDocumentError("该模块的文件输出不能保存到资料库。")
+
+        claim = (kb_id, clean_output_id)
+        with self._metadata_lock:
+            metadata = self._read_metadata_unlocked()
+            self._ensure_kb_exists(metadata, kb_id)
+            existing = next(
+                (
+                    document
+                    for document in metadata["documents"].values()
+                    if isinstance(document, dict)
+                    and str(document.get("kb_id")) == kb_id
+                    and str(document.get("file_output_id")) == clean_output_id
+                    and not document.get("deletion_status")
+                ),
+                None,
+            )
+            if existing is not None:
+                return self._document_payload(existing)
+            if claim in self._output_import_claims:
+                raise KnowledgeBaseDeletionError(
+                    "The same file output is already being saved; retry shortly."
+                )
+            self._output_import_claims.add(claim)
+            self._knowledge_base_write_claims[kb_id] = (
+                self._knowledge_base_write_claims.get(kb_id, 0) + 1
+            )
+
+        doc_id = "doc_output_" + hashlib.sha256(
+            f"{kb_id}\0{clean_output_id}".encode("utf-8")
+        ).hexdigest()[:24]
+        stored_path: Path | None = None
+        derived_asset_id: str | None = None
+        indexed = False
+        try:
+            output_service = get_file_output_service()
+            record, content = await asyncio.to_thread(
+                output_service.read_output,
+                clean_output_id,
+                purpose=purpose,
+                scope_id=clean_scope_id,
+            )
+            output_metadata = output_service.get_output(
+                clean_output_id,
+                purpose=purpose,
+                scope_id=clean_scope_id,
+            )
+            if record.preview_kind not in {"text", "document"}:
+                raise UnsupportedDocumentError(
+                    "该输出格式不能直接保存到资料库；请在资料库入口另行确认处理。"
+                )
+
+            filename = _safe_filename(record.display_name)
+            target_dir = self.uploads_dir / kb_id
+            target_dir.mkdir(parents=True, exist_ok=True)
+            stored_path = target_dir / f"{doc_id}_{filename}"
+            stored_path.write_bytes(content)
+            parsed = await asyncio.to_thread(
+                parse_document_structured,
+                stored_path,
+                filename,
+            )
+            chunks: list[str] = []
+            chunk_sources: list[dict[str, Any]] = []
+            section_sources: list[dict[str, Any]] = []
+            for section in parsed.sections:
+                heading_path = list(normalize_heading_path(section.heading_path))
+                heading_prefix = " > ".join(heading_path)
+                section_text = section.text
+                if (
+                    heading_prefix
+                    and section.text.strip() != heading_path[-1]
+                    and not section.text.lstrip().startswith(heading_prefix)
+                ):
+                    section_text = f"{heading_prefix}\n{section.text}"
+                section_chunks = self.splitter.split_text(section_text)
+                chunks.extend(section_chunks)
+                source = {
+                    "page_number": section.page,
+                    "slide": section.slide,
+                    "sheet": section.sheet,
+                    "line_range": section.line_range,
+                    "row_range": section.row_range,
+                    "heading_path": heading_path,
+                    "time_range": section.time_range,
+                }
+                if len(section_sources) < MAX_FILE_OUTPUT_SECTION_SOURCES:
+                    section_sources.append(source)
+                chunk_sources.extend(source for _chunk in section_chunks)
+            if not chunks:
+                raise UnsupportedDocumentError("文件输出没有可索引的文本片段。")
+
+            embeddings = await asyncio.to_thread(
+                self.embedder.embed_texts_locally,
+                chunks,
+            )
+            vector_chunks = [
+                VectorChunk(
+                    id=f"{doc_id}_chunk_{index}",
+                    kb_id=kb_id,
+                    doc_id=doc_id,
+                    document_name=filename,
+                    text=text,
+                    embedding=embeddings[index],
+                    chunk_index=index,
+                    chunk_type=("table" if chunk_sources[index]["sheet"] else "standard"),
+                    page_number=chunk_sources[index]["page_number"],
+                    slide=chunk_sources[index]["slide"],
+                    heading_path=tuple(chunk_sources[index]["heading_path"]),
+                    sheet=chunk_sources[index]["sheet"],
+                    row_range=chunk_sources[index]["row_range"],
+                    source_block_id=clean_output_id,
+                )
+                for index, text in enumerate(chunks)
+            ]
+            lexical_chunks = [
+                LexicalChunk(
+                    chunk_id=item.id,
+                    namespace=kb_id,
+                    doc_id=doc_id,
+                    document_name=filename,
+                    text=item.text,
+                    chunk_index=item.chunk_index,
+                    chunk_type=item.chunk_type,
+                    page_number=item.page_number,
+                    slide=item.slide,
+                    heading_path=item.heading_path,
+                    sheet=item.sheet,
+                    row_range=item.row_range,
+                    source_block_id=item.source_block_id,
+                )
+                for item in vector_chunks
+            ]
+
+            registered = await asyncio.to_thread(
+                get_file_asset_service().upload,
+                io.BytesIO(content),
+                purpose=FilePurpose.RAG,
+                scope_id=kb_id,
+                filename=filename,
+                declared_media_type=record.media_type,
+            )
+            derived_asset_id = registered.asset_id
+            self.vector_store.add_chunks(vector_chunks)
+            self.lexical_store.add_chunks(lexical_chunks)
+            indexed = True
+
+            now = time.time()
+            document = {
+                "id": doc_id,
+                "kb_id": kb_id,
+                "filename": filename,
+                "stored_path": str(stored_path),
+                "size": len(content),
+                "chunk_count": len(chunks),
+                "content_type": record.media_type,
+                "ingestion_status": "indexed_file_output",
+                "visual_candidate": False,
+                "warnings": _bounded_document_warnings(
+                    [
+                        *output_metadata.warnings,
+                        *parsed.warnings,
+                        *(
+                            ["文件来源区段过多，资料库元数据仅保留前 2000 个区段。"]
+                            if len(parsed.sections) > MAX_FILE_OUTPUT_SECTION_SOURCES
+                            else []
+                        ),
+                    ]
+                ),
+                "content_hash": hashlib.sha256(content).hexdigest(),
+                "asset_id": derived_asset_id,
+                "file_output_id": clean_output_id,
+                "file_output_source": {
+                    "source_filename": filename,
+                    "source_sha256": hashlib.sha256(content).hexdigest(),
+                    "purpose": purpose.value,
+                    "producer_kind": record.producer_kind,
+                    "format": record.format_id,
+                    "source_run_id": record.source_run_id,
+                    "source_message_id": record.source_message_id,
+                    "source_node_id": record.source_node_id,
+                    "sections": section_sources,
+                },
+                "created_at": now,
+            }
+            with self._metadata_lock:
+                latest = self._read_metadata_unlocked()
+                self._ensure_kb_exists(latest, kb_id)
+                existing = next(
+                    (
+                        item
+                        for item in latest["documents"].values()
+                        if isinstance(item, dict)
+                        and str(item.get("kb_id")) == kb_id
+                        and str(item.get("file_output_id")) == clean_output_id
+                        and not item.get("deletion_status")
+                    ),
+                    None,
+                )
+                if existing is not None:
+                    raise KnowledgeBaseDeletionError(
+                        "The file output was saved concurrently; retry to read it."
+                    )
+                latest["documents"][doc_id] = document
+                latest["knowledge_bases"][kb_id]["updated_at"] = now
+                self._write_metadata_unlocked(latest)
+            return self._document_payload(document)
+        except Exception:
+            if indexed:
+                self.vector_store.delete_document(doc_id)
+                self.lexical_store.delete_document(doc_id)
+            if stored_path is not None:
+                stored_path.unlink(missing_ok=True)
+            if derived_asset_id:
+                get_file_asset_service().delete_asset(
+                    derived_asset_id,
+                    purpose=FilePurpose.RAG,
+                    scope_id=kb_id,
+                )
+            raise
+        finally:
+            with self._metadata_lock:
+                self._output_import_claims.discard(claim)
                 remaining = self._knowledge_base_write_claims.get(kb_id, 0) - 1
                 if remaining > 0:
                     self._knowledge_base_write_claims[kb_id] = remaining
@@ -5078,6 +5327,10 @@ class RagService:
             or None,
             "analysis_source": document.get("analysis_source")
             if isinstance(document.get("analysis_source"), dict)
+            else None,
+            "file_output_id": str(document.get("file_output_id") or "") or None,
+            "file_output_source": document.get("file_output_source")
+            if isinstance(document.get("file_output_source"), dict)
             else None,
             "created_at": document["created_at"],
         }

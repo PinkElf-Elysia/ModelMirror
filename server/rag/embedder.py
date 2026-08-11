@@ -68,6 +68,11 @@ class EmbeddingClient:
             embeddings.append([float(value) for value in embedding])
         return embeddings
 
+    def embed_texts_locally(self, texts: list[str]) -> list[list[float]]:
+        """Build deterministic local embeddings without contacting a provider."""
+
+        return [self._hash_embedding(text) for text in texts]
+
     def _hash_embedding(self, text: str) -> list[float]:
         vector = [0.0] * self.dimension
         normalized = "".join(text.lower().split())

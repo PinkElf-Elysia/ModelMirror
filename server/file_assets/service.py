@@ -1414,6 +1414,7 @@ class FileAssetService:
             purpose=clean_purpose,
             scope_id=clean_scope,
             expire_if_unreferenced=True,
+            preserve_active_output_assets=True,
         )
         # Always retry maintenance so a repeated DELETE can complete a prior
         # cleanup_pending response without requiring another upload.
@@ -1800,6 +1801,10 @@ class FileAssetService:
             self._repository.interrupt_stale_analysis_jobs(
                 stale_before=datetime.now(UTC) + timedelta(seconds=1)
             )
+            # Output publication is never replayed after a process restart.
+            # A queued or running row remains visible and explicitly retryable.
+            self._repository.interrupt_active_output_records()
+            self._repository.interrupt_active_output_tasks()
             self._lifecycle = FileAssetLifecycle(
                 self._repository, self._blob_store
             )

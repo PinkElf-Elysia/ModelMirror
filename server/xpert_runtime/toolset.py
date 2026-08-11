@@ -147,14 +147,41 @@ class MCPToolsetProvider:
             }
         )
 
+        metadata: dict[str, Any] = {
+            "content_types": content_types,
+            "session_id": tool.session_id,
+            "server_id": tool.server_id,
+        }
+        try:
+            try:
+                from server.file_assets.output_service import get_file_output_service
+            except ModuleNotFoundError as exc:
+                if exc.name != "server":
+                    raise
+                from file_assets.output_service import get_file_output_service
+
+            file_outputs = get_file_output_service().register_mcp_embedded_artifacts(
+                content,
+                runtime_metadata=dict(call.metadata),
+                tool_name=call.tool_name,
+            )
+            if file_outputs:
+                metadata["file_outputs"] = list(file_outputs)
+        except Exception as exc:
+            metadata["file_outputs"] = [
+                {
+                    "status": "failed",
+                    "producer_kind": "mcp",
+                    "error_code": str(
+                        getattr(exc, "error_code", "output_registration_failed")
+                    ),
+                }
+            ]
+
         return RuntimeToolResult(
             output="\n\n".join(output_parts),
             content=content,
-            metadata={
-                "content_types": content_types,
-                "session_id": tool.session_id,
-                "server_id": tool.server_id,
-            },
+            metadata=metadata,
             is_error=False,
         )
 

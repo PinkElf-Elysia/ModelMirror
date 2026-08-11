@@ -4,6 +4,7 @@ import {
   createChatFileScopeId,
   deriveFileSurfaceSummary,
   forgetChatFileScope,
+  getOrCreateChatFileScopeId,
   parseFileCapabilities,
   parseDocumentPreview,
   purgeChatFileScope,
@@ -283,6 +284,14 @@ describe("file capability truth", () => {
         "modelmirror-chat-file-scope:openai/file-model",
       ),
     ).toBeNull();
+  });
+
+  it("recovers the active tab scope so output cards survive a hard refresh", () => {
+    window.sessionStorage.clear();
+    const first = getOrCreateChatFileScopeId("openai/file-model");
+    const recovered = getOrCreateChatFileScopeId("openai/file-model");
+    expect(recovered).toBe(first);
+    expect(getOrCreateChatFileScopeId("openai/other-model")).not.toBe(first);
   });
 
   it("activates a fresh mount scope and exposes the prior scope for cleanup", () => {

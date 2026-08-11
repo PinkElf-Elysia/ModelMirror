@@ -91,6 +91,13 @@ class EgressPolicy:
             raise NetworkPolicyError(
                 "Egress grant is invalid.", code="network_grant_invalid"
             ) from exc
+        if (
+            self._urlsafe(encoded) != payload_part
+            or self._urlsafe(signature) != signature_part
+        ):
+            raise NetworkPolicyError(
+                "Egress grant is invalid.", code="network_grant_invalid"
+            )
         assert self._grant_key is not None
         expected = hmac.new(self._grant_key, encoded, hashlib.sha256).digest()
         if not hmac.compare_digest(expected, signature):

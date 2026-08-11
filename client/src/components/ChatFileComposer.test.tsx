@@ -662,6 +662,72 @@ describe("ChatFileComposer", () => {
     }
   });
 
+  it("injects a confirmed output copy without uploading and cleans the copy on discard", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith("/api/files/capabilities")) {
+          return response(capability());
+        }
+        if (init?.method === "DELETE") return response(null, 204);
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const onStateChange = vi.fn<(state: ChatFileComposerState) => void>();
+    const injectedFile = {
+      assetId: "file_output_copy_1234567890123456789012",
+      displayName: "generated-report.md",
+      format: "markdown",
+      byteSize: 24,
+      mediaType: "text/markdown",
+      handling: "extract" as const,
+      preview: {
+        ...preview(),
+        asset_id: "file_output_copy_1234567890123456789012",
+        title: "generated-report.md",
+      },
+      confirmationRevision: 7,
+      outputId: "output_12345678901234567890123456789012",
+      outputConfirmationRevision: 4,
+    };
+    const view = renderComposer({ injectedFile, onStateChange });
+
+    await waitFor(() =>
+      expect(onStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          count: 1,
+          allConfirmed: true,
+          files: [
+            expect.objectContaining({
+              assetId: injectedFile.assetId,
+              confirmationRevision: 7,
+              outputId: injectedFile.outputId,
+              outputConfirmationRevision: 4,
+            }),
+          ],
+        }),
+      ),
+    );
+    expect(screen.getByText("generated-report.md")).toBeVisible();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => String(url) === "/api/files" && init?.method === "POST",
+      ),
+    ).toBe(false);
+
+    view.unmount();
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url).includes(injectedFile.assetId) &&
+            init?.method === "DELETE",
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("aborts discard in flight and deletes an asset that arrives late", async () => {
     let resolveUpload!: (value: Response) => void;
     const uploadResponse = new Promise<Response>((resolve) => {

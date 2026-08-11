@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import io
 import json
+import math
 import os
 import re
 import stat
@@ -49,9 +50,33 @@ MAX_OFFICE_EXTRACTED_CHARS = 500_000
 MAX_OFFICE_SECTION_CHARS = 20_000
 MAX_OFFICE_WIRE_BYTES = 2 * 1024 * 1024
 MAX_OFFICE_SECTIONS = 10_000
+MAX_OUTPUT_RENDER_SPEC_BYTES = 2 * 1024 * 1024
+MAX_OUTPUT_RENDERED_BYTES = 50 * 1024 * 1024
+MAX_OUTPUT_RENDER_CHARS = 500_000
+MAX_OUTPUT_RENDER_COLUMNS = 200
+MAX_OUTPUT_RENDER_CELLS = 100_000
+MAX_OUTPUT_RENDER_SHEETS = 20
+MAX_OUTPUT_RENDER_SLIDES = 100
 OFFICE_HANDOFF_MARKER_NAME = ".modelmirror-office-parser.json"
 OFFICE_HANDOFF_MARKER_OWNER = "modelmirror.file_assets.office_sidecar.v1"
 OFFICE_HANDOFF_MARKER_MAX_BYTES = 4 * 1024
+OUTPUT_RENDER_MARKER_NAME = ".modelmirror-output-renderer.json"
+OUTPUT_RENDER_MARKER_OWNER = "modelmirror.file_assets.output_renderer.v1"
+OUTPUT_RENDER_FORMATS = {
+    "pdf": (".pdf", "application/pdf"),
+    "docx": (
+        ".docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    "xlsx": (
+        ".xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
+    "pptx": (
+        ".pptx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ),
+}
 _OFFICE_FIXED_SOURCE_NAMES = {
     "docx": "source.docx",
     "pptx": "source.pptx",
@@ -1580,6 +1605,354 @@ def extract_office_document_payload(path: Path) -> dict[str, Any]:
     )
 
 
+class OutputRenderDocumentError(RuntimeError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _validate_output_render_handoff(
+    context: WorkspaceContext, path: Path
+) -> dict[str, Any]:
+    marker_path = context.input_root / OUTPUT_RENDER_MARKER_NAME
+    try:
+        if marker_path.is_symlink() or not marker_path.is_file():
+            raise OSError("marker unavailable")
+        raw_marker = marker_path.read_bytes()
+        if len(raw_marker) > 4 * 1024:
+            raise OSError("marker too large")
+        marker = json.loads(raw_marker.decode("utf-8"))
+        if (
+            not isinstance(marker, dict)
+            or marker.get("owner") != OUTPUT_RENDER_MARKER_OWNER
+            or marker.get("workspace_id") != context.workspace_id
+            or marker.get("source_name") != "spec.json"
+            or path.name != "spec.json"
+            or path.parent != context.input_root
+            or marker.get("format_id") not in OUTPUT_RENDER_FORMATS
+        ):
+            raise OSError("marker mismatch")
+        digest = str(marker.get("source_sha256") or "")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise OSError("digest invalid")
+        raw_spec = path.read_bytes()
+        if not raw_spec or len(raw_spec) > MAX_OUTPUT_RENDER_SPEC_BYTES:
+            raise OSError("spec size invalid")
+        if not hmac.compare_digest(hashlib.sha256(raw_spec).hexdigest(), digest):
+            raise OSError("spec digest mismatch")
+        spec = json.loads(raw_spec.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise OutputRenderDocumentError(
+            "output_render_handoff_invalid",
+            "The output render handoff failed its integrity check.",
+        ) from exc
+    if not isinstance(spec, dict) or spec.get("format_id") != marker.get("format_id"):
+        raise OutputRenderDocumentError(
+            "output_render_handoff_invalid",
+            "The output render handoff failed its integrity check.",
+        )
+    return _validate_output_render_spec(spec)
+
+
+def _validate_output_render_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    allowed_root = {
+        "format_id", "filename", "title", "content", "rows", "blocks", "sheets", "slides"
+    }
+    if set(spec) - allowed_root:
+        raise OutputRenderDocumentError(
+            "output_render_spec_invalid", "The output render specification is invalid."
+        )
+    format_id = str(spec.get("format_id") or "")
+    definition = OUTPUT_RENDER_FORMATS.get(format_id)
+    filename = str(spec.get("filename") or "")
+    if definition is None or Path(filename).name != filename or not filename.lower().endswith(definition[0]):
+        raise OutputRenderDocumentError(
+            "output_render_spec_invalid", "The output render specification is invalid."
+        )
+    blocks = spec.get("blocks") or []
+    sheets = spec.get("sheets") or []
+    slides = spec.get("slides") or []
+    if not isinstance(blocks, list) or not isinstance(sheets, list) or not isinstance(slides, list):
+        raise OutputRenderDocumentError(
+            "output_render_spec_invalid", "The output render specification is invalid."
+        )
+    if format_id in {"pdf", "docx"} and (not blocks or len(blocks) > 10_000):
+        raise OutputRenderDocumentError(
+            "output_render_spec_invalid", "The document blocks are invalid."
+        )
+    if format_id == "xlsx" and (not sheets or len(sheets) > MAX_OUTPUT_RENDER_SHEETS):
+        raise OutputRenderDocumentError(
+            "output_render_spec_invalid", "The workbook sheet count is invalid."
+        )
+    if format_id == "pptx" and (not slides or len(slides) > MAX_OUTPUT_RENDER_SLIDES):
+        raise OutputRenderDocumentError(
+            "output_render_spec_invalid", "The presentation slide count is invalid."
+        )
+    cells = 0
+    strings = 0
+    for value in _walk_output_render_values(spec):
+        if isinstance(value, str):
+            strings += len(value)
+        elif isinstance(value, float) and not math.isfinite(value):
+            raise OutputRenderDocumentError(
+                "output_render_spec_invalid", "The output contains a non-finite number."
+            )
+    for sheet in sheets:
+        if not isinstance(sheet, dict) or set(sheet) - {"name", "rows"}:
+            raise OutputRenderDocumentError(
+                "output_render_spec_invalid", "The workbook sheet is invalid."
+            )
+        name = str(sheet.get("name") or "").strip()
+        rows = sheet.get("rows") or []
+        if not name or len(name) > 31 or any(character in name for character in "[]:*?/\\"):
+            raise OutputRenderDocumentError(
+                "output_render_spec_invalid", "The workbook sheet name is invalid."
+            )
+        if not isinstance(rows, list):
+            raise OutputRenderDocumentError(
+                "output_render_spec_invalid", "The workbook rows are invalid."
+            )
+        for row in rows:
+            if not isinstance(row, list) or len(row) > MAX_OUTPUT_RENDER_COLUMNS:
+                raise OutputRenderDocumentError(
+                    "output_render_spec_invalid", "The workbook column limit was exceeded."
+                )
+            cells += len(row)
+    if cells > MAX_OUTPUT_RENDER_CELLS or strings > MAX_OUTPUT_RENDER_CHARS:
+        raise OutputRenderDocumentError(
+            "output_render_spec_invalid", "The output render specification exceeds its safe limits."
+        )
+    return spec
+
+
+def _walk_output_render_values(value: Any):
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _walk_output_render_values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk_output_render_values(item)
+    else:
+        yield value
+
+
+def _safe_output_blocks(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise OutputRenderDocumentError("output_render_spec_invalid", "Document blocks are invalid.")
+    result: list[dict[str, Any]] = []
+    for block in raw:
+        if not isinstance(block, dict) or set(block) - {"kind", "text", "level", "items", "rows"}:
+            raise OutputRenderDocumentError("output_render_spec_invalid", "A document block is invalid.")
+        kind = block.get("kind")
+        if kind not in {"heading", "paragraph", "list", "table"}:
+            raise OutputRenderDocumentError("output_render_spec_invalid", "A document block is invalid.")
+        result.append(block)
+    return result
+
+
+def _neutralize_spreadsheet_text(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    stripped = value.lstrip()
+    if not stripped or stripped[0] not in "=+-@":
+        return value
+    if stripped[0] in "+-":
+        try:
+            numeric = float(stripped)
+            if math.isfinite(numeric):
+                return value
+        except ValueError:
+            pass
+    return "'" + value
+
+
+def _render_docx_output(spec: dict[str, Any], target: Path) -> list[str]:
+    from docx import Document
+
+    document = Document()
+    title = str(spec.get("title") or "").strip()
+    if title:
+        document.core_properties.title = title
+        document.add_heading(title, level=0)
+    for block in _safe_output_blocks(spec.get("blocks")):
+        kind = block["kind"]
+        if kind == "heading":
+            document.add_heading(str(block.get("text") or ""), level=int(block.get("level") or 1))
+        elif kind == "paragraph":
+            document.add_paragraph(str(block.get("text") or ""))
+        elif kind == "list":
+            for item in block.get("items") or []:
+                document.add_paragraph(str(item), style="List Bullet")
+        else:
+            rows = block.get("rows") or []
+            columns = max((len(row) for row in rows), default=0)
+            if not columns or columns > MAX_OUTPUT_RENDER_COLUMNS:
+                raise OutputRenderDocumentError("output_render_spec_invalid", "A document table is invalid.")
+            table = document.add_table(rows=len(rows), cols=columns)
+            for row_index, row in enumerate(rows):
+                for column_index, value in enumerate(row):
+                    table.cell(row_index, column_index).text = str(value)
+    document.save(target)
+    return []
+
+
+def _render_xlsx_output(spec: dict[str, Any], target: Path) -> list[str]:
+    from openpyxl import Workbook
+
+    workbook = Workbook(write_only=True)
+    neutralized = False
+    for sheet_spec in spec.get("sheets") or []:
+        sheet = workbook.create_sheet(str(sheet_spec["name"]))
+        for row in sheet_spec.get("rows") or []:
+            rendered = []
+            for value in row:
+                safe = _neutralize_spreadsheet_text(value)
+                neutralized = neutralized or safe != value
+                rendered.append(safe)
+            sheet.append(rendered)
+    workbook.save(target)
+    return ["Spreadsheet-like formulas were neutralized as text."] if neutralized else []
+
+
+def _render_pptx_output(spec: dict[str, Any], target: Path) -> list[str]:
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    presentation = Presentation()
+    presentation.slides._sldIdLst.clear()
+    for slide_spec in spec.get("slides") or []:
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        if slide.shapes.title is not None:
+            slide.shapes.title.text = str(slide_spec.get("title") or "")
+        top = Inches(1.2)
+        for block in _safe_output_blocks(slide_spec.get("blocks") or []):
+            if top >= Inches(6.8):
+                break
+            if block["kind"] == "table":
+                rows = block.get("rows") or []
+                columns = max((len(row) for row in rows), default=0)
+                if not rows or not columns:
+                    continue
+                height = min(Inches(4.8), Inches(0.35 * len(rows) + 0.2))
+                table = slide.shapes.add_table(len(rows), columns, Inches(0.7), top, Inches(8.6), height).table
+                for row_index, row in enumerate(rows):
+                    for column_index, value in enumerate(row):
+                        table.cell(row_index, column_index).text = str(value)
+                top += height + Inches(0.15)
+                continue
+            text = str(block.get("text") or "")
+            if block["kind"] == "list":
+                text = "\n".join(f"• {item}" for item in block.get("items") or [])
+            box = slide.shapes.add_textbox(Inches(0.8), top, Inches(8.4), Inches(0.8))
+            box.text_frame.text = text
+            top += Inches(0.9)
+    presentation.save(target)
+    return []
+
+
+def _render_pdf_output(spec: dict[str, Any], target: Path) -> list[str]:
+    from html import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import (
+        ListFlowable,
+        ListItem,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
+
+    font_name = "STSong-Light"
+    pdfmetrics.registerFont(UnicodeCIDFont(font_name))
+    styles = getSampleStyleSheet()
+    body = ParagraphStyle("ModelMirrorBody", parent=styles["BodyText"], fontName=font_name, fontSize=10, leading=15)
+    heading = ParagraphStyle("ModelMirrorHeading", parent=styles["Heading1"], fontName=font_name, fontSize=16, leading=22)
+    title_style = ParagraphStyle("ModelMirrorTitle", parent=heading, alignment=TA_CENTER, fontSize=20)
+    story: list[Any] = []
+    title = str(spec.get("title") or "").strip()
+    if title:
+        story.extend([Paragraph(escape(title), title_style), Spacer(1, 12)])
+    for block in _safe_output_blocks(spec.get("blocks")):
+        kind = block["kind"]
+        if kind in {"heading", "paragraph"}:
+            story.append(Paragraph(escape(str(block.get("text") or "")).replace("\n", "<br/>"), heading if kind == "heading" else body))
+            story.append(Spacer(1, 6))
+        elif kind == "list":
+            story.append(ListFlowable([ListItem(Paragraph(escape(str(item)), body)) for item in block.get("items") or []], bulletType="bullet"))
+            story.append(Spacer(1, 6))
+        else:
+            rows = [[Paragraph(escape(str(cell)), body) for cell in row] for row in block.get("rows") or []]
+            if rows:
+                table = Table(rows, repeatRows=1)
+                table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.grey), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+                story.extend([table, Spacer(1, 6)])
+    SimpleDocTemplate(str(target), pagesize=A4, title=title).build(story)
+    return []
+
+
+def render_output_document_payload(
+    context: WorkspaceContext, path: Path
+) -> dict[str, Any]:
+    spec = _validate_output_render_handoff(context, path)
+    format_id = str(spec["format_id"])
+    suffix, media_type = OUTPUT_RENDER_FORMATS[format_id]
+    target = context.artifact_path("output" + suffix, suffix)
+    try:
+        if format_id == "pdf":
+            warnings = _render_pdf_output(spec, target)
+        elif format_id == "docx":
+            warnings = _render_docx_output(spec, target)
+        elif format_id == "xlsx":
+            warnings = _render_xlsx_output(spec, target)
+        else:
+            warnings = _render_pptx_output(spec, target)
+        if target.is_symlink() or not target.is_file():
+            raise OSError("render artifact unavailable")
+        size = target.stat().st_size
+        if size <= 0 or size > MAX_OUTPUT_RENDERED_BYTES:
+            raise OSError("render artifact size invalid")
+        payload = context.artifact_payload(target)
+        payload.update(
+            {"format_id": format_id, "media_type": media_type, "warnings": warnings}
+        )
+        return payload
+    except OutputRenderDocumentError:
+        raise
+    except Exception as exc:
+        target.unlink(missing_ok=True)
+        raise OutputRenderDocumentError(
+            "output_render_failed", "The file could not be rendered safely."
+        ) from exc
+
+
+def build_output_renderer(context: WorkspaceContext) -> FastMCP:
+    mcp = FastMCP("ModelMirror Output Renderer")
+
+    @mcp.tool(annotations=ARTIFACT_CREATE)
+    def render_output_document(file_id: FileId) -> dict[str, Any]:
+        """Render one bounded, structured file specification without network access."""
+
+        try:
+            path = context.resolve_file(file_id)
+            return render_output_document_payload(context, path)
+        except OutputRenderDocumentError as exc:
+            raise ValueError(f"{exc.code}: {exc.message}") from None
+        except Exception:
+            raise ValueError(
+                "output_render_failed: The file could not be rendered safely."
+            ) from None
+
+    return mcp
+
+
 def build_office_parser(context: WorkspaceContext) -> FastMCP:
     mcp = FastMCP("ModelMirror Office Parser")
 
@@ -1626,6 +1999,7 @@ BUILDERS = {
     "git-mcp": build_git,
     "markitdown-mcp": build_markitdown,
     "office-parser-mcp": build_office_parser,
+    "output-renderer-mcp": build_output_renderer,
 }
 
 ADAPTER_TOOL_NAMES = {
@@ -1645,6 +2019,7 @@ ADAPTER_TOOL_NAMES = {
     ),
     "markitdown-mcp": ("convert_to_markdown",),
     "office-parser-mcp": ("extract_office_document",),
+    "output-renderer-mcp": ("render_output_document",),
 }
 
 

@@ -24,7 +24,9 @@ import ChatFileComposer, {
   buildChatFileHistoryContext,
   formatFileFormatLabel,
   type ChatFileComposerState,
+  type PreparedChatFile,
 } from "../components/ChatFileComposer";
+import FileOutputTray from "../components/FileOutputTray";
 import ChatVisualAnalysisPanel, {
   type ChatVisualAnalysisState,
 } from "../components/ChatVisualAnalysisPanel";
@@ -52,11 +54,21 @@ import {
 } from "../context/ModelPreferenceContext";
 import {
   activateChatFileScope,
-  createChatFileScopeId,
+  deleteChatFile,
+  getOrCreateChatFileScopeId,
   forgetChatFileScope,
+  parseChatFile,
   purgeChatFileScope,
   rotateChatFileScope,
 } from "../data/fileCapabilities";
+import {
+  fetchFileOutputCapabilities,
+  fetchFileOutputs,
+  fileOutputDownloadUrl,
+  type FileOutput,
+  type FileOutputCapabilities,
+  type FileOutputReuseConfirmation,
+} from "../data/fileOutputs";
 import { models } from "../data/models";
 import { recruitmentTheme } from "../theme/recruitmentTheme";
 import { compressImage } from "../utils/compressImage";
@@ -107,16 +119,34 @@ interface UploadedImage {
   id: string;
   name: string;
   url: string;
+  outputId?: string;
+  outputAssetId?: string;
+  outputConfirmationRevision?: number;
 }
 
 interface DirectAudioSend {
   attachmentId: string;
   audioName: string;
+  outputId?: string;
+  outputAssetId?: string;
+  outputConfirmationRevision?: number;
 }
 
 interface DirectVideoSend {
   attachmentId: string;
   videoName: string;
+  outputId?: string;
+  outputAssetId?: string;
+  outputConfirmationRevision?: number;
+}
+
+interface ReusedDirectMedia {
+  kind: "audio" | "video";
+  attachmentId: string;
+  displayName: string;
+  outputId: string;
+  outputAssetId: string;
+  outputConfirmationRevision: number;
 }
 
 interface VideoUnderstandingContext {
@@ -193,6 +223,7 @@ interface ChatMessage {
     extractedChars: number;
     warnings: string[];
   }>;
+  outputs?: FileOutput[];
 }
 
 const STREAM_UI_UPDATE_INTERVAL_MS = 80;
@@ -462,6 +493,61 @@ async function readApiError(response: Response) {
   }
 }
 
+function blobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("无法读取复用的媒体输出。"));
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("无法读取复用的媒体输出。"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function downloadFileOutput(
+  output: FileOutput,
+  scopeId: string,
+) {
+  const response = await fetch(
+    fileOutputDownloadUrl(output.output_id, "chat", scopeId),
+  );
+  if (!response.ok) throw new Error(await readApiError(response));
+  const blob = await response.blob();
+  if (blob.size !== output.byte_size) {
+    throw new Error("复用的输出大小已经变化，请刷新后重新确认。");
+  }
+  return blob;
+}
+
+async function uploadReusedChatMedia(
+  kind: "audio" | "video",
+  output: FileOutput,
+  blob: Blob,
+) {
+  const form = new FormData();
+  form.append("kind", kind);
+  form.append(
+    "file",
+    new File([blob], output.display_name, {
+      type: output.media_type,
+    }),
+  );
+  const response = await fetch("/api/multimodal/chat/attachments", {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) throw new Error(await readApiError(response));
+  const payload = (await response.json()) as { attachment_id?: unknown };
+  if (
+    typeof payload.attachment_id !== "string" ||
+    !payload.attachment_id.startsWith("att_")
+  ) {
+    throw new Error("媒体复用接口返回了无效的附件标识。");
+  }
+  return payload.attachment_id;
+}
+
 function formatRagAnswer(data: RagQueryResponse) {
   if (data.sources.length === 0) return data.answer;
 
@@ -490,6 +576,16 @@ function buildUserContent(
     ...images.map((image) => ({
       type: "image_url" as const,
       image_url: { url: image.url },
+      ...(image.outputId &&
+      image.outputAssetId &&
+      image.outputConfirmationRevision
+        ? {
+            output_id: image.outputId,
+            output_asset_id: image.outputAssetId,
+            output_confirmation_revision:
+              image.outputConfirmationRevision,
+          }
+        : {}),
     })),
   ];
 }
@@ -865,13 +961,24 @@ const MessageBubble = memo(function MessageBubble({
   message,
   isSending,
   canRead,
+  currentScopeId,
+  outputModelId,
   onImageClick,
+  onOutputsChange,
+  onOutputReuse,
   onRead,
 }: {
   message: ChatMessage;
   isSending: boolean;
   canRead: boolean;
+  currentScopeId: string;
+  outputModelId: string;
   onImageClick: (src: string, meta?: Partial<LightboxItem>) => void;
+  onOutputsChange: (messageId: string, outputs: FileOutput[]) => void;
+  onOutputReuse: (
+    output: FileOutput,
+    confirmation: FileOutputReuseConfirmation,
+  ) => void | Promise<void>;
   onRead: (message: ChatMessage) => void;
 }) {
   const isUser = message.role === "user";
@@ -1012,6 +1119,23 @@ const MessageBubble = memo(function MessageBubble({
             canRead={canRead && Boolean(cleanedContent.trim())}
             isSending={isSending}
             onRead={() => onRead(message)}
+          />
+        ) : null}
+        {!isUser && message.outputs?.length ? (
+          <FileOutputTray
+            modelId={outputModelId}
+            onChange={(outputs) => onOutputsChange(message.id, outputs)}
+            onReuse={
+              message.outputs.every(
+                (output) => output.scope_id === currentScopeId,
+              )
+                ? onOutputReuse
+                : undefined
+            }
+            outputs={message.outputs}
+            purpose="chat"
+            scopeId={message.outputs[0].scope_id}
+            title="本轮文件输出"
           />
         ) : null}
         {!isUser && message.routeReceipt ? (
@@ -1196,8 +1320,20 @@ function ChatConversationPage() {
   const [visualAnalysisDiscardVersion, setVisualAnalysisDiscardVersion] = useState(0);
   const [chatFileScope, setChatFileScope] = useState(() => ({
     modelId: decodedModelId,
-    scopeId: createChatFileScopeId(),
+    scopeId: getOrCreateChatFileScopeId(decodedModelId),
   }));
+  const [chatOutputCapabilities, setChatOutputCapabilities] =
+    useState<FileOutputCapabilities | null>(null);
+  const [chatOutputEnabled, setChatOutputEnabled] = useState(false);
+  const [recoveredOutputs, setRecoveredOutputs] = useState<FileOutput[]>([]);
+  const [injectedOutputFile, setInjectedOutputFile] =
+    useState<PreparedChatFile | null>(null);
+  const [reusedDirectMedia, setReusedDirectMedia] =
+    useState<ReusedDirectMedia | null>(null);
+  const reusedDirectMediaRef = useRef<ReusedDirectMedia | null>(null);
+  const reusedMediaPreparingRef = useRef(false);
+  const componentMountedRef = useRef(true);
+  const outputReuseContextRef = useRef({ scopeId: "", modelId: "" });
   const chatFileScopeActivatedRef = useRef(false);
   const [audioComposerOpen, setAudioComposerOpen] = useState(
     () => searchParams.get("media") === "audio",
@@ -1363,6 +1499,44 @@ function ChatConversationPage() {
       null,
     [chatAudioFeatures],
   );
+  const chatOutputBlockedReason = useMemo(() => {
+    if (!chatOutputCapabilities) {
+      return "当前精确模型尚未通过实时工具调用验证，文件输出已安全关闭。";
+    }
+    if (runtimeToolsEnabled) return "文件生成暂不与 MCP 工具同时使用。";
+    if (selectedKnowledgeBaseId) return "文件生成暂不与资料库检索同时使用。";
+    if (nativeAudioEnabled) return "文件生成暂不与原生语音输出同时使用。";
+    if (
+      chatFileState.count > 0 ||
+      visualAnalysisState.count > 0 ||
+      uploadedImages.length > 0 ||
+      audioComposerOpen ||
+      videoComposerOpen ||
+      Boolean(reusedDirectMedia) ||
+      Boolean(videoSelection)
+    ) {
+      return "文件生成当前只支持纯文本回合，请先移除文件或媒体附件。";
+    }
+    return "";
+  }, [
+    audioComposerOpen,
+    chatFileState.count,
+    chatOutputCapabilities,
+    nativeAudioEnabled,
+    runtimeToolsEnabled,
+    selectedKnowledgeBaseId,
+    uploadedImages.length,
+    videoComposerOpen,
+    videoSelection,
+    reusedDirectMedia,
+    visualAnalysisState.count,
+  ]);
+
+  useEffect(() => {
+    if (chatOutputEnabled && chatOutputBlockedReason) {
+      setChatOutputEnabled(false);
+    }
+  }, [chatOutputBlockedReason, chatOutputEnabled]);
   const handleVideoSelectionChange = useCallback(
     (nextSelection: ChatVideoSelection | null) => {
       const previous = videoSelectionRef.current;
@@ -1399,6 +1573,15 @@ function ChatConversationPage() {
     messageAudioUrlsRef.current.clear();
   }
 
+  function discardReusedDirectMedia() {
+    const current = reusedDirectMediaRef.current;
+    reusedDirectMediaRef.current = null;
+    setReusedDirectMedia(null);
+    if (current) {
+      void deleteChatVideoAttachment(current.attachmentId);
+    }
+  }
+
   const openLightbox = useCallback(
     (src: string, meta?: Partial<LightboxItem>) => {
       setLightboxImage({
@@ -1425,6 +1608,10 @@ function ChatConversationPage() {
 
     if (chatFileScope.modelId === decodedModelId) return;
 
+    discardReusedDirectMedia();
+    setUploadedImages((current) =>
+      current.filter((image) => !image.outputId),
+    );
     forgetChatFileScope(chatFileScope.modelId, chatFileScope.scopeId);
     void purgeChatFileScope(chatFileScope.scopeId);
     const nextScope = rotateChatFileScope(decodedModelId);
@@ -1437,7 +1624,55 @@ function ChatConversationPage() {
     setChatFileScope({ modelId: decodedModelId, scopeId: nextScope.scopeId });
     setChatFileDiscardVersion((current) => current + 1);
     setVisualAnalysisDiscardVersion((current) => current + 1);
+    setInjectedOutputFile(null);
   }, [chatFileScope.modelId, chatFileScope.scopeId, decodedModelId]);
+
+  const outputModelId = isOmniAutoRoute ? decodedModelId : model?.id ?? decodedModelId;
+  outputReuseContextRef.current = {
+    scopeId: chatFileScopeId,
+    modelId: outputModelId,
+  };
+
+  useEffect(() => {
+    componentMountedRef.current = true;
+    return () => {
+      componentMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setChatOutputCapabilities(null);
+    setChatOutputEnabled(false);
+    void fetchFileOutputCapabilities("chat", outputModelId, controller.signal)
+      .then((capabilities) => {
+        if (controller.signal.aborted) return;
+        const exactReady =
+          !isOmniAutoRoute &&
+          !isFederationRoute &&
+          capabilities.model_specific &&
+          capabilities.requested_model_id === outputModelId &&
+          capabilities.interaction_status === "ready";
+        setChatOutputCapabilities(exactReady ? capabilities : null);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setChatOutputCapabilities(null);
+      });
+    return () => controller.abort();
+  }, [isFederationRoute, isOmniAutoRoute, outputModelId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setRecoveredOutputs([]);
+    void fetchFileOutputs("chat", chatFileScopeId, controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) setRecoveredOutputs(items);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setRecoveredOutputs([]);
+      });
+    return () => controller.abort();
+  }, [chatFileScopeId]);
 
   useEffect(() => {
     document.title = agentInterview
@@ -1579,6 +1814,11 @@ function ChatConversationPage() {
   useEffect(
     () => () => {
       releaseAllMessageAudio();
+      const reused = reusedDirectMediaRef.current;
+      reusedDirectMediaRef.current = null;
+      if (reused) {
+        void deleteChatVideoAttachment(reused.attachmentId);
+      }
       const pending = pendingVideoAttachmentRef.current;
       pendingVideoAttachmentRef.current = null;
       if (pending) {
@@ -1694,7 +1934,8 @@ function ChatConversationPage() {
       chatFileState.count > 0 ||
       visualAnalysisState.count > 0 ||
       audioComposerOpen ||
-      videoComposerOpen
+      videoComposerOpen ||
+      Boolean(reusedDirectMedia)
     ) {
       setError(
         chatFileState.count > 0 || visualAnalysisState.count > 0
@@ -1983,12 +2224,159 @@ function ChatConversationPage() {
     }
   }
 
+  async function prepareOutputReuse(
+    output: FileOutput,
+    confirmation: FileOutputReuseConfirmation,
+  ) {
+    if (output.scope_id !== chatFileScopeId) {
+      if (!["image", "audio", "video"].includes(output.preview_kind)) {
+        await deleteChatFile(confirmation.asset_id, output.scope_id).catch(
+          () => undefined,
+        );
+      }
+      throw new Error("该输出不属于当前聊天作用域，无法跨会话复用。");
+    }
+    if (["image", "audio", "video"].includes(output.preview_kind)) {
+      if (
+        chatFileState.count > 0 ||
+        visualAnalysisState.count > 0 ||
+        uploadedImages.length > 0 ||
+        audioComposerOpen ||
+        videoComposerOpen ||
+        videoSelection ||
+        reusedDirectMedia
+      ) {
+        throw new Error(
+          "本轮已有文件或媒体输入；请先移除后再复用这个输出。",
+        );
+      }
+      if (reusedMediaPreparingRef.current) {
+        throw new Error("另一个媒体输出正在加入本轮，请稍候。");
+      }
+      reusedMediaPreparingRef.current = true;
+      const expectedContext = {
+        scopeId: chatFileScopeId,
+        modelId: outputModelId,
+      };
+      const contextIsCurrent = () =>
+        componentMountedRef.current &&
+        outputReuseContextRef.current.scopeId === expectedContext.scopeId &&
+        outputReuseContextRef.current.modelId === expectedContext.modelId;
+      try {
+        const blob = await downloadFileOutput(output, chatFileScopeId);
+        if (!contextIsCurrent()) {
+          throw new Error("聊天模型或会话已变化，请在当前会话重新加入输出。");
+        }
+        if (output.preview_kind === "image") {
+          const url = await blobAsDataUrl(blob);
+          if (!contextIsCurrent()) {
+            throw new Error("聊天模型或会话已变化，请在当前会话重新加入输出。");
+          }
+          setUploadedImages([
+            {
+              id: createId(),
+              name: output.display_name,
+              url,
+              outputId: output.output_id,
+              outputAssetId: confirmation.asset_id,
+              outputConfirmationRevision:
+                confirmation.output_confirmation_revision,
+            },
+          ]);
+          setError("");
+          return;
+        }
+        if (
+          output.preview_kind !== "audio" &&
+          output.preview_kind !== "video"
+        ) {
+          throw new Error("该输出没有可用的 Chat 媒体输入流程。");
+        }
+        const kind = output.preview_kind;
+        const attachmentId = await uploadReusedChatMedia(kind, output, blob);
+        if (!contextIsCurrent()) {
+          await deleteChatVideoAttachment(attachmentId).catch(() => undefined);
+          throw new Error("聊天模型或会话已变化，请在当前会话重新加入输出。");
+        }
+        const reused = {
+          kind,
+          attachmentId,
+          displayName: output.display_name,
+          outputId: output.output_id,
+          outputAssetId: confirmation.asset_id,
+          outputConfirmationRevision:
+            confirmation.output_confirmation_revision,
+        } satisfies ReusedDirectMedia;
+        reusedDirectMediaRef.current = reused;
+        setReusedDirectMedia(reused);
+        setError("");
+        return;
+      } finally {
+        reusedMediaPreparingRef.current = false;
+      }
+    }
+    if (chatFileState.count >= 5) {
+      await deleteChatFile(confirmation.asset_id, chatFileScopeId).catch(
+        () => undefined,
+      );
+      throw new Error("每轮最多添加 5 个文件；请先移除一个附件。");
+    }
+    try {
+      const preview = await parseChatFile(
+        confirmation.asset_id,
+        chatFileScopeId,
+      );
+      setInjectedOutputFile({
+        assetId: confirmation.asset_id,
+        displayName: output.display_name,
+        format: output.format,
+        byteSize: output.byte_size,
+        mediaType: output.media_type,
+        handling: confirmation.handling,
+        preview,
+        confirmationRevision: confirmation.confirmation_revision,
+        outputId: output.output_id,
+        outputConfirmationRevision:
+          confirmation.output_confirmation_revision,
+      });
+      setError("");
+    } catch (cause) {
+      await deleteChatFile(confirmation.asset_id, chatFileScopeId).catch(
+        () => undefined,
+      );
+      throw cause;
+    }
+  }
+
   async function sendMessage(
     overrideText?: string,
     options: ChatSendOptions = {},
   ): Promise<boolean> {
-    const directAudio = options.directAudio;
-    const directVideo = options.directVideo;
+    const directAudio =
+      options.directAudio ??
+      (reusedDirectMedia?.kind === "audio"
+        ? {
+            attachmentId: reusedDirectMedia.attachmentId,
+            audioName: reusedDirectMedia.displayName,
+            outputId: reusedDirectMedia.outputId,
+            outputAssetId: reusedDirectMedia.outputAssetId,
+            outputConfirmationRevision:
+              reusedDirectMedia.outputConfirmationRevision,
+          }
+        : undefined);
+    const directVideo =
+      options.directVideo ??
+      (reusedDirectMedia?.kind === "video"
+        ? {
+            attachmentId: reusedDirectMedia.attachmentId,
+            videoName: reusedDirectMedia.displayName,
+            outputId: reusedDirectMedia.outputId,
+            outputAssetId: reusedDirectMedia.outputAssetId,
+            outputConfirmationRevision:
+              reusedDirectMedia.outputConfirmationRevision,
+          }
+        : undefined);
+    const requestFileOutput = chatOutputEnabled;
     const selectedFiles = directAudio || directVideo
       ? []
       : [...chatFileState.files, ...visualAnalysisState.files];
@@ -2012,6 +2400,11 @@ function ChatConversationPage() {
       isSending ||
       !model
     ) {
+      return false;
+    }
+
+    if (requestFileOutput && chatOutputBlockedReason) {
+      setError(chatOutputBlockedReason);
       return false;
     }
 
@@ -2137,12 +2530,21 @@ function ChatConversationPage() {
             const analysis = file as Partial<{
               analysisArtifactId: string;
               analysisPrompt: string;
+              outputId: string;
+              outputConfirmationRevision: number;
             }>;
             return {
               type: "input_file" as const,
               asset_id: file.assetId,
               handling: file.handling,
               confirmation_revision: file.confirmationRevision,
+              ...(analysis.outputId && analysis.outputConfirmationRevision
+                ? {
+                    output_id: analysis.outputId,
+                    output_confirmation_revision:
+                      analysis.outputConfirmationRevision,
+                  }
+                : {}),
               ...(analysis.analysisArtifactId
                 ? {
                     analysis_artifact_id: analysis.analysisArtifactId,
@@ -2159,6 +2561,16 @@ function ChatConversationPage() {
           {
             type: "input_audio",
             attachment_id: directAudio.attachmentId,
+            ...(directAudio.outputId &&
+            directAudio.outputAssetId &&
+            directAudio.outputConfirmationRevision
+              ? {
+                  output_id: directAudio.outputId,
+                  output_asset_id: directAudio.outputAssetId,
+                  output_confirmation_revision:
+                    directAudio.outputConfirmationRevision,
+                }
+              : {}),
           },
         ]
       : directVideo
@@ -2167,11 +2579,25 @@ function ChatConversationPage() {
             {
               type: "input_video",
               attachment_id: directVideo.attachmentId,
+              ...(directVideo.outputId &&
+              directVideo.outputAssetId &&
+              directVideo.outputConfirmationRevision
+                ? {
+                    output_id: directVideo.outputId,
+                    output_asset_id: directVideo.outputAssetId,
+                    output_confirmation_revision:
+                      directVideo.outputConfirmationRevision,
+                  }
+                : {}),
             },
           ]
         : selectedFiles.length
           ? fileRequestContent
           : buildUserContent(rawText, images, superPromptMode);
+    const historyImages = images.map(
+      ({ outputId: _outputId, outputAssetId: _outputAssetId, outputConfirmationRevision: _revision, ...image }) =>
+        image,
+    );
     const storedUserContent: ChatMessageContent = selectedFiles.length
       ? [
           superPromptMode ? wrapWithSuperPrompt(rawText) : rawText,
@@ -2179,7 +2605,9 @@ function ChatConversationPage() {
         ]
           .filter(Boolean)
           .join("\n\n")
-      : userContent;
+      : images.some((image) => image.outputId)
+        ? buildUserContent(rawText, historyImages, superPromptMode)
+        : userContent;
     const userMessage: ChatMessage = {
       id: createId(),
       role: "user",
@@ -2191,7 +2619,7 @@ function ChatConversationPage() {
           : directVideo
             ? `${rawText}\n\n🎬 ${directVideo.videoName}`
             : rawText),
-      images,
+      images: historyImages,
       videoContext: options.videoContext,
       files: selectedFiles.map((file) => ({
         name: file.displayName,
@@ -2249,6 +2677,7 @@ function ChatConversationPage() {
     if (!overrideText) setUploadedImages([]);
     setError("");
     setIsSending(true);
+    if (requestFileOutput) setChatOutputEnabled(false);
     if (runtimeToolsEnabled) {
       setRuntimeMeta(null);
       setRuntimeObservation(null);
@@ -2461,7 +2890,9 @@ function ChatConversationPage() {
               format: "mp3",
             }
           : undefined,
-        fileScopeId: selectedFiles.length > 0 ? chatFileScopeId : undefined,
+        fileScopeId: chatFileScopeId,
+        outputMode: requestFileOutput ? "allowlisted" : "none",
+        outputContextId: assistantId,
         temperature: advancedParams.temperature,
         topP: advancedParams.topP,
         maxTokens: advancedParams.maxTokens,
@@ -2493,6 +2924,27 @@ function ChatConversationPage() {
             current.map((message) =>
               message.id === assistantId
                 ? { ...message, routeReceipt: receipt }
+                : message,
+            ),
+          );
+        },
+        onOutputFile: (output) => {
+          assistantUiUpdate.flush();
+          setRecoveredOutputs((current) =>
+            current.filter((item) => item.output_id !== output.output_id),
+          );
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId
+                ? {
+                    ...message,
+                    outputs: [
+                      ...(message.outputs ?? []).filter(
+                        (item) => item.output_id !== output.output_id,
+                      ),
+                      output,
+                    ],
+                  }
                 : message,
             ),
           );
@@ -2559,6 +3011,15 @@ function ChatConversationPage() {
         if (visualAnalysisState.count > 0) {
           setVisualAnalysisResetVersion((current) => current + 1);
         }
+        setInjectedOutputFile(null);
+      }
+      if (
+        reusedDirectMedia &&
+        (directAudio?.attachmentId === reusedDirectMedia.attachmentId ||
+          directVideo?.attachmentId === reusedDirectMedia.attachmentId)
+      ) {
+        reusedDirectMediaRef.current = null;
+        setReusedDirectMedia(null);
       }
       completed = true;
     } catch (streamError) {
@@ -2647,6 +3108,7 @@ function ChatConversationPage() {
       chatFileState.count > 0 ||
       visualAnalysisState.count > 0 ||
       uploadedImages.length > 0 ||
+      Boolean(reusedDirectMedia) ||
       videoComposerOpen
     ) {
       setError(
@@ -2676,6 +3138,7 @@ function ChatConversationPage() {
       chatFileState.count > 0 ||
       visualAnalysisState.count > 0 ||
       uploadedImages.length > 0 ||
+      Boolean(reusedDirectMedia) ||
       audioComposerOpen
     ) {
       setError(
@@ -2874,11 +3337,16 @@ function ChatConversationPage() {
   function handleModelChange(nextModelId: string) {
     if (!nextModelId || nextModelId === decodedModelId) return;
 
+    discardReusedDirectMedia();
+    setUploadedImages((current) =>
+      current.filter((image) => !image.outputId),
+    );
     forgetChatFileScope(chatFileScope.modelId, chatFileScope.scopeId);
     void purgeChatFileScope(chatFileScope.scopeId);
     setPreferredModelId(nextModelId);
     setChatFileDiscardVersion((current) => current + 1);
     setVisualAnalysisDiscardVersion((current) => current + 1);
+    setInjectedOutputFile(null);
     setModelSwitchNotice("已切换当前使用模型；切换模型后对话上下文可能不兼容。");
     setError("");
 
@@ -2896,6 +3364,7 @@ function ChatConversationPage() {
   function exitAgentInterview() {
     if (isSending) return;
 
+    discardReusedDirectMedia();
     forgetChatFileScope(chatFileScope.modelId, chatFileScope.scopeId);
     void purgeChatFileScope(chatFileScope.scopeId);
     const nextScope = rotateChatFileScope(decodedModelId);
@@ -2921,6 +3390,7 @@ function ChatConversationPage() {
     setUploadedImages([]);
     setChatFileDiscardVersion((current) => current + 1);
     setVisualAnalysisDiscardVersion((current) => current + 1);
+    setInjectedOutputFile(null);
     setError("");
     setAgentDefaultModelNotice("");
     setRuntimeMeta(null);
@@ -2981,6 +3451,7 @@ function ChatConversationPage() {
     (
       input.trim().length > 0 ||
       uploadedImages.length > 0 ||
+      Boolean(reusedDirectMedia) ||
       Boolean(videoSelection) ||
       (chatFileState.count > 0 && chatFileState.allConfirmed) ||
       (visualAnalysisState.count > 0 && visualAnalysisState.allConfirmed)
@@ -3001,7 +3472,9 @@ function ChatConversationPage() {
       : runtimeToolsEnabled
         ? "MCP 工具模式需先把音频转成文字。"
         : undefined;
-  const chatFileMediaBlockedReason = uploadedImages.length > 0
+  const chatFileMediaBlockedReason = reusedDirectMedia
+    ? "本轮已加入复用媒体，请先移除后再添加文件。"
+    : uploadedImages.length > 0
     ? "本轮已选择图片，请先移除图片再添加文件。"
     : audioComposerOpen
       ? "本轮已打开语音输入，请先关闭后再添加文件。"
@@ -3010,7 +3483,9 @@ function ChatConversationPage() {
         : visualAnalysisState.count > 0
           ? "本轮已选择一次性视觉/OCR 文件，请先移除后再添加普通文件。"
         : undefined;
-  const visualAnalysisBlockedReason = uploadedImages.length > 0
+  const visualAnalysisBlockedReason = reusedDirectMedia
+    ? "本轮已加入复用媒体，请先移除后再使用一次性视觉 / OCR。"
+    : uploadedImages.length > 0
     ? "本轮已选择图片，请先移除后再使用一次性视觉/OCR。"
     : audioComposerOpen
       ? "本轮已打开语音输入，请先关闭后再使用一次性视觉/OCR。"
@@ -3377,6 +3852,19 @@ function ChatConversationPage() {
                 }}
                 ref={messageViewportRef}
               >
+                {recoveredOutputs.length > 0 ? (
+                  <div className="mb-5">
+                    <FileOutputTray
+                      modelId={outputModelId}
+                      onChange={setRecoveredOutputs}
+                      onReuse={prepareOutputReuse}
+                      outputs={recoveredOutputs}
+                      purpose="chat"
+                      scopeId={chatFileScopeId}
+                      title="本会话恢复的文件输出"
+                    />
+                  </div>
+                ) : null}
                 {messages.length === 0 ? (
                   <div className="flex h-full min-h-[260px] flex-col items-center justify-start pt-20 text-center sm:justify-center sm:pt-0">
                     <img
@@ -3408,10 +3896,21 @@ function ChatConversationPage() {
                     {messages.map((message) => (
                       <MessageBubble
                         canRead={Boolean(ttsProfile)}
+                        currentScopeId={chatFileScopeId}
                         isSending={isSending}
                         key={message.id}
                         message={message}
                         onImageClick={openLightbox}
+                        onOutputReuse={prepareOutputReuse}
+                        onOutputsChange={(messageId, outputs) =>
+                          setMessages((current) =>
+                            current.map((item) =>
+                              item.id === messageId
+                                ? { ...item, outputs }
+                                : item,
+                            ),
+                          )
+                        }
                         onRead={(item) =>
                           void requestMessageSpeech(
                             item.id,
@@ -3419,6 +3918,7 @@ function ChatConversationPage() {
                             true,
                           )
                         }
+                        outputModelId={outputModelId}
                       />
                     ))}
                     <div ref={scrollRef} />
@@ -3873,7 +4373,7 @@ function ChatConversationPage() {
                           />
                           <button
                             aria-label="删除图片"
-                            className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-ink-950/90 text-xs text-white transition hover:bg-rose-500"
+                            className="absolute right-1 top-1 flex min-h-11 min-w-11 items-center justify-center rounded-full bg-ink-950/90 text-base text-white transition hover:bg-rose-500 focus:outline-none focus:ring-4 focus:ring-rose-300/20"
                             onClick={() => removeUploadedImage(image.id)}
                             type="button"
                           >
@@ -3881,6 +4381,30 @@ function ChatConversationPage() {
                           </button>
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+                  {reusedDirectMedia ? (
+                    <div
+                      aria-live="polite"
+                      className="flex min-w-0 items-center gap-3 border-b border-white/10 px-2 pb-3"
+                      role="status"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-cyan-50">
+                          已加入复用{reusedDirectMedia.kind === "audio" ? "音频" : "视频"}：{reusedDirectMedia.displayName}
+                        </p>
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          仅加入本轮输入，尚未发送；发送前会再次校验输出 revision 与字节。
+                        </p>
+                      </div>
+                      <button
+                        className="min-h-11 shrink-0 rounded-md border border-rose-300/25 px-3 text-xs font-semibold text-rose-100 transition hover:border-rose-200/50 focus:outline-none focus:ring-4 focus:ring-rose-300/15"
+                        disabled={isSending}
+                        onClick={discardReusedDirectMedia}
+                        type="button"
+                      >
+                        移出本轮
+                      </button>
                     </div>
                   ) : null}
 
@@ -3902,10 +4426,12 @@ function ChatConversationPage() {
                           isSending ||
                           isPreparingVideo ||
                           isUploadingImage ||
+                          chatOutputEnabled ||
                           visualAnalysisState.count > 0
                         }
                         discardVersion={chatFileDiscardVersion}
                         drawerHost={messageViewportRef.current}
+                        injectedFile={injectedOutputFile}
                         inputBoundary={messageInputRef.current}
                         isAutoRoute={isOmniAutoRoute}
                         knowledgeBaseSelected={Boolean(selectedKnowledgeBaseId)}
@@ -3918,7 +4444,12 @@ function ChatConversationPage() {
                       />
                       <ChatVisualAnalysisPanel
                         blockedReason={visualAnalysisBlockedReason}
-                        disabled={isSending || isPreparingVideo || isUploadingImage}
+                        disabled={
+                          isSending ||
+                          isPreparingVideo ||
+                          isUploadingImage ||
+                          chatOutputEnabled
+                        }
                         discardVersion={visualAnalysisDiscardVersion}
                         drawerHost={messageViewportRef.current}
                         inputBoundary={messageInputRef.current}
@@ -3932,6 +4463,31 @@ function ChatConversationPage() {
                         resetVersion={visualAnalysisResetVersion}
                         scopeId={chatFileScopeId}
                       />
+                      <button
+                        aria-checked={chatOutputEnabled}
+                        className={`min-h-11 rounded-full border px-3 text-xs font-semibold transition focus:outline-none focus:ring-4 focus:ring-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-45 ${
+                          chatOutputEnabled
+                            ? "border-cyan-300/50 bg-cyan-300/15 text-cyan-50"
+                            : "border-white/10 bg-white/[0.06] text-slate-200 hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100"
+                        }`}
+                        disabled={isSending || Boolean(chatOutputBlockedReason)}
+                        onClick={() => {
+                          setChatOutputEnabled((current) => !current);
+                          setError("");
+                        }}
+                        role="switch"
+                        title={
+                          chatOutputBlockedReason ||
+                          "仅允许当前精确模型在本轮调用受限文件生成工具；不会调用 shell 或任意路径。"
+                        }
+                        type="button"
+                      >
+                        {chatOutputCapabilities
+                          ? chatOutputEnabled
+                            ? "生成文件 · 本轮已允许"
+                            : "生成文件 · 仅本轮"
+                          : "文件输出未启用"}
+                      </button>
                       <input
                         accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
                         className="hidden"
@@ -3948,8 +4504,10 @@ function ChatConversationPage() {
                         disabled={
                           isSending ||
                           isUploadingImage ||
+                          chatOutputEnabled ||
                           audioComposerOpen ||
                           videoComposerOpen ||
+                          Boolean(reusedDirectMedia) ||
                           chatFileState.count > 0 ||
                           visualAnalysisState.count > 0
                         }
@@ -3969,8 +4527,10 @@ function ChatConversationPage() {
                         disabled={
                           isSending ||
                           isUploadingImage ||
+                          chatOutputEnabled ||
                           uploadedImages.length > 0 ||
                           videoComposerOpen ||
+                          Boolean(reusedDirectMedia) ||
                           chatFileState.count > 0 ||
                           visualAnalysisState.count > 0
                         }
@@ -3990,8 +4550,10 @@ function ChatConversationPage() {
                             isSending ||
                             isPreparingVideo ||
                             isUploadingImage ||
+                            chatOutputEnabled ||
                             uploadedImages.length > 0 ||
                             audioComposerOpen ||
+                            Boolean(reusedDirectMedia) ||
                             chatFileState.count > 0 ||
                             visualAnalysisState.count > 0
                           }
@@ -4010,8 +4572,10 @@ function ChatConversationPage() {
                           disabled={
                             isSending ||
                             isUploadingImage ||
+                            chatOutputEnabled ||
                             uploadedImages.length > 0 ||
                             videoComposerOpen ||
+                            Boolean(reusedDirectMedia) ||
                             chatFileState.count > 0 ||
                             visualAnalysisState.count > 0
                           }
@@ -4059,6 +4623,8 @@ function ChatConversationPage() {
                             ? videoSelection?.mode === "assist"
                               ? "正在生成视频理解摘要..."
                               : "正在上传并理解视频..."
+                          : reusedDirectMedia
+                            ? `复用${reusedDirectMedia.kind === "audio" ? "音频" : "视频"}已加入本轮，尚未发送`
                           : audioComposerOpen
                             ? "语音只在本页临时处理"
                             : videoComposerOpen

@@ -105,6 +105,31 @@ class FileAnalysisSourcePayload(BaseModel):
         return value
 
 
+class FileOutputSectionSourcePayload(BaseModel):
+    page_number: int | None = Field(default=None, ge=1)
+    slide: int | None = Field(default=None, ge=1)
+    sheet: str | None = Field(default=None, max_length=200)
+    line_range: str | None = Field(default=None, max_length=80)
+    row_range: str | None = Field(default=None, max_length=80)
+    heading_path: list[str] = Field(default_factory=list, max_length=12)
+    time_range: str | None = Field(default=None, max_length=120)
+
+
+class FileOutputSourcePayload(BaseModel):
+    source_filename: str = Field(min_length=1, max_length=255)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    purpose: Literal["chat", "agent", "workflow"]
+    producer_kind: str = Field(min_length=1, max_length=80)
+    format: str = Field(min_length=1, max_length=80)
+    source_run_id: str | None = Field(default=None, max_length=256)
+    source_message_id: str | None = Field(default=None, max_length=256)
+    source_node_id: str | None = Field(default=None, max_length=256)
+    sections: list[FileOutputSectionSourcePayload] = Field(
+        default_factory=list,
+        max_length=2_000,
+    )
+
+
 class DocumentPayload(BaseModel):
     id: str
     kb_id: str
@@ -117,6 +142,8 @@ class DocumentPayload(BaseModel):
     warnings: list[str] = Field(default_factory=list, max_length=20)
     analysis_artifact_id: str | None = None
     analysis_source: FileAnalysisSourcePayload | None = None
+    file_output_id: str | None = None
+    file_output_source: FileOutputSourcePayload | None = None
     created_at: float
 
 
@@ -128,6 +155,16 @@ class FileAnalysisDocumentRequest(BaseModel):
     asset_id: str = Field(min_length=1, max_length=256)
     analysis_artifact_id: str = Field(min_length=1, max_length=256)
     chat_scope_id: str = Field(
+        min_length=1,
+        max_length=256,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+
+
+class FileOutputDocumentRequest(BaseModel):
+    output_id: str = Field(min_length=1, max_length=256)
+    purpose: Literal["chat", "agent", "workflow"]
+    scope_id: str = Field(
         min_length=1,
         max_length=256,
         pattern=r"^[A-Za-z0-9._:-]+$",
@@ -1003,6 +1040,46 @@ async def create_document_from_file_analysis(
             status_code=422,
             detail={
                 "code": "rag_file_analysis_import_failed",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@router.post(
+    "/knowledge_bases/{kb_id}/documents/from-file-output",
+    response_model=DocumentPayload,
+)
+async def create_document_from_file_output(
+    kb_id: str,
+    payload: FileOutputDocumentRequest,
+) -> dict[str, Any]:
+    try:
+        return await get_rag_service().import_file_output(
+            kb_id,
+            output_id=payload.output_id,
+            output_purpose=payload.purpose,
+            output_scope_id=payload.scope_id,
+        )
+    except KnowledgeBaseDeletionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "rag_knowledge_base_deleting",
+                "message": str(exc),
+            },
+        ) from exc
+    except KnowledgeBaseNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileAssetServiceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.error_code, "message": exc.message},
+        ) from exc
+    except (DocumentParseError, EmbeddingError, UnsupportedDocumentError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "rag_file_output_import_failed",
                 "message": str(exc),
             },
         ) from exc

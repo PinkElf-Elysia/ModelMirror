@@ -62,6 +62,7 @@ python-docx==1.2.0
 python-multipart==0.0.32
 python-pptx==1.0.2
 pytz==2026.3.post1
+reportlab==5.0.0
 referencing==0.37.0
 requests==2.34.2
 rpds-py==2026.6.3

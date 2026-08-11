@@ -4,10 +4,16 @@ import BrowserSessionPanel from "../runtime/BrowserSessionPanel";
 import ClientToolPanel from "../runtime/ClientToolPanel";
 import SandboxWorkspacePanel from "../runtime/SandboxWorkspacePanel";
 import DataXResultCard from "../datax/DataXResultCard";
+import FileOutputTray from "../FileOutputTray";
 import SkillCreatorCaptureButton, {
   completedWorkflowCaptureSource,
 } from "../skill-creator/SkillCreatorCaptureButton";
 import { useSkillCreatorStatus } from "../../hooks/useSkillCreatorStatus";
+import {
+  fetchFileOutputs,
+  type FileOutput,
+  type FileOutputReuseConfirmation,
+} from "../../data/fileOutputs";
 import {
   type WorkflowDefinition,
   type WorkflowRunEvent,
@@ -152,6 +158,32 @@ function serializeWorkflow(definition: WorkflowDefinition) {
 
 export function workflowFileScopeId(workflowId: string) {
   return `workflow:${workflowId}`;
+}
+
+export function workflowOutputsForRun(
+  outputs: FileOutput[],
+  runId: string | null,
+) {
+  return runId ? outputs.filter((output) => output.source_run_id === runId) : [];
+}
+
+export function recoveredWorkflowOutputs(
+  outputs: FileOutput[],
+  runId: string | null,
+) {
+  return outputs.filter((output) => !runId || output.source_run_id !== runId);
+}
+
+export function replaceWorkflowOutputSubset(
+  current: FileOutput[],
+  previousSubset: FileOutput[],
+  nextSubset: FileOutput[],
+) {
+  const previousIds = new Set(previousSubset.map((output) => output.output_id));
+  return [
+    ...current.filter((output) => !previousIds.has(output.output_id)),
+    ...nextSubset,
+  ];
 }
 
 export function apiErrorMessage(payload: unknown, fallback: string) {
@@ -468,11 +500,13 @@ export default function WorkflowRun({
   const [workflowFileAssets, setWorkflowFileAssets] = useState<
     WorkflowFileAsset[]
   >([]);
+  const [fileOutputs, setFileOutputs] = useState<FileOutput[]>([]);
   const [workflowFileListLoading, setWorkflowFileListLoading] = useState(false);
   const [workflowFileListError, setWorkflowFileListError] = useState("");
   const [workflowFileListNotice, setWorkflowFileListNotice] = useState("");
   const [deletingWorkflowAssetId, setDeletingWorkflowAssetId] = useState("");
   const workflowFileListGeneration = useRef(0);
+  const workflowOutputGeneration = useRef(0);
 
   const inputVariable = useMemo(() => {
     const inputNode = definition.nodes.find((node) => node.data.kind === "input");
@@ -508,11 +542,64 @@ export default function WorkflowRun({
 
   useEffect(() => {
     workflowFileListGeneration.current += 1;
+    workflowOutputGeneration.current += 1;
     setFileSelections({});
     setWorkflowFileAssets([]);
+    setFileOutputs([]);
     setWorkflowFileListError("");
     setWorkflowFileListNotice("");
   }, [fileScopeId]);
+
+  const refreshWorkflowFileOutputs = useCallback(async () => {
+    const requestedScopeId = fileScopeId;
+    const generation = workflowOutputGeneration.current + 1;
+    workflowOutputGeneration.current = generation;
+    const items = await fetchFileOutputs("workflow", requestedScopeId).catch(() => []);
+    if (
+      requestedScopeId !== workflowFileScopeRef.current ||
+      generation !== workflowOutputGeneration.current
+    ) return;
+    setFileOutputs(items);
+  }, [fileScopeId]);
+
+  async function prepareWorkflowOutputReuse(
+    output: FileOutput,
+    confirmation: FileOutputReuseConfirmation,
+  ) {
+    const asset: WorkflowFileAsset = {
+      asset_id: confirmation.asset_id,
+      display_name: output.display_name,
+      byte_size: output.byte_size,
+      format: output.format,
+      status: "ready",
+    };
+    setWorkflowFileAssets((current) => [
+      asset,
+      ...current.filter((item) => item.asset_id !== asset.asset_id),
+    ]);
+    if (fileAssetVariables.length === 1) {
+      const variableName = fileAssetVariables[0];
+      setFileSelections((current) => ({
+        ...current,
+        [variableName]: {
+          asset,
+          busy: false,
+          error: "",
+          notice: "输出副本已加入本轮；仍需点击运行才会使用。",
+        },
+      }));
+    } else {
+      setWorkflowFileListNotice("输出副本已加入已有资产，请为目标变量显式选择。" );
+    }
+    await refreshWorkflowFileAssets();
+  }
+
+  useEffect(() => {
+    void refreshWorkflowFileOutputs();
+    return () => {
+      workflowOutputGeneration.current += 1;
+    };
+  }, [refreshWorkflowFileOutputs]);
 
   useEffect(() => {
     if (fileAssetVariables.length === 0) {
@@ -691,6 +778,7 @@ export default function WorkflowRun({
         acceptEvent(JSON.parse(data) as WorkflowRunEvent);
       }
     }
+    await refreshWorkflowFileOutputs();
   }
 
   async function selectWorkflowFile(
@@ -1689,6 +1777,44 @@ export default function WorkflowRun({
           <p className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-hire-300/25 bg-hire-300/10 p-3 text-sm leading-6 text-hire-50">
             {finalOutput}
           </p>
+        </div>
+      ) : null}
+
+      {workflowOutputsForRun(fileOutputs, runId).length > 0 ? (
+        <div className="border-t border-white/10 px-4 pb-4">
+          <FileOutputTray
+            onChange={(next) => setFileOutputs((current) =>
+              replaceWorkflowOutputSubset(
+                current,
+                workflowOutputsForRun(current, runId),
+                next,
+              ))}
+            outputs={workflowOutputsForRun(fileOutputs, runId)}
+            onReuse={workflowFileInputEnabled ? prepareWorkflowOutputReuse : undefined}
+            purpose="workflow"
+            reuseTargetId={definition.id}
+            scopeId={fileScopeId}
+            title="本次运行文件输出"
+          />
+        </div>
+      ) : null}
+
+      {recoveredWorkflowOutputs(fileOutputs, runId).length > 0 ? (
+        <div className="border-t border-white/10 px-4 pb-4">
+          <FileOutputTray
+            onChange={(next) => setFileOutputs((current) =>
+              replaceWorkflowOutputSubset(
+                current,
+                recoveredWorkflowOutputs(current, runId),
+                next,
+              ))}
+            outputs={recoveredWorkflowOutputs(fileOutputs, runId)}
+            onReuse={workflowFileInputEnabled ? prepareWorkflowOutputReuse : undefined}
+            purpose="workflow"
+            reuseTargetId={definition.id}
+            scopeId={fileScopeId}
+            title="已恢复的文件输出"
+          />
         </div>
       ) : null}
     </aside>

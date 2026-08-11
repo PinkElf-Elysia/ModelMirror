@@ -485,6 +485,35 @@ class SandboxToolsetProvider:
                     source_node_id=str(call.metadata.get("node_id") or "") or None,
                 )
                 metadata["artifact_id"] = artifact.artifact_id
+                try:
+                    try:
+                        from server.file_assets.output_service import get_file_output_service
+                    except ModuleNotFoundError as exc:
+                        if exc.name != "server":
+                            raise
+                        from file_assets.output_service import get_file_output_service
+
+                    file_output = get_file_output_service().register_runtime_artifact(
+                        self.store.artifact_path(artifact.artifact_id),
+                        trusted_root=self.store.workspace_root,
+                        producer_kind="sandbox",
+                        producer_artifact_id=artifact.artifact_id,
+                        filename=artifact.filename,
+                        media_type=artifact.content_type,
+                        runtime_metadata=dict(call.metadata),
+                        expected_size=artifact.size_bytes,
+                        expected_sha256=artifact.sha256,
+                    )
+                    if file_output is not None:
+                        metadata["file_output"] = file_output.model_dump(mode="json")
+                except Exception as exc:
+                    metadata["file_output"] = {
+                        "status": "failed",
+                        "producer_kind": "sandbox",
+                        "producer_artifact_id": artifact.artifact_id,
+                        "display_name": artifact.filename,
+                        "error_code": str(getattr(exc, "error_code", "output_registration_failed")),
+                    }
             return RuntimeToolResult(output=output, metadata=metadata)
         except Exception as exc:
             self.store.fail_operation(operation_id, error=str(exc))

@@ -1,3 +1,5 @@
+import { parseFileOutput, type FileOutput } from "../data/fileOutputs";
+
 export type ChatRole = "system" | "user" | "assistant";
 
 export interface ChatTextPart {
@@ -10,16 +12,25 @@ export interface ChatImagePart {
   image_url: {
     url: string;
   };
+  output_id?: string;
+  output_asset_id?: string;
+  output_confirmation_revision?: number;
 }
 
 export interface ChatInputAudioPart {
   type: "input_audio";
   attachment_id: string;
+  output_id?: string;
+  output_asset_id?: string;
+  output_confirmation_revision?: number;
 }
 
 export interface ChatInputVideoPart {
   type: "input_video";
   attachment_id: string;
+  output_id?: string;
+  output_asset_id?: string;
+  output_confirmation_revision?: number;
 }
 
 export interface ChatInputFilePart {
@@ -29,6 +40,8 @@ export interface ChatInputFilePart {
   confirmation_revision: number;
   analysis_artifact_id?: string;
   analysis_prompt?: string;
+  output_id?: string;
+  output_confirmation_revision?: number;
 }
 
 export type ChatMessageContent =
@@ -136,6 +149,8 @@ interface FetchChatStreamOptions {
   compression?: ChatCompressionOptions;
   responseAudio?: ChatResponseAudioOptions;
   fileScopeId?: string;
+  outputMode?: "none" | "allowlisted";
+  outputContextId?: string;
   temperature?: number;
   topP?: number;
   maxTokens?: number;
@@ -148,6 +163,7 @@ interface FetchChatStreamOptions {
   signal?: AbortSignal;
   onRuntimeMeta?: (meta: ChatRuntimeMeta) => void;
   onRouteReceipt?: (receipt: RouteReceipt) => void;
+  onOutputFile?: (output: FileOutput) => void;
   onAudioDelta?: (audio: ChatAudioDelta) => void;
   onMessageEnd?: () => void;
   onDelta: (text: string) => void;
@@ -329,6 +345,7 @@ function handleSseEvent(
   eventText: string,
   onDelta: (text: string) => void,
   onRouteReceipt?: (receipt: RouteReceipt) => void,
+  onOutputFile?: (output: FileOutput) => void,
   onAudioDelta?: (audio: ChatAudioDelta) => void,
   onMessageEnd?: () => void,
   endOnFinishReason = true,
@@ -372,6 +389,13 @@ function handleSseEvent(
       continue;
     }
 
+    if (eventName === "output_file") {
+      const output = parseFileOutput(payload);
+      if (!output) throw new Error("文件输出事件无效，已停止接收。");
+      onOutputFile?.(output);
+      continue;
+    }
+
     const streamError = readStreamError(payload);
     if (streamError) {
       throw new Error(streamError);
@@ -407,6 +431,8 @@ export async function fetchChatStream({
   compression,
   responseAudio,
   fileScopeId,
+  outputMode = "none",
+  outputContextId,
   temperature = 0.7,
   topP,
   maxTokens = 2048,
@@ -419,6 +445,7 @@ export async function fetchChatStream({
   signal,
   onRuntimeMeta,
   onRouteReceipt,
+  onOutputFile,
   onAudioDelta,
   onMessageEnd,
   onDelta,
@@ -434,6 +461,8 @@ export async function fetchChatStream({
       compression,
       response_audio: responseAudio,
       file_scope_id: fileScopeId,
+      output_mode: outputMode,
+      output_context_id: outputContextId,
       temperature,
       top_p: topP,
       max_tokens: maxTokens,
@@ -484,7 +513,7 @@ export async function fetchChatStream({
   let buffer = "";
   let messageEnded = false;
   const requiresExplicitMessageEnd =
-    Boolean(fileScopeId) || includesInputFile(messages);
+    outputMode === "allowlisted" || includesInputFile(messages);
   const emitMessageEnd = () => {
     if (messageEnded) return;
     messageEnded = true;
@@ -505,6 +534,7 @@ export async function fetchChatStream({
           eventText,
           onDelta,
           onRouteReceipt,
+          onOutputFile,
           onAudioDelta,
           emitMessageEnd,
           !responseAudio?.enabled && !requiresExplicitMessageEnd,
@@ -524,6 +554,7 @@ export async function fetchChatStream({
         buffer,
         onDelta,
         onRouteReceipt,
+        onOutputFile,
         onAudioDelta,
         emitMessageEnd,
         !responseAudio?.enabled && !requiresExplicitMessageEnd,
