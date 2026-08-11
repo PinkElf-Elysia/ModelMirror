@@ -134,7 +134,7 @@ class _LspClient:
     async def notify(self, method: str, params: dict[str, Any]) -> None:
         await self._write({"jsonrpc": "2.0", "method": method, "params": params})
 
-    async def collect_diagnostics(self, uri: str, *, timeout: float = 3) -> list[Any]:
+    async def collect_diagnostics(self, uri: str, *, timeout: float = 10) -> list[Any]:
         latest: list[Any] | None = None
         for message in reversed(self.notifications):
             diagnostics = self._published_diagnostics(message, uri)
