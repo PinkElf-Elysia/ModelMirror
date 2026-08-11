@@ -13,7 +13,12 @@ from typing import Any
 
 from .engine import MAX_REQUEST_BYTES, SandboxEngineError
 from .safe_http import NetworkPolicyError, resolve_public_addresses, validate_public_https_url
-from .token_contracts import TOKEN_ADAPTERS, TokenAdapterContract, validate_configuration
+from .token_contracts import (
+    STAGED_TOKEN_ADAPTERS,
+    TOKEN_ADAPTERS,
+    TokenAdapterContract,
+    validate_configuration,
+)
 
 
 SOCKET_PATH = Path(os.getenv("MCP_TOKEN_SOCKET_PATH", "/run/modelmirror-token-mcp/token-mcp.sock"))
@@ -24,7 +29,7 @@ _raw_allowed_adapters = os.getenv("MCP_TOKEN_ALLOWED_ADAPTERS", "").strip()
 ALLOWED_ADAPTERS = (
     frozenset(item.strip() for item in _raw_allowed_adapters.split(",") if item.strip())
     if _raw_allowed_adapters
-    else frozenset(TOKEN_ADAPTERS)
+    else frozenset(TOKEN_ADAPTERS) - STAGED_TOKEN_ADAPTERS
 )
 if not ALLOWED_ADAPTERS or not ALLOWED_ADAPTERS.issubset(TOKEN_ADAPTERS):
     raise RuntimeError("invalid_token_adapter_allowlist")

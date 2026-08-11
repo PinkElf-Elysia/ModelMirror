@@ -72,7 +72,395 @@ READY_DECISIONS = {
         "adapter_version": "1.4.0-compatible-native-v1",
         "wave": 15,
     },
+    "nickclyde-duckduckgo-mcp-server": {
+        "reason_code": "ready-native-anonymous-search-facade",
+        "reason": (
+            "DuckDuckGo MCP Server v0.6.1 的搜索契约已锁定；仅保留 Strict SafeSearch 搜索，"
+            "网页抓取、任意 URL、Header、环境变量和关闭安全搜索均不可发现。"
+        ),
+        "adapter_version": "0.6.1-compatible-native-v1",
+        "wave": 16,
+    },
+    "jpisnice-shadcn-ui-mcp-server": {
+        "reason_code": "ready-native-pinned-component-metadata-facade",
+        "reason": (
+            "shadcn/ui MCP Server v2.0.0 的组件目录契约已锁定；仅列出固定提交中的组件并读取 Git 元数据，"
+            "源码、Block、主题、本地写入和 GitHub Token 均关闭。"
+        ),
+        "adapter_version": "2.0.0-compatible-native-v1",
+        "wave": 16,
+    },
+    "docker-hub-mcp": {
+        "reason_code": "ready-official-native-anonymous-metadata-facade",
+        "reason": (
+            "官方 Docker Hub MCP v0.18.0 的匿名只读子集已锁定；仅开放仓库搜索、仓库元数据和标签元数据，"
+            "账号、PAT、仓库写入、组织 DHI 和镜像执行均关闭。"
+        ),
+        "adapter_version": "0.18.0-compatible-native-v1",
+        "wave": 16,
+    },
+    "genomoncology-biomcp": {
+        "reason_code": "ready-native-anonymous-biomedical-metadata-facade",
+        "reason": (
+            "BioMCP v0.8.25 的 search/get 契约已锁定；原生兼容层仅开放 Europe PMC、"
+            "ClinicalTrials.gov 与 MyVariant.info 的匿名公共元数据，原始查询、研究文件与诊断上传关闭。"
+        ),
+        "adapter_version": "0.8.25-compatible-native-v1",
+        "wave": 16,
+    },
+    "safedep-vet": {
+        "reason_code": "ready-native-anonymous-package-insight-facade",
+        "reason": (
+            "SafeDep Vet v1.18.1 的六个包洞察工具已锁定；原生兼容层仅接受规范化 npm/PyPI PURL，"
+            "查询社区洞察及公共 Registry 元数据，不下载、不执行、不上传包。"
+        ),
+        "adapter_version": "1.18.1-compatible-native-v1",
+        "wave": 16,
+    },
+    "aas-ee-open-websearch": {
+        "reason_code": "ready-native-fixed-engine-search-facade",
+        "reason": (
+            "open-webSearch v2.1.9 的搜索契约已锁定；原生兼容层仅开放 Bing RSS 与 DuckDuckGo Strict SafeSearch 的固定请求模式，"
+            "网页抓取、浏览器模式、代理、任意 URL/Header/环境变量和关闭证书校验均不可发现。"
+        ),
+        "adapter_version": "2.1.9-compatible-native-v1",
+        "wave": 17,
+    },
+    "mnemox-ai-idea-reality-mcp": {
+        "reason_code": "ready-native-public-idea-research-facade",
+        "reason": (
+            "Idea Reality MCP v0.5.0 的 idea_check 契约已锁定；仅查询 GitHub、Hacker News、npm 与 PyPI 公共索引，"
+            "Product Hunt Token、LLM 调用、账号数据、诊断上传和任意端点均关闭。"
+        ),
+        "adapter_version": "0.5.0-compatible-native-v1",
+        "wave": 17,
+    },
+    "idosal-git-mcp": {
+        "reason_code": "ready-native-canonical-github-repository-facade",
+        "reason": (
+            "GitMCP 审阅提交 c487a298 的仓库文档与代码搜索能力已收窄为规范 GitHub owner/repository slug；"
+            "仅访问 api.github.com，动态 MCP endpoint、任意 URL 抓取、Token、clone 与仓库写入均关闭。"
+        ),
+        "adapter_version": "c487a298-compatible-native-v1",
+        "wave": 17,
+    },
 }
+
+STAGED_PLANNED_DECISIONS = {
+    "cablate-mcp-google-map": {
+        "reason_code": "planned-real-account-readonly-preflight-required",
+        "reason": (
+            "Google Maps v0.0.53 的 Places 只读兼容层、固定出口与 Schema 已冻结；"
+            "当前缺少真实 API Key 代表调用，因此继续保持 planned 且默认关闭。"
+        ),
+        "adapter_version": "0.0.53-compatible-native-v1",
+        "wave": 17,
+    },
+    "vectorize-io-vectorize-mcp-server": {
+        "reason_code": "planned-real-account-readonly-preflight-required",
+        "reason": (
+            "Vectorize 0.4.3 的既有 pipeline 检索兼容层、固定出口与 Schema 已冻结；"
+            "当前缺少真实组织、pipeline 与 Token 代表调用，且标签 LICENSE 与 package metadata "
+            "的许可证声明不一致，因此继续保持 planned 且默认关闭。"
+        ),
+        "adapter_version": "0.4.3-compatible-native-v1",
+        "wave": 17,
+    },
+    "comet-ml-opik-mcp": {
+        "reason_code": "planned-real-account-readonly-preflight-required",
+        "reason": (
+            "Opik 0.2.15 的 list/read 兼容层、固定 Comet Cloud 出口与 Schema 已冻结；"
+            "当前缺少真实 workspace 只读预检，因此继续保持 planned 且默认关闭。"
+        ),
+        "adapter_version": "0.2.15-compatible-native-v1",
+        "wave": 17,
+    },
+    "keboola-keboola-mcp-server": {
+        "reason_code": "planned-real-account-readonly-preflight-required",
+        "reason": (
+            "Keboola MCP v1.75.2 的项目与 Storage 元数据兼容层、固定美国栈出口与 Schema 已冻结；"
+            "当前缺少真实只读 Storage Token 预检，因此继续保持 planned 且默认关闭。"
+        ),
+        "adapter_version": "1.75.2-compatible-native-v1",
+        "wave": 17,
+    },
+    "zcaceres-markdownify-mcp": {
+        "reason_code": "planned-isolated-file-artifact-acceptance-required",
+        "reason": (
+            "Markdownify MCP v1.1.0 的四个本地文件转 Markdown 工具已收窄为封存工作区输入和"
+            "服务端登记产物；网络、绝对路径、图片/音频、Git 和网页工具均关闭，等待隔离镜像验收。"
+        ),
+        "adapter_version": "1.1.0-compatible-native-v1",
+        "wave": 18,
+    },
+    "vivekvells-mcp-pandoc": {
+        "reason_code": "planned-isolated-file-artifact-acceptance-required",
+        "reason": (
+            "MCP Pandoc v0.11.0 的 convert-contents 已收窄为固定 Pandoc 3.10.1、封存输入和"
+            "Markdown/HTML/DOCX 产物；filter、defaults、template、reference、PDF 与任意路径均关闭，"
+            "等待隔离镜像验收。"
+        ),
+        "adapter_version": "0.11.0-compatible-native-v1",
+        "wave": 18,
+    },
+    "antvis-mcp-server-chart": {
+        "reason_code": "planned-isolated-file-artifact-acceptance-required",
+        "reason": (
+            "AntV MCP Server Chart 0.9.10 的 line/bar/pie 工具身份已实现为断网确定性 PNG 兼容层；"
+            "官方远程 antv-studio 服务、地图、动态图表、任意端点和远程 URL 均关闭，等待隔离镜像验收。"
+        ),
+        "adapter_version": "0.9.10-compatible-native-v1",
+        "wave": 18,
+    },
+}
+
+READY_DECISIONS.update(
+    {
+        "zcaceres-markdownify-mcp": {
+            "reason_code": "ready-isolated-deterministic-file-artifact-facade",
+            "reason": (
+                "Markdownify MCP v1.1.0 的四个本地文件转 Markdown 工具已通过断网、封存输入、"
+                "确定性产物、超时与清理验收；网页、图片、音频、Git 和任意路径工具保持关闭。"
+            ),
+            "adapter_version": "1.1.0-compatible-native-v1",
+            "wave": 18,
+        },
+        "vivekvells-mcp-pandoc": {
+            "reason_code": "ready-isolated-deterministic-file-artifact-facade",
+            "reason": (
+                "MCP Pandoc v0.11.0 的 convert-contents 已通过固定 Pandoc 3.10.1、断网、"
+                "封存输入、确定性产物、超时与清理验收；filter、template、PDF 与任意路径保持关闭。"
+            ),
+            "adapter_version": "0.11.0-compatible-native-v1",
+            "wave": 18,
+        },
+        "antvis-mcp-server-chart": {
+            "reason_code": "ready-isolated-deterministic-file-artifact-facade",
+            "reason": (
+                "AntV MCP Server Chart 0.9.10 的 line/bar/pie 工具已通过断网确定性 PNG、"
+                "Schema、超时与清理验收；远程服务、地图、动态图表、任意端点和远程 URL 保持关闭。"
+            ),
+            "adapter_version": "0.9.10-compatible-native-v1",
+            "wave": 18,
+        },
+    }
+)
+for accepted_id in (
+    "zcaceres-markdownify-mcp",
+    "vivekvells-mcp-pandoc",
+    "antvis-mcp-server-chart",
+):
+    STAGED_PLANNED_DECISIONS.pop(accepted_id)
+
+STAGED_PLANNED_DECISIONS.update(
+    {
+        "cyberchitta-llm-context-py": {
+            "reason_code": "planned-isolated-file-analysis-acceptance-required",
+            "reason": (
+                "llm-context 0.6.4 的 root_path、动态规则、缺失文件读取、剪贴板和项目写入已关闭；"
+                "固定 facade 仅预览封存工作区并生成有界 outline 产物，等待隔离镜像与人工验收。"
+            ),
+            "adapter_version": "0.6.4-reviewed-commit-6de16c22-compatible-native-v1",
+            "wave": 18,
+        },
+        "haris-musa-excel-mcp-server": {
+            "reason_code": "planned-isolated-file-analysis-acceptance-required",
+            "reason": (
+                "Excel MCP Server v0.1.8 已收窄为 XLSX 元数据、范围读取和新副本写入；"
+                "宏、外链、公式、任意 filepath、原地覆盖及其他写工具均关闭，等待隔离镜像与人工验收。"
+            ),
+            "adapter_version": "0.1.8-compatible-native-v1",
+            "wave": 18,
+        },
+        "dataeval-dingo": {
+            "reason_code": "planned-isolated-file-analysis-acceptance-required",
+            "reason": (
+                "Dingo v2.5.0 已收窄为三个已核对的本地规则和固定文件格式；"
+                "LLM、Agent、Prompt、云数据源、数据库和动态 kwargs 均关闭，等待隔离镜像与人工验收。"
+            ),
+            "adapter_version": "2.5.0-rule-compatible-native-v1",
+            "wave": 18,
+        },
+    }
+)
+
+READY_DECISIONS.update(
+    {
+        "pab1it0-prometheus-mcp-server": {
+            "reason_code": "ready-isolated-readonly-data-service-facade",
+            "reason": (
+                "Prometheus MCP Server v1.6.2 的固定只读 facade 已通过真实 Prometheus、Schema、"
+                "PromQL/范围/结果上限、429、超时、拒写与清理验收；任意 URL/Header 和管理能力保持关闭。"
+            ),
+            "adapter_version": "1.6.2-compatible-native-read-only-v1",
+            "wave": 19,
+        },
+        "qdrant-mcp-server-qdrant": {
+            "reason_code": "ready-isolated-readonly-data-service-facade",
+            "reason": (
+                "Qdrant MCP Server v0.8.1 的单 collection 只读 facade 已通过真实 Qdrant、原生只读 Key、"
+                "Schema、代表查询、拒写与清理验收；qdrant-store 和任意过滤/管理入口保持关闭。"
+            ),
+            "adapter_version": "0.8.1-compatible-native-read-only-v1",
+            "wave": 19,
+        },
+        "cr7258-elasticsearch-mcp-server": {
+            "reason_code": "ready-isolated-readonly-data-service-facade",
+            "reason": (
+                "Elasticsearch MCP Server v2.1.2 的单 index/search field 只读 facade 已通过真实 Elasticsearch、"
+                "原生只读角色、Schema、代表查询、拒写与清理验收；通用 API、写入和管理工具保持关闭。"
+            ),
+            "adapter_version": "2.1.2-compatible-native-read-only-v1",
+            "wave": 19,
+        },
+    }
+)
+for accepted_id in (
+    "pab1it0-prometheus-mcp-server",
+    "qdrant-mcp-server-qdrant",
+    "cr7258-elasticsearch-mcp-server",
+):
+    STAGED_PLANNED_DECISIONS.pop(accepted_id, None)
+
+READY_DECISIONS.update(
+    {
+        "cyberchitta-llm-context-py": {
+            "reason_code": "ready-isolated-file-analysis-facade",
+            "reason": (
+                "llm-context 0.6.4 的封存工作区预览与 outline 产物已通过断网、Schema、"
+                "双轮确定性、超时与清理验收；root_path、动态规则、剪贴板和项目写入保持关闭。"
+            ),
+            "adapter_version": "0.6.4-reviewed-commit-6de16c22-compatible-native-v1",
+            "wave": 18,
+        },
+        "haris-musa-excel-mcp-server": {
+            "reason_code": "ready-isolated-file-analysis-facade",
+            "reason": (
+                "Excel MCP Server v0.1.8 的 XLSX 元数据、范围读取和确定性输出副本已通过断网、"
+                "宏/外链/公式拒绝、源文件不可变、超时与清理验收；任意 filepath 和原地覆盖保持关闭。"
+            ),
+            "adapter_version": "0.1.8-compatible-native-v1",
+            "wave": 18,
+        },
+        "dataeval-dingo": {
+            "reason_code": "ready-isolated-file-analysis-facade",
+            "reason": (
+                "Dingo v2.5.0 的三个固定本地规则已通过断网、固定格式、Schema、"
+                "双轮确定性、超时与清理验收；LLM、Agent、云数据源和动态 kwargs 保持关闭。"
+            ),
+            "adapter_version": "2.5.0-rule-compatible-native-v1",
+            "wave": 18,
+        },
+    }
+)
+for accepted_id in (
+    "cyberchitta-llm-context-py",
+    "haris-musa-excel-mcp-server",
+    "dataeval-dingo",
+):
+    STAGED_PLANNED_DECISIONS.pop(accepted_id)
+
+STAGED_PLANNED_DECISIONS.update(
+    {
+        "pab1it0-prometheus-mcp-server": {
+            "reason_code": "planned-isolated-readonly-data-service-acceptance-required",
+            "reason": (
+                "Prometheus MCP Server v1.6.2 的五个只读工具已收窄为固定 Prometheus HTTP API、严格 TLS、"
+                "PromQL/时间范围/结果上限与可选 Bearer Token；隔离代表调用、429、超时和清理已通过，"
+                "等待用户验收后再晋级并加入精确 allowlist。"
+            ),
+            "adapter_version": "1.6.2-compatible-native-read-only-v1",
+            "wave": 19,
+        },
+        "qdrant-mcp-server-qdrant": {
+            "reason_code": "planned-isolated-readonly-data-service-acceptance-required",
+            "reason": (
+                "Qdrant MCP Server v0.8.1 的 qdrant-store 已关闭；native facade 仅绑定一个 collection，"
+                "开放集合描述、无向量分页和有界向量查询；原生只读 Key 的代表调用与拒写已通过，"
+                "等待用户验收后再晋级并加入精确 allowlist。"
+            ),
+            "adapter_version": "0.8.1-compatible-native-read-only-v1",
+            "wave": 19,
+        },
+        "cr7258-elasticsearch-mcp-server": {
+            "reason_code": "planned-isolated-readonly-data-service-acceptance-required",
+            "reason": (
+                "Elasticsearch MCP Server v2.1.2 的写入、删除、通用 API 与多集群入口已关闭；native facade 仅绑定一个"
+                " index/search field，以原生只读账号执行健康、mapping、match 查询和单文档读取；"
+                "代表调用与原生拒写已通过，等待用户验收后再晋级并加入精确 allowlist。"
+            ),
+            "adapter_version": "2.1.2-compatible-native-read-only-v1",
+            "wave": 19,
+        },
+    }
+)
+for accepted_id in (
+    "pab1it0-prometheus-mcp-server",
+    "qdrant-mcp-server-qdrant",
+    "cr7258-elasticsearch-mcp-server",
+):
+    STAGED_PLANNED_DECISIONS.pop(accepted_id)
+
+READY_DECISIONS.update(
+    {
+        "ozgurcd-gograph": {
+            "reason_code": "ready-isolated-code-index-facade",
+            "reason": (
+                "GoGraph v1.5.6 的封存 Go 仓库一次性内存索引与六个固定结构读取工具已通过"
+                "真实断网镜像、双轮 UDS、Schema、超时、源不可变和清理验收；网络、持久化、"
+                "任意路径、Git 基线、边界配置、会话遥测、Wiki 与 doc 工具保持关闭。"
+            ),
+            "adapter_version": (
+                "1.5.6-reviewed-commit-aa4d6d54-compatible-native-v1"
+            ),
+            "wave": 20,
+        }
+    }
+)
+STAGED_PLANNED_DECISIONS.pop("ozgurcd-gograph", None)
+
+STAGED_PLANNED_DECISIONS.update(
+    {
+        project_id: {
+            "reason_code": "planned-wave21-stateful-foundation-required",
+            "reason": (
+                "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、"
+                "保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。"
+            ),
+            "adapter_version": "",
+            "wave": 21,
+        }
+        for project_id in (
+            "chopratejas-headroom",
+            "samvallad33-vestige",
+            "goldentrii-agentrecall",
+            "juyterman1000-entroly",
+            "patdolitse-piia-engram",
+            "beever-ai-beever-atlas",
+            "pv-bhat-vibe-check-mcp-server",
+        )
+    }
+)
+
+STAGED_PLANNED_DECISIONS.update(
+    {
+        project_id: {
+            "reason_code": "planned-wave22-multitenant-oauth-foundation-required",
+            "reason": (
+                "批次 22 暂缓实现；等待不可伪造的逐请求主体、租户隔离、OAuth 2.1 PKCE/state、"
+                "最小只读 Scope、刷新/撤销/解绑和账号资源所有权证明完成后再复审。"
+            ),
+            "adapter_version": "",
+            "wave": 22,
+        }
+        for project_id in (
+            "r-huijts-strava-mcp",
+            "tiberriver256-mcp-server-azure-devops",
+            "tacticlaunch-mcp-linear",
+        )
+    }
+)
+
 
 BLOCKED_DECISION_GROUPS = {
     "blocked-arbitrary-browser-or-url-surface": {
@@ -139,6 +527,32 @@ BLOCKED_DECISION_GROUPS = {
         "suekou-mcp-notion-server",
         "alexander-zuev-supabase-mcp-server",
     },
+    "blocked-arbitrary-host-or-target-surface": {
+        "ihor-sokoliuk-mcp-searxng",
+        "us-crw",
+        "bx33661-wireshark-mcp",
+        "markuspfundstein-mcp-obsidian",
+    },
+    "blocked-superseded-existing-capability": {
+        "quarkiverse-quarkus-mcp-servers-filesystem",
+        "benborla-mcp-server-mysql",
+        "designcomputer-mysql-mcp-server",
+        "freepeak-db-mcp-server",
+        "quarkiverse-quarkus-mcp-servers-jdbc",
+        "runekaagaard-mcp-alchemy",
+        "kiliczsh-mcp-mongo-server",
+    },
+    "blocked-superseded-code-index-implementation": {
+        "deusdata-codebase-memory-mcp",
+        "shashankss1205-codegraphcontext",
+    },
+    "blocked-dynamic-database-control-plane": {
+        "googleapis-genai-toolbox",
+    },
+    "blocked-publishing-or-high-risk-advice": {
+        "anypost-emailmd",
+        "ferdousbhai-investor-agent",
+    },
 }
 
 BLOCKED_REASONS = {
@@ -171,6 +585,22 @@ BLOCKED_REASONS = {
     ),
     "blocked-superseded-unbounded-third-party": (
         "该第三方实现提供的管理或写入面宽于目录中已存在的官方受控适配器，不再新增重复执行入口。"
+    ),
+    "blocked-arbitrary-host-or-target-surface": (
+        "上游接受任意搜索实例、抓取目标、桌面宿主或本地服务；当前固定域名与受控上传边界不能证明目标归属。"
+    ),
+    "blocked-superseded-existing-capability": (
+        "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。"
+    ),
+    "blocked-superseded-code-index-implementation": (
+        "代码索引批次只保留一个断网、封存仓库和临时索引实现；该候选依赖外部图数据库或为单语言宽工具面，"
+        "不能在不扩大运行时的情况下优于已选固定 facade。"
+    ),
+    "blocked-dynamic-database-control-plane": (
+        "上游通过动态工具配置连接多种数据库与云控制面，不能冻结为单一协议、只读账号和固定 Schema。"
+    ),
+    "blocked-publishing-or-high-risk-advice": (
+        "上游涉及账号发布、邮件交付或高风险投资建议；当前不开放现实后果写入与可能诱导交易的运行时。"
     ),
 }
 
@@ -272,6 +702,15 @@ def _decision(candidate: dict[str, Any]) -> dict[str, Any]:
             "reason": str(ready["reason"]),
             "adapter_version": str(ready["adapter_version"]),
             "wave": int(ready["wave"]),
+        }
+    staged = STAGED_PLANNED_DECISIONS.get(catalog_id)
+    if staged is not None:
+        return {
+            "availability": "planned",
+            "reason_code": str(staged["reason_code"]),
+            "reason": str(staged["reason"]),
+            "adapter_version": str(staged["adapter_version"]),
+            "wave": int(staged["wave"]),
         }
     blocked_code = _blocked_reason_code(catalog_id)
     if blocked_code is not None:
@@ -518,6 +957,87 @@ def _classified_adaptation(candidate: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
         )
+    elif availability == "ready" and candidate["catalog_id"] in {
+        "nickclyde-duckduckgo-mcp-server",
+        "jpisnice-shadcn-ui-mcp-server",
+        "docker-hub-mcp",
+        "genomoncology-biomcp",
+        "safedep-vet",
+        "aas-ee-open-websearch",
+        "mnemox-ai-idea-reality-mcp",
+        "idosal-git-mcp",
+    }:
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "medium",
+                "requirements": [],
+                "required_capabilities": [
+                    "fixed-egress-policy",
+                    "read-only-tool-policy",
+                    "schema-drift-recovery",
+                    "provider-rate-limit",
+                ],
+                "limitations": [
+                    decision["reason"],
+                    "仅允许匿名固定域名调用；命令、端点、Header、环境变量、凭据和上游写工具均不可发现。",
+                ],
+            }
+        )
+    elif availability == "ready" and candidate["catalog_id"] == "ozgurcd-gograph":
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "medium",
+                "requirements": ["sealed-workspace"],
+                "required_capabilities": [
+                    "scoped-filesystem",
+                    "ephemeral-code-index",
+                    "resource-limits",
+                    "one-shot-write-approval",
+                ],
+                "limitations": [
+                    decision["reason"],
+                    "只允许封存 Go 工作区、固定二进制、六工具 Schema、断网和一次性内存索引；默认文件 sidecar allowlist 只增加该精确 ID。",
+                ],
+            }
+        )
+    elif availability == "planned" and decision["wave"] == 21:
+        classification.update(
+            {
+                "connection_kind": "sandboxed-stdio",
+                "risk": "high",
+                "requirements": ["external-runtime"],
+                "required_capabilities": [
+                    "project-scoped-persistence",
+                    "retention-export-delete-policy",
+                    "storage-and-model-cost-quota",
+                    "one-shot-write-approval",
+                ],
+                "limitations": [
+                    decision["reason"],
+                    "当前没有镜像、命令、端点、持久卷、模型配置、工具策略或功能开关绕过路径。",
+                ],
+            }
+        )
+    elif availability == "planned" and decision["wave"] == 22:
+        classification.update(
+            {
+                "connection_kind": "remote-mcp",
+                "risk": "high",
+                "requirements": ["oauth", "account-binding", "remote-transport"],
+                "required_capabilities": [
+                    "authenticated-user-context",
+                    "tenant-isolation",
+                    "oauth-pkce-refresh-revocation",
+                    "fixed-read-only-scope",
+                ],
+                "limitations": [
+                    decision["reason"],
+                    "当前没有 OAuth 回调、客户端密钥、Token 存储、命令、端点、工具策略或功能开关绕过路径。",
+                ],
+            }
+        )
     elif availability == "blocked":
         classification["limitations"] = [
             decision["reason"],
@@ -568,11 +1088,13 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"blocked decisions reference unknown ids: {sorted(unknown_blocked)}")
     if set(READY_DECISIONS) - ids:
         raise ValueError("ready decisions reference unknown ids")
+    if set(STAGED_PLANNED_DECISIONS) - ids:
+        raise ValueError("staged planned decisions reference unknown ids")
     availability = {
         status: sum(item["proposed_availability"] == status for item in candidates)
         for status in ("ready", "planned", "blocked")
     }
-    if availability != {"ready": 5, "planned": 51, "blocked": 44}:
+    if availability != {"ready": 23, "planned": 17, "blocked": 60}:
         raise ValueError(f"unexpected adaptation classification: {availability}")
     payload["purpose"] = "adaptation-classification"
     payload["runtime_catalog_changed"] = True
@@ -581,7 +1103,7 @@ def build_approved_payload(source: dict[str, Any]) -> dict[str, Any]:
         "classified_at": SNAPSHOT_DATE,
         "classified_count": 100,
         "availability": availability,
-        "ready_boundary": "fixed-read-only-token-sidecar-contract",
+        "ready_boundary": "fixed-reviewed-read-artifact-or-index-sidecar-contract",
         "non_ready_boundary": "no-command-endpoint-credential-or-tool-policy",
     }
     payload.pop("approval", None)
@@ -737,7 +1259,7 @@ def render_report(payload: dict[str, Any]) -> str:
             f"- 中文源命中：{summary['by_source']['awesome-mcp-zh']}",
             f"- 英文源命中：{summary['by_source']['awesome-mcp-servers']}",
             f"- 本批状态：{payload['adaptation']['availability']['ready']} ready / {payload['adaptation']['availability']['planned']} planned / {payload['adaptation']['availability']['blocked']} blocked",
-            "- 新增执行能力：3（Brave、Kagi 与 arXiv 固定只读子集）",
+            "- 新增执行能力：22（批次 14—19A 的固定只读/确定性产物子集）",
             "",
             "硬门禁：公开仓库存在，未归档/禁用/私有/派生，许可证 SPDX 明确，且最近 12 个月有推送。每个分类最多 15 项，每个仓库最多 2 项。",
             "",
@@ -761,7 +1283,7 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
             "## 执行边界",
             "",
-            "官方 Brave Search v2.1.0 复用既有 Token Sidecar；Kagi v1.0.2 与 arxiv-mcp-server v0.6.2 通过固定原生兼容层，仅开放审核后的只读工具。三者均锁定出口、Schema 与输出上限；其余 97 项没有新增执行配置，53 项保留后续受控 facade 规划，44 项因明确安全、身份或宿主边界阻断。",
+            "批次 14—19A 的二十二项只读、公共研究、确定性文件与数据服务能力均锁定上游身份、出口、Schema 与输出上限；其余 78 项没有新增默认执行配置，18 项保留后续受控 facade 规划，60 项因重复、漂移、安全、身份、宿主或代码索引实现收敛而阻断。",
             "",
         ]
     )

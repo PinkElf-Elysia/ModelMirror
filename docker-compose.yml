@@ -79,12 +79,15 @@ services:
   mcp-public:
     build:
       context: ./server/sandbox_sidecar
+    image: modelmirror-mcp-public:wave17a-v1
     container_name: modelmirror-mcp-public
     command: ["python", "-m", "sandbox_sidecar.public_server"]
     networks:
       - mcp_public_egress
     environment:
       MCP_PUBLIC_MAX_SESSIONS: "6"
+      # Waves 16A-17A were enabled only after isolated real-upstream acceptance.
+      MCP_PUBLIC_ALLOWED_ADAPTERS: fetch-mcp,quickchart-mcp,geowire-mcp,nickclyde-duckduckgo-mcp-server,jpisnice-shadcn-ui-mcp-server,docker-hub-mcp,genomoncology-biomcp,safedep-vet,aas-ee-open-websearch,mnemox-ai-idea-reality-mcp,idosal-git-mcp
       MCP_PUBLIC_SOCKET_PATH: /run/modelmirror-public-mcp/public-mcp.sock
       MCP_PUBLIC_WORKSPACE_ROOT: /workspaces
       # Docker Desktop/VPN DNS may map public hosts into RFC 2544 Fake-IP space.
@@ -126,6 +129,7 @@ services:
     network_mode: none
     environment:
       MCP_FILES_MAX_SESSIONS: "4"
+      MCP_FILE_ALLOWED_ADAPTERS: basic-memory-mcp,excel-mcp-server,git-mcp,markitdown-mcp,office-parser-mcp,output-renderer-mcp,zcaceres-markdownify-mcp,vivekvells-mcp-pandoc,antvis-mcp-server-chart,cyberchitta-llm-context-py,haris-musa-excel-mcp-server,dataeval-dingo,ozgurcd-gograph
       MCP_FILES_SOCKET_PATH: /run/modelmirror-files-mcp/files-mcp.sock
       MCP_FILE_INPUT_ROOT: /inputs
       MCP_FILE_OUTPUT_ROOT: /outputs
@@ -390,7 +394,7 @@ services:
       MCP_DATABASE_MAX_SESSIONS: "6"
       MCP_DATABASE_SOCKET_PATH: /run/modelmirror-database-mcp/database-mcp.sock
       MCP_DATABASE_WORKSPACE_ROOT: /workspaces
-      MCP_DATABASE_ALLOWED_ADAPTERS: dbhub,mongodb-mcp,clickhouse-mcp,redis-mcp,supabase-mcp
+      MCP_DATABASE_ALLOWED_ADAPTERS: dbhub,mongodb-mcp,clickhouse-mcp,redis-mcp,supabase-mcp,pab1it0-prometheus-mcp-server,qdrant-mcp-server-qdrant,cr7258-elasticsearch-mcp-server
       MCP_DATABASE_PRIVATE_HOST_ALLOWLIST: ${MCP_DATABASE_PRIVATE_HOST_ALLOWLIST:-}
     user: "65532:65532"
     read_only: true

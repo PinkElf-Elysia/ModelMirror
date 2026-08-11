@@ -136,8 +136,10 @@ def main() -> int:
         resource.setrlimit(resource.RLIMIT_AS, (768 * 1024 * 1024, 768 * 1024 * 1024))
         resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024 * 1024, 16 * 1024 * 1024))
         resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
-        if hasattr(resource, "RLIMIT_NPROC"):
-            resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
+        # RLIMIT_NPROC is accounted against the host real UID, so a fixed
+        # value here couples otherwise isolated containers that share UID
+        # 65532 and can prevent FastMCP from creating even its stdin worker.
+        # The Docker pids cgroup is the authoritative per-container limit.
         _apply(read_roots, [temp_root])
     except Exception as exc:
         print(f"database sandbox isolation failed: {type(exc).__name__}", file=sys.stderr)

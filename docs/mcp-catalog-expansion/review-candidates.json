@@ -120,12 +120,12 @@
           "publishedAt": "2026-07-08T11:16:08Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "代码索引批次只保留一个断网、封存仓库和临时索引实现；该候选依赖外部图数据库或为单语言宽工具面，不能在不扩大运行时的情况下优于已选固定 facade。",
       "catalog_id": "deusdata-codebase-memory-mcp",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-code-index-implementation",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -414,11 +414,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "decision_reason": "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。",
       "catalog_id": "beever-ai-beever-atlas",
-      "decision_reason_code": "planned-stateful-resource-policy",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave21-stateful-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 21
     },
     {
       "rank": 6,
@@ -485,12 +485,12 @@
           "publishedAt": "2026-07-28T01:25:42Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游通过动态工具配置连接多种数据库与云控制面，不能冻结为单一协议、只读账号和固定 Schema。",
       "catalog_id": "googleapis-genai-toolbox",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-dynamic-database-control-plane",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -631,12 +631,12 @@
           "publishedAt": "2026-08-07T16:05:38Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游接受任意搜索实例、抓取目标、桌面宿主或本地服务；当前固定域名与受控上传边界不能证明目标归属。",
       "catalog_id": "us-crw",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-arbitrary-host-or-target-surface",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -774,12 +774,12 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游接受任意搜索实例、抓取目标、桌面宿主或本地服务；当前固定域名与受控上传边界不能证明目标归属。",
       "catalog_id": "markuspfundstein-mcp-obsidian",
-      "decision_reason_code": "planned-auth-scope-and-write-policy",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-arbitrary-host-or-target-surface",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -920,13 +920,13 @@
           "publishedAt": "2025-12-10T10:35:23Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Qdrant MCP Server v0.8.1 的单 collection 只读 facade 已通过真实 Qdrant、原生只读 Key、Schema、代表查询、拒写与清理验收；qdrant-store 和任意过滤/管理入口保持关闭。",
       "catalog_id": "qdrant-mcp-server-qdrant",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-readonly-data-service-facade",
+      "adapter_version": "0.8.1-compatible-native-read-only-v1",
+      "adaptation_wave": 19
     },
     {
       "rank": 13,
@@ -1141,11 +1141,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "decision_reason": "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。",
       "catalog_id": "goldentrii-agentrecall",
-      "decision_reason_code": "planned-stateful-resource-policy",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave21-stateful-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 21
     },
     {
       "rank": 16,
@@ -1212,13 +1212,13 @@
           "publishedAt": "2026-05-01T21:05:36Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Markdownify MCP v1.1.0 的四个本地文件转 Markdown 工具已通过断网、封存输入、确定性产物、超时与清理验收；网页、图片、音频、Git 和任意路径工具保持关闭。",
       "catalog_id": "zcaceres-markdownify-mcp",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-deterministic-file-artifact-facade",
+      "adapter_version": "1.1.0-compatible-native-v1",
+      "adaptation_wave": 18
     },
     {
       "rank": 17,
@@ -1285,12 +1285,12 @@
           "publishedAt": "2026-06-19T04:19:31Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。",
       "catalog_id": "benborla-mcp-server-mysql",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-existing-capability",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -1431,13 +1431,13 @@
           "publishedAt": "2026-04-30T07:18:46Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "open-webSearch v2.1.9 的搜索契约已锁定；原生兼容层仅开放 Bing RSS 与 DuckDuckGo Strict SafeSearch 的固定请求模式，网页抓取、浏览器模式、代理、任意 URL/Header/环境变量和关闭证书校验均不可发现。",
       "catalog_id": "aas-ee-open-websearch",
-      "decision_reason_code": "planned-fixed-egress-read-only-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-native-fixed-engine-search-facade",
+      "adapter_version": "2.1.9-compatible-native-v1",
+      "adaptation_wave": 17
     },
     {
       "rank": 20,
@@ -1723,13 +1723,13 @@
           "publishedAt": "2026-07-08T15:48:28Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "BioMCP v0.8.25 的 search/get 契约已锁定；原生兼容层仅开放 Europe PMC、ClinicalTrials.gov 与 MyVariant.info 的匿名公共元数据，原始查询、研究文件与诊断上传关闭。",
       "catalog_id": "genomoncology-biomcp",
-      "decision_reason_code": "planned-fixed-egress-read-only-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-native-anonymous-biomedical-metadata-facade",
+      "adapter_version": "0.8.25-compatible-native-v1",
+      "adaptation_wave": 16
     },
     {
       "rank": 24,
@@ -1796,13 +1796,13 @@
           "publishedAt": "2026-07-28T14:23:09Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "DuckDuckGo MCP Server v0.6.1 的搜索契约已锁定；仅保留 Strict SafeSearch 搜索，网页抓取、任意 URL、Header、环境变量和关闭安全搜索均不可发现。",
       "catalog_id": "nickclyde-duckduckgo-mcp-server",
-      "decision_reason_code": "planned-fixed-egress-read-only-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-native-anonymous-search-facade",
+      "adapter_version": "0.6.1-compatible-native-v1",
+      "adaptation_wave": 16
     },
     {
       "rank": 25,
@@ -2003,13 +2003,13 @@
           "publishedAt": "2026-03-11T17:19:08Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Idea Reality MCP v0.5.0 的 idea_check 契约已锁定；仅查询 GitHub、Hacker News、npm 与 PyPI 公共索引，Product Hunt Token、LLM 调用、账号数据、诊断上传和任意端点均关闭。",
       "catalog_id": "mnemox-ai-idea-reality-mcp",
-      "decision_reason_code": "planned-fixed-egress-read-only-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-native-public-idea-research-facade",
+      "adapter_version": "0.5.0-compatible-native-v1",
+      "adaptation_wave": 17
     },
     {
       "rank": 28,
@@ -2072,11 +2072,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "decision_reason": "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。",
       "catalog_id": "chopratejas-headroom",
-      "decision_reason_code": "planned-stateful-resource-policy",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave21-stateful-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 21
     },
     {
       "rank": 29,
@@ -2143,12 +2143,12 @@
           "publishedAt": "2026-07-30T12:28:21Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。",
       "catalog_id": "designcomputer-mysql-mcp-server",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-existing-capability",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -2216,12 +2216,12 @@
           "publishedAt": "2026-04-11T04:25:44Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。",
       "catalog_id": "freepeak-db-mcp-server",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-existing-capability",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -2289,12 +2289,12 @@
           "publishedAt": "2026-08-07T03:19:38Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游接受任意搜索实例、抓取目标、桌面宿主或本地服务；当前固定域名与受控上传边界不能证明目标归属。",
       "catalog_id": "ihor-sokoliuk-mcp-searxng",
-      "decision_reason_code": "planned-fixed-egress-read-only-contract",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-arbitrary-host-or-target-surface",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -2572,12 +2572,12 @@
           "publishedAt": "2026-08-08T18:28:10Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "代码索引批次只保留一个断网、封存仓库和临时索引实现；该候选依赖外部图数据库或为单语言宽工具面，不能在不扩大运行时的情况下优于已选固定 facade。",
       "catalog_id": "shashankss1205-codegraphcontext",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-code-index-implementation",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -2846,13 +2846,13 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "llm-context 0.6.4 的封存工作区预览与 outline 产物已通过断网、Schema、双轮确定性、超时与清理验收；root_path、动态规则、剪贴板和项目写入保持关闭。",
       "catalog_id": "cyberchitta-llm-context-py",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-file-analysis-facade",
+      "adapter_version": "0.6.4-reviewed-commit-6de16c22-compatible-native-v1",
+      "adaptation_wave": 18
     },
     {
       "rank": 40,
@@ -2919,13 +2919,13 @@
           "publishedAt": "2026-04-12T06:14:45Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Excel MCP Server v0.1.8 的 XLSX 元数据、范围读取和确定性输出副本已通过断网、宏/外链/公式拒绝、源文件不可变、超时与清理验收；任意 filepath 和原地覆盖保持关闭。",
       "catalog_id": "haris-musa-excel-mcp-server",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-file-analysis-facade",
+      "adapter_version": "0.1.8-compatible-native-v1",
+      "adaptation_wave": 18
     },
     {
       "rank": 41,
@@ -2989,13 +2989,13 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "GitMCP 审阅提交 c487a298 的仓库文档与代码搜索能力已收窄为规范 GitHub owner/repository slug；仅访问 api.github.com，动态 MCP endpoint、任意 URL 抓取、Token、clone 与仓库写入均关闭。",
       "catalog_id": "idosal-git-mcp",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-native-canonical-github-repository-facade",
+      "adapter_version": "c487a298-compatible-native-v1",
+      "adaptation_wave": 17
     },
     {
       "rank": 42,
@@ -3478,11 +3478,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision_reason": "Opik 0.2.15 的 list/read 兼容层、固定 Comet Cloud 出口与 Schema 已冻结；当前缺少真实 workspace 只读预检，因此继续保持 planned 且默认关闭。",
       "catalog_id": "comet-ml-opik-mcp",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-real-account-readonly-preflight-required",
+      "adapter_version": "0.2.15-compatible-native-v1",
+      "adaptation_wave": 17
     },
     {
       "rank": 49,
@@ -3549,12 +3549,12 @@
           "publishedAt": "2025-05-22T22:21:28Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。",
       "catalog_id": "quarkiverse-quarkus-mcp-servers-filesystem",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-existing-capability",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -3622,12 +3622,12 @@
           "publishedAt": "2025-05-22T22:21:28Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。",
       "catalog_id": "quarkiverse-quarkus-mcp-servers-jdbc",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-existing-capability",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -3697,11 +3697,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "decision_reason": "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。",
       "catalog_id": "samvallad33-vestige",
-      "decision_reason_code": "planned-stateful-resource-policy",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave21-stateful-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 21
     },
     {
       "rank": 52,
@@ -3768,13 +3768,13 @@
           "publishedAt": "2026-08-10T00:26:36Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "MCP Pandoc v0.11.0 的 convert-contents 已通过固定 Pandoc 3.10.1、断网、封存输入、确定性产物、超时与清理验收；filter、template、PDF 与任意路径保持关闭。",
       "catalog_id": "vivekvells-mcp-pandoc",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-deterministic-file-artifact-facade",
+      "adapter_version": "0.11.0-compatible-native-v1",
+      "adaptation_wave": 18
     },
     {
       "rank": 53,
@@ -4045,12 +4045,12 @@
           "publishedAt": "2026-07-26T05:04:52Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游涉及账号发布、邮件交付或高风险投资建议；当前不开放现实后果写入与可能诱导交易的运行时。",
       "catalog_id": "anypost-emailmd",
-      "decision_reason_code": "planned-auth-scope-and-write-policy",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-publishing-or-high-risk-advice",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -4187,11 +4187,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "decision_reason": "Google Maps v0.0.53 的 Places 只读兼容层、固定出口与 Schema 已冻结；当前缺少真实 API Key 代表调用，因此继续保持 planned 且默认关闭。",
       "catalog_id": "cablate-mcp-google-map",
-      "decision_reason_code": "planned-fixed-egress-read-only-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-real-account-readonly-preflight-required",
+      "adapter_version": "0.0.53-compatible-native-v1",
+      "adaptation_wave": 17
     },
     {
       "rank": 59,
@@ -4319,13 +4319,13 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "官方 Docker Hub MCP v0.18.0 的匿名只读子集已锁定；仅开放仓库搜索、仓库元数据和标签元数据，账号、PAT、仓库写入、组织 DHI 和镜像执行均关闭。",
       "catalog_id": "docker-hub-mcp",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-official-native-anonymous-metadata-facade",
+      "adapter_version": "0.18.0-compatible-native-v1",
+      "adaptation_wave": 16
     },
     {
       "rank": 61,
@@ -4525,11 +4525,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "decision_reason": "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。",
       "catalog_id": "juyterman1000-entroly",
-      "decision_reason_code": "planned-stateful-resource-policy",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave21-stateful-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 21
     },
     {
       "rank": 64,
@@ -4736,13 +4736,13 @@
           "publishedAt": "2026-08-03T13:26:36Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Prometheus MCP Server v1.6.2 的固定只读 facade 已通过真实 Prometheus、Schema、PromQL/范围/结果上限、429、超时、拒写与清理验收；任意 URL/Header 和管理能力保持关闭。",
       "catalog_id": "pab1it0-prometheus-mcp-server",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-readonly-data-service-facade",
+      "adapter_version": "1.6.2-compatible-native-read-only-v1",
+      "adaptation_wave": 19
     },
     {
       "rank": 67,
@@ -4811,11 +4811,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision_reason": "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。",
       "catalog_id": "pv-bhat-vibe-check-mcp-server",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave21-stateful-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 21
     },
     {
       "rank": 68,
@@ -4881,11 +4881,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision_reason": "批次 22 暂缓实现；等待不可伪造的逐请求主体、租户隔离、OAuth 2.1 PKCE/state、最小只读 Scope、刷新/撤销/解绑和账号资源所有权证明完成后再复审。",
       "catalog_id": "r-huijts-strava-mcp",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave22-multitenant-oauth-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 22
     },
     {
       "rank": 69,
@@ -4949,12 +4949,12 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。",
       "catalog_id": "runekaagaard-mcp-alchemy",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-existing-capability",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -5016,13 +5016,13 @@
           "publishedAt": "2026-07-30T13:44:58Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "SafeDep Vet v1.18.1 的六个包洞察工具已锁定；原生兼容层仅接受规范化 npm/PyPI PURL，查询社区洞察及公共 Registry 元数据，不下载、不执行、不上传包。",
       "catalog_id": "safedep-vet",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-native-anonymous-package-insight-facade",
+      "adapter_version": "1.18.1-compatible-native-v1",
+      "adaptation_wave": 16
     },
     {
       "rank": 71,
@@ -5158,11 +5158,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要多租户账号绑定、最小权限 scope、固定资源范围和写操作审批。",
+      "decision_reason": "批次 22 暂缓实现；等待不可伪造的逐请求主体、租户隔离、OAuth 2.1 PKCE/state、最小只读 Scope、刷新/撤销/解绑和账号资源所有权证明完成后再复审。",
       "catalog_id": "tacticlaunch-mcp-linear",
-      "decision_reason_code": "planned-auth-scope-and-write-policy",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave22-multitenant-oauth-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 22
     },
     {
       "rank": 73,
@@ -5231,11 +5231,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision_reason": "批次 22 暂缓实现；等待不可伪造的逐请求主体、租户隔离、OAuth 2.1 PKCE/state、最小只读 Scope、刷新/撤销/解绑和账号资源所有权证明完成后再复审。",
       "catalog_id": "tiberriver256-mcp-server-azure-devops",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave22-multitenant-oauth-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 22
     },
     {
       "rank": 74,
@@ -5585,13 +5585,13 @@
           "publishedAt": "2026-05-22T14:41:20Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Elasticsearch MCP Server v2.1.2 的单 index/search field 只读 facade 已通过真实 Elasticsearch、原生只读角色、Schema、代表查询、拒写与清理验收；通用 API、写入和管理工具保持关闭。",
       "catalog_id": "cr7258-elasticsearch-mcp-server",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-readonly-data-service-facade",
+      "adapter_version": "2.1.2-compatible-native-read-only-v1",
+      "adaptation_wave": 19
     },
     {
       "rank": 79,
@@ -5862,12 +5862,12 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；仅在能够证明固定只读子集、目标作用域与无交易/无变更边界后继续。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游涉及账号发布、邮件交付或高风险投资建议；当前不开放现实后果写入与可能诱导交易的运行时。",
       "catalog_id": "ferdousbhai-investor-agent",
-      "decision_reason_code": "planned-domain-read-only-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-publishing-or-high-risk-advice",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -5929,13 +5929,13 @@
           "publishedAt": "2026-01-30T14:47:32Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "shadcn/ui MCP Server v2.0.0 的组件目录契约已锁定；仅列出固定提交中的组件并读取 Git 元数据，源码、Block、主题、本地写入和 GitHub Token 均关闭。",
       "catalog_id": "jpisnice-shadcn-ui-mcp-server",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-native-pinned-component-metadata-facade",
+      "adapter_version": "2.0.0-compatible-native-v1",
+      "adaptation_wave": 16
     },
     {
       "rank": 84,
@@ -6002,12 +6002,12 @@
           "publishedAt": "2026-07-29T11:45:18Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要固定目标配置、原生只读账号、查询上限与逐工具 Schema 后才能接入。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "该实现与目录中已存在的受控文件或数据库能力重复，且没有更窄、更可验证的权限边界；不再新增重复运行时。",
       "catalog_id": "kiliczsh-mcp-mongo-server",
-      "decision_reason_code": "planned-read-only-data-facade",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-superseded-existing-capability",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -6217,11 +6217,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定只读工具、固定出口、URL 参数边界、限流与代表调用。",
+      "decision_reason": "Vectorize 0.4.3 的既有 pipeline 检索兼容层、固定出口与 Schema 已冻结；当前缺少真实组织、pipeline 与 Token 代表调用，且标签 LICENSE 与 package metadata 的许可证声明不一致，因此继续保持 planned 且默认关闭。",
       "catalog_id": "vectorize-io-vectorize-mcp-server",
-      "decision_reason_code": "planned-fixed-egress-read-only-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-real-account-readonly-preflight-required",
+      "adapter_version": "0.4.3-compatible-native-v1",
+      "adaptation_wave": 17
     },
     {
       "rank": 88,
@@ -6282,13 +6282,13 @@
           "publishedAt": "2026-02-25T03:36:41Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "AntV MCP Server Chart 0.9.10 的 line/bar/pie 工具已通过断网确定性 PNG、Schema、超时与清理验收；远程服务、地图、动态图表、任意端点和远程 URL 保持关闭。",
       "catalog_id": "antvis-mcp-server-chart",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-deterministic-file-artifact-facade",
+      "adapter_version": "0.9.10-compatible-native-v1",
+      "adaptation_wave": 18
     },
     {
       "rank": 89,
@@ -6422,13 +6422,13 @@
           "publishedAt": "2026-08-04T11:06:04Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "Dingo v2.5.0 的三个固定本地规则已通过断网、固定格式、Schema、双轮确定性、超时与清理验收；LLM、Agent、云数据源和动态 kwargs 保持关闭。",
       "catalog_id": "dataeval-dingo",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-file-analysis-facade",
+      "adapter_version": "2.5.0-rule-compatible-native-v1",
+      "adaptation_wave": 18
     },
     {
       "rank": 91,
@@ -6570,11 +6570,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要受控工作区、输入只读、输出产物登记、资源限额与文件格式验收。",
+      "decision_reason": "Keboola MCP v1.75.2 的项目与 Storage 元数据兼容层、固定美国栈出口与 Schema 已冻结；当前缺少真实只读 Storage Token 预检，因此继续保持 planned 且默认关闭。",
       "catalog_id": "keboola-keboola-mcp-server",
-      "decision_reason_code": "planned-scoped-file-or-artifact-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-real-account-readonly-preflight-required",
+      "adapter_version": "1.75.2-compatible-native-v1",
+      "adaptation_wave": 17
     },
     {
       "rank": 93,
@@ -6708,13 +6708,13 @@
           "publishedAt": "2026-08-05T21:50:45Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "adapted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "GoGraph v1.5.6 的封存 Go 仓库一次性内存索引与六个固定结构读取工具已通过真实断网镜像、双轮 UDS、Schema、超时、源不可变和清理验收；网络、持久化、任意路径、Git 基线、边界配置、会话遥测、Wiki 与 doc 工具保持关闭。",
       "catalog_id": "ozgurcd-gograph",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "ready-isolated-code-index-facade",
+      "adapter_version": "1.5.6-reviewed-commit-aa4d6d54-compatible-native-v1",
+      "adaptation_wave": 20
     },
     {
       "rank": 95,
@@ -6783,11 +6783,11 @@
       },
       "decision": "deferred-planned",
       "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要项目级持久化边界、内容配额、写入审批、清理与重放语义。",
+      "decision_reason": "批次 21 暂缓实现；等待项目级持久卷、租户/项目所有权、容量与模型费用配额、保留/导出/删除生命周期、一次性写入审批和崩溃恢复语义完成后再复审。",
       "catalog_id": "patdolitse-piia-engram",
-      "decision_reason_code": "planned-stateful-resource-policy",
-      "adapter_version": "planned",
-      "adaptation_wave": 13
+      "decision_reason_code": "planned-wave21-stateful-foundation-required",
+      "adapter_version": "",
+      "adaptation_wave": 21
     },
     {
       "rank": 96,
@@ -7061,12 +7061,12 @@
           "publishedAt": "2026-07-28T07:14:15Z"
         }
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "保留为 planned；需要锁定上游版本、工具 Schema、隔离范围、资源上限与真实代表调用。",
+      "decision": "blocked",
+      "proposed_availability": "blocked",
+      "decision_reason": "上游接受任意搜索实例、抓取目标、桌面宿主或本地服务；当前固定域名与受控上传边界不能证明目标归属。",
       "catalog_id": "bx33661-wireshark-mcp",
-      "decision_reason_code": "planned-fixed-sandbox-contract",
-      "adapter_version": "planned",
+      "decision_reason_code": "blocked-arbitrary-host-or-target-surface",
+      "adapter_version": "blocked",
       "adaptation_wave": 13
     },
     {
@@ -7142,11 +7142,11 @@
     "classified_at": "2026-08-09",
     "classified_count": 100,
     "availability": {
-      "ready": 5,
-      "planned": 51,
-      "blocked": 44
+      "ready": 23,
+      "planned": 17,
+      "blocked": 60
     },
-    "ready_boundary": "fixed-read-only-token-sidecar-contract",
+    "ready_boundary": "fixed-reviewed-read-artifact-or-index-sidecar-contract",
     "non_ready_boundary": "no-command-endpoint-credential-or-tool-policy"
   }
 }

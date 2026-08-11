@@ -22,7 +22,39 @@ SOCKET_PATH = Path(
     )
 )
 WORKSPACE_ROOT = Path(os.getenv("MCP_PUBLIC_WORKSPACE_ROOT", "/workspaces"))
-PUBLIC_ADAPTERS = frozenset(BUILDERS)
+ALL_PUBLIC_ADAPTERS = frozenset(BUILDERS)
+DEFAULT_PUBLIC_ADAPTERS = frozenset(
+    {
+        "fetch-mcp",
+        "quickchart-mcp",
+        "geowire-mcp",
+        "nickclyde-duckduckgo-mcp-server",
+        "jpisnice-shadcn-ui-mcp-server",
+        "docker-hub-mcp",
+        "genomoncology-biomcp",
+        "safedep-vet",
+        "aas-ee-open-websearch",
+        "mnemox-ai-idea-reality-mcp",
+        "idosal-git-mcp",
+    }
+)
+
+
+def configured_public_adapters(raw: str) -> frozenset[str]:
+    clean = str(raw or "").strip()
+    configured = (
+        frozenset(item.strip() for item in clean.split(",") if item.strip())
+        if clean
+        else DEFAULT_PUBLIC_ADAPTERS
+    )
+    if not configured or not configured.issubset(ALL_PUBLIC_ADAPTERS):
+        raise RuntimeError("invalid_public_adapter_allowlist")
+    return configured
+
+
+PUBLIC_ADAPTERS = configured_public_adapters(
+    os.getenv("MCP_PUBLIC_ALLOWED_ADAPTERS", "")
+)
 MAX_MCP_MESSAGE_BYTES = 256 * 1024
 MAX_PUBLIC_SESSIONS = max(
     1,

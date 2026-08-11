@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import hashlib
 import json
 import socket
 from pathlib import Path
@@ -12,14 +15,51 @@ from server.sandbox_sidecar import safe_http
 from server.sandbox_sidecar.public_mcp import (
     ADAPTER_TOOL_NAMES,
     BUILDERS,
+    PUBLIC_SCHEMA_SHA256,
     _airbnb_script_data,
+    _biomcp_client,
     _find_airbnb_branch,
+    _gitmcp_client,
+    _idea_reality_client,
+    _open_websearch_client,
+    _safedep_client,
     airbnb_details_payload,
+    biomcp_get_payload,
+    biomcp_search_payload,
+    docker_hub_repository_payload,
+    docker_hub_search_payload,
+    docker_hub_tags_payload,
+    duckduckgo_search_payload,
     fetch_payload,
     geowire_providers_payload,
+    gitmcp_documentation_payload,
+    gitmcp_search_code_payload,
+    gitmcp_search_documentation_payload,
+    idea_reality_payload,
+    normalize_github_repository,
+    open_websearch_payload,
     quickchart_url,
+    safedep_available_versions_payload,
+    safedep_latest_version_payload,
+    safedep_malware_payload,
+    safedep_vulnerabilities_payload,
+    shadcn_component_metadata_payload,
+    shadcn_list_components_payload,
 )
-from server.sandbox_sidecar.public_server import PUBLIC_ADAPTERS
+from server.sandbox_sidecar.public_server import (
+    ALL_PUBLIC_ADAPTERS,
+    DEFAULT_PUBLIC_ADAPTERS,
+    PUBLIC_ADAPTERS,
+    configured_public_adapters,
+)
+from server.sandbox_sidecar.smoke_public_adapters import (
+    PUBLIC_EXPANSION_ADAPTERS,
+    TIMEOUT_TOOL_PROBES,
+    WAVE16A_ADAPTERS,
+    WAVE16B_ADAPTERS,
+    WAVE17A_ADAPTERS,
+    _adapter_ids,
+)
 from server.sandbox_sidecar.safe_http import (
     NetworkPolicyError,
     ResponseLimitError,
@@ -290,7 +330,21 @@ def test_airbnb_schema_drift_probe_and_input_limits() -> None:
 
 
 def test_public_adapter_contract_and_container_isolation() -> None:
-    assert set(BUILDERS) == set(ADAPTER_TOOL_NAMES) == PROXY_ADAPTERS == PUBLIC_ADAPTERS
+    assert set(BUILDERS) == set(ADAPTER_TOOL_NAMES) == PROXY_ADAPTERS == ALL_PUBLIC_ADAPTERS
+    assert set(TIMEOUT_TOOL_PROBES) == PUBLIC_EXPANSION_ADAPTERS
+    assert PUBLIC_ADAPTERS == DEFAULT_PUBLIC_ADAPTERS == {
+        "fetch-mcp",
+        "quickchart-mcp",
+        "geowire-mcp",
+        "nickclyde-duckduckgo-mcp-server",
+        "jpisnice-shadcn-ui-mcp-server",
+        "docker-hub-mcp",
+        "genomoncology-biomcp",
+        "safedep-vet",
+        "aas-ee-open-websearch",
+        "mnemox-ai-idea-reality-mcp",
+        "idosal-git-mcp",
+    }
     assert ADAPTER_TOOL_NAMES == {
         "fetch-mcp": ("fetch",),
         "quickchart-mcp": ("generate_chart",),
@@ -301,6 +355,32 @@ def test_public_adapter_contract_and_container_isolation() -> None:
             "get_directions",
             "distance_matrix",
             "list_geo_providers",
+        ),
+        "nickclyde-duckduckgo-mcp-server": ("search",),
+        "jpisnice-shadcn-ui-mcp-server": (
+            "list_components",
+            "get_component_metadata",
+        ),
+        "docker-hub-mcp": (
+            "search",
+            "getRepositoryInfo",
+            "listRepositoryTags",
+        ),
+        "genomoncology-biomcp": ("search", "get"),
+        "safedep-vet": (
+            "get_package_version_vulnerabilities",
+            "get_package_version_popularity",
+            "get_package_version_license_info",
+            "get_package_version_malware_report",
+            "get_package_latest_version",
+            "get_package_available_versions",
+        ),
+        "aas-ee-open-websearch": ("search",),
+        "mnemox-ai-idea-reality-mcp": ("idea_check",),
+        "idosal-git-mcp": (
+            "fetch_repository_documentation",
+            "search_repository_documentation",
+            "search_repository_code",
         ),
     }
     assert geowire_providers_payload()["credentials"] == "none"
@@ -328,3 +408,601 @@ def test_public_adapter_contract_and_container_isolation() -> None:
     assert "resolve_public_addresses(host, port)" in safe_client
     assert "address.is_global" in safe_client
     assert "server_hostname=self.host" in safe_client
+    assert "smoke_public_adapters.py" in dockerfile
+    assert "--contract-only" in dockerfile
+
+    public_block = compose[
+        compose.index("  mcp-public:\n") : compose.index("  mcp-files:\n")
+    ]
+    allowlist_line = next(
+        line
+        for line in public_block.splitlines()
+        if "MCP_PUBLIC_ALLOWED_ADAPTERS:" in line
+    )
+    assert "nickclyde-duckduckgo-mcp-server" in allowlist_line
+    assert "jpisnice-shadcn-ui-mcp-server" in allowlist_line
+    assert "docker-hub-mcp" in allowlist_line
+    assert "genomoncology-biomcp" in allowlist_line
+    assert "safedep-vet" in allowlist_line
+    assert "aas-ee-open-websearch" in allowlist_line
+    assert "mnemox-ai-idea-reality-mcp" in allowlist_line
+    assert "idosal-git-mcp" in allowlist_line
+    assert "image: modelmirror-mcp-public:wave17a-v1" in public_block
+
+
+def test_wave16_allowlist_is_enabled_after_acceptance_and_exact_when_overridden() -> None:
+    assert configured_public_adapters("") == DEFAULT_PUBLIC_ADAPTERS
+    assert configured_public_adapters(
+        "nickclyde-duckduckgo-mcp-server,docker-hub-mcp"
+    ) == {
+        "nickclyde-duckduckgo-mcp-server",
+        "docker-hub-mcp",
+    }
+    with pytest.raises(RuntimeError, match="invalid_public_adapter_allowlist"):
+        configured_public_adapters("unknown-public-adapter")
+    assert _adapter_ids(",".join(sorted(WAVE16A_ADAPTERS))) == WAVE16A_ADAPTERS
+    assert _adapter_ids(",".join(sorted(WAVE16B_ADAPTERS))) == WAVE16B_ADAPTERS
+    assert _adapter_ids(",".join(sorted(WAVE17A_ADAPTERS))) == WAVE17A_ADAPTERS
+    assert (
+        _adapter_ids(",".join(sorted(PUBLIC_EXPANSION_ADAPTERS)))
+        == PUBLIC_EXPANSION_ADAPTERS
+    )
+    with pytest.raises(RuntimeError, match="public_smoke_adapter_selection_invalid"):
+        _adapter_ids("fetch-mcp")
+
+
+def test_duckduckgo_contract_uses_fixed_post_strict_search_and_bounded_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeSafeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            assert kwargs["allowed_hosts"] == {"html.duckduckgo.com"}
+            assert kwargs["max_redirects"] == 0
+
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            events.append((url, kwargs))
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                body=(
+                    b'<div class="result"><a class="result__a" '
+                    b'href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fdocs">'
+                    b'Example <strong>Docs</strong></a>'
+                    b'<a class="result__snippet">Safe public summary</a></div>'
+                ),
+            )
+
+    monkeypatch.setattr(
+        "server.sandbox_sidecar.public_mcp.SafeHttpClient",
+        FakeSafeClient,
+    )
+    result = duckduckgo_search_payload("model context protocol", 5, "us-en")
+
+    assert result["safe_search"] == "strict"
+    assert result["count"] == 1
+    assert result["results"] == [
+        {
+            "title": "Example Docs",
+            "url": "https://example.com/docs",
+            "snippet": "Safe public summary",
+        }
+    ]
+    assert events[0][0] == "https://html.duckduckgo.com/html"
+    assert events[0][1]["method"] == "POST"
+    assert b"kp=1" in events[0][1]["body"]
+    assert b"kl=us-en" in events[0][1]["body"]
+    with pytest.raises(ValueError, match="region"):
+        duckduckgo_search_payload("query", region="../../admin")
+
+
+def test_shadcn_contract_pins_repository_commit_and_rejects_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested: list[str] = []
+    payload = [
+        {
+            "type": "file",
+            "name": "_registry.ts",
+            "path": "apps/v4/registry/new-york-v4/ui/_registry.ts",
+            "sha": "c" * 40,
+            "size": 3456,
+        },
+        {
+            "type": "file",
+            "name": "button.tsx",
+            "path": "apps/v4/registry/new-york-v4/ui/button.tsx",
+            "sha": "a" * 40,
+            "size": 1234,
+        },
+        {
+            "type": "file",
+            "name": "accordion.tsx",
+            "path": "apps/v4/registry/new-york-v4/ui/accordion.tsx",
+            "sha": "b" * 40,
+            "size": 2345,
+        },
+    ]
+
+    class FakeSafeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            assert kwargs["allowed_hosts"] == {"api.github.com"}
+            assert kwargs["max_redirects"] == 0
+
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append(url)
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    monkeypatch.setattr(
+        "server.sandbox_sidecar.public_mcp.SafeHttpClient",
+        FakeSafeClient,
+    )
+    listed = shadcn_list_components_payload()
+    metadata = shadcn_component_metadata_payload("button")
+
+    assert listed["components"] == ["accordion", "button"]
+    assert metadata["name"] == "button"
+    assert metadata["commit"] == "d14b6e69a91f0fc99e31a7adb26a48d661df9911"
+    assert all("ref=d14b6e69a91f0fc99e31a7adb26a48d661df9911" in url for url in requested)
+    with pytest.raises(ValueError, match="componentName"):
+        shadcn_component_metadata_payload("../button")
+
+
+def test_shadcn_payloads_can_reuse_one_pinned_directory_snapshot() -> None:
+    entries = [
+        {
+            "name": "button",
+            "path": "apps/v4/registry/new-york-v4/ui/button.tsx",
+            "sha": "a" * 40,
+            "size": 1234,
+        }
+    ]
+    listed = shadcn_list_components_payload(entries=entries)
+    metadata = shadcn_component_metadata_payload("button", entries=entries)
+    assert listed["components"] == ["button"]
+    assert metadata["sha"] == "a" * 40
+
+
+def test_docker_hub_contract_uses_only_public_metadata_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested: list[str] = []
+
+    class FakeSafeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            assert kwargs["allowed_hosts"] == {"hub.docker.com"}
+            assert kwargs["max_redirects"] == 0
+
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append(url)
+            if "/api/search/v4" in url:
+                payload: Any = {
+                    "total": 1,
+                    "results": [
+                        {
+                            "name": "library/python",
+                            "type": "image",
+                            "publisher": {"name": "Docker Official Images"},
+                            "short_description": "Python runtime",
+                            "badge": "official",
+                            "star_count": 100,
+                            "pull_count": "1B+",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "archived": False,
+                        }
+                    ],
+                }
+            elif url.endswith("/namespaces/library/repositories/python"):
+                payload = {
+                    "namespace": "library",
+                    "name": "python",
+                    "description": "Python runtime",
+                    "is_private": False,
+                    "star_count": 100,
+                    "pull_count": 1000,
+                    "media_types": ["application/vnd.oci.image.manifest.v1+json"],
+                    "content_types": ["image"],
+                }
+            else:
+                payload = {
+                    "count": 1,
+                    "results": [
+                        {
+                            "name": "3.12-slim",
+                            "last_updated": "2026-01-01T00:00:00Z",
+                            "full_size": 42,
+                            "images": [
+                                {
+                                    "architecture": "amd64",
+                                    "os": "linux",
+                                    "digest": "sha256:" + "c" * 64,
+                                    "size": 42,
+                                    "status": "active",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    monkeypatch.setattr(
+        "server.sandbox_sidecar.public_mcp.SafeHttpClient",
+        FakeSafeClient,
+    )
+    assert docker_hub_search_payload("python", 5)["results"][0]["name"] == "library/python"
+    assert docker_hub_repository_payload("library", "python")["name"] == "python"
+    assert docker_hub_tags_payload("python", "library", 1, 5)["tags"][0]["name"] == "3.12-slim"
+    assert requested == [
+        "https://hub.docker.com/api/search/v4?custom_boosted_results=true&query=python&from=0&size=5",
+        "https://hub.docker.com/v2/namespaces/library/repositories/python",
+        "https://hub.docker.com/v2/namespaces/library/repositories/python/tags?page=1&page_size=5",
+    ]
+    with pytest.raises(ValueError, match="namespace"):
+        docker_hub_repository_payload("../admin", "python")
+
+
+def test_wave16_and_wave17_tool_schemas_are_frozen_and_exclude_control_fields() -> None:
+    adapter_ids = PUBLIC_EXPANSION_ADAPTERS
+    forbidden_tools = {
+        "fetch_content",
+        "get_component",
+        "get_block",
+        "apply_theme",
+        "createRepository",
+        "updateRepositoryInfo",
+        "listNamespaces",
+        "dockerHardenedImages",
+        "biomcp",
+        "study",
+        "vet_query_execute_sql_query",
+        "scan",
+        "upload",
+        "fetchWebContent",
+        "fetch_generic_url_content",
+        "proxy",
+        "set_config",
+    }
+    for adapter_id in adapter_ids:
+        tools = asyncio.run(BUILDERS[adapter_id]().list_tools())
+        names = {tool.name for tool in tools}
+        assert names == set(ADAPTER_TOOL_NAMES[adapter_id])
+        assert names.isdisjoint(forbidden_tools)
+        reviewed = [
+            {"name": tool.name, "inputSchema": tool.inputSchema}
+            for tool in sorted(tools, key=lambda item: item.name)
+        ]
+        schema_json = json.dumps(
+            reviewed,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        assert not any(
+            token in schema_json.lower()
+            for token in (
+                '"url"',
+                '"endpoint"',
+                '"header"',
+                '"environment"',
+                '"command"',
+                '"path"',
+                '"token"',
+            )
+        )
+        assert hashlib.sha256(schema_json.encode()).hexdigest() == PUBLIC_SCHEMA_SHA256[adapter_id]
+
+
+def test_biomcp_contract_projects_public_metadata_and_rejects_escape_hatches() -> None:
+    policy_client = _biomcp_client()
+    assert policy_client.timeout == 20
+    assert policy_client.max_redirects == 0
+    assert policy_client.max_response_bytes == 1024 * 1024
+    assert set(policy_client.minimum_intervals.values()) == {2.0}
+    requested: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append((url, kwargs))
+            if "clinicaltrials.gov/api/v2/studies/NCT02576665" in url:
+                payload = {
+                    "protocolSection": {
+                        "identificationModule": {
+                            "nctId": "NCT02576665",
+                            "briefTitle": "BRAF melanoma trial",
+                        },
+                        "statusModule": {
+                            "overallStatus": "COMPLETED",
+                            "startDateStruct": {"date": "2016-01"},
+                            "completionDateStruct": {"date": "2020-01"},
+                        },
+                        "conditionsModule": {"conditions": ["Melanoma"]},
+                    }
+                }
+            else:
+                payload = {
+                    "hitCount": 1,
+                    "studies": [
+                        {
+                            "protocolSection": {
+                                "identificationModule": {
+                                    "nctId": "NCT02576665",
+                                    "briefTitle": "BRAF melanoma trial",
+                                },
+                                "statusModule": {"overallStatus": "COMPLETED"},
+                                "conditionsModule": {"conditions": ["Melanoma"]},
+                            }
+                        }
+                    ],
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    client = FakeClient()
+    found = biomcp_search_payload("trial", "BRAF melanoma", 1, 0, client=client)
+    record = biomcp_get_payload(
+        "trial", "NCT02576665", ["summary", "status"], client=client
+    )
+    assert found["results"][0]["id"] == "NCT02576665"
+    assert record["record"]["status"] == "COMPLETED"
+    assert all(item[1].get("method", "GET") == "GET" for item in requested)
+    assert all(not item[1].get("body") for item in requested)
+    with pytest.raises(ValueError, match="NCT"):
+        biomcp_get_payload("trial", "../admin", client=client)
+    with pytest.raises(ValueError, match="sections"):
+        biomcp_get_payload("trial", "NCT02576665", ["documents"], client=client)
+    with pytest.raises(ValueError, match="unique"):
+        biomcp_get_payload(
+            "trial", "NCT02576665", ["summary", "summary"], client=client
+        )
+
+
+def test_safedep_contract_accepts_only_npm_pypi_purls_and_fixed_services() -> None:
+    policy_client = _safedep_client()
+    assert policy_client.timeout == 20
+    assert policy_client.max_redirects == 0
+    assert policy_client.max_response_bytes == 1024 * 1024
+    assert set(policy_client.minimum_intervals.values()) == {2.0}
+    assert "connect-protocol-version" in policy_client.allowed_request_headers
+    requested: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append((url, kwargs))
+            if url.startswith("https://registry.npmjs.org/"):
+                payload = {
+                    "dist-tags": {"latest": "4.17.21"},
+                    "versions": {"4.17.20": {}, "4.17.21": {}},
+                }
+            elif url.startswith("https://pypi.org/pypi/"):
+                payload = {
+                    "info": {"version": "2.32.3"},
+                    "releases": {"2.32.2": [], "2.32.3": []},
+                }
+            elif url.endswith("GetPackageVersionVulnerabilities"):
+                payload = {
+                    "vulnerabilities": [
+                        {"id": {"type": "CVE", "value": "CVE-2021-23337"}}
+                    ]
+                }
+            else:
+                payload = {
+                    "status": "MALWARE_ANALYSIS_STATUS_COMPLETED",
+                    "verificationRecord": {
+                        "isMalware": True,
+                        "reason": "fixture marker",
+                    },
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    client = FakeClient()
+    assert safedep_latest_version_payload("pkg:npm/lodash", client=client)[
+        "version"
+    ] == "4.17.21"
+    assert safedep_available_versions_payload(
+        "pkg:pypi/requests", 5, client=client
+    )["versions"] == ["2.32.3", "2.32.2"]
+    assert safedep_vulnerabilities_payload(
+        "pkg:npm/lodash@4.17.20", client=client
+    )["count"] == 1
+    assert safedep_malware_payload(
+        "pkg:npm/safedep-test-pkg@1.0.0", client=client
+    )["is_malware"] is True
+    connect_calls = [item for item in requested if "community-api.safedep.io" in item[0]]
+    assert connect_calls
+    assert connect_calls[0][1]["headers"]["Connect-Protocol-Version"] == "1"
+    assert b"lodash" in connect_calls[0][1]["body"]
+    for invalid in (
+        "https://registry.npmjs.org/lodash",
+        "pkg:github/owner/repo@1.0.0",
+        "pkg:npm/lodash@1.0.0?repository=https://evil.example",
+        "pkg:npm/../admin@1.0.0",
+    ):
+        with pytest.raises(ValueError, match="purl|package name"):
+            safedep_latest_version_payload(invalid, client=client)
+
+
+def test_open_websearch_contract_uses_only_two_fixed_request_engines() -> None:
+    policy_client = _open_websearch_client()
+    assert policy_client.allowed_hosts == {"cn.bing.com", "html.duckduckgo.com"}
+    assert policy_client.max_redirects == 0
+    requested: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append((url, kwargs))
+            if url.startswith("https://cn.bing.com/search?"):
+                body = (
+                    b"<rss><channel><item><title>Bing MCP</title>"
+                    b"<link>https://example.com/bing</link>"
+                    b"<description>Public result</description></item></channel></rss>"
+                )
+                content_type = "application/rss+xml"
+            else:
+                body = (
+                    b'<a class="result__a" href="https://example.com/ddg">DDG MCP</a>'
+                    b'<a class="result__snippet">Strict result</a>'
+                )
+                content_type = "text/html"
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": content_type},
+                body=body,
+            )
+
+    result = open_websearch_payload(
+        "Model Context Protocol",
+        5,
+        ["bing", "duckduckgo"],
+        client=FakeClient(),
+    )
+    assert result["mode"] == "request-only"
+    assert result["safe_search"] == "strict"
+    assert {item["engine"] for item in result["results"]} == {"bing", "duckduckgo"}
+    assert requested[0][0].startswith("https://cn.bing.com/search?")
+    assert requested[1][0] == "https://html.duckduckgo.com/html"
+    assert requested[1][1]["method"] == "POST"
+    with pytest.raises(ValueError, match="reviewed engines"):
+        open_websearch_payload("query", engines=["bing", "bing"], client=FakeClient())
+    with pytest.raises(ValueError, match="limit"):
+        open_websearch_payload("query", 11, client=FakeClient())
+
+
+def test_idea_reality_contract_queries_fixed_public_sources_without_tokens() -> None:
+    policy_client = _idea_reality_client()
+    assert policy_client.allowed_hosts == {
+        "api.github.com",
+        "hn.algolia.com",
+        "registry.npmjs.org",
+        "pypi.org",
+    }
+    assert policy_client.max_redirects == 0
+    requested: list[str] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append(url)
+            if url.startswith("https://api.github.com/search/repositories"):
+                payload: Any = {
+                    "items": [
+                        {
+                            "full_name": "example/mcp-catalog",
+                            "description": "MCP catalog",
+                            "html_url": "https://github.com/example/mcp-catalog",
+                            "stargazers_count": 12,
+                        }
+                    ]
+                }
+            else:
+                payload = {
+                    "hits": [
+                        {
+                            "title": "MCP research",
+                            "url": "https://example.com/hn",
+                            "points": 5,
+                            "objectID": "1",
+                        }
+                    ]
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    result = idea_reality_payload(
+        "Secure MCP catalog research",
+        "quick",
+        client=FakeClient(),
+    )
+    assert result["sources_used"] == ["github", "hacker_news"]
+    assert result["similar_result_count"] == 2
+    assert all("producthunt" not in url.lower() for url in requested)
+    assert all("token" not in url.lower() for url in requested)
+    with pytest.raises(ValueError, match="searchable keyword"):
+        idea_reality_payload("with this and that", client=FakeClient())
+
+
+def test_gitmcp_contract_accepts_only_canonical_repo_slugs_and_bounded_reads() -> None:
+    policy_client = _gitmcp_client()
+    assert policy_client.allowed_hosts == {"api.github.com"}
+    assert policy_client.max_redirects == 0
+    requested: list[str] = []
+
+    class FakeClient:
+        def request(self, url: str, **kwargs: Any) -> SafeHttpResponse:
+            requested.append(url)
+            if url.endswith("/repos/octocat/hello-world"):
+                payload: Any = {
+                    "full_name": "octocat/Hello-World",
+                    "default_branch": "master",
+                    "description": "Hello fixture",
+                    "html_url": "https://github.com/octocat/Hello-World",
+                }
+            elif "/git/trees/" in url:
+                payload = {
+                    "truncated": False,
+                    "tree": [
+                        {"type": "blob", "path": "README.md"},
+                        {"type": "blob", "path": "src/client.py"},
+                    ],
+                }
+            else:
+                payload = {
+                    "encoding": "base64",
+                    "path": "README.md",
+                    "sha": "a" * 40,
+                    "content": base64.b64encode(b"Hello ClientSession documentation").decode(),
+                    "html_url": "https://github.com/octocat/Hello-World/blob/master/README.md",
+                }
+            return SafeHttpResponse(
+                url=url,
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(payload).encode(),
+            )
+
+    client = FakeClient()
+    cache: dict[str, dict[str, Any]] = {}
+    docs = gitmcp_documentation_payload("Octocat/Hello-World", client=client, cache=cache)
+    found = gitmcp_search_documentation_payload(
+        "octocat/hello-world", "ClientSession", client=client, cache=cache
+    )
+    code = gitmcp_search_code_payload(
+        "octocat/hello-world", "client", client=client, cache=cache
+    )
+    assert docs["repository"] == "octocat/hello-world"
+    assert found["results"][0]["path"] == "README.md"
+    assert code["results"][0]["path"] == "src/client.py"
+    assert all(url.startswith("https://api.github.com/") for url in requested)
+    assert normalize_github_repository("Octocat/Hello-World") == "octocat/hello-world"
+    for invalid in (
+        "https://github.com/octocat/Hello-World",
+        "octocat/Hello-World.git",
+        "octocat/Hello-World/issues",
+        "../admin/repo",
+        "octocat%2fHello-World",
+    ):
+        with pytest.raises(ValueError, match="canonical GitHub"):
+            normalize_github_repository(invalid)

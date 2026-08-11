@@ -18,6 +18,13 @@ ALLOWED_ADAPTERS = {
     "markitdown-mcp",
     "office-parser-mcp",
     "output-renderer-mcp",
+    "zcaceres-markdownify-mcp",
+    "vivekvells-mcp-pandoc",
+    "antvis-mcp-server-chart",
+    "cyberchitta-llm-context-py",
+    "haris-musa-excel-mcp-server",
+    "dataeval-dingo",
+    "ozgurcd-gograph",
 }
 WORKSPACE_PATTERN = re.compile(r"mcpws_[0-9a-f]{32}")
 SOCKET_PATH = Path(os.getenv("MCP_FILES_SOCKET_PATH", "/run/modelmirror-files-mcp/files-mcp.sock"))

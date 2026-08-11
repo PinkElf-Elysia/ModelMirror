@@ -15,14 +15,19 @@ from typing import Any
 from .database_contracts import (
     DATABASE_ADAPTERS,
     FORBIDDEN_CONFIGURATION_KEYS,
+    GRAPH_DATA_SERVICE_ADAPTERS,
     MAX_ARGUMENT_BYTES,
     MAX_OUTPUT_BYTES,
+    REMOTE_DATA_SERVICE_ADAPTERS,
+    STAGED_DATABASE_ADAPTERS,
     WORKSPACE_PATTERN,
     resolve_allowed_addresses,
     validate_configuration,
     validate_document,
     validate_readonly_sql,
 )
+from .database_data_services import validate_data_service_arguments
+from .database_graph_services import validate_graph_service_arguments
 from .engine import SandboxEngineError
 
 
@@ -40,7 +45,7 @@ SEMAPHORE = asyncio.Semaphore(MAX_SESSIONS)
 def _allowed_adapters() -> frozenset[str]:
     raw = os.getenv("MCP_DATABASE_ALLOWED_ADAPTERS", "").strip()
     if not raw:
-        return frozenset(DATABASE_ADAPTERS)
+        return frozenset(set(DATABASE_ADAPTERS) - set(STAGED_DATABASE_ADAPTERS))
     requested = {item.strip() for item in raw.split(",") if item.strip()}
     # Unknown administrator entries never broaden the compiled allowlist.
     return frozenset(requested & set(DATABASE_ADAPTERS))
@@ -96,6 +101,10 @@ def _validate_tool_arguments(adapter_id: str, tool_name: str, arguments: object)
         for field in ("filter", "projection", "sort"):
             if field in arguments and arguments[field] is not None:
                 validate_document(arguments[field])
+    if adapter_id in GRAPH_DATA_SERVICE_ADAPTERS:
+        validate_graph_service_arguments(adapter_id, tool_name, arguments)
+    elif adapter_id in REMOTE_DATA_SERVICE_ADAPTERS:
+        validate_data_service_arguments(adapter_id, tool_name, arguments)
 
 
 async def _terminate_timed_out_call(
@@ -367,6 +376,8 @@ async def _stdio(
                 ).encode("utf-8")
             ).decode("ascii"),
         }
+        if os.getenv("MCP_DATABASE_TEST_ALLOW_PLAINTEXT") == "true":
+            env["MCP_DATABASE_TEST_ALLOW_PLAINTEXT"] = "true"
         encoded_configuration = ""
         command = [
             sys.executable,

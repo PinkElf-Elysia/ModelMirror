@@ -36,6 +36,13 @@ FILE_PROJECTS = {
     "excel-mcp-server",
     "git-mcp",
     "markitdown-mcp",
+    "zcaceres-markdownify-mcp",
+    "vivekvells-mcp-pandoc",
+    "antvis-mcp-server-chart",
+    "cyberchitta-llm-context-py",
+    "haris-musa-excel-mcp-server",
+    "dataeval-dingo",
+    "ozgurcd-gograph",
 }
 
 PROJECT_EXTENSIONS: dict[str, set[str] | None] = {
@@ -47,6 +54,19 @@ PROJECT_EXTENSIONS: dict[str, set[str] | None] = {
         ".txt", ".md", ".markdown", ".pdf", ".docx", ".pptx",
         ".xlsx", ".xls", ".csv", ".tsv", ".json", ".html", ".htm", ".xml",
     },
+    "zcaceres-markdownify-mcp": {".pdf", ".docx", ".xlsx", ".pptx"},
+    "vivekvells-mcp-pandoc": {".md", ".markdown", ".html", ".htm", ".txt"},
+    "antvis-mcp-server-chart": set(),
+    "cyberchitta-llm-context-py": {
+        ".c", ".cc", ".cpp", ".cs", ".css", ".go", ".h", ".hpp",
+        ".html", ".java", ".js", ".json", ".jsx", ".kt", ".kts",
+        ".md", ".markdown", ".php", ".py", ".rb", ".rs", ".scss",
+        ".sh", ".sql", ".swift", ".toml", ".ts", ".tsx", ".txt",
+        ".vue", ".xml", ".yaml", ".yml",
+    },
+    "haris-musa-excel-mcp-server": {".xlsx"},
+    "dataeval-dingo": {".jsonl", ".json", ".csv", ".txt"},
+    "ozgurcd-gograph": {".go", ".mod", ".sum", ".work"},
 }
 
 

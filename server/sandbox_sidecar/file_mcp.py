@@ -29,6 +29,10 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from .file_artifacts import WAVE18A_BUILDERS, WAVE18A_TOOL_NAMES
+from .file_analysis import WAVE18B_BUILDERS, WAVE18B_TOOL_NAMES
+from .file_code_index import WAVE20_BUILDERS, WAVE20_TOOL_NAMES
+
 
 WORKSPACE_PATTERN = re.compile(r"mcpws_[0-9a-f]{32}")
 FILE_ID_PATTERN = re.compile(r"mcpf_[0-9a-f]{24}")
@@ -184,6 +188,20 @@ class WorkspaceContext:
         if self.input_root not in resolved.parents:
             raise ValueError("所选文件越过受控工作区。")
         return resolved
+
+    def workspace_files(self) -> tuple[tuple[str, str, Path], ...]:
+        """Return contained sealed-workspace files without exposing host paths."""
+
+        values: list[tuple[str, str, Path]] = []
+        for file_id, path in self._files.items():
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("受控工作区文件集合已经变化。")
+            resolved = path.resolve()
+            if self.input_root not in resolved.parents:
+                raise ValueError("受控工作区文件越界。")
+            relative = resolved.relative_to(self.input_root).as_posix()
+            values.append((file_id, relative, resolved))
+        return tuple(sorted(values, key=lambda item: item[1]))
 
     def artifact_path(self, name: str, suffix: str) -> Path:
         clean = Path(str(name or "")).name
@@ -2000,6 +2018,9 @@ BUILDERS = {
     "markitdown-mcp": build_markitdown,
     "office-parser-mcp": build_office_parser,
     "output-renderer-mcp": build_output_renderer,
+    **WAVE18A_BUILDERS,
+    **WAVE18B_BUILDERS,
+    **WAVE20_BUILDERS,
 }
 
 ADAPTER_TOOL_NAMES = {
@@ -2020,6 +2041,9 @@ ADAPTER_TOOL_NAMES = {
     "markitdown-mcp": ("convert_to_markdown",),
     "office-parser-mcp": ("extract_office_document",),
     "output-renderer-mcp": ("render_output_document",),
+    **WAVE18A_TOOL_NAMES,
+    **WAVE18B_TOOL_NAMES,
+    **WAVE20_TOOL_NAMES,
 }
 
 

@@ -37,6 +37,7 @@ export type McpRequirement =
   | "desktop-host"
   | "remote-transport"
   | "database-credentials"
+  | "sealed-workspace"
   | "account-binding"
   | "system-permission";
 
@@ -47,6 +48,7 @@ export const mcpRequirementLabels: Record<McpRequirement, string> = {
   "desktop-host": "需要桌面宿主",
   "remote-transport": "需要远程传输适配",
   "database-credentials": "需要数据库凭证",
+  "sealed-workspace": "需要封存工作区",
   "account-binding": "需要账号绑定",
   "system-permission": "需要系统权限",
 };

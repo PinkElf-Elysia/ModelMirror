@@ -108,11 +108,14 @@ def main() -> int:
         for root in (output_root, memory_root, temp_root):
             root.mkdir(parents=True, exist_ok=True)
         resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
-        # ONNX Runtime reserves virtual mappings up to RLIMIT_AS and can
-        # deadlock at the boundary even while RSS stays small.  MarkItDown is
-        # still bounded by the sidecar's aggregate 1 GiB cgroup; the lighter
-        # reviewed adapters retain an additional 768 MiB address-space limit.
-        if os.getenv("MCP_FILE_ADAPTER_ID") != "markitdown-mcp":
+        # ONNX Runtime reserves large virtual mappings before doing work and
+        # fails at RLIMIT_AS even while RSS is small. These reviewed adapters
+        # remain bounded by the sidecar's aggregate 1 GiB cgroup; lighter
+        # adapters retain the additional 768 MiB address-space limit.
+        if os.getenv("MCP_FILE_ADAPTER_ID") not in {
+            "markitdown-mcp",
+            "zcaceres-markdownify-mcp",
+        }:
             resource.setrlimit(
                 resource.RLIMIT_AS,
                 (768 * 1024 * 1024, 768 * 1024 * 1024),
