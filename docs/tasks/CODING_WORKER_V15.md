@@ -2,7 +2,7 @@
 
 ## 目标与基线
 
-- 基线：合并 PR #142 后的 `fbbcfa504cbc2606146f97c8e62bf809e3a5762b`。
+- 实现起点：合并 PR #142 后的 `fbbcfa504cbc2606146f97c8e62bf809e3a5762b`；发布前已变基到最新 `origin/main`：`6040148de8e679e67efc4784dc0c88ea6ddf9881`。
 - 目标：在不改变 `/api/coding-worker/v1` 的供应商中立边界下，补齐专业文件工具、原子 Shell changeset、Python/TypeScript 代码智能和第二个真实 Provider。
 - 完成标准：两个隔离任务分别完成 Python 与 React 的“诊断、复现失败、修改、复测、Evidence”，第三个任务排队；逐个重启 Server、Provider 与 Executor 后结果唯一且可显式恢复。
 
@@ -38,6 +38,26 @@
 3. 完成部署、保留期、恢复、回退、安全和真实双引擎验收文档。
 
 每个提交不超过五个文件；每个 PR 的上一轮门禁通过后才能开始下一轮。
+
+## 当前进度（2026-08-11）
+
+PR A 的实现与自动门禁已完成，尚未进行真实 Provider/人工验收，也未开始 PR B、PR C：
+
+- 契约与文件工具：`d0e955b`、`50d933e`、`29c135b`。
+- Shell 执行、审批、changeset 与查询：`ad831ac`、`0a56605`、`45df707`。
+- Python/TypeScript 代码智能与固定依赖：`30def7c`、`72ad76d`、`7816b9a`、`5c3ba39`。
+- 默认关闭开关与 TypeScript Language Server 稳定性修正：`c7615d7`、`66ef2e2`、`bb556c2`、`2dc78e8`、`00c9637`、`ef4eac4`。
+- 以上 16 个实现提交均不超过五个文件；发布目标基线为 `6040148de8e679e67efc4784dc0c88ea6ddf9881`。
+
+PR A 实际自动验证：
+
+- 变基前分层复跑：Worker 125 passed、1 skipped；Agent Workspace 44 passed；Coding 748 passed、10 skipped。
+- 后端全量（最新主线）：2600 passed，24 skipped；5 项 Agency Worker bridge 因测试镜像缺少其编译产物而失败，已在纯 `origin/main` 基线精确复现同样 5 项失败；6 条既有框架/依赖告警。
+- 前端（最新主线）：production build 成功；最终全量为 35 个测试文件、169 项测试全部通过。一次中间重复运行出现 1 项 `ChatVisualAnalysisPanel` 时序波动，单文件复跑和随后全量复跑均通过。
+- 变更 Python 文件 `py_compile` 通过；Worker Compose `config --quiet` 通过。
+- `git diff --check` 通过；提交文件数门禁通过。
+
+上述结果只证明 PR A 的自动化边界，不等同于 OpenCode/Claude 双引擎真实任务、逐组件重启或 v13 Host 写回人工验收。PR A 发布后仍须按顺序完成 PR B、PR C，并在人工验收通过前保持 V15 非 Ready。
 
 ## 开关与回退
 
