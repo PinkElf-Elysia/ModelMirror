@@ -1,6 +1,6 @@
 # R8验收记录
 
-状态：R8.5 真实模型资格验证已通过，等待本地提交。
+状态：R8.6 验收证据已收口，等待本地提交及提交后最终拆分复验。
 
 固定基线：`21cbbb8b943b6f9d9799f014c44a6349e6124a63`
 
@@ -11,7 +11,7 @@
 - [x] R8.3 OpenAI兼容模型适配器
 - [x] R8.4 生成编排、修复循环与CLI
 - [x] R8.5 真实模型资格验证
-- [ ] R8.6 standalone与验收收口
+- [x] R8.6 standalone与验收收口
 
 每批在验证后提交；后续批次记录前一提交SHA。真实模型输出、最终HEAD、split tree和archive hash只记录在仓外交付清单，避免自引用或提交供应商内容。
 
@@ -83,4 +83,17 @@ R8.4提交：`04a56020f11cf542c742f30f15490a2388fc3e96`。单独revert该提交�
 - `npm.cmd run verify:prototype-generation`：合同14/14、Provider/CLI 29/29、生成编排9/9、资格CLI 5/5，共57/57通过；`node --test tests/boundary.test.mjs`为68/68，`check:boundary`为checked=897/tracked=897，round scope为checked=52/changed=43，`git diff --check`通过。
 - qualification脚本不进入普通`verify`，因此自动验证不会产生费用；真实五文件及供应商调用结果仍只保存在仓外。未调用Marble或Meshy，未启动Godot、Docker、父服务或共享栈。
 
-本批提交SHA由R8.6记录。单独revert本提交删除真实资格CLI与其测试，并恢复Provider兼容投影前的R8.4状态；不会删除仓外真实产物，也不影响冻结R1–R7链。
+R8.5提交：`8feb7d9ca8053c21f99f861fec9df287b79729ac`。单独revert该提交删除真实资格CLI与其测试，并恢复Provider兼容投影前的R8.4状态；不会删除仓外真实产物，也不影响冻结R1–R7链。
+
+## R8.6证据
+
+- `npm.cmd ci --no-audit --no-fund`：88 packages，退出0；`npm.cmd prefix`精确指向独立模块根，`npm.cmd ls --all`退出0且无missing/extraneous。仅保留既有`esbuild@0.27.7` install-script提示，无新registry依赖或许可证例外。
+- 注入仓外Godot 4.6.3后，最终功能树上的`npm.cmd run verify`为14/14步骤通过：doctor、round scope、boundary、冻结Godot R4–R7、examples、Runtime Pack、Compiler、Runtime Simulator、parity、Scene Pack、Prototype Generation、Node全量测试、Creator build和HTTP smoke全部通过；Node总计546/546，Creator为247 modules。
+- Godot严格门确认4.6.3；GdUnit4、官方movement reference、Kenney资产、R5 adapter/parity、R6 3D和R7 Scene均复验通过。R8未修改Godot工程、资产、vendor或既有3D执行链。
+- `npm.cmd run verify:prototype-generation`为57/57；真实资格命令不属于普通verify，完整回归未发起任何模型或供应商请求。
+- `npm.cmd run check:round-scope`与固定BASE的`check:parent-scope`均为checked=43/changed=43；`check:boundary`为checked=897/tracked=897；`git diff --check`与工作树clean检查通过。R1–R7、Creator、Godot、examples、assets、vendor和历史验收记录相对固定BASE均零字节差异，全部43个变更路径只在R8 allowlist内。
+- 父`client`在独立worktree执行clean `npm.cmd ci --no-audit --no-fund`和`npm.cmd run build`均退出0：384 packages、3,074 modules；构建后client源码、manifest与lock零差异。仅有既有esbuild脚本提示和大chunk warning。
+- 父后端、Docker、共享栈、部署和父路由均未运行；未调用Marble或Meshy，也未启动Godot图形预览。R8退出只证明自然语言到合法原型描述、Runtime产物与初始基础交互，不宣称已生成真实3D资产或完成自然语言到3D闭环。
+- 本文档提交后必须在最终HEAD重新执行`verify:extraction`及范围/差异门；最终commit、split tree、archive SHA-256和真实资格artifact hash只写入仓外交付清单，避免文档自引用。若最终拆分失败，本节完成状态立即失效。
+
+本批提交SHA仅在仓外交付清单记录。单独revert本提交只删除R8.6验收证据；逆序revert R8.6至R8.1六个提交即可恢复完整R7模块，不涉及数据库、服务、Godot生成数据或远程供应商任务。
