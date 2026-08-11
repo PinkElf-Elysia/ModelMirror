@@ -43,6 +43,7 @@ from .schemas import (
     MetaPlannerCapabilitySnapshot,
     MetaPlannerGenerateRequest,
     MetaPlannerGenerateResponse,
+    MetaPlannerPreviewResponse,
     MetaPlannerTaskPlan,
 )
 
@@ -172,6 +173,22 @@ def validate_blueprint_authorization(
     agent_ids = [agent.task_id for agent in blueprint.agents]
     if set(agent_ids) != plan_ids or len(agent_ids) != len(set(agent_ids)):
         issues.append("Blueprint agents must map one-to-one to planned task IDs.")
+
+    known_agents = {item["id"] for item in snapshot.agents}
+    authorized_agents = set(request.scope.agent_ids)
+    task_by_id = {task.task_id: task for task in plan.tasks}
+    for agent in blueprint.agents:
+        task = task_by_id.get(agent.task_id)
+        source_agent_id = agent.source_agent_id or (task.agent_id if task else None)
+        if task and task.agent_id and agent.source_agent_id != task.agent_id:
+            issues.append(
+                f"Blueprint task {agent.task_id} must keep assigned expert "
+                f"{task.agent_id}."
+            )
+        if source_agent_id and source_agent_id not in authorized_agents:
+            issues.append(f"Expert {source_agent_id} is not authorized.")
+        if source_agent_id and source_agent_id not in known_agents:
+            issues.append(f"Expert {source_agent_id} is no longer available.")
 
     scoped = {
         "external_xpert": set(request.scope.external_xpert_ids),
@@ -371,6 +388,16 @@ def compile_xpert_candidate(
                     "maxToolDepth": "4",
                     "outputVariable": output_variable,
                     "exceptionHandling": "fail",
+                    **(
+                        {"sourceAgentId": agent.source_agent_id}
+                        if agent.source_agent_id
+                        else {}
+                    ),
+                    **(
+                        {"acceptanceCriteria": task.acceptance}
+                        if task.acceptance
+                        else {}
+                    ),
                 },
             )
         )
@@ -650,7 +677,7 @@ class MetaPlannerV2Service:
         *,
         authoring_service: AuthoringService,
         preflight: PreflightCallback,
-        completion: CompletionCallback,
+        completion: CompletionCallback | None = None,
     ) -> None:
         self.authoring_service = authoring_service
         self.preflight = preflight
@@ -664,6 +691,8 @@ class MetaPlannerV2Service:
         target: XpertDefinition | None = None,
         source_run_id: str | None = None,
     ) -> MetaPlannerGenerateResponse:
+        if self.completion is None:
+            raise ValueError("Meta Planner completion callback is not configured.")
         if not any(request.scope.model_dump(mode="json").values()):
             request = request.model_copy(
                 update={"scope": snapshot.default_scope.model_copy(deep=True)}
@@ -825,6 +854,53 @@ class MetaPlannerV2Service:
             snapshot=snapshot,
         )
 
+    def preview(
+        self,
+        request: MetaPlannerGenerateRequest,
+        snapshot: MetaPlannerCapabilitySnapshot,
+        *,
+        plan: MetaPlannerTaskPlan,
+        blueprint: MetaPlannerBlueprint,
+        target: XpertDefinition | None = None,
+        warnings: list[str] | None = None,
+        repair_used: bool = False,
+    ) -> MetaPlannerPreviewResponse:
+        """Compile and validate a plan without creating an Authoring Proposal."""
+
+        if not any(request.scope.model_dump(mode="json").values()):
+            request = request.model_copy(
+                update={"scope": snapshot.default_scope.model_copy(deep=True)}
+            )
+        assert_scope_is_authorized(request.scope, snapshot)
+        plan_issues = validate_task_plan(plan, max_agents=request.max_agents)
+        blueprint_issues = validate_blueprint_authorization(
+            request, plan, blueprint, snapshot
+        )
+        issues = list(dict.fromkeys([*plan_issues, *blueprint_issues]))
+        if issues:
+            raise ValueError("; ".join(issues))
+        candidate = compile_xpert_candidate(
+            request=request,
+            plan=plan,
+            blueprint=blueprint,
+            snapshot=snapshot,
+            target=target,
+        )
+        validation = _validation_report(
+            candidate,
+            target=target,
+            preflight=self.preflight,
+        )
+        return MetaPlannerPreviewResponse(
+            plan=plan,
+            candidate=candidate,
+            validation=validation,
+            warnings=list(warnings or []),
+            repair_used=repair_used,
+            capability_snapshot_version=snapshot.version,
+            capability_snapshot_hash=snapshot.snapshot_hash,
+        )
+
     @staticmethod
     def _fallback_candidate(
         *,
@@ -846,6 +922,7 @@ class MetaPlannerV2Service:
                         f"{task.task_id}_output", "agent_output"
                     ),
                     model_id=request.default_agent_model_id,
+                    source_agent_id=task.agent_id,
                 )
                 for task in plan.tasks
             ],

@@ -57,6 +57,7 @@ class MetaPlannerScope(BaseModel):
     plugin_ids: list[str] = Field(default_factory=list, max_length=20)
     prompt_profile_ids: list[str] = Field(default_factory=list, max_length=20)
     middleware_ids: list[str] = Field(default_factory=list, max_length=30)
+    agent_ids: list[str] = Field(default_factory=list, max_length=512)
 
 
 class MetaPlannerGenerateRequest(BaseModel):
@@ -77,6 +78,8 @@ class MetaPlannerTask(BaseModel):
     depends_on: list[str] = Field(default_factory=list, max_length=8)
     input_contract: list[str] = Field(default_factory=list, max_length=12)
     output_contract: str = Field(min_length=1, max_length=1_000)
+    agent_id: str | None = Field(default=None, min_length=1, max_length=160)
+    acceptance: str = Field(default="", max_length=2_000)
 
 
 class MetaPlannerTaskPlan(BaseModel):
@@ -114,6 +117,7 @@ class MetaPlannerAgentBlueprint(BaseModel):
     task_input: str = Field(min_length=1, max_length=8_000)
     output_variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
     model_id: str | None = Field(default=None, max_length=300)
+    source_agent_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class MetaPlannerBlueprint(BaseModel):
@@ -144,7 +148,18 @@ class MetaPlannerCapabilitySnapshot(BaseModel):
     plugins: list[dict[str, Any]]
     prompt_profiles: list[dict[str, Any]]
     models: list[dict[str, Any]]
+    agents: list[dict[str, Any]] = Field(default_factory=list)
     default_scope: MetaPlannerScope
+
+
+class MetaPlannerPreviewResponse(BaseModel):
+    plan: MetaPlannerTaskPlan
+    candidate: dict[str, Any]
+    validation: dict[str, Any]
+    warnings: list[str] = Field(default_factory=list)
+    repair_used: bool = False
+    capability_snapshot_version: str
+    capability_snapshot_hash: str
 
 
 class MetaPlannerGenerateResponse(BaseModel):

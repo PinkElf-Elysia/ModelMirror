@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterable
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -35,9 +35,20 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from orchestration_worker import (
+    AGENCY_UPSTREAM_REVISION,
     AgencyModelRequest,
     AgencyModelResponse,
     AgencyWorkerClient,
+    AgencyWorkerError,
+    adapt_expert_catalog,
+)
+from expert_team_agency import (
+    AGENCY_UPSTREAM_PROJECT,
+    EXPERT_TEAM_AGENCY_MAX_STEPS,
+    ExpertTeamAgencyCapabilities,
+    ExpertTeamPlanPreviewRequest,
+    ExpertTeamPlanPreviewResponse,
+    build_meta_planner_inputs,
 )
 
 try:
@@ -371,6 +382,7 @@ try:
         MetaAgentGenerateResponse,
         MetaPlannerGenerateRequest,
         MetaPlannerGenerateResponse,
+        MetaPlannerScope,
         MetaPlannerV2Service,
         build_capability_snapshot,
         build_meta_agent_prompt,
@@ -387,6 +399,7 @@ except ModuleNotFoundError:
         MetaAgentGenerateResponse,
         MetaPlannerGenerateRequest,
         MetaPlannerGenerateResponse,
+        MetaPlannerScope,
         MetaPlannerV2Service,
         build_capability_snapshot,
         build_meta_agent_prompt,
@@ -4520,7 +4533,9 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def build_meta_planner_capability_snapshot():
+def build_meta_planner_capability_snapshot(
+    experts: Iterable[AgentRecord] | None = None,
+):
     xpert_store = get_xpert_store()
     published_summaries = xpert_store.list_xperts(status="published", limit=200)
     published_xperts = [
@@ -4560,12 +4575,252 @@ def build_meta_planner_capability_snapshot():
             status="published", limit=500
         ),
         model_ids=observed_model_ids,
+        agents=experts or (),
     )
 
 
 @app.get("/api/meta-agent/capabilities")
 async def get_meta_planner_capabilities():
     return build_meta_planner_capability_snapshot().model_dump(mode="json")
+
+
+def expert_team_agency_planner_enabled() -> bool:
+    return os.getenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+@app.get(
+    "/api/expert-team/planner-capabilities",
+    response_model=ExpertTeamAgencyCapabilities,
+)
+async def get_expert_team_planner_capabilities():
+    return ExpertTeamAgencyCapabilities(
+        enabled=expert_team_agency_planner_enabled(),
+        worker_available=agency_worker_client.worker_entry.is_file(),
+        upstream_revision=AGENCY_UPSTREAM_REVISION,
+    )
+
+
+def agency_worker_http_status(code: str) -> int:
+    if code in {
+        "worker_request_invalid",
+        "unknown_agent",
+        "duplicate_agent",
+        "pinned_roles_mismatch",
+        "max_agents_exceeded",
+    }:
+        return 422
+    if code == "worker_timeout":
+        return 504
+    if code in {"worker_unavailable", "model_runner_unavailable"}:
+        return 503
+    return 502
+
+
+@app.post(
+    "/api/expert-team/plan-preview",
+    response_model=ExpertTeamPlanPreviewResponse,
+)
+async def preview_expert_team_plan(
+    payload: ExpertTeamPlanPreviewRequest,
+    request: Request,
+):
+    if not expert_team_agency_planner_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "专家团智能组队预览当前未启用。",
+                "code": "expert_team_agency_planner_disabled",
+            },
+        )
+    if not get_llm_gateway_config()[0]:
+        return JSONResponse(
+            status_code=500,
+            content={"error": LLM_GATEWAY_NOT_CONFIGURED_MESSAGE},
+        )
+    try:
+        rate_limit_or_raise(client_ip(request))
+        validate_plain_message(payload.goal)
+    except HTTPException as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": str(exc.detail)},
+        )
+
+    unknown_pins = [
+        agent_id
+        for agent_id in payload.pinned_agent_ids
+        if agent_id not in AGENTS_BY_ID
+    ]
+    if unknown_pins:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": f"未找到专家：{', '.join(unknown_pins)}",
+                "code": "unknown_agent",
+            },
+        )
+
+    run = await run_registry.create_run(
+        "meta_planner",
+        f"Expert Team plan: {payload.goal[:80]}",
+        status="running",
+        source_id="expert_team",
+        metadata={
+            "surface": "expert_team",
+            "backend": "agency_orchestrator",
+            "upstream_project": AGENCY_UPSTREAM_PROJECT,
+            "upstream_revision": AGENCY_UPSTREAM_REVISION,
+            "mode": payload.mode,
+            "planner_model_id": payload.planner_model_id,
+            "default_agent_model_id": payload.default_agent_model_id,
+            "max_agents": payload.max_agents,
+        },
+    )
+    await run_registry.record_checkpoint(
+        run.run_id,
+        event_type="meta_planner.started",
+        title="Expert Team Agency preview started",
+        metadata={
+            "surface": "expert_team",
+            "backend": "agency_orchestrator",
+        },
+    )
+
+    try:
+        worker_result = await agency_worker_client.compose(
+            goal=payload.goal,
+            model_id=payload.planner_model_id,
+            agents=adapt_expert_catalog(AGENT_RECORDS),
+            mode=payload.mode,
+            pinned_agent_ids=payload.pinned_agent_ids,
+            max_agents=payload.max_agents,
+            temperature=payload.temperature,
+        )
+        plan, blueprint, selected_agents = build_meta_planner_inputs(
+            worker_result,
+            AGENT_RECORDS,
+            default_agent_model_id=payload.default_agent_model_id,
+            goal=payload.goal,
+        )
+        selected_ids = [item["id"] for item in selected_agents]
+        if len(selected_ids) > payload.max_agents:
+            raise ValueError(
+                "Agency Orchestrator selected more experts than max_agents."
+            )
+        if len(plan.tasks) > EXPERT_TEAM_AGENCY_MAX_STEPS:
+            raise ValueError(
+                "Agency Orchestrator generated more tasks than max_steps."
+            )
+        if payload.mode == "pinned" and set(selected_ids) != set(
+            payload.pinned_agent_ids
+        ):
+            raise ValueError("Agency Orchestrator changed the pinned expert lineup.")
+        snapshot = build_meta_planner_capability_snapshot(AGENT_RECORDS)
+        available_node_kinds = {item["kind"] for item in snapshot.nodes}
+        planner_request = MetaPlannerGenerateRequest(
+            goal=payload.goal,
+            planner_model_id=payload.planner_model_id,
+            default_agent_model_id=payload.default_agent_model_id,
+            temperature=payload.temperature,
+            # Meta Planner V2's legacy max_agents field bounds task blueprints.
+            # Agency's public max_agents instead bounds distinct selected experts,
+            # while its DAG may legitimately contain up to max_steps tasks.
+            max_agents=len(plan.tasks),
+            scope=MetaPlannerScope(
+                allowed_node_kinds=sorted(
+                    {"input", "output", "workflow_agent"}
+                    & available_node_kinds
+                ),
+                agent_ids=selected_ids,
+            ),
+        )
+        service = MetaPlannerV2Service(
+            authoring_service=authoring_service,
+            preflight=preview_xpert_for_publish,
+        )
+        preview = service.preview(
+            planner_request,
+            snapshot,
+            plan=plan,
+            blueprint=blueprint,
+            warnings=[str(item)[:500] for item in worker_result.get("warnings", [])],
+            repair_used=bool(worker_result.get("repair_used")),
+        )
+        workflow = dict(preview.candidate["draft"]["workflow"])
+        baseline_matches = [
+            agent_public_payload(agent, score)
+            for agent, score in match_agents(payload.goal, min(payload.max_agents, 5))
+        ]
+        await run_registry.record_checkpoint(
+            run.run_id,
+            event_type="meta_planner.completed",
+            title="Expert Team Agency preview completed",
+            metadata={
+                "surface": "expert_team",
+                "backend": "agency_orchestrator",
+                "selected_agent_ids": selected_ids,
+                "repair_used": preview.repair_used,
+                "valid": bool(preview.validation.get("valid")),
+                "snapshot_hash": preview.capability_snapshot_hash,
+            },
+        )
+        await run_registry.update_run(
+            run.run_id,
+            status="completed",
+            metadata={
+                "selected_agent_ids": selected_ids,
+                "snapshot_hash": preview.capability_snapshot_hash,
+            },
+        )
+        return ExpertTeamPlanPreviewResponse(
+            plan=preview.plan,
+            candidate=preview.candidate,
+            workflow=workflow,
+            validation=preview.validation,
+            selected_agents=selected_agents,
+            baseline_matches=baseline_matches,
+            warnings=preview.warnings,
+            repair_used=preview.repair_used,
+            capability_snapshot_version=preview.capability_snapshot_version,
+            capability_snapshot_hash=preview.capability_snapshot_hash,
+            upstream_revision=AGENCY_UPSTREAM_REVISION,
+        )
+    except AgencyWorkerError as exc:
+        await run_registry.update_run(
+            run.run_id,
+            status="failed",
+            error=f"{exc.code}: {exc}"[:500],
+        )
+        return JSONResponse(
+            status_code=agency_worker_http_status(exc.code),
+            content={"error": str(exc), "code": exc.code},
+        )
+    except ValueError as exc:
+        await run_registry.update_run(
+            run.run_id,
+            status="failed",
+            error=str(exc)[:500],
+        )
+        return JSONResponse(
+            status_code=422,
+            content={"error": str(exc), "code": "agency_plan_invalid"},
+        )
+    except Exception as exc:
+        logger.exception("Expert Team Agency preview failed")
+        await run_registry.update_run(
+            run.run_id,
+            status="failed",
+            error=str(exc)[:500],
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"error": "专家团智能组队预览失败。", "code": "agency_preview_failed"},
+        )
 
 
 @app.post(
