@@ -89,6 +89,15 @@ class KnowledgeEvaluationExecutor:
             max_k = max(run["ks"])
             for target in run["targets"]:
                 target_id = str(target["target_id"])
+                target_top_k = max_k
+                if bool(target.get("respect_profile_top_k")):
+                    target_top_k = max(
+                        1,
+                        min(
+                            int((target.get("retrieval") or {}).get("top_k") or max_k),
+                            max_k,
+                        ),
+                    )
                 for case in run["eval_set_snapshot"]["cases"]:
                     case_id = str(case["case_id"])
                     current = self.store.get_run(run_id)
@@ -104,8 +113,11 @@ class KnowledgeEvaluationExecutor:
                         retrieval = await self.service.query_pipeline_version(
                             str(target["version_id"]),
                             str(case["query"]),
-                            top_k=max_k,
-                            retrieval=dict(target.get("retrieval") or {}),
+                            top_k=target_top_k,
+                            retrieval={
+                                **dict(target.get("retrieval") or {}),
+                                "top_k": target_top_k,
+                            },
                             generate_answer=False,
                         )
                         case_result = evaluate_retrieval_case(

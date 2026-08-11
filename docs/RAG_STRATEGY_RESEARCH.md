@@ -251,3 +251,162 @@ Phase B should begin only if the user accepts these four decisions:
 `RAG Strategy Rules V1` is therefore the fixed rule source for Router V1. Any
 rule change must update its evidence classification, counterexample and local
 experiment reference before production behavior changes.
+
+## 11. Benchmark Auto Tuner authorization and evidence boundary
+
+Follow-up decision recorded on 2026-08-10: after Router V1 was accepted and
+merged, the bounded Auto Tuner round was authorized. This does not revise the
+Rules V1 evidence or turn any heuristic into a universal default. It adds a
+target-specific empirical stage with these boundaries:
+
+- fix one immutable V2 source snapshot and one published Evaluation Set Version;
+- use the optimization split for threshold/candidate selection and reserve Holdout
+  for finalist comparison;
+- keep Processor, Vision and Embedding profiles unchanged;
+- isolate and clean trial indexes, and never expose them as activatable versions;
+- materialize only a candidate that passes the existing Evaluation Gate and an
+  explicit quality, latency or index-size improvement threshold;
+- rerun the full evaluation set on the materialized version;
+- leave the result `promotion_required` for explicit human promotion.
+
+The resulting ranking is evidence for that corpus, Gold distribution, provider
+state and fixed run budget. It must not be cited as proof of a generally optimal
+chunking or retrieval strategy.
+
+## 12. Auto Tuner qualification audit and corrective boundary
+
+The first Auto Tuner acceptance round did not produce a trustworthy promoted
+candidate. Repeated runs exposed a system-level mismatch rather than one isolated
+threshold bug:
+
+- the synthetic catalog pack was designed as an engine regression guard but was
+  used as winner-selection evidence;
+- 34 answerable and 6 obvious out-of-domain no-result cases made the Holdout
+  no-result gate too coarse and unstable;
+- several nominally different chunk profiles produced the same realized chunk
+  count and retrieval ranking, so the benchmark could not distinguish chunking;
+- threshold selection optimized Recall first, while very small negative slices
+  made abstention evidence effectively all-or-nothing;
+- single-run latency was noisy enough to create false cost improvements.
+
+The corrective implementation therefore starts with evidence qualification, not
+with a wider parameter grid. Evaluation versions now carry one of four roles:
+`unclassified`, `regression_guard`, `strategy_tuning`, or `promotion_evidence`.
+Catalog regression packs remain runnable in the Evaluation workspace but cannot
+start a formal tuning run or materialize a winner.
+
+`RAG Strategy Tuning Readiness V1` requires at least 30 answerable cases before
+retrieval selection. Threshold tuning additionally requires at least 12 reviewed,
+corpus-near hard negatives. Cross-chunk tuning additionally requires stable
+source-block Gold plus sparse, single-dense, and multi-dense evidence coverage.
+Missing evidence disables only the affected dimension when safe; it is never
+silently treated as passing evidence.
+
+Chunk trials also record a content-free realized-index fingerprint and a ranked
+result fingerprint under one fixed probe retrieval profile. If multiple nominal
+profiles yield one realized outcome, non-baseline chunk candidates lose automatic
+winner eligibility and the run continues as retrieval-only tuning. These hashes
+contain IDs and counts, not document text or queries.
+
+## 13. Auto Tuner 03B: threshold Pareto and semantic search space
+
+03B corrects the two search-space defects isolated by the qualification audit.
+Threshold selection now builds a non-dominated frontier over Recall@5, nDCG@10,
+and hard-negative false-positive rate. A non-zero threshold is selected only when
+it reduces false positives by at least `0.01` while keeping Recall and nDCG within
+`0.02` of the zero-threshold profile. If no such point exists, the baseline
+threshold is retained. Thresholds remain profile- and corpus-specific because
+FTS confidence, vector similarity, and normalized RRF scores are not portable.
+
+Retrieval candidates are now normalized by effective semantics. Full-text and
+vector modes ignore inactive Hybrid weights; disabled Rerank ignores provider,
+model, and top-N fields. After execution, candidates with the same realized-index,
+ranking, and effective retrieval fingerprints cannot consume another winner slot.
+The report exposes both nominal candidate count and unique semantic outcomes.
+
+Targeted knowledge generation now has an explicit `strategy_tuning` purpose. It
+can create 30-60 cases and defaults to 30 answerable cases plus 12 corpus-near
+negative cases when threshold evidence is requested. Generated negatives remain
+pending until a human reviews them and calibration is rerun; quantity alone never
+confers tuning eligibility.
+
+Real known-winner end-to-end fixtures remain intentionally separate. Until that
+round passes, Auto Tuner output is corpus-specific comparative evidence rather
+than proof of a generally reliable strategy optimizer.
+
+## 14. Auto Tuner 03C: repeated Holdout evidence and robust latency
+
+03C keeps the original optimization/Holdout boundary and does not expand the
+search space. The fixed Holdout is evaluated with three queries per case. Each
+case latency is reduced to its median before the run reports average and P95,
+so a single cold start or scheduler spike cannot create a false latency win.
+The optimization split still filters quality and execution errors, but its
+single-query latency is diagnostic only and cannot reject a candidate before
+the repeated Holdout measurement.
+
+Finalist quality is compared to the baseline by case. Answerable cases use
+nDCG@10 and approved no-result cases use no-result accuracy. Three deterministic
+stratified bootstrap views are sampled only from the fixed Holdout; optimization
+cases are never admitted. A deterministic 1,000-sample paired bootstrap then
+reports a 90% confidence interval for the case-weighted quality delta.
+
+The statistical gate is deliberately a non-degradation gate, not a universal
+significance claim. Its lower confidence bound must remain within `-0.02`, and
+at least two of the three stratified resamples must do the same. A candidate must
+still pass the existing Promotion Gate and effective quality/cost improvement
+rule. The baseline summary, validation plan checksum, per-case metric summaries,
+and finalist intervals are persisted without queries or document text, allowing
+restart recovery without repeating completed Holdout calls.
+
+Small Holdouts still produce wide intervals; that is evidence uncertainty rather
+than a software error. 03D must add real known-winner fixtures to prove that the
+complete system can recover expected winners under controlled perturbations.
+
+## 15. Auto Tuner 03D: known-winner system proof
+
+03D adds a project-owned, versioned synthetic fixture at
+`server/tests/fixtures/rag_strategy_tuner_known_winners.json`. It is not a product
+benchmark and must not be used to claim universal retrieval quality. Its purpose
+is narrower: prove that the complete tuner can recover a known intervention and
+can abstain when the same intervention is already present.
+
+The `threshold_recovery` scenario uses the real FTS5 index and ModelMirror lexical
+confidence contract. Positive queries match every required policy term, while
+approved corpus-near negatives share the policy identifier but contain absent
+requirements. With the baseline threshold at zero, both groups are recalled.
+The expected winner is therefore known before the run: a non-zero threshold above
+the observed negative ceiling must preserve the stable source-block Gold, restore
+no-result accuracy, pass repeated Holdout validation, materialize a normal ready
+version, and leave the active version unchanged.
+
+The `already_optimal_control` scenario rebuilds the same immutable corpus with
+that safe threshold already fixed in the base version. A candidate whose chunker
+and retrieval profile are exactly equal to the base is marked
+`baseline_equivalent` before Holdout. It cannot become a winner because of timing
+noise, and the run must finish `no_improvement` without creating a version.
+
+Both scenarios execute the real upload, parser, pipeline job, vector/FTS build,
+query, optimization split, repeated Holdout, paired statistical gate, materialized
+pipeline job and full Evaluation Gate path. They do not monkeypatch search results
+or metrics. The fixture and capability contract are fixed as
+`rag-strategy-known-winner-v1`; changing scoring or selection logic requires the
+same fixture to pass without rewriting its Gold to match the new behavior.
+
+### Verified and unverified boundary
+
+Verified by 03D:
+
+- a real full-text threshold defect is recovered end to end;
+- hard-negative improvement survives fixed Holdout and full-set validation;
+- the winner becomes `promotion_required` and is never auto-activated;
+- an already-optimal equivalent profile cannot manufacture a latency-only win.
+
+Not yet proved by this fixture:
+
+- a known winner between Recursive and Parent-child chunking;
+- Vector or Hybrid selection with a real semantic embedding provider;
+- Rerank quality/cost selection;
+- transfer of any selected threshold to another corpus or retrieval mode.
+
+Those remain separate evidence tasks. Absence of those fixtures must be shown as
+an unverified boundary, not inferred from the threshold proof.

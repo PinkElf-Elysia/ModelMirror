@@ -101,7 +101,8 @@ class BenchmarkTargetRequest(BaseModel):
 class BenchmarkGenerationRequest(BaseModel):
     target: BenchmarkTargetRequest
     generator_model_id: str = Field(min_length=1, max_length=300)
-    case_count: int = Field(default=12, ge=6, le=30)
+    generation_purpose: Literal["general", "strategy_tuning"] = "general"
+    case_count: int = Field(default=12, ge=6, le=60)
     locales: list[Literal["zh-CN", "en-US"]] = Field(
         default_factory=lambda: ["zh-CN", "en-US"],
         min_length=1,
@@ -112,18 +113,36 @@ class BenchmarkGenerationRequest(BaseModel):
         default_factory=list,
         max_length=20,
     )
-    no_result_count: int = Field(default=0, ge=0, le=5)
+    no_result_count: int = Field(default=0, ge=0, le=20)
     seed: int = Field(default=0, ge=0, le=2_147_483_647)
 
     @model_validator(mode="after")
     def validate_no_result_count(self) -> "BenchmarkGenerationRequest":
-        limit = min(5, self.case_count // 5)
-        if self.no_result_count > limit:
-            raise ValueError(
-                f"no_result_count cannot exceed {limit} for {self.case_count} cases."
-            )
         if self.target.kind != "knowledge_version" and self.no_result_count:
             raise ValueError("no_result_count is only supported for knowledge targets.")
+        if self.generation_purpose == "strategy_tuning":
+            if self.target.kind != "knowledge_version":
+                raise ValueError(
+                    "strategy_tuning generation is only supported for knowledge targets."
+                )
+            positive_count = self.case_count - self.no_result_count
+            if positive_count < 30:
+                raise ValueError(
+                    "strategy_tuning generation requires at least 30 answerable cases."
+                )
+            if self.no_result_count and self.no_result_count < 12:
+                raise ValueError(
+                    "strategy_tuning threshold evidence requires either 0 or at least 12 "
+                    "hard-negative cases."
+                )
+        else:
+            if self.case_count > 30:
+                raise ValueError("general generation cannot exceed 30 cases.")
+            limit = min(5, self.case_count // 5)
+            if self.no_result_count > limit:
+                raise ValueError(
+                    f"no_result_count cannot exceed {limit} for {self.case_count} cases."
+                )
         return self
 
 
@@ -145,4 +164,3 @@ class BenchmarkCalibrationRequest(BaseModel):
     dataset_id: str = Field(min_length=1, max_length=200)
     dataset_revision: int = Field(ge=1)
     target: BenchmarkTargetRequest | None = None
-

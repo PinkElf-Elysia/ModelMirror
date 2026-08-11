@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import sqlite3
 import threading
@@ -124,7 +125,8 @@ class SqliteLexicalStore:
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT c.*, bm25(rag_chunks_fts) AS lexical_rank
+                SELECT c.*, rag_chunks_fts.tokens AS search_tokens,
+                       bm25(rag_chunks_fts) AS lexical_rank
                 FROM rag_chunks_fts
                 JOIN rag_chunks c ON c.chunk_id = rag_chunks_fts.chunk_id
                 WHERE rag_chunks_fts MATCH ? AND rag_chunks_fts.namespace = ?
@@ -133,6 +135,9 @@ class SqliteLexicalStore:
                 """,
                 (expression, namespace, top_k),
             ).fetchall()
+            confidence_weights = _lexical_confidence_weights(
+                connection, namespace, query
+            )
         return [
             LexicalSearchResult(
                 chunk_id=str(row["chunk_id"]),
@@ -140,7 +145,11 @@ class SqliteLexicalStore:
                 doc_id=str(row["doc_id"]),
                 document_name=str(row["document_name"]),
                 text=str(row["text"]),
-                score=round(1.0 / (1.0 + index), 6),
+                score=_lexical_confidence(
+                    str(row["search_tokens"] or ""),
+                    confidence_weights,
+                    fallback_rank=index + 1,
+                ),
                 rank=index + 1,
                 parent_chunk_id=str(row["parent_chunk_id"]) if row["parent_chunk_id"] else None,
                 parent_text=str(row["parent_text"]) if row["parent_text"] else None,
@@ -257,3 +266,61 @@ def tokenize_for_search(text: str) -> str:
 def build_fts_query(text: str) -> str:
     tokens = tokenize_for_search(text).split()
     return " OR ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens[:64])
+
+
+def _lexical_confidence_weights(
+    connection: sqlite3.Connection,
+    namespace: str,
+    query: str,
+) -> dict[str, float]:
+    tokens = [
+        token
+        for token in tokenize_for_search(query).split()[:64]
+        if _is_significant_confidence_token(token)
+    ]
+    if not tokens:
+        return {}
+    total_chunks = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM rag_chunks WHERE namespace = ?", (namespace,)
+        ).fetchone()[0]
+    )
+    weights: dict[str, float] = {}
+    for token in dict.fromkeys(tokens):
+        expression = f'"{token.replace(chr(34), chr(34) * 2)}"'
+        document_frequency = int(
+            connection.execute(
+                """
+                SELECT COUNT(*) FROM rag_chunks_fts
+                WHERE rag_chunks_fts MATCH ? AND namespace = ?
+                """,
+                (expression, namespace),
+            ).fetchone()[0]
+        )
+        weights[token] = math.log(
+            (total_chunks + 1) / (document_frequency + 1)
+        ) + 1.0
+    return weights
+
+
+def _lexical_confidence(
+    indexed_tokens: str,
+    weights: dict[str, float],
+    *,
+    fallback_rank: int,
+) -> float:
+    if not weights:
+        return round(1.0 / max(1, fallback_rank), 6)
+    indexed = set(indexed_tokens.split())
+    total_weight = sum(weights.values())
+    matched_weight = sum(
+        weight for token, weight in weights.items() if token in indexed
+    )
+    return round(matched_weight / total_weight if total_weight else 0.0, 6)
+
+
+def _is_significant_confidence_token(token: str) -> bool:
+    is_cjk = bool(token) and all("\u3400" <= char <= "\u9fff" for char in token)
+    if is_cjk:
+        return len(token) == 2
+    return len(token) >= 2

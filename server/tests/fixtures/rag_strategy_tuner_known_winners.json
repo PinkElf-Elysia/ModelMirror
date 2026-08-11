@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "fixture_version": "rag-strategy-known-winner-v1",
+  "source": "ModelMirror project-owned synthetic fixture",
+  "license": "ModelMirror repository license",
+  "scenarios": [
+    {
+      "scenario_id": "threshold_recovery",
+      "description": "Full-text OR recall returns corpus-near hard negatives below exact positive matches. A safe non-zero threshold must preserve the Gold block and reject the negatives.",
+      "document_name": "orbit-control-policy.md",
+      "document_content": "# Orbit control policy\n\nControl MM-2042 requires an owner, a reviewer, and a dated audit record. Every audit record uses the cobalt ledger and quartz seal. Emergency exceptions expire after seven days.\n",
+      "positive_queries": [
+        "MM-2042 owner reviewer audit",
+        "Control MM-2042 dated audit record",
+        "MM-2042 cobalt ledger quartz seal"
+      ],
+      "hard_negative_queries": [
+        "MM-2042 biometric escrow",
+        "MM-2042 satellite custody",
+        "MM-2042 quantum notarization"
+      ],
+      "positive_case_count": 30,
+      "hard_negative_case_count": 12,
+      "expected_outcome": "completed",
+      "expected_winner": {
+        "retrieval_mode": "fulltext",
+        "score_threshold": "greater_than_zero",
+        "minimum_no_result_accuracy_delta": 0.5,
+        "promotion_required": true
+      }
+    },
+    {
+      "scenario_id": "already_optimal_control",
+      "inherits": "threshold_recovery",
+      "description": "The base version already uses the safe threshold discovered from the same fixed evidence. The tuner must not manufacture a winner from an equivalent profile.",
+      "baseline_threshold": "observed_hard_negative_max_plus_epsilon",
+      "expected_outcome": "no_improvement",
+      "expected_final_version": null
+    }
+  ]
+}

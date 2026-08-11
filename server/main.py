@@ -43,20 +43,24 @@ try:
     from server.rag.api import (
         configure_evaluation_executor,
         configure_pipeline_executor,
+        configure_strategy_tuner,
         get_evaluation_executor,
         get_evaluation_store as get_rag_evaluation_store,
         get_pipeline_executor,
         get_rag_service,
+        get_strategy_tuner,
         router as rag_router,
     )
 except ModuleNotFoundError:
     from rag.api import (
         configure_evaluation_executor,
         configure_pipeline_executor,
+        configure_strategy_tuner,
         get_evaluation_executor,
         get_evaluation_store as get_rag_evaluation_store,
         get_pipeline_executor,
         get_rag_service,
+        get_strategy_tuner,
         router as rag_router,
     )
 
@@ -1127,6 +1131,7 @@ workflow_execution_store = WorkflowExecutionStore(
 configure_runtime_approvals(runtime_approval_store, workflow_execution_store)
 knowledge_pipeline_executor = configure_pipeline_executor(run_registry=run_registry)
 knowledge_evaluation_executor = configure_evaluation_executor(run_registry=run_registry)
+rag_strategy_tuner = configure_strategy_tuner(run_registry=run_registry)
 handoff_executor: HandoffExecutor | None = None
 goal_coordinator: GoalCoordinator | None = None
 approval_coordinator: ApprovalCoordinator | None = None
@@ -15994,6 +15999,7 @@ async def start_mcp_ttl_cleanup() -> None:
         logger.warning("Toolset auto-start failed: %s", warning)
     get_pipeline_executor().start()
     get_evaluation_executor().start()
+    get_strategy_tuner().start()
     get_xpert_evaluation_executor().start()
     start_skill_creator_evaluation_runtime()
     get_benchmark_job_executor().start()
@@ -16014,6 +16020,7 @@ async def start_mcp_ttl_cleanup() -> None:
 async def shutdown_mcp_sessions() -> None:
     await get_pipeline_executor().stop()
     await get_evaluation_executor().stop()
+    await get_strategy_tuner().stop()
     await get_benchmark_job_executor().stop()
     await get_xpert_evolution_executor().stop()
     await get_xpert_evaluation_executor().stop()

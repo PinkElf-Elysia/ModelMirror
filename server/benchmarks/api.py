@@ -166,6 +166,12 @@ async def get_capabilities() -> dict[str, Any]:
             "target_kind": "knowledge_version",
             "case_count": {"default": 12, "min": 6, "max": 30},
             "no_result_count": {"default": 0, "max": 5, "max_ratio": 0.2},
+            "strategy_tuning": {
+                "case_count": {"default": 42, "min": 30, "max": 60},
+                "minimum_positive_cases": 30,
+                "no_result_count": {"default": 12, "disabled": 0, "min": 12, "max": 20},
+                "negative_review_required": True,
+            },
             "max_evidence_units": 40,
             "max_evidence_chars": 48_000,
         }
