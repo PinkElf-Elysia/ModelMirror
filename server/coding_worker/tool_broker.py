@@ -21,6 +21,8 @@ from .contracts import (
     CapabilityName,
     OperationState,
     PolicyProfile,
+    ShellApprovalScope,
+    ShellMode,
     StrictModel,
     TaskState,
 )
@@ -82,13 +84,15 @@ class ToolExecutor(Protocol):
     async def service_status(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
     async def service_input(self, *, task_id: str, workspace_id: str, service_id: str, data: str) -> dict[str, Any]: ...
     async def stop_service(self, *, task_id: str, workspace_id: str, service_id: str) -> dict[str, Any]: ...
+    async def run_shell(self, *, task_id: str, workspace_id: str, operation_id: str, script: str, cwd: str, mode: str, timeout_seconds: int, output_callback: Any = None) -> dict[str, Any]: ...
 
 
 class ToolBroker:
     """The sole side-effect boundary exposed to a coding provider.
 
-    Requests contain only task/workspace-relative values. Commands are argv arrays,
-    never shell strings, and execute with a minimal credential-free environment.
+    Requests contain only task/workspace-relative values. Legacy commands remain
+    argv arrays; V15 shell strings require an exact single-operation approval and
+    execute only in a disposable, credential-free clone.
     """
 
     def __init__(
@@ -143,7 +147,7 @@ class ToolBroker:
             request=request,
         )
         if operation.state is OperationState.COMPLETED:
-            if operation.tool_name == "apply_changeset":
+            if self._result_has_changeset(operation.tool_name, operation.result):
                 self.changesets.finalize(
                     task_id=task_id,
                     workspace_id=task.workspace_id,
@@ -192,7 +196,7 @@ class ToolBroker:
                     expected_state=OperationState.RUNNING,
                 )
             except Exception as exc:
-                if tool_name == "apply_changeset" and self.changesets.is_applied(
+                if self._tool_can_publish_changeset(tool_name) and self.changesets.is_applied(
                     task_id=task_id,
                     workspace_id=task.workspace_id,
                     operation_id=operation_id,
@@ -202,7 +206,7 @@ class ToolBroker:
                         code="operation_result_unknown",
                     ) from exc
                 raise
-            if tool_name == "apply_changeset":
+            if self._result_has_changeset(tool_name, completed.result):
                 self.changesets.finalize(
                     task_id=task_id,
                     workspace_id=task.workspace_id,
@@ -277,7 +281,7 @@ class ToolBroker:
     def reconcile(self, operation_id: str) -> ToolResult:
         operation = self.store.get_operation(operation_id)
         if operation.state is OperationState.COMPLETED:
-            if operation.tool_name == "apply_changeset":
+            if self._result_has_changeset(operation.tool_name, operation.result):
                 self.changesets.finalize(
                     task_id=operation.task_id,
                     workspace_id=str(operation.request["workspace_id"]),
@@ -364,6 +368,8 @@ class ToolBroker:
                 state=resolved.state,
                 data=resolved.result or {},
             )
+        elif operation.tool_name == "run_shell":
+            return self._reconcile_shell(operation_id)
         raise ToolBrokerError(
             "Tool result is unknown and must not be replayed.",
             code="operation_result_unknown",
@@ -384,11 +390,16 @@ class ToolBroker:
             "glob_files",
             "search_regex",
             "apply_changeset",
+            "run_shell",
         }
         if tool_name in v15_tools and os.getenv(
             "CODING_WORKER_V15_ENABLED", "false"
         ).strip().lower() not in {"1", "true", "yes", "on"}:
             raise ToolBrokerError("V15 tooling is disabled.", code="tool_not_allowed")
+        if tool_name == "run_shell" and os.getenv(
+            "CODING_WORKER_SHELL_ENABLED", "false"
+        ).strip().lower() not in {"1", "true", "yes", "on"}:
+            raise ToolBrokerError("V15 shell is disabled.", code="tool_not_allowed")
         readonly = {
             "list_files",
             "read_file",
@@ -414,7 +425,24 @@ class ToolBroker:
                 raise ToolBrokerError("Task policy is read-only.", code="approval_required")
             return None
         capability: CapabilityName
-        if tool_name == "run_command":
+        approval_scope = request["arguments"]
+        if tool_name == "run_shell":
+            shell_scope = self._shell_approval_scope(
+                operation_id, request["arguments"]
+            )
+            if (
+                shell_scope.mode is ShellMode.MUTATE
+                and profile not in {
+                    PolicyProfile.DEVELOP,
+                    PolicyProfile.DEVELOP_NETWORKED,
+                }
+            ):
+                raise ToolBrokerError(
+                    "Task policy is read-only.", code="task_policy_readonly"
+                )
+            capability = "shell"
+            approval_scope = shell_scope.model_dump(mode="json")
+        elif tool_name == "run_command":
             capability = "command"
         elif tool_name == "start_service":
             capability = "service"
@@ -438,7 +466,7 @@ class ToolBroker:
                 task_id=task_id,
                 operation_id=operation_id,
                 capability=capability,
-                request=request["arguments"],
+                request=approval_scope,
             )
         if network_scope is not None and network_lease_id is None:
             network_operation_id = "network_" + hashlib.sha256(
@@ -456,7 +484,7 @@ class ToolBroker:
                 self.store.transition(task_id, TaskState.WAITING_APPROVAL)
             raise ToolBrokerError("Tool requires approval.", code="approval_required")
         lease = self.store.consume_lease(lease_id, task_id=task_id, capability=capability)
-        if lease.scope != request["arguments"]:
+        if lease.scope != approval_scope:
             raise ToolBrokerError("Approval does not match the request.", code="lease_scope_mismatch")
         consumed_network_lease: CapabilityLease | None = None
         if network_scope is not None:
@@ -575,6 +603,13 @@ class ToolBroker:
                 check.timeout_seconds,
                 trusted=True,
                 isolated=True,
+            )
+        if tool_name == "run_shell":
+            return await self._run_shell(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+                arguments=arguments,
             )
         if tool_name == "run_command":
             argv = arguments.get("argv")
@@ -715,6 +750,404 @@ class ToolBroker:
             )
             return {**result, "source_artifact_id": artifact.artifact_id}
         raise ToolBrokerError("Tool is not available.", code="tool_not_allowed")
+
+    @staticmethod
+    def _shell_approval_scope(
+        operation_id: str, arguments: Mapping[str, Any]
+    ) -> ShellApprovalScope:
+        if set(arguments) != {"script", "cwd", "mode", "timeout_seconds"}:
+            raise ToolBrokerError("Shell input is invalid.", code="tool_input_invalid")
+        script = arguments.get("script")
+        if (
+            not isinstance(script, str)
+            or not script
+            or "\x00" in script
+            or len(script.encode("utf-8")) > 64 * 1024
+        ):
+            raise ToolBrokerError("Shell input is invalid.", code="tool_input_invalid")
+        try:
+            return ShellApprovalScope(
+                operation_id=operation_id,
+                script_sha256=hashlib.sha256(script.encode("utf-8")).hexdigest(),
+                cwd=arguments.get("cwd"),
+                mode=arguments.get("mode"),
+                timeout_seconds=arguments.get("timeout_seconds"),
+                network_scope_sha256=None,
+            )
+        except Exception as exc:
+            raise ToolBrokerError(
+                "Shell input is invalid.", code="tool_input_invalid"
+            ) from exc
+
+    async def _run_shell(
+        self,
+        *,
+        task_id: str,
+        workspace_id: str,
+        operation_id: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.executor is None:
+            raise ToolBrokerError(
+                "Shell executor is unavailable.", code="shell_unavailable"
+            )
+        scope = self._shell_approval_scope(operation_id, arguments)
+        base_tree_hash = self.workspace_broker.current_tree_hash(workspace_id)
+        output = bytearray()
+
+        async def persist_output(stream: str, chunk: bytes) -> None:
+            if stream not in {"stdout", "stderr"} or not isinstance(chunk, bytes):
+                raise ToolBrokerError(
+                    "Shell output is invalid.", code="executor_invalid_response"
+                )
+            if len(output) + len(chunk) > self.max_output_bytes:
+                raise ToolBrokerError(
+                    "Shell output is too large.", code="tool_output_too_large"
+                )
+            output.extend(chunk)
+            self.store.append_event(
+                task_id,
+                "operation_output",
+                {
+                    "operation_id": operation_id,
+                    "stream": stream,
+                    "text": chunk.decode("utf-8", errors="replace"),
+                    "truncated": False,
+                },
+            )
+
+        try:
+            raw_result = await self.executor.run_shell(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+                script=str(arguments["script"]),
+                cwd=scope.cwd,
+                mode=scope.mode.value,
+                timeout_seconds=scope.timeout_seconds,
+                output_callback=persist_output,
+            )
+        except Exception:
+            if output:
+                self._archive_shell_output(
+                    task_id, operation_id, bytes(output), state="interrupted"
+                )
+            raise
+        result = self._validate_shell_result(
+            raw_result,
+            expected_mode=scope.mode,
+            expected_base_tree_hash=base_tree_hash,
+            streamed_output=bytes(output),
+        )
+        output_artifact = self._archive_shell_output(
+            task_id, operation_id, bytes(output), state="completed"
+        )
+        changes = result.pop("changes")
+        changeset_expected = bool(result["changeset_eligible"] and changes)
+        public_result = {
+            **result,
+            "output_artifact_id": output_artifact.artifact_id,
+        }
+        result_payload = {
+            "changeset_expected": changeset_expected,
+            "changes": changes if changeset_expected else [],
+            "public_result": public_result,
+        }
+        result_artifact = self.store.create_artifact(
+            task_id=task_id,
+            media_type="application/json",
+            content=json.dumps(
+                result_payload, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8"),
+            metadata={
+                "kind": "shell_result",
+                "operation_id": operation_id,
+            },
+        )
+        public_result["result_artifact_id"] = result_artifact.artifact_id
+        if changeset_expected:
+            outcome = self.changesets.apply(
+                task_id=task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+                arguments={
+                    "base_tree_hash": base_tree_hash,
+                    "changes": changes,
+                },
+            )
+            public_result["changeset"] = outcome.model_dump(mode="json")
+        return public_result
+
+    def _validate_shell_result(
+        self,
+        value: Mapping[str, Any] | Any,
+        *,
+        expected_mode: ShellMode,
+        expected_base_tree_hash: str,
+        streamed_output: bytes,
+    ) -> dict[str, Any]:
+        result = self._json_object(value)
+        required = {
+            "mode",
+            "exit_code",
+            "reason",
+            "base_tree_hash",
+            "clone_tree_hash",
+            "workspace_changed",
+            "changeset_eligible",
+            "changes",
+            "change_summary",
+            "output",
+        }
+        exit_code = result.get("exit_code")
+        reason = result.get("reason")
+        output = result.get("output")
+        changes = result.get("changes")
+        summary = result.get("change_summary")
+        if (
+            set(result) != required
+            or result.get("mode") != expected_mode.value
+            or isinstance(exit_code, bool)
+            or not isinstance(exit_code, int)
+            or not -255 <= exit_code <= 255
+            or (reason is not None and (not isinstance(reason, str) or len(reason) > 128))
+            or result.get("base_tree_hash") != expected_base_tree_hash
+            or re.fullmatch(r"[a-f0-9]{64}", str(result.get("clone_tree_hash", "")))
+            is None
+            or not isinstance(result.get("workspace_changed"), bool)
+            or not isinstance(result.get("changeset_eligible"), bool)
+            or not isinstance(changes, list)
+            or len(changes) > 128
+            or not isinstance(summary, dict)
+            or not isinstance(output, str)
+            or output != streamed_output.decode("utf-8", errors="replace")
+            or (
+                result.get("changeset_eligible") is True
+                and (
+                    expected_mode is not ShellMode.MUTATE
+                    or exit_code != 0
+                    or reason is not None
+                )
+            )
+            or (result.get("changeset_eligible") is not True and bool(changes))
+        ):
+            raise ToolBrokerError(
+                "Shell executor response is invalid.",
+                code="executor_invalid_response",
+            )
+        summary_paths = self._validate_shell_change_summary(
+            summary, changes, eligible=result["changeset_eligible"] is True
+        )
+        if result["workspace_changed"] != bool(summary_paths):
+            raise ToolBrokerError(
+                "Shell executor response is invalid.",
+                code="executor_invalid_response",
+            )
+        result.pop("output")
+        return result
+
+    @staticmethod
+    def _validate_shell_change_summary(
+        summary: dict[str, Any],
+        changes: list[Any],
+        *,
+        eligible: bool,
+    ) -> set[str]:
+        if set(summary) != {"added", "deleted", "modified", "violations"}:
+            raise ToolBrokerError(
+                "Shell change summary is invalid.", code="executor_invalid_response"
+            )
+        paths: dict[str, list[str]] = {}
+        for kind in ("added", "deleted", "modified"):
+            value = summary.get(kind)
+            if (
+                not isinstance(value, list)
+                or len(value) > 256
+                or not all(isinstance(path, str) and path for path in value)
+                or len(value) != len(set(value))
+            ):
+                raise ToolBrokerError(
+                    "Shell change summary is invalid.",
+                    code="executor_invalid_response",
+                )
+            paths[kind] = value
+        violations = summary.get("violations")
+        if not isinstance(violations, list) or len(violations) > 128:
+            raise ToolBrokerError(
+                "Shell change summary is invalid.", code="executor_invalid_response"
+            )
+        summary_paths = set(paths["added"]) | set(paths["deleted"]) | set(
+            paths["modified"]
+        )
+        if any(
+            set(paths[left]) & set(paths[right])
+            for left, right in (
+                ("added", "deleted"),
+                ("added", "modified"),
+                ("deleted", "modified"),
+            )
+        ):
+            raise ToolBrokerError(
+                "Shell change summary is invalid.", code="executor_invalid_response"
+            )
+        if not eligible:
+            return summary_paths | {
+                str(item.get("path"))
+                for item in violations
+                if isinstance(item, dict) and isinstance(item.get("path"), str)
+            }
+        if violations:
+            raise ToolBrokerError(
+                "Shell executor response is invalid.",
+                code="executor_invalid_response",
+            )
+        change_paths: set[str] = set()
+        for change in changes:
+            if not isinstance(change, dict) or change.get("kind") not in {
+                "write",
+                "delete",
+            }:
+                raise ToolBrokerError(
+                    "Shell executor response is invalid.",
+                    code="executor_invalid_response",
+                )
+            path = change.get("path")
+            if not isinstance(path, str) or not path or path in change_paths:
+                raise ToolBrokerError(
+                    "Shell executor response is invalid.",
+                    code="executor_invalid_response",
+                )
+            change_paths.add(path)
+        if change_paths != summary_paths:
+            raise ToolBrokerError(
+                "Shell executor response is invalid.",
+                code="executor_invalid_response",
+            )
+        return summary_paths
+
+    def _archive_shell_output(
+        self,
+        task_id: str,
+        operation_id: str,
+        output: bytes,
+        *,
+        state: str,
+    ) -> Any:
+        return self.store.create_artifact(
+            task_id=task_id,
+            media_type="text/plain; charset=utf-8",
+            content=output,
+            metadata={
+                "kind": "shell_output",
+                "operation_id": operation_id,
+                "state": state,
+            },
+        )
+
+    def _reconcile_shell(self, operation_id: str) -> ToolResult:
+        operation = self.store.get_operation(operation_id)
+        artifacts = [
+            item
+            for item in self.store.list_artifacts(operation.task_id)
+            if item.metadata.get("kind") == "shell_result"
+            and item.metadata.get("operation_id") == operation_id
+        ]
+        if not artifacts:
+            failed = self.store.transition_operation(
+                operation_id,
+                OperationState.FAILED,
+                result={"code": "shell_result_unavailable"},
+                expected_state=OperationState.UNKNOWN,
+            )
+            return ToolResult(
+                operation_id=operation_id,
+                tool_name=operation.tool_name,
+                state=failed.state,
+                data=failed.result or {},
+            )
+        if len(artifacts) != 1:
+            raise ToolBrokerError(
+                "Shell result binding is ambiguous.",
+                code="operation_result_unknown",
+            )
+        try:
+            payload = json.loads(
+                self.store.read_artifact(
+                    artifacts[0].artifact_id, task_id=operation.task_id
+                )
+            )
+            public_result = self._json_object(payload["public_result"])
+            changeset_expected = payload["changeset_expected"] is True
+        except Exception as exc:
+            raise ToolBrokerError(
+                "Shell result is unavailable.", code="operation_result_unknown"
+            ) from exc
+        public_result["result_artifact_id"] = artifacts[0].artifact_id
+        workspace_id = str(operation.request["workspace_id"])
+        if changeset_expected:
+            if not self.changesets.has_transaction(
+                workspace_id=workspace_id, operation_id=operation_id
+            ):
+                failed = self.store.transition_operation(
+                    operation_id,
+                    OperationState.FAILED,
+                    result={"code": "shell_changeset_not_applied"},
+                    expected_state=OperationState.UNKNOWN,
+                )
+                return ToolResult(
+                    operation_id=operation_id,
+                    tool_name=operation.tool_name,
+                    state=failed.state,
+                    data=failed.result or {},
+                )
+            try:
+                outcome = self.changesets.reconcile(
+                    task_id=operation.task_id,
+                    workspace_id=workspace_id,
+                    operation_id=operation_id,
+                )
+            except ChangesetError as exc:
+                if exc.code == "changeset_rolled_back":
+                    self.store.transition_operation(
+                        operation_id,
+                        OperationState.FAILED,
+                        result={"code": exc.code},
+                        expected_state=OperationState.UNKNOWN,
+                    )
+                raise ToolBrokerError(
+                    "Shell changeset reconciliation failed.", code=exc.code
+                ) from exc
+            public_result["changeset"] = outcome.model_dump(mode="json")
+        resolved = self.store.transition_operation(
+            operation_id,
+            OperationState.COMPLETED,
+            result=public_result,
+            expected_state=OperationState.UNKNOWN,
+        )
+        if changeset_expected:
+            self.changesets.finalize(
+                task_id=operation.task_id,
+                workspace_id=workspace_id,
+                operation_id=operation_id,
+            )
+        return ToolResult(
+            operation_id=operation_id,
+            tool_name=operation.tool_name,
+            state=resolved.state,
+            data=resolved.result or {},
+        )
+
+    @staticmethod
+    def _tool_can_publish_changeset(tool_name: str) -> bool:
+        return tool_name in {"apply_changeset", "run_shell"}
+
+    @staticmethod
+    def _result_has_changeset(
+        tool_name: str, result: Mapping[str, Any] | None
+    ) -> bool:
+        return tool_name in {"apply_changeset", "run_shell"} and isinstance(
+            (result or {}).get("changeset"), dict
+        )
 
     def _require_process_manager(self) -> BackgroundProcessManager:
         if self.process_manager is None:

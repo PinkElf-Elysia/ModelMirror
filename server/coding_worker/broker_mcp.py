@@ -134,6 +134,26 @@ def build_server(client: BrokerRPCClient) -> FastMCP:
         )
 
     @mcp.tool()
+    async def run_shell(
+        operation_id: str,
+        script: str,
+        cwd: str = ".",
+        mode: str = "inspect",
+        timeout_seconds: int = 300,
+    ) -> dict[str, Any]:
+        """Run one exact approved Bash script in a disposable task clone."""
+        return await call(
+            "run_shell",
+            {
+                "script": script,
+                "cwd": cwd,
+                "mode": mode,
+                "timeout_seconds": timeout_seconds,
+            },
+            operation_id=operation_id,
+        )
+
+    @mcp.tool()
     async def install_dependencies(operation_id: str) -> dict[str, Any]:
         """Request approval, then run frozen npm-ci through controlled egress."""
         return await call(

@@ -131,6 +131,7 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
         "list_acceptance_checks",
         "run_check",
         "run_command",
+        "run_shell",
         "install_dependencies",
         "start_service",
         "service_status",
@@ -150,6 +151,10 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
     command = next(tool for tool in tools if tool.name == "run_command")
     assert set(command.inputSchema["required"]) == {"operation_id", "argv"}
     assert "lease_id" not in command.inputSchema["properties"]
+    shell = next(tool for tool in tools if tool.name == "run_shell")
+    assert set(shell.inputSchema["required"]) == {"operation_id", "script"}
+    assert "lease_id" not in shell.inputSchema["properties"]
+    assert "provider" not in shell.inputSchema["properties"]
     install = next(tool for tool in tools if tool.name == "install_dependencies")
     assert set(install.inputSchema["required"]) == {"operation_id"}
     assert "lease_id" not in install.inputSchema["properties"]

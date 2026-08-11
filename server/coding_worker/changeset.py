@@ -315,6 +315,15 @@ class ChangesetEngine:
             and manifest.operation_id == operation_id
         )
 
+    def has_transaction(self, *, workspace_id: str, operation_id: str) -> bool:
+        repository = self.workspace_broker.repository_path(workspace_id)
+        transaction = self._transaction_root(repository, operation_id)
+        if transaction.is_symlink():
+            raise ChangesetError(
+                "Changeset transaction root is unsafe.", code="workspace_changed"
+            )
+        return transaction.is_dir()
+
     def _prepare(
         self,
         *,
