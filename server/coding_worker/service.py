@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from .contracts import (
     EvidenceStatus,
@@ -40,6 +40,7 @@ class CodingWorkerService:
         harness_runner: HarnessRunner | None = None,
         max_active_tasks: int = 2,
         tool_broker: ToolBroker | None = None,
+        route_slots: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         if not 1 <= max_active_tasks <= 16:
             raise ValueError("active task capacity is outside the allowed range")
@@ -49,6 +50,23 @@ class CodingWorkerService:
         self.harness_runner = harness_runner
         self.max_active_tasks = max_active_tasks
         self.tool_broker = tool_broker
+        self._route_slots = (
+            {
+                route_id: tuple(dict.fromkeys(slot_ids))
+                for route_id, slot_ids in route_slots.items()
+            }
+            if route_slots is not None
+            else None
+        )
+        if self._route_slots is not None:
+            known_slots = set(self.workspace_broker.slot_ids)
+            if any(
+                not route_id
+                or not slot_ids
+                or not set(slot_ids).issubset(known_slots)
+                for route_id, slot_ids in self._route_slots.items()
+            ):
+                raise ValueError("provider route slot configuration is invalid")
         self._active: dict[str, asyncio.Task[None]] = {}
         self._task_slots: dict[str, str] = {}
         self._sessions: dict[str, ProviderSession] = {}
@@ -97,6 +115,10 @@ class CodingWorkerService:
         self._started = False
 
     async def create_task(self, origin: Origin, request: TaskCreateRequest) -> TaskRecord:
+        if self._route_slots is not None and request.model_route not in self._route_slots:
+            raise WorkerConflictError(
+                "Model route is unavailable.", code="model_route_unavailable"
+            )
         frozen_checks = getattr(self.tool_broker, "frozen_checks", None)
         if isinstance(frozen_checks, Mapping):
             unknown = [
@@ -241,6 +263,16 @@ class CodingWorkerService:
         if not available:
             return None
         for record in queued:
+            route_slots = self._allowed_slots(record.spec.model_route)
+            if route_slots is None:
+                with contextlib.suppress(WorkerConflictError):
+                    self.store.transition(
+                        record.task_id,
+                        TaskState.BLOCKED,
+                        reason="model_route_unavailable",
+                        expected_state=TaskState.QUEUED,
+                    )
+                continue
             required_slot: str | None = None
             if record.workspace_id is not None:
                 try:
@@ -249,12 +281,35 @@ class CodingWorkerService:
                     )
                 except WorkspaceError:
                     # Let the runner persist the precise workspace failure.
-                    required_slot = available[0]
+                    required_slot = next(
+                        (slot for slot in route_slots if slot in available), None
+                    )
+                if required_slot is None:
+                    continue
+                if required_slot not in route_slots:
+                    with contextlib.suppress(WorkerConflictError):
+                        self.store.transition(
+                            record.task_id,
+                            TaskState.BLOCKED,
+                            reason="provider_binding_changed",
+                            expected_state=TaskState.QUEUED,
+                        )
+                    continue
             if required_slot is None:
-                return record, available[0]
+                selected = next(
+                    (slot for slot in route_slots if slot in available), None
+                )
+                if selected is not None:
+                    return record, selected
+                continue
             if required_slot in available:
                 return record, required_slot
         return None
+
+    def _allowed_slots(self, model_route: str) -> tuple[str, ...] | None:
+        if self._route_slots is None:
+            return self.workspace_broker.slot_ids
+        return self._route_slots.get(model_route)
 
     def _task_finished(self, task_id: str, _task: asyncio.Task[None]) -> None:
         self._active.pop(task_id, None)
