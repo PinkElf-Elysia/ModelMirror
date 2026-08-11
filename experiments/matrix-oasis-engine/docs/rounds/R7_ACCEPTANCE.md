@@ -1,6 +1,6 @@
 # R7 验收记录
 
-状态：R7.5 已验证，等待本地提交；R7.6 未开始。
+状态：R7.6 自动与人工验收已完成，等待本地提交和最终 HEAD 重验。
 
 固定基线：`a4a2a68d2fc5cf056c741cd3101fcf36a250ad6e`
 分支：`codex/matrix-oasis-r7-scene-binding`
@@ -13,7 +13,7 @@
 - [x] R7.3 Kenney GLB 与 Godot loader
 - [x] R7.4 Runtime 场景组合
 - [x] R7.5 自动验证与 Splat 资格
-- [ ] R7.6 standalone 与人工验收收口
+- [x] R7.6 standalone 与人工验收收口
 
 ## R7.1 证据
 
@@ -88,6 +88,24 @@ R7.4 提交：`49b1ef1`（`feature: 接通矩阵绿洲 Runtime 与场景刷新`�
 - `node --test tests/round-scope.test.mjs tests/boundary.test.mjs`：113/113 通过；`check:round-scope` 与固定基线 parent scope 均为 `checked=85 changed=78`，模块 boundary 为 `checked=871 tracked=862`，Godot 一方边界检查 34 文件，`git diff --check` 通过。
 
 本批提交 SHA 在 R7.6 或仓外交付清单记录，避免自引用。单独 revert 本提交移除 trace/capture/资格 harness，R7.4 的 scene lab 仍可独立预览与测试。
+
+R7.5 提交：`c4422a9`（`test: 添加矩阵绿洲场景绑定与 Splat 资格验证`）。
+
+## R7.6 证据
+
+本批只收口 standalone、父仓无回归、图形人工验收和交付证据，不修改 Scene Pack、Godot loader/composer、资产、冻结 Runtime、Creator 或历史验收记录。最终 R7.6 提交 SHA、最终 split tree 与 source archive SHA-256 只记录在仓外交付清单，避免文档自引用。
+
+- `npm.cmd ci --no-audit --no-fund`：86 packages；`npm.cmd prefix` 精确指向模块根；`npm.cmd ls --all` 无 missing/extraneous。仅保留既有 `esbuild@0.27.7` allow-scripts 警告。
+- 严格 `npm.cmd run doctor:godot`：Node `24.18.0`、npm `11.16.0`、Git `2.51.0`、Godot `4.6.3` 全部 ready。
+- 注入固定 Godot 4.6.3 后 `npm.cmd run verify`：13/13 步通过；Node `481/481`，Godot vendor/import、R5 adapter/parity、R6 3D、R7 Scene、Creator build 与 HTTP smoke 全部成功。
+- 提交前 `npm.cmd run verify:extraction`：standalone 871 files，全门禁通过并自动清理临时副本；最终 R7.6 HEAD 将在提交后重新拆分验证并把标识写入仓外交付清单。
+- `npm.cmd run check:round-scope` 与固定基线 parent scope 均为 `checked=78 changed=78`；模块 boundary 为 `checked=871 tracked=871`；`git diff --check` 通过。
+- 父 `client` 在隔离 worktree 执行 clean `npm.cmd ci --no-audit --no-fund && npm.cmd run build`：384 packages、3069 modules、退出 0，`git status --short -- client` 为空；仅有既有大 chunk 与 esbuild allow-scripts 警告。父后端、Docker 与共享栈未运行。
+- 用户分别验收 mechanics 与 last-train 独立 Scene Lab：Forward+ 正常、readiness marker 唯一、Kenney 地面/墙/箱子/figurine、玩家碰撞、终端与 placement 刷新、ending、循环、reset 和 HUD 均确认正常；末班地铁三个 ending 与窄窗口口径一并确认。
+- 两个预览均从仓外临时 Runtime Pack/Receipt/Scene Pack 启动并正常关闭，控制台无错误；未调用 Marble/Meshy，未读取凭据、额度或远程任务，未访问父 API 或其他网络服务。
+- 已知限制保持不变：Scene Pack/Receipt 均不提供来源真实性；figurine 动画只在内存候选中剥离；gdgs/SPZ 继续延后；没有 AI、Marble、Meshy、正式资产管线、存档、父项目接入、导出或部署。
+
+单独 revert 本批只移除 R7 验收证据；逆序 revert R7.6→R7.1 可恢复固定 R6 基线。无数据库、服务、共享栈或持久运行数据需要恢复。
 
 ## 外部调用事实
 
