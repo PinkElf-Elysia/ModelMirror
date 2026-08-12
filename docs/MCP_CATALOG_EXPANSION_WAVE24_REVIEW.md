@@ -5,7 +5,7 @@
 ## 结论
 
 - 用户已批准本次固定 100 项清单进入静态产品目录。
-- 判定：`4 ready / 42 planned / 54 blocked`。
+- 判定：`5 ready / 41 planned / 54 blocked`。
 - Wave 24 首次导入不创建 ready；后续只有完成真实运行证据与用户验收的精确 ID 才能晋级。
 - Wave 25A 三项和 Wave 25B Fantasy PL 共四项已晋级；命令、工具策略与 allowlist 仍由服务端显式冻结，不由生成器产生。
 - 与原有 200 项合并后产品目录总数保持 300。
@@ -23,7 +23,7 @@
 | 2 | `ergut-mcp-bigquery-server` | 数据库 | planned | Wave 26 / `planned-wave26-token-readonly-preflight` |
 | 3 | `executeautomation-mcp-playwright` | 浏览器与网页 | blocked | Wave 24 / `blocked-superseded-existing-controlled-capability` |
 | 4 | `fradser-mcp-server-apple-reminders` | 效率与协作 | blocked | Wave 24 / `blocked-desktop-browser-or-device-control` |
-| 5 | `githejie-mcp-server-calculator` | 通用工具 | planned | Wave 26 / `planned-wave26-offline-file-or-deterministic-artifact` |
+| 5 | `githejie-mcp-server-calculator` | 通用工具 | ready | Wave 26 / `ready-wave26a-calculator` |
 | 6 | `modelscope-funasr` | 多媒体 | planned | Wave 26 / `planned-wave26-offline-file-or-deterministic-artifact` |
 | 7 | `muvon-octocode` | 开发与代码 | blocked | Wave 24 / `blocked-superseded-existing-controlled-capability` |
 | 8 | `narumiruna-yfinance-mcp` | 金融与市场 | planned | Wave 25 / `planned-wave25-anonymous-public-read-contract` |

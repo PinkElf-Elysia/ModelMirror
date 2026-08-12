@@ -24,6 +24,7 @@ ALLOWED_ADAPTERS = {
     "pinecone-assistant-mcp", "shodan-mcp", "virustotal-mcp",
     "terraform-mcp", "livetennisapi-livetennisapi-mcp",
     "cablate-mcp-google-map", "comet-ml-opik-mcp", "keboola-keboola-mcp-server",
+    "chanmeng666-server-google-news", "isnow890-naver-search-mcp",
 }
 SOCKET_PATH = Path(
     os.getenv(

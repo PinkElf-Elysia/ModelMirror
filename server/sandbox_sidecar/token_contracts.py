@@ -242,13 +242,42 @@ TOKEN_ADAPTERS: dict[str, TokenAdapterContract] = {
         allowed_hosts=frozenset({"connection.keboola.com"}),
         builtin=True,
     ),
+    "chanmeng666-server-google-news": TokenAdapterContract(
+        (
+            "python",
+            "-m",
+            "sandbox_sidecar.token_builtin",
+            "chanmeng666-server-google-news",
+        ),
+        frozenset({"google_news_search"}),
+        (("api_key", "SERP_API_KEY"),),
+        allowed_hosts=frozenset({"serpapi.com"}),
+        builtin=True,
+    ),
+    "isnow890-naver-search-mcp": TokenAdapterContract(
+        (
+            "python",
+            "-m",
+            "sandbox_sidecar.token_builtin",
+            "isnow890-naver-search-mcp",
+        ),
+        frozenset({"search_webkr", "search_news", "search_blog"}),
+        (
+            ("client_id", "NAVER_CLIENT_ID"),
+            ("client_secret", "NAVER_CLIENT_SECRET"),
+        ),
+        allowed_hosts=frozenset({"openapi.naver.com"}),
+        builtin=True,
+    ),
 }
 
 
 STAGED_TOKEN_ADAPTERS = frozenset(
     {
         "cablate-mcp-google-map",
+        "chanmeng666-server-google-news",
         "comet-ml-opik-mcp",
+        "isnow890-naver-search-mcp",
         "keboola-keboola-mcp-server",
     }
 )
@@ -279,6 +308,8 @@ TOKEN_SCHEMA_SHA256: dict[str, str] = {
     "cablate-mcp-google-map": "186785bce37ec786aa86bfa2b3fdfeb6918633eb309e0000de8d291d7a7650a6",
     "comet-ml-opik-mcp": "084588762fe49f9cc6be8c82e4e1b6a4eb2fc361cbf9156b792465a49d7d50b9",
     "keboola-keboola-mcp-server": "fc72f9c337b51f7ae45c6bb566256e6a7e163f98635df6bc406f15d11f027f3c",
+    "chanmeng666-server-google-news": "4b91bf5c89cf1b30de554e6bb6394d6f8a0c3c2fa906bf162319f6309f6726ae",
+    "isnow890-naver-search-mcp": "6faa94b4caad3ce9431395971416f058ad68564a8781f664f979b55e823d52ba",
 }
 
 

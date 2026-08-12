@@ -183,7 +183,7 @@ export const mcpCatalogExpansionV3 = [
     "repoUrl": "https://github.com/githejie/mcp-server-calculator",
     "category": "通用工具",
     "description": "githejie/mcp-server-calculator 🐍 🏠 - This server enables LLMs to use calculator for precise numerical calculations",
-    "readmeSummary": "githejie/mcp-server-calculator 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 planned，原因码 planned-wave26-offline-file-or-deterministic-artifact。",
+    "readmeSummary": "githejie/mcp-server-calculator 已通过 Wave 24 双源公开仓库、许可证和维护门禁；当前判定为 ready，原因码 ready-wave26a-calculator。",
     "stars": 155,
     "language": "Python",
     "verifiedAt": "2026-08-12",
@@ -192,10 +192,7 @@ export const mcpCatalogExpansionV3 = [
       "Python",
       "MIT"
     ],
-    "requirements": [
-      "sealed-workspace",
-      "external-runtime"
-    ],
+    "requirements": [],
     "usageExamples": [
       "查看 Calculator 的上游用途和当前适配判定",
       "完成对应安全门槛后再进行隔离连接和代表调用验收"
@@ -206,18 +203,17 @@ export const mcpCatalogExpansionV3 = [
     ],
     "adaptation": {
       "wave": 26,
-      "availability": "planned",
+      "availability": "ready",
       "connectionKind": "sandboxed-stdio",
       "risk": "medium",
       "requiredCapabilities": [
-        "scoped-filesystem",
         "network-disabled",
-        "artifact-cleanup",
+        "bounded-runtime-surface",
+        "schema-drift-recovery",
         "resource-limits"
       ],
       "limitations": [
-        "可继续评估断网、封存输入、确定性处理与服务端复制产物的文件子集；在路径隔离、资源限额、超时、清理和真实镜像验收前保持 planned。",
-        "当前仅登记产品身份与适配判定；没有命令、端点、凭据槽、工具策略、运行镜像或默认 allowlist，任何功能开关都不能使该条目可执行。"
+        "已冻结单一 calculate 工具、断网数值 AST、复杂度与结果上限，并通过真实 UDS、超时回收、默认拒绝和用户验收。"
       ]
     }
   },

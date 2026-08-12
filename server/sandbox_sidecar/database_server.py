@@ -20,6 +20,7 @@ from .database_contracts import (
     MAX_OUTPUT_BYTES,
     REMOTE_DATA_SERVICE_ADAPTERS,
     STAGED_DATABASE_ADAPTERS,
+    WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS,
     WORKSPACE_PATTERN,
     resolve_allowed_addresses,
     validate_configuration,
@@ -28,6 +29,7 @@ from .database_contracts import (
 )
 from .database_data_services import validate_data_service_arguments
 from .database_graph_services import validate_graph_service_arguments
+from .database_wave27 import validate_wave27_arguments
 from .engine import SandboxEngineError
 
 
@@ -101,7 +103,9 @@ def _validate_tool_arguments(adapter_id: str, tool_name: str, arguments: object)
         for field in ("filter", "projection", "sort"):
             if field in arguments and arguments[field] is not None:
                 validate_document(arguments[field])
-    if adapter_id in GRAPH_DATA_SERVICE_ADAPTERS:
+    if adapter_id in WAVE_TWENTYSEVEN_DATA_SERVICE_ADAPTERS:
+        validate_wave27_arguments(adapter_id, tool_name, arguments)
+    elif adapter_id in GRAPH_DATA_SERVICE_ADAPTERS:
         validate_graph_service_arguments(adapter_id, tool_name, arguments)
     elif adapter_id in REMOTE_DATA_SERVICE_ADAPTERS:
         validate_data_service_arguments(adapter_id, tool_name, arguments)

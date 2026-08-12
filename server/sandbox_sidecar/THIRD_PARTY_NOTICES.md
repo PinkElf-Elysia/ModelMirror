@@ -160,6 +160,31 @@ IDs are present in the production allowlist:
   local rules are represented; LLM, Agent, cloud, SQL and registry inputs are
   absent.
 
+Wave 26A stages two more independently implemented, network-free compatibility
+contracts in the file image. Neither upstream MCP package is installed, copied,
+or executed, and both IDs remain outside the production proxy and Compose
+allowlists until isolated validation and user acceptance:
+
+- MCP Server Calculator 0.2.1 (`githejie/mcp-server-calculator`), commit
+  `3dcaedcd58867206627d121092b401728db202da`: MIT. The single upstream
+  `calculate` identity is retained, but the local parser permits only a bounded
+  numeric AST and a fixed subset of Python math functions. Attributes, imports,
+  collections, comprehensions and arbitrary callables are absent.
+- ImageSorcery MCP 0.12.0 (`sunriseapps/imagesorcery-mcp`), commit
+  `2f77957a0671a5cf30d90285c7024ae229d86917`: MIT. Only path-free versions of
+  `get_metainfo`, `resize`, `crop` and `rotate` are represented using the already
+  pinned Pillow 12.3.0 dependency. The upstream package, OpenCV, imutils,
+  Ultralytics, EasyOCR, Hugging Face downloads, telemetry, configuration writes,
+  prompts, resources, detection, OCR, object finding, overlays and arbitrary
+  input/output paths are absent.
+
+pdfmux 1.8.7 (`NameetP/pdfmux`), commit
+`891e34c2d32bcbf1796dc8307e13dea1076bc2cf`, was also reviewed under MIT but
+remains planned and is not included. The reviewed Git tag reports 1.8.7 while
+the latest published PyPI artifact is 1.8.2, and its self-healing product
+identity depends on a version-sensitive multi-engine PyMuPDF extraction stack.
+ModelMirror does not substitute a generic PDF parser for that product identity.
+
 The `modelmirror-mcp-token:wave4-v1` runtime bundles the following pinned MCP
 packages and their locked transitive npm dependencies. Runtime installation and
 update checks are disabled; package license metadata is retained under
@@ -238,6 +263,21 @@ real account read-only preflight is accepted:
   `653118bc42fab00fe0268b6feaf4c4ad032dbf7c` (MIT). Only project, bucket and
   table metadata on the fixed `connection.keboola.com` stack are represented.
 
+Wave 26B adds two further default-disabled, independently implemented read-only
+compatibility contracts. Their upstream packages and source are not copied or
+executed, and neither catalog ID is in the production allowlist without a real
+provider-account acceptance run:
+
+- Google News MCP Server 1.0.0 (`ChanMeng666/server-google-news`, commit
+  `5ed14341ff6ef290e13bafa08abc12157bbe23a3`, MIT). Only the
+  `google_news_search` identity is represented on the fixed `serpapi.com`
+  endpoint. Provider topic, publication, story and section tokens are absent.
+- Naver Search MCP 1.0.50 (`isnow890/naver-search-mcp`, commit
+  `d7c7c58cab0de2692336b710727f1ee123270e6c`, MIT). Only classic Developer
+  Center web, news and blog search on `openapi.naver.com` is represented.
+  Naver API Hub, local/image/community search, shopping, DataLab and category
+  tools are absent.
+
 The `modelmirror-mcp-database:wave5-v1` image implements independent, fixed
 read-only compatibility contracts after reviewing these upstream projects. It
 does not install their MCP server packages and never downloads runtime code:
@@ -293,6 +333,21 @@ The isolated acceptance services were Milvus 2.5.21, Neo4j Enterprise
 5.26.12 and ArcadeDB 26.8.1. Those provider images and Neo4j Enterprise are
 test-only dependencies and are not copied into or distributed with the
 ModelMirror database sidecar image.
+
+The same database image contains one default-disabled Wave 27 compatibility
+contract after review of GreptimeDB MCP Server v0.5.1
+(`GreptimeTeam/greptimedb-mcp-server`, commit
+`ba3b732fe2113378f41c391da880b9ab75f2d862`), licensed under MIT. The upstream
+package and source are not copied or executed. The facade binds one database,
+table, timestamp column and value column and exposes only table description,
+a server-generated bounded range query and a constant health query. Arbitrary
+SQL/TQL, resource selection, writes, administration and dynamic endpoints are
+absent. This contract remains staged and is excluded from the default runtime
+allowlist until isolated native read-only service acceptance is complete.
+The isolated acceptance service was the official GreptimeDB v1.1.4 image at
+manifest digest
+`sha256:9726587eac95d0360755254cd59a528dbf48abfdf268478aea6a644f62afe44c`;
+that provider image is not copied into or distributed with ModelMirror.
 
 The `modelmirror-mcp-files` image also bundles GoGraph v1.5.6
 (`ozgurcd/gograph`, commit

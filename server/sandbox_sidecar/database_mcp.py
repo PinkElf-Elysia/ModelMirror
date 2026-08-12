@@ -54,6 +54,7 @@ from .database_graph_services import (
     preflight_milvus,
     preflight_neo4j,
 )
+from .database_wave27 import build_greptime, preflight_greptime
 
 
 READ_ONLY = ToolAnnotations(
@@ -1064,6 +1065,7 @@ BUILDERS = {
     "zilliztech-mcp-server-milvus": build_milvus,
     "neo4j-contrib-mcp-neo4j": build_neo4j,
     "arcadedata-arcadedb": build_arcadedb,
+    "greptimeteam-greptimedb-mcp-server": build_greptime,
 }
 
 PREFLIGHTS = {
@@ -1079,6 +1081,7 @@ PREFLIGHTS = {
     "zilliztech-mcp-server-milvus": preflight_milvus,
     "neo4j-contrib-mcp-neo4j": preflight_neo4j,
     "arcadedata-arcadedb": preflight_arcadedb,
+    "greptimeteam-greptimedb-mcp-server": preflight_greptime,
 }
 
 

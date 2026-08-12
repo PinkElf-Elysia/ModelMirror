@@ -109,7 +109,8 @@ async def test_wave18b_tool_contracts_are_frozen_and_do_not_expose_open_surfaces
 def test_wave18b_is_default_allowed_after_acceptance_and_has_narrow_workspace_formats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert STAGED_FILE_ADAPTERS == frozenset()
+    assert WAVE18B_IDS.isdisjoint(STAGED_FILE_ADAPTERS)
+    assert WAVE20_READY_IDS.isdisjoint(STAGED_FILE_ADAPTERS)
     assert WAVE18B_IDS.issubset(DEFAULT_ALLOWED_ADAPTERS)
     assert WAVE20_READY_IDS.issubset(DEFAULT_ALLOWED_ADAPTERS)
     assert WAVE18B_IDS.issubset(FILE_PROJECTS)

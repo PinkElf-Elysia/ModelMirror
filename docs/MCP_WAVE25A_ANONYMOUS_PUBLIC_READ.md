@@ -10,7 +10,7 @@ Wave 25A 从 Wave 24 的候选中复核四项匿名公共读取能力：
 - `utensils-mcp-nixos` 转为 `blocked`：固定 v3.0.0 使用的 NixOS 搜索后端对匿名访问返回 401，且上游源码包含 Basic Auth 凭据。本项目不复制该凭据、不新增凭据槽，也不更换后端冒充原产品。
 - `public_proxy.py`、public sidecar 默认 allowlist、生产 Compose allowlist 和目录运行时 manifest 只增加这三个精确 ID；没有开放其他 Wave 24 项。
 
-Wave 25B 后续又验收并晋级 Fantasy PL，因此当前 Wave 24 新增目录为 **4 ready / 42 planned / 54 blocked**，全目录为 **75 ready / 69 planned / 156 blocked**。Wave 25A 本身的三个精确 ID 和回退边界保持不变。
+Wave 25B 后续又验收并晋级 Fantasy PL；在 Wave 25B 完成时，Wave 24 新增目录为 **4 ready / 42 planned / 54 blocked**，全目录为 **75 ready / 69 planned / 156 blocked**。Wave 25A 本身的三个精确 ID 和回退边界保持不变，后续批次的晋级不改写该历史快照。
 
 ## 2. 固定身份与公开工具
 

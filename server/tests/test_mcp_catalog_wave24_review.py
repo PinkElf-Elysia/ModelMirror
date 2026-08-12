@@ -121,8 +121,8 @@ def test_wave24_review_has_no_prior_catalog_identity_or_runtime_surface() -> Non
         return set()
 
     assert Counter(item["proposed_availability"] for item in candidates) == {
-        "ready": 4,
-        "planned": 42,
+        "ready": 5,
+        "planned": 41,
         "blocked": 54,
     }
     assert all(

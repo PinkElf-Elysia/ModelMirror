@@ -408,11 +408,11 @@
         },
         "latestRelease": null
       },
-      "decision": "deferred-planned",
-      "proposed_availability": "planned",
-      "decision_reason": "可继续评估断网、封存输入、确定性处理与服务端复制产物的文件子集；在路径隔离、资源限额、超时、清理和真实镜像验收前保持 planned。",
+      "decision": "accepted-ready",
+      "proposed_availability": "ready",
+      "decision_reason": "已冻结单一 calculate 工具、断网数值 AST、复杂度与结果上限，并通过真实 UDS、超时回收、默认拒绝和用户验收。",
       "catalog_id": "githejie-mcp-server-calculator",
-      "decision_reason_code": "planned-wave26-offline-file-or-deterministic-artifact",
+      "decision_reason_code": "ready-wave26a-calculator",
       "adapter_version": "",
       "adaptation_wave": 26
     },
@@ -6924,11 +6924,11 @@
     "classified_at": "2026-08-12",
     "classified_count": 100,
     "availability": {
-      "ready": 4,
-      "planned": 42,
+      "ready": 5,
+      "planned": 41,
       "blocked": 54
     },
-    "ready_boundary": "wave25-runtime-evidence-and-user-acceptance",
+    "ready_boundary": "per-adapter-runtime-evidence-and-user-acceptance",
     "non_ready_boundary": "no-command-endpoint-credential-tool-policy-or-allowlist"
   }
 }

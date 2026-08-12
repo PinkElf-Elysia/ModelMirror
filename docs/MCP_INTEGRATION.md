@@ -83,7 +83,7 @@ Agent 画布使用 `toolset_resource -> workflow_agent` 的 `toolset` 绑定边�
 目录适配器安全默认值：
 
 - 前端不能提交 `server_command`、MCP URL、Header、环境变量名或工作目录。
-- 当前目录状态为 **75 ready / 69 planned / 156 blocked**。第二阶段新增 100 项由批次 12 纳入目录，批次 14—20 共将其中 23 项提升为 ready；Wave 23 将 Vectorize 因 MIT/ISC 许可证元数据冲突转为 blocked，并晋级三个真实复验的图数据库适配器。Wave 24 再以非执行状态导入固定 100 项；Wave 25A 的三个匿名公共读取候选和 Wave 25B 的 Fantasy PL 已通过隔离与用户验收并进入精确 allowlist，MCP-NixOS 因匿名后端依赖嵌入凭据转为 blocked。planned 与 blocked 项没有默认执行命令或端点，设置环境功能开关也不能绕过状态门槛。
+- 当前目录状态为 **76 ready / 68 planned / 156 blocked**。第二阶段新增 100 项由批次 12 纳入目录，批次 14—20 共将其中 23 项提升为 ready；Wave 23 将 Vectorize 因 MIT/ISC 许可证元数据冲突转为 blocked，并晋级三个真实复验的图数据库适配器。Wave 24 再以非执行状态导入固定 100 项；Wave 25A 的三个匿名公共读取候选和 Wave 25B 的 Fantasy PL 已通过隔离与用户验收并进入精确 allowlist，MCP-NixOS 因匿名后端依赖嵌入凭据转为 blocked；Wave 26A 又将断网 Calculator 契约精确晋级，ImageSorcery 仍为 planned。Wave 26B 的两个 Token 只读契约尚无真实账号证据；Wave 27 的 GreptimeDB 已通过原生只读服务隔离验收，但在用户批准晋级前仍为默认关闭的 staged planned。planned 与 blocked 项没有默认执行命令或端点，设置环境功能开关也不能绕过状态门槛。
 - 批次 13 的官方 Brave Search MCP Server v2.1.0 只开放 `brave_web_search` 与 `brave_local_search`。批次 14 新增官方 Kagi v1.0.2 的 `kagi_search_fetch`、`kagi_extract`，以及 arxiv-mcp-server v0.6.2 的 `search_papers`、`get_abstract` 原生只读兼容契约。批次 15 新增 Search1API v0.5.3 的 `search`、`news`、`trending`，以及 Live Tennis v1.4.0 的 8 项 FREE 层比分/赛程/目录工具；全部固定出口、工具 Schema、输出上限和服务端加密凭据槽，不运行可扩张能力的上游进程。
 - 批次 16A 复用 `mcp-public`：DuckDuckGo 只开放严格安全搜索元数据，shadcn/ui 只读取固定提交的组件目录/Git 元数据，Docker Hub 只开放匿名仓库搜索、仓库与标签元数据；三项已经人工验收并进入精确默认 allowlist。
 - 批次 16B 继续复用 `mcp-public`：BioMCP 只开放 Europe PMC、ClinicalTrials.gov 和 MyVariant.info 的公共文章/试验/变异元数据；SafeDep Vet 只接受规范化 npm/PyPI PURL，读取社区漏洞/许可证/恶意软件报告与公共 Registry 版本元数据。诊断上传、包下载或执行、SQL、任意 URL/Header/Registry 和认证租户均关闭；两项已完成人工验收并进入精确默认 allowlist。

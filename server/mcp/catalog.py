@@ -1164,6 +1164,23 @@ WAVE_TWENTY_FILE_ADAPTERS: dict[
 }
 
 
+WAVE_TWENTYSIX_FILE_ADAPTERS: dict[
+    str,
+    tuple[str, dict[str, CatalogToolPolicy], tuple[str, ...]],
+] = {
+    "githejie-mcp-server-calculator": (
+        "0.2.1-reviewed-commit-3dcaedcd-compatible-native-v1",
+        {
+            "calculate": CatalogToolPolicy(read_only=True, effect="read"),
+        },
+        (
+            "仅开放上游单一 calculate 产品身份，并使用断网、有界数值 AST 执行；不接收命令、代码、变量、路径、URL 或环境变量。",
+            "表达式长度、AST 节点/深度、幂指数、底数与结果绝对值均有硬上限；NaN、Infinity、属性访问、导入和任意函数 fail closed。",
+        ),
+    ),
+}
+
+
 WAVE_THREE_ADAPTERS: dict[str, tuple[str, dict[str, CatalogToolPolicy]]] = {
     "basic-memory-mcp": (
         "0.22.1-local-contract-v1",
@@ -3513,6 +3530,41 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
                 f"duplicate Wave 24 catalog expansion id: {adapter.project_id}"
             )
         if adapter.availability == "ready":
+            wave26_file_spec = WAVE_TWENTYSIX_FILE_ADAPTERS.get(adapter.project_id)
+            if wave26_file_spec is not None:
+                adapter_version, tool_policies, limitations = wave26_file_spec
+                manifests[adapter.project_id] = CatalogAdapterManifest(
+                    project_id=adapter.project_id,
+                    wave=adapter.adaptation_wave,
+                    availability="ready",
+                    connection_kind="sandboxed-stdio",
+                    risk="medium",
+                    required_capabilities=adapter.required_capabilities,
+                    limitations=limitations,
+                    adapter_version=adapter_version,
+                    runtime_image="modelmirror-mcp-files:wave3-v1",
+                    network_policy="disabled",
+                    filesystem_policy="read-only-empty-workspace",
+                    resource_limits=(
+                        ("cpu", "1.5 cores / 10 CPU seconds per call"),
+                        ("memory", "1 GiB sidecar cgroup"),
+                        ("processes", "maximum 4 sessions / 128 sidecar PIDs"),
+                        ("operation_timeout", "10 seconds"),
+                        ("tool_output", "64 KiB"),
+                    ),
+                    server_command=(*FILE_SANDBOX_PROXY, adapter.project_id),
+                    preparation_kind="bundled",
+                    tool_policies=tool_policies,
+                    workspace_policy=CatalogWorkspacePolicy(
+                        persistent=False,
+                        idle_ttl_seconds=24 * 60 * 60,
+                        accepted_extensions=(),
+                    ),
+                    enabled_by_default=True,
+                    operation_timeout=10.0,
+                    max_output_bytes=64 * 1024,
+                )
+                continue
             public_spec = WAVE_SIXTEEN_PUBLIC_ADAPTERS.get(adapter.project_id)
             if public_spec is None:
                 raise RuntimeError(
@@ -3552,7 +3604,9 @@ def build_catalog_manifests() -> dict[str, CatalogAdapterManifest]:
                 max_output_bytes=128 * 1024,
             )
             continue
-        if adapter.project_id in WAVE_SIXTEEN_PUBLIC_ADAPTERS:
+        if adapter.project_id in (
+            WAVE_SIXTEEN_PUBLIC_ADAPTERS | WAVE_TWENTYSIX_FILE_ADAPTERS
+        ):
             raise RuntimeError(
                 f"non-ready Wave 24 expansion has runtime contract: {adapter.project_id}"
             )

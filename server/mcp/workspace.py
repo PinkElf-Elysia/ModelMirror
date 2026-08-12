@@ -43,6 +43,7 @@ FILE_PROJECTS = {
     "haris-musa-excel-mcp-server",
     "dataeval-dingo",
     "ozgurcd-gograph",
+    "githejie-mcp-server-calculator",
 }
 
 PROJECT_EXTENSIONS: dict[str, set[str] | None] = {
@@ -67,6 +68,7 @@ PROJECT_EXTENSIONS: dict[str, set[str] | None] = {
     "haris-musa-excel-mcp-server": {".xlsx"},
     "dataeval-dingo": {".jsonl", ".json", ".csv", ".txt"},
     "ozgurcd-gograph": {".go", ".mod", ".sum", ".work"},
+    "githejie-mcp-server-calculator": set(),
 }
 
 

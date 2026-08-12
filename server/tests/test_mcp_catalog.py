@@ -371,11 +371,11 @@ def test_catalog_freezes_300_projects_and_maps_all_waves_once() -> None:
     assert sum(
         manifest.availability == "ready"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 75
+    ) == 76
     assert sum(
         manifest.availability == "planned"
         for manifest in CATALOG_ADAPTERS.values()
-    ) == 69
+    ) == 68
     assert sum(
         manifest.availability == "blocked"
         for manifest in CATALOG_ADAPTERS.values()
@@ -436,7 +436,7 @@ def test_frontend_catalog_ids_match_backend_registry_and_never_submit_commands()
     assert "server_command" not in expansion_v2_source + expansion_v3_source
     assert '"endpoint"' not in expansion_v2_source + expansion_v3_source
     assert expansion_v2_source.count('"availability": "ready"') == 26
-    assert expansion_v3_source.count('"availability": "ready"') == 4
+    assert expansion_v3_source.count('"availability": "ready"') == 5
     assert 'fetch("/api/mcp/connect"' not in card_source
     assert 'fetch("/api/mcp/install"' not in card_source
     assert not re.search(
@@ -793,12 +793,13 @@ def test_wave24_catalog_expansion_only_executes_accepted_wave25_ids(
     assert {
         status: sum(item.availability == status for item in CATALOG_EXPANSION_V3_ADAPTERS)
         for status in ("ready", "planned", "blocked")
-    } == {"ready": 4, "planned": 42, "blocked": 54}
+    } == {"ready": 5, "planned": 41, "blocked": 54}
     ready_ids = {
         "coinpaprika-dexpaprika-mcp",
         "pab1it0-chess-mcp",
         "rishijatia-fantasy-pl-mcp",
         "yuna0x0-anilist-mcp",
+        "githejie-mcp-server-calculator",
     }
     assert {
         item.project_id
@@ -808,15 +809,22 @@ def test_wave24_catalog_expansion_only_executes_accepted_wave25_ids(
     for project_id in ready_ids:
         manifest = CATALOG_ADAPTERS[project_id]
         assert manifest.availability == "ready"
-        assert manifest.enabled_by_default is False
-        assert manifest.executable is False
+        assert manifest.enabled_by_default is (
+            project_id == "githejie-mcp-server-calculator"
+        )
+        assert manifest.executable is (
+            project_id == "githejie-mcp-server-calculator"
+        )
         assert manifest.server_command[-1] == project_id
-        assert manifest.public_policy is not None
+        assert (manifest.public_policy is not None) is (
+            project_id != "githejie-mcp-server-calculator"
+        )
         assert manifest.credential_slots == ()
         assert manifest.tool_policies
         assert all(policy.effect == "read" for policy in manifest.tool_policies.values())
-        monkeypatch.setenv(manifest.feature_flag, "true")
-        assert manifest.executable is True
+        if not manifest.enabled_by_default:
+            monkeypatch.setenv(manifest.feature_flag, "true")
+            assert manifest.executable is True
     for project_id in expansion_ids - ready_ids:
         manifest = CATALOG_ADAPTERS[project_id]
         monkeypatch.setenv(manifest.feature_flag, "true")
@@ -1944,8 +1952,8 @@ async def test_catalog_api_hides_execution_details_and_rejects_planned_connect()
             assert response.status_code == 200
             payload = response.json()
             assert payload["total"] == 300
-            assert payload["ready"] == 75
-            assert payload["planned"] == 69
+            assert payload["ready"] == 76
+            assert payload["planned"] == 68
             assert payload["blocked"] == 156
             serialized = response.text.lower()
             assert "server_command" not in serialized

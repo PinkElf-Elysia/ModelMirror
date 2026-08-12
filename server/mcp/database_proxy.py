@@ -30,6 +30,7 @@ ALLOWED_ADAPTERS = {
     "zilliztech-mcp-server-milvus",
     "neo4j-contrib-mcp-neo4j",
     "arcadedata-arcadedb",
+    "greptimeteam-greptimedb-mcp-server",
 }
 REMOTE_SOCKET_PATH = Path(
     os.getenv(

@@ -7,7 +7,7 @@ Wave 25B 只选择了两项能够在固定公共域名、无凭据、纯读取�
 - `karanb192-reddit-mcp-buddy`：锁定 `v1.1.14` / commit `e2d3f3fa1ab281a1ef872eeaea86134bbad2c7ec` / MIT，只开放 `browse_subreddit`、`search_reddit`。实现只访问 `www.reddit.com` 的匿名 Atom feed，不开放任意 URL、帖子详情、用户画像、评论树或账号操作。
 - `rishijatia-fantasy-pl-mcp`：锁定 `v0.1.7` / commit `fdaef005143347455fc500cb1f934d451f95251a` / MIT，只开放 `search_fpl_players`、`get_player_information`、`list_fpl_fixtures`。实现只访问 `fantasy.premierleague.com` 官方公开 API，不开放登录、经理队伍、联赛、阵容、转会或建议工具。
 
-用户验收后，Fantasy PL 已晋级 `ready` 并加入 `public_proxy.py`、Compose 与 sidecar 三处精确默认 allowlist；Reddit Buddy 继续保持 `planned`，没有可执行 manifest 或 allowlist 入口。当前 Wave 24 新增目录为 **4 ready / 42 planned / 54 blocked**，全目录为 **75 ready / 69 planned / 156 blocked**。
+用户验收后，Fantasy PL 已晋级 `ready` 并加入 `public_proxy.py`、Compose 与 sidecar 三处精确默认 allowlist；Reddit Buddy 继续保持 `planned`，没有可执行 manifest 或 allowlist 入口。Wave 25B 完成时，Wave 24 新增目录为 **4 ready / 42 planned / 54 blocked**，全目录为 **75 ready / 69 planned / 156 blocked**；后续批次的晋级不改变本批验收结论。
 
 - Fantasy PL 已在 fresh 隔离镜像中完成两轮 initialize、tools/list、三个代表工具、拒绝未公开工具、取消超时、手动 sidecar 重启与工作目录/容器/卷精确清理，并通过用户验收。
 - Reddit Buddy 的直接匿名 Atom 调用曾成功返回三条结果，但正式烟测随后命中提供方 `HTTP 429`，再次诊断时首个 feed 调用仍受限。因此不宣称真实门槛通过，不加入 allowlist，保持 `planned` 等待上游限流窗口和代表调用重新验证。
