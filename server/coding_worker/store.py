@@ -2639,6 +2639,20 @@ class CodingWorkerStore:
                     ON worker_subtasks(parent_task_id, created_at);
                 """
             )
+            subtask_columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(worker_subtasks)"
+                ).fetchall()
+            }
+            for column, declaration in (
+                ("merge_operation_id", "TEXT"),
+                ("merged_tree_hash", "TEXT"),
+            ):
+                if column not in subtask_columns:
+                    connection.execute(
+                        f"ALTER TABLE worker_subtasks ADD COLUMN {column} {declaration}"
+                    )
 
     def _subtask(self, row: sqlite3.Row) -> SubtaskRecord:
         try:
