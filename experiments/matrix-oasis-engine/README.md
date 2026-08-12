@@ -19,11 +19,12 @@ R8 Scene Blueprint
 - Marble、自动布局和一键预览均不进入 R9；自然语言到可玩 3D 闭环仍以 R10 为退出轮次。
 - 真实 Meshy create/poll/download 不进入普通 `verify`，每个阶段都必须单独人工批准。
 
-R9 计划提供：
+R9 已提供：
 
 - `npm.cmd run plan:prototype-assets -- --prototype-dir <R8输出目录>`：离线列出资产计划，不发请求；
 - `npm.cmd run qualify:meshy-asset -- --prototype-dir <目录> --brief <id> --operation <阶段>`：只在当次批准后执行一个 Meshy 阶段；
 - `npm.cmd run materialize:prototype-assets -- --prototype-dir <目录> --acquired-dir <目录> --output <新目录>`：离线规范化并事务发布 Asset Bundle；
-- `npm.cmd run verify:prototype-assets`：只使用本地夹具和 loopback 假 Provider，零外部费用。
+- `npm.cmd run verify:prototype-assets`：只使用本地夹具和 loopback 假 Provider，零外部费用；
+- `npm.cmd run verify:prototype-assets:godot`：使用固定 Kenney 夹具离线构造资格 Scene Pack，并执行 Godot 4.6.3 import 与 headless smoke；传入三个仓外绝对目录参数时可验证已批准的真实 Asset Bundle。
 
-R9.1 只建立治理与接口边界，以上功能将在后续批次逐步落地。完整自动验证继续使用 `npm.cmd run verify`；任何父仓修改、共享栈操作或真实供应商调用都需要单独授权。
+R9 已完成真实 prop 与静态 character 的逐阶段 Meshy 资格、锁定工具链内的确定性规范化，以及固定测试布局的 Godot 显示/碰撞验证。该固定布局只用于 R9 资格，不是 R10 的通用 Blueprint 组装器。完整自动验证继续使用 `npm.cmd run verify`；任何父仓修改、共享栈操作或新的真实供应商调用仍需要单独授权。

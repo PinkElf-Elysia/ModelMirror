@@ -1,6 +1,6 @@
 # R9 验收记录
 
-状态：R9.5 已验证，等待本地提交；R9.6 Godot 图形验收与最终拆分尚未开始。
+状态：R9.6 已验证，等待本地提交；提交后仍须在最终 HEAD 重跑 standalone extraction 并记录仓外 source/split/archive 标识。
 
 固定基线：`da5fd0fe39234807ae3c4a1d543b9fd64de66d97`
 
@@ -10,8 +10,8 @@
 - [x] R9.2 Prototype Asset Bundle 合同（`8d2aa16ffcc86ee2932124b86d37bc32b4a66557`）
 - [x] R9.3 Meshy Text-to-3D 适配器（`a3289d01`）
 - [x] R9.4 GLB 规范化与事务发布（`55d09816c4c8352489eb160854dc9b8668336372`）
-- [x] R9.5 真实 Meshy 资格验证（本批提交；SHA 由 R9.6 记录）
-- [ ] R9.6 Godot 验证与验收收口
+- [x] R9.5 真实 Meshy 资格验证（`8cb859d7384fcbd7c1b7edc57ca5771a1b4a8d3c`）
+- [x] R9.6 Godot 验证与验收收口（本批提交；最终 SHA 进入仓外交付清单）
 
 ## R9.1 证据
 
@@ -70,8 +70,18 @@
 - 最终树上完整 `npm.cmd run verify` 15/15 通过：Node 601/601，strict doctor、R4–R7 Godot、Creator 247 modules build 与 HTTP smoke 全绿；boundary checked=924/tracked=922，round scope checked=50/changed=44。文档证据落盘后另行重跑 round/parent/boundary 与 `git diff --check` 作为提交门。
 - 本批没有调用 Marble、语言模型或其他供应商，没有修改 Godot、Creator、R1–R8 冻结文件、父仓或共享栈；仓外远程任务和资产不会随 Git revert 自动删除。
 
+## R9.6 证据
+
+- 新增 `verify:prototype-assets:godot` 固定布局资格门。普通模式只用冻结 mechanics、Kenney 和本地规范化器构造无费用 fixture；外部模式只接受 `C:\tmp` 下三个真实、无链接目录，核对 Blueprint/Runtime/Bundle 身份后生成 canonical Scene Pack。
+- 固定布局精确要求一个 environment、一个 prop 和一个 character-placeholder，将逻辑 placement 映射为 6 个资产、18 个物理 placement 和完整 node binding；20 次构造字节一致，拒绝扩展或缺失的资格形状。该实现不导入 Meshy provider、不联网、不修改冻结 Scene Pack、Godot 或 R8 合同。
+- 无费用 fixture 的 4/4 harness 测试、Godot 4.6.3 editor import 与 headless smoke 通过，Scene SHA-256 为 `3f9c5543408ad966aead58412ae914dc8e7f3a7bd7dc727c5bcae48c2f391b5c`。
+- 真实 R8 资格产物与 R9 Asset Bundle 在仓外组合到 `C:\tmp\matrix-oasis-r9-godot-qualification-20260811`；公开 Bundle/Scene Validator、所有文件 hash、Godot import 与 smoke 均通过，Scene SHA-256 为 `e90680988953d6af66f6c3d4e3960a5046fcb1f5bc2cafef49272ee77ed8155c`。
+- 固定帧证据只保存在 `C:\tmp\matrix-oasis-r9-capture-20260811`：Forward+、960×540、30 FPS、60 帧，readiness marker 唯一且控制台无错误。人工验收确认模板房间、真实道具、真实静态人物、碰撞、第一人称与 Action 终端工作正常。
+- 提交前锁定依赖重装 110 packages；`npm.cmd prefix` 与 `npm.cmd ls --all` 退出 0。`verify:prototype-assets`、`verify:prototype-assets:godot`、`verify:scene-pack` 以及完整 `npm.cmd run verify` 全部通过；完整门为 15/15，Node 605/605，Creator 247 modules build 与 HTTP smoke 全绿。
+- 父 client clean `npm.cmd ci --no-audit --no-fund && npm.cmd run build` 通过：安装 384 packages、Vite 转换 3,080 modules，构建后 `git status --short -- client` 为空；只有既有 esbuild allow-scripts 与大 chunk warning。最终 round/parent scope 均为 checked=49/changed=46，boundary 为 checked=926/tracked=924，冻结路径零差异且 `git diff --check` 通过。提交后的 standalone extraction 结果进入仓外交付清单；不运行父后端、Docker、共享栈或部署。
+
 ## 回退与后续
 
-R9.2–R9.5 可按逆序独立 revert：先删除资格 harness 与两项真实集成修复，再删除规范化/事务发布与精确 dev dependency，再删除 provider，最后按需删除合同 workspace；不影响 R1–R8 或 R9.1 治理。Git 回退不会删除仓外 Meshy 任务、下载物或规范化 Bundle，需按最终仓外交付清单单独处理。
+R9.2–R9.6 可按逆序独立 revert：先删除固定布局 Godot 资格门，再删除资格 harness 与两项真实集成修复，再删除规范化/事务发布与精确 dev dependency，再删除 provider，最后按需删除合同 workspace；不影响 R1–R8 或 R9.1 治理。Git 回退不会删除仓外 Meshy 任务、下载物、规范化 Bundle、Godot 资格目录或截图，需按最终仓外交付清单单独处理。
 
 最终 HEAD、split tree、archive、真实资产 hash 和仓外截图只进入交付清单，避免文档自引用或提交供应商产物。
