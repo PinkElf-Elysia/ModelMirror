@@ -139,6 +139,15 @@ const TTS_VOICE_SESSION_KEY = "modelmirror-chat-tts-voice";
 export const CHAT_SHELL_HEADER_CLASSES = "sticky top-0 h-16";
 export const CHAT_MESSAGE_COLUMN_CLASSES = "mx-auto w-full max-w-[920px]";
 export const CHAT_COMPOSER_COLUMN_CLASSES = "mx-auto w-full max-w-[1000px]";
+export const AUTO_ROUTING_GUIDANCE =
+  "描述任务后，模镜会选择实际模型，并在回答末尾给出服务、Token、成本与请求编号。可在“设置”中更改路由设置。";
+
+export function shouldShowBatchServingSettings(
+  isAutoRoute: boolean,
+  hasBatchServingVariant: boolean,
+) {
+  return !isAutoRoute && hasBatchServingVariant;
+}
 
 export function skillActivationContentUrl(skillId: string) {
   return `/api/skills/${encodeURIComponent(skillId)}/content?purpose=activate`;
@@ -1321,9 +1330,9 @@ function ChatConversationPage() {
     isOmniAutoRoute &&
     (decodedModelId === "auto/vision" ||
       decodedModelId.startsWith("auto/multimodal"));
-  const batchServingVariant = model?.serving_variants.find(
-    (variant) => variant.type === "batch",
-  );
+  const batchServingVariant = isOmniAutoRoute
+    ? undefined
+    : model?.serving_variants.find((variant) => variant.type === "batch");
   const agentInterview = useMemo<AgentInterviewPayload | null>(() => {
     const agentId = searchParams.get("agentId");
     const stored = readAgentInterview(agentId);
@@ -3945,7 +3954,7 @@ function ChatConversationPage() {
                     </h2>
                     <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
                       {isOmniAutoRoute
-                        ? "描述任务后，模镜会选择实际模型，并在回答末尾给出服务、Token、成本与请求编号。"
+                        ? AUTO_ROUTING_GUIDANCE
                         : isFederationRoute
                         ? "先由默认模型代班回答。后续路由上线后，会自动按任务挑选更合适的候选人。"
                         : agentInterview
@@ -4251,7 +4260,9 @@ function ChatConversationPage() {
       </div>
 
       <ChatOverlayDrawer
-        description="模型、服务档位、路由、工具与语音设置"
+        description={isOmniAutoRoute
+          ? "模型、智能调度、工具与语音设置"
+          : "模型、服务档位、工具与语音设置"}
         onClose={() => setTopOverlay(null)}
         open={topOverlay === "settings"}
         title="对话设置"
@@ -4288,7 +4299,71 @@ function ChatConversationPage() {
             </dl>
           </section>
 
-          {batchServingVariant ? (
+          {isOmniAutoRoute ? (
+            <section className="space-y-4 p-5">
+              <div>
+                <h3 className="text-sm font-semibold text-white">智能调度与预算</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-400">设置只作用于当前调度会话，不自动切换你的输入能力。</p>
+              </div>
+              <label className="block text-xs font-semibold text-slate-300">
+                调度模式
+                <select
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                  disabled={isSending}
+                  onChange={(event) => setRoutingMode(event.target.value as typeof routingMode)}
+                  value={routingMode}
+                >
+                  <option value="balanced">均衡</option>
+                  <option value="fast">速度优先</option>
+                  <option value="quality">质量优先</option>
+                  <option value="cheap">成本优先</option>
+                  <option value="reliable">稳定优先</option>
+                  <option value="offline">离线优先</option>
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-slate-300">
+                单次预算上限（USD，可选）
+                <input
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-brand-300/45"
+                  disabled={isSending}
+                  inputMode="decimal"
+                  min="0.000001"
+                  onChange={(event) => setRoutingBudget(event.target.value)}
+                  placeholder="例如 0.05"
+                  type="number"
+                  value={routingBudget}
+                />
+              </label>
+              <label className="block text-xs font-semibold text-slate-300">
+                超预算处理
+                <select
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                  disabled={isSending || !routingBudget.trim()}
+                  onChange={(event) => setRoutingBudgetFallback(event.target.value as typeof routingBudgetFallback)}
+                  value={routingBudgetFallback}
+                >
+                  <option value="cheapest">改用最低成本候选</option>
+                  <option value="strict">严格拒绝并返回 402</option>
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-slate-300">
+                上下文优化
+                <select
+                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
+                  disabled={isSending}
+                  onChange={(event) => setCompressionMode(event.target.value as typeof compressionMode)}
+                  value={compressionMode}
+                >
+                  <option value="auto">自动推荐</option>
+                  <option value="off">关闭</option>
+                  <option value="standard">标准</option>
+                  <option value="strong">强力</option>
+                </select>
+              </label>
+            </section>
+          ) : null}
+
+          {shouldShowBatchServingSettings(isOmniAutoRoute, Boolean(batchServingVariant)) && batchServingVariant ? (
             <section className="space-y-4 p-5">
               <div>
                 <h3 className="text-sm font-semibold text-white">服务档位</h3>
@@ -4362,70 +4437,6 @@ function ChatConversationPage() {
               </label>
             </div>
           </section>
-
-          {isOmniAutoRoute ? (
-            <section className="space-y-4 p-5">
-              <div>
-                <h3 className="text-sm font-semibold text-white">智能调度与预算</h3>
-                <p className="mt-1 text-xs leading-5 text-slate-400">设置只作用于当前调度会话，不自动切换你的输入能力。</p>
-              </div>
-              <label className="block text-xs font-semibold text-slate-300">
-                调度模式
-                <select
-                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
-                  disabled={isSending}
-                  onChange={(event) => setRoutingMode(event.target.value as typeof routingMode)}
-                  value={routingMode}
-                >
-                  <option value="balanced">均衡</option>
-                  <option value="fast">速度优先</option>
-                  <option value="quality">质量优先</option>
-                  <option value="cheap">成本优先</option>
-                  <option value="reliable">稳定优先</option>
-                  <option value="offline">离线优先</option>
-                </select>
-              </label>
-              <label className="block text-xs font-semibold text-slate-300">
-                单次预算上限（USD，可选）
-                <input
-                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-brand-300/45"
-                  disabled={isSending}
-                  inputMode="decimal"
-                  min="0.000001"
-                  onChange={(event) => setRoutingBudget(event.target.value)}
-                  placeholder="例如 0.05"
-                  type="number"
-                  value={routingBudget}
-                />
-              </label>
-              <label className="block text-xs font-semibold text-slate-300">
-                超预算处理
-                <select
-                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
-                  disabled={isSending || !routingBudget.trim()}
-                  onChange={(event) => setRoutingBudgetFallback(event.target.value as typeof routingBudgetFallback)}
-                  value={routingBudgetFallback}
-                >
-                  <option value="cheapest">改用最低成本候选</option>
-                  <option value="strict">严格拒绝并返回 402</option>
-                </select>
-              </label>
-              <label className="block text-xs font-semibold text-slate-300">
-                上下文优化
-                <select
-                  className="mt-2 min-h-11 w-full rounded-xl border border-white/10 bg-ink-950/85 px-3 text-sm text-white outline-none focus:border-brand-300/45"
-                  disabled={isSending}
-                  onChange={(event) => setCompressionMode(event.target.value as typeof compressionMode)}
-                  value={compressionMode}
-                >
-                  <option value="auto">自动推荐</option>
-                  <option value="off">关闭</option>
-                  <option value="standard">标准</option>
-                  <option value="strong">强力</option>
-                </select>
-              </label>
-            </section>
-          ) : null}
 
           <section>
             <div className="px-5 pt-5">

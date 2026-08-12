@@ -3,21 +3,20 @@ import { Link } from "react-router-dom";
 import { useModelPreference } from "../context/ModelPreferenceContext";
 import type { FileSurfaceSummary } from "../data/fileCapabilities";
 import {
+  type InputModality,
   type Model,
   type ModelOperation,
 } from "../data/models";
-import {
-  getRecruitmentTag,
-  getTalentStats,
-} from "../theme/recruitmentTheme";
 import {
   buildFriendlyTalentIntro,
   deriveProviderFromModel,
   getFriendlyJobCapabilityLabel,
 } from "../utils/userFriendlyText";
+import FeaturedModelCard from "./FeaturedModelCard";
 
 interface ModelCardProps {
   model: Model;
+  featured?: boolean;
   compareSelected?: boolean;
   compareDisabled?: boolean;
   onCompareChange?: (modelId: string, selected: boolean) => void;
@@ -88,56 +87,17 @@ export function deriveDocumentInputPresentation(
   };
 }
 
-const tagStyles: Record<string, string> = {
-  历史: "border-amber-300/30 bg-amber-300/10 text-amber-100",
-  精选: "border-brand-300/30 bg-brand-300/10 text-brand-100",
-  新: "border-accent-300/30 bg-accent-300/10 text-accent-100",
-  热门: "border-emerald-300/30 bg-emerald-300/10 text-emerald-100",
-  多模态: "border-fuchsia-300/30 bg-fuchsia-300/10 text-fuchsia-100",
-  开源: "border-amber-300/30 bg-amber-300/10 text-amber-100",
-  免费: "border-lime-300/30 bg-lime-300/10 text-lime-100",
-  动态计费: "border-sky-300/30 bg-sky-300/10 text-sky-100",
-};
-
 function formatCnyPrice(priceCnyPerMillion: number) {
   return `¥${priceCnyPerMillion.toFixed(2)}`;
 }
 
-const domesticProviderKeywords = [
-  "DeepSeek",
-  "Qwen",
-  "Alibaba",
-  "Moonshot",
-  "Zhipu",
-  "GLM",
-  "Baichuan",
-  "MiniMax",
-  "StepFun",
-  "Tencent",
-  "Yi",
-  "01.AI",
-];
-
-const restrictedProviderKeywords = [
-  "OpenAI",
-  "Anthropic",
-  "xAI",
-  "Google",
-  "Meta",
-  "Mistral",
-];
-
-function includesProviderKeyword(identity: string, keywords: string[]) {
-  const normalizedIdentity = identity.toLowerCase();
-
-  return keywords.some((keyword) =>
-    normalizedIdentity.includes(keyword.toLowerCase()),
-  );
-}
-
-function modelIdentity(model: Model, providerName: string) {
-  return `${model.id} ${model.provider} ${providerName} ${model.model_author}`;
-}
+const inputModalityLabels: Record<InputModality, string> = {
+  text: "文本",
+  image: "图片",
+  audio: "音频",
+  video: "视频",
+  file: "文件",
+};
 
 function formatContextLength(contextLength: number) {
   if (contextLength >= 1_000_000) {
@@ -166,6 +126,7 @@ const operationLabels: Record<ModelOperation, string> = {
 
 const ModelCard = memo(function ModelCard({
   model,
+  featured = false,
   compareSelected = false,
   compareDisabled = false,
   onCompareChange,
@@ -189,17 +150,8 @@ const ModelCard = memo(function ModelCard({
       ? (audioCapabilityStatus?.pricePerGenerationUsd ?? null)
       : null;
   const hasAudioGenerationPrice = audioGenerationPriceUsd !== null;
-  const talentStats = getTalentStats(model);
   const providerName = deriveProviderFromModel(model);
   const personaDescription = buildFriendlyTalentIntro(model);
-  const identity = modelIdentity(model, providerName);
-  const domesticFriendly = includesProviderKeyword(
-    identity,
-    domesticProviderKeywords,
-  );
-  const regionSensitive =
-    !domesticFriendly &&
-    includesProviderKeyword(identity, restrictedProviderKeywords);
   const isUncertain = model.catalog_status === "uncertain";
   const batchVariant = model.serving_variants.find(
     (variant) => variant.type === "batch",
@@ -382,13 +334,151 @@ const ModelCard = memo(function ModelCard({
               }
             : null;
 
+  if (featured) {
+    const providerKey = `${providerName} ${model.model_author}`.toLowerCase();
+    const providerMark = providerKey.includes("openai") ? (
+      <span className="flex h-full w-full items-center justify-center bg-white p-1.5">
+        <img
+          alt="OpenAI"
+          className="h-full w-full object-contain"
+          src="/brand/openai-blossom.svg"
+        />
+      </span>
+    ) : providerKey.includes("anthropic") ? (
+      <span className="flex h-full w-full items-center justify-center bg-[#FAF9F5] p-1.5">
+        <img
+          alt="Anthropic"
+          className="h-full w-full object-contain"
+          src="/brand/anthropic-symbol-slate.svg"
+        />
+      </span>
+    ) : (
+      <span aria-hidden="true" className="text-sm font-black text-hire-100">
+        {providerName.slice(0, 2).toUpperCase()}
+      </span>
+    );
+    const featuredName = model.name.replace(/^[^:：]+[:：]\s*/, "");
+    const featuredPriceLabel = isDynamicPricing
+      ? "动态计费"
+      : isFree
+        ? "免费"
+        : `${formatCnyPrice(model.price_cny.input)} / 1M tokens`;
+    const featuredTasks = model.job_capabilities.slice(0, 5);
+    const featuredInputLabels = model.input_modalities
+      .slice(0, 5)
+      .map((modality) => inputModalityLabels[modality]);
+    const featuredActionClass =
+      "inline-flex min-h-9 items-center justify-center rounded-md border border-hire-300/55 bg-hire-300/10 px-3 text-sm font-semibold text-hire-100 transition hover:bg-hire-300/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-hire-200/60";
+    const featuredAction = canGenerateWorld ? (
+      <Link className={featuredActionClass} to={`/chat/${encodeURIComponent(model.id)}`}>
+        生成 3D 世界
+      </Link>
+    ) : canGenerateImage ? (
+      <Link className={featuredActionClass} to={`/chat/${encodeURIComponent(model.id)}?operation=generate_image`}>
+        生成图片
+      </Link>
+    ) : canGenerateVideo ? (
+      <Link className={featuredActionClass} to={`/chat/${encodeURIComponent(model.id)}?operation=generate_video`}>
+        生成视频
+      </Link>
+    ) : canAnalyzeVideo ? (
+      <Link className={featuredActionClass} to={`/chat/${encodeURIComponent(model.id)}?operation=analyze_video`}>
+        分析视频
+      </Link>
+    ) : canOpenRealtimeVoice ? (
+      <Link className={featuredActionClass} to={`/chat/${encodeURIComponent(model.id)}?operation=realtime_voice`}>
+        {realtimeVoiceReady ? "实时语音" : "配置语音"}
+      </Link>
+    ) : showGeneralChatAction ? (
+      <Link
+        className={featuredActionClass}
+        onClick={() => {
+          if (model.primary_operation === "chat") setPreferredModelId(model.id);
+        }}
+        to={primaryChatPath}
+      >
+        立即面试
+      </Link>
+    ) : canUseInRag ? (
+      <Link className={featuredActionClass} to="/rag">
+        用于资料库
+      </Link>
+    ) : (
+      <button className={`${featuredActionClass} cursor-not-allowed opacity-55`} disabled type="button">
+        交互待适配
+      </button>
+    );
+
+    return (
+      <FeaturedModelCard
+        badge="旗舰推荐"
+        description={personaDescription}
+        footerAction={featuredAction}
+        inputLabels={featuredInputLabels}
+        mark={providerMark}
+        name={featuredName}
+        pricingLabel={featuredPriceLabel}
+        providerLabel={providerName}
+        providerMark={providerMark}
+        subtitle={`${model.series || "通用系列"} · ${operationLabel}`}
+        taskLabels={featuredTasks.map(getFriendlyJobCapabilityLabel)}
+        taskOverflow={Math.max(0, model.job_capabilities.length - featuredTasks.length)}
+        topAction={
+          operationalStatus ? (
+            <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${operationalStatus.className}`}>
+              {operationalStatus.label}
+            </span>
+          ) : (
+            <button
+              aria-label={`${compareSelected ? "移出" : "加入"} ${model.name} 对比`}
+              aria-pressed={compareSelected}
+              className="min-h-8 rounded-full border border-white/15 bg-black/15 px-3 text-xs font-semibold text-slate-200 transition hover:border-hire-200/50 hover:text-hire-100 disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={compareDisabled && !compareSelected}
+              onClick={() => onCompareChange?.(model.id, !compareSelected)}
+              type="button"
+            >
+              {compareSelected ? "已加入对比" : "加入对比"}
+            </button>
+          )
+        }
+      />
+    );
+  }
+
   return (
-    <article className="group relative isolate flex h-full min-h-[340px] flex-col overflow-hidden rounded-lg border border-hire-300/20 bg-ink-950/76 p-0 shadow-prism backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/90 hover:shadow-[0_0_0_1px_rgba(251,146,60,0.32),0_20px_46px_rgba(124,45,18,0.22)]">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[linear-gradient(110deg,rgba(251,146,60,0.20),rgba(253,186,116,0.12),transparent)] opacity-80 transition duration-300 group-hover:opacity-100" />
+    <article
+      className={`group relative isolate flex h-full min-h-[340px] flex-col overflow-hidden rounded-lg border p-0 backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-1 hover:border-hire-300/55 hover:bg-surface-900/90 hover:shadow-[0_0_0_1px_rgba(251,146,60,0.32),0_20px_46px_rgba(124,45,18,0.22)] ${
+        featured
+          ? "border-hire-200/45 bg-[linear-gradient(160deg,rgba(39,21,26,0.94),rgba(5,15,34,0.94)_56%,rgba(12,39,54,0.86))] shadow-[0_0_0_1px_rgba(253,186,116,0.16),0_8px_8px_rgba(0,0,0,0.26)]"
+          : "border-hire-300/20 bg-ink-950/76 shadow-prism"
+      }`}
+    >
+      <div
+        className={`pointer-events-none absolute inset-x-0 top-0 h-28 transition duration-300 group-hover:opacity-100 ${
+          featured
+            ? "bg-[radial-gradient(circle_at_18%_12%,rgba(253,186,116,0.28),transparent_38%),linear-gradient(110deg,rgba(251,146,60,0.18),rgba(36,217,255,0.08),transparent)] opacity-100"
+            : "bg-[linear-gradient(110deg,rgba(251,146,60,0.20),rgba(253,186,116,0.12),transparent)] opacity-80"
+        }`}
+      />
       <div className="pointer-events-none absolute right-0 top-0 h-full w-1/3 bg-[linear-gradient(180deg,rgba(251,146,60,0.14),transparent_48%,rgba(124,58,237,0.10))] opacity-70" />
 
-      <div className="relative border-b border-hire-300/20 bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))] px-5 py-4">
-        <div className="flex items-center justify-between gap-3">
+      <div
+        className={`relative border-b border-hire-300/20 px-5 py-4 ${
+          featured
+            ? "bg-[linear-gradient(90deg,rgba(251,146,60,0.30),rgba(253,186,116,0.12),rgba(36,217,255,0.12))]"
+            : "bg-[linear-gradient(90deg,rgba(251,146,60,0.24),rgba(253,186,116,0.10),rgba(36,217,255,0.08))]"
+        }`}
+      >
+        <div
+          className={`flex items-center gap-3 ${
+            featured ? "justify-between" : "justify-start"
+          }`}
+        >
+          {featured ? (
+            <span className="inline-flex min-h-8 items-center rounded-full border border-hire-100/40 bg-hire-200/15 px-3 text-xs font-semibold text-hire-50">
+              旗舰推荐
+            </span>
+          ) : null}
           {operationalStatus ? (
             <span
               className={`rounded-full border px-3 py-1 text-xs font-semibold ${operationalStatus.className}`}
@@ -408,31 +498,26 @@ const ModelCard = memo(function ModelCard({
               {compareSelected ? "已加入对比" : "加入对比"}
             </button>
           )}
-          <span className="text-xs font-medium text-hire-100">
-            人气值 {talentStats.popularity}
-          </span>
         </div>
       </div>
 
-      <div className="relative flex items-start justify-between gap-4 p-5 pb-0">
-        <div className="min-w-0">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-hire-300/35 bg-hire-300/10 px-2.5 py-1 text-xs font-semibold text-hire-100 shadow-[0_0_18px_rgba(251,146,60,0.08)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-hire-300" />
-            我来自 {providerName}
-          </span>
-            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs text-slate-300">
-              毕业院校：{model.series || "通用系列"}
-            </span>
+      <div className="relative p-5 pb-0">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-hire-300/35 bg-hire-300/10 px-2.5 py-1 text-xs font-semibold text-hire-100 shadow-[0_0_18px_rgba(251,146,60,0.08)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-hire-300" />
+                我来自 {providerName}
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs text-slate-300">
+                毕业院校：{model.series || "通用系列"}
+              </span>
+            </div>
+            <h2 className="line-clamp-2 text-lg font-semibold leading-6 text-white">
+              {model.name}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">候选人编号：{model.id}</p>
           </div>
-          <h2 className="line-clamp-2 text-lg font-semibold leading-6 text-white">
-            {model.name}
-          </h2>
-          <p className="mt-1 text-xs text-slate-500">候选人编号：{model.id}</p>
-          <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-300">
-            {personaDescription}
-          </p>
-        </div>
 
         {canAnalyzeImage ||
         canGenerateImage ||
@@ -610,9 +695,44 @@ const ModelCard = memo(function ModelCard({
               : "交互待适配"}
           </button>
         )}
+        </div>
+
+        <div className="mt-5 grid gap-4 border-t border-white/10 pt-4 sm:grid-cols-2">
+          <section aria-label="可完成任务">
+            <p className="text-xs font-semibold text-hire-100">可完成任务</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {model.job_capabilities.slice(0, 4).map((capability) => (
+                <span
+                  className="inline-flex min-h-8 items-center justify-center rounded-full border border-violet-300/25 bg-violet-300/[0.08] px-2.5 text-xs font-medium text-violet-100"
+                  key={capability}
+                >
+                  {getFriendlyJobCapabilityLabel(capability)}
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <section aria-label="可接收输入">
+            <p className="text-xs font-semibold text-hire-100">可接收输入</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {model.input_modalities.map((modality) => (
+                <span
+                  className="inline-flex min-h-8 items-center justify-center rounded-full border border-cyan-300/25 bg-cyan-300/[0.08] px-2.5 text-xs font-medium text-cyan-100"
+                  key={modality}
+                >
+                  {inputModalityLabels[modality]}
+                </span>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <p className="mt-4 line-clamp-2 text-sm leading-6 text-slate-300">
+          {personaDescription}
+        </p>
       </div>
 
-      <div className="relative mt-5 flex flex-wrap gap-2 px-5">
+      <div className="relative mt-4 flex flex-wrap gap-2 px-5">
         <span
           className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
             isInteractionReady
@@ -687,32 +807,9 @@ const ModelCard = memo(function ModelCard({
                 : " · 当前未启用"}
             </span>
           ))}
-        {model.tags
-          .filter(
-            (tag) => !(hasAudioGenerationPrice && tag === "免费"),
-          )
-          .map((tag) => (
-          <span
-            className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-              tagStyles[tag] ?? "border-white/10 bg-white/[0.06] text-slate-300"
-            }`}
-            key={tag}
-          >
-            {getRecruitmentTag(tag)}
-          </span>
-        ))}
         {batchVariant ? (
           <span className="rounded-full border border-sky-300/30 bg-sky-300/10 px-2.5 py-1 text-xs font-medium text-sky-100">
             支持批处理
-          </span>
-        ) : null}
-        {domesticFriendly ? (
-          <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2.5 py-1 text-xs font-medium text-emerald-100">
-            国内可用优先
-          </span>
-        ) : regionSensitive ? (
-          <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-medium text-amber-100">
-            当前地区可能不可用
           </span>
         ) : null}
       </div>
@@ -730,38 +827,8 @@ const ModelCard = memo(function ModelCard({
         </p>
       ) : null}
 
-      <div className="relative mx-5 mt-5 rounded-lg border border-white/10 bg-white/[0.045] p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-          <p className="text-[11px] text-slate-400">
-            {hasAudioGenerationPrice ? "单次生成费用" : "期望薪资"}
-          </p>
-          <p
-            className={`text-right text-sm font-semibold ${
-              hasAudioGenerationPrice
-                ? "text-hire-100"
-                : isFree
-                ? "text-lime-100"
-                : isDynamicPricing
-                  ? "text-sky-100"
-                  : "text-white"
-            }`}
-          >
-            {hasAudioGenerationPrice
-              ? `约 $${audioGenerationPriceUsd.toFixed(2)} / 次`
-              : isFree
-              ? "当前免费"
-              : isDynamicPricing
-                ? "按实际调用计费"
-                : `${formatCnyPrice(model.price_cny.input)} / ${formatCnyPrice(model.price_cny.output)}`}
-            {!hasAudioGenerationPrice && !isFree && !isDynamicPricing ? (
-              <span className="ml-1 text-xs font-normal text-slate-400">
-                输入/输出
-              </span>
-            ) : null}
-          </p>
-        </div>
-
-        <div className="mt-3 grid grid-cols-3 gap-3">
+      <div className="relative mx-5 mb-5 mt-4 rounded-lg border border-white/10 bg-white/[0.045] p-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
             <p className="text-[11px] text-slate-400">
               {hasAudioGenerationPrice ? "目录估算" : "输入薪资"}
@@ -809,23 +876,6 @@ const ModelCard = memo(function ModelCard({
             </p>
           </div>
         </div>
-      </div>
-
-      <div className="relative mx-5 mt-auto flex items-center justify-between gap-3 border-t border-white/10 pb-5 pt-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {model.job_capabilities.slice(0, 4).map((capability) => (
-            <span
-              className="inline-flex h-8 items-center justify-center rounded-md border border-white/10 bg-white/[0.06] px-2 text-xs font-semibold text-slate-300 transition group-hover:border-brand-300/30 group-hover:bg-brand-300/10 group-hover:text-brand-100"
-              key={capability}
-              title={`岗位能力：${getFriendlyJobCapabilityLabel(capability)}`}
-            >
-              {getFriendlyJobCapabilityLabel(capability)}
-            </span>
-          ))}
-        </div>
-        <p className="shrink-0 text-xs text-slate-500">
-          已录用 {talentStats.hiredCount} 次
-        </p>
       </div>
 
       {model.note ? (

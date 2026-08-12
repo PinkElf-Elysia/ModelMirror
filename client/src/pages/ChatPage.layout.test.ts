@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_ROUTING_GUIDANCE,
   CHAT_COMPOSER_COLUMN_CLASSES,
   CHAT_MESSAGE_COLUMN_CLASSES,
   CHAT_SHELL_HEADER_CLASSES,
+  shouldShowBatchServingSettings,
   skillActivationContentUrl,
 } from "./ChatPage";
 
@@ -35,5 +37,12 @@ describe("ChatPage conversation-first shell", () => {
     expect(skillActivationContentUrl("skill id/with spaces")).toBe(
       "/api/skills/skill%20id%2Fwith%20spaces/content?purpose=activate",
     );
+  });
+
+  it("keeps Auto routing guidance and excludes inherited batch settings", () => {
+    expect(AUTO_ROUTING_GUIDANCE).toContain("可在“设置”中更改路由设置。");
+    expect(shouldShowBatchServingSettings(true, true)).toBe(false);
+    expect(shouldShowBatchServingSettings(false, true)).toBe(true);
+    expect(shouldShowBatchServingSettings(false, false)).toBe(false);
   });
 });
