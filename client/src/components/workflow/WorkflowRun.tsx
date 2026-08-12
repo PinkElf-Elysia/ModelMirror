@@ -77,6 +77,10 @@ interface RuntimeRunCheckpoint {
 interface WorkflowRunProps {
   definition: WorkflowDefinition;
   embedded?: boolean;
+  fileInputFocusRequest?: {
+    requestId: number;
+    variableName: string;
+  } | null;
   onRunStart?: () => void;
 }
 
@@ -465,6 +469,7 @@ function buildRunSteps(events: WorkflowRunEvent[]) {
 export default function WorkflowRun({
   definition,
   embedded = false,
+  fileInputFocusRequest = null,
   onRunStart,
 }: WorkflowRunProps) {
   const { status: skillCreatorStatus } = useSkillCreatorStatus();
@@ -490,8 +495,9 @@ export default function WorkflowRun({
     Record<string, RuntimeRunCheckpoint[]>
   >({});
   const [runCheckpointsLoading, setRunCheckpointsLoading] = useState(false);
-  const [fileCapability, setFileCapability] =
-    useState<WorkflowFileCapability | null>(null);
+  const [fileCapabilities, setFileCapabilities] = useState<
+    WorkflowFileCapability[]
+  >([]);
   const [fileCapabilityLoading, setFileCapabilityLoading] = useState(false);
   const [fileCapabilityError, setFileCapabilityError] = useState("");
   const [fileSelections, setFileSelections] = useState<
@@ -505,8 +511,20 @@ export default function WorkflowRun({
   const [workflowFileListError, setWorkflowFileListError] = useState("");
   const [workflowFileListNotice, setWorkflowFileListNotice] = useState("");
   const [deletingWorkflowAssetId, setDeletingWorkflowAssetId] = useState("");
+  const fileInputCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const workflowFileListGeneration = useRef(0);
   const workflowOutputGeneration = useRef(0);
+
+  useEffect(() => {
+    if (!fileInputFocusRequest) return;
+    const frame = window.requestAnimationFrame(() => {
+      const card = fileInputCardRefs.current[fileInputFocusRequest.variableName];
+      if (!card) return;
+      card.scrollIntoView?.({ block: "nearest" });
+      card.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [fileInputFocusRequest]);
 
   const inputVariable = useMemo(() => {
     const inputNode = definition.nodes.find((node) => node.data.kind === "input");
@@ -516,21 +534,59 @@ export default function WorkflowRun({
       : "user_input";
   }, [definition.nodes]);
 
+  const fileAssetKinds = useMemo(() => {
+    const values = new Map<string, "document" | "visual_analysis">();
+    definition.nodes.forEach((node) => {
+      if (
+        node.data.kind !== "document_extractor" &&
+        node.data.kind !== "vision_understanding"
+      ) return;
+      const variable =
+        typeof node.data.assetIdVariable === "string"
+          ? node.data.assetIdVariable.trim()
+          : "";
+      if (!variable) return;
+      values.set(
+        variable,
+        node.data.kind === "vision_understanding" ? "visual_analysis" : "document",
+      );
+    });
+    return values;
+  }, [definition.nodes]);
+
   const fileAssetVariables = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          definition.nodes
-            .filter((node) => node.data.kind === "document_extractor")
-            .map((node) =>
-              typeof node.data.assetIdVariable === "string"
-                ? node.data.assetIdVariable.trim()
-                : "",
-            )
-            .filter(Boolean),
-        ),
-      ),
-    [definition.nodes],
+    () => Array.from(fileAssetKinds.keys()),
+    [fileAssetKinds],
+  );
+
+  const fileCapabilityForVariable = useCallback(
+    (variableName: string) =>
+      fileCapabilities.find(
+        (item) => item.input_kind === fileAssetKinds.get(variableName),
+      ) ?? null,
+    [fileAssetKinds, fileCapabilities],
+  );
+
+  const fileAcceptForVariable = useCallback(
+    (variableName: string) =>
+      fileCapabilityForVariable(variableName)?.formats
+        .filter((format) => format.interaction_status === "ready")
+        .flatMap((format) => format.extensions)
+        .join(",") ?? "",
+    [fileCapabilityForVariable],
+  );
+
+  const fileFormatAllowedForVariable = useCallback(
+    (variableName: string, format: string) =>
+      fileCapabilityForVariable(variableName)?.formats.some(
+        (item) =>
+          item.interaction_status === "ready" &&
+          item.extensions.some(
+            (extension) =>
+              extension.replace(/^\./, "").toLowerCase() === format.toLowerCase(),
+          ),
+      ) ?? false,
+    [fileCapabilityForVariable],
   );
 
   const fileScopeId = useMemo(
@@ -603,7 +659,7 @@ export default function WorkflowRun({
 
   useEffect(() => {
     if (fileAssetVariables.length === 0) {
-      setFileCapability(null);
+      setFileCapabilities([]);
       setFileCapabilityError("");
       setFileCapabilityLoading(false);
       return;
@@ -622,17 +678,18 @@ export default function WorkflowRun({
             apiErrorMessage(payload, "无法读取工作流文件能力。"),
           );
         }
-        const capability = payload.capabilities.find(
-          (item) => item.input_kind === "document",
+        const requiredKinds = new Set(fileAssetKinds.values());
+        const capabilities = payload.capabilities.filter((item) =>
+          requiredKinds.has(item.input_kind as "document" | "visual_analysis"),
         );
-        if (!capability) {
+        if (capabilities.length !== requiredKinds.size) {
           throw new Error("工作流文件能力尚未登记。");
         }
-        if (active) setFileCapability(capability);
+        if (active) setFileCapabilities(capabilities);
       })
       .catch((caught) => {
         if (!active) return;
-        setFileCapability(null);
+        setFileCapabilities([]);
         setFileCapabilityError(
           caught instanceof Error ? caught.message.trim() : "无法读取工作流文件能力。",
         );
@@ -644,22 +701,19 @@ export default function WorkflowRun({
     return () => {
       active = false;
     };
-  }, [fileAssetVariables.length]);
+  }, [fileAssetKinds, fileAssetVariables.length]);
 
   const workflowFileInputEnabled =
-    fileCapability?.interaction_status === "ready";
+    fileAssetVariables.length > 0 &&
+    fileAssetVariables.every(
+      (variableName) =>
+        fileCapabilityForVariable(variableName)?.interaction_status === "ready",
+    );
   const workflowFileDisabledReason =
     fileCapabilityError ||
-    fileCapability?.status_reason ||
+    fileCapabilities.find((item) => item.interaction_status !== "ready")
+      ?.status_reason ||
     (fileCapabilityLoading ? "正在读取文件能力..." : "工作流文件资产当前未启用。");
-  const workflowFileAccept = useMemo(
-    () =>
-      fileCapability?.formats
-        .filter((format) => format.interaction_status === "ready")
-        .flatMap((format) => format.extensions)
-        .join(",") ?? "",
-    [fileCapability],
-  );
   const workflowFilesReady = fileAssetVariables.every(
     (variable) => fileSelections[variable]?.asset?.status === "ready",
   );
@@ -788,6 +842,7 @@ export default function WorkflowRun({
     const uploadScopeId = fileScopeId;
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
+    const fileCapability = fileCapabilityForVariable(variableName);
     if (!file || !workflowFileInputEnabled || !fileCapability) return;
     if (file.size > fileCapability.max_bytes_per_file) {
       setFileSelections((current) => ({
@@ -816,6 +871,10 @@ export default function WorkflowRun({
       const body = new FormData();
       body.append("purpose", "workflow");
       body.append("scope_id", fileScopeId);
+      body.append(
+        "input_kind",
+        fileAssetKinds.get(variableName) ?? "document",
+      );
       body.append("file", file);
       const response = await fetch("/api/files", {
         method: "POST",
@@ -1202,15 +1261,20 @@ export default function WorkflowRun({
               const asset = selection?.asset;
               return (
                 <div
-                  className="rounded-md border border-white/10 bg-white/[0.035] px-3 py-2.5"
+                  aria-label={`${variableName} 文件资产`}
+                  className="rounded-md border border-white/10 bg-white/[0.035] px-3 py-2.5 outline-none transition focus:border-cyan-300/50 focus:ring-2 focus:ring-cyan-300/20"
                   key={variableName}
+                  ref={(element) => {
+                    fileInputCardRefs.current[variableName] = element;
+                  }}
+                  tabIndex={-1}
                 >
                   <p className="truncate font-mono text-[11px] text-slate-300">
                     {variableName}
                   </p>
                   <select
                     aria-label={`${variableName} 已有文件`}
-                    className="mt-2 min-h-11 w-full rounded-md border border-white/10 bg-slate-950/60 px-2.5 py-1.5 text-xs text-white outline-none transition focus:border-hire-300/45 disabled:cursor-not-allowed disabled:text-slate-500"
+                    className="modelmirror-form-control mt-2 min-h-11 w-full rounded-md border border-white/10 bg-slate-950/60 px-2.5 py-1.5 text-xs text-white outline-none transition focus:border-hire-300/45 disabled:cursor-not-allowed disabled:text-slate-500"
                     disabled={
                       !workflowFileInputEnabled ||
                       workflowFileListLoading ||
@@ -1224,11 +1288,15 @@ export default function WorkflowRun({
                     value={asset?.asset_id ?? ""}
                   >
                     <option value="">选择已有文件</option>
-                    {workflowFileAssets.map((item) => (
+                    {workflowFileAssets
+                      .filter((item) =>
+                        fileFormatAllowedForVariable(variableName, item.format),
+                      )
+                      .map((item) => (
                       <option key={item.asset_id} value={item.asset_id}>
                         {item.display_name} · {item.format.toUpperCase()}
                       </option>
-                    ))}
+                      ))}
                   </select>
                   {asset ? (
                     <p className="mt-1.5 truncate text-[11px] text-slate-400">
@@ -1245,7 +1313,7 @@ export default function WorkflowRun({
                     >
                       {selection?.busy ? "上传中" : "上传新文件"}
                       <input
-                        accept={workflowFileAccept}
+                        accept={fileAcceptForVariable(variableName)}
                         aria-label={`为 ${variableName} 上传新文件`}
                         className="sr-only"
                         disabled={

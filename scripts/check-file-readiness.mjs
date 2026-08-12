@@ -68,6 +68,12 @@ function assertBackendRegistryWiring(source, label) {
   assert(/get_file_format_registry/.test(source), `${label} does not resolve formats from the shared file registry`);
 }
 
+function assertVisionServiceWiring(adapter, service) {
+  assert(/multimodal\.vision_understanding/.test(adapter), "RAG vision adapter does not import the shared multimodal service");
+  assert(/class\s+VisionUnderstandingService\(GenericVisionUnderstandingService\)/.test(adapter), "RAG vision adapter does not extend the shared multimodal service");
+  assertBackendRegistryWiring(service, "server/multimodal/vision_understanding.py");
+}
+
 function assertFrontendRegistryWiring(source, label, purpose) {
   assert(/fileCapabilities/.test(source), `${label} does not import the shared file capability helper`);
   assert(/fetchFileCapabilities/.test(source), `${label} does not load the shared file capability API`);
@@ -134,6 +140,8 @@ function assertWorkflowFileWiring({
   assert(/\/api\/files\?purpose=workflow/.test(workflowRun), "WorkflowRun does not list scope-bound file assets");
   assert(/\.append\(["']purpose["'],\s*["']workflow["']\)/.test(workflowRun), "WorkflowRun does not upload workflow file assets");
   assert(/assetIdVariable/.test(workflowRun), "WorkflowRun does not bind uploaded asset IDs to workflow inputs");
+  assert(/visual_analysis/.test(workflowRun), "WorkflowRun does not request the visual analysis file policy");
+  assert(/vision_understanding/.test(workflowRun), "WorkflowRun does not discover vision node asset variables");
   assert(/sourcePathVariable/.test(workflowEditor), "WorkflowEditor does not preserve the legacy path compatibility field");
   assert(/assetIdVariable/.test(workflowEditor), "WorkflowEditor does not author the asset ID contract");
   assert(/WORKFLOW_FILE_ASSETS_ENABLED/.test(workflowNodeRegistry), "workflow node registry does not apply the feature gate");
@@ -281,6 +289,7 @@ async function main() {
     reportSource,
     ragParser,
     ragVisionProcessor,
+    sharedVisionService,
     ragPage,
     dataxService,
     dataxPage,
@@ -303,6 +312,7 @@ async function main() {
     fs.readFile(REPORT_PATH, "utf8"),
     fs.readFile(path.resolve("server/rag/document_parser.py"), "utf8"),
     fs.readFile(path.resolve("server/rag/vision_processor.py"), "utf8"),
+    fs.readFile(path.resolve("server/multimodal/vision_understanding.py"), "utf8"),
     fs.readFile(path.resolve("client/src/pages/RagPage.tsx"), "utf8"),
     fs.readFile(path.resolve("server/datax/service.py"), "utf8"),
     fs.readFile(path.resolve("client/src/pages/DataXProjectPage.tsx"), "utf8"),
@@ -327,7 +337,7 @@ async function main() {
   await assertEvidencePaths(report);
 
   assertBackendRegistryWiring(ragParser, "server/rag/document_parser.py");
-  assertBackendRegistryWiring(ragVisionProcessor, "server/rag/vision_processor.py");
+  assertVisionServiceWiring(ragVisionProcessor, sharedVisionService);
   assertBackendRegistryWiring(dataxService, "server/datax/service.py");
   assertBackendRegistryWiring(xpertApi, "server/xperts/api.py");
   assertFrontendRegistryWiring(ragPage, "client/src/pages/RagPage.tsx", "rag");
@@ -366,7 +376,7 @@ async function main() {
     reviewed_at: report.reviewed_at,
     summary: counts,
     wiring: {
-      backend: ["chat.document", "rag.document", "rag.vision", "datax.source", "agent.context", "workflow.document"],
+      backend: ["chat.document", "rag.document", "shared.vision", "rag.vision", "datax.source", "agent.context", "workflow.document", "workflow.vision"],
       frontend: ["chat", "rag", "datax", "agent", "workflow"],
       runtime_report_test: "server/tests/test_file_assets.py",
     },

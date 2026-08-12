@@ -42,6 +42,8 @@ NODE_KIND_ALIASES = {
     "knowledge-citation": "knowledge_citation",
     "document_extractor": "document_extractor",
     "document-extractor": "document_extractor",
+    "vision_understanding": "vision_understanding",
+    "vision-understanding": "vision_understanding",
     "human_intervention": "human_intervention",
     "human-intervention": "human_intervention",
     "human-in-the-loop": "human_intervention",
@@ -110,6 +112,7 @@ SUPPORTED_NODE_KINDS = {
     "knowledge_retrieval",
     "knowledge_citation",
     "document_extractor",
+    "vision_understanding",
     "human_intervention",
     "question_classifier",
     "agent",
@@ -1143,6 +1146,98 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="invalid_document_extractor_output_variable",
                     message="Document extractor outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind == "vision_understanding":
+        asset_id_variable = str(data.get("assetIdVariable") or "").strip()
+        if not asset_id_variable:
+            issues.append(
+                ValidationIssue(
+                    code="missing_vision_asset_id_variable",
+                    message="Vision understanding needs data.assetIdVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(asset_id_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_vision_asset_id_variable",
+                    message="Vision assetIdVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        if not str(data.get("visionModelId") or "").strip():
+            issues.append(
+                ValidationIssue(
+                    code="missing_vision_model_id",
+                    message="Vision understanding needs data.visionModelId.",
+                    node_id=node.id,
+                )
+            )
+        page_strategy = str(data.get("pdfPageStrategy") or "auto").strip()
+        if page_strategy not in {"auto", "all", "scanned_only"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_vision_pdf_page_strategy",
+                    message=(
+                        "Vision pdfPageStrategy must be auto, all, or scanned_only."
+                    ),
+                    node_id=node.id,
+                )
+            )
+        failure_policy = str(
+            data.get("failurePolicy") or "continue_on_error"
+        ).strip()
+        if failure_policy not in {"continue_on_error", "strict"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_vision_failure_policy",
+                    message=(
+                        "Vision failurePolicy must be continue_on_error or strict."
+                    ),
+                    node_id=node.id,
+                )
+            )
+        try:
+            max_pages = int(data.get("maxPages") or 100)
+        except (TypeError, ValueError):
+            max_pages = 0
+        if max_pages < 1 or max_pages > 200:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_vision_max_pages",
+                    message="Vision maxPages must be between 1 and 200.",
+                    node_id=node.id,
+                )
+            )
+        try:
+            max_image_edge = int(data.get("maxImageEdge") or 2048)
+        except (TypeError, ValueError):
+            max_image_edge = 0
+        if max_image_edge < 512 or max_image_edge > 4096:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_vision_max_image_edge",
+                    message="Vision maxImageEdge must be between 512 and 4096.",
+                    node_id=node.id,
+                )
+            )
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if not output_variable:
+            issues.append(
+                ValidationIssue(
+                    code="missing_vision_output_variable",
+                    message="Vision understanding needs data.outputVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(output_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_vision_output_variable",
+                    message="Vision outputVariable must be an identifier.",
                     node_id=node.id,
                 )
             )
@@ -2667,6 +2762,7 @@ def collect_declared_variables(
             "knowledge_retrieval",
             "knowledge_citation",
             "document_extractor",
+            "vision_understanding",
             "human_intervention",
             "question_classifier",
             "agent",
@@ -2894,6 +2990,10 @@ def validate_variable_references(
                     node_id=node.id,
                 )
             )
+
+    if kind == "vision_understanding":
+        # assetIdVariable is supplied explicitly by the scoped file selector.
+        pass
 
     if kind == "human_intervention":
         prompt = str(data.get("prompt") or "")

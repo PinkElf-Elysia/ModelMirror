@@ -422,7 +422,16 @@ export default function XpertChatPage() {
   const fileUploadEnabled = versionFeatures?.file_upload.enabled ?? true;
   const maxFilesPerRun = versionFeatures?.file_upload.max_files_per_run ?? 5;
   const allowedFileExtensions = (
-    versionFeatures?.file_upload.allowed_extensions ?? [".txt", ".md", ".markdown", ".pdf"]
+    versionFeatures?.file_upload.allowed_extensions ?? [
+      ".txt",
+      ".md",
+      ".markdown",
+      ".pdf",
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+    ]
   ).map((item) => item.startsWith(".") ? item.toLowerCase() : `.${item.toLowerCase()}`);
   const fileAccept = allowedFileExtensions.join(",");
   const skillCaptureEnabled = Boolean(

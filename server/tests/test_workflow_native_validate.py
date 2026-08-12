@@ -634,6 +634,57 @@ async def test_validate_document_extractor_legacy_path_is_read_only_warning(
 
 
 @pytest.mark.asyncio
+async def test_validate_vision_understanding_contract(
+    client: httpx.AsyncClient,
+) -> None:
+    workflow = linear_workflow()
+    workflow["nodes"][1] = {
+        "id": "vision",
+        "type": "vision_understanding",
+        "data": {
+            "kind": "vision_understanding",
+            "assetIdVariable": "selected_file_asset_id",
+            "visionModelId": "openai/gpt-4.1-mini",
+            "pdfPageStrategy": "auto",
+            "maxPages": 100,
+            "maxImageEdge": 2048,
+            "failurePolicy": "continue_on_error",
+            "outputVariable": "vision_result",
+        },
+    }
+    workflow["nodes"][2]["data"]["outputVariable"] = "vision_result"
+    workflow["edges"] = [
+        {"id": "e1", "source": "input", "target": "vision"},
+        {"id": "e2", "source": "vision", "target": "output"},
+    ]
+
+    data = await validate(client, workflow)
+
+    assert data["valid"] is True
+
+    workflow["nodes"][1]["data"].update(
+        {
+            "visionModelId": "",
+            "pdfPageStrategy": "random",
+            "maxPages": 201,
+            "maxImageEdge": 128,
+            "failurePolicy": "ignore",
+        }
+    )
+    data = await validate(client, workflow)
+    codes = issue_codes(data)
+
+    assert data["valid"] is False
+    assert {
+        "missing_vision_model_id",
+        "invalid_vision_pdf_page_strategy",
+        "invalid_vision_max_pages",
+        "invalid_vision_max_image_edge",
+        "invalid_vision_failure_policy",
+    }.issubset(codes)
+
+
+@pytest.mark.asyncio
 async def test_validate_human_intervention_required_fields(
     client: httpx.AsyncClient,
 ) -> None:

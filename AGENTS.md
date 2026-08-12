@@ -523,7 +523,11 @@ MCP 原生集成属于后端进程管理和工具执行能力，开发时必须�
 - Classic workflow 的知识分类只承载消费能力；数据源、Processor、分块、Embedding、索引、策略、评测和版本管理由 `/rag` 独占，不得以占位 stage 重新进入工作流节点库。
 - 新建 `knowledge_retrieval` 必须使用 `contractVersion=2` 并显式配置 `knowledgeBaseId`。节点只调用 `RagService.search_knowledge`，不得额外生成 RAG 回答；`result` 模式保留 typed object，`context` 模式返回纯文本。
 - `knowledge_citation` 仅用于旧图加载和执行兼容，不得重新进入节点库或 Planner。旧节点缺失知识库 ID 时，只能在恰有一个可用知识库时兼容；零个或多个必须 fail-closed。
+- `vision_understanding` 只执行一次性图片或扫描 PDF 理解，不得创建 RAG Job、Chunk、索引或知识版本。私有 Workflow 只能读取 `workflow:<workflow_id>` 作用域，Xpert/Goal/Handoff 只能读取运行元数据中显式共享的附件。
+- 视觉节点必须显式选择支持图片输入的模型，并遵守图片像素、PDF 页数、输出正文与失败策略上限。公开 App 因不提供附件上传而必须在部署预检中拒绝该节点。
+- 通用视觉底层位于 `server/multimodal/`；RAG 视觉处理器只能作为 DocumentBlock 适配层复用它，不得重新分叉 VLM 请求、图片校验或 PDF 渲染实现。
 - 修改工作流知识消费至少运行 `test_workflow_knowledge_retrieval_v2.py`、`test_workflow_knowledge_citation_node.py`、`test_workflow_native_validate.py`、节点 registry 测试和前端构建。
+- 修改工作流视觉理解至少运行 `test_workflow_vision_understanding.py`、`test_rag_vision.py`、`test_file_asset_api.py`、`test_xpert_app_api.py`、节点 registry/validate 测试和前端构建。
 - 模型写入只能生成 `KnowledgeWriteProposal`，不得直接修改知识库。`/rag/:kbId/inbox` 是唯一正式审批入口；pending 编辑必须使用 revision 乐观并发。
 - 批准提议只能创建受管文档和候选 Pipeline Job，不得自动激活。提议候选必须标记 `promotion_required=true`，通过 Evaluation Gate 后才能由 `/promote` 切换活动版本。
 - 批准创建 Job 失败必须回滚受管文档并保持提议 pending；拒绝不得创建文档、Job 或候选版本。

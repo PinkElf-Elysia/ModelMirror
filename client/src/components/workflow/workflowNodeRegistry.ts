@@ -336,6 +336,13 @@ export const knowledgePipelineItems: WorkflowPaletteItem[] = [
     description: "检索指定知识库的活动版本并输出文本或类型化结果。",
     tags: ["rag", "knowledge", "retrieval"],
   },
+  {
+    kind: "vision_understanding",
+    icon: "VISION",
+    title: "视觉理解",
+    description: "读取私有运行显式共享的图片或扫描 PDF，输出类型化视觉结果。",
+    tags: ["vision", "ocr", "image", "pdf", "typed-value"],
+  },
 ];
 
 export const knowledgePipelinePlaceholders: WorkflowPalettePlaceholder[] = [];

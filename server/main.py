@@ -865,6 +865,7 @@ try:
     )
     from server.multimodal.chat_attachments import ClaimedChatAttachment
     from server.multimodal.stt import MultimodalServiceError
+    from server.multimodal.vision_understanding import VisionUnderstandingService
 except ModuleNotFoundError:
     from multimodal import router as multimodal_router
     from multimodal.api import (
@@ -875,6 +876,20 @@ except ModuleNotFoundError:
     )
     from multimodal.chat_attachments import ClaimedChatAttachment
     from multimodal.stt import MultimodalServiceError
+    from multimodal.vision_understanding import VisionUnderstandingService
+
+try:
+    from server.xpert_runtime.workflow_vision import (
+        WorkflowVisionError,
+        execute_workflow_vision,
+        resolve_workflow_vision_asset,
+    )
+except ModuleNotFoundError:
+    from xpert_runtime.workflow_vision import (
+        WorkflowVisionError,
+        execute_workflow_vision,
+        resolve_workflow_vision_asset,
+    )
 
 load_dotenv()
 
@@ -1121,6 +1136,9 @@ workflow_draft_toolset_test_provider = DraftMCPToolTestProvider(toolset_service)
 xpert_context_store = get_xpert_context_store()
 workflow_memory_provider = MemoryToolsetProvider(xpert_context_store)
 workflow_knowledge_provider = KnowledgeToolsetProvider(get_rag_service)
+workflow_vision_service = VisionUnderstandingService(
+    before_request=lambda: charge_execution_step("model_call")
+)
 
 
 async def run_external_xpert_resource_tool(
@@ -3930,6 +3948,7 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "knowledge_retrieval",
         "knowledge_citation",
         "document_extractor",
+        "vision_understanding",
         "human_intervention",
         "question_classifier",
         "agent",
@@ -4315,6 +4334,16 @@ class WorkflowDocumentFatalError(RuntimeError):
 
 class WorkflowKnowledgeFatalError(RuntimeError):
     """Stable, content-free fatal error for knowledge consumption nodes."""
+
+    def __init__(self, node_id: str, error_code: str, safe_message: str) -> None:
+        super().__init__(safe_message)
+        self.node_id = node_id
+        self.error_code = error_code
+        self.safe_message = safe_message
+
+
+class WorkflowVisionFatalError(RuntimeError):
+    """Stable, content-free fatal error for vision_understanding nodes."""
 
     def __init__(self, node_id: str, error_code: str, safe_message: str) -> None:
         super().__init__(safe_message)
@@ -5161,7 +5190,7 @@ async def prepare_published_xpert_run(
     reference: str,
     payload: XpertRunRequest,
     *,
-    extra_inputs: dict[str, str] | None = None,
+    extra_inputs: dict[str, WorkflowValue] | None = None,
     handoff_depth: int = 0,
     shared_file_owner_xpert_id: str | None = None,
     shared_file_conversation_id: str | None = None,
@@ -5362,6 +5391,10 @@ async def prepare_published_xpert_run(
         ),
         "xpert_memory_context_conversation": render_memory_context(
             conversation_memories
+        ),
+        "selected_file_asset_ids": [item.asset_id for item in selected_files],
+        "selected_file_asset_id": (
+            selected_files[0].asset_id if selected_files else None
         ),
         **dict(extra_inputs or {}),
     }
@@ -10349,6 +10382,128 @@ async def _run_workflow_response(
                             "Knowledge citation failed.",
                         ) from None
 
+                elif kind == "vision_understanding":
+                    try:
+                        output_variable = str(
+                            node.data.get("outputVariable") or "vision_result"
+                        ).strip()
+                        asset_id_variable = str(
+                            node.data.get("assetIdVariable") or ""
+                        ).strip()
+                        model_id = str(
+                            node.data.get("visionModelId") or ""
+                        ).strip()
+                        if re.fullmatch(
+                            r"[A-Za-z_][A-Za-z0-9_]*", asset_id_variable
+                        ) is None:
+                            raise WorkflowVisionFatalError(
+                                node.id,
+                                "workflow_vision_asset_variable_invalid",
+                                "Vision understanding requires a valid attachment variable.",
+                            )
+                        if re.fullmatch(
+                            r"[A-Za-z_][A-Za-z0-9_]*", output_variable
+                        ) is None:
+                            raise WorkflowVisionFatalError(
+                                node.id,
+                                "workflow_vision_output_variable_invalid",
+                                "Vision understanding requires a valid output variable.",
+                            )
+                        if not model_id:
+                            raise WorkflowVisionFatalError(
+                                node.id,
+                                "workflow_vision_model_required",
+                                "Select an image-input model before running this node.",
+                            )
+                        if not await model_supports_image_input(model_id):
+                            raise WorkflowVisionFatalError(
+                                node.id,
+                                "workflow_vision_model_unavailable",
+                                "The selected model is not currently available for image input.",
+                            )
+                        asset_id = workflow_value_to_text(
+                            variables.get(asset_id_variable, "")
+                        ).strip()
+                        asset = await asyncio.to_thread(
+                            resolve_workflow_vision_asset,
+                            asset_id=asset_id,
+                            workflow_id=payload.workflow.id,
+                            runtime_run_type=runtime_run_type,
+                            runtime_metadata=dict(
+                                task_state.get("runtime_metadata") or {}
+                            ),
+                            file_asset_service=get_file_asset_service(),
+                            xpert_context_store=xpert_context_store,
+                        )
+                        result_payload, result = await execute_workflow_vision(
+                            asset=asset,
+                            model_id=model_id,
+                            pdf_page_strategy=str(
+                                node.data.get("pdfPageStrategy") or "auto"
+                            ),
+                            max_pages=int(node.data.get("maxPages") or 100),
+                            max_image_edge=int(
+                                node.data.get("maxImageEdge") or 2048
+                            ),
+                            failure_policy=str(
+                                node.data.get("failurePolicy")
+                                or "continue_on_error"
+                            ),
+                            service=workflow_vision_service,
+                        )
+                        variables[output_variable] = result_payload
+                        await run_registry.record_checkpoint(
+                            workflow_run.run_id,
+                            event_type="workflow.vision.completed",
+                            title="Vision understanding completed",
+                            summary=(
+                                f"asset_id={asset.asset_id}; "
+                                f"pages={result.processed_page_count}; "
+                                f"blocks={len(result_payload['blocks'])}"
+                            ),
+                            metadata={
+                                "node_id": node.id,
+                                "asset_id": asset.asset_id,
+                                "model_id": model_id,
+                                "selected_page_count": result.selected_page_count,
+                                "processed_page_count": result.processed_page_count,
+                                "failed_page_count": result.failed_page_count,
+                                "block_count": len(result_payload["blocks"]),
+                            },
+                        )
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": (
+                                    f"Visual analysis completed: "
+                                    f"{result.processed_page_count} page(s), "
+                                    f"{len(result_payload['blocks'])} block(s)."
+                                ),
+                                "variable": output_variable,
+                            }
+                        )
+                    except WorkflowVisionFatalError:
+                        raise
+                    except WorkflowVisionError as exc:
+                        raise WorkflowVisionFatalError(
+                            node.id,
+                            exc.error_code,
+                            exc.message,
+                        ) from None
+                    except Exception as exc:
+                        logger.warning(
+                            "Workflow vision_understanding node failed: %s",
+                            type(exc).__name__,
+                        )
+                        raise WorkflowVisionFatalError(
+                            node.id,
+                            "workflow_vision_failed",
+                            "Vision understanding failed safely.",
+                        ) from None
+
                 elif kind == "document_extractor":
                     try:
                         output_variable = str(
@@ -14150,6 +14305,64 @@ async def _run_workflow_response(
                     "message": exc.safe_message,
                 }
             )
+        except WorkflowVisionFatalError as exc:
+            failure_error = f"{exc.error_code}: {exc.safe_message}"
+            logger.warning(
+                "Workflow vision node failed workflow=%s node=%s code=%s",
+                payload.workflow.id,
+                exc.node_id,
+                exc.error_code,
+            )
+            try:
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="failed",
+                    error=failure_error,
+                )
+                await run_registry.record_checkpoint(
+                    workflow_run.run_id,
+                    event_type="workflow.vision.failed",
+                    title="Vision understanding failed",
+                    summary=exc.error_code,
+                    severity="error",
+                    metadata={
+                        "node_id": exc.node_id,
+                        "error_code": exc.error_code,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to update workflow vision failure status",
+                    exc_info=True,
+                )
+            try:
+                workflow_execution_store.fail(task_id, error=failure_error)
+                workflow_execution_store.append_event(
+                    task_id,
+                    {
+                        "event": "error",
+                        "task_id": task_id,
+                        "run_id": workflow_run.run_id,
+                        "node_id": exc.node_id,
+                        "code": exc.error_code,
+                        "message": exc.safe_message,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist workflow vision failure",
+                    exc_info=True,
+                )
+            yield sse_payload(
+                {
+                    "event": "error",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "node_id": exc.node_id,
+                    "code": exc.error_code,
+                    "message": exc.safe_message,
+                }
+            )
         except WorkflowDocumentFatalError as exc:
             failure_error = f"{exc.error_code}: {exc.safe_message}"
             logger.warning(
@@ -17024,6 +17237,35 @@ async def list_workflow_node_registry():
     """Return Xpert-style workflow node palette metadata."""
 
     return workflow_node_registry.to_payload()
+
+
+@app.get("/api/workflow/vision-capabilities", response_model=dict[str, Any])
+async def get_workflow_vision_capabilities():
+    """Return safe visual limits and currently invocable image-input models."""
+
+    capabilities = workflow_vision_service.capabilities()
+    try:
+        catalog = await get_image_catalog_service().get_catalog()
+        models = [
+            {
+                "model_id": profile.model_id,
+                "label": profile.display_name,
+            }
+            for profile in catalog.profiles
+            if profile.operation == "analyze_image"
+            and profile.invocable
+            and profile.interaction_status == "ready"
+        ]
+        gateway_status = catalog.status
+    except Exception:
+        logger.warning("Workflow vision model catalog unavailable", exc_info=True)
+        models = []
+        gateway_status = "offline"
+    return {
+        **capabilities,
+        "gateway_status": gateway_status,
+        "models": models,
+    }
 
 
 @app.get("/api/workflow/resource-options", response_model=dict[str, Any])

@@ -15,6 +15,7 @@ import {
   type EdgeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DEFAULT_CHAT_MODEL_ID } from "../../context/ModelPreferenceContext";
@@ -285,6 +286,21 @@ function createNodeData(
       description: "从当前工作流作用域的文件资产中提取纯文本。",
       assetIdVariable: "document_asset_id",
       outputVariable: "document_text",
+    };
+  }
+
+  if (kind === "vision_understanding") {
+    return {
+      kind,
+      title: "视觉理解",
+      description: "理解显式共享的图片或扫描 PDF，并输出类型化视觉结果。",
+      assetIdVariable: "selected_file_asset_id",
+      visionModelId: "",
+      pdfPageStrategy: "auto",
+      maxPages: 100,
+      maxImageEdge: 2048,
+      failurePolicy: "continue_on_error",
+      outputVariable: "vision_result",
     };
   }
 
@@ -672,7 +688,7 @@ function Field({
 }
 
 function textInputClass() {
-  return "w-full rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10";
+  return "modelmirror-form-control w-full rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-brand-300/50 focus:ring-4 focus:ring-brand-300/10";
 }
 
 function runtimeMiddlewareFieldValue(
@@ -2136,6 +2152,7 @@ interface NodeConfigProps {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   onSelectNode: (nodeId: string) => void;
+  onOpenRunFileInput: (variableName: string) => void;
 }
 
 function NodeConfig({
@@ -2145,12 +2162,17 @@ function NodeConfig({
   nodes,
   edges,
   onSelectNode,
+  onOpenRunFileInput,
 }: NodeConfigProps) {
   const [registryTools, setRegistryTools] = useState<RegistryToolOption[]>([]);
   const [registryToolsError, setRegistryToolsError] = useState("");
   const [publishedXperts, setPublishedXperts] = useState<XpertSummary[]>([]);
   const [publishedXpertsError, setPublishedXpertsError] = useState("");
   const [installedSkills, setInstalledSkills] = useState<TrustSelectableSkill[]>([]);
+  const [visionModels, setVisionModels] = useState<
+    Array<{ model_id: string; label: string }>
+  >([]);
+  const [visionCapabilityError, setVisionCapabilityError] = useState("");
   const [clientHosts, setClientHosts] = useState<Array<{
     host_id: string;
     name: string;
@@ -2234,10 +2256,34 @@ function NodeConfig({
       }
     }
 
+    async function loadVisionCapabilities() {
+      try {
+        const response = await fetch("/api/workflow/vision-capabilities");
+        const payload = (await response.json()) as {
+          models?: Array<{ model_id: string; label: string }>;
+        };
+        if (!response.ok || !Array.isArray(payload.models)) {
+          throw new Error("视觉模型目录暂不可用。");
+        }
+        if (!cancelled) {
+          setVisionModels(payload.models);
+          setVisionCapabilityError("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setVisionModels([]);
+          setVisionCapabilityError(
+            error instanceof Error ? error.message : "视觉模型目录暂不可用。",
+          );
+        }
+      }
+    }
+
     void loadRegistryTools();
     void loadPublishedXperts();
     void loadClientHosts();
     void loadInstalledSkills();
+    void loadVisionCapabilities();
 
     return () => {
       cancelled = true;
@@ -2665,6 +2711,120 @@ function NodeConfig({
               </Field>
             </>
           )}
+          <Field label="输出变量">
+            <input
+              className={textInputClass()}
+              onChange={(event) => update({ outputVariable: event.target.value })}
+              value={data.outputVariable ?? ""}
+            />
+          </Field>
+        </>
+      ) : null}
+
+      {data.kind === "vision_understanding" ? (
+        <>
+          <div className="rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-xs leading-5 text-cyan-50">
+            运行前为附件变量选择图片或 PDF。节点只读取当前私有运行显式共享的附件，不会创建知识索引。
+          </div>
+          <Field label="附件资产变量">
+            <input
+              className={textInputClass()}
+              onChange={(event) => update({ assetIdVariable: event.target.value })}
+              value={data.assetIdVariable ?? ""}
+            />
+          </Field>
+          <div>
+            <button
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/[0.03] disabled:text-slate-500"
+              disabled={!String(data.assetIdVariable ?? "").trim()}
+              onClick={() =>
+                onOpenRunFileInput(String(data.assetIdVariable ?? "").trim())
+              }
+              type="button"
+            >
+              <Upload aria-hidden="true" className="h-4 w-4" />
+              上传或选择运行附件
+            </button>
+            <p className="mt-1.5 text-xs leading-5 text-slate-500">
+              附件按本次运行选择，不会把文件正文写入节点草稿。
+            </p>
+          </div>
+          <Field label="视觉模型">
+            <select
+              className={textInputClass()}
+              onChange={(event) => update({ visionModelId: event.target.value })}
+              value={data.visionModelId ?? ""}
+            >
+              <option value="">选择支持图片输入的模型</option>
+              {visionModels.map((model) => (
+                <option key={model.model_id} value={model.model_id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {visionCapabilityError ? (
+            <p className="text-xs leading-5 text-amber-200">
+              {visionCapabilityError}
+            </p>
+          ) : null}
+          <Field label="PDF 页面策略">
+            <select
+              className={textInputClass()}
+              onChange={(event) =>
+                update({
+                  pdfPageStrategy: event.target.value as
+                    | "auto"
+                    | "all"
+                    | "scanned_only",
+                })
+              }
+              value={data.pdfPageStrategy ?? "auto"}
+            >
+              <option value="auto">自动选择</option>
+              <option value="scanned_only">仅扫描页</option>
+              <option value="all">全部页面</option>
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="最大页数">
+              <input
+                className={textInputClass()}
+                max={200}
+                min={1}
+                onChange={(event) => update({ maxPages: event.target.value })}
+                type="number"
+                value={data.maxPages ?? 100}
+              />
+            </Field>
+            <Field label="最大图像边长">
+              <input
+                className={textInputClass()}
+                max={4096}
+                min={512}
+                onChange={(event) => update({ maxImageEdge: event.target.value })}
+                step={128}
+                type="number"
+                value={data.maxImageEdge ?? 2048}
+              />
+            </Field>
+          </div>
+          <Field label="失败策略">
+            <select
+              className={textInputClass()}
+              onChange={(event) =>
+                update({
+                  failurePolicy: event.target.value as
+                    | "continue_on_error"
+                    | "strict",
+                })
+              }
+              value={data.failurePolicy ?? "continue_on_error"}
+            >
+              <option value="continue_on_error">保留成功页面</option>
+              <option value="strict">任一失败即停止</option>
+            </select>
+          </Field>
           <Field label="输出变量">
             <input
               className={textInputClass()}
@@ -3482,6 +3642,11 @@ interface WorkflowCanvasProps {
 
 type WorkflowWorkspaceTab = "config" | "run";
 
+interface WorkflowFileInputFocusRequest {
+  requestId: number;
+  variableName: string;
+}
+
 function WorkflowCanvas({
   workflowId,
   initialDefinition: controlledDefinition,
@@ -3507,11 +3672,22 @@ function WorkflowCanvas({
   const [isNodePaletteOpen, setIsNodePaletteOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab] =
     useState<WorkflowWorkspaceTab>("config");
+  const [fileInputFocusRequest, setFileInputFocusRequest] =
+    useState<WorkflowFileInputFocusRequest | null>(null);
   const [runtimeMiddlewareRegistry, setRuntimeMiddlewareRegistry] = useState<
     RuntimeMiddlewareNode[]
   >([]);
   const { screenToFlowPosition } = useReactFlow();
   const navigate = useNavigate();
+
+  const openRunFileInput = useCallback((variableName: string) => {
+    if (!variableName) return;
+    setFileInputFocusRequest((current) => ({
+      requestId: (current?.requestId ?? 0) + 1,
+      variableName,
+    }));
+    setWorkspaceTab("run");
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -4154,6 +4330,7 @@ function WorkflowCanvas({
               nodes={nodes}
               onChange={updateNodeData}
               onRuntimeMiddlewareConfigChange={updateRuntimeMiddlewareConfig}
+              onOpenRunFileInput={openRunFileInput}
               onSelectNode={setSelectedNodeId}
             />
           </div>
@@ -4169,6 +4346,7 @@ function WorkflowCanvas({
           <WorkflowRun
             definition={definition}
             embedded
+            fileInputFocusRequest={fileInputFocusRequest}
             onRunStart={() => setWorkspaceTab("run")}
           />
         </div>

@@ -138,6 +138,7 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
     has_plugin_resource = False
     has_toolset_resource = False
     has_agent_table = False
+    has_vision_understanding = False
     toolset_resource_issues: list[dict[str, str]] = []
     datax_project_ids: set[str] = set()
     datax_model_ids: set[str] = set()
@@ -175,6 +176,8 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
             "data_table_delete",
         }:
             has_agent_table = True
+        if kind == "vision_understanding":
+            has_vision_understanding = True
         if kind == "external_xpert":
             has_external_xpert = True
             has_tool_call = True
@@ -359,6 +362,16 @@ def _deployment_preflight(version: XpertVersion, policy: XpertAppPolicy) -> dict
                 "code": "app_agent_table_forbidden",
                 "message": (
                     "Public Xpert Apps cannot deploy private Agent Table nodes."
+                ),
+            }
+        )
+    if has_vision_understanding:
+        issues.append(
+            {
+                "code": "app_vision_understanding_forbidden",
+                "message": (
+                    "Public Xpert Apps cannot deploy vision understanding nodes "
+                    "because public attachment upload is disabled."
                 ),
             }
         )

@@ -39,6 +39,7 @@ from .validation import validate_xpert_definition
 try:
     from server.file_assets.contracts import FileInputKind, FilePurpose
     from server.file_assets.registry import get_file_format_registry
+    from server.multimodal.vision_understanding import SUPPORTED_IMAGE_EXTENSIONS
     from server.data_tables.api import get_agent_table_store
     from server.rag.api import get_rag_service
     from server.plugins.registry import get_plugin_store
@@ -50,6 +51,7 @@ try:
 except ModuleNotFoundError:
     from file_assets.contracts import FileInputKind, FilePurpose
     from file_assets.registry import get_file_format_registry
+    from multimodal.vision_understanding import SUPPORTED_IMAGE_EXTENSIONS
     from data_tables.api import get_agent_table_store
     from rag.api import get_rag_service
     from plugins.registry import get_plugin_store
@@ -766,7 +768,7 @@ def preview_xpert_for_publish(
             FilePurpose.AGENT,
             FileInputKind.DOCUMENT,
         )
-    )
+    ) | set(SUPPORTED_IMAGE_EXTENSIONS)
     configured_extensions = {
         (
             value.strip().lower()

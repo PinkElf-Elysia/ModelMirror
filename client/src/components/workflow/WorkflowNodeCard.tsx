@@ -79,6 +79,13 @@ const nodeMeta = {
     bg: "bg-slate-300/10",
     text: "text-slate-100",
   },
+  vision_understanding: {
+    icon: "VIS",
+    label: "视觉理解",
+    border: "border-cyan-300/40",
+    bg: "bg-cyan-300/10",
+    text: "text-cyan-100",
+  },
   human_intervention: {
     icon: "👤",
     label: "人工工位",
@@ -284,6 +291,9 @@ function outputName(data: WorkflowNode["data"]) {
     const sourceVariable = data.assetIdVariable ?? data.sourcePathVariable;
     const sourceKind = data.assetIdVariable ? "asset" : "legacy path";
     return `${sourceKind}: ${sourceVariable ?? "未配置"} -> ${data.outputVariable ?? "document_text"}`;
+  }
+  if (data.kind === "vision_understanding") {
+    return `${data.assetIdVariable ?? "visual_asset_id"} · ${data.pdfPageStrategy ?? "auto"} -> ${data.outputVariable ?? "vision_result"}`;
   }
   if (data.kind === "human_intervention") {
     return `等待输入 -> ${data.outputVariable ?? "human_input"}`;

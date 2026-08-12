@@ -162,6 +162,13 @@ async def test_xpert_api_create_validate_publish_and_list_versions(
     validation_response = await client.post(f"/api/xperts/{xpert['id']}/validate")
     assert validation_response.status_code == 200
     assert validation_response.json()["valid"] is True
+    assert set(xpert["draft"]["features"]["file_upload"]["allowed_extensions"]) >= {
+        ".pdf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+    }
 
     publish_response = await client.post(
         f"/api/xperts/{xpert['id']}/publish",

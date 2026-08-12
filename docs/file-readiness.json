@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-08-09",
+  "reviewed_at": "2026-08-11",
   "summary_unit": "module_format_operation",
   "scope": {
     "modules": [
@@ -738,6 +738,57 @@
             "single_process_runtime_claim"
           ],
           "status_reason": "固定 workflow:{workflow_id} 作用域、asset_id 变量与真实上传/选择入口已完成；功能默认关闭，需显式启用。运行 claim 当前适用于单进程服务。"
+        },
+        {
+          "module": "workflow",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "workflow.vision_understanding",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {
+            "max_input_bytes": 10485760,
+            "max_pages": 200,
+            "max_pixels": 40000000,
+            "timeout_seconds": 90
+          },
+          "security_controls": [
+            "workflow_scope_binding",
+            "explicit_asset_sharing",
+            "opaque_asset_id",
+            "image_decode_validation",
+            "pixel_and_page_limits",
+            "explicit_model_selection",
+            "pathless_typed_output",
+            "public_app_denied"
+          ],
+          "evidence": {
+            "implementation": [
+              "server/multimodal/vision_understanding.py",
+              "server/xpert_runtime/workflow_vision.py",
+              "server/main.py",
+              "server/file_assets/service.py"
+            ],
+            "ui": [
+              "client/src/components/workflow/WorkflowRun.tsx",
+              "client/src/components/workflow/WorkflowEditor.tsx"
+            ],
+            "tests": [
+              "server/tests/test_workflow_vision_understanding.py",
+              "server/tests/test_file_asset_api.py"
+            ],
+            "security_tests": [
+              "server/tests/test_workflow_vision_understanding.py",
+              "server/tests/test_xpert_app_api.py"
+            ]
+          },
+          "known_gaps": [
+            "real_provider_acceptance_required"
+          ],
+          "status_reason": "工作流可从固定 workflow 作用域或私有 Xpert 显式共享附件读取扫描 PDF，输出有界类型化 OCR/视觉块；不创建 RAG Job、索引或知识版本。真实模型结果仍需使用已配置视觉网关人工验收。"
         }
       ]
     },
@@ -785,6 +836,27 @@
           },
           "known_gaps": [],
           "status_reason": "图片本地安全解码后统一转为有界 JPEG；同一发送路径已通过公开合成单页真实视觉模型金丝雀，功能开关默认关闭。"
+        },
+        {
+          "module": "workflow",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "workflow.vision_understanding",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {"max_input_bytes": 10485760, "max_pixels": 40000000, "timeout_seconds": 90},
+          "security_controls": ["workflow_scope_binding", "explicit_asset_sharing", "image_decode_validation", "pixel_limit", "explicit_model_selection", "pathless_typed_output", "public_app_denied"],
+          "evidence": {
+            "implementation": ["server/multimodal/vision_understanding.py", "server/xpert_runtime/workflow_vision.py", "server/main.py"],
+            "ui": ["client/src/components/workflow/WorkflowRun.tsx", "client/src/components/workflow/WorkflowEditor.tsx"],
+            "tests": ["server/tests/test_workflow_vision_understanding.py", "server/tests/test_file_asset_api.py"],
+            "security_tests": ["server/tests/test_workflow_vision_understanding.py", "server/tests/test_xpert_app_api.py"]
+          },
+          "known_gaps": ["real_provider_acceptance_required"],
+          "status_reason": "工作流从私有作用域读取显式选择的 JPEG，输出有界类型化视觉块；不会生成知识索引。真实模型结果仍需人工验收。"
         }
       ]
     },
@@ -817,6 +889,27 @@
           },
           "known_gaps": [],
           "status_reason": "图片本地安全解码后统一转为有界 JPEG；同一发送路径已通过公开合成单页真实视觉模型金丝雀，功能开关默认关闭。"
+        },
+        {
+          "module": "workflow",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "workflow.vision_understanding",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {"max_input_bytes": 10485760, "max_pixels": 40000000, "timeout_seconds": 90},
+          "security_controls": ["workflow_scope_binding", "explicit_asset_sharing", "image_decode_validation", "pixel_limit", "explicit_model_selection", "pathless_typed_output", "public_app_denied"],
+          "evidence": {
+            "implementation": ["server/multimodal/vision_understanding.py", "server/xpert_runtime/workflow_vision.py", "server/main.py"],
+            "ui": ["client/src/components/workflow/WorkflowRun.tsx", "client/src/components/workflow/WorkflowEditor.tsx"],
+            "tests": ["server/tests/test_workflow_vision_understanding.py", "server/tests/test_file_asset_api.py"],
+            "security_tests": ["server/tests/test_workflow_vision_understanding.py", "server/tests/test_xpert_app_api.py"]
+          },
+          "known_gaps": ["real_provider_acceptance_required"],
+          "status_reason": "工作流从私有作用域读取显式选择的 PNG，输出有界类型化视觉块；不会生成知识索引。真实模型结果仍需人工验收。"
         }
       ]
     },
@@ -849,6 +942,27 @@
           },
           "known_gaps": [],
           "status_reason": "图片本地安全解码后统一转为有界 JPEG；同一发送路径已通过公开合成单页真实视觉模型金丝雀，功能开关默认关闭。"
+        },
+        {
+          "module": "workflow",
+          "operation": "visual_analysis",
+          "input_kind": "visual_analysis",
+          "interaction_status": "ready",
+          "verification_status": "contract_verified",
+          "support_level": "specialized",
+          "parser_id": "workflow.vision_understanding",
+          "isolation": "in_process",
+          "ui_entrypoint": "/workflow",
+          "limits": {"max_input_bytes": 10485760, "max_pixels": 40000000, "timeout_seconds": 90},
+          "security_controls": ["workflow_scope_binding", "explicit_asset_sharing", "image_decode_validation", "pixel_limit", "explicit_model_selection", "pathless_typed_output", "public_app_denied"],
+          "evidence": {
+            "implementation": ["server/multimodal/vision_understanding.py", "server/xpert_runtime/workflow_vision.py", "server/main.py"],
+            "ui": ["client/src/components/workflow/WorkflowRun.tsx", "client/src/components/workflow/WorkflowEditor.tsx"],
+            "tests": ["server/tests/test_workflow_vision_understanding.py", "server/tests/test_file_asset_api.py"],
+            "security_tests": ["server/tests/test_workflow_vision_understanding.py", "server/tests/test_xpert_app_api.py"]
+          },
+          "known_gaps": ["real_provider_acceptance_required"],
+          "status_reason": "工作流从私有作用域读取显式选择的 WebP，输出有界类型化视觉块；不会生成知识索引。真实模型结果仍需人工验收。"
         }
       ]
     },
@@ -4243,10 +4357,10 @@
   ],
   "summary": {
     "format_count": 32,
-    "module_operation_count": 89,
-    "ready_count": 78,
+    "module_operation_count": 93,
+    "ready_count": 82,
     "verified_count": 33,
-    "contract_verified_count": 45,
+    "contract_verified_count": 49,
     "planned_count": 9,
     "disabled_count": 2
   }

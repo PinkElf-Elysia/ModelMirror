@@ -1114,3 +1114,63 @@ async def test_disabled_app_and_revoked_key_are_rejected(
     disable = await client.post(f"/api/xpert-apps/{deployed['app_id']}/disable")
     assert disable.status_code == 200
     assert disable.json()["app"]["status"] == "disabled"
+
+
+def test_deploy_preflight_rejects_workflow_vision_node(stores) -> None:
+    xpert_store, _ = stores
+    created = xpert_store.create_xpert(name="Private Vision", slug="private-vision")
+    draft = created.draft.model_copy(deep=True)
+    agent = next(
+        node for node in draft.workflow.nodes if node.data.get("kind") == "workflow_agent"
+    )
+    output = next(
+        node for node in draft.workflow.nodes if node.data.get("kind") == "output"
+    )
+    draft.workflow.edges = [
+        edge
+        for edge in draft.workflow.edges
+        if not (edge.source == agent.id and edge.target == output.id)
+    ]
+    draft.workflow.nodes.append(
+        type(agent).model_validate(
+            {
+                "id": "vision",
+                "type": "vision_understanding",
+                "data": {
+                    "kind": "vision_understanding",
+                    "assetIdVariable": "selected_file_asset_id",
+                    "visionModelId": "openai/gpt-4.1-mini",
+                    "pdfPageStrategy": "auto",
+                    "maxPages": 100,
+                    "maxImageEdge": 2048,
+                    "failurePolicy": "continue_on_error",
+                    "outputVariable": "vision_result",
+                },
+            }
+        )
+    )
+    draft.workflow.edges.extend(
+        [
+            type(draft.workflow.edges[0]).model_validate(
+                {"id": "agent-vision", "source": agent.id, "target": "vision"}
+            ),
+            type(draft.workflow.edges[0]).model_validate(
+                {"id": "vision-output", "source": "vision", "target": output.id}
+            ),
+        ]
+    )
+    updated = xpert_store.update_xpert(
+        created.id,
+        {"draft": draft.model_dump(mode="json")},
+    )
+    version = xpert_store.publish_xpert(
+        created.id,
+        expected_revision=updated.draft_revision,
+    )
+
+    result = _deployment_preflight(version, XpertAppPolicy())
+
+    assert any(
+        issue["code"] == "app_vision_understanding_forbidden"
+        for issue in result["issues"]
+    )

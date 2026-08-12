@@ -55,6 +55,59 @@ afterEach(() => {
 });
 
 describe("WorkflowRun file selector", () => {
+  it("focuses the requested runtime attachment card", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/files/capabilities")) {
+          return new Response(
+            JSON.stringify({
+              capabilities: [
+                {
+                  input_kind: "document",
+                  interaction_status: "ready",
+                  max_bytes_per_file: 10 * 1024 * 1024,
+                  formats: [
+                    { extensions: [".txt"], interaction_status: "ready" },
+                  ],
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.includes("/api/files?purpose=workflow")) {
+          return new Response(JSON.stringify({ items: [], total: 0 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    const view = render(
+      <WorkflowRun
+        definition={definition}
+        fileInputFocusRequest={null}
+      />,
+    );
+    const card = await screen.findByLabelText("document_asset_id 文件资产");
+
+    view.rerender(
+      <WorkflowRun
+        definition={definition}
+        fileInputFocusRequest={{
+          requestId: 1,
+          variableName: "document_asset_id",
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(card).toHaveFocus());
+  });
+
   it("lists persistent scope assets without selecting one automatically", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

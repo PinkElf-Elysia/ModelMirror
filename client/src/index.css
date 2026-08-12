@@ -65,6 +65,15 @@ textarea {
 }
 
 @layer base {
+  select.modelmirror-form-control {
+    color-scheme: dark;
+  }
+
+  select.modelmirror-form-control option {
+    background-color: #0f172a;
+    color: #e5edf8;
+  }
+
   h1,
   h2,
   h3 {
