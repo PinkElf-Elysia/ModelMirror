@@ -196,6 +196,25 @@ class CodingWorkerService:
         self.store.append_event(task_id, "steering_queued", {})
         return self.store.get_task(task_id)
 
+    def settle_approval_state(self, task_id: str) -> TaskRecord:
+        """Leave a decided approval runnable only while its original runner exists."""
+        task = self.store.get_task(task_id)
+        if task.state is not TaskState.WAITING_APPROVAL:
+            return task
+        runner = self._active.get(task_id)
+        if runner is not None and not runner.done():
+            return self.store.transition(
+                task_id,
+                TaskState.RUNNING,
+                expected_state=TaskState.WAITING_APPROVAL,
+            )
+        return self.store.transition(
+            task_id,
+            TaskState.INTERRUPTED,
+            reason="approval_resume_required",
+            expected_state=TaskState.WAITING_APPROVAL,
+        )
+
     async def wait_for(
         self,
         task_id: str,

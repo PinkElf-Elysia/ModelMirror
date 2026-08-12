@@ -21,7 +21,6 @@ from .contracts import (
     StrictModel,
     TaskCreateRequest,
     TaskRecord,
-    TaskState,
     TERMINAL_STATES,
     WorkerCapabilities,
     WorkerApproval,
@@ -293,13 +292,7 @@ async def decide_task_approval(
             task_scope=payload.decision == "approve_task",
             ttl_seconds=payload.ttl_seconds,
         )
-        task = service.store.get_task(task_id)
-        if task.state is TaskState.WAITING_APPROVAL:
-            service.store.transition(
-                task_id,
-                TaskState.RUNNING,
-                expected_state=TaskState.WAITING_APPROVAL,
-            )
+        service.settle_approval_state(task_id)
         return decided
     except Exception as exc:
         _raise_worker_error(exc)
