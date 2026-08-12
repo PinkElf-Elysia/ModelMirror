@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import json
+import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+
+from server.coding_worker.claude_provider import (
+    ClaudeCodeProvider,
+    ClaudeCodeProviderError,
+    ClaudeCodeRoute,
+)
+from server.coding_worker.contracts import PolicyProfile, TaskBudget
+from server.coding_worker.opencode_provider import (
+    OpenCodeProvider,
+    OpenCodeProviderError,
+    OpenCodeRoute,
+    OpenCodeServerHandle,
+)
+from server.coding_worker.provider import (
+    CodingAgentProvider,
+    FakeCodingAgentProvider,
+    PROVIDER_CHECKPOINT_FORMAT_VERSION,
+    PROVIDER_CONTRACT_VERSION,
+    ProviderEventKind,
+    ProviderOpenRequest,
+)
+
+
+def _request(route_id: str) -> ProviderOpenRequest:
+    return ProviderOpenRequest(
+        task_id="task-conformance",
+        workspace_id="workspace-conformance",
+        objective="Inspect and fix the project.",
+        model_route=route_id,
+        policy_profile=PolicyProfile.DEVELOP,
+        budget=TaskBudget(max_seconds=60, max_output_bytes=1024 * 1024),
+        workspace_tree_hash="a" * 64,
+        tool_allowlist=("read_file",),
+    )
+
+
+def _fake_provider(_tmp_path: Path) -> tuple[CodingAgentProvider, ProviderOpenRequest]:
+    return FakeCodingAgentProvider(), _request("coding/default")
+
+
+def _opencode_provider(
+    tmp_path: Path,
+) -> tuple[CodingAgentProvider, ProviderOpenRequest]:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state: dict[str, Any] = {"counter": 0, "session_id": ""}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/session" and request.method == "POST":
+            state["counter"] += 1
+            state["session_id"] = f"ses_conformance_{state['counter']}"
+            return httpx.Response(200, json={"id": state["session_id"]})
+        if request.url.path == "/event":
+            body = (
+                "data: "
+                + json.dumps(
+                    {
+                        "type": "session.idle",
+                        "properties": {"sessionID": state["session_id"]},
+                    }
+                )
+                + "\n\n"
+            )
+            return httpx.Response(
+                200, text=body, headers={"content-type": "text/event-stream"}
+            )
+        if request.url.path.endswith("/prompt_async"):
+            return httpx.Response(204)
+        if request.url.path == "/mcp":
+            return httpx.Response(200, json={})
+        return httpx.Response(404)
+
+    async def factory(
+        request: ProviderOpenRequest, resolved: Path, route: OpenCodeRoute
+    ) -> OpenCodeServerHandle:
+        assert request.task_id == "task-conformance"
+        assert resolved == workspace.resolve()
+        assert route.route_id == "coding/default"
+        client = httpx.AsyncClient(
+            base_url="http://127.0.0.1:4096",
+            transport=httpx.MockTransport(handler),
+        )
+
+        async def close() -> None:
+            await client.aclose()
+
+        return OpenCodeServerHandle(
+            task_id=request.task_id,
+            workspace=resolved,
+            state_root=tmp_path / "opencode-state",
+            client=client,
+            close_callback=close,
+        )
+
+    route = OpenCodeRoute(
+        route_id="coding/default",
+        model_id="test-model",
+        base_url="http://new-api:3000/v1",
+        api_key="test-route-key",
+    )
+    return (
+        OpenCodeProvider(
+            workspace_resolver=lambda _workspace_id: workspace,
+            runtime_root=tmp_path / "runtime",
+            routes={route.route_id: route},
+            server_factory=factory,
+        ),
+        _request(route.route_id),
+    )
+
+
+def _claude_provider(
+    tmp_path: Path,
+) -> tuple[CodingAgentProvider, ProviderOpenRequest]:
+    script = tmp_path / "fake_claude.py"
+    script.write_text(
+        """
+import json
+import sys
+frame = json.loads(sys.stdin.readline())
+print(json.dumps({
+    'type': 'result',
+    'session_id': frame['session_id'],
+    'is_error': False,
+    'usage': {'input_tokens': 1, 'output_tokens': 1},
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    secret = tmp_path / "claude-secret"
+    secret.write_text("test-secret", encoding="utf-8")
+    route = ClaudeCodeRoute(
+        route_id="coding/quality", model_id="claude-test-model"
+    )
+    provider = ClaudeCodeProvider(
+        runtime_root=tmp_path / "claude-runtime",
+        routes={route.route_id: route},
+        secret_path=secret,
+        command_prefix=(sys.executable, str(script)),
+    )
+    provider.bind_broker(
+        "task-conformance", "unix:/run/broker.sock", "b" * 48
+    )
+    return provider, _request(route.route_id)
+
+
+ProviderFactory = Callable[
+    [Path], tuple[CodingAgentProvider, ProviderOpenRequest]
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "factory", [_fake_provider, _opencode_provider, _claude_provider]
+)
+async def test_provider_v2_conformance(
+    factory: ProviderFactory, tmp_path: Path
+) -> None:
+    provider, request = factory(tmp_path)
+    capabilities = await provider.capabilities()
+    assert capabilities.contract_version == PROVIDER_CONTRACT_VERSION
+    assert capabilities.supports_streaming is True
+    assert capabilities.supports_checkpoint is True
+    assert capabilities.supports_restore is True
+
+    session = await provider.open(request)
+    events = [event async for event in provider.message(session, "continue")]
+    assert events[-1].kind is ProviderEventKind.TURN_COMPLETED
+    assert all("supplier" not in json.dumps(event.data) for event in events)
+    checkpoint = await provider.checkpoint(session)
+    compatibility = checkpoint.compatibility
+    assert compatibility is not None
+    assert compatibility.contract_version == PROVIDER_CONTRACT_VERSION
+    assert compatibility.format_version == PROVIDER_CHECKPOINT_FORMAT_VERSION
+    assert compatibility.task_id == request.task_id
+    assert compatibility.workspace_tree_hash == request.workspace_tree_hash
+    await provider.close(session)
+
+    if isinstance(provider, ClaudeCodeProvider):
+        provider.bind_broker(
+            "task-conformance", "unix:/run/broker.sock", "b" * 48
+        )
+    restored = await provider.restore(request, checkpoint)
+    await provider.close(restored)
+
+    changed = request.model_copy(update={"workspace_tree_hash": "b" * 64})
+    if isinstance(provider, ClaudeCodeProvider):
+        provider.bind_broker(
+            "task-conformance", "unix:/run/broker.sock", "b" * 48
+        )
+    with pytest.raises(
+        (ValueError, OpenCodeProviderError, ClaudeCodeProviderError)
+    ):
+        await provider.restore(changed, checkpoint)

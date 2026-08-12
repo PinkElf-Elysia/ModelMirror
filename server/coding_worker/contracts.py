@@ -41,6 +41,11 @@ class TaskState(StrEnum):
     EXPIRED = "expired"
 
 
+BUDGET_ACTIVE_STATES = frozenset(
+    {TaskState.PREPARING, TaskState.RUNNING, TaskState.TESTING}
+)
+
+
 TERMINAL_STATES = frozenset(
     {
         TaskState.COMPLETED,

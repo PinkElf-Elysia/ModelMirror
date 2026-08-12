@@ -54,6 +54,17 @@ def _request() -> TaskCreateRequest:
     )
 
 
+def _other_client(client: CodingWorkerModuleClient) -> CodingWorkerModuleClient:
+    return CodingWorkerModuleClient(
+        module="mcp-creator",
+        service=client.service,
+        source_kinds=client.source_kinds,
+        check_ids=client.check_ids,
+        model_routes=client.model_routes,
+        context_validators=client.context_validators,
+    )
+
+
 @pytest.mark.asyncio
 async def test_module_client_owns_origin_and_preserves_idempotency(tmp_path: Path) -> None:
     client = _client(tmp_path)
@@ -85,3 +96,65 @@ async def test_module_client_rejects_unregistered_execution_inputs(
     with pytest.raises(CodingWorkerSDKError) as raised:
         await client.create_task(business_object_id="skill_01", request=request)
     assert raised.value.code == expected
+
+
+@pytest.mark.asyncio
+async def test_module_client_reads_and_controls_only_its_own_origin(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    task = await client.create_task(business_object_id="skill_01", request=_request())
+    client.service.store.append_event(task.task_id, "plan", {"summary": "public"})
+
+    assert client.get_task(
+        business_object_id="skill_01", task_id=task.task_id
+    ).task_id == task.task_id
+    assert [event.type for event in client.list_events(
+        business_object_id="skill_01", task_id=task.task_id
+    )][-1] == "plan"
+
+    foreign = _other_client(client)
+    for action in (
+        lambda: foreign.get_task(
+            business_object_id="mcp_01", task_id=task.task_id
+        ),
+        lambda: foreign.list_events(
+            business_object_id="mcp_01", task_id=task.task_id
+        ),
+    ):
+        with pytest.raises(CodingWorkerSDKError) as raised:
+            action()
+        assert raised.value.code == "worker_task_not_owned"
+
+    with pytest.raises(CodingWorkerSDKError) as raised:
+        await foreign.cancel_task(
+            business_object_id="mcp_01", task_id=task.task_id
+        )
+    assert raised.value.code == "worker_task_not_owned"
+
+
+@pytest.mark.asyncio
+async def test_module_client_bounds_public_event_and_message_inputs(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    task = await client.create_task(business_object_id="skill_01", request=_request())
+
+    with pytest.raises(CodingWorkerSDKError) as cursor:
+        client.list_events(
+            business_object_id="skill_01", task_id=task.task_id, limit=1001
+        )
+    assert cursor.value.code == "worker_event_cursor_invalid"
+
+    with pytest.raises(CodingWorkerSDKError) as message:
+        await client.append_message(
+            business_object_id="skill_01", task_id=task.task_id, message="   "
+        )
+    assert message.value.code == "worker_message_invalid"
+
+
+def test_module_sdk_has_no_provider_tool_or_secret_registration_surface() -> None:
+    forbidden = {
+        "register_provider",
+        "register_tool",
+        "register_process",
+        "register_secret",
+        "register_mcp_server",
+    }
+    assert forbidden.isdisjoint(vars(CodingWorkerModuleClient))

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import sys
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from server.coding_worker.evidence import HarnessRunner
 from server.coding_worker.provider import (
     FakeCodingAgentProvider,
     ProviderEvent,
+    ProviderEventKind,
     ProviderCheckpoint,
     ProviderOpenRequest,
     ProviderSession,
@@ -96,6 +98,56 @@ class _RestoreTrackingProvider(FakeCodingAgentProvider):
     ) -> ProviderSession:
         self.restore_count += 1
         return await super().restore(request, checkpoint)
+
+
+class _OpenTrackingProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.open_request: ProviderOpenRequest | None = None
+
+    async def open(self, request: ProviderOpenRequest) -> ProviderSession:
+        self.open_request = request
+        return await super().open(request)
+
+
+class _LostTurnReceiptProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.message_count = 0
+        self.checkpoint_count = 0
+        self.repair: Callable[[], Awaitable[None]] | None = None
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.message_count += 1
+        if self.message_count == 1 and self.repair is not None:
+            await self.repair()
+        async for event in super().message(session, text):
+            yield event
+
+    async def checkpoint(self, session: ProviderSession) -> ProviderCheckpoint:
+        self.checkpoint_count += 1
+        if self.checkpoint_count == 1:
+            raise OSError("simulated provider receipt loss")
+        return await super().checkpoint(session)
+
+
+class _SteeringProvider(FakeCodingAgentProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+        self.first_turn_started = asyncio.Event()
+        self.release_first_turn = asyncio.Event()
+
+    async def message(
+        self, session: ProviderSession, text: str
+    ) -> AsyncIterator[ProviderEvent]:
+        self.messages.append(text)
+        if len(self.messages) == 1:
+            self.first_turn_started.set()
+            await self.release_first_turn.wait()
+        yield ProviderEvent(kind=ProviderEventKind.TURN_COMPLETED)
 
 
 def _service_with_harness(
@@ -206,6 +258,62 @@ async def test_model_stop_cannot_complete_without_acceptance_runner(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_running_steering_is_delivered_once_at_next_safe_turn_boundary(
+    tmp_path: Path,
+) -> None:
+    provider = _SteeringProvider()
+    service = _service(tmp_path, provider)
+    task = await service.create_task(
+        Origin(module="test", object_id="steering"), _request("steering")
+    )
+    await asyncio.wait_for(provider.first_turn_started.wait(), timeout=2)
+
+    await service.append_message(task.task_id, "Read calculator.py before retesting.")
+    assert provider.messages == ["Complete steering"]
+    provider.release_first_turn.set()
+
+    terminal = await service.wait_for(
+        task.task_id, lambda item: item.state is TaskState.BLOCKED
+    )
+    assert terminal.reason == "acceptance_runner_pending"
+    assert provider.messages == [
+        "Complete steering",
+        (
+            "User steering received at a safe tool boundary. Follow it without "
+            "weakening the immutable acceptance contract.\n\n"
+            "Read calculator.py before retesting."
+        ),
+    ]
+    assert [
+        item.content for item in service.store.list_messages(task.task_id)
+    ] == ["Complete steering", "Read calculator.py before retesting."]
+    assert [
+        event.type for event in service.store.list_events(task.task_id)
+    ].count("steering_scheduled") == 1
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_provider_request_binds_tree_and_policy_tool_allowlist(
+    tmp_path: Path,
+) -> None:
+    provider = _OpenTrackingProvider()
+    service = _service(tmp_path, provider)
+    task = await service.create_task(
+        Origin(module="test", object_id="provider-contract"),
+        _request("provider-contract"),
+    )
+    await service.wait_for(task.task_id, lambda item: item.state is TaskState.BLOCKED)
+
+    request = provider.open_request
+    assert request is not None and len(request.workspace_tree_hash or "") == 64
+    assert "read_file" in request.tool_allowlist
+    assert "write_file" not in request.tool_allowlist
+    assert "run_shell" not in request.tool_allowlist
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_shutdown_interrupts_without_replaying_and_resume_is_explicit(tmp_path: Path) -> None:
     blocker = asyncio.Event()
     service = _service(tmp_path, FakeCodingAgentProvider(block=blocker))
@@ -282,6 +390,78 @@ async def test_dedicated_slots_queue_third_task_and_resume_on_original_slot(
 
 
 @pytest.mark.asyncio
+async def test_route_catalog_pins_tasks_to_provider_slots(tmp_path: Path) -> None:
+    blocker = asyncio.Event()
+    store = CodingWorkerStore(tmp_path / "control", master_key=Fernet.generate_key())
+    broker = WorkspaceBroker(
+        tmp_path / "control",
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {("source-01", "revision-01"): {"main.py": b"print('ok')\n"}}
+            )
+        },
+        id_key=b"r" * 32,
+        slot_roots={
+            "slot-a": tmp_path / "slot-a",
+            "slot-b": tmp_path / "slot-b",
+        },
+    )
+    service = CodingWorkerService(
+        store=store,
+        workspace_broker=broker,
+        provider=FakeCodingAgentProvider(block=blocker),
+        max_active_tasks=2,
+        route_slots={
+            "coding/default": ("slot-a",),
+            "coding/quality": ("slot-b",),
+        },
+    )
+    origin = Origin(module="test", object_id="route-slots")
+    default_task = await service.create_task(origin, _request("route-default"))
+    quality_task = await service.create_task(
+        origin,
+        _request("route-quality").model_copy(
+            update={"model_route": "coding/quality"}
+        ),
+    )
+    queued_default = await service.create_task(
+        origin, _request("route-default-queued")
+    )
+
+    for task in (default_task, quality_task):
+        await service.wait_for(task.task_id, lambda item: item.state is TaskState.RUNNING)
+    assert broker.workspace_slot(
+        store.get_task(default_task.task_id).workspace_id or ""
+    ) == "slot-a"
+    assert broker.workspace_slot(
+        store.get_task(quality_task.task_id).workspace_id or ""
+    ) == "slot-b"
+    assert store.get_task(queued_default.task_id).state is TaskState.QUEUED
+
+    await service.pause(quality_task.task_id)
+    await asyncio.sleep(0.05)
+    assert store.get_task(queued_default.task_id).state is TaskState.QUEUED
+    await service.cancel(default_task.task_id)
+    await service.wait_for(
+        queued_default.task_id, lambda item: item.state is TaskState.RUNNING
+    )
+    assert broker.workspace_slot(
+        store.get_task(queued_default.task_id).workspace_id or ""
+    ) == "slot-a"
+
+    with pytest.raises(WorkerConflictError) as unavailable:
+        await service.create_task(
+            origin,
+            _request("route-unknown").model_copy(
+                update={"model_route": "coding/unknown"}
+            ),
+        )
+    assert unavailable.value.code == "model_route_unavailable"
+    await service.cancel(queued_default.task_id)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_failed_acceptance_is_repaired_and_retested_before_completion(
     tmp_path: Path,
 ) -> None:
@@ -343,6 +523,78 @@ async def test_required_check_failure_exhausts_turn_budget_without_completion(
     assert limited.state is not TaskState.COMPLETED
     assert len(service.store.list_evidence(task.task_id)) == 2
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_active_time_budget_survives_restart_and_excludes_waiting(
+    tmp_path: Path,
+) -> None:
+    key = Fernet.generate_key()
+    root = tmp_path / "worker"
+    now = [0.0]
+    first_store = CodingWorkerStore(root, master_key=key, clock=lambda: now[0])
+    request = _request("active-time-budget").model_copy(
+        update={"budget": TaskBudget(max_seconds=30)}
+    )
+    task = first_store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="active-time-budget"),
+        )
+    )
+    first_store.transition(task.task_id, TaskState.PREPARING)
+    now[0] = 10.0
+    first_store.transition(task.task_id, TaskState.RUNNING)
+    now[0] = 20.0
+    first_store.transition(task.task_id, TaskState.WAITING_APPROVAL)
+    now[0] = 80.0
+    first_store.transition(task.task_id, TaskState.RUNNING)
+    now[0] = 89.95
+
+    restarted = CodingWorkerStore(root, master_key=key, clock=lambda: now[0])
+    assert restarted.get_task(task.task_id).state is TaskState.INTERRUPTED
+    assert restarted.active_runtime_seconds(task.task_id) == pytest.approx(29.95)
+    now[0] = 150.0
+    assert restarted.active_runtime_seconds(task.task_id) == pytest.approx(29.95)
+
+    started = time.monotonic()
+    restarted._clock = lambda: 150.0 + (time.monotonic() - started)
+    workspace = WorkspaceBroker(
+        root,
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {("source-01", "revision-01"): {"main.py": b"print('ok')\n"}}
+            )
+        },
+        id_key=b"r" * 32,
+    )
+    provider = FakeCodingAgentProvider(block=asyncio.Event())
+    service = CodingWorkerService(
+        store=restarted,
+        workspace_broker=workspace,
+        provider=provider,
+    )
+    restarted.transition(task.task_id, TaskState.QUEUED)
+    restarted.transition(task.task_id, TaskState.PREPARING)
+    running = restarted.transition(task.task_id, TaskState.RUNNING)
+    session = ProviderSession(
+        session_id="active-time-budget-session",
+        task_id=task.task_id,
+        provider_capabilities=await provider.capabilities(),
+    )
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            service._drive_session(
+                running,
+                session,
+                resume_phase=None,
+                resume_context=None,
+                completed_turns=0,
+                message_cursor=0,
+            ),
+            timeout=2,
+        )
+    assert restarted.active_runtime_seconds(task.task_id) >= 30
 
 
 async def _checkpointed_task(
@@ -433,4 +685,50 @@ async def test_resume_rejects_workspace_changed_after_checkpoint(tmp_path: Path)
     )
     assert blocked.reason == "checkpoint_workspace_changed"
     assert provider.restore_count == 0
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_completed_provider_turn_is_reconciled_before_any_replay(
+    tmp_path: Path,
+) -> None:
+    provider = _LostTurnReceiptProvider()
+    service, broker = _service_with_harness(tmp_path, provider)
+    request = _request("lost-turn-receipt").model_copy(
+        update={"policy_profile": PolicyProfile.DEVELOP}
+    )
+    task = await service.create_task(
+        Origin(module="test", object_id="lost-turn-receipt"), request
+    )
+
+    async def repair() -> None:
+        content = "print('reconciled')\n"
+        await broker.execute(
+            task_id=task.task_id,
+            operation_id="lost-turn-write",
+            tool_name="write_file",
+            arguments={
+                "path": "main.py",
+                "content": content,
+                "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+            },
+        )
+
+    provider.repair = repair
+    blocked = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.BLOCKED,
+    )
+    assert blocked.reason == "checkpoint_failed"
+    assert service.store.latest_checkpoint(task.task_id) is None
+    assert provider.message_count == 1
+
+    await service.resume(task.task_id)
+    completed = await service.wait_for(
+        task.task_id,
+        lambda item: item.state is TaskState.COMPLETED,
+    )
+    assert completed.reason is None
+    assert provider.message_count == 1
+    assert service.store.get_operation("lost-turn-write").state.value == "completed"
     await service.shutdown()

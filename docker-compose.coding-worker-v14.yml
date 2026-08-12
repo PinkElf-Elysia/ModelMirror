@@ -135,7 +135,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 10s
     healthcheck:
-      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/executor.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EXECUTOR_TOKEN'],'action':'bind_task','payload':{'task_id':'healthcheck','workspace_id':'healthcheck'}})+'\\n').encode()); assert json.loads(s.recv(65536))['error']['code']=='executor_failed'"]
+      test: ["CMD", "python", "-c", "import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/modelmirror-coding/executor.sock'); s.sendall((json.dumps({'token':os.environ['CODING_WORKER_EXECUTOR_TOKEN'],'action':'health','payload':{}})+'\\n').encode()); assert json.loads(s.recv(65536))['result']=={'healthy':True}"]
       interval: 10s
       timeout: 5s
       retries: 8

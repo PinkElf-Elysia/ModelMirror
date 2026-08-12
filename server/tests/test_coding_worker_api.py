@@ -14,7 +14,13 @@ from fastapi.testclient import TestClient
 from server.coding_worker.api import configure_coding_worker_for_tests, router
 import server.coding_worker.api as worker_api
 from server.coding_worker.provider import FakeCodingAgentProvider
-from server.coding_worker.contracts import OperationState
+from server.coding_worker.contracts import (
+    OperationState,
+    Origin,
+    TaskCreateRequest,
+    TaskSpec,
+    TaskState,
+)
 from server.coding_worker.service import CodingWorkerService
 from server.coding_worker.store import CodingWorkerStore
 from server.coding_worker.workspace import InMemoryWorkspaceSourceAdapter, WorkspaceBroker
@@ -225,6 +231,39 @@ def test_approval_endpoints_are_task_bound_and_single_decision(tmp_path: Path) -
             json={"approval_id": approval.approval_id, "decision": "reject"},
         )
         assert replay.status_code == 409
+
+
+def test_decided_approval_never_leaves_an_orphaned_task_running(
+    tmp_path: Path,
+) -> None:
+    client, service = _client(tmp_path, blocked=True)
+    request = TaskCreateRequest.model_validate(_payload("orphaned-approval"))
+    task = service.store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="orphaned-approval"),
+        )
+    )
+    service.store.transition(task.task_id, TaskState.PREPARING)
+    service.store.transition(task.task_id, TaskState.RUNNING)
+    service.store.transition(task.task_id, TaskState.WAITING_APPROVAL)
+    approval = service.store.create_approval(
+        task_id=task.task_id,
+        operation_id="orphaned-approval-operation",
+        capability="command",
+        request={"argv": ["python", "-m", "pytest"]},
+    )
+
+    with client:
+        decided = client.post(
+            f"/api/coding-worker/v1/tasks/{task.task_id}/approvals",
+            json={"approval_id": approval.approval_id, "decision": "approve_once"},
+        )
+
+    assert decided.status_code == 200
+    interrupted = service.store.get_task(task.task_id)
+    assert interrupted.state is TaskState.INTERRUPTED
+    assert interrupted.reason == "approval_resume_required"
 
 
 def test_shell_approval_cannot_be_promoted_to_task_scope(tmp_path: Path) -> None:

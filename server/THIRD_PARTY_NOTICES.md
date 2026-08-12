@@ -240,3 +240,17 @@ the immutable vendor directory.
 This image does not include the PenguinHarness Server/Hono API, database,
 Vault, cost center, desktop application, CLI, installer, MinGit, release
 tooling, or Penguin branding.
+## Claude Code command-line runtime
+
+The optional V15 Claude Provider image contains the unmodified
+`@anthropic-ai/claude-code` npm package, pinned to version `2.1.89` and verified
+against its npm registry SHA-512 integrity value during the image build.
+
+- Copyright: Copyright Anthropic PBC. All rights reserved.
+- Package: <https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.89>
+- Legal terms: <https://code.claude.com/docs/en/legal-and-compliance>
+- Packaged notice: `/usr/local/lib/node_modules/@anthropic-ai/claude-code/LICENSE.md`
+
+Use of Claude Code and Anthropic services remains subject to Anthropic's legal
+agreements. The package is isolated in the optional Provider sidecar and is not
+linked into ModelMirror application code.
