@@ -228,3 +228,68 @@ def test_session_ledger_rejects_hidden_provider_fields_and_unpaired_completion(
             },
         )
     assert raised.value.code == "session_tool_boundary_conflict"
+
+
+def test_session_ledger_tool_boundaries_are_exactly_idempotent(tmp_path: Path) -> None:
+    store = CodingWorkerStore(tmp_path / "worker", master_key=Fernet.generate_key())
+    task = store.create_task(_spec(client_task_id="ledger-idempotent"))
+    store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TURN_STARTED,
+        turn_id="turn-01",
+        payload={},
+    )
+    start = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_STARTED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={"tool_name": "run_check", "summary": "run check"},
+    )
+    replayed_start = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_STARTED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={"tool_name": "run_check", "summary": "run check"},
+    )
+    assert replayed_start == start
+    finish = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_FINISHED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={
+            "tool_name": "run_check",
+            "summary": "check complete",
+            "result_state": "succeeded",
+            "artifact_id": None,
+        },
+    )
+    replayed_finish = store.append_session_ledger(
+        task.task_id,
+        kind=SessionLedgerKind.TOOL_FINISHED,
+        turn_id="turn-01",
+        operation_id="operation-01",
+        payload={
+            "tool_name": "run_check",
+            "summary": "check complete",
+            "result_state": "succeeded",
+            "artifact_id": None,
+        },
+    )
+    assert replayed_finish == finish
+    with pytest.raises(WorkerConflictError):
+        store.append_session_ledger(
+            task.task_id,
+            kind=SessionLedgerKind.TOOL_FINISHED,
+            turn_id="turn-01",
+            operation_id="operation-01",
+            payload={
+                "tool_name": "run_check",
+                "summary": "different result",
+                "result_state": "failed",
+                "artifact_id": None,
+            },
+        )
+    assert len(store.list_session_ledger(task.task_id)) == 3

@@ -1489,12 +1489,15 @@ class CodingWorkerStore:
         if kind is SessionLedgerKind.TOOL_STARTED:
             existing = connection.execute(
                 """
-                SELECT 1 FROM worker_session_ledger
-                WHERE task_id = ? AND operation_id = ?
+                SELECT * FROM worker_session_ledger
+                WHERE task_id = ? AND operation_id = ? AND kind = ?
                 """,
-                (task_id, operation_id),
+                (task_id, operation_id, SessionLedgerKind.TOOL_STARTED.value),
             ).fetchone()
             if existing is not None:
+                existing_entry = self._session_ledger_entry(existing)
+                if existing_entry.turn_id == turn_id and existing_entry.payload == payload:
+                    return existing_entry
                 raise WorkerConflictError(
                     "The tool operation already has a ledger boundary.",
                     code="session_tool_boundary_conflict",
@@ -1520,12 +1523,15 @@ class CodingWorkerStore:
                 )
             duplicate = connection.execute(
                 """
-                SELECT 1 FROM worker_session_ledger
+                SELECT * FROM worker_session_ledger
                 WHERE task_id = ? AND operation_id = ? AND kind = ?
                 """,
                 (task_id, operation_id, SessionLedgerKind.TOOL_FINISHED.value),
             ).fetchone()
             if duplicate is not None:
+                existing_entry = self._session_ledger_entry(duplicate)
+                if existing_entry.turn_id == turn_id and existing_entry.payload == payload:
+                    return existing_entry
                 raise WorkerConflictError(
                     "The tool completion was already recorded.",
                     code="session_tool_boundary_conflict",
