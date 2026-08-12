@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -113,6 +114,52 @@ def test_subtask_relation_is_encrypted_idempotent_and_restart_safe(
     raw = restarted.database_path.read_bytes()
     assert b"Implemented the delegated change" not in raw
     assert b"Do implementation" not in raw
+
+
+def test_store_upgrades_pre_merge_subtask_schema(tmp_path: Path) -> None:
+    root = tmp_path / "worker"
+    key = Fernet.generate_key()
+    initial = CodingWorkerStore(root, master_key=key)
+    with sqlite3.connect(initial.database_path) as connection:
+        connection.execute("DROP TABLE worker_subtasks")
+        connection.execute(
+            """
+            CREATE TABLE worker_subtasks (
+                parent_task_id TEXT NOT NULL,
+                client_subtask_id TEXT NOT NULL,
+                child_task_id TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL,
+                objective_ciphertext TEXT NOT NULL,
+                base_tree_hash TEXT NOT NULL,
+                merge_state TEXT NOT NULL,
+                result_tree_hash TEXT,
+                changed_paths_ciphertext TEXT,
+                summary_ciphertext TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY(parent_task_id, client_subtask_id),
+                FOREIGN KEY(parent_task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE,
+                FOREIGN KEY(child_task_id) REFERENCES worker_tasks(task_id) ON DELETE CASCADE
+            )
+            """
+        )
+
+    upgraded = CodingWorkerStore(root, master_key=key)
+    with sqlite3.connect(upgraded.database_path) as connection:
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(worker_subtasks)"
+            ).fetchall()
+        }
+    assert {"merge_operation_id", "merged_tree_hash"} <= columns
+
+    parent = upgraded.create_task(_spec())
+    created = _create(
+        upgraded, parent.task_id, client_subtask_id="post-upgrade"
+    )
+    assert created.merge_operation_id is None
+    assert created.merged_tree_hash is None
 
 
 def test_subtasks_are_depth_one_and_limited_to_four(tmp_path: Path) -> None:
