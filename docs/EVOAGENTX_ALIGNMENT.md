@@ -73,12 +73,18 @@ Client Tools、Automation、Plugin 和 Prompt。Meta Planner V2 已补齐候选�
 Meta Planner V2 必须：
 
 - 从后端节点、middleware 和资源 Registry 读取真实能力，不维护第二套静态清单。
+- Capability Snapshot 只公布具有版本化编译适配器的能力；Registry 标记为可见但
+  编译器尚不支持的节点不得进入 Planner scope。
+- 使用 Typed IR V2 显式表达节点、任务覆盖、类型化端口、控制边、绑定目标和唯一
+  最终输出；任务与 Agent 不得继续硬编码为一一对应。
 - 生成完整控制流节点、资源绑定边和 middleware 绑定边。
 - 支持 External Xpert、Knowledge、Toolset、Plugin、Prompt 和发布配置。
 - 只生成带 revision 的候选 Xpert 草稿。
 - 依次通过 workflow validate、资源存在性、版本固定、循环检测和发布预检。
 - 返回计划摘要、关键假设、资源选择理由、warning 和结构化 validation issues。
 - 不返回隐藏推理过程，不自动运行或发布。
+- 更新目标含无适配器节点时必须在模型调用前 fail-closed，禁止完整替代候选静默
+  删除未知节点。
 
 ### 2. `EVOAGENTX-EVALUATOR-02`
 

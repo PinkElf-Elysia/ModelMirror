@@ -18,15 +18,24 @@ from server.meta_agent.schemas import (
     MetaPlannerAgentBlueprint,
     MetaPlannerBlueprint,
     MetaPlannerGenerateRequest,
+    MetaPlannerIRControlEdge,
+    MetaPlannerIRFinalOutput,
+    MetaPlannerIRInputBinding,
+    MetaPlannerIRMiddlewareBinding,
+    MetaPlannerIRNode,
+    MetaPlannerIROutputBinding,
+    MetaPlannerIRResourceBinding,
     MetaPlannerMiddlewareBinding,
     MetaPlannerResourceBinding,
     MetaPlannerScope,
     MetaPlannerTask,
     MetaPlannerTaskPlan,
+    MetaPlannerTypedBlueprintV2,
+    MetaPlannerWorkflowAgentConfig,
 )
 from server.skills.draft_store import WorkspaceSkillDraftStore
 from server.workflow_native.validate import validate_workflow_graph
-from server.workflow_native.schemas import NativeWorkflowDefinition
+from server.workflow_native.schemas import NativeWorkflowDefinition, NativeWorkflowNode
 from server.xpert_runtime.authoring_service import AuthoringService
 from server.xpert_runtime.authoring_store import (
     AuthoringProposalStore,
@@ -184,6 +193,107 @@ def _blueprint() -> MetaPlannerBlueprint:
     )
 
 
+def _typed_blueprint() -> MetaPlannerTypedBlueprintV2:
+    return MetaPlannerTypedBlueprintV2(
+        name="Research and review",
+        description="A bounded research workflow.",
+        tags=["research"],
+        starters=["Research this topic"],
+        nodes=[
+            MetaPlannerIRNode(
+                ref="researcher",
+                kind="workflow_agent",
+                title="Researcher",
+                description="Collect evidence.",
+                task_ids=["research"],
+                inputs=[
+                    MetaPlannerIRInputBinding(
+                        port="request",
+                        variable="user_input",
+                        value_type="string",
+                    )
+                ],
+                outputs=[
+                    MetaPlannerIROutputBinding(
+                        port="result",
+                        variable="research_output",
+                        value_type="string",
+                    )
+                ],
+                config=MetaPlannerWorkflowAgentConfig(
+                    role_prompt="Find relevant, supportable evidence.",
+                    task_input="{{user_input}}",
+                ).model_dump(mode="json"),
+            ),
+            MetaPlannerIRNode(
+                ref="writer",
+                kind="workflow_agent",
+                title="Writer",
+                description="Write the final response.",
+                task_ids=["deliver"],
+                inputs=[
+                    MetaPlannerIRInputBinding(
+                        port="evidence",
+                        variable="research_output",
+                        value_type="string",
+                    )
+                ],
+                outputs=[
+                    MetaPlannerIROutputBinding(
+                        port="result",
+                        variable="agent_output",
+                        value_type="string",
+                    )
+                ],
+                config=MetaPlannerWorkflowAgentConfig(
+                    role_prompt="Write a concise final response using the evidence.",
+                    task_input="{{research_output}}",
+                ).model_dump(mode="json"),
+            ),
+        ],
+        control_edges=[
+            MetaPlannerIRControlEdge(
+                source_ref="researcher", target_ref="writer"
+            )
+        ],
+        resources=[
+            MetaPlannerIRResourceBinding(
+                target_ref="researcher",
+                kind="external_xpert",
+                resource_id="xpert-researcher",
+                tool_name="research_specialist",
+            ),
+            MetaPlannerIRResourceBinding(
+                target_ref="researcher",
+                kind="knowledge_base",
+                resource_id="kb-docs",
+            ),
+            MetaPlannerIRResourceBinding(
+                target_ref="researcher",
+                kind="toolset_resource",
+                resource_id="toolset-search",
+            ),
+            MetaPlannerIRResourceBinding(
+                target_ref="writer",
+                kind="plugin_resource",
+                resource_id="plugin-review",
+            ),
+        ],
+        middleware=[
+            MetaPlannerIRMiddlewareBinding(
+                target_ref="writer",
+                middleware_id="system_prompt_injector",
+                priority=20,
+                config={"system_prompt": "Do not invent unsupported claims."},
+            )
+        ],
+        prompt_profile_ids=["prompt-review"],
+        final_output=MetaPlannerIRFinalOutput(
+            node_ref="writer", variable="agent_output"
+        ),
+    )
+
+
 def test_capability_snapshot_defaults_exclude_high_risk_middleware():
     snapshot = _snapshot()
     high_risk = {
@@ -213,11 +323,28 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v1"
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v2"
     assert payload["snapshot_hash"]
     assert isinstance(payload["nodes"], list)
     assert isinstance(payload["middleware"], list)
     assert "default_scope" in payload
+
+
+def test_capability_snapshot_only_exposes_compilable_node_kinds():
+    snapshot = _snapshot()
+    kinds = {item["kind"] for item in snapshot.nodes}
+
+    assert kinds == {
+        "input",
+        "output",
+        "workflow_agent",
+        "external_xpert",
+        "knowledge_base",
+        "toolset_resource",
+        "plugin_resource",
+    }
+    assert all(item["planner"]["compilable"] for item in snapshot.nodes)
+    assert all(item["planner"]["ir_version"] == 2 for item in snapshot.nodes)
 
 
 def test_compiler_creates_control_and_five_binding_edge_shapes():
@@ -257,6 +384,86 @@ def test_compiler_creates_control_and_five_binding_edge_shapes():
     ]
 
 
+def test_typed_ir_allows_one_agent_to_cover_multiple_tasks():
+    plan = _plan()
+    blueprint = MetaPlannerTypedBlueprintV2(
+        name="Combined specialist",
+        nodes=[
+            MetaPlannerIRNode(
+                ref="specialist",
+                kind="workflow_agent",
+                title="Research writer",
+                task_ids=["research", "deliver"],
+                inputs=[
+                    MetaPlannerIRInputBinding(
+                        port="request", variable="user_input", value_type="string"
+                    )
+                ],
+                outputs=[
+                    MetaPlannerIROutputBinding(
+                        port="result",
+                        variable="agent_output",
+                        value_type="string",
+                    )
+                ],
+                config=MetaPlannerWorkflowAgentConfig(
+                    role_prompt="Research the request and write the final answer.",
+                    task_input="{{user_input}}",
+                ).model_dump(mode="json"),
+            )
+        ],
+        final_output=MetaPlannerIRFinalOutput(
+            node_ref="specialist", variable="agent_output"
+        ),
+    )
+
+    assert not validate_blueprint_authorization(
+        _request(), plan, blueprint, _snapshot()
+    )
+    candidate = compile_xpert_candidate(
+        request=_request(),
+        plan=plan,
+        blueprint=blueprint,
+        snapshot=_snapshot(),
+        target=None,
+    )
+    assert [
+        node["type"] for node in candidate["draft"]["workflow"]["nodes"]
+    ].count("workflow_agent") == 1
+
+
+def test_typed_ir_rejects_ambiguous_terminal_nodes():
+    blueprint = _typed_blueprint().model_copy(deep=True)
+    blueprint.control_edges = []
+    issues = validate_blueprint_authorization(
+        _request(), _plan(), blueprint, _snapshot()
+    )
+    assert any("exactly one terminal node" in issue for issue in issues)
+
+
+def test_typed_ir_rejects_final_output_variable_not_produced_by_terminal():
+    blueprint = _typed_blueprint().model_copy(deep=True)
+    blueprint.final_output.variable = "missing_output"
+    issues = validate_blueprint_authorization(
+        _request(), _plan(), blueprint, _snapshot()
+    )
+    assert any("is not produced" in issue for issue in issues)
+
+
+def test_typed_ir_compilation_is_deterministic():
+    kwargs = {
+        "request": _request(),
+        "plan": _plan(),
+        "blueprint": _typed_blueprint(),
+        "snapshot": _snapshot(),
+        "target": None,
+    }
+    first = compile_xpert_candidate(**kwargs)
+    second = compile_xpert_candidate(**kwargs)
+
+    assert first["draft"]["workflow"] == second["draft"]["workflow"]
+
+
 def test_unauthorized_resource_is_rejected():
     request = _request()
     request.scope.external_xpert_ids = []
@@ -287,7 +494,7 @@ async def test_generation_persists_proposal_and_uses_at_most_one_repair(
     outputs = [
         _plan().model_dump_json(),
         json.dumps({"name": "invalid"}, ensure_ascii=False),
-        _blueprint().model_dump_json(),
+        _typed_blueprint().model_dump_json(),
     ]
     calls = []
 
@@ -390,3 +597,51 @@ async def test_failed_repair_persists_unapprovable_candidate_until_human_edit(
         revision=edited.revision,
     )
     assert validated.validation["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_update_with_unsupported_target_node_fails_before_model_call(
+    tmp_path: Path,
+):
+    proposal_store = AuthoringProposalStore(tmp_path / "runtime")
+    xpert_store = XpertStore(tmp_path / "xperts")
+    skill_store = WorkspaceSkillDraftStore(tmp_path / "skills")
+    target = xpert_store.create_xpert(name="Typed target")
+    target.draft.workflow.nodes.append(
+        NativeWorkflowNode(
+            id="json-node",
+            type="json_serialize",
+            data={"kind": "json_serialize", "outputVariable": "serialized"},
+        )
+    )
+
+    def preflight(candidate):
+        result = validate_xpert_definition(candidate)
+        return result, candidate.draft.workflow, []
+
+    authoring = AuthoringService(
+        proposal_store,
+        xpert_store,
+        skill_store,
+        xpert_preflight=preflight,
+    )
+    calls = 0
+
+    async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("completion must not be called")
+
+    service = MetaPlannerV2Service(
+        authoring_service=authoring,
+        preflight=preflight,
+        completion=complete,
+    )
+    request = _request().model_copy(
+        update={"mode": "update", "target_xpert_id": target.id}
+    )
+
+    with pytest.raises(ValueError, match="cannot safely round-trip"):
+        await service.generate(request, _snapshot(), target=target)
+    assert calls == 0
+    assert proposal_store.list(status="pending") == []

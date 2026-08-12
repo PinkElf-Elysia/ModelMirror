@@ -135,6 +135,101 @@ class MetaPlannerBlueprint(BaseModel):
     prompt_profile_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
+MetaPlannerValueType = Literal[
+    "any",
+    "null",
+    "string",
+    "number",
+    "boolean",
+    "object",
+    "array",
+]
+
+
+class MetaPlannerIRInputBinding(BaseModel):
+    port: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+    variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+    value_type: MetaPlannerValueType = "any"
+
+
+class MetaPlannerIROutputBinding(BaseModel):
+    port: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+    variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+    value_type: MetaPlannerValueType = "any"
+
+
+class MetaPlannerIRNode(BaseModel):
+    ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    kind: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2_000)
+    task_ids: list[str] = Field(min_length=1, max_length=8)
+    inputs: list[MetaPlannerIRInputBinding] = Field(default_factory=list, max_length=16)
+    outputs: list[MetaPlannerIROutputBinding] = Field(
+        default_factory=list, max_length=16
+    )
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetaPlannerIRControlEdge(BaseModel):
+    source_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+
+
+class MetaPlannerIRResourceBinding(BaseModel):
+    target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    kind: Literal[
+        "external_xpert",
+        "knowledge_base",
+        "toolset_resource",
+        "plugin_resource",
+    ]
+    resource_id: str = Field(min_length=1, max_length=200)
+    tool_name: str = Field(default="", max_length=120)
+    description: str = Field(default="", max_length=1_000)
+    top_k: int = Field(default=5, ge=1, le=50)
+    score_threshold: float = Field(default=0, ge=0, le=1)
+
+
+class MetaPlannerIRMiddlewareBinding(BaseModel):
+    target_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    middleware_id: str = Field(min_length=1, max_length=160)
+    priority: int = Field(default=100, ge=0, le=10_000)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetaPlannerIRFinalOutput(BaseModel):
+    node_ref: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+class MetaPlannerWorkflowAgentConfig(BaseModel):
+    role_prompt: str = Field(min_length=1, max_length=20_000)
+    task_input: str = Field(min_length=1, max_length=8_000)
+    model_id: str | None = Field(default=None, max_length=300)
+    source_agent_id: str | None = Field(default=None, min_length=1, max_length=160)
+
+
+class MetaPlannerTypedBlueprintV2(BaseModel):
+    ir_version: Literal[2] = 2
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2_000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    starters: list[str] = Field(default_factory=list, max_length=8)
+    nodes: list[MetaPlannerIRNode] = Field(min_length=1, max_length=24)
+    control_edges: list[MetaPlannerIRControlEdge] = Field(
+        default_factory=list, max_length=40
+    )
+    resources: list[MetaPlannerIRResourceBinding] = Field(
+        default_factory=list, max_length=40
+    )
+    middleware: list[MetaPlannerIRMiddlewareBinding] = Field(
+        default_factory=list, max_length=40
+    )
+    prompt_profile_ids: list[str] = Field(default_factory=list, max_length=20)
+    final_output: MetaPlannerIRFinalOutput
+
+
 class MetaPlannerCapabilitySnapshot(BaseModel):
     version: str
     snapshot_hash: str

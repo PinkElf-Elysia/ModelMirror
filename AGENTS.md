@@ -289,6 +289,10 @@ Meta Planner V2 只生成候选 Xpert，并使用 Authoring Proposal 作为唯�
 
 - Capability Snapshot 必须实时来自 Workflow Node Registry、Middleware Registry
   和当前资源 Store；禁止在 Planner 内维护第二份可生成节点或资源 ID 清单。
+- Snapshot 只能暴露 `server/meta_agent/node_adapters.py` 中存在版本化编译适配器的
+  节点；Registry 的展示开关不等于 Planner 可编译能力。
+- Planner 编译输出必须使用 Typed IR V2，显式声明 typed ports、控制边、绑定目标和
+  唯一最终输出。任务与 `workflow_agent` 不得强制一一对应，编译器不得猜测 sink。
 - Snapshot 只包含安全元数据和规范化 hash，不得包含凭据、完整 Tool Schema、知识正文、
   Plugin/Skill 文件、工具输出或本地物理路径。
 - Sandbox、Browser、Client Tools、Automation、Authoring 等高风险能力默认不授权；
@@ -298,6 +302,8 @@ Meta Planner V2 只生成候选 Xpert，并使用 Authoring Proposal 作为唯�
 - 生成结果必须依次通过 Pydantic、Registry、workflow validate、特殊绑定边、资源版本、
   冲突/循环和无副作用发布预检。
 - Create/Update 候选均写入 `AuthoringProposalStore`；更新必须固定 `base_revision`。
+- Update 目标包含当前无适配器节点时，必须在任何模型调用前 fail-closed；禁止以完整
+  替代候选静默删除 JSON、Agent Table、Knowledge、Vision 或其他未知节点。
 - Planner、人工候选编辑和批准均不得创建发布版本或启动运行。批准只写 Xpert 草稿，
   最终发布必须在 Studio 中显式完成。
 - 变更 Meta Planner V2 时至少运行：

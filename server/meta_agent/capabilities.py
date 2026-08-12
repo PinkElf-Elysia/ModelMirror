@@ -6,6 +6,10 @@ import time
 from dataclasses import asdict
 from typing import Any, Iterable
 
+from .node_adapters import (
+    META_PLANNER_COMPILABLE_NODE_KINDS,
+    planner_capability_metadata,
+)
 from .schemas import MetaPlannerCapabilitySnapshot, MetaPlannerScope
 
 
@@ -77,7 +81,12 @@ def build_capability_snapshot(
     for section in node_payload.get("sections", []):
         for item in section.get("items", []):
             planner = dict(item.get("planner") or {})
-            if not item.get("enabled") or not planner.get("enabled"):
+            compiler = planner_capability_metadata(str(item.get("kind") or ""))
+            if (
+                not item.get("enabled")
+                or not planner.get("enabled")
+                or compiler is None
+            ):
                 continue
             nodes.append(
                 {
@@ -88,7 +97,10 @@ def build_capability_snapshot(
                     "tags": list(item.get("tags") or [])[:12],
                     "planner": {
                         "enabled": True,
-                        "support": planner.get("support", "full"),
+                        "support": compiler["support"],
+                        "compilable": True,
+                        "ir_version": compiler["ir_version"],
+                        "adapter_version": compiler["adapter_version"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
@@ -99,7 +111,8 @@ def build_capability_snapshot(
             )
     for item in node_payload.get("knowledge_pipeline", {}).get("items", []):
         planner = dict(item.get("planner") or {})
-        if item.get("enabled") and planner.get("enabled"):
+        compiler = planner_capability_metadata(str(item.get("kind") or ""))
+        if item.get("enabled") and planner.get("enabled") and compiler is not None:
             nodes.append(
                 {
                     "kind": item["kind"],
@@ -109,7 +122,10 @@ def build_capability_snapshot(
                     "tags": list(item.get("tags") or [])[:12],
                     "planner": {
                         "enabled": True,
-                        "support": planner.get("support", "full"),
+                        "support": compiler["support"],
+                        "compilable": True,
+                        "ir_version": compiler["ir_version"],
+                        "adapter_version": compiler["adapter_version"],
                         "default_data": dict(planner.get("default_data") or {}),
                         "config_constraints": dict(
                             planner.get("config_constraints") or {}
@@ -262,15 +278,7 @@ def build_capability_snapshot(
         )
     expert_summaries.sort(key=lambda item: item["id"])
 
-    core_node_kinds = {
-        "input",
-        "output",
-        "workflow_agent",
-        "external_xpert",
-        "knowledge_base",
-        "toolset_resource",
-        "plugin_resource",
-    }
+    core_node_kinds = set(META_PLANNER_COMPILABLE_NODE_KINDS)
     available_node_kinds = {item["kind"] for item in nodes}
     default_scope = MetaPlannerScope(
         allowed_node_kinds=sorted(core_node_kinds & available_node_kinds),
@@ -283,7 +291,7 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v1",
+        "version": "evoagentx-meta-planner-capabilities-v2",
         "node_registry_version": workflow_registry.version,
         "nodes": nodes,
         "middleware": middleware,
