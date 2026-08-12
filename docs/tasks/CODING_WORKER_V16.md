@@ -2,7 +2,7 @@
 
 ## 基线与宣传边界
 
-- 开工基线：合并 PR #173 后的 `origin/main@dce62ee54c033f1b0b55f69f807c7c6b4bb91df5`。
+- 开工基线：合并 PR #173 后的 `origin/main@dce62ee54c033f1b0b55f69f807c7c6b4bb91df5`；发布前因主线前进，PR A 已无冲突重放到 `origin/main@09f4cca4f1e02fe275ada17535597437cac3778d`，最终分支相对该基线仅包含六个 V16 提交。
 - PR A 只实现真实会话与等效 Harness；PR B 的单 Agent 能力补齐和 PR C 的 Subagent 均不提前混入。
 - 在两轮完整真实对照通过前，功能保持 Experimental、默认关闭，禁止使用“接近原版 OpenCode”“等同 OpenCode”或“完整替代 OpenCode”。
 - 最终唯一允许的表述是：“在已验收的受控 Python/TypeScript 仓库开发任务上，ModelMirror Coding Worker 的任务成功率与恢复能力接近 OpenCode 1.18.9。”
@@ -40,3 +40,12 @@
 ## 回退
 
 关闭 V16 对应开关后，新任务回到 V15；已有 V16 任务进入 `interrupted`，保留 Store、Workspace、Evidence 与 v13 Recovery。不得自动重放工具副作用或删除用户数据。
+
+## PR A 验证快照
+
+- Worker Linux 专项：`170 passed, 5 skipped`；Windows 本机同组有三个未修改的 Host Snapshot 文件身份基线差异，Linux 对应文件 `7 passed`。
+- Agent Workspace 与 Coding 联合回归：`837 passed, 14 skipped`。
+- 后端全量：`2909 passed, 29 skipped, 2 failed`；两项失败均可在 PR A 零 Diff 的主线路径复现或由既有容器环境解释：Linux overlay 上 Host Apply 同内容替换的文件身份复用，以及旧 server 镜像 Node 20 直接加载 TypeScript 失败（宿主 Node 24 对应测试通过）。
+- 前端：生产 build 通过；测试 `233 passed, 1 failed`，失败为 PR #176 新增 `vision_understanding` 后主线 `NodePalette` 旧期望未同步，PR A 无前端 Diff。
+- Compose：V14 + V15 Claude overlays 的 `config --quiet` 通过；Python `py_compile`、`git diff --check`、敏感信息与禁止产物扫描通过。
+- 真实 144 次模型对照和两轮认证尚未运行，因此 PR A 保持 Draft/Experimental，不能使用限定或非限定的“接近 OpenCode”宣传文案。
