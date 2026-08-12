@@ -8,7 +8,11 @@ import {
   canonicalizeJsonValue,
 } from "@matrix-oasis/runtime-pack-contracts";
 import { inspectEnvironmentCollider, inspectPanoramaPng } from "./binary-inspection.mjs";
-import { acquireMarbleEnvironment, MARBLE_PROVIDER_MODEL } from "./marble-provider.mjs";
+import {
+  acquireMarbleEnvironment,
+  MARBLE_PROVIDER_LIMITS,
+  MARBLE_PROVIDER_MODEL,
+} from "./marble-provider.mjs";
 import { PrototypeEnvironmentPipelineOperationalError } from "./operational.mjs";
 
 export const PROTOTYPE_ENVIRONMENT_BUNDLE_FORMAT =
@@ -26,6 +30,17 @@ const SHA256 = "^sha256:[0-9a-f]{64}$";
 const PANORAMA_PATH = "assets/environment-panorama.png";
 const COLLIDER_PATH = "assets/environment-collider.glb";
 const preparedPlans = new WeakMap();
+
+const REUSABLE_ENVIRONMENT_PROFILE = [
+  "Create a reusable first-person prototype environment from the supplied scene intent and visual style.",
+  "Build one self-contained rectangular room at realistic human scale, with a continuous level floor, four solid perimeter walls, a high ceiling, and a wide unobstructed central circulation area.",
+  "Around the perimeter, imply four clearly readable functional zones using architecture and lighting only: an equipment bay, a storage alcove, an observation or work area, and a quiet briefing corner.",
+  "Leave generous empty floor and wall space so externally generated props and one static character can be placed later without visual conflict.",
+  "Use clean modular construction, restrained matte concrete and metal, subtle wear, soft even neutral lighting, and moderate production-quality detail while preserving the supplied visual style.",
+  "Use coherent perspective, strong depth cues, continuous floor-wall-ceiling boundaries, and a complete seamless 360-degree view from a standing eye-height viewpoint near the room center.",
+  "Keep the space easy to navigate and collision-friendly: no stairs, pits, narrow passages, unreachable platforms, open voids, loose clutter, furniture blocking routes, people, creatures, vehicles, text, logos, signage, UI, doors that must animate, mirrors, transparent walls, strong reflections, extreme darkness, fog, or outdoor vistas.",
+  "The result should be polished but modular enough to reuse as an engine demo, interaction testbed, or foundation for multiple prototype genres.",
+].join(" ");
 
 const environmentBundleSchema = {
   type: "object",
@@ -218,6 +233,14 @@ function blueprintSemantics(blueprint) {
   return true;
 }
 
+function environmentPrompt(blueprint) {
+  return [
+    `Scene intent: ${blueprint.scene.environmentPrompt}`,
+    `Visual style intent: ${blueprint.scene.visualStylePrompt}`,
+    REUSABLE_ENVIRONMENT_PROFILE,
+  ].join("\n\n");
+}
+
 export function planPrototypeEnvironment(sceneBlueprintJson) {
   try {
     const blueprint = parseCanonical(sceneBlueprintJson, 1024 * 1024);
@@ -225,15 +248,20 @@ export function planPrototypeEnvironment(sceneBlueprintJson) {
     if (!validateBlueprintStructure(blueprint)) return failure("PROTOTYPE_ENVIRONMENT_BLUEPRINT_SCHEMA_INVALID", "schema", schemaPath(validateBlueprintStructure.errors, "/sceneBlueprint"));
     if (!blueprintSemantics(blueprint)) return failure("PROTOTYPE_ENVIRONMENT_BLUEPRINT_SEMANTIC_INVALID", "semantic", "/sceneBlueprint");
     if (!allStringsWellFormed(blueprint)) return failure("PROTOTYPE_ENVIRONMENT_UNSUPPORTED_TEXT", "semantic", "/sceneBlueprint");
+    const prompt = environmentPrompt(blueprint);
+    if (prompt.length > MARBLE_PROVIDER_LIMITS.promptCharacters) {
+      return failure("PROTOTYPE_ENVIRONMENT_PROMPT_PROFILE_UNSUPPORTED", "plan", "/sceneBlueprint/scene/environmentPrompt");
+    }
     const internal = deepFreeze({
       scene: { id: blueprint.scene.id, contentVersion: blueprint.scene.contentVersion, title: blueprint.scene.title },
       blueprint: { format: blueprint.format, formatVersion: blueprint.formatVersion, canonicalSha256: sha256(sceneBlueprintJson) },
-      environmentPromptSha256: sha256(blueprint.scene.environmentPrompt),
-      prompt: blueprint.scene.environmentPrompt,
+      environmentPromptSha256: sha256(prompt),
+      prompt,
     });
     const success = deepFreeze({ ok: true, plan: {
       scene: internal.scene,
       blueprint: internal.blueprint,
+      environmentPrompt: internal.prompt,
       environmentPromptSha256: internal.environmentPromptSha256,
     } });
     preparedPlans.set(success, internal);

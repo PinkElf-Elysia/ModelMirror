@@ -34,6 +34,7 @@ export interface PrototypeEnvironmentPlan {
       formatVersion: "0.1.0";
       canonicalSha256: string;
     }>;
+    environmentPrompt: string;
     environmentPromptSha256: string;
   }>;
 }
@@ -99,7 +100,7 @@ export declare const MARBLE_PROVIDER_LIMITS: Readonly<{
   colliderBytes: 33554432;
   pollAttempts: 180;
   pollIntervalMs: 10000;
-  promptCharacters: 4096;
+  promptCharacters: 2000;
 }>;
 
 export declare const PROTOTYPE_ENVIRONMENT_BUNDLE_FORMAT:

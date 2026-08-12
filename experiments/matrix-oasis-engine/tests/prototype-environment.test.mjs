@@ -159,14 +159,19 @@ async function serverFixture(options = {}) {
   };
 }
 
-test("plans one canonical text environment without exposing the prompt", () => {
+test("plans one canonical text environment with an exact approval-bound provider prompt", () => {
   const text = canonicalizeJsonValue(blueprint());
   const result = planPrototypeEnvironment(text);
   assert.equal(result.ok, true);
   assert.equal(Object.isFrozen(result), true);
-  assert.equal(JSON.stringify(result).includes("quiet neutral"), false);
+  assert.equal(result.plan.environmentPrompt.includes(blueprint().scene.environmentPrompt), true);
+  assert.equal(result.plan.environmentPrompt.includes(blueprint().scene.visualStylePrompt), true);
+  assert.equal(result.plan.environmentPrompt.includes("complete seamless 360-degree view"), true);
+  assert.equal(result.plan.environmentPrompt.includes("one static character"), true);
+  assert.equal(result.plan.environmentPrompt.length <= 2000, true);
   assert.match(result.plan.blueprint.canonicalSha256, /^sha256:[0-9a-f]{64}$/u);
-  assert.match(result.plan.environmentPromptSha256, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(result.plan.environmentPromptSha256,
+    `sha256:${createHash("sha256").update(result.plan.environmentPrompt).digest("hex")}`);
 
   assert.equal(planPrototypeEnvironment(`${text}\n`).ok, false);
   assert.equal(planPrototypeEnvironment(canonicalizeJsonValue(blueprint({ assetBriefs: [] }))).diagnostics[0].code, "PROTOTYPE_ENVIRONMENT_BLUEPRINT_SCHEMA_INVALID");
@@ -178,10 +183,25 @@ test("plans one canonical text environment without exposing the prompt", () => {
   assert.equal(planPrototypeEnvironment(canonicalizeJsonValue(invalidText)).diagnostics[0].code, "PROTOTYPE_ENVIRONMENT_UNSUPPORTED_TEXT");
   const invalidTitle = blueprint(); invalidTitle.scene.title = String.fromCharCode(0xdfff);
   assert.equal(planPrototypeEnvironment(canonicalizeJsonValue(invalidTitle)).diagnostics[0].code, "PROTOTYPE_ENVIRONMENT_UNSUPPORTED_TEXT");
+  const oversized = blueprint();
+  oversized.scene.environmentPrompt = "x".repeat(1000);
+  oversized.scene.visualStylePrompt = "y".repeat(1000);
+  assert.equal(planPrototypeEnvironment(canonicalizeJsonValue(oversized)).diagnostics[0].code,
+    "PROTOTYPE_ENVIRONMENT_PROMPT_PROFILE_UNSUPPORTED");
   assert.throws(() => createMarbleWorldProvider({
     endpoint: "https://api.worldlabs.ai/marble/v1",
     apiKey: "example",
     allowedAssetHosts: ["unapproved.example"],
+  }), { code: "PROTOTYPE_ENVIRONMENT_PIPELINE_INTERNAL_ERROR" });
+  assert.doesNotThrow(() => createMarbleWorldProvider({
+    endpoint: "https://api.worldlabs.ai/marble/v1",
+    apiKey: "example",
+    allowedAssetHosts: ["cdn.marble.worldlabs.ai"],
+  }));
+  assert.throws(() => createMarbleWorldProvider({
+    endpoint: "https://api.worldlabs.ai/marble/v1",
+    apiKey: "example",
+    allowedAssetHosts: ["*.worldlabs.ai"],
   }), { code: "PROTOTYPE_ENVIRONMENT_PIPELINE_INTERNAL_ERROR" });
 });
 
@@ -203,7 +223,7 @@ test("materializes the bounded text-only Marble flow and publishes only safe can
   assert.deepEqual(createBody, {
     display_name: "matrix-oasis-prototype-environment",
     model: "marble-1.1",
-    world_prompt: { type: "text", text_prompt: blueprint().scene.environmentPrompt },
+    world_prompt: { type: "text", text_prompt: plan.plan.environmentPrompt },
     permission: { allow_id_access: false, allowed_readers: [], allowed_writers: [], public: false },
   });
   assert.equal(fixture.calls.every((call) => call.credentialHeader === "example" || call.url.startsWith("/assets/")), true);

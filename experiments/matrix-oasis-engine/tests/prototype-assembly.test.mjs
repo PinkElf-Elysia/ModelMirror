@@ -9,6 +9,7 @@ import { deflateSync } from "node:zlib";
 import test from "node:test";
 import { compileAuthoringGamePackJson } from "@matrix-oasis/game-pack-compiler";
 import { validatePrototypeAssetBundleJson } from "@matrix-oasis/prototype-asset-contracts";
+import { planPrototypeEnvironment } from "@matrix-oasis/prototype-environment-pipeline";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { validateScenePackJson } from "@matrix-oasis/scene-pack-validator";
 import {
@@ -140,12 +141,14 @@ async function fixture(options = {}) {
       contentVersion: runtime.source.contentVersion, authoringCanonicalSha256: `sha256:${runtime.source.canonicalSha256}`,
       artifactSha256: `sha256:${receipt.artifact.sha256}` }, environmentTemplate: "kenney-prototype-room-v1", materializations };
   const panoramaBytes = panorama(); const colliderBytes = glb();
+  const environmentPlan = planPrototypeEnvironment(blueprintText); assert.equal(environmentPlan.ok, true);
   const environmentBundle = { format: "matrix-oasis.prototype-environment-bundle", formatVersion: "0.1.0",
     canonicalization: "matrix-oasis.canonical-json/1", scene: { id: blueprintValue.scene.id,
       contentVersion: blueprintValue.scene.contentVersion, title: blueprintValue.scene.title },
     blueprint: { format: blueprintValue.format, formatVersion: blueprintValue.formatVersion,
       canonicalSha256: hash(new TextEncoder().encode(blueprintText)) },
-    provider: { id: "world-labs-marble", model: "marble-1.1", environmentPromptSha256: hash(new TextEncoder().encode(blueprintValue.scene.environmentPrompt)) },
+    provider: { id: "world-labs-marble", model: "marble-1.1",
+      environmentPromptSha256: environmentPlan.plan.environmentPromptSha256 },
     assets: { panorama: { path: "assets/environment-panorama.png", format: "png", width: 2, height: 1,
       byteLength: panoramaBytes.length, sha256: hash(panoramaBytes) },
       collider: { path: "assets/environment-collider.glb", format: "glb", byteLength: colliderBytes.length,
@@ -444,8 +447,9 @@ test("same-inode input mutation is rejected and creates no run", async () => {
 });
 
 test("real cache import CLI resolves workspaces and publishes one static success line", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "matrix-oasis-r10-cache-cli-input-"));
-  const runRoot = path.join(os.tmpdir(), `matrix-oasis-r10-cache-cli-output-${path.basename(root)}`);
+  const cliTemporaryRoot = process.platform === "win32" ? path.join(path.parse(process.cwd()).root, "tmp") : os.tmpdir();
+  const root = await mkdtemp(path.join(cliTemporaryRoot, "matrix-oasis-r10-cache-cli-input-"));
+  const runRoot = path.join(cliTemporaryRoot, `matrix-oasis-r10-cache-cli-output-${path.basename(root)}`);
   try {
     const prepared = await writeCacheInputs(root, await fixture(), runRoot);
     const { stdout, stderr } = await execFileAsync(process.execPath,

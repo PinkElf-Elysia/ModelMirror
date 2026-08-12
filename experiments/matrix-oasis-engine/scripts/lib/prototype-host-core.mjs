@@ -179,7 +179,10 @@ function sanitizeRecovered(value) {
   if (!Array.isArray(value)) return [];
   const output = [];
   for (const item of value.slice(0, 100)) {
-    if (!exactKeys(item, ["runId"]) || typeof item.runId !== "string" || !/^[0-9a-f]{64}-[0-9a-f]{64}$/u.test(item.runId)) continue;
+    if (!exactKeys(item, ["runId", "promptSha256", "model"]) ||
+        typeof item.runId !== "string" || !/^[0-9a-f]{64}-[0-9a-f]{64}$/u.test(item.runId) ||
+        typeof item.promptSha256 !== "string" || !HASH.test(item.promptSha256) ||
+        typeof item.model !== "string" || !/^[A-Za-z0-9._/-]{1,128}$/u.test(item.model)) continue;
     output.push(item.runId);
   }
   return output;

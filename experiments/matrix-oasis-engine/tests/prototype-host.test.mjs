@@ -257,7 +257,11 @@ test("launch is ready-only and single-flight without altering current on failure
 
 test("successful runs recover across host restart without raw provider state", async (t) => {
   const fixture = operationFixture({ async recover() { fixture.calls.recover += 1; return { currentRunId: VALID_RUN,
-    runs: [{ runId: VALID_RUN }, { runId: "invalid" }, { runId: SECOND_RUN, leaked: "secret" }] }; } });
+    runs: [
+      { runId: VALID_RUN, promptSha256: `sha256:${"e".repeat(64)}`, model: "qualification-model" },
+      { runId: "invalid", promptSha256: `sha256:${"e".repeat(64)}`, model: "qualification-model" },
+      { runId: SECOND_RUN, promptSha256: `sha256:${"e".repeat(64)}`, model: "qualification-model", leaked: "secret" },
+    ] }; } });
   const host = createPrototypeHost({ configuration: configuration(), operations: fixture.operations }); await host.start(); t.after(() => host.stop());
   const { cookie, bootstrap } = await session(); assert.equal(bootstrap.currentRunId, VALID_RUN);
   assert.equal(bootstrap.runs.length, 1); assert.equal(bootstrap.runs[0].id, "r10-run-1");
@@ -272,6 +276,8 @@ test("host and preview source do not implement provider networking or expose sec
   assert.equal(hostSource.includes("fetch("), false); assert.equal(hostSource.includes("process.env"), false);
   const preview = await readFile(new URL("../scripts/preview-prototype.mjs", import.meta.url), "utf8");
   assert.equal(preview.includes("console.log"), false); assert.equal(preview.includes("shell: true"), false);
+  assert.equal(preview.includes("environmentPrompt: environmentPlan.plan.environmentPrompt"), true);
+  assert.equal(preview.includes("environmentPrompt: blueprint.scene.environmentPrompt"), false);
   for (const forbidden of ["LLM_GATEWAY_", "OPENROUTER_API_KEY", "WORLD_LABS_API_KEY"]) assert.equal(preview.includes(forbidden), false);
 });
 

@@ -26,7 +26,12 @@ import { createRuntimePreviewProject, removeRuntimePreviewProject } from "./prep
 const tempRoot = path.resolve(path.parse(process.cwd()).root, "tmp");
 const moduleRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const services = Object.freeze({ lstat, mkdir, mkdtemp, openFile: open, readdir, realpath, rename, rm, rmdir });
-const allowedMarbleAssetHosts = Object.freeze(["assets.worldlabs.ai", "cdn.worldlabs.ai", "storage.googleapis.com"]);
+const allowedMarbleAssetHosts = Object.freeze([
+  "assets.worldlabs.ai",
+  "cdn.marble.worldlabs.ai",
+  "cdn.worldlabs.ai",
+  "storage.googleapis.com",
+]);
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const hash = (text) => `sha256:${createHash("sha256").update(new TextEncoder().encode(text)).digest("hex")}`;
 const GODOT_READY_MARKER = "MATRIX_OASIS_R10_PROTOTYPE_READY";
@@ -231,11 +236,13 @@ function operations(runRoot, godot) {
     },
     async describeAssets({ artifacts }) {
       try {
+        const environmentPlan = planPrototypeEnvironment(artifacts.sceneBlueprintJson);
+        if (!environmentPlan.ok) return { ok: false, diagnostics: [{ code: "PROTOTYPE_HOST_GENERATION_FAILED", path: "" }] };
         const blueprint = JSON.parse(artifacts.sceneBlueprintJson);
         const briefs = blueprint.assetBriefs.filter((brief) => brief.kind !== "environment")
           .map(({ id, kind, prompt }) => ({ id, kind, prompt }));
-        return { ok: true, blueprintSha256: hash(artifacts.sceneBlueprintJson),
-          environmentPrompt: blueprint.scene.environmentPrompt, briefs };
+        return { ok: true, blueprintSha256: environmentPlan.plan.blueprint.canonicalSha256,
+          environmentPrompt: environmentPlan.plan.environmentPrompt, briefs };
       } catch { return { ok: false, diagnostics: [{ code: "PROTOTYPE_HOST_GENERATION_FAILED", path: "" }] }; }
     },
     async acquire({ artifacts, approval, onStage }) {

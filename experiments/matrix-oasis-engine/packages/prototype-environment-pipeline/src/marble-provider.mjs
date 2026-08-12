@@ -10,12 +10,13 @@ export const MARBLE_PROVIDER_LIMITS = Object.freeze({
   colliderBytes: 32 * 1024 * 1024,
   pollAttempts: 180,
   pollIntervalMs: 10_000,
-  promptCharacters: 4096,
+  promptCharacters: 2000,
 });
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const APPROVED_OFFICIAL_ASSET_HOSTS = new Set([
   "assets.worldlabs.ai",
+  "cdn.marble.worldlabs.ai",
   "cdn.worldlabs.ai",
   "storage.cloud.google.com",
   "storage.googleapis.com",

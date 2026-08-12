@@ -7,7 +7,10 @@ import { deflateSync } from "node:zlib";
 import { compileAuthoringGamePackJson } from "@matrix-oasis/game-pack-compiler";
 import { validatePrototypeAssetBundleJson } from "@matrix-oasis/prototype-asset-contracts";
 import { assemblePrototypeScene } from "@matrix-oasis/prototype-assembler";
-import { validatePrototypeEnvironmentBundleJson } from "@matrix-oasis/prototype-environment-pipeline";
+import {
+  planPrototypeEnvironment,
+  validatePrototypeEnvironmentBundleJson,
+} from "@matrix-oasis/prototype-environment-pipeline";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { validateScenePackJson } from "@matrix-oasis/scene-pack-validator";
 import { inspectEnvironmentCollider } from "../packages/prototype-environment-pipeline/src/binary-inspection.mjs";
@@ -138,6 +141,8 @@ async function prepareRun(runDirectory) {
 
   const panoramaBytes = panorama();
   const colliderBytes = assetFixtureGlb();
+  const environmentPlan = planPrototypeEnvironment(sceneBlueprintJson);
+  if (!environmentPlan.ok) throw new Error("PROTOTYPE_BUILDER_VERIFY_ENVIRONMENT_PLAN_FAILED");
   const inspected = inspectEnvironmentCollider(colliderBytes, { colliderBytes: 32 * 1024 * 1024 });
   if (!inspected.ok) throw new Error("PROTOTYPE_BUILDER_VERIFY_COLLIDER_FAILED");
   const environmentBundle = { format: "matrix-oasis.prototype-environment-bundle", formatVersion: "0.1.0",
@@ -145,7 +150,7 @@ async function prepareRun(runDirectory) {
     blueprint: { format: blueprintValue.format, formatVersion: blueprintValue.formatVersion,
       canonicalSha256: hash(encoder.encode(sceneBlueprintJson)) },
     provider: { id: "world-labs-marble", model: "marble-1.1",
-      environmentPromptSha256: hash(encoder.encode(blueprintValue.scene.environmentPrompt)) },
+      environmentPromptSha256: environmentPlan.plan.environmentPromptSha256 },
     assets: { panorama: { path: "assets/environment-panorama.png", format: "png", width: 2, height: 1,
       byteLength: panoramaBytes.length, sha256: hash(panoramaBytes) },
       collider: { path: "assets/environment-collider.glb", format: "glb", byteLength: colliderBytes.length,

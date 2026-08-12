@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { validatePrototypeAssetBundleJson } from "@matrix-oasis/prototype-asset-contracts";
-import { validatePrototypeEnvironmentBundleJson } from "@matrix-oasis/prototype-environment-pipeline";
+import {
+  planPrototypeEnvironment,
+  validatePrototypeEnvironmentBundleJson,
+} from "@matrix-oasis/prototype-environment-pipeline";
 import {
   GENERATION_PROPOSAL_FORMAT,
   GENERATION_PROPOSAL_FORMAT_VERSION,
@@ -292,12 +295,14 @@ async function assemble(request) {
   }
   const environmentBundle = JSON.parse(captured.environmentBundleJson);
   const blueprintSha = sha256Text(captured.sceneBlueprintJson);
+  const environmentPlan = planPrototypeEnvironment(captured.sceneBlueprintJson);
   if (!sameScene(blueprint.scene, assetBundle.scene) || !sameScene(blueprint.scene, environmentBundle.scene) ||
       runtimePack.source.id !== authoring.id || runtimePack.source.contentVersion !== authoring.contentVersion ||
       runtimePack.source.canonicalSha256 !== sha256Text(captured.authoringGamePackJson).slice(7) ||
       !assetIdentityMatches(assetBundle, runtimePack, receipt, blueprintSha) ||
       environmentBundle.blueprint.canonicalSha256 !== blueprintSha ||
-      environmentBundle.provider.environmentPromptSha256 !== sha256Text(blueprint.scene.environmentPrompt)) {
+      !environmentPlan.ok ||
+      environmentBundle.provider.environmentPromptSha256 !== environmentPlan.plan.environmentPromptSha256) {
     return reject("PROTOTYPE_ASSEMBLY_IDENTITY_MISMATCH");
   }
   const scene = buildScene({ blueprint, runtimePack, receipt, assetBundle, environmentBundle });

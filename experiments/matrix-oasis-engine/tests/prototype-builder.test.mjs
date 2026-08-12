@@ -118,6 +118,11 @@ test("Creator and Godot wrapper preserve old modes and expose the bounded R10 UX
   assert.match(css, /@media \(max-width: 640px\)/u); assert.match(css, /min-width: 320px/u);
   assert.equal(lab.includes("PanoramaSkyMaterial"), true); assert.equal(lab.includes('get_node_or_null("Visual")'), true);
   assert.equal(lab.includes(".visible = false"), true); assert.equal(lab.includes("MATRIX_OASIS_R10_PROTOTYPE_READY"), true);
+  assert.equal(lab.includes("TARGET_FLOOR_SPAN_METERS := 30.0"), true);
+  assert.equal(lab.includes("_align_environment_collider"), true);
+  assert.equal(lab.includes("R10SafetyFloor"), true);
+  assert.equal(lab.includes("set_synthetic_move_input(Vector2.RIGHT)"), true);
+  assert.equal(lab.includes("PACK_GODOT_PROTOTYPE_MOVEMENT_SMOKE_FAILED"), true);
   for (const forbidden of ["HTTPClient", "HTTPRequest", "OS.execute", "FileAccess.WRITE", "store_string"])
     assert.equal(`${lab}\n${loader}`.includes(forbidden), false);
 });
