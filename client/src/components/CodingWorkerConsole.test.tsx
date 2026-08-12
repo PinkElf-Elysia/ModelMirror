@@ -322,13 +322,22 @@ describe("CodingWorkerConsole", () => {
       ],
     });
     api.connectCodingWorkerEvents.mockImplementation((_taskId, _after, handlers) => {
-      queueMicrotask(() => handlers.onEvent({
-        sequence: 9,
-        task_id: task.task_id,
-        type: "context_compacted",
-        payload: { boundary: "tool_completed" },
-        created_at: 3,
-      }));
+      queueMicrotask(() => {
+        handlers.onEvent({
+          sequence: 8,
+          task_id: task.task_id,
+          type: "provider_event",
+          payload: { kind: "todo", data: { items: [{ todo_id: "todo_1", content: "复跑父任务必需检查", status: "pending" }] } },
+          created_at: 3,
+        });
+        handlers.onEvent({
+          sequence: 9,
+          task_id: task.task_id,
+          type: "context_compacted",
+          payload: { boundary: "tool_completed" },
+          created_at: 3,
+        });
+      });
       return () => undefined;
     });
 
@@ -337,6 +346,7 @@ describe("CodingWorkerConsole", () => {
     await user.click(await screen.findByRole("tab", { name: "会话" }));
 
     expect(await screen.findByText("修复状态逻辑")).toBeInTheDocument();
+    expect(screen.getByText("复跑父任务必需检查")).toBeInTheDocument();
     expect(screen.getByText("上下文已在完整工具边界压缩", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("父 Workspace 未被覆盖", { exact: false })).toBeInTheDocument();
     expect(screen.getAllByText("src/state.ts", { exact: false })).toHaveLength(2);

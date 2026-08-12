@@ -97,6 +97,11 @@ import {
 
 type ConsoleContext = "coding" | "agent";
 type InspectorTab = "session" | "files" | "diff" | "changesets" | "diagnostics" | "evidence" | "terminal";
+type WorkerTodoItem = {
+  todo_id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+};
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -110,6 +115,28 @@ function publicPlanText(event: CodingWorkerEvent) {
   const record = data as Record<string, unknown>;
   const value = [record.summary, record.message, record.text].find((item) => typeof item === "string");
   return typeof value === "string" ? value : "计划已更新。";
+}
+
+function publicTodoItems(event: CodingWorkerEvent) {
+  if (event.type !== "provider_event" || event.payload.kind !== "todo") return null;
+  const data = event.payload.data;
+  if (!data || typeof data !== "object") return null;
+  const items = (data as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return null;
+  return items.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const value = item as Record<string, unknown>;
+    if (
+      typeof value.todo_id !== "string"
+      || typeof value.content !== "string"
+      || !["pending", "in_progress", "completed", "cancelled"].includes(String(value.status))
+    ) return [];
+    return [{
+      todo_id: value.todo_id,
+      content: value.content,
+      status: value.status as "pending" | "in_progress" | "completed" | "cancelled",
+    } satisfies WorkerTodoItem];
+  }).slice(0, 256);
 }
 
 function approvalField(request: Record<string, unknown>, key: string) {
@@ -251,6 +278,10 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
   const pendingQuestions = useMemo(
     () => questions.filter((question) => question.status === "pending"),
     [questions],
+  );
+  const latestTodos = useMemo(
+    () => events.map(publicTodoItems).filter((items): items is WorkerTodoItem[] => items !== null).at(-1) ?? [],
+    [events],
   );
   const routeOptions = useMemo(
     () => status?.model_routes?.length ? status.model_routes : ["coding/default"],
@@ -839,6 +870,19 @@ export default function CodingWorkerConsole({ context, onCodingHandoff }: Coding
                       </ol>
                     </div>
                   ) : <p className="mt-3 text-slate-400">Worker 尚未发布结构化计划。</p>}
+                  {latestTodos.length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-xs font-medium uppercase tracking-wide text-slate-500">当前待办</h4>
+                      <ul className="mt-2 divide-y divide-white/10 border-y border-white/10">
+                        {latestTodos.map((item) => (
+                          <li key={item.todo_id} className="flex gap-3 py-3">
+                            <span className="w-16 shrink-0 text-xs text-slate-500">{item.status === "in_progress" ? "进行中" : item.status === "completed" ? "已完成" : item.status === "cancelled" ? "已取消" : "待处理"}</span>
+                            <span className={`min-w-0 break-words ${item.status === "completed" || item.status === "cancelled" ? "text-slate-500 line-through" : "text-slate-200"}`}>{item.content}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </section>
 
                 <section className="border-t border-white/10 pt-5" aria-labelledby="worker-questions-heading">
