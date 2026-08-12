@@ -123,6 +123,22 @@ curl http://localhost:5173/agents/meta-agent
 2. 能力编译：从实时 Capability Snapshot 中选择真实节点、资源和中间件。
 3. 定向修复：本地确定性门禁失败时，最多调用模型修复一次。
 
+### Typed IR V2 编译边界
+
+能力编译阶段现在输出 `MetaPlannerTypedBlueprintV2`，显式声明节点引用、任务覆盖、
+类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
+强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
+
+Capability Snapshot v2 只暴露当前存在编译适配器的能力。首轮可执行 IR 节点只有
+`workflow_agent`；`input/output` 由编译器管理，外部 Xpert、知识库、Toolset 和
+Plugin 通过绑定记录编译。JSON、Agent Table、知识检索和视觉理解尚无 Planner
+适配器，因此不会进入授权快照，也不会被模型生成。
+
+旧 `MetaPlannerBlueprint` 仅用于 Expert Team Agency 等兼容入口，进入编译器前会
+转换为 Typed IR。旧计划也必须只有一个终点。更新已有 Xpert 时，如目标工作流含
+当前无适配器的节点，服务会在调用 Planner 模型前 fail-closed，避免生成完整替代
+草稿时静默丢失节点。
+
 同次请求模型调用总数最多为 3。系统只保存计划摘要、公开假设、选择理由、快照
 hash、验证结果和安全统计，不保存隐藏推理。
 

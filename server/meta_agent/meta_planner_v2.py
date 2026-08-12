@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -18,7 +19,7 @@ try:
         NativeWorkflowNode,
         WorkflowPosition,
     )
-    from server.workflow_native.validate import validate_workflow_graph
+    from server.workflow_native.validate import node_kind, validate_workflow_graph
     from server.xpert_runtime.authoring_service import AuthoringService
     from server.xpert_runtime.authoring_store import AuthoringProposal
     from server.xperts.models import XpertDefinition, XpertDraft
@@ -30,12 +31,18 @@ except ModuleNotFoundError:
         NativeWorkflowNode,
         WorkflowPosition,
     )
-    from workflow_native.validate import validate_workflow_graph
+    from workflow_native.validate import node_kind, validate_workflow_graph
     from xpert_runtime.authoring_service import AuthoringService
     from xpert_runtime.authoring_store import AuthoringProposal
     from xperts.models import XpertDefinition, XpertDraft
 
 from .capabilities import assert_scope_is_authorized
+from .node_adapters import (
+    META_PLANNER_COMPILABLE_NODE_KINDS,
+    META_PLANNER_IR_VERSION,
+    PlannerNodeCompileContext,
+    get_planner_node_adapter,
+)
 from .planner import extract_json_object_text
 from .schemas import (
     MetaPlannerAgentBlueprint,
@@ -43,8 +50,17 @@ from .schemas import (
     MetaPlannerCapabilitySnapshot,
     MetaPlannerGenerateRequest,
     MetaPlannerGenerateResponse,
+    MetaPlannerIRControlEdge,
+    MetaPlannerIRFinalOutput,
+    MetaPlannerIRInputBinding,
+    MetaPlannerIRMiddlewareBinding,
+    MetaPlannerIRNode,
+    MetaPlannerIROutputBinding,
+    MetaPlannerIRResourceBinding,
     MetaPlannerPreviewResponse,
     MetaPlannerTaskPlan,
+    MetaPlannerTypedBlueprintV2,
+    MetaPlannerWorkflowAgentConfig,
 )
 
 
@@ -64,9 +80,10 @@ BLUEPRINT_SYSTEM_PROMPT = """\
 You are the capability-compilation stage of ModelMirror Meta Planner V2.
 Return one strict JSON object only. Do not include markdown or hidden reasoning.
 Use only IDs and middleware listed in the authorized capability snapshot.
-Every planned task must map to exactly one workflow_agent. Resource and middleware
-bindings must refer to an existing task_id. Never invent credentials, tools, resource
-IDs, node kinds, versions, or private content.
+Compile the task DAG into explicit typed IR nodes, control edges, resource bindings,
+middleware bindings, and one explicit final output. A node may cover multiple tasks
+and a task may require multiple nodes. Bindings must target a workflow_agent node ref.
+Never invent credentials, tools, resource IDs, node kinds, versions, or private content.
 """
 
 
@@ -111,8 +128,6 @@ def validate_task_plan(
     max_agents: int,
 ) -> list[str]:
     issues: list[str] = []
-    if len(plan.tasks) > max_agents:
-        issues.append(f"Task plan exceeds max_agents={max_agents}.")
     task_ids = [task.task_id for task in plan.tasks]
     if len(task_ids) != len(set(task_ids)):
         issues.append("Task IDs must be unique.")
@@ -142,6 +157,12 @@ def validate_task_plan(
                 queue.append(target)
     if visited != len(task_ids):
         issues.append("Task dependencies must form an acyclic graph.")
+    sinks = sorted(task_id for task_id in task_ids if not graph[task_id])
+    if len(sinks) != 1:
+        issues.append(
+            "Task plan must have exactly one terminal task; "
+            f"found {len(sinks)}."
+        )
     return issues
 
 
@@ -162,33 +183,360 @@ def _middleware_lookup(
     return {item["id"]: item for item in snapshot.middleware}
 
 
+def legacy_blueprint_to_typed_ir(
+    plan: MetaPlannerTaskPlan,
+    blueprint: MetaPlannerBlueprint,
+) -> MetaPlannerTypedBlueprintV2:
+    task_by_id = {task.task_id: task for task in plan.tasks}
+    agents_by_task: dict[str, list[MetaPlannerAgentBlueprint]] = defaultdict(list)
+    for agent in blueprint.agents:
+        agents_by_task[agent.task_id].append(agent)
+    if any(len(agents_by_task[task_id]) != 1 for task_id in task_by_id):
+        raise ValueError(
+            "Legacy blueprint must contain exactly one agent for each planned task."
+        )
+    unknown_tasks = sorted(set(agents_by_task) - set(task_by_id))
+    if unknown_tasks:
+        raise ValueError(
+            "Legacy blueprint references unknown task IDs: "
+            + ", ".join(unknown_tasks)
+        )
+
+    indegree = {task.task_id: len(task.depends_on) for task in plan.tasks}
+    children: dict[str, list[str]] = defaultdict(list)
+    for task in plan.tasks:
+        for dependency in task.depends_on:
+            children[dependency].append(task.task_id)
+    queue = deque(sorted(ref for ref, count in indegree.items() if count == 0))
+    task_order: list[str] = []
+    while queue:
+        current = queue.popleft()
+        task_order.append(current)
+        for child in sorted(children[current]):
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                queue.append(child)
+    if len(task_order) != len(plan.tasks):
+        raise ValueError("Legacy blueprint task plan contains a dependency cycle.")
+
+    outputs: dict[str, str] = {}
+    node_refs: dict[str, str] = {}
+    nodes: list[MetaPlannerIRNode] = []
+    for task_id in task_order:
+        task = task_by_id[task_id]
+        agent = agents_by_task[task.task_id][0]
+        node_ref = f"agent_{task.task_id}"
+        node_refs[task.task_id] = node_ref
+        output_variable = _safe_identifier(agent.output_variable, "agent_output")
+        outputs[task.task_id] = output_variable
+        task_input = agent.task_input.strip()
+        input_bindings: list[MetaPlannerIRInputBinding] = []
+        if not task.depends_on:
+            input_bindings.append(
+                MetaPlannerIRInputBinding(
+                    port="request", variable="user_input", value_type="string"
+                )
+            )
+            if "{{user_input}}" not in task_input:
+                task_input += "\n\nUser request:\n{{user_input}}"
+        for dependency in task.depends_on:
+            dependency_variable = outputs.get(dependency)
+            if not dependency_variable:
+                raise ValueError(
+                    "Legacy blueprint task order does not follow dependencies."
+                )
+            input_bindings.append(
+                MetaPlannerIRInputBinding(
+                    port=f"dependency_{dependency}",
+                    variable=dependency_variable,
+                    value_type="string",
+                )
+            )
+            if f"{{{{{dependency_variable}}}}}" not in task_input:
+                task_input += (
+                    f"\n\nDependency {dependency}:\n"
+                    f"{{{{{dependency_variable}}}}}"
+                )
+        nodes.append(
+            MetaPlannerIRNode(
+                ref=node_ref,
+                kind="workflow_agent",
+                title=agent.name,
+                description=task.objective,
+                task_ids=[task.task_id],
+                inputs=input_bindings,
+                outputs=[
+                    MetaPlannerIROutputBinding(
+                        port="result",
+                        variable=output_variable,
+                        value_type="string",
+                    )
+                ],
+                config=MetaPlannerWorkflowAgentConfig(
+                    role_prompt=agent.role_prompt,
+                    task_input=task_input,
+                    model_id=agent.model_id,
+                    source_agent_id=agent.source_agent_id,
+                ).model_dump(mode="json", exclude_none=True),
+            )
+        )
+
+    sinks = [task_id for task_id in task_order if not children[task_id]]
+    if len(sinks) != 1:
+        raise ValueError(
+            "Legacy blueprint requires a task plan with exactly one terminal task."
+        )
+    return MetaPlannerTypedBlueprintV2(
+        name=blueprint.name,
+        description=blueprint.description,
+        tags=blueprint.tags,
+        starters=blueprint.starters,
+        nodes=nodes,
+        control_edges=[
+            MetaPlannerIRControlEdge(
+                source_ref=node_refs[dependency],
+                target_ref=node_refs[task.task_id],
+            )
+            for task in plan.tasks
+            for dependency in task.depends_on
+        ],
+        resources=[
+            MetaPlannerIRResourceBinding(
+                target_ref=node_refs[binding.task_id],
+                **binding.model_dump(exclude={"task_id"}),
+            )
+            for binding in blueprint.resources
+        ],
+        middleware=[
+            MetaPlannerIRMiddlewareBinding(
+                target_ref=node_refs[binding.task_id],
+                **binding.model_dump(exclude={"task_id"}),
+            )
+            for binding in blueprint.middleware
+        ],
+        prompt_profile_ids=blueprint.prompt_profile_ids,
+        final_output=MetaPlannerIRFinalOutput(
+            node_ref=node_refs[sinks[0]],
+            variable=outputs[sinks[0]],
+        ),
+    )
+
+
+def _typed_blueprint(
+    plan: MetaPlannerTaskPlan,
+    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
+) -> MetaPlannerTypedBlueprintV2:
+    if isinstance(blueprint, MetaPlannerTypedBlueprintV2):
+        return blueprint
+    return legacy_blueprint_to_typed_ir(plan, blueprint)
+
+
+def _typed_graph(
+    blueprint: MetaPlannerTypedBlueprintV2,
+) -> tuple[dict[str, list[str]], dict[str, set[str]], list[str], list[str]]:
+    refs = [node.ref for node in blueprint.nodes]
+    children: dict[str, list[str]] = {ref: [] for ref in refs}
+    parents: dict[str, set[str]] = {ref: set() for ref in refs}
+    indegree = {ref: 0 for ref in refs}
+    for edge in blueprint.control_edges:
+        if edge.source_ref not in children or edge.target_ref not in children:
+            continue
+        children[edge.source_ref].append(edge.target_ref)
+        parents[edge.target_ref].add(edge.source_ref)
+        indegree[edge.target_ref] += 1
+    queue = deque(sorted(ref for ref, value in indegree.items() if value == 0))
+    order: list[str] = []
+    while queue:
+        current = queue.popleft()
+        order.append(current)
+        for target_ref in sorted(children[current]):
+            indegree[target_ref] -= 1
+            if indegree[target_ref] == 0:
+                queue.append(target_ref)
+    sinks = sorted(ref for ref in refs if not children[ref])
+    return children, parents, order, sinks
+
+
 def validate_blueprint_authorization(
     request: MetaPlannerGenerateRequest,
     plan: MetaPlannerTaskPlan,
-    blueprint: MetaPlannerBlueprint,
+    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
     snapshot: MetaPlannerCapabilitySnapshot,
 ) -> list[str]:
     issues = validate_task_plan(plan, max_agents=request.max_agents)
-    plan_ids = {task.task_id for task in plan.tasks}
-    agent_ids = [agent.task_id for agent in blueprint.agents]
-    if set(agent_ids) != plan_ids or len(agent_ids) != len(set(agent_ids)):
-        issues.append("Blueprint agents must map one-to-one to planned task IDs.")
+    try:
+        typed = _typed_blueprint(plan, blueprint)
+    except (KeyError, ValueError, ValidationError) as exc:
+        return issues + [_safe_exception_message(exc)]
 
+    plan_ids = {task.task_id for task in plan.tasks}
+    node_refs = [node.ref for node in typed.nodes]
+    if len(node_refs) != len(set(node_refs)):
+        issues.append("Typed IR node refs must be unique.")
+    compiled_ids = [_safe_identifier(ref, "node") for ref in node_refs]
+    if len(compiled_ids) != len(set(compiled_ids)):
+        issues.append("Typed IR node refs collide after identifier normalization.")
+
+    workflow_agent_count = sum(
+        node.kind == "workflow_agent" for node in typed.nodes
+    )
+    if workflow_agent_count > request.max_agents:
+        issues.append(f"Typed IR exceeds max_agents={request.max_agents}.")
+
+    task_nodes: dict[str, list[MetaPlannerIRNode]] = defaultdict(list)
     known_agents = {item["id"] for item in snapshot.agents}
     authorized_agents = set(request.scope.agent_ids)
-    task_by_id = {task.task_id: task for task in plan.tasks}
-    for agent in blueprint.agents:
-        task = task_by_id.get(agent.task_id)
-        source_agent_id = agent.source_agent_id or (task.agent_id if task else None)
-        if task and task.agent_id and agent.source_agent_id != task.agent_id:
+    parsed_configs: dict[str, MetaPlannerWorkflowAgentConfig] = {}
+    for node in typed.nodes:
+        if node.kind not in request.scope.allowed_node_kinds:
+            issues.append(f"Node kind {node.kind} is not authorized.")
+        if node.kind not in META_PLANNER_COMPILABLE_NODE_KINDS:
+            issues.append(f"Node kind {node.kind} has no Meta Planner compiler support.")
+        adapter = get_planner_node_adapter(node.kind)
+        if adapter is None:
             issues.append(
-                f"Blueprint task {agent.task_id} must keep assigned expert "
-                f"{task.agent_id}."
+                f"Node kind {node.kind} cannot appear as an executable IR node."
             )
+            continue
+        try:
+            parsed = adapter.validate_config(node)
+            config = MetaPlannerWorkflowAgentConfig.model_validate(parsed)
+            parsed_configs[node.ref] = config
+        except ValidationError as exc:
+            issues.append(
+                f"Node {node.ref} config is invalid: {_safe_exception_message(exc)}"
+            )
+            continue
+        if len(node.outputs) != 1 or node.outputs[0].port != "result":
+            issues.append(
+                f"Node {node.ref} must expose exactly one result output port."
+            )
+        elif node.outputs[0].value_type != "string":
+            issues.append(
+                f"Node {node.ref} workflow_agent result must be a string."
+            )
+        if len({item.port for item in node.inputs}) != len(node.inputs):
+            issues.append(f"Node {node.ref} input ports must be unique.")
+        if len({item.variable for item in node.outputs}) != len(node.outputs):
+            issues.append(f"Node {node.ref} output variables must be unique.")
+        unknown_tasks = sorted(set(node.task_ids) - plan_ids)
+        if unknown_tasks:
+            issues.append(
+                f"Node {node.ref} references unknown tasks: "
+                + ", ".join(unknown_tasks)
+            )
+        for task_id in set(node.task_ids) & plan_ids:
+            task_nodes[task_id].append(node)
+            assigned = next(
+                task.agent_id for task in plan.tasks if task.task_id == task_id
+            )
+            if assigned and config.source_agent_id != assigned:
+                issues.append(
+                    f"Node {node.ref} must keep assigned expert {assigned} "
+                    f"for task {task_id}."
+                )
+        source_agent_id = config.source_agent_id
         if source_agent_id and source_agent_id not in authorized_agents:
             issues.append(f"Expert {source_agent_id} is not authorized.")
         if source_agent_id and source_agent_id not in known_agents:
             issues.append(f"Expert {source_agent_id} is no longer available.")
+    for task_id in sorted(plan_ids):
+        if not task_nodes[task_id]:
+            issues.append(f"Planned task {task_id} is not covered by any IR node.")
+
+    edge_keys: set[tuple[str, str]] = set()
+    known_refs = set(node_refs)
+    for edge in typed.control_edges:
+        key = (edge.source_ref, edge.target_ref)
+        if edge.source_ref not in known_refs or edge.target_ref not in known_refs:
+            issues.append(
+                f"Control edge {edge.source_ref}->{edge.target_ref} references "
+                "an unknown node."
+            )
+        if edge.source_ref == edge.target_ref:
+            issues.append(f"Control edge {edge.source_ref} cannot target itself.")
+        if key in edge_keys:
+            issues.append(
+                f"Control edge {edge.source_ref}->{edge.target_ref} is duplicated."
+            )
+        edge_keys.add(key)
+    children, parents, order, sinks = _typed_graph(typed)
+    if len(order) != len(typed.nodes):
+        issues.append("Typed IR control edges must form an acyclic graph.")
+    if len(sinks) != 1:
+        issues.append(
+            "Typed IR must have exactly one terminal node; "
+            f"found {len(sinks)}."
+        )
+    elif typed.final_output.node_ref != sinks[0]:
+        issues.append("Typed IR final_output must reference the terminal node.")
+    final_node = next(
+        (node for node in typed.nodes if node.ref == typed.final_output.node_ref),
+        None,
+    )
+    if final_node is None:
+        issues.append("Typed IR final_output references an unknown node.")
+    elif typed.final_output.variable not in {
+        item.variable for item in final_node.outputs
+    }:
+        issues.append("Typed IR final_output variable is not produced by its node.")
+
+    ancestors: dict[str, set[str]] = {ref: set() for ref in node_refs}
+    for ref in order:
+        for parent in parents[ref]:
+            ancestors[ref].add(parent)
+            ancestors[ref].update(ancestors[parent])
+    producer_by_variable: dict[str, tuple[str, str]] = {}
+    for node in typed.nodes:
+        for output in node.outputs:
+            previous = producer_by_variable.get(output.variable)
+            if previous and previous[0] != node.ref:
+                issues.append(
+                    f"Variable {output.variable} is produced by multiple nodes."
+                )
+            producer_by_variable[output.variable] = (node.ref, output.value_type)
+    external_variables = {"user_input", "conversation_history"}
+    for node in typed.nodes:
+        for input_binding in node.inputs:
+            producer = producer_by_variable.get(input_binding.variable)
+            if not producer and input_binding.variable not in external_variables:
+                issues.append(
+                    f"Node {node.ref} consumes unknown variable "
+                    f"{input_binding.variable}."
+                )
+            elif producer:
+                producer_ref, producer_type = producer
+                if producer_ref not in ancestors[node.ref]:
+                    issues.append(
+                        f"Variable {input_binding.variable} is not reachable at "
+                        f"node {node.ref}."
+                    )
+                if (
+                    input_binding.value_type != "any"
+                    and producer_type != "any"
+                    and input_binding.value_type != producer_type
+                ):
+                    issues.append(
+                        f"Variable {input_binding.variable} type {producer_type} "
+                        f"does not match {node.ref} input type "
+                        f"{input_binding.value_type}."
+                    )
+
+    for task in plan.tasks:
+        for dependency in task.depends_on:
+            dependency_refs = {node.ref for node in task_nodes[dependency]}
+            target_refs = {node.ref for node in task_nodes[task.task_id]}
+            if dependency_refs & target_refs:
+                continue
+            if not any(
+                source_ref in ancestors.get(target_ref, set())
+                for source_ref in dependency_refs
+                for target_ref in target_refs
+            ):
+                issues.append(
+                    f"Task dependency {dependency}->{task.task_id} is not "
+                    "represented by the control graph."
+                )
 
     scoped = {
         "external_xpert": set(request.scope.external_xpert_ids),
@@ -198,29 +546,32 @@ def validate_blueprint_authorization(
     }
     lookup = _resource_lookup(snapshot)
     seen_external_tools: set[tuple[str, str]] = set()
-    for binding in blueprint.resources:
-        if binding.task_id not in plan_ids:
+    for binding in typed.resources:
+        target = next(
+            (node for node in typed.nodes if node.ref == binding.target_ref), None
+        )
+        if target is None or target.kind != "workflow_agent":
             issues.append(
-                f"Resource {binding.resource_id} targets unknown task {binding.task_id}."
+                f"Resource {binding.resource_id} must target a workflow_agent ref."
             )
+        if binding.kind not in request.scope.allowed_node_kinds:
+            issues.append(f"Resource kind {binding.kind} is not authorized.")
         if binding.resource_id not in scoped[binding.kind]:
             issues.append(
                 f"Resource {binding.resource_id} is not authorized for {binding.kind}."
             )
         if binding.resource_id not in lookup[binding.kind]:
-            issues.append(
-                f"Resource {binding.resource_id} is no longer available."
-            )
+            issues.append(f"Resource {binding.resource_id} is no longer available.")
         if binding.kind == "external_xpert":
             tool_name = _safe_identifier(
                 binding.tool_name or f"xpert_{binding.resource_id[:12]}",
                 "external_xpert",
             )
-            key = (binding.task_id, tool_name)
+            key = (binding.target_ref, tool_name)
             if key in seen_external_tools:
                 issues.append(
                     f"External Xpert tool name {tool_name} is duplicated for "
-                    f"task {binding.task_id}."
+                    f"node {binding.target_ref}."
                 )
             seen_external_tools.add(key)
             if (
@@ -232,39 +583,39 @@ def validate_blueprint_authorization(
 
     middleware_lookup = _middleware_lookup(snapshot)
     seen_middleware: set[tuple[str, str]] = set()
-    for binding in blueprint.middleware:
-        if binding.task_id not in plan_ids:
+    for binding in typed.middleware:
+        target = next(
+            (node for node in typed.nodes if node.ref == binding.target_ref), None
+        )
+        if target is None or target.kind != "workflow_agent":
             issues.append(
-                f"Middleware {binding.middleware_id} targets unknown task "
-                f"{binding.task_id}."
+                f"Middleware {binding.middleware_id} must target a workflow_agent ref."
             )
         if binding.middleware_id not in request.scope.middleware_ids:
-            issues.append(
-                f"Middleware {binding.middleware_id} is not authorized."
-            )
+            issues.append(f"Middleware {binding.middleware_id} is not authorized.")
         if binding.middleware_id not in middleware_lookup:
             issues.append(
                 f"Middleware {binding.middleware_id} is no longer available."
             )
-        key = (binding.task_id, binding.middleware_id)
+        key = (binding.target_ref, binding.middleware_id)
         if key in seen_middleware:
             issues.append(
                 f"Middleware {binding.middleware_id} is duplicated for "
-                f"task {binding.task_id}."
+                f"node {binding.target_ref}."
             )
         seen_middleware.add(key)
 
     authorized_prompts = set(request.scope.prompt_profile_ids)
     available_prompts = {item["id"] for item in snapshot.prompt_profiles}
-    for profile_id in blueprint.prompt_profile_ids:
+    for profile_id in typed.prompt_profile_ids:
         if profile_id not in authorized_prompts:
             issues.append(f"Prompt Profile {profile_id} is not authorized.")
         if profile_id not in available_prompts:
             issues.append(f"Prompt Profile {profile_id} is no longer available.")
-    return issues
+    return list(dict.fromkeys(issues))
 
 
-def compile_xpert_candidate(
+def _compile_xpert_candidate_legacy(
     *,
     request: MetaPlannerGenerateRequest,
     plan: MetaPlannerTaskPlan,
@@ -540,7 +891,12 @@ def compile_xpert_candidate(
         )
 
     sinks = [task_id for task_id in order if not children[task_id]]
-    final_task_id = sinks[-1]
+    if len(sinks) != 1:
+        raise ValueError(
+            "Legacy compiler requires exactly one terminal task; "
+            f"found {len(sinks)}."
+        )
+    final_task_id = sinks[0]
     final_node_id = task_node_ids[final_task_id]
     final_output = outputs[final_task_id]
     final_position = next(node.position for node in nodes if node.id == final_node_id)
@@ -606,6 +962,313 @@ def compile_xpert_candidate(
     }
 
 
+def compile_xpert_candidate(
+    *,
+    request: MetaPlannerGenerateRequest,
+    plan: MetaPlannerTaskPlan,
+    blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
+    snapshot: MetaPlannerCapabilitySnapshot,
+    target: XpertDefinition | None,
+) -> dict[str, Any]:
+    typed = _typed_blueprint(plan, blueprint)
+    task_by_id = {task.task_id: task for task in plan.tasks}
+    node_by_ref = {node.ref: node for node in typed.nodes}
+    resource_lookup = _resource_lookup(snapshot)
+    middleware_lookup = _middleware_lookup(snapshot)
+    _, parents, order, sinks = _typed_graph(typed)
+    if len(order) != len(typed.nodes):
+        raise ValueError("Typed IR control graph contains a cycle.")
+    if len(sinks) != 1 or sinks[0] != typed.final_output.node_ref:
+        raise ValueError("Typed IR final output does not match its terminal node.")
+
+    levels: dict[str, int] = {}
+    level_rows: dict[int, int] = defaultdict(int)
+    for ref in order:
+        levels[ref] = max((levels[parent] for parent in parents[ref]), default=-1) + 1
+
+    nodes: list[NativeWorkflowNode] = [
+        NativeWorkflowNode(
+            id="input",
+            type="input",
+            position=WorkflowPosition(x=40, y=160),
+            data={
+                "kind": "input",
+                "title": "Conversation input",
+                "variableName": "user_input",
+                "historyVariable": "conversation_history",
+            },
+        )
+    ]
+    edges: list[NativeWorkflowEdge] = []
+    compiled_node_ids = {
+        ref: f"node_{_safe_identifier(ref, 'node')}" for ref in order
+    }
+    resources_by_ref: dict[str, list[MetaPlannerIRResourceBinding]] = defaultdict(list)
+    middleware_by_ref: dict[str, list[MetaPlannerIRMiddlewareBinding]] = defaultdict(list)
+    for binding in typed.resources:
+        resources_by_ref[binding.target_ref].append(binding)
+    for binding in typed.middleware:
+        middleware_by_ref[binding.target_ref].append(binding)
+
+    for ref in order:
+        ir_node = node_by_ref[ref]
+        adapter = get_planner_node_adapter(ir_node.kind)
+        if adapter is None:
+            raise ValueError(f"Node kind {ir_node.kind} has no compiler adapter.")
+        parsed_config = adapter.validate_config(ir_node)
+        output_variable = ir_node.outputs[0].variable
+        level = levels[ref]
+        row = level_rows[level]
+        level_rows[level] += 1
+        acceptance = "\n".join(
+            task_by_id[task_id].acceptance
+            for task_id in ir_node.task_ids
+            if task_id in task_by_id and task_by_id[task_id].acceptance
+        )
+        requires_runtime_mode = any(
+            middleware_lookup.get(binding.middleware_id, {}).get(
+                "requires_tool_mode"
+            )
+            == "mcp_tools"
+            for binding in middleware_by_ref[ref]
+        )
+        nodes.append(
+            adapter.compile_node(
+                ir_node,
+                parsed_config,
+                PlannerNodeCompileContext(
+                    node_id=compiled_node_ids[ref],
+                    position=WorkflowPosition(
+                        x=300 + level * 340,
+                        y=80 + row * 260,
+                    ),
+                    default_agent_model_id=request.default_agent_model_id,
+                    output_variable=output_variable,
+                    acceptance_criteria=acceptance,
+                    has_runtime_resources=bool(resources_by_ref[ref]),
+                    requires_runtime_mode=requires_runtime_mode,
+                ),
+            )
+        )
+
+    for ref in order:
+        if not parents[ref]:
+            edges.append(
+                NativeWorkflowEdge(
+                    id=f"edge_input_{compiled_node_ids[ref]}",
+                    source="input",
+                    target=compiled_node_ids[ref],
+                )
+            )
+    for edge in typed.control_edges:
+        edges.append(
+            NativeWorkflowEdge(
+                id=(
+                    f"edge_{compiled_node_ids[edge.source_ref]}_"
+                    f"{compiled_node_ids[edge.target_ref]}"
+                ),
+                source=compiled_node_ids[edge.source_ref],
+                target=compiled_node_ids[edge.target_ref],
+            )
+        )
+
+    for index, binding in enumerate(typed.resources):
+        target_node_id = compiled_node_ids[binding.target_ref]
+        resource = resource_lookup[binding.kind][binding.resource_id]
+        node_id = f"resource_{index + 1}_{binding.kind}"
+        published_version = resource.get("published_version")
+        if binding.kind == "external_xpert":
+            data = {
+                "kind": binding.kind,
+                "title": resource["name"],
+                "description": binding.description or resource["description"],
+                "xpertId": binding.resource_id,
+                "toolName": _safe_identifier(
+                    binding.tool_name or f"xpert_{binding.resource_id[:12]}",
+                    "external_xpert",
+                ),
+                "versionPolicy": "pinned",
+                "pinnedVersion": published_version,
+            }
+            source_handle, target_handle = "expert-binding", "expert"
+        elif binding.kind == "knowledge_base":
+            data = {
+                "kind": binding.kind,
+                "title": resource["name"],
+                "description": binding.description or resource["description"],
+                "knowledgeBaseId": binding.resource_id,
+                "topK": str(binding.top_k),
+                "scoreThreshold": str(binding.score_threshold),
+                "observedActiveVersionId": resource.get("metadata", {}).get(
+                    "active_version_id"
+                ),
+            }
+            source_handle, target_handle = "knowledge-binding", "knowledge"
+        elif binding.kind == "toolset_resource":
+            data = {
+                "kind": binding.kind,
+                "title": resource["name"],
+                "description": binding.description or resource["description"],
+                "toolsetId": binding.resource_id,
+                "versionPolicy": "pinned",
+                "pinnedVersion": published_version,
+            }
+            source_handle, target_handle = "toolset-binding", "toolset"
+        else:
+            data = {
+                "kind": binding.kind,
+                "title": resource["name"],
+                "description": binding.description or resource["description"],
+                "pluginId": binding.resource_id,
+                "versionPolicy": "pinned",
+                "pinnedVersion": published_version,
+            }
+            source_handle, target_handle = "plugin-binding", "plugin"
+        target_position = next(
+            node.position for node in nodes if node.id == target_node_id
+        )
+        nodes.append(
+            NativeWorkflowNode(
+                id=node_id,
+                type=binding.kind,
+                position=WorkflowPosition(
+                    x=(target_position.x if target_position else 300) - 120,
+                    y=(target_position.y if target_position else 80) + 150,
+                ),
+                data=data,
+            )
+        )
+        edges.append(
+            NativeWorkflowEdge(
+                id=f"edge_{node_id}_{target_node_id}",
+                source=node_id,
+                target=target_node_id,
+                sourceHandle=source_handle,
+                targetHandle=target_handle,
+            )
+        )
+
+    for index, binding in enumerate(
+        sorted(
+            typed.middleware,
+            key=lambda item: (
+                item.priority,
+                item.middleware_id,
+                item.target_ref,
+            ),
+        )
+    ):
+        target_node_id = compiled_node_ids[binding.target_ref]
+        middleware = middleware_lookup[binding.middleware_id]
+        defaults = dict(middleware.get("default_config") or {})
+        defaults.update(binding.config)
+        node_id = (
+            f"middleware_{index + 1}_"
+            f"{_safe_identifier(binding.middleware_id, 'mw')}"
+        )
+        target_position = next(
+            node.position for node in nodes if node.id == target_node_id
+        )
+        nodes.append(
+            NativeWorkflowNode(
+                id=node_id,
+                type="runtime_middleware",
+                position=WorkflowPosition(
+                    x=(target_position.x if target_position else 300) + 120,
+                    y=(target_position.y if target_position else 80) + 150,
+                ),
+                data={
+                    "kind": "runtime_middleware",
+                    "title": middleware["title"],
+                    "description": middleware["description"],
+                    "runtimeMiddlewareId": binding.middleware_id,
+                    "runtimeMiddlewareKind": middleware["kind"],
+                    "runtimeMiddlewareConfig": defaults,
+                    "middlewarePriority": str(binding.priority),
+                    "configVersion": middleware["config_version"],
+                },
+            )
+        )
+        edges.append(
+            NativeWorkflowEdge(
+                id=f"edge_{node_id}_{target_node_id}",
+                source=node_id,
+                target=target_node_id,
+                sourceHandle="middleware-binding",
+                targetHandle="middleware",
+            )
+        )
+
+    final_node_id = compiled_node_ids[typed.final_output.node_ref]
+    final_position = next(node.position for node in nodes if node.id == final_node_id)
+    nodes.append(
+        NativeWorkflowNode(
+            id="output",
+            type="output",
+            position=WorkflowPosition(
+                x=(final_position.x if final_position else 300) + 360,
+                y=final_position.y if final_position else 160,
+            ),
+            data={
+                "kind": "output",
+                "title": "Final answer",
+                "outputVariable": typed.final_output.variable,
+                "template": f"{{{{{typed.final_output.variable}}}}}",
+            },
+        )
+    )
+    edges.append(
+        NativeWorkflowEdge(
+            id=f"edge_{final_node_id}_output",
+            source=final_node_id,
+            target="output",
+        )
+    )
+
+    canonical_ir = json.dumps(
+        typed.model_dump(mode="json"),
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    workflow = NativeWorkflowDefinition(
+        id=f"meta_{hashlib.sha256(canonical_ir.encode('utf-8')).hexdigest()[:12]}",
+        title=typed.name,
+        version="evoagentx-meta-planner-v2",
+        source="workflow-native",
+        nodes=nodes,
+        edges=edges,
+    )
+    prompt_lookup = {item["id"]: item for item in snapshot.prompt_profiles}
+    prompt_bindings = [
+        PromptProfileBinding(
+            profile_id=profile_id,
+            version_policy="pinned",
+            pinned_version=prompt_lookup[profile_id]["published_version"],
+        )
+        for profile_id in dict.fromkeys(typed.prompt_profile_ids)
+    ]
+    base_draft = target.draft.model_copy(deep=True) if target else None
+    draft_payload: dict[str, Any] = {
+        "workflow": workflow,
+        "input_variable": "user_input",
+        "history_variable": "conversation_history",
+        "output_variable": typed.final_output.variable,
+        "prompt_profiles": prompt_bindings,
+    }
+    if base_draft is not None:
+        draft_payload["agent_config"] = base_draft.agent_config
+        draft_payload["features"] = base_draft.features
+    draft = XpertDraft(**draft_payload)
+    return {
+        "name": typed.name,
+        "description": typed.description,
+        "tags": list(dict.fromkeys(typed.tags)),
+        "starters": list(dict.fromkeys(typed.starters)),
+        "draft": draft.model_dump(mode="json"),
+    }
+
+
 def _candidate_xpert(
     candidate: dict[str, Any],
     *,
@@ -629,6 +1292,17 @@ def _candidate_xpert(
         draft=XpertDraft.model_validate(candidate["draft"]),
         created_at=time.time(),
         updated_at=time.time(),
+    )
+
+
+def _unsupported_target_node_kinds(target: XpertDefinition) -> list[str]:
+    supported = set(META_PLANNER_COMPILABLE_NODE_KINDS) | {"runtime_middleware"}
+    return sorted(
+        {
+            node_kind(node)
+            for node in target.draft.workflow.nodes
+            if node_kind(node) not in supported
+        }
     )
 
 
@@ -702,6 +1376,14 @@ class MetaPlannerV2Service:
             raise ValueError("Update mode requires an existing target Xpert.")
         if request.mode == "create" and target is not None:
             raise ValueError("Create mode cannot receive a target Xpert.")
+        if target is not None:
+            unsupported = _unsupported_target_node_kinds(target)
+            if unsupported:
+                raise ValueError(
+                    "Meta Planner update cannot safely round-trip target node kinds: "
+                    + ", ".join(unsupported)
+                    + ". Use create mode or wait for a dedicated compiler adapter."
+                )
 
         plan_prompt = self._plan_prompt(request)
         raw_plan = await self.completion(
@@ -798,6 +1480,7 @@ class MetaPlannerV2Service:
 
         report = {
             "planner_version": "evoagentx-meta-planner-v2",
+            "typed_ir_version": META_PLANNER_IR_VERSION,
             "goal": request.goal,
             "mode": request.mode,
             "plan": plan.model_dump(mode="json"),
@@ -860,7 +1543,7 @@ class MetaPlannerV2Service:
         snapshot: MetaPlannerCapabilitySnapshot,
         *,
         plan: MetaPlannerTaskPlan,
-        blueprint: MetaPlannerBlueprint,
+        blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2,
         target: XpertDefinition | None = None,
         warnings: list[str] | None = None,
         repair_used: bool = False,
@@ -872,6 +1555,14 @@ class MetaPlannerV2Service:
                 update={"scope": snapshot.default_scope.model_copy(deep=True)}
             )
         assert_scope_is_authorized(request.scope, snapshot)
+        if target is not None:
+            unsupported = _unsupported_target_node_kinds(target)
+            if unsupported:
+                raise ValueError(
+                    "Meta Planner preview cannot safely round-trip target node kinds: "
+                    + ", ".join(unsupported)
+                    + "."
+                )
         plan_issues = validate_task_plan(plan, max_agents=request.max_agents)
         blueprint_issues = validate_blueprint_authorization(
             request, plan, blueprint, snapshot
@@ -950,13 +1641,13 @@ class MetaPlannerV2Service:
         snapshot: MetaPlannerCapabilitySnapshot,
         target: XpertDefinition | None,
     ) -> tuple[
-        MetaPlannerBlueprint | None,
+        MetaPlannerTypedBlueprintV2 | None,
         dict[str, Any],
         dict[str, Any],
         list[str],
     ]:
         try:
-            blueprint = MetaPlannerBlueprint.model_validate(
+            blueprint = MetaPlannerTypedBlueprintV2.model_validate(
                 _json_payload(raw_blueprint)
             )
             issues = validate_blueprint_authorization(
@@ -991,7 +1682,8 @@ class MetaPlannerV2Service:
             {
                 "goal": request.goal,
                 "mode": request.mode,
-                "max_agents": request.max_agents,
+                "max_tasks": 8,
+                "max_workflow_agents": request.max_agents,
                 "required_schema": MetaPlannerTaskPlan.model_json_schema(),
             },
             ensure_ascii=False,
@@ -1021,10 +1713,14 @@ class MetaPlannerV2Service:
                 "authorized_scope": request.scope.model_dump(mode="json"),
                 "capability_snapshot": snapshot.model_dump(mode="json"),
                 "target_xpert": target_summary,
-                "required_schema": MetaPlannerBlueprint.model_json_schema(),
+                "required_schema": MetaPlannerTypedBlueprintV2.model_json_schema(),
                 "rules": [
-                    "Create exactly one agent entry for every task_id.",
+                    "Use only executable node kinds marked compilable in the snapshot.",
+                    "A workflow_agent may cover multiple task_ids and a task may use multiple nodes.",
+                    "Declare every control edge, typed input/output binding, and the final output explicitly.",
+                    "Do not emit input, output, or resource nodes inside nodes; the compiler creates them from bindings.",
                     "Use resource and middleware IDs only from authorized_scope.",
+                    "Resource and middleware bindings target workflow_agent node refs.",
                     "Reference dependency outputs in task_input using {{variable}}.",
                     "Do not include credentials, hidden reasoning, or raw private data.",
                 ],
@@ -1056,7 +1752,7 @@ class MetaPlannerV2Service:
                 },
                 "invalid_blueprint": raw_blueprint[:30_000],
                 "validation_issues": issues[:30],
-                "required_schema": MetaPlannerBlueprint.model_json_schema(),
+                "required_schema": MetaPlannerTypedBlueprintV2.model_json_schema(),
             },
             ensure_ascii=False,
         )
