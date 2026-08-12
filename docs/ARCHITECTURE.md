@@ -359,3 +359,15 @@ Provider 私有层补充专业执行能力：
 并展示精确 Shell 批准字段；它不获得 Provider 控制权。模块 SDK 对每次读取、steering、暂停、
 恢复和取消都复核服务端 `origin(module, business_object)`，跨模块任务 ID 在副作用前拒绝。
 模块仍不能注册 Provider、工具进程、密钥或任意 MCP Server；领域适配继续位于调用模块。
+
+## V16 会话与受控子任务边界
+
+V16 继续使用同一 `/api/coding-worker/v1` 与 `TaskSpec`，新增的是可回退的公开会话台账和平台所有的一级子任务，不开放任意 Agent、Provider 或提示词注入：
+
+- 父任务最多创建四个 `explore`、`implement` 或 `review` 子任务，深度固定为一。全局仍只有两个真实执行槽；父任务委派后在确定 checkpoint 停车并释放槽位，第三个可执行任务继续持久排队。
+- 每个子任务从父任务当前精确 tree 构造独立合成 Git Fork。`explore/review` 必须保持只读；`implement` 只产生绑定 H0、结果 tree 和 changed paths 的候选 changeset。
+- 子任务不继承审批、网络租约、operation ID、预算、Artifact、Evidence、Provider session 或隐藏上下文。父任务只接收公开摘要和 Diff 元数据；子任务 Evidence 永远不能满足父 AcceptanceContract。
+- 合并逐文件验证 preimage，并对父 Workspace 做 tree CAS；同文件冲突只写 `changeset_conflicted`，不覆盖父 tree，子 Fork 保留。合并后必须在父 Workspace 重跑全部必需检查。
+- 公开会话能力包含 plan/todo、一次性问题回答、完整工具边界 compaction、turn history、undo/redo/fork 与脱敏 export。旧任务没有 turn checkpoint 时保持可读，但不伪造这些控制能力。
+
+这些确定性安全与恢复能力不等于 OpenCode 能力等效。只有固定 24 项任务、两侧各三次、连续两轮真实模型门禁和无 P0/P1 人工验收全部通过后，才允许使用任务卡中唯一的范围限定表述。

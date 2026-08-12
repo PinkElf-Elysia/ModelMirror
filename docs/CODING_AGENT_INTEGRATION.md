@@ -767,3 +767,23 @@ Shell 批准。Shell 批准包含 operation ID、脚本摘要、相对 cwd、模
 任务 ID 在读取事件或产生副作用前拒绝。模块可以注册 source、context、acceptance 和通用 route
 allowlist，不能控制 Provider、Tool Broker、Shell/LSP 进程、secret 或任意 MCP Server。旧 V14 任务
 继续按兼容默认值读取与恢复，不迁移 Provider checkpoint。
+
+## V16 会话控制与一级子任务 API
+
+V16 只做向前兼容扩展，公共事件和响应继续隐藏供应商帧、Provider session、端口、凭据和物理路径：
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /tasks/{task_id}/plan` | 当前结构化公开计划 |
+| `GET /tasks/{task_id}/questions` | 待回答与已结算问题 |
+| `POST /tasks/{task_id}/questions/{question_id}` | 精确一次回答；重复或换答案拒绝 |
+| `GET /tasks/{task_id}/turns` | tree-bound 回合 checkpoint 与游标 |
+| `POST /tasks/{task_id}/undo|redo|fork` | 无活动进程/审批/问题/子任务时的原子会话控制 |
+| `GET /tasks/{task_id}/children` | 任务 fork 与一级子任务关系 |
+| `POST /tasks/{task_id}/subtasks` | 创建平台限定的 explore/implement/review 子任务 |
+| `POST /tasks/{task_id}/subtasks/{child_id}/merge` | 以稳定 operation ID 合并 implement changeset |
+| `GET /tasks/{task_id}/export` | 不含隐藏思维链和 Provider 私有帧的脱敏导出 |
+
+新增状态为 `waiting_input` 与 `waiting_subtasks`；新增事件包括 plan/todo、question、compaction、subtask 与 changeset merge/conflict。父任务委派后停车并释放槽位；子任务深度固定一、每父任务最多四个，全局执行并发仍为二。模块与浏览器不能提交子 Agent 类型以外的 Provider、系统提示词、权限或 MCP。
+
+Console 的“会话”检查器显示 plan/todo、待回答问题、压缩边界、turn history、undo/redo/fork 和子任务合并状态。冲突时必须明确显示父 Workspace 未被覆盖，并保留子 Fork；任何合并后都由父任务重新执行冻结 AcceptanceContract。

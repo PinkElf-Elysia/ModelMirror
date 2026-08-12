@@ -635,3 +635,21 @@ docker compose -f docker-compose.yml `
 `CODING_WORKER_CLAUDE_ENABLED`，再按需关闭 code intelligence、Shell 与 V15 总开关并停止接收
 新 V15 任务；不要删除 V14 Store、Workspace、Evidence、v13 Recovery 或 Agent Workspace 数据。
 已开始的任务必须进入明确的 `interrupted`/终态，未知 operation 只能对账，不能重放。
+
+## Coding Worker V16 部署
+
+V16 不新增外部 Provider 或 Executor overlay，复用 V14 双槽与 V15 Provider 私有边界。以下开关必须写入当前绝对 `MODELMIRROR_DATA_ROOT` 对应的 `server/.env`，默认全部关闭：
+
+```dotenv
+CODING_WORKER_V16_ENABLED=false
+CODING_WORKER_INTERACTION_ENABLED=false
+CODING_WORKER_SESSION_CONTROLS_ENABLED=false
+CODING_WORKER_SUBAGENTS_ENABLED=false
+CODING_WORKER_DOCUMENTATION_EGRESS_ENABLED=false
+```
+
+总开关关闭时新任务回到 V15；交互、回合控制、子任务和官方文档出站均可独立关闭。关闭或重启不得删除 Worker Store、Workspace Fork、Evidence、v13 Recovery 或旧任务；运行中 V16 任务进入 `interrupted`，未知工具/合并结果只按原 operation ID 对账。
+
+部署前先加载 V14 overlay；需要 Claude 时再按 V15 既定顺序追加 Claude overlay。`config --quiet`、Fake Provider 和容器健康只证明配置/协议，不证明子任务调度或真实模型质量。人工验收至少包括：父任务停车后子任务取得空槽、第三任务仍排队、只读子任务修改被拒、两个非重叠 implement 顺序合并、同文件冲突不覆盖父树、合并后父检查重跑、Server/Provider/Executor 逐个重启、Host Snapshot 经 v13 写回。
+
+真实 24 项 × 两侧 × 三次的 144 次对照与连续两轮认证未通过前，保持 Experimental。回退只关闭上述开关并停止接收新 V16 任务；不得用回退删除持久数据或声称撤销外部副作用。
