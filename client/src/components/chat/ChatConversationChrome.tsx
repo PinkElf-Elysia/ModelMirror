@@ -11,7 +11,6 @@ import {
 import { createPortal } from "react-dom";
 import {
   ArrowLeft,
-  BookOpenText,
   ChevronRight,
   Plus,
   Settings,
@@ -67,10 +66,7 @@ export function ChatCompactHeader({
   providerLabel,
   expertDepartment,
   backTo,
-  promptLabel,
-  promptTriggerRef,
   settingsTriggerRef,
-  onOpenPrompt,
   onOpenSettings,
   onExitExpert,
   disabled,
@@ -80,10 +76,7 @@ export function ChatCompactHeader({
   providerLabel?: string;
   expertDepartment?: string;
   backTo: string;
-  promptLabel: string;
-  promptTriggerRef: RefObject<HTMLButtonElement | null>;
   settingsTriggerRef: RefObject<HTMLButtonElement | null>;
-  onOpenPrompt: () => void;
   onOpenSettings: () => void;
   onExitExpert?: () => void;
   disabled?: boolean;
@@ -129,16 +122,6 @@ export function ChatCompactHeader({
             <span className="hidden md:inline">退出专家</span>
           </button>
         ) : null}
-        <button
-          aria-label={promptLabel}
-          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full px-3 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.07] hover:text-white focus:outline-none focus:ring-4 focus:ring-brand-300/15"
-          onClick={onOpenPrompt}
-          ref={promptTriggerRef}
-          type="button"
-        >
-          <BookOpenText aria-hidden className="h-4 w-4" />
-          <span className="hidden sm:inline">{promptLabel}</span>
-        </button>
         <button
           aria-label="打开对话设置"
           className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/[0.07] hover:text-white focus:outline-none focus:ring-4 focus:ring-brand-300/15"
