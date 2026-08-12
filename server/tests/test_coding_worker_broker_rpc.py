@@ -138,6 +138,7 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
         "run_command",
         "run_shell",
         "install_dependencies",
+        "query_documentation",
         "start_service",
         "service_status",
         "service_input",
@@ -172,8 +173,19 @@ async def test_mcp_exposes_only_modelmirror_broker_tools() -> None:
     assert "provider" not in definition.inputSchema["properties"]
     install = next(tool for tool in tools if tool.name == "install_dependencies")
     assert set(install.inputSchema["required"]) == {"operation_id"}
+    assert {"manager", "action", "requirements"}.issubset(
+        install.inputSchema["properties"]
+    )
     assert "lease_id" not in install.inputSchema["properties"]
     assert "network_lease_id" not in install.inputSchema["properties"]
+    documentation = next(tool for tool in tools if tool.name == "query_documentation")
+    assert set(documentation.inputSchema["required"]) == {
+        "operation_id",
+        "resource_id",
+        "document_path",
+    }
+    assert "url" not in documentation.inputSchema["properties"]
+    assert "network_lease_id" not in documentation.inputSchema["properties"]
     service = next(tool for tool in tools if tool.name == "start_service")
     assert set(service.inputSchema["required"]) == {"operation_id", "argv"}
     assert "lease_id" not in service.inputSchema["properties"]
@@ -205,6 +217,53 @@ async def test_mcp_computes_write_digest_inside_trusted_adapter() -> None:
             "lease_id": None,
             "network_lease_id": None,
         }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mcp_forwards_only_frozen_dependency_and_registered_document_inputs() -> None:
+    calls: list[dict[str, object]] = []
+
+    class RecordingClient:
+        async def call(self, **kwargs: object) -> dict[str, object]:
+            calls.append(kwargs)
+            return {"ok": True}
+
+    server = build_server(RecordingClient())
+    await server.call_tool(
+        "install_dependencies",
+        {
+            "operation_id": "uv-sync",
+            "manager": "uv",
+            "action": "sync",
+        },
+    )
+    await server.call_tool(
+        "query_documentation",
+        {
+            "operation_id": "python-docs",
+            "resource_id": "python",
+            "document_path": "library/asyncio.html",
+        },
+    )
+    assert calls == [
+        {
+            "operation_id": "uv-sync",
+            "tool_name": "install_dependencies",
+            "arguments": {"manager": "uv", "action": "sync"},
+            "lease_id": None,
+            "network_lease_id": None,
+        },
+        {
+            "operation_id": "python-docs",
+            "tool_name": "query_documentation",
+            "arguments": {
+                "resource_id": "python",
+                "document_path": "library/asyncio.html",
+            },
+            "lease_id": None,
+            "network_lease_id": None,
+        },
     ]
 
 
