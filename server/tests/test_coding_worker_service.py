@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import sys
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
@@ -468,6 +469,77 @@ async def test_required_check_failure_exhausts_turn_budget_without_completion(
     assert limited.state is not TaskState.COMPLETED
     assert len(service.store.list_evidence(task.task_id)) == 2
     await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_active_time_budget_survives_restart_and_excludes_waiting(
+    tmp_path: Path,
+) -> None:
+    key = Fernet.generate_key()
+    root = tmp_path / "worker"
+    now = [0.0]
+    first_store = CodingWorkerStore(root, master_key=key, clock=lambda: now[0])
+    request = _request("active-time-budget").model_copy(
+        update={"budget": TaskBudget(max_seconds=30)}
+    )
+    task = first_store.create_task(
+        TaskSpec(
+            **request.model_dump(),
+            origin=Origin(module="test", object_id="active-time-budget"),
+        )
+    )
+    first_store.transition(task.task_id, TaskState.PREPARING)
+    now[0] = 10.0
+    first_store.transition(task.task_id, TaskState.RUNNING)
+    now[0] = 20.0
+    first_store.transition(task.task_id, TaskState.WAITING_APPROVAL)
+    now[0] = 80.0
+    first_store.transition(task.task_id, TaskState.RUNNING)
+    now[0] = 89.95
+
+    restarted = CodingWorkerStore(root, master_key=key, clock=lambda: now[0])
+    assert restarted.get_task(task.task_id).state is TaskState.INTERRUPTED
+    assert restarted.active_runtime_seconds(task.task_id) == pytest.approx(29.95)
+    now[0] = 150.0
+    assert restarted.active_runtime_seconds(task.task_id) == pytest.approx(29.95)
+
+    started = time.monotonic()
+    restarted._clock = lambda: 150.0 + (time.monotonic() - started)
+    workspace = WorkspaceBroker(
+        root,
+        {
+            "manifest": InMemoryWorkspaceSourceAdapter(
+                {("source-01", "revision-01"): {"main.py": b"print('ok')\n"}}
+            )
+        },
+        id_key=b"r" * 32,
+    )
+    provider = FakeCodingAgentProvider(block=asyncio.Event())
+    service = CodingWorkerService(
+        store=restarted,
+        workspace_broker=workspace,
+        provider=provider,
+    )
+    restarted.transition(task.task_id, TaskState.QUEUED)
+    restarted.transition(task.task_id, TaskState.PREPARING)
+    running = restarted.transition(task.task_id, TaskState.RUNNING)
+    session = ProviderSession(
+        session_id="active-time-budget-session",
+        task_id=task.task_id,
+        provider_capabilities=await provider.capabilities(),
+    )
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            service._drive_session(
+                running,
+                session,
+                resume_phase=None,
+                resume_context=None,
+                completed_turns=0,
+            ),
+            timeout=2,
+        )
+    assert restarted.active_runtime_seconds(task.task_id) >= 30
 
 
 async def _checkpointed_task(

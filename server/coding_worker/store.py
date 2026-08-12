@@ -13,6 +13,7 @@ from typing import Any
 
 from .contracts import (
     ApprovalStatus,
+    BUDGET_ACTIVE_STATES,
     CapabilityName,
     EvidenceStatus,
     CapabilityLease,
@@ -265,6 +266,54 @@ class CodingWorkerStore:
             )
             for row in rows
         ]
+
+    def active_runtime_seconds(self, task_id: str) -> float:
+        """Return durable active time, excluding queue and human wait intervals."""
+        with self._lock:
+            task = self.get_task(task_id)
+            total = 0.0
+            state = TaskState.QUEUED
+            last_at = task.created_at
+            cursor = 0
+            while True:
+                events = self.list_events(task_id, after=cursor, limit=1000)
+                if not events:
+                    break
+                for event in events:
+                    if event.type != "task_state":
+                        continue
+                    try:
+                        source = TaskState(str(event.payload["from"]))
+                        target = TaskState(str(event.payload["to"]))
+                    except (KeyError, ValueError) as exc:
+                        raise WorkerStoreError(
+                            "Worker state history is corrupt.", code="worker_data_corrupt"
+                        ) from exc
+                    if source is not state or event.created_at < last_at:
+                        raise WorkerStoreError(
+                            "Worker state history is inconsistent.",
+                            code="worker_data_corrupt",
+                        )
+                    if state in BUDGET_ACTIVE_STATES:
+                        total += event.created_at - last_at
+                    state = target
+                    last_at = event.created_at
+                cursor = events[-1].sequence
+                if len(events) < 1000:
+                    break
+            if state is not task.state:
+                raise WorkerStoreError(
+                    "Worker state history does not match the task.",
+                    code="worker_data_corrupt",
+                )
+            now = self._now()
+            if now < last_at:
+                raise WorkerStoreError(
+                    "Worker state clock moved backwards.", code="worker_data_corrupt"
+                )
+            if state in BUDGET_ACTIVE_STATES:
+                total += now - last_at
+            return total
 
     def append_message(self, task_id: str, *, role: str, content: str) -> WorkerMessage:
         if role not in {"user", "assistant", "tool", "system"} or not content.strip():

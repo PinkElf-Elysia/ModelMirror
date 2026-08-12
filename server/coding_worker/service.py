@@ -497,75 +497,112 @@ class CodingWorkerService:
         resume_context: dict[str, object] | None,
         completed_turns: int,
     ) -> None:
+        driver = asyncio.create_task(
+            self._drive_session_steps(
+                task,
+                session,
+                resume_phase=resume_phase,
+                resume_context=resume_context,
+                completed_turns=completed_turns,
+            ),
+            name=f"coding-worker-drive-{task.task_id}",
+        )
+        try:
+            while not driver.done():
+                remaining = (
+                    task.spec.budget.max_seconds
+                    - self.store.active_runtime_seconds(task.task_id)
+                )
+                if remaining <= 0:
+                    driver.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await driver
+                    raise TimeoutError
+                await asyncio.wait({driver}, timeout=min(remaining, 0.25))
+            await driver
+        finally:
+            if not driver.done():
+                driver.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await driver
+
+    async def _drive_session_steps(
+        self,
+        task: TaskRecord,
+        session: ProviderSession,
+        *,
+        resume_phase: str | None,
+        resume_context: dict[str, object] | None,
+        completed_turns: int,
+    ) -> None:
         task_id = task.task_id
         message = task.spec.objective
         turns = completed_turns
-        async with asyncio.timeout(task.spec.budget.max_seconds):
-            if resume_phase == "testing":
-                feedback = await self._evaluate_acceptance(task, turns)
-                if feedback is None:
-                    return
-                message = self._restored_context_message(resume_context, feedback)
-            while True:
-                turns += 1
-                turn_completed = False
-                async for event in self.provider.message(session, message):
-                    self.store.append_event(
-                        task_id,
-                        "provider_event",
-                        {"kind": event.kind.value, "data": event.data},
-                    )
-                    if event.kind is ProviderEventKind.TURN_COMPLETED:
-                        turn_completed = True
-                        break
-                    if event.kind is ProviderEventKind.CANCELLED:
-                        self.store.transition(
-                            task_id, TaskState.CANCELLED, reason="provider_cancelled"
-                        )
-                        return
-                    if event.kind is ProviderEventKind.FAILED:
-                        self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
-                        return
-                if not turn_completed:
-                    current = self.store.get_task(task_id)
-                    if current.state not in TERMINAL_STATES:
-                        self.store.transition(
-                            task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
-                        )
-                    return
-                try:
-                    provider_checkpoint = await self.provider.checkpoint(session)
-                    tree_hash = self.workspace_broker.current_tree_hash(
-                        self.store.get_task(task_id).workspace_id or ""
-                    )
-                    self.store.create_checkpoint(
-                        task_id=task_id,
-                        workspace_tree_hash=tree_hash,
-                        payload={
-                            "phase": "testing",
-                            "completed_turns": turns,
-                            "provider": provider_checkpoint.model_dump(mode="json"),
-                            "context_summary": self._context_summary(
-                                task_id,
-                                tree_hash=tree_hash,
-                                public_output=str(
-                                    provider_checkpoint.payload.get("public_output", "")
-                                ),
-                            ),
-                        },
-                    )
-                except Exception:
+        if resume_phase == "testing":
+            feedback = await self._evaluate_acceptance(task, turns)
+            if feedback is None:
+                return
+            message = self._restored_context_message(resume_context, feedback)
+        while True:
+            turns += 1
+            turn_completed = False
+            async for event in self.provider.message(session, message):
+                self.store.append_event(
+                    task_id,
+                    "provider_event",
+                    {"kind": event.kind.value, "data": event.data},
+                )
+                if event.kind is ProviderEventKind.TURN_COMPLETED:
+                    turn_completed = True
+                    break
+                if event.kind is ProviderEventKind.CANCELLED:
                     self.store.transition(
-                        task_id,
-                        TaskState.BLOCKED,
-                        reason="checkpoint_failed",
-                        expected_state=TaskState.RUNNING,
+                        task_id, TaskState.CANCELLED, reason="provider_cancelled"
                     )
                     return
-                feedback = await self._evaluate_acceptance(task, turns)
-                if feedback is None:
+                if event.kind is ProviderEventKind.FAILED:
+                    self.store.transition(task_id, TaskState.FAILED, reason="provider_failed")
                     return
-                message = feedback
+            if not turn_completed:
+                current = self.store.get_task(task_id)
+                if current.state not in TERMINAL_STATES:
+                    self.store.transition(
+                        task_id, TaskState.INTERRUPTED, reason="provider_stream_ended"
+                    )
+                return
+            try:
+                provider_checkpoint = await self.provider.checkpoint(session)
+                tree_hash = self.workspace_broker.current_tree_hash(
+                    self.store.get_task(task_id).workspace_id or ""
+                )
+                self.store.create_checkpoint(
+                    task_id=task_id,
+                    workspace_tree_hash=tree_hash,
+                    payload={
+                        "phase": "testing",
+                        "completed_turns": turns,
+                        "provider": provider_checkpoint.model_dump(mode="json"),
+                        "context_summary": self._context_summary(
+                            task_id,
+                            tree_hash=tree_hash,
+                            public_output=str(
+                                provider_checkpoint.payload.get("public_output", "")
+                            ),
+                        ),
+                    },
+                )
+            except Exception:
+                self.store.transition(
+                    task_id,
+                    TaskState.BLOCKED,
+                    reason="checkpoint_failed",
+                    expected_state=TaskState.RUNNING,
+                )
+                return
+            feedback = await self._evaluate_acceptance(task, turns)
+            if feedback is None:
+                return
+            message = feedback
 
     def _context_summary(
         self, task_id: str, *, tree_hash: str, public_output: str
