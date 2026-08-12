@@ -27,6 +27,7 @@ from server.coding_worker.provider import (
     PROVIDER_CHECKPOINT_FORMAT_VERSION,
     PROVIDER_CONTRACT_VERSION,
     ProviderEventKind,
+    ProviderEvent,
     ProviderOpenRequest,
 )
 
@@ -164,7 +165,7 @@ ProviderFactory = Callable[
 @pytest.mark.parametrize(
     "factory", [_fake_provider, _opencode_provider, _claude_provider]
 )
-async def test_provider_v2_conformance(
+async def test_provider_v3_conformance(
     factory: ProviderFactory, tmp_path: Path
 ) -> None:
     provider, request = factory(tmp_path)
@@ -173,6 +174,11 @@ async def test_provider_v2_conformance(
     assert capabilities.supports_streaming is True
     assert capabilities.supports_checkpoint is True
     assert capabilities.supports_restore is True
+    assert capabilities.supports_structured_plan is True
+    assert capabilities.supports_todo is True
+    assert capabilities.supports_questions is True
+    assert capabilities.supports_compaction is True
+    assert capabilities.supports_tool_boundaries is True
 
     session = await provider.open(request)
     events = [event async for event in provider.message(session, "continue")]
@@ -203,3 +209,102 @@ async def test_provider_v2_conformance(
         (ValueError, OpenCodeProviderError, ClaudeCodeProviderError)
     ):
         await provider.restore(changed, checkpoint)
+
+
+def test_provider_v3_rejects_raw_or_malformed_event_data() -> None:
+    with pytest.raises(ValueError, match="Extra inputs|canonical"):
+        ProviderEvent(
+            kind=ProviderEventKind.FAILED,
+            data={"failure_kind": "unavailable", "raw_frame": "secret"},
+        )
+    with pytest.raises(ValueError, match="message event"):
+        ProviderEvent(
+            kind=ProviderEventKind.MESSAGE,
+            data={"text": "ok", "session_id": "supplier-session"},
+        )
+
+
+def test_provider_v3_structured_event_vocabulary_is_canonical() -> None:
+    events = (
+        ProviderEvent(
+            kind=ProviderEventKind.PLAN,
+            data={"explanation": None, "items": [{"step": "inspect", "status": "in_progress"}]},
+        ),
+        ProviderEvent(
+            kind=ProviderEventKind.TODO,
+            data={"items": [{"todo_id": "todo_1", "content": "run tests", "status": "pending"}]},
+        ),
+        ProviderEvent(
+            kind=ProviderEventKind.QUESTION,
+            data={"question_id": "question_1", "prompt": "Choose scope", "options": []},
+        ),
+        ProviderEvent(
+            kind=ProviderEventKind.COMPACTION,
+            data={"summary": "Preserved public context.", "boundary_sequence": 7},
+        ),
+    )
+    assert [event.kind.value for event in events] == [
+        "plan",
+        "todo",
+        "question",
+        "compaction",
+    ]
+
+
+def test_real_provider_frames_normalize_tool_boundaries_without_raw_payloads() -> None:
+    opencode_started = OpenCodeProvider._map_event(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "sessionID": "ses_1",
+                "part": {
+                    "type": "tool",
+                    "callID": "operation_1",
+                    "tool": "read_file",
+                    "state": {"status": "running", "input": {"path": "secret.py"}},
+                },
+            },
+        },
+        "ses_1",
+    )
+    assert opencode_started == ProviderEvent(
+        kind=ProviderEventKind.TOOL_STARTED,
+        data={
+            "operation_id": "operation_1",
+            "tool_name": "read_file",
+            "summary": "Tool execution started.",
+        },
+    )
+
+    claude_started = ClaudeCodeProvider.map_stream_frame(
+        json.dumps(
+            {
+                "type": "assistant",
+                "session_id": "claude_1",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "operation_2",
+                            "name": "mcp__modelmirror-tool-broker__read_file",
+                            "input": {"path": "secret.py"},
+                        }
+                    ]
+                },
+            }
+        ).encode(),
+        "claude_1",
+    )
+    assert claude_started == (
+        ProviderEvent(
+            kind=ProviderEventKind.TOOL_STARTED,
+            data={
+                "operation_id": "operation_2",
+                "tool_name": "read_file",
+                "summary": "Tool execution started.",
+            },
+        ),
+    )
+    assert "secret.py" not in json.dumps(
+        [opencode_started.model_dump(mode="json"), claude_started[0].model_dump(mode="json")]
+    )

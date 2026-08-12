@@ -25,6 +25,7 @@ from .provider import (
     ProviderCheckpointCompatibility,
     ProviderEvent,
     ProviderEventKind,
+    ProviderFailureKind,
     ProviderOpenRequest,
     ProviderSession,
     PROVIDER_TOOL_NAMES,
@@ -565,6 +566,37 @@ class OpenCodeProvider(CodingAgentProvider):
                 text = delta if isinstance(delta, str) else part.get("text")
             if isinstance(text, str) and text:
                 return ProviderEvent(kind=ProviderEventKind.MESSAGE, data={"text": text})
+            if isinstance(part, dict) and part.get("type") == "tool":
+                operation_id = part.get("callID") or part.get("callId")
+                tool_name = part.get("tool")
+                state = part.get("state")
+                if (
+                    isinstance(operation_id, str)
+                    and isinstance(tool_name, str)
+                    and tool_name in PROVIDER_TOOL_NAMES
+                    and isinstance(state, dict)
+                ):
+                    status = state.get("status")
+                    if status in {"pending", "running"}:
+                        return ProviderEvent(
+                            kind=ProviderEventKind.TOOL_STARTED,
+                            data={
+                                "operation_id": operation_id,
+                                "tool_name": tool_name,
+                                "summary": "Tool execution started.",
+                            },
+                        )
+                    if status in {"completed", "error"}:
+                        return ProviderEvent(
+                            kind=ProviderEventKind.TOOL_COMPLETED,
+                            data={
+                                "operation_id": operation_id,
+                                "tool_name": tool_name,
+                                "summary": "Tool execution completed.",
+                                "success": status == "completed",
+                                "artifact_id": None,
+                            },
+                        )
         if event_type == "message.updated":
             info = properties.get("info")
             tokens = info.get("tokens") if isinstance(info, dict) else None
@@ -600,7 +632,10 @@ class OpenCodeProvider(CodingAgentProvider):
         if event_type in {"session.aborted", "session.cancelled"}:
             return ProviderEvent(kind=ProviderEventKind.CANCELLED)
         if event_type in {"session.error", "message.error"}:
-            return ProviderEvent(kind=ProviderEventKind.FAILED, data={"error": "provider_failed"})
+            return ProviderEvent(
+                kind=ProviderEventKind.FAILED,
+                data={"failure_kind": ProviderFailureKind.UNAVAILABLE.value},
+            )
         return None
 
 

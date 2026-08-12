@@ -27,6 +27,7 @@ from .provider import (
     ProviderOpenRequest,
     ProviderSession,
     ProviderUsage,
+    PROVIDER_TOOL_NAMES,
 )
 
 
@@ -468,6 +469,29 @@ class ClaudeCodeProvider(CodingAgentProvider):
                 and isinstance(item.get("text"), str)
             ) if isinstance(content, list) else ""
             events: list[ProviderEvent] = []
+            if isinstance(content, list):
+                for item in content:
+                    if not isinstance(item, dict) or item.get("type") != "tool_use":
+                        continue
+                    operation_id = item.get("id")
+                    tool_name = item.get("name")
+                    if (
+                        isinstance(operation_id, str)
+                        and isinstance(tool_name, str)
+                        and tool_name.startswith(f"mcp__{CLAUDE_MCP_NAME}__")
+                    ):
+                        normalized_name = tool_name.rsplit("__", 1)[-1]
+                        if normalized_name in PROVIDER_TOOL_NAMES:
+                            events.append(
+                                ProviderEvent(
+                                    kind=ProviderEventKind.TOOL_STARTED,
+                                    data={
+                                        "operation_id": operation_id,
+                                        "tool_name": normalized_name,
+                                        "summary": "Tool execution started.",
+                                    },
+                                )
+                            )
             if text:
                 events.append(
                     ProviderEvent(
@@ -481,6 +505,29 @@ class ClaudeCodeProvider(CodingAgentProvider):
             )
             if usage is not None:
                 events.append(_usage_event(usage))
+            return tuple(events)
+        if frame_type == "user":
+            message = value.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            events: list[ProviderEvent] = []
+            if isinstance(content, list):
+                for item in content:
+                    if not isinstance(item, dict) or item.get("type") != "tool_result":
+                        continue
+                    operation_id = item.get("tool_use_id")
+                    if isinstance(operation_id, str):
+                        events.append(
+                            ProviderEvent(
+                                kind=ProviderEventKind.TOOL_COMPLETED,
+                                data={
+                                    "operation_id": operation_id,
+                                    "tool_name": "run_command",
+                                    "summary": "Tool execution completed.",
+                                    "success": item.get("is_error") is not True,
+                                    "artifact_id": None,
+                                },
+                            )
+                        )
             return tuple(events)
         if frame_type == "result":
             usage = _usage_from_mapping(
