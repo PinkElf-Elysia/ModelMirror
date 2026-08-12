@@ -23,10 +23,7 @@ describe("ChatConversationChrome", () => {
           backTo="/models"
           mode={mode}
           modelLabel="GPT-5.6 Luna"
-          onOpenPrompt={vi.fn()}
           onOpenSettings={vi.fn()}
-          promptLabel={mode === "expert" ? "题库" : "提示库"}
-          promptTriggerRef={createRef<HTMLButtonElement>()}
           settingsTriggerRef={createRef<HTMLButtonElement>()}
         />
       </MemoryRouter>,
@@ -34,6 +31,8 @@ describe("ChatConversationChrome", () => {
 
     expect(screen.getByText("GPT-5.6 Luna")).toBeInTheDocument();
     expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "提示库" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "题库" })).not.toBeInTheDocument();
     expect(screen.getByRole("banner").firstElementChild).toHaveClass("h-16");
   });
 

@@ -841,3 +841,53 @@ def test_execution_sse_replays_only_events_after_sequence(tmp_path, monkeypatch)
         "agency.step.completed",
         "agency.run.completed",
     ]
+
+
+def test_execution_history_lists_only_agency_runs_without_full_events(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    import server.main as main_module
+
+    store = WorkflowExecutionStore(tmp_path)
+    agency = store.create(
+        task_id="agency-history",
+        run_id="agency-run",
+        run_type="expert_team",
+        workflow={"name": "研究专家团", "steps": []},
+        inputs={"goal": "研究一个真实用户问题"},
+        source_kind="expert_team_agency",
+        runtime_metadata={"model_id": "fake-model", "selected_agent_ids": ["agent-alpha"]},
+    )
+    store.append_event(
+        agency.task_id,
+        {
+            "event": "agency.run.completed",
+            "status": "completed",
+            "final_output": "可交付结论",
+            "model_calls": 2,
+            "usage": {"input_tokens": 120, "output_tokens": 80},
+        },
+    )
+    store.complete(agency.task_id, result="可交付结论")
+    store.create(
+        task_id="classic-history",
+        run_id="classic-run",
+        run_type="workflow",
+        workflow={"steps": []},
+        inputs={},
+        source_kind="workflow_classic",
+    )
+    monkeypatch.setattr(main_module, "workflow_execution_store", store)
+
+    response = TestClient(main_module.app).get("/api/expert-team/dag-runs?limit=10")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert [item["task_id"] for item in payload["items"]] == ["agency-history"]
+    assert payload["items"][0]["final_output_preview"] == "可交付结论"
+    assert payload["items"][0]["model_calls"] == 2
+    assert "events" not in payload["items"][0]
+    assert "steps" not in payload["items"][0]
+
+    invalid = TestClient(main_module.app).get("/api/expert-team/dag-runs?status=unknown")
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "agency_execution_status_invalid"

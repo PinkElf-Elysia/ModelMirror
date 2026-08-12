@@ -208,6 +208,91 @@ def test_plan_preview_auto_compiles_without_authoring_proposal(
     assert expert_run.metadata["backend"] == "agency_orchestrator"
 
 
+def test_plan_preview_requires_explicit_knowledge_consent_and_bounds_context(
+    monkeypatch,
+) -> None:
+    experts = main_module.AGENT_RECORDS[:2]
+    observed: dict = {}
+    real_rag_service = main_module.get_rag_service()
+
+    class FakeRagService:
+        def list_knowledge_bases(self):
+            return [
+                {
+                    "id": "kb-private",
+                    "name": "发布资料",
+                    "document_count": 1,
+                }
+            ]
+
+        async def search_knowledge(self, kb_id, question, *, top_k):
+            assert kb_id == "kb-private"
+            assert question == "研究新产品并形成可执行的发布方案。"
+            assert top_k == 4
+            return {
+                "version_id": "version-private",
+                "sources": [
+                    {
+                        "chunk_id": "chunk-1",
+                        "source_document_id": "document-1",
+                        "document_name": "launch.md",
+                        "matched_text": "PRIVATE-CONTEXT " + ("x" * 5_000),
+                        "score": 0.91,
+                        "page_number": 3,
+                    }
+                ],
+            }
+
+        def __getattr__(self, name):
+            return getattr(real_rag_service, name)
+
+    async def fake_compose(**kwargs):
+        observed.update(kwargs)
+        return agency_result(experts[0].id, experts[1].id)
+
+    monkeypatch.setenv("EXPERT_TEAM_AGENCY_PLANNER_ENABLED", "1")
+    monkeypatch.setattr(main_module, "get_llm_gateway_config", lambda: ("url", "key"))
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(main_module, "get_rag_service", lambda: FakeRagService())
+    monkeypatch.setattr(main_module.agency_worker_client, "compose", fake_compose)
+
+    base = {
+        "goal": "研究新产品并形成可执行的发布方案。",
+        "planner_model_id": "model/planner",
+        "default_agent_model_id": "model/agent",
+        "knowledge_base_id": "kb-private",
+    }
+    missing_consent = client.post("/api/expert-team/plan-preview", json=base)
+    assert missing_consent.status_code == 422
+    assert observed == {}
+
+    response = client.post(
+        "/api/expert-team/plan-preview",
+        json={**base, "allow_knowledge_context": True},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "PRIVATE-CONTEXT" in observed["goal"]
+    assert len(observed["goal"]) < 24_000
+    assert payload["knowledge_context"] == {
+        "knowledge_base": {"id": "kb-private", "name": "发布资料"},
+        "version_id": "version-private",
+        "sources": [
+            {
+                "chunk_id": "chunk-1",
+                "document_id": "document-1",
+                "document_name": "launch.md",
+                "score": 0.91,
+                "page_number": 3,
+                "slide": None,
+                "sheet": None,
+                "row_range": None,
+            }
+        ],
+    }
+    assert "text" not in payload["knowledge_context"]["sources"][0]
+
+
 def test_plan_preview_allows_more_tasks_than_distinct_experts(monkeypatch) -> None:
     experts = main_module.AGENT_RECORDS[:2]
     result = agency_result(experts[0].id, experts[1].id)

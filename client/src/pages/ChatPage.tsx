@@ -54,7 +54,6 @@ import {
   federationFallbackModelId,
   federationRouteId,
 } from "../components/FederationRouterCard";
-import { PromptLibraryContent } from "../components/PromptSidebar";
 import RealtimeVoiceWorkspace from "../components/RealtimeVoiceWorkspace";
 import ResourceNav from "../components/ResourceNav";
 import SpeechWorkspace from "../components/SpeechWorkspace";
@@ -86,6 +85,7 @@ import {
   type FileOutputReuseConfirmation,
 } from "../data/fileOutputs";
 import { models } from "../data/models";
+import { consumePromptDraftHandoff } from "../data/promptDraftHandoff";
 import { compressImage } from "../utils/compressImage";
 import {
   downloadImage,
@@ -1428,9 +1428,10 @@ function ChatConversationPage() {
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [error, setError] = useState("");
   const [lightboxImage, setLightboxImage] = useState<LightboxItem | null>(null);
-  const [topOverlay, setTopOverlay] = useState<"prompt" | "settings" | null>(null);
+  const [topOverlay, setTopOverlay] = useState<"settings" | null>(null);
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
   const [superPromptMode, setSuperPromptMode] = useState(false);
+  const consumedPromptDraftNonceRef = useRef("");
   const [advancedParams, setAdvancedParams] = useState<ChatAdvancedParams>(() =>
     defaultAdvancedParams(),
   );
@@ -1462,6 +1463,28 @@ function ChatConversationPage() {
   const [compressionMode, setCompressionMode] = useState<
     "auto" | "off" | "standard" | "strong"
   >("auto");
+
+  useEffect(() => {
+    const nonce = searchParams.get("prompt_draft");
+    if (!nonce) return;
+    if (consumedPromptDraftNonceRef.current === nonce) return;
+    consumedPromptDraftNonceRef.current = nonce;
+    const draft = consumePromptDraftHandoff(
+      window.sessionStorage,
+      nonce,
+      decodedModelId,
+    );
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("prompt_draft");
+    setSearchParams(nextParams, { replace: true });
+    if (!draft) {
+      setError("提示词草稿无效、已过期或目标模型不匹配，未填入输入框。");
+      return;
+    }
+    setInput(draft.content);
+    setModelSwitchNotice("已从提示词模板填入草稿，检查后再发送。");
+    window.requestAnimationFrame(() => messageInputRef.current?.focus());
+  }, [decodedModelId]);
   const routingSessionId = useMemo(
     () => (isOmniAutoRoute ? getOrCreateRoutingSessionId(decodedModelId) : ""),
     [decodedModelId, isOmniAutoRoute],
@@ -1477,7 +1500,6 @@ function ChatConversationPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const actionMenuTriggerRef = useRef<HTMLButtonElement>(null);
-  const promptTriggerRef = useRef<HTMLButtonElement>(null);
   const settingsTriggerRef = useRef<HTMLButtonElement>(null);
   const autoFollowStreamRef = useRef(true);
   const streamingAudioSessionsRef = useRef(
@@ -3575,7 +3597,6 @@ function ChatConversationPage() {
     : isOmniAutoRoute || isFederationRoute
       ? "auto"
       : "direct";
-  const promptLabel = agentInterview ? "题库" : "提示库";
   const selectedKnowledgeBase = knowledgeBases.find(
     (item) => item.id === selectedKnowledgeBaseId,
   );
@@ -3583,6 +3604,17 @@ function ChatConversationPage() {
     (item) => item.skill_id === selectedSkillId,
   );
   const activeContexts: ChatActiveContext[] = [
+    ...(superPromptMode
+      ? [
+          {
+            id: "super-prompt",
+            label: "增强提示",
+            detail: "发送前使用结构化提示包装",
+            onRemove: () => setSuperPromptMode(false),
+            disabled: isSending,
+          },
+        ]
+      : []),
     ...(selectedKnowledgeBase
       ? [
           {
@@ -3838,16 +3870,10 @@ function ChatConversationPage() {
         mode={shellMode}
         modelLabel={displayCandidateName}
         onExitExpert={agentInterview ? exitAgentInterview : undefined}
-        onOpenPrompt={() => {
-          setComposerMenuOpen(false);
-          setTopOverlay("prompt");
-        }}
         onOpenSettings={() => {
           setComposerMenuOpen(false);
           setTopOverlay("settings");
         }}
-        promptLabel={promptLabel}
-        promptTriggerRef={promptTriggerRef}
         providerLabel={providerName}
         settingsTriggerRef={settingsTriggerRef}
       />
@@ -4225,30 +4251,6 @@ function ChatConversationPage() {
       </div>
 
       <ChatOverlayDrawer
-        description={agentInterview ? "选择一道题填入或直接发送" : "选择提示填入输入框或直接发送"}
-        onClose={() => setTopOverlay(null)}
-        open={topOverlay === "prompt"}
-        title={promptLabel}
-        triggerRef={promptTriggerRef}
-      >
-        <PromptLibraryContent
-          onFillPrompt={(content) => {
-            setInput(content);
-            setError("");
-            setTopOverlay(null);
-            window.requestAnimationFrame(() => messageInputRef.current?.focus());
-          }}
-          onSendPrompt={(content) => {
-            setTopOverlay(null);
-            void sendMessage(content);
-          }}
-          onSuperPromptModeChange={setSuperPromptMode}
-          superPromptMode={superPromptMode}
-          variant={agentInterview ? "question" : "prompt"}
-        />
-      </ChatOverlayDrawer>
-
-      <ChatOverlayDrawer
         description="模型、服务档位、路由、工具与语音设置"
         onClose={() => setTopOverlay(null)}
         open={topOverlay === "settings"}
@@ -4339,6 +4341,27 @@ function ChatConversationPage() {
               </p>
             </section>
           ) : null}
+
+          <section className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-white">超级提示词</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-400">
+                  仅作用于当前对话；发送前使用现有结构化提示包装，不改变服务端协议。
+                </p>
+              </div>
+              <label className="inline-flex min-h-11 items-center gap-2 text-xs font-semibold text-slate-200">
+                <input
+                  checked={superPromptMode}
+                  className="h-4 w-4"
+                  disabled={isSending}
+                  onChange={(event) => setSuperPromptMode(event.target.checked)}
+                  type="checkbox"
+                />
+                启用
+              </label>
+            </div>
+          </section>
 
           {isOmniAutoRoute ? (
             <section className="space-y-4 p-5">

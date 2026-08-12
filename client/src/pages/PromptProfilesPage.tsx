@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import AuthoringProposalPanel from "../components/authoring/AuthoringProposalPanel";
 import PageContainer from "../components/PageContainer";
+import PromptTemplateLibrary from "../components/PromptTemplateLibrary";
 
 interface PromptVersion {
   version: number;
@@ -46,7 +47,10 @@ function splitValues(value: string) {
 }
 
 export default function PromptProfilesPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("view") === "commands" || searchParams.has("profile_id")
+    ? "commands"
+    : "templates";
   const [items, setItems] = useState<PromptProfile[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [draft, setDraft] = useState<PromptProfile | null>(null);
@@ -65,8 +69,9 @@ export default function PromptProfilesPage() {
   }
 
   useEffect(() => {
+    if (view !== "commands") return;
     void load().catch((caught) => setError(caught instanceof Error ? caught.message : "Prompt 加载失败"));
-  }, []);
+  }, [view]);
 
   async function createProfile() {
     setBusy("create");
@@ -152,9 +157,33 @@ export default function PromptProfilesPage() {
     () => (draft?.template ?? "").replaceAll("{{args}}", previewArgs.slice(0, 8000)),
     [draft?.template, previewArgs],
   );
+  function selectView(nextView: "templates" | "commands") {
+    const next = new URLSearchParams(searchParams);
+    if (nextView === "commands") next.set("view", "commands");
+    else {
+      next.delete("view");
+      next.delete("profile_id");
+    }
+    setSearchParams(next);
+  }
 
   return (
     <PageContainer activeResource="prompts" hideSidebar maxWidthClassName="max-w-[1560px]">
+      <header className="mb-6 border-b border-white/10 pb-5">
+        <p className="text-sm font-semibold text-[#ffc57d]">提示词</p>
+        <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold text-white">从模板开始，或管理可发布命令</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">模板只会填入对话草稿；Prompt Command 保留版本、校验、发布、评测与演进能力。</p>
+          </div>
+          <div aria-label="提示词视图" className="flex rounded-xl border border-white/10 bg-[#0a1423] p-1">
+            <button aria-pressed={view === "templates"} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-400 aria-pressed:bg-white/[0.08] aria-pressed:text-white" onClick={() => selectView("templates")} type="button">模板库</button>
+            <button aria-pressed={view === "commands"} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-400 aria-pressed:bg-white/[0.08] aria-pressed:text-white" onClick={() => selectView("commands")} type="button">Prompt Command</button>
+          </div>
+        </div>
+      </header>
+
+      {view === "templates" ? <PromptTemplateLibrary /> : <>
       <header className="mb-5 flex flex-col gap-3 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Prompt Runtime</p>
@@ -241,6 +270,7 @@ export default function PromptProfilesPage() {
           />
         </div>
       ) : null}
+      </>}
     </PageContainer>
   );
 }
