@@ -379,6 +379,125 @@ class CodingWorkerService:
         self._wake.set()
         return subtask
 
+    async def merge_subtask(
+        self,
+        parent_task_id: str,
+        child_task_id: str,
+        operation_id: str,
+    ) -> SubtaskRecord:
+        if not self._subtasks_enabled():
+            raise WorkerConflictError(
+                "Controlled subtasks are disabled.", code="subtasks_disabled"
+            )
+        parent = self.store.get_task(parent_task_id)
+        if parent.workspace_id is None or parent.state not in {
+            TaskState.RUNNING,
+            TaskState.PAUSED,
+            TaskState.INTERRUPTED,
+            TaskState.BLOCKED,
+        }:
+            raise WorkerConflictError(
+                "Task cannot merge a subtask in its current state.",
+                code="task_state_conflict",
+            )
+        relation = self.store.begin_subtask_merge(
+            parent_task_id, child_task_id, operation_id
+        )
+        changesets = self._require_changesets()
+        if relation.merge_state is SubtaskMergeState.MERGED:
+            with contextlib.suppress(ChangesetError):
+                if changesets.has_transaction(
+                    workspace_id=parent.workspace_id, operation_id=operation_id
+                ):
+                    changesets.finalize(
+                        task_id=parent_task_id,
+                        workspace_id=parent.workspace_id,
+                        operation_id=operation_id,
+                    )
+            return relation
+        if relation.merge_state is SubtaskMergeState.CONFLICTED:
+            return relation
+        child = self.store.get_task(child_task_id)
+        if child.workspace_id is None or relation.result_tree_hash is None:
+            raise WorkerConflictError(
+                "Subtask result is unavailable.", code="subtask_not_mergeable"
+            )
+        outcome = None
+        if changesets.has_transaction(
+            workspace_id=parent.workspace_id, operation_id=operation_id
+        ):
+            try:
+                outcome = changesets.reconcile(
+                    task_id=parent_task_id,
+                    workspace_id=parent.workspace_id,
+                    operation_id=operation_id,
+                )
+            except ChangesetError as exc:
+                if exc.code != "changeset_rolled_back":
+                    raise WorkerConflictError(str(exc), code=exc.code) from exc
+        if outcome is None:
+            try:
+                changes = self.workspace_broker.fork_merge_changes(
+                    child.workspace_id,
+                    expected_base_tree_hash=relation.base_tree_hash,
+                    expected_result_tree_hash=relation.result_tree_hash,
+                    expected_changed_paths=relation.changed_paths,
+                )
+                current_tree_hash = self.workspace_broker.current_tree_hash(
+                    parent.workspace_id
+                )
+                if not changes:
+                    return self.store.settle_subtask_merge(
+                        parent_task_id,
+                        child_task_id,
+                        operation_id,
+                        merge_state=SubtaskMergeState.MERGED,
+                        merged_tree_hash=current_tree_hash,
+                    )
+                outcome = changesets.apply(
+                    task_id=parent_task_id,
+                    workspace_id=parent.workspace_id,
+                    operation_id=operation_id,
+                    arguments={
+                        "base_tree_hash": current_tree_hash,
+                        "changes": changes,
+                    },
+                )
+            except (ChangesetError, WorkspaceError) as exc:
+                if getattr(exc, "code", "") in {
+                    "operation_result_unknown",
+                    "changeset_rollback_failed",
+                }:
+                    raise WorkerConflictError(str(exc), code=exc.code) from exc
+                current_tree_hash = self.workspace_broker.current_tree_hash(
+                    parent.workspace_id
+                )
+                return self.store.settle_subtask_merge(
+                    parent_task_id,
+                    child_task_id,
+                    operation_id,
+                    merge_state=SubtaskMergeState.CONFLICTED,
+                    merged_tree_hash=current_tree_hash,
+                )
+        if outcome.result_tree_hash is None:
+            raise WorkerConflictError(
+                "Subtask merge result is unknown.", code="operation_result_unknown"
+            )
+        settled = self.store.settle_subtask_merge(
+            parent_task_id,
+            child_task_id,
+            operation_id,
+            merge_state=SubtaskMergeState.MERGED,
+            merged_tree_hash=outcome.result_tree_hash,
+        )
+        with contextlib.suppress(ChangesetError):
+            changesets.finalize(
+                task_id=parent_task_id,
+                workspace_id=parent.workspace_id,
+                operation_id=operation_id,
+            )
+        return settled
+
     async def navigate_turn(self, task_id: str, action: str) -> WorkerTurnHistory:
         task = await self._require_session_control_safe(task_id)
         assert task.workspace_id is not None

@@ -605,6 +605,118 @@ class WorkspaceBroker:
             except OSError:
                 pass
 
+    def fork_merge_changes(
+        self,
+        workspace_id: str,
+        *,
+        expected_base_tree_hash: str,
+        expected_result_tree_hash: str,
+        expected_changed_paths: tuple[str, ...],
+    ) -> tuple[dict[str, object], ...]:
+        """Build bounded text changes bound to a fork's immutable H0 and result."""
+        record = self.get(workspace_id)
+        if record.baseline_tree_hash != expected_base_tree_hash:
+            raise WorkspaceError(
+                "Subtask fork baseline changed.", code="subtask_result_changed"
+            )
+        current = self.capture_snapshot(workspace_id)
+        if current.tree_hash != expected_result_tree_hash:
+            raise WorkspaceError(
+                "Subtask fork result changed.", code="subtask_result_changed"
+            )
+        repository = self.repository_path(workspace_id)
+        tree_oid = self._git(
+            repository,
+            "rev-parse",
+            f"{record.baseline_commit}^{{tree}}",
+            env=self._git_env(repository),
+        ).strip()
+        if re.fullmatch(r"[a-f0-9]{40}", tree_oid) is None:
+            raise WorkspaceError(
+                "Subtask fork baseline is unavailable.", code="subtask_result_changed"
+            )
+        baseline_files = {
+            item.path: item
+            for item in self.snapshot_files(
+                workspace_id,
+                WorkspaceSnapshot(
+                    tree_hash=record.baseline_tree_hash, tree_oid=tree_oid
+                ),
+            )
+        }
+        result_files = {
+            item.path: item for item in self.snapshot_files(workspace_id, current)
+        }
+        changes: list[dict[str, object]] = []
+        changed_paths: list[str] = []
+        for path in sorted(set(baseline_files) | set(result_files)):
+            before = baseline_files.get(path)
+            after = result_files.get(path)
+            if before == after:
+                continue
+            changed_paths.append(path)
+            if before is not None and after is not None:
+                if before.executable != after.executable:
+                    raise WorkspaceError(
+                        "Subtask changed a file mode that cannot be merged safely.",
+                        code="subtask_mode_change_unsupported",
+                    )
+                content = self._merge_text(after.content)
+                changes.append(
+                    {
+                        "kind": "write",
+                        "path": path,
+                        "expected_sha256": hashlib.sha256(before.content).hexdigest(),
+                        "content": content,
+                        "content_sha256": hashlib.sha256(after.content).hexdigest(),
+                    }
+                )
+            elif before is not None:
+                changes.append(
+                    {
+                        "kind": "delete",
+                        "path": path,
+                        "expected_sha256": hashlib.sha256(before.content).hexdigest(),
+                    }
+                )
+            else:
+                assert after is not None
+                if after.executable:
+                    raise WorkspaceError(
+                        "Subtask added an executable file that cannot be merged safely.",
+                        code="subtask_mode_change_unsupported",
+                    )
+                content = self._merge_text(after.content)
+                changes.append(
+                    {
+                        "kind": "write",
+                        "path": path,
+                        "expected_absent": True,
+                        "content": content,
+                        "content_sha256": hashlib.sha256(after.content).hexdigest(),
+                    }
+                )
+        if tuple(changed_paths) != expected_changed_paths:
+            raise WorkspaceError(
+                "Subtask changed-path receipt changed.", code="subtask_result_changed"
+            )
+        return tuple(changes)
+
+    @staticmethod
+    def _merge_text(content: bytes) -> str:
+        if b"\0" in content:
+            raise WorkspaceError(
+                "Binary subtask changes require a separate artifact.",
+                code="subtask_binary_change_unsupported",
+            )
+        try:
+            return content.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise WorkspaceError(
+                "Non-UTF-8 subtask changes require a separate artifact.",
+                code="subtask_binary_change_unsupported",
+            ) from exc
+
     def delete(self, workspace_id: str) -> None:
         self._remove_tree(self._workspace_root(workspace_id))
 

@@ -709,15 +709,21 @@ class SubtaskRecord(StrictModel):
     result_tree_hash: str | None = Field(
         default=None, pattern=r"^[a-f0-9]{64}$"
     )
+    merge_operation_id: str | None = None
+    merged_tree_hash: str | None = Field(
+        default=None, pattern=r"^[a-f0-9]{64}$"
+    )
     changed_paths: tuple[str, ...] = Field(default=(), max_length=4096)
     summary: str | None = Field(default=None, max_length=65_536)
     created_at: float
     updated_at: float
 
-    @field_validator("parent_task_id", "child_task_id", "client_subtask_id")
+    @field_validator(
+        "parent_task_id", "child_task_id", "client_subtask_id", "merge_operation_id"
+    )
     @classmethod
-    def validate_subtask_id(cls, value: str) -> str:
-        if SAFE_ID.fullmatch(value) is None:
+    def validate_subtask_id(cls, value: str | None) -> str | None:
+        if value is not None and SAFE_ID.fullmatch(value) is None:
             raise ValueError("subtask identifier is invalid")
         return value
 
