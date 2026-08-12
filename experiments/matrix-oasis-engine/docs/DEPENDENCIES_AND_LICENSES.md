@@ -102,6 +102,8 @@ R9.1 仅记录依赖决策，尚未引入新的 registry 包。R9.4 计划精确
 
 用户已批准 Sharp/libvips 家族的 LGPL-3.0-or-later 例外，严格限于模块本地、离线、dev-only 的GLB规范化工具链。不得 vendoring libvips 二进制，不得将其打入 Creator、Godot、Runtime Pack、Scene Pack或任何产品分发。R9.4 在安装后必须把实际出现的精确包名、版本、许可证和dev/optional作用域写入机器策略；若实际lock超出本范围，必须重新停报审批。
 
+R9.2 新增私有 `@matrix-oasis/prototype-asset-contracts@0.1.0-r9`。该包只依赖内部 `@matrix-oasis/runtime-pack-contracts@0.1.0-r3`，并复用 lockfile 中已有的 Ajv `8.20.0`（MIT）与 jsonc-parser `3.3.1`（MIT）；其传递依赖版本与上表一致。本批没有新增 registry tarball、平台二进制、install script 或许可证例外。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；
