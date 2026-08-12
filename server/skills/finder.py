@@ -7,13 +7,14 @@ import re
 import unicodedata
 from functools import cmp_to_key
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 
 RUNTIME_INDEX_VERSION = 2
 RANKER_VERSION = "skill-need-local-v3"
 MAX_QUERY_LENGTH = 500
 MAX_RESULTS = 6
+MAX_RECALL_RESULTS = 24
 
 
 class SkillFinderError(RuntimeError):
@@ -217,6 +218,118 @@ def _extract_query(need: str) -> dict[str, Any]:
         "terms": [term for term in terms if len(term) >= 2][:256],
         "active_intents": active_intents,
     }
+
+
+def rank_skill_candidates(
+    need: str,
+    candidates: Iterable[dict[str, Any]],
+    *,
+    limit: int = MAX_RESULTS,
+    max_results: int = MAX_RECALL_RESULTS,
+    score_boost: Callable[[dict[str, Any]], float] | None = None,
+) -> list[dict[str, Any]]:
+    """Apply the versioned lexical/IDF contract without changing candidate policy."""
+    query = _extract_query(need)
+    safe_limit = max(1, min(int(limit), int(max_results)))
+    if not query["normalized"] or not query["terms"]:
+        return []
+    prepared: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if candidate.get("deprecated"):
+            continue
+        fields = []
+        for field_type, label, weight, keys in FIELD_DETAILS:
+            searchable = _normalize(" ".join(_field_values(candidate, keys)))
+            fields.append((field_type, label, weight, searchable))
+        prepared.append(
+            {
+                "candidate": candidate,
+                "fields": fields,
+                "text": _normalize(" ".join(field[3] for field in fields)),
+            }
+        )
+    idf: dict[str, float] = {}
+    for term in query["terms"]:
+        count = sum(term in item["text"] for item in prepared)
+        idf[term] = math.log((len(prepared) + 1) / (count + 1)) + 1
+
+    matches: list[dict[str, Any]] = []
+    for item in prepared:
+        if any(
+            intent.get("required_any")
+            and not any(_normalize(term) in item["text"] for term in intent["required_any"])
+            for intent in query["active_intents"]
+        ):
+            continue
+        score = 0.0
+        reasons: list[dict[str, Any]] = []
+        for field_type, label, weight, searchable in item["fields"]:
+            if not searchable:
+                continue
+            matched = sorted(
+                {term for term in query["terms"] if term in searchable},
+                key=lambda term: (term not in query["direct"], -len(term), term),
+            )[:5]
+            if not matched:
+                continue
+            field_score = sum(
+                idf.get(term, 1.0)
+                * (1.25 if term in query["direct"] else 0.7)
+                * (1 + min(len(term), 10) / 20)
+                for term in matched
+            )
+            score += weight * field_score
+            if len(query["normalized"]) >= 3 and query["normalized"] in searchable:
+                score += weight * 1.5
+            direct = any(term in query["direct"] for term in matched)
+            reasons.append(
+                {
+                    "type": field_type,
+                    "label": f"{label}{'直接匹配' if direct else '关联匹配'}",
+                    "origin": "direct" if direct else "expanded",
+                    "matchedTerms": matched[:4],
+                }
+            )
+        if score < 6 or not reasons:
+            continue
+        candidate = item["candidate"]
+        matches.append(
+            {
+                "candidate": candidate,
+                "score": round(score, 2),
+                "scoreBoost": float(score_boost(candidate)) if score_boost else 0.0,
+                "reasons": sorted(
+                    reasons,
+                    key=lambda reason: (
+                        reason["origin"] != "direct",
+                        next(
+                            index
+                            for index, detail in enumerate(FIELD_DETAILS)
+                            if detail[0] == reason["type"]
+                        ),
+                    ),
+                ),
+            }
+        )
+
+    def compare_matches(left: dict[str, Any], right: dict[str, Any]) -> int:
+        adjusted_left = float(left["score"]) + float(left["scoreBoost"])
+        adjusted_right = float(right["score"]) + float(right["scoreBoost"])
+        if adjusted_left != adjusted_right:
+            return -1 if adjusted_left > adjusted_right else 1
+        left_candidate = left["candidate"]
+        right_candidate = right["candidate"]
+        order_difference = int(left_candidate.get("stableNameOrder") or 0) - int(
+            right_candidate.get("stableNameOrder") or 0
+        )
+        if order_difference:
+            return order_difference
+        left_id = str(left_candidate.get("candidateId") or left_candidate.get("id") or "")
+        right_id = str(right_candidate.get("candidateId") or right_candidate.get("id") or "")
+        return (left_id > right_id) - (left_id < right_id)
+
+    matches.sort(key=cmp_to_key(compare_matches))
+    return matches[:safe_limit]
 
 
 class SkillFinder:
@@ -439,17 +552,16 @@ class SkillFinder:
             "installedSourceRef": installed_skill.source_ref if installed_skill else None,
         }
 
-    def find(
+    def _find(
         self,
         need: str,
         *,
         limit: int = MAX_RESULTS,
+        max_results: int = MAX_RESULTS,
         active_skill_ids: Iterable[str] = (),
         router_eligible_only: bool = False,
     ) -> dict[str, Any]:
-        query = _extract_query(need)
-        safe_limit = max(1, min(int(limit), MAX_RESULTS))
-        if not query["normalized"] or not query["terms"]:
+        if not _extract_query(need)["terms"]:
             return {
                 "version": RUNTIME_INDEX_VERSION,
                 "rankerVersion": RANKER_VERSION,
@@ -485,66 +597,10 @@ class SkillFinder:
                     )
                 )
             ]
-        prepared: list[dict[str, Any]] = []
-        for candidate in candidates:
-            fields = []
-            for field_type, label, weight, keys in FIELD_DETAILS:
-                searchable = _normalize(" ".join(_field_values(candidate, keys)))
-                fields.append((field_type, label, weight, searchable))
-            prepared.append(
-                {
-                    "candidate": candidate,
-                    "fields": fields,
-                    "text": _normalize(" ".join(field[3] for field in fields)),
-                }
-            )
-        idf: dict[str, float] = {}
-        for term in query["terms"]:
-            count = sum(term in item["text"] for item in prepared)
-            idf[term] = math.log((len(prepared) + 1) / (count + 1)) + 1
-
         active = {str(skill_id) for skill_id in active_skill_ids}
         _, installed_by_source = self._installed_candidates()
-        matches: list[dict[str, Any]] = []
-        for item in prepared:
-            if any(
-                intent.get("required_any")
-                and not any(_normalize(term) in item["text"] for term in intent["required_any"])
-                for intent in query["active_intents"]
-            ):
-                continue
-            score = 0.0
-            reasons: list[dict[str, Any]] = []
-            for field_type, label, weight, searchable in item["fields"]:
-                if not searchable:
-                    continue
-                matched = sorted(
-                    {term for term in query["terms"] if term in searchable},
-                    key=lambda term: (term not in query["direct"], -len(term), term),
-                )[:5]
-                if not matched:
-                    continue
-                field_score = sum(
-                    idf.get(term, 1.0)
-                    * (1.25 if term in query["direct"] else 0.7)
-                    * (1 + min(len(term), 10) / 20)
-                    for term in matched
-                )
-                score += weight * field_score
-                if len(query["normalized"]) >= 3 and query["normalized"] in searchable:
-                    score += weight * 1.5
-                direct = any(term in query["direct"] for term in matched)
-                reasons.append(
-                    {
-                        "type": field_type,
-                        "label": f"{label}{'直接匹配' if direct else '关联匹配'}",
-                        "origin": "direct" if direct else "expanded",
-                        "matchedTerms": matched[:4],
-                    }
-                )
-            if score < 6 or not reasons:
-                continue
-            candidate = item["candidate"]
+        statuses: dict[str, tuple[str, Any]] = {}
+        for candidate in candidates:
             installed_skill = None
             availability = "missing"
             if candidate["sourceType"] == "installed":
@@ -569,6 +625,21 @@ class SkillFinder:
                         availability = "installed"
                     else:
                         availability = "stale"
+            statuses[candidate["candidateId"]] = (availability, installed_skill)
+        availability_boost = {"active": 0.5, "installed": 0.4, "stale": 0.2, "missing": 0.0}
+        ranked = rank_skill_candidates(
+            need,
+            candidates,
+            limit=limit,
+            max_results=max_results,
+            score_boost=lambda candidate: availability_boost.get(
+                statuses[candidate["candidateId"]][0], 0.0
+            ),
+        )
+        matches: list[dict[str, Any]] = []
+        for match in ranked:
+            candidate = match["candidate"]
+            availability, installed_skill = statuses[candidate["candidateId"]]
             matches.append(
                 {
                     "candidateId": candidate["candidateId"],
@@ -584,57 +655,61 @@ class SkillFinder:
                     "installedSkillId": installed_skill.skill_id if installed_skill else None,
                     "installedSourceRef": installed_skill.source_ref if installed_skill else None,
                     "availability": availability,
-                    "score": round(score, 2),
-                    "reasons": sorted(
-                        reasons,
-                        key=lambda reason: (
-                            reason["origin"] != "direct",
-                            next(
-                                index
-                                for index, detail in enumerate(FIELD_DETAILS)
-                                if detail[0] == reason["type"]
-                            ),
-                        ),
-                    ),
-                    "stableNameOrder": candidate.get("stableNameOrder", 0),
+                    "score": match["score"],
+                    "reasons": match["reasons"],
                 }
             )
-        availability_boost = {"active": 0.5, "installed": 0.4, "stale": 0.2, "missing": 0.0}
-
-        def compare_matches(left: dict[str, Any], right: dict[str, Any]) -> int:
-            adjusted_left = float(left["score"]) + availability_boost.get(
-                left["availability"], 0.0
-            )
-            adjusted_right = float(right["score"]) + availability_boost.get(
-                right["availability"], 0.0
-            )
-            if adjusted_left != adjusted_right:
-                return -1 if adjusted_left > adjusted_right else 1
-            order_difference = int(left["stableNameOrder"]) - int(
-                right["stableNameOrder"]
-            )
-            if order_difference:
-                return order_difference
-            return (left["candidateId"] > right["candidateId"]) - (
-                left["candidateId"] < right["candidateId"]
-            )
-
-        matches.sort(key=cmp_to_key(compare_matches))
-        for match in matches:
-            match.pop("stableNameOrder", None)
         return {
             "version": RUNTIME_INDEX_VERSION,
             "rankerVersion": RANKER_VERSION,
             "catalogFingerprint": self.fingerprint,
             "trustCatalogFingerprint": self._load_index()["catalogFingerprint"],
-            "results": matches[:safe_limit],
+            "results": matches,
         }
+
+    def find(
+        self,
+        need: str,
+        *,
+        limit: int = MAX_RESULTS,
+        active_skill_ids: Iterable[str] = (),
+        router_eligible_only: bool = False,
+    ) -> dict[str, Any]:
+        """Return the stable public result window used by existing callers."""
+
+        return self._find(
+            need,
+            limit=limit,
+            max_results=MAX_RESULTS,
+            active_skill_ids=active_skill_ids,
+            router_eligible_only=router_eligible_only,
+        )
+
+    def recall(
+        self,
+        need: str,
+        *,
+        limit: int = MAX_RECALL_RESULTS,
+        active_skill_ids: Iterable[str] = (),
+        router_eligible_only: bool = False,
+    ) -> dict[str, Any]:
+        """Return the bounded 24-candidate window reserved for reranking."""
+
+        return self._find(
+            need,
+            limit=limit,
+            max_results=MAX_RECALL_RESULTS,
+            active_skill_ids=active_skill_ids,
+            router_eligible_only=router_eligible_only,
+        )
 
 
 __all__ = [
     "MAX_RESULTS",
+    "MAX_RECALL_RESULTS",
     "RANKER_VERSION",
     "SkillFinder",
     "SkillFinderError",
     "SkillRuntimeIndexError",
+    "rank_skill_candidates",
 ]

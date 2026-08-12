@@ -46,6 +46,9 @@ const SkillLocalImportIndexPage = lazy(
 const SkillLocalImportDetailPage = lazy(
   () => import("./pages/SkillLocalImportDetailPage"),
 );
+const SkillRerankGovernancePage = lazy(
+  () => import("./pages/SkillRerankGovernancePage"),
+);
 
 function CodingPageFallback() {
   return (
@@ -133,6 +136,14 @@ export default function App() {
           </Suspense>
         }
         path="/skills/import/:importId"
+      />
+      <Route
+        element={
+          <Suspense fallback={<CodingPageFallback />}>
+            <SkillRerankGovernancePage />
+          </Suspense>
+        }
+        path="/skills/rerank"
       />
       <Route element={<RuntimeOpsPage />} path="/runtime" />
       <Route element={<PromptProfilesPage />} path="/prompts" />

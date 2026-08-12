@@ -397,7 +397,7 @@ export function findSkillsForNeed<T extends SkillNeedCandidate>(
 ): SkillNeedMatch<T>[] {
   const query = extractQueryTerms(need.trim());
   if (!query.normalizedQuery || query.terms.length === 0) return [];
-  const safeLimit = Math.max(1, Math.min(12, Math.floor(limit)));
+  const safeLimit = Math.max(1, Math.min(24, Math.floor(limit)));
   const prepared = candidates.map(prepareCandidate);
   const idf = inverseDocumentFrequencies(prepared, query.terms);
   return prepared

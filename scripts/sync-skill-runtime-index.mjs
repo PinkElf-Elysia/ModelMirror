@@ -1,9 +1,17 @@
 import { build } from "../client/node_modules/esbuild/lib/main.js";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import {
+  buildSkillSearchClientSummary,
+  buildSkillSearchIndex,
+} from "./skill-search-index.mjs";
 import { buildSkillRuntimeIndex } from "./skill-runtime-index.mjs";
 
 const OUTPUT_PATH = resolve("server/skills/data/skill_runtime_index.json");
+const SEARCH_OUTPUT_PATH = resolve("server/skills/data/skill_search_index.json");
+const CLIENT_SUMMARY_PATH = resolve(
+  "client/src/data/skillSearchIndex.generated.json",
+);
 
 async function loadNeedCandidates() {
   const entry = `
@@ -42,12 +50,52 @@ async function main() {
     await readFile("server/skills/data/skill_trust_index.json", "utf8"),
   );
   const index = buildSkillRuntimeIndex({ ...source, trustIndex });
-  await mkdir(dirname(OUTPUT_PATH), { recursive: true });
-  const temporaryPath = `${OUTPUT_PATH}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(index)}\n`, "utf8");
-  await rename(temporaryPath, OUTPUT_PATH);
+  const searchIndex = buildSkillSearchIndex({
+    ...source,
+    runtimeIndex: index,
+    trustIndex,
+  });
+  const clientSummary = buildSkillSearchClientSummary(searchIndex);
+  const entries = [
+    [OUTPUT_PATH, `${JSON.stringify(index)}\n`],
+    [SEARCH_OUTPUT_PATH, `${JSON.stringify(searchIndex)}\n`],
+    [CLIENT_SUMMARY_PATH, `${JSON.stringify(clientSummary)}\n`],
+  ];
+  const previous = new Map();
+  const replaced = [];
+  try {
+    for (const [targetPath, contents] of entries) {
+      await mkdir(dirname(targetPath), { recursive: true });
+      try {
+        previous.set(targetPath, await readFile(targetPath));
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+        previous.set(targetPath, null);
+      }
+      await writeFile(`${targetPath}.tmp`, contents, "utf8");
+    }
+    for (const [targetPath] of entries) {
+      await rename(`${targetPath}.tmp`, targetPath);
+      replaced.push(targetPath);
+    }
+  } catch (error) {
+    for (const targetPath of replaced.reverse()) {
+      const contents = previous.get(targetPath);
+      if (contents === null) {
+        await rm(targetPath, { force: true });
+      } else {
+        await writeFile(`${targetPath}.rollback`, contents);
+        await rename(`${targetPath}.rollback`, targetPath);
+      }
+    }
+    for (const [targetPath] of entries) {
+      await rm(`${targetPath}.tmp`, { force: true });
+      await rm(`${targetPath}.rollback`, { force: true });
+    }
+    throw error;
+  }
   console.log(
-    `Skill runtime index published: ${index.candidates.length} candidates, fingerprint ${index.fingerprint}`,
+    `Skill indexes published: ${index.candidates.length} runtime / ${searchIndex.candidates.length} search candidates, fingerprint ${searchIndex.fingerprint}`,
   );
 }
 

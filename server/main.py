@@ -171,6 +171,7 @@ try:
     from server.skills.api import (
         get_skill_draft_store,
         get_skill_manager,
+        get_skill_semantic_rerank_service,
         router as skills_router,
     )
     from server.skills.local_import_api import router as skill_local_import_router
@@ -235,7 +236,12 @@ try:
         SkillCreatorSessionStore,
     )
 except ModuleNotFoundError:
-    from skills.api import get_skill_draft_store, get_skill_manager, router as skills_router
+    from skills.api import (
+        get_skill_draft_store,
+        get_skill_manager,
+        get_skill_semantic_rerank_service,
+        router as skills_router,
+    )
     from skills.local_import_api import router as skill_local_import_router
     from skills.creator_api import (
         configure_skill_creator,
@@ -1193,6 +1199,7 @@ workflow_sandbox_provider = SandboxToolsetProvider(
     sandbox_workspace_store,
     sandbox_sidecar_client,
     skill_manager=get_skill_manager(),
+    semantic_rerank_service=get_skill_semantic_rerank_service(),
     context_store=xpert_context_store,
 )
 skill_evaluation_store = SkillEvaluationStore(
