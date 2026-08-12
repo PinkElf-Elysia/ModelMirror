@@ -47,6 +47,8 @@ def test_v14_sidecar_is_non_root_and_has_no_host_control_mounts() -> None:
     assert "coding-worker-network" in compose
     assert 'command: ["python", "-m", "coding_worker.egress_proxy"]' in compose
     assert "CODING_WORKER_EGRESS_GRANT_KEY: ${CODING_WORKER_EGRESS_GRANT_KEY:-}" in compose
+    assert "'action':'health','payload':{}" in compose
+    assert "'task_id':'healthcheck'" not in compose
 
 
 def test_v15_claude_provider_has_a_pinned_private_image_and_secret_only_mount() -> None:
