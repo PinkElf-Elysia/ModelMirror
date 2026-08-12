@@ -50,6 +50,9 @@ SKILL_TOOL_NAMES = {
     "skill_enable",
     "skill_install",
 }
+SKILL_STAGE_MAX_FILES = 500
+SKILL_STAGE_MAX_FILE_BYTES = 10 * 1024 * 1024
+SKILL_STAGE_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 
 
 class SandboxToolsetProvider:
@@ -624,9 +627,37 @@ class SandboxToolsetProvider:
                     if installed_skill_id
                     else None
                 )
-                if installed_item is not None and str(
+                source_kind = str(
                     getattr(installed_item, "source_kind", "git")
-                ) != "git":
+                ) if installed_item is not None else "git"
+                if installed_item is not None and source_kind == "local_import":
+                    try:
+                        resolver = getattr(
+                            self.skill_manager, "trust_activation_decision", None
+                        )
+                        if not callable(resolver):
+                            raise RuntimeToolError(
+                                call.tool_name,
+                                "Local Skill trust receipt is unavailable.",
+                                code="skill_trust_receipt_missing",
+                            )
+                        decision = resolver(
+                            installed_skill_id,
+                            runtime_environment=self._trust_environment(call),
+                        ).to_dict()
+                    except RuntimeToolError:
+                        raise
+                    except Exception as exc:
+                        code = str(
+                            getattr(exc, "code", "")
+                            or "skill_trust_receipt_missing"
+                        )
+                        raise RuntimeToolError(
+                            call.tool_name,
+                            str(exc),
+                            code=code,
+                        ) from exc
+                elif installed_item is not None and source_kind != "git":
                     decision = {
                         "mode": getattr(self.trust_service, "mode", "off"),
                         "allowed": True,
@@ -808,18 +839,69 @@ class SandboxToolsetProvider:
         self._require_enabled_skill(call, skill_id)
         root = self.skill_manager.get_skill_directory(skill_id)
         operation_base = self._operation_id(call)
-        files: list[str] = []
+        package_files: list[tuple[Path, Path, bytes]] = []
         total = 0
         for path in sorted(root.rglob("*")):
-            if path.is_symlink() or not path.is_file() or ".git" in path.parts:
+            if path.is_symlink():
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill package contains an unsafe link.",
+                    code="skill_runtime_incompatible",
+                )
+            if not path.is_file() or ".git" in path.parts:
                 continue
             relative = path.relative_to(root)
             content = path.read_bytes()
-            if len(content) > 2 * 1024 * 1024:
-                raise RuntimeToolError(call.tool_name, "Skill contains a file larger than 2 MB.", code="skill_file_too_large")
+            if len(content) > SKILL_STAGE_MAX_FILE_BYTES:
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill contains a file larger than 10 MiB.",
+                    code="skill_runtime_incompatible",
+                )
             total += len(content)
-            if total > 10 * 1024 * 1024 or len(files) >= 200:
-                raise RuntimeToolError(call.tool_name, "Skill package exceeds the staging limit.", code="skill_package_too_large")
+            package_files.append((path, relative, content))
+            if (
+                total > SKILL_STAGE_MAX_TOTAL_BYTES
+                or len(package_files) > SKILL_STAGE_MAX_FILES
+            ):
+                raise RuntimeToolError(
+                    call.tool_name,
+                    "Skill package exceeds the 500-file or 50 MiB staging limit.",
+                    code="skill_runtime_incompatible",
+                )
+        workspace_root = (self.store.workspace_root / workspace.workspace_id).resolve()
+        store_root = self.store.workspace_root.resolve()
+        if workspace_root.parent != store_root:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Sandbox workspace path is invalid.",
+                code="skill_runtime_incompatible",
+            )
+        current_usage = 0
+        replaced_usage = 0
+        target_prefix = workspace_root / "skills" / skill_id
+        if workspace_root.exists():
+            for existing in workspace_root.rglob("*"):
+                if existing.is_symlink():
+                    continue
+                if existing.is_file():
+                    size = existing.stat().st_size
+                    current_usage += size
+                    try:
+                        existing.relative_to(target_prefix)
+                    except ValueError:
+                        pass
+                    else:
+                        replaced_usage += size
+        projected_usage = current_usage - replaced_usage + total
+        if projected_usage > workspace.quota_bytes:
+            raise RuntimeToolError(
+                call.tool_name,
+                "Sandbox quota is insufficient to stage this Skill package.",
+                code="skill_runtime_incompatible",
+            )
+        files: list[str] = []
+        for _source, relative, content in package_files:
             destination = f"skills/{skill_id}/{relative.as_posix()}"
             await self.client.request(
                 {
@@ -977,11 +1059,14 @@ class SandboxToolsetProvider:
                 require_router_eligible=True,
                 environment=self._trust_environment(call),
             )
-        except SkillTrustError as exc:
+        except Exception as exc:
+            code = str(
+                getattr(exc, "code", "") or "skill_trust_receipt_missing"
+            )
             raise RuntimeToolError(
                 call.tool_name,
                 str(exc),
-                code=exc.code,
+                code=code,
             ) from exc
         return decision.to_dict()
 

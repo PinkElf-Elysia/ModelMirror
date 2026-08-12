@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import os
@@ -16,12 +17,31 @@ from typing import Any, Literal, Mapping
 from urllib.parse import urlparse
 
 from .draft_store import SkillDraftValidationError, WorkspaceSkillDraftStore
+from .local_import import LocalSkillImport, SkillLocalImportError, SkillLocalImportStore
 from .package_validation import compute_package_digest
 from .trust_service import (
     SkillRuntimeEnvironment,
     SkillTrustError,
     SkillTrustService,
 )
+
+
+_REPLACE_DIFF_FILE_CHARS = 8 * 1024
+_REPLACE_DIFF_TOTAL_CHARS = 128 * 1024
+_REPLACE_CHANGE_LIMIT = 500
+_PASSIVE_BINARY_SUFFIXES = {
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".mp3",
+    ".mp4",
+    ".pdf",
+    ".png",
+    ".wav",
+    ".webp",
+    ".woff",
+    ".woff2",
+}
 
 
 class SkillManagerError(Exception):
@@ -74,6 +94,7 @@ class InstalledSkill:
     trust_status: str | None = None
     trust_install_policy: str | None = None
     trust_compatibility_status: str | None = None
+    trust_router_eligible: bool = False
     trust_package_digest: str | None = None
     trust_directory_tree_sha: str | None = None
     trust_verified_at: float | None = None
@@ -101,6 +122,7 @@ class SkillInstallReceipt:
     installed_metadata: dict[str, object]
     created_at: float
     previous_content_digest: str | None = None
+    source_kind: Literal["workspace_draft", "local_import"] = "workspace_draft"
 
 
 class SkillManager:
@@ -119,6 +141,7 @@ class SkillManager:
         allow_local_repos: bool = False,
         git_timeout_seconds: int = 30,
         trust_service: SkillTrustService | None = None,
+        local_import_store: SkillLocalImportStore | None = None,
     ) -> None:
         package_dir = Path(__file__).resolve().parent
         self.installed_dir = Path(
@@ -133,6 +156,7 @@ class SkillManager:
         self.git_timeout_seconds = git_timeout_seconds
         self.metadata_path = self.installed_dir / "installed.json"
         self.trust_service = trust_service or SkillTrustService()
+        self.local_import_store = local_import_store
         self._lock = threading.RLock()
         self._trust_reconciled = False
 
@@ -439,6 +463,439 @@ class SkillManager:
                     raise SkillInstallError("Workspace Skill metadata was not created.")
                 return metadata
 
+    def install_local_import(
+        self,
+        *,
+        record: LocalSkillImport,
+        package_dir: Path,
+        confirmed: bool = False,
+        expected_installed_digest: str | None = None,
+    ) -> InstalledSkill:
+        """Install or explicitly replace one immutable local import package."""
+
+        if (
+            not record.local_skill_id
+            or not record.package_digest
+            or not record.trust_receipt
+        ):
+            raise SkillValidationError(
+                "Local Skill import is incomplete.", code="skill_import_stale"
+            )
+        skill_id = self._validate_skill_id(record.local_skill_id)
+        expected_previous = (
+            str(expected_installed_digest or "").strip().casefold() or None
+        )
+        if expected_previous is not None and not re.fullmatch(
+            r"[a-f0-9]{64}", expected_previous
+        ):
+            raise SkillValidationError(
+                "Expected installed digest is invalid.",
+                code="skill_import_package_mismatch",
+            )
+        try:
+            local_receipt = self.trust_service.validate_local_receipt(
+                record.trust_receipt,
+                import_id=record.import_id,
+                import_revision=record.content_revision,
+                package_digest=record.package_digest,
+            )
+            self.trust_service.local_import_decision(
+                local_receipt,
+                skill_id=skill_id,
+                import_id=record.import_id,
+                import_revision=record.content_revision,
+                package_digest=record.package_digest,
+                ephemeral_trust_fingerprint=(
+                    record.trust_fingerprint if confirmed else None
+                ),
+                environment=None,
+            )
+        except SkillTrustError as exc:
+            raise SkillValidationError(
+                str(exc), code=exc.code, details=exc.details
+            ) from exc
+        actual_source_digest = self.trust_service.compute_directory_digest(
+            package_dir
+        )
+        if actual_source_digest != record.package_digest:
+            raise SkillValidationError(
+                "Local Skill package no longer matches its import receipt.",
+                code="skill_import_package_mismatch",
+            )
+        trust_metadata = self.trust_service.receipt_metadata(
+            local_receipt, verified_at=time.time()
+        )
+
+        with self._lock:
+            self._ensure_dirs()
+            installed = self._read_metadata()
+            self._recover_install_receipt(
+                skill_id,
+                source_kind="local_import",
+                source_id=record.import_id,
+            )
+            installed = self._read_metadata()
+            target_dir = self._safe_skill_dir(skill_id)
+            previous_record = installed.get(skill_id)
+            previous_metadata = (
+                self._installed_skill_from_record(previous_record)
+                if previous_record is not None
+                else None
+            )
+            previous_content_digest = ""
+            if target_dir.exists() and previous_record is None:
+                raise SkillInstallError(
+                    "Local Skill target exists without installed metadata."
+                )
+            if previous_metadata is not None:
+                if previous_metadata.source_kind != "local_import":
+                    raise SkillValidationError(
+                        "A local import cannot replace a Skill from another source.",
+                        code="skill_import_replace_required",
+                    )
+                try:
+                    current_package_dir = self._resolve_package_directory(
+                        skill_id, previous_record or {}
+                    )
+                    previous_content_digest = self._directory_content_digest(
+                        current_package_dir
+                    )
+                except SkillNotFoundError:
+                    previous_content_digest = ""
+                if (
+                    previous_content_digest != previous_metadata.content_digest
+                    or not previous_content_digest
+                ):
+                    raise SkillValidationError(
+                        "Installed local Skill bytes no longer match metadata.",
+                        code="skill_import_package_mismatch",
+                    )
+                if previous_content_digest == record.package_digest:
+                    metadata = self._parse_skill_metadata(
+                        skill_id,
+                        f"local-import://{record.import_id}",
+                        "",
+                        current_package_dir / "SKILL.md",
+                        source_kind="local_import",
+                        source_id=record.import_id,
+                        source_revision=record.content_revision,
+                        content_digest=record.package_digest,
+                        trust_metadata=trust_metadata,
+                    )
+                    installed[skill_id] = asdict(metadata)
+                    self._write_metadata(installed)
+                    return metadata
+                if expected_previous is None:
+                    raise SkillValidationError(
+                        "Installing this import would replace a different local package.",
+                        code="skill_import_replace_required",
+                        details={
+                            "skillId": skill_id,
+                            "installedDigest": previous_content_digest,
+                            "newDigest": record.package_digest,
+                        },
+                    )
+                if expected_previous != previous_content_digest:
+                    raise SkillValidationError(
+                        "Installed local Skill changed. Reload before replacing it.",
+                        code="skill_import_package_mismatch",
+                    )
+            elif expected_previous is not None:
+                raise SkillValidationError(
+                    "The local Skill to replace is no longer installed.",
+                    code="skill_import_package_mismatch",
+                )
+
+            transaction_id = uuid.uuid4().hex
+            staging_dir = self.installed_dir / f".{skill_id}.staging-{transaction_id}"
+            backup_dir = self.installed_dir / f".{skill_id}.backup-{transaction_id}"
+            metadata: InstalledSkill | None = None
+            receipt: SkillInstallReceipt | None = None
+            swapped = False
+            metadata_write_attempted = False
+            try:
+                shutil.copytree(package_dir, staging_dir, symlinks=True)
+                if self.trust_service.compute_directory_digest(staging_dir) != record.package_digest:
+                    raise SkillValidationError(
+                        "Local Skill package changed while it was being installed.",
+                        code="skill_import_package_mismatch",
+                    )
+                metadata = self._parse_skill_metadata(
+                    skill_id,
+                    f"local-import://{record.import_id}",
+                    "",
+                    staging_dir / "SKILL.md",
+                    source_kind="local_import",
+                    source_id=record.import_id,
+                    source_revision=record.content_revision,
+                    content_digest=record.package_digest,
+                    trust_metadata=trust_metadata,
+                )
+                receipt = SkillInstallReceipt(
+                    version=1,
+                    transaction_id=transaction_id,
+                    phase="prepared",
+                    skill_id=skill_id,
+                    source_id=record.import_id,
+                    source_revision=record.content_revision,
+                    content_digest=record.package_digest,
+                    package_subpath="",
+                    staging_name=staging_dir.name,
+                    backup_name=backup_dir.name,
+                    previous_metadata=(
+                        dict(previous_record) if previous_record is not None else None
+                    ),
+                    installed_metadata=asdict(metadata),
+                    created_at=time.time(),
+                    previous_content_digest=previous_content_digest or None,
+                    source_kind="local_import",
+                )
+                self._write_install_receipt(receipt)
+                if target_dir.exists():
+                    target_dir.rename(backup_dir)
+                staging_dir.rename(target_dir)
+                swapped = True
+                self._write_install_receipt(replace(receipt, phase="swapped"))
+                installed[skill_id] = asdict(metadata)
+                metadata_write_attempted = True
+                self._write_metadata(installed)
+                self._write_install_receipt(replace(receipt, phase="committed"))
+            except Exception:
+                rollback_error: Exception | None = None
+                try:
+                    if backup_dir.exists():
+                        self._remove_directory_if_present(target_dir)
+                        backup_dir.rename(target_dir)
+                    elif (swapped or previous_record is None) and target_dir.exists():
+                        self._remove_directory_if_present(target_dir)
+                    if metadata_write_attempted:
+                        restored = self._read_metadata()
+                        if previous_record is None:
+                            restored.pop(skill_id, None)
+                        else:
+                            restored[skill_id] = dict(previous_record)
+                        self._write_metadata(restored)
+                    self._remove_directory_if_present(staging_dir)
+                    self._remove_directory_if_present(backup_dir)
+                    self._receipt_path(skill_id).unlink(missing_ok=True)
+                except Exception as exc:
+                    rollback_error = exc
+                if rollback_error is not None:
+                    raise SkillInstallError(
+                        "Local Skill installation failed and rollback is incomplete; "
+                        "retry the same installation to recover."
+                    ) from rollback_error
+                raise
+            else:
+                try:
+                    self._remove_directory_if_present(backup_dir)
+                    self._remove_directory_if_present(staging_dir)
+                    self._receipt_path(skill_id).unlink(missing_ok=True)
+                except Exception as exc:
+                    raise SkillInstallError(
+                        "Local Skill was installed, but transaction cleanup is incomplete; "
+                        "retry the same installation to recover."
+                    ) from exc
+                if metadata is None:
+                    raise SkillInstallError("Local Skill metadata was not created.")
+                return metadata
+
+    def install_local_import_current(
+        self,
+        import_id: str,
+        *,
+        expected_revision: int,
+        expected_package_digest: str,
+        expected_trust_fingerprint: str,
+        confirmed: bool = False,
+        expected_installed_digest: str | None = None,
+    ) -> tuple[LocalSkillImport, InstalledSkill]:
+        """Install a frozen import while preserving a single lock order.
+
+        Runtime activation acquires the manager lock before consulting the
+        import Store. Installation must use the same manager-to-Store order so
+        concurrent activation, rescan, and replacement cannot deadlock.
+        """
+
+        if self.local_import_store is None:
+            raise SkillValidationError(
+                "Local Skill import storage is unavailable.",
+                code="skill_import_storage_unavailable",
+            )
+        with self._lock:
+            return self.local_import_store.install_current(
+                import_id,
+                expected_revision=expected_revision,
+                expected_package_digest=expected_package_digest,
+                expected_trust_fingerprint=expected_trust_fingerprint,
+                installer=lambda frozen, package_dir: self.install_local_import(
+                    record=frozen,
+                    package_dir=package_dir,
+                    confirmed=confirmed,
+                    expected_installed_digest=expected_installed_digest,
+                ),
+            )
+
+    def describe_local_import_replacement(
+        self,
+        *,
+        record: LocalSkillImport,
+        package_dir: Path,
+    ) -> dict[str, Any] | None:
+        """Return a bounded, read-only replacement preview for the console."""
+
+        if not record.local_skill_id or not record.package_digest:
+            return None
+        skill_id = self._validate_skill_id(record.local_skill_id)
+        if (
+            self.trust_service.compute_directory_digest(package_dir)
+            != record.package_digest
+        ):
+            raise SkillValidationError(
+                "Local Skill package no longer matches its import receipt.",
+                code="skill_import_package_mismatch",
+            )
+        with self._lock:
+            installed = self._read_metadata()
+            previous_record = installed.get(skill_id)
+            if previous_record is None:
+                return None
+            previous = self._installed_skill_from_record(previous_record)
+            base = {
+                "skillId": skill_id,
+                "sourceKind": previous.source_kind,
+                "installedDigest": previous.content_digest,
+                "newDigest": record.package_digest,
+            }
+            if previous.source_kind != "local_import":
+                return {
+                    **base,
+                    "required": False,
+                    "allowed": False,
+                    "errorCode": "skill_import_replace_required",
+                    "changes": [],
+                    "changesTruncated": False,
+                    "diffTruncated": False,
+                }
+            try:
+                previous_dir = self._resolve_package_directory(
+                    skill_id, previous_record
+                )
+                actual_previous_digest = self._directory_content_digest(previous_dir)
+            except SkillManagerError:
+                return {
+                    **base,
+                    "required": True,
+                    "allowed": False,
+                    "errorCode": "skill_import_package_mismatch",
+                    "changes": [],
+                    "changesTruncated": False,
+                    "diffTruncated": False,
+                }
+            if actual_previous_digest != previous.content_digest:
+                return {
+                    **base,
+                    "required": True,
+                    "allowed": False,
+                    "errorCode": "skill_import_package_mismatch",
+                    "changes": [],
+                    "changesTruncated": False,
+                    "diffTruncated": False,
+                }
+            old_files = self._package_bytes(previous_dir)
+            new_files = self._package_bytes(package_dir)
+            return {
+                **base,
+                "required": actual_previous_digest != record.package_digest,
+                "allowed": True,
+                "errorCode": None,
+                **self._replacement_changes(old_files, new_files),
+            }
+
+    @staticmethod
+    def _package_bytes(package_dir: Path) -> dict[str, bytes]:
+        files: dict[str, bytes] = {}
+        for path in sorted(package_dir.rglob("*")):
+            if path.is_symlink():
+                raise SkillValidationError(
+                    "Skill package contains an unsafe link.",
+                    code="skill_import_package_mismatch",
+                )
+            if path.is_file():
+                files[path.relative_to(package_dir).as_posix()] = path.read_bytes()
+        return files
+
+    @staticmethod
+    def _replacement_changes(
+        old_files: Mapping[str, bytes],
+        new_files: Mapping[str, bytes],
+    ) -> dict[str, Any]:
+        changes: list[dict[str, Any]] = []
+        diff_chars = 0
+        diff_truncated = False
+        all_paths = sorted(set(old_files) | set(new_files))
+        for path in all_paths:
+            old = old_files.get(path)
+            new = new_files.get(path)
+            if old == new:
+                continue
+            status = "added" if old is None else "removed" if new is None else "changed"
+            old_bytes = old or b""
+            new_bytes = new or b""
+            suffix = Path(path).suffix.casefold()
+            is_binary = suffix in _PASSIVE_BINARY_SUFFIXES
+            old_text: str | None = None
+            new_text: str | None = None
+            if not is_binary:
+                try:
+                    old_text = old_bytes.decode("utf-8", errors="strict")
+                    new_text = new_bytes.decode("utf-8", errors="strict")
+                except UnicodeDecodeError:
+                    is_binary = True
+            change: dict[str, Any] = {
+                "path": path,
+                "status": status,
+                "kind": "binary" if is_binary else "text",
+                "oldSizeBytes": len(old_bytes) if old is not None else None,
+                "newSizeBytes": len(new_bytes) if new is not None else None,
+                "oldSha256": hashlib.sha256(old_bytes).hexdigest()
+                if old is not None
+                else None,
+                "newSha256": hashlib.sha256(new_bytes).hexdigest()
+                if new is not None
+                else None,
+            }
+            if not is_binary and old_text is not None and new_text is not None:
+                raw_diff = "\n".join(
+                    difflib.unified_diff(
+                        old_text.splitlines(),
+                        new_text.splitlines(),
+                        fromfile=f"installed/{path}",
+                        tofile=f"import/{path}",
+                        lineterm="",
+                    )
+                )
+                remaining = max(0, _REPLACE_DIFF_TOTAL_CHARS - diff_chars)
+                allowed = min(_REPLACE_DIFF_FILE_CHARS, remaining)
+                if len(raw_diff) > allowed:
+                    diff_truncated = True
+                if allowed:
+                    change["diff"] = raw_diff[:allowed]
+                    change["diffTruncated"] = len(raw_diff) > allowed
+                    diff_chars += min(len(raw_diff), allowed)
+                else:
+                    change["diff"] = ""
+                    change["diffTruncated"] = bool(raw_diff)
+            changes.append(change)
+        changes_truncated = len(changes) > _REPLACE_CHANGE_LIMIT
+        if changes_truncated:
+            changes = changes[:_REPLACE_CHANGE_LIMIT]
+        return {
+            "changes": changes,
+            "changesTruncated": changes_truncated,
+            "diffTruncated": diff_truncated or changes_truncated,
+        }
+
     def install_plugin_skill(
         self,
         *,
@@ -611,6 +1068,51 @@ class SkillManager:
     ) -> InstalledSkill:
         """Apply the final server-side third-party activation gate."""
 
+        try:
+            normalized_skill_id = self._validate_skill_id(skill_id)
+            with self._lock:
+                installed = self._read_metadata()
+                record = installed.get(normalized_skill_id)
+                if record is None:
+                    raise SkillNotFoundError(
+                        f"Skill '{normalized_skill_id}' is not installed"
+                    )
+                if self._reconcile_skill_trust_metadata_unlocked(
+                    normalized_skill_id, record
+                ):
+                    self._write_metadata(installed)
+                item = self._installed_skill_from_record(record)
+                local_receipt = (
+                    self._resolve_local_import_receipt_unlocked(item)
+                    if item.source_kind == "local_import"
+                    and self.trust_service.mode != "off"
+                    else None
+                )
+            self.trust_service.activation_decision(
+                item,
+                environment=runtime_environment,
+                ephemeral_authorizations=ephemeral_authorizations,
+                check_runtime=check_runtime,
+                local_receipt=local_receipt,
+            )
+        except (SkillTrustError, SkillLocalImportError) as exc:
+            raise SkillValidationError(
+                str(exc),
+                code=str(getattr(exc, "code", "") or "skill_trust_receipt_missing"),
+                details=dict(getattr(exc, "details", {}) or {}),
+            ) from exc
+        return item
+
+    def trust_activation_decision(
+        self,
+        skill_id: str,
+        *,
+        runtime_environment: SkillRuntimeEnvironment | None = None,
+        ephemeral_authorizations: Mapping[str, str] | None = None,
+        check_runtime: bool = True,
+    ):
+        """Return the server-authoritative activation decision for UI projection."""
+
         normalized_skill_id = self._validate_skill_id(skill_id)
         with self._lock:
             installed = self._read_metadata()
@@ -624,17 +1126,67 @@ class SkillManager:
             ):
                 self._write_metadata(installed)
             item = self._installed_skill_from_record(record)
-        try:
-            self.trust_service.activation_decision(
-                item,
-                environment=runtime_environment,
-                ephemeral_authorizations=ephemeral_authorizations,
-                check_runtime=check_runtime,
+            local_receipt = (
+                self._resolve_local_import_receipt_unlocked(item)
+                if item.source_kind == "local_import"
+                and self.trust_service.mode != "off"
+                else None
             )
-        except SkillTrustError as exc:
-            raise SkillValidationError(
-                str(exc), code=exc.code, details=exc.details
-            ) from exc
+        return self.trust_service.activation_decision(
+            item,
+            environment=runtime_environment,
+            ephemeral_authorizations=ephemeral_authorizations,
+            check_runtime=check_runtime,
+            local_receipt=local_receipt,
+        )
+
+    def acknowledge_trust(
+        self,
+        skill_id: str,
+        *,
+        expected_trust_fingerprint: str,
+        confirmed: bool,
+    ) -> InstalledSkill:
+        """Persist one exact Git or local-import acknowledgement."""
+
+        normalized_skill_id = self._validate_skill_id(skill_id)
+        expected = str(expected_trust_fingerprint or "").casefold()
+        with self._lock:
+            installed = self._read_metadata()
+            record = installed.get(normalized_skill_id)
+            if record is None:
+                raise SkillNotFoundError(
+                    f"Skill '{normalized_skill_id}' is not installed"
+                )
+            if self._reconcile_skill_trust_metadata_unlocked(
+                normalized_skill_id, record
+            ):
+                self._write_metadata(installed)
+            item = self._installed_skill_from_record(record)
+            if (
+                item.source_kind not in {"git", "local_import"}
+                or item.trust_state != "receipt_matched"
+                or item.trust_fingerprint != expected
+            ):
+                raise SkillTrustError(
+                    "Installed Skill trust receipt changed. Reload before confirming.",
+                    code="skill_trust_candidate_stale",
+                    details={
+                        "skillId": item.skill_id,
+                        "trustFingerprint": item.trust_fingerprint,
+                    },
+                )
+            local_receipt = (
+                self._resolve_local_import_receipt_unlocked(item)
+                if item.source_kind == "local_import"
+                else None
+            )
+        self.trust_service.acknowledge(
+            skill_id=item.skill_id,
+            trust_fingerprint=expected,
+            confirmed=confirmed,
+            receipt=local_receipt,
+        )
         return item
 
     @staticmethod
@@ -726,6 +1278,7 @@ class SkillManager:
             trust_compatibility_status=_optional_string(
                 record.get("trust_compatibility_status")
             ),
+            trust_router_eligible=bool(record.get("trust_router_eligible", False)),
             trust_package_digest=_optional_string(
                 record.get("trust_package_digest")
             ),
@@ -761,23 +1314,87 @@ class SkillManager:
         record: dict[str, object],
     ) -> bool:
         item = self._installed_skill_from_record(record)
-        if item.source_kind != "git" or self.trust_service.mode == "off":
+        if self.trust_service.mode == "off":
             return False
         package_dir: Path | None
         try:
             package_dir = self._resolve_package_directory(skill_id, record)
         except SkillManagerError:
             package_dir = None
-        trust_metadata = self.trust_service.reconcile_metadata(
-            record=record,
-            package_dir=package_dir,
-        )
+        if item.source_kind == "local_import":
+            try:
+                receipt = self._resolve_local_import_receipt_unlocked(
+                    item, package_dir=package_dir
+                )
+                trust_metadata = self.trust_service.receipt_metadata(
+                    receipt, verified_at=item.trust_verified_at or time.time()
+                )
+            except (SkillLocalImportError, SkillTrustError, ValueError):
+                trust_metadata = self.trust_service.unverified_metadata()
+        elif item.source_kind == "git":
+            trust_metadata = self.trust_service.reconcile_metadata(
+                record=record,
+                package_dir=package_dir,
+            )
+        else:
+            return False
         if not any(
             record.get(key) != value for key, value in trust_metadata.items()
         ):
             return False
         record.update(trust_metadata)
         return True
+
+    def _resolve_local_import_receipt_unlocked(
+        self,
+        item: InstalledSkill,
+        *,
+        package_dir: Path | None = None,
+    ) -> dict[str, Any]:
+        if self.local_import_store is None or item.source_kind != "local_import":
+            raise SkillTrustError(
+                "Local Skill trust receipt is unavailable.",
+                code="skill_trust_receipt_missing",
+            )
+        import_id = str(item.source_id or "")
+        try:
+            record = self.local_import_store.require(import_id)
+        except SkillLocalImportError as exc:
+            raise SkillTrustError(
+                "Local Skill trust receipt is unavailable.",
+                code="skill_trust_receipt_missing",
+            ) from exc
+        if (
+            record.content_revision != item.source_revision
+            or record.package_digest != item.content_digest
+            or record.installed_skill_id != item.skill_id
+        ):
+            raise SkillTrustError(
+                "Installed local Skill no longer matches its import receipt.",
+                code="skill_trust_receipt_missing",
+            )
+        resolved_package = package_dir
+        if resolved_package is None:
+            metadata = self._read_metadata().get(item.skill_id)
+            if metadata is None:
+                raise SkillTrustError(
+                    "Installed local Skill metadata is unavailable.",
+                    code="skill_trust_receipt_missing",
+                )
+            resolved_package = self._resolve_package_directory(
+                item.skill_id, metadata
+            )
+        if self._directory_content_digest(resolved_package) != item.content_digest:
+            raise SkillTrustError(
+                "Installed local Skill bytes no longer match its import receipt.",
+                code="skill_trust_package_mismatch",
+            )
+        return self.trust_service.validate_local_receipt(
+            record.trust_receipt,
+            import_id=record.import_id,
+            import_revision=record.content_revision,
+            package_digest=record.package_digest,
+        )
 
     def _resolve_package_directory(
         self, skill_id: str, record: dict[str, object]
@@ -857,6 +1474,7 @@ class SkillManager:
             receipt.version != 1
             or receipt.skill_id != skill_id
             or receipt.phase not in {"prepared", "swapped", "committed"}
+            or receipt.source_kind not in {"workspace_draft", "local_import"}
             or not re.fullmatch(r"[a-f0-9]{32}", receipt.transaction_id)
             or not re.fullmatch(r"[a-f0-9]{64}", receipt.content_digest)
             or (
@@ -891,7 +1509,7 @@ class SkillManager:
         )
         if (
             installed_item.skill_id != receipt.skill_id
-            or installed_item.source_kind != "workspace_draft"
+            or installed_item.source_kind != receipt.source_kind
             or installed_item.source_id != receipt.source_id
             or installed_item.source_revision != receipt.source_revision
             or installed_item.content_digest != receipt.content_digest
@@ -911,12 +1529,25 @@ class SkillManager:
     def _recover_workspace_install_receipt(
         self, skill_id: str, draft_id: str
     ) -> None:
+        self._recover_install_receipt(
+            skill_id,
+            source_kind="workspace_draft",
+            source_id=draft_id,
+        )
+
+    def _recover_install_receipt(
+        self,
+        skill_id: str,
+        *,
+        source_kind: Literal["workspace_draft", "local_import"],
+        source_id: str,
+    ) -> None:
         receipt = self._read_install_receipt(skill_id)
         if receipt is None:
             return
-        if receipt.source_id != draft_id:
+        if receipt.source_kind != source_kind or receipt.source_id != source_id:
             raise SkillInstallError(
-                "Workspace Skill install receipt belongs to another draft."
+                "Skill install receipt belongs to another immutable source."
             )
         target_dir = self._safe_skill_dir(skill_id)
         staging_dir = self._transaction_dir(
@@ -1141,6 +1772,9 @@ class SkillManager:
             ),
             trust_compatibility_status=_optional_string(
                 trust_values.get("trust_compatibility_status")
+            ),
+            trust_router_eligible=bool(
+                trust_values.get("trust_router_eligible", False)
             ),
             trust_package_digest=_optional_string(
                 trust_values.get("trust_package_digest")

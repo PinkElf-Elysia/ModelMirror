@@ -113,6 +113,71 @@ def test_installed_only_skill_can_be_found_and_resolved() -> None:
     assert resolved["installSource"] is None
 
 
+def test_local_import_router_candidate_is_bound_to_trust_fingerprint() -> None:
+    eligible = InstalledSkill(
+        skill_id="local-audit",
+        name="本地审计报告",
+        description="整理本地审计记录并生成报告",
+        repo_url="local-import://skillimport_" + "a" * 32,
+        sub_path="",
+        installed_at=1_700_000_000.0,
+        source_kind="local_import",
+        source_id="skillimport_" + "a" * 32,
+        source_revision=1,
+        content_digest="b" * 64,
+        trust_state="receipt_matched",
+        trust_receipt_id="trust_local_" + "c" * 32,
+        trust_fingerprint="d" * 64,
+        trust_risk_level="medium",
+        trust_status="conditional",
+        trust_install_policy="confirm",
+        trust_compatibility_status="conditional",
+        trust_router_eligible=True,
+        trust_package_digest="b" * 64,
+    )
+    excluded = InstalledSkill(
+        **{
+            **eligible.__dict__,
+            "skill_id": "local-obfuscated",
+            "name": "本地混淆脚本",
+            "repo_url": "local-import://skillimport_" + "e" * 32,
+            "source_id": "skillimport_" + "e" * 32,
+            "trust_fingerprint": "f" * 64,
+            "trust_router_eligible": False,
+        }
+    )
+    finder = SkillFinder(
+        index_path=INDEX_PATH,
+        skill_manager=StubSkillManager([eligible, excluded]),
+    )
+
+    routed = finder.find("本地审计报告", router_eligible_only=True)
+    match = next(
+        item
+        for item in routed["results"]
+        if item["candidateId"] == "installed:local-audit"
+    )
+    assert match["trust"]["trustFingerprint"] == "d" * 64
+    assert match["trust"]["routerEligible"] is True
+    assert "installed:local-obfuscated" not in {
+        item["candidateId"]
+        for item in finder.find("本地混淆脚本", router_eligible_only=True)["results"]
+    }
+
+    changed = InstalledSkill(
+        **{**eligible.__dict__, "trust_fingerprint": "1" * 64}
+    )
+    changed_candidate = next(
+        item
+        for item in SkillFinder(
+            index_path=INDEX_PATH,
+            skill_manager=StubSkillManager([changed]),
+        ).candidates()
+        if item["candidateId"] == "installed:local-audit"
+    )
+    assert changed_candidate["candidateFingerprint"] != match["candidateFingerprint"]
+
+
 def test_catalog_candidate_reports_exact_stale_and_missing_install_state() -> None:
     base = SkillFinder(index_path=INDEX_PATH, skill_manager=StubSkillManager())
     candidate = base._load_index()["candidates"][0]
