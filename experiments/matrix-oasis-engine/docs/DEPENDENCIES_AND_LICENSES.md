@@ -116,6 +116,12 @@ R9.4 直接开发依赖固定为 `@gltf-transform/core@4.4.2`、`@gltf-transform
 
 `tslib@2.8.1`（0BSD）是 `@emnapi/runtime` 的 dev-only optional 传递 helper；用户于 2026-08-11 明确批准该精确包、版本、许可和作用域。此批准不把 0BSD 扩展为通用白名单，版本或作用域变化必须重新审批。
 
+## R10 环境 Pipeline
+
+R10.2新增私有`@matrix-oasis/prototype-environment-pipeline@0.1.0-r10`。它只精确依赖内部R8 Generation contracts、内部R3 Runtime contracts及lockfile已有的Ajv `8.20.0`（MIT）；没有新增registry tarball、模型SDK、HTTP库、PNG库、平台二进制或许可证例外。HTTP使用Node 24原生Fetch，PNG容器与CRC、GLB安全结构、SHA-256和canonical JSON均由Node内建能力及冻结的模块门禁完成。
+
+该workspace是模块本地Node工具，不进入Creator或Godot分发。真实World Labs服务不是代码依赖；任何计费调用、凭据注入、输出下载和远程world保留仍由当次人工审批控制。
+
 新增或升级依赖时必须：
 
 1. 记录精确版本、直接/间接用途和许可证；

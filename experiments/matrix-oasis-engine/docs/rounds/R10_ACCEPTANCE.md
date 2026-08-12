@@ -1,13 +1,13 @@
 # R10 验收记录
 
-状态：R10.1 已验证，等待本地提交。
+状态：R10.2 已验证，等待本地提交。
 
 固定基线：`09f4cca4f1e02fe275ada17535597437cac3778d`
 
 ## 批次
 
-- [x] R10.1 治理迁移（本批提交；SHA在R10.2记录）
-- [ ] R10.2 Marble环境Pipeline
+- [x] R10.1 治理迁移（`60ce32eb49949f58ea1a67ee0cf8665e4ec588f4`）
+- [x] R10.2 Marble环境Pipeline（本批提交；SHA在R10.3记录）
 - [ ] R10.3 自动组装与缓存导入
 - [ ] R10.4 本地宿主与审批状态机
 - [ ] R10.5 Creator与Godot一键预览
@@ -22,6 +22,17 @@
 - scope/boundary正反测试137/137通过；真实round/parent scope均checked=20/changed=20，boundary checked=931/tracked=926，`git diff --check`通过。
 - 首次完整verify只因未注入`GODOT_BIN`在doctor前置按预期阻断；使用R4–R9已核验的仓外Godot 4.6.3 console executable后原命令15/15通过，Node 606/606、Godot R4–R7、Creator 247 modules build与HTTP smoke全绿。
 - 本批未调用真实模型、Meshy或Marble，未读取供应商凭据，未启动父服务、Docker或共享栈。
+
+## R10.2 证据
+
+- 新增私有`@matrix-oasis/prototype-environment-pipeline@0.1.0-r10`，公开计划、Marble provider、环境物化和Bundle复验；使用不透明计划句柄，公开Bundle/report不保存prompt、operation/world ID、URL、密钥或原始响应。
+- Provider固定`marble-1.1`纯文本payload、一次create、最多180次poll、一次world get与两次下载；只使用Node 24原生Fetch，不读环境变量、不redirect、不重试，正式资产host受固定候选约束。
+- Bundle闭合绑定Scene/Blueprint/prompt SHA，固定两个相对文件；panorama检查PNG签名、chunk/CRC、2:1与尺寸上限，collider复用冻结R7 GLB安全门并记录结构/三角指标。
+- `npm.cmd run verify:prototype-environment` 6/6通过，覆盖审批前零请求、text-only payload、timeout、429/402、redirect、响应/下载超限、恶意host、180次poll上限、PNG/GLB损坏、脱敏和20次字节稳定。
+- 首次全量测试在受限沙箱中因既有R5-R9夹具无法写`C:\tmp`而失败；提升到既定一次性临时目录权限后，仅因shell未注入Godot前置出现doctor阻断。注入已核验的仓外Godot 4.6.3后，doctor 7/7且同一`npm.cmd test` 612/612通过。
+- `npm.cmd ci --offline --ignore-scripts --no-audit --no-fund`安装111个锁定包；`npm.cmd ls --all`、boundary checked=940/tracked=931、round/parent scope及`git diff --check`通过。
+- 最新14文件树执行完整`npm.cmd run verify`，15/15步骤通过：Node 612/612、Godot R4–R7全门、Creator 247 modules build与HTTP marker smoke均通过；R1–R9、Creator、Godot、examples与父仓相对本批HEAD零差异。
+- 本批无真实模型、Meshy或Marble调用，无API Key读取，无供应商费用；没有修改R1-R9、Creator、Godot、examples或父仓。
 
 ## 回退
 
