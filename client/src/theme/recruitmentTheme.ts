@@ -1,17 +1,8 @@
 interface TalentProfileSource {
-  id: string;
   provider: string;
-  description: string;
   context_length: number;
-  price_cny: {
-    input: number;
-    output: number;
-  };
-  pricing_status?: "fixed" | "free" | "dynamic";
-  capabilities: string[];
   job_capabilities: string[];
   categories: string[];
-  tags: string[];
 }
 
 export const recruitmentTheme = {
@@ -46,16 +37,6 @@ export const recruitmentFilterTitles = {
   inactive: "到期候选人",
 };
 
-export const recruitmentTagLabels: Record<string, string> = {
-  历史: "可能不可用",
-  精选: "优秀员工",
-  新: "新入场",
-  热门: "本月之星",
-  多模态: "全能工",
-  开源: "开源人才",
-  免费: "免费试工",
-};
-
 export const recruitmentCapabilityLabels: Record<string, string> = {
   text: "文案岗",
   image: "视觉岗",
@@ -88,36 +69,12 @@ export const recruitmentJobCapabilityLabels: Record<string, string> = {
   world_generation: "3D 世界生成",
 };
 
-export function getRecruitmentTag(tag: string) {
-  return recruitmentTagLabels[tag] ?? tag;
-}
-
 export function getRecruitmentCapability(capability: string) {
   return recruitmentCapabilityLabels[capability] ?? capability;
 }
 
 export function getRecruitmentJobCapability(capability: string) {
   return recruitmentJobCapabilityLabels[capability] ?? capability;
-}
-
-function hashText(value: string) {
-  return value.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
-}
-
-export function getTalentStats(model: TalentProfileSource) {
-  const seed = hashText(model.id);
-  const popularity = 72 + (seed % 28);
-  const hiredCount = 120 + (seed % 880);
-  const isBudgetFriendly =
-    model.pricing_status !== "dynamic" &&
-    (model.pricing_status === "free" || model.price_cny.input <= 1);
-  const urgent = isBudgetFriendly || model.tags.some((tag) => ["热门", "精选", "免费"].includes(tag));
-
-  return {
-    popularity,
-    hiredCount,
-    urgent,
-  };
 }
 
 export function buildPersonaDescription(model: TalentProfileSource) {

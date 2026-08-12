@@ -50,10 +50,6 @@ function matchesAny<T>(value: T, selected: T[]) {
   return selected.length === 0 || selected.includes(value);
 }
 
-function isDefaultFilters(filters: ModelFilterState) {
-  return JSON.stringify(filters) === JSON.stringify(defaultFilterState);
-}
-
 function createDefaultFilters(): ModelFilterState {
   return {
     ...defaultFilterState,
@@ -65,27 +61,6 @@ function createDefaultFilters(): ModelFilterState {
     supportedParameters: [],
     modelAuthors: [],
   };
-}
-
-function countActiveFilters(filters: ModelFilterState) {
-  let count = 0;
-
-  if (filters.provider !== "all") count += 1;
-  count += filters.inputModalities.length;
-  count += filters.series.length;
-  count += filters.jobCapabilities.length;
-  count += filters.supportedParameters.length;
-  count += filters.modelAuthors.length;
-  if (filters.distillable) count += 1;
-  if (filters.zeroDataRetention) count += 1;
-  if (filters.inRegionRouting) count += 1;
-  if (filters.showInactive) count += 1;
-  if (filters.contextRange.min !== defaultFilterState.contextRange.min) count += 1;
-  if (filters.contextRange.max !== defaultFilterState.contextRange.max) count += 1;
-  if (filters.promptPriceCnyRange.min !== defaultFilterState.promptPriceCnyRange.min) count += 1;
-  if (filters.promptPriceCnyRange.max !== defaultFilterState.promptPriceCnyRange.max) count += 1;
-
-  return count;
 }
 
 interface VideoModelProfile {
@@ -173,6 +148,73 @@ interface GeneralCatalogPayload {
 
 interface RuntimeEnvironmentSummary {
   model_gateway_ready: boolean;
+}
+
+interface ModelMarketHeroProps {
+  onsiteCount: number;
+  searchTerm: string;
+  usableCount: number | null;
+  onSearchChange: (value: string) => void;
+}
+
+export function ModelMarketHero({
+  onsiteCount,
+  searchTerm,
+  usableCount,
+  onSearchChange,
+}: ModelMarketHeroProps) {
+  return (
+    <header className="relative border-y border-white/10 py-4 sm:py-5">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(251,146,60,0.7),rgba(103,232,249,0.38),transparent)]" />
+      <div className="pointer-events-none absolute right-4 top-4 hidden h-14 w-28 opacity-40 sm:block">
+        <span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-cyan-300" />
+        <span className="absolute right-8 top-5 h-1 w-1 rounded-full bg-hire-300" />
+        <span className="absolute right-16 top-1 h-1 w-1 rounded-full bg-cyan-300/70" />
+        <span className="absolute right-1 top-1 h-px w-16 origin-right -rotate-[18deg] bg-cyan-300/30" />
+        <span className="absolute right-8 top-5 h-px w-12 origin-right rotate-[28deg] bg-hire-300/25" />
+      </div>
+
+      <div className="relative flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <span aria-hidden="true" className="h-3 w-3 rounded-[2px] bg-hire-300 shadow-[0_0_18px_rgba(251,146,60,0.35)]" />
+            <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              {recruitmentTheme.eventTitle}
+            </h1>
+          </div>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+            按输入能力与任务筛选模型，确认状态后直接调用。
+          </p>
+        </div>
+        <p aria-label="模型市场状态" className="shrink-0 text-xs text-slate-400">
+          <span className="font-semibold text-slate-100">{onsiteCount}</span> 个模型
+          <span aria-hidden="true" className="mx-2 text-hire-300/70">/</span>
+          {usableCount === null ? (
+            <span className="font-medium text-cyan-100">可调用数待确认</span>
+          ) : (
+            <>
+              <span className="font-semibold text-cyan-100">{usableCount}</span> 可直接调用
+            </>
+          )}
+        </p>
+      </div>
+
+      <div className="relative mt-4">
+        <label className="group relative block">
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400 transition group-focus-within:text-brand-100">
+            搜索
+          </span>
+          <input
+            className="h-12 w-full rounded-lg border border-white/10 bg-ink-950/70 pl-20 pr-5 text-sm text-white outline-none shadow-dock backdrop-blur-xl transition duration-200 placeholder:text-slate-500 hover:border-white/20 focus:border-brand-300/70 focus:ring-4 focus:ring-brand-300/10"
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder={recruitmentTheme.listSearchPlaceholder}
+            type="search"
+            value={searchTerm}
+          />
+        </label>
+      </div>
+    </header>
+  );
 }
 
 export default function ModelListPage() {
@@ -607,22 +649,8 @@ export default function ModelListPage() {
     setSearchTerm("");
   }
 
-  const hasSearchTerm = searchTerm.trim().length > 0;
-  const hasActiveCriteria = hasSearchTerm || !isDefaultFilters(filters);
-  const activeFilterCount =
-    countActiveFilters(filters) + (hasSearchTerm ? 1 : 0);
   const onsiteModels = models.filter(
     (model) => model.catalog_counted,
-  );
-  const batchServingVariantCount = onsiteModels.reduce(
-    (count, model) =>
-      count +
-      model.serving_variants.filter((variant) => variant.type === "batch")
-        .length,
-    0,
-  );
-  const browseableModels = models.filter(
-    (model) => model.catalog_status !== "expired",
   );
   const onsiteFilteredModels = filteredModels.filter(
     (model) =>
@@ -668,6 +696,12 @@ export default function ModelListPage() {
       Boolean(confirmedImageOperations.get(model.id)?.length) ||
       Boolean(confirmedVideoOperations.get(model.id)?.length),
   ).length;
+  const usableCountKnown =
+    generalCatalog !== null ||
+    runtimeEnvironment !== null ||
+    videoCatalog !== null ||
+    audioCatalog !== null ||
+    imageCatalog !== null;
   const featuredModels = filteredModels.slice(0, 2);
   const galleryModels = filteredModels.slice(featuredModels.length);
   const compareState = useMemo(
@@ -715,114 +749,24 @@ export default function ModelListPage() {
         </div>
       }
     >
-        <header className="relative overflow-hidden border-y border-hire-300/20 py-8 sm:py-10 lg:py-12">
-          <div className="absolute inset-x-6 top-0 h-16 rounded-b-[50%] border-x border-b border-hire-300/30 bg-[linear-gradient(180deg,rgba(251,146,60,0.18),transparent)]" />
-          <div className="absolute left-0 top-0 h-px w-full animate-pulse-line bg-[linear-gradient(90deg,transparent,rgba(251,146,60,0.82),rgba(253,186,116,0.72),transparent)]" />
-          <div className="grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
-            <div className="min-w-0">
-              <div className="max-w-4xl">
-                <p className="text-sm font-semibold text-hire-200">
-                  赛博人才市场正在营业
-                </p>
-                <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-normal text-white sm:text-6xl">
-                  {recruitmentTheme.eventTitle}
-                </h1>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300">
-                  {recruitmentTheme.eventSubtitle}。{recruitmentTheme.eventPitch}
-                  薪资按 1 USD ≈ 6.77 CNY 换算为人民币/百万 token。
-                </p>
-              </div>
-            </div>
+        <ModelMarketHero
+          onsiteCount={onsiteModels.length}
+          onSearchChange={setSearchTerm}
+          searchTerm={searchTerm}
+          usableCount={usableCountKnown ? usableFilteredCount : null}
+        />
 
-            <div className="surface-card min-w-0 overflow-hidden rounded-lg p-4">
-              <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                <span className="text-sm text-slate-400">模型快照</span>
-                <span className="text-2xl font-semibold text-white">
-                  {onsiteModels.length}
-                </span>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-slate-500">
-                {batchServingVariantCount} 个 Batch 服务档位已并入对应模型，不重复计数。
-              </p>
-              <div className="mt-4 grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 text-center text-xs">
-                <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                  <p className="text-lg font-semibold text-hire-100">
-                    {adaptedFilteredCount}
-                  </p>
-                  <p className="mt-1 truncate text-slate-400">已适配</p>
-                </div>
-                <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                  <p className="text-lg font-semibold text-accent-100">
-                    {activeFilterCount}
-                  </p>
-                  <p className="mt-1 truncate text-slate-400">岗位要求</p>
-                </div>
-                <div className="rounded-lg bg-white/[0.055] px-2 py-3">
-                  <p className="text-lg font-semibold text-emerald-100">
-                    {usableFilteredCount}
-                  </p>
-                  <p className="mt-1 truncate text-slate-400">可立即使用</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-            <label className="group relative block">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400 transition group-focus-within:text-brand-100">
-                搜索
-              </span>
-              <input
-                className="h-14 w-full rounded-full border border-white/10 bg-ink-950/70 pl-20 pr-5 text-sm text-white outline-none shadow-dock backdrop-blur-xl transition duration-200 placeholder:text-slate-500 hover:border-white/20 focus:border-brand-300/70 focus:ring-4 focus:ring-brand-300/10"
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder={recruitmentTheme.listSearchPlaceholder}
-                type="search"
-                value={searchTerm}
-              />
-            </label>
-
-            {hasActiveCriteria ? (
-              <button
-                className="h-12 rounded-full border border-white/10 bg-white/[0.07] px-5 text-sm font-semibold text-slate-100 transition duration-200 hover:border-brand-300/40 hover:bg-brand-300/10 hover:text-brand-100 active:scale-[0.98]"
-                onClick={clearFilters}
-                type="button"
-              >
-                清空岗位要求
-              </button>
-            ) : null}
-          </div>
-        </header>
-
-        <section className="mt-6">
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-white">招聘岗位分类</h2>
-              <p className="mt-1 text-sm text-slate-400">
-                像逛招聘会一样按技能、薪资、经验和单位淘候选人。
-              </p>
-            </div>
-            <p className="text-sm text-slate-400">
-              当前展示{" "}
-              <span className="font-semibold text-white">
-                {filteredModels.length}
-              </span>{" "}
-              位候选人，其中 {adaptedFilteredCount} 位在架候选人已完成适配
-            </p>
-          </div>
-
+        <section className="mt-4">
           <FilterPanel
             filters={filters}
-            matchingCount={filteredModels.length}
             modelAuthorOptions={modelAuthorOptions}
             onChange={setFilters}
+            onClear={clearFilters}
             seriesOptions={seriesOptions}
-            totalCount={
-              filters.showInactive ? models.length : browseableModels.length
-            }
           />
         </section>
 
-        <section className="mt-8">
+        <section className="mt-5">
           {compareState.active ? (
             <ModelCompareView
               models={selectedCompareModels}
@@ -861,6 +805,7 @@ export default function ModelListPage() {
                         verificationVideoOperations.get(model.id)
                       }
                       fileSurfaceSummary={fileSurfaceSummary}
+                      featured
                       model={model}
                       compareDisabled={compareState.ids.length >= 4}
                       compareSelected={compareState.ids.includes(model.id)}
