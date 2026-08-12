@@ -291,6 +291,40 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     tags=["json", "extract"],
                 ),
                 WorkflowPaletteItem(
+                    kind="json_serialize",
+                    icon="JSON",
+                    title="JSON 序列化",
+                    description="将一个类型化工作流变量转换为 JSON 字符串。",
+                    category="transform",
+                    tags=["json", "serialize", "typed-value"],
+                    planner_default_data={
+                        "inputVariable": "json_value",
+                        "outputVariable": "json_text",
+                        "format": "compact",
+                    },
+                    planner_config_constraints={
+                        "required": ["inputVariable", "outputVariable"],
+                        "format": ["compact", "pretty"],
+                    },
+                    planner_enabled=False,
+                ),
+                WorkflowPaletteItem(
+                    kind="json_deserialize",
+                    icon="JSON",
+                    title="JSON 反序列化",
+                    description="将 JSON 字符串解析为真实的类型化工作流变量。",
+                    category="transform",
+                    tags=["json", "deserialize", "typed-value"],
+                    planner_default_data={
+                        "inputVariable": "json_text",
+                        "outputVariable": "json_value",
+                    },
+                    planner_config_constraints={
+                        "required": ["inputVariable", "outputVariable"],
+                    },
+                    planner_enabled=False,
+                ),
+                WorkflowPaletteItem(
                     kind="document_extractor",
                     icon="DOC",
                     title="文档提取器",
@@ -325,24 +359,6 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
                     description="收尾交付最终变量，展示运行结果。",
                     category="transform",
                     tags=["output", "answer"],
-                ),
-            ],
-            placeholders=[
-                WorkflowPalettePlaceholder(
-                    id="json_serialize",
-                    icon="JSON",
-                    title="JSON 序列化",
-                    description="把变量对象序列化为 JSON。",
-                    category="transform",
-                    tags=["json", "serialize"],
-                ),
-                WorkflowPalettePlaceholder(
-                    id="json_deserialize",
-                    icon="JSON",
-                    title="JSON 反序列化",
-                    description="把 JSON 字符串解析为结构化变量。",
-                    category="transform",
-                    tags=["json", "deserialize"],
                 ),
             ],
         )
@@ -527,16 +543,93 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
             id="memory",
             tab="workflow",
             label="记忆",
-            description="数据库、长期记忆和写入能力。",
-            placeholders=[
-                WorkflowPalettePlaceholder(
-                    id="database_memory",
-                    icon="DB",
-                    title="数据库",
-                    description="读写结构化数据和长期记忆。",
+            description="本地托管 Agent Table 的类型化查询与写入能力。",
+            items=[
+                WorkflowPaletteItem(
+                    kind="data_table_query",
+                    icon="DB?",
+                    title="查询数据表",
+                    description="按字段、条件和排序读取固定 Schema 的 Agent Table 记录。",
                     category="memory",
-                    tags=["database", "memory"],
-                )
+                    tags=["database", "agent-table", "query", "typed-value"],
+                    planner_default_data={
+                        "versionPolicy": "latest",
+                        "selectFields": [],
+                        "filter": None,
+                        "sort": [],
+                        "limit": 20,
+                        "returnMode": "list",
+                        "outputVariable": "table_records",
+                    },
+                    planner_config_constraints={
+                        "required": ["tableId", "outputVariable"],
+                        "versionPolicy": ["latest", "pinned"],
+                        "returnMode": ["list", "first"],
+                        "limit": {"minimum": 1, "maximum": 200},
+                    },
+                    planner_enabled=False,
+                    metadata={"private_only": True, "side_effect": "read"},
+                ),
+                WorkflowPaletteItem(
+                    kind="data_table_insert",
+                    icon="DB+",
+                    title="新增数据",
+                    description="按类型化字段绑定向 Agent Table 插入一条记录。",
+                    category="memory",
+                    tags=["database", "agent-table", "insert", "typed-value"],
+                    planner_default_data={
+                        "versionPolicy": "latest",
+                        "valueBindings": {},
+                        "outputVariable": "inserted_record",
+                    },
+                    planner_config_constraints={
+                        "required": ["tableId", "valueBindings", "outputVariable"],
+                        "versionPolicy": ["latest", "pinned"],
+                    },
+                    planner_enabled=False,
+                    metadata={"private_only": True, "side_effect": "write"},
+                ),
+                WorkflowPaletteItem(
+                    kind="data_table_update",
+                    icon="DB~",
+                    title="更新数据",
+                    description="使用非空条件批量更新 Agent Table，单次最多 100 行。",
+                    category="memory",
+                    tags=["database", "agent-table", "update", "typed-value"],
+                    planner_default_data={
+                        "versionPolicy": "latest",
+                        "filter": None,
+                        "valueBindings": {},
+                        "outputVariable": "update_result",
+                    },
+                    planner_config_constraints={
+                        "required": ["tableId", "filter", "valueBindings", "outputVariable"],
+                        "versionPolicy": ["latest", "pinned"],
+                        "maxAffectedRows": 100,
+                    },
+                    planner_enabled=False,
+                    metadata={"private_only": True, "side_effect": "write"},
+                ),
+                WorkflowPaletteItem(
+                    kind="data_table_delete",
+                    icon="DB-",
+                    title="删除数据",
+                    description="使用非空条件删除 Agent Table 记录，单次最多 100 行。",
+                    category="memory",
+                    tags=["database", "agent-table", "delete", "typed-value"],
+                    planner_default_data={
+                        "versionPolicy": "latest",
+                        "filter": None,
+                        "outputVariable": "delete_result",
+                    },
+                    planner_config_constraints={
+                        "required": ["tableId", "filter", "outputVariable"],
+                        "versionPolicy": ["latest", "pinned"],
+                        "maxAffectedRows": 100,
+                    },
+                    planner_enabled=False,
+                    metadata={"private_only": True, "side_effect": "write"},
+                ),
             ],
         )
     )
@@ -547,14 +640,21 @@ def register_builtin_workflow_nodes(registry: WorkflowNodeRegistry) -> None:
             tab="workflow",
             label="其他",
             description="画布辅助节点。",
-            placeholders=[
-                WorkflowPalettePlaceholder(
-                    id="annotation",
+            items=[
+                WorkflowPaletteItem(
+                    kind="annotation",
                     icon="NOTE",
                     title="注释",
-                    description="仅用于画布说明，不参与运行。",
+                    description="仅保存画布说明，不进入拓扑、执行或运行记录。",
                     category="other",
-                    tags=["note", "annotation"],
+                    tags=["note", "annotation", "canvas"],
+                    metadata={
+                        "ports": [],
+                        "runtime": "ignored",
+                        "max_content_length": 20_000,
+                    },
+                    planner_default_data={"content": ""},
+                    planner_enabled=False,
                 )
             ],
         )

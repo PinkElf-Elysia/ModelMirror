@@ -191,6 +191,55 @@ const nodeMeta = {
     bg: "bg-violet-300/10",
     text: "text-violet-100",
   },
+  json_serialize: {
+    icon: "{}",
+    label: "JSON 序列化",
+    border: "border-blue-300/40",
+    bg: "bg-blue-300/10",
+    text: "text-blue-100",
+  },
+  json_deserialize: {
+    icon: "{·}",
+    label: "JSON 反序列化",
+    border: "border-indigo-300/40",
+    bg: "bg-indigo-300/10",
+    text: "text-indigo-100",
+  },
+  data_table_query: {
+    icon: "DB",
+    label: "数据表查询",
+    border: "border-cyan-300/40",
+    bg: "bg-cyan-300/10",
+    text: "text-cyan-100",
+  },
+  data_table_insert: {
+    icon: "DB+",
+    label: "数据表新增",
+    border: "border-emerald-300/40",
+    bg: "bg-emerald-300/10",
+    text: "text-emerald-100",
+  },
+  data_table_update: {
+    icon: "DB~",
+    label: "数据表更新",
+    border: "border-amber-300/40",
+    bg: "bg-amber-300/10",
+    text: "text-amber-100",
+  },
+  data_table_delete: {
+    icon: "DB-",
+    label: "数据表删除",
+    border: "border-rose-300/40",
+    bg: "bg-rose-300/10",
+    text: "text-rose-100",
+  },
+  annotation: {
+    icon: "NOTE",
+    label: "画布注释",
+    border: "border-slate-300/40",
+    bg: "bg-slate-300/10",
+    text: "text-slate-100",
+  },
   runtime_middleware: {
     icon: "▣",
     label: "中间件",
@@ -298,6 +347,27 @@ function outputName(data: WorkflowNode["data"]) {
   if (data.kind === "iteration") {
     return `${data.inputVariable ?? "items"} as ${data.iterationVariable ?? "item"} -> ${data.outputVariable ?? "iteration_output"}`;
   }
+  if (data.kind === "json_serialize") {
+    return `${data.inputVariable ?? "json_value"} -> ${data.outputVariable ?? "json_text"}`;
+  }
+  if (data.kind === "json_deserialize") {
+    return `${data.inputVariable ?? "json_text"} -> ${data.outputVariable ?? "json_value"}`;
+  }
+  if (data.kind === "data_table_query") {
+    return `${data.tableId || "选择数据表"} -> ${data.outputVariable ?? "table_records"}`;
+  }
+  if (data.kind === "data_table_insert") {
+    return `${data.tableId || "选择数据表"} -> ${data.outputVariable ?? "inserted_record"}`;
+  }
+  if (data.kind === "data_table_update") {
+    return `${data.tableId || "选择数据表"} -> ${data.outputVariable ?? "update_result"}`;
+  }
+  if (data.kind === "data_table_delete") {
+    return `${data.tableId || "选择数据表"} -> ${data.outputVariable ?? "delete_result"}`;
+  }
+  if (data.kind === "annotation") {
+    return "不参与运行";
+  }
   if (data.kind === "runtime_middleware") {
     return `${data.runtimeMiddlewareId ?? "middleware"} → ${data.runtimeMiddlewareKind ?? "runtime"}`;
   }
@@ -306,7 +376,8 @@ function outputName(data: WorkflowNode["data"]) {
 }
 
 export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowNode>) {
-  const meta = nodeMeta[data.kind];
+  const meta =
+    nodeMeta[data.kind as keyof typeof nodeMeta] ?? nodeMeta.template_transform;
 
   return (
     <div
@@ -371,6 +442,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           "knowledge_base",
           "toolset_resource",
           "plugin_resource",
+          "annotation",
         ].includes(data.kind) ? (
         <Handle
           className="!h-3 !w-3 !border-2 !border-surface-900 !bg-slate-200"
@@ -480,7 +552,7 @@ export default function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowN
           title="绑定到 workflow_agent 的 plugin 入口"
           type="source"
         />
-      ) : data.kind !== "output" ? (
+      ) : !["output", "annotation"].includes(data.kind) ? (
         <Handle
           className="!h-3 !w-3 !border-2 !border-surface-900 !bg-hire-300"
           position={Position.Right}

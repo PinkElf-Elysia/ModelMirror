@@ -58,6 +58,7 @@ COPY toolsets ./toolsets
 COPY registry ./registry
 COPY rag ./rag
 COPY datax ./datax
+COPY data_tables ./data_tables
 COPY file_assets ./file_assets
 COPY skills ./skills
 COPY agent_workspace ./agent_workspace

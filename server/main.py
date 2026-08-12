@@ -395,6 +395,16 @@ try:
     from server.meta_agent.prompts import META_AGENT_SYSTEM_PROMPT
     from server.workflow_native.schemas import NativeNodeKind, NativeWorkflowDefinition
     from server.workflow_native.validate import validate_workflow_graph
+    from server.workflow_native.values import (
+        WorkflowValue,
+        deserialize_workflow_value,
+        normalize_workflow_value,
+        normalize_workflow_variables,
+        serialize_workflow_value,
+        workflow_condition_matches,
+        workflow_list_items,
+        workflow_value_to_text,
+    )
 except ModuleNotFoundError:
     from meta_agent import (
         MetaAgentGenerateRequest,
@@ -412,6 +422,16 @@ except ModuleNotFoundError:
     from meta_agent.prompts import META_AGENT_SYSTEM_PROMPT
     from workflow_native.schemas import NativeNodeKind, NativeWorkflowDefinition
     from workflow_native.validate import validate_workflow_graph
+    from workflow_native.values import (
+        WorkflowValue,
+        deserialize_workflow_value,
+        normalize_workflow_value,
+        normalize_workflow_variables,
+        serialize_workflow_value,
+        workflow_condition_matches,
+        workflow_list_items,
+        workflow_value_to_text,
+    )
 
 try:
     from server.rag.document_parser import parse_document
@@ -442,6 +462,19 @@ except ModuleNotFoundError:
         configure_datax,
         datax_router,
         register_datax_toolset_capability,
+    )
+
+try:
+    from server.data_tables import (
+        AgentTableStore,
+        agent_tables_router,
+        configure_agent_table_store,
+    )
+except ModuleNotFoundError:
+    from data_tables import (
+        AgentTableStore,
+        agent_tables_router,
+        configure_agent_table_store,
     )
 
 try:
@@ -1010,6 +1043,7 @@ app.add_middleware(
 app.include_router(dify_router)
 app.include_router(rag_router)
 app.include_router(datax_router)
+app.include_router(agent_tables_router)
 app.include_router(file_assets_router)
 app.include_router(skills_router)
 app.include_router(skill_local_import_router)
@@ -1092,6 +1126,10 @@ workflow_external_xpert_provider = ExternalXpertToolsetProvider(
 datax_store = DataXStore(os.getenv("DATAX_STORAGE_DIR", "").strip() or None)
 datax_service = DataXService(datax_store)
 configure_datax(datax_service)
+agent_table_store = AgentTableStore(
+    os.getenv("AGENT_TABLE_STORAGE_DIR", "").strip() or None
+)
+configure_agent_table_store(agent_table_store)
 workflow_datax_provider = DataXToolsetProvider(datax_service)
 runtime_approval_store = RuntimeApprovalStore(
     storage_dir=AGENT_TASK_STORAGE_DIR or None
@@ -1730,7 +1768,12 @@ class WorkflowPayload(BaseModel):
 
 class WorkflowRunRequest(BaseModel):
     workflow: WorkflowPayload
-    inputs: dict[str, str] = Field(default_factory=dict)
+    inputs: dict[str, WorkflowValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_json_safe_inputs(self) -> "WorkflowRunRequest":
+        self.inputs = normalize_workflow_variables(self.inputs)
+        return self
 
 
 class WorkflowResumeRequest(BaseModel):
@@ -3888,6 +3931,13 @@ def workflow_node_kind(node: WorkflowNodePayload) -> WorkflowNodeType:
         "http_request",
         "list_operation",
         "iteration",
+        "json_serialize",
+        "json_deserialize",
+        "data_table_query",
+        "data_table_insert",
+        "data_table_update",
+        "data_table_delete",
+        "annotation",
         "runtime_middleware",
         "output",
     }:
@@ -3938,22 +3988,89 @@ def get_workflow_task_or_none(task_id: str) -> dict[str, Any] | None:
     return task
 
 
-def render_workflow_template(template: str, variables: dict[str, str]) -> str:
+def render_workflow_template(
+    template: str,
+    variables: dict[str, WorkflowValue],
+) -> str:
     def replace(match: re.Match[str]) -> str:
         variable_name = match.group(1).strip()
-        return variables.get(variable_name, "")
+        return workflow_value_to_text(variables.get(variable_name, ""))
 
     return re.sub(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}", replace, template)
 
 
-def split_workflow_list(value: str) -> list[str]:
-    if not value.strip():
-        return []
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
 def split_workflow_variable_names(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def resolve_data_table_value_binding(
+    binding: object,
+    variables: dict[str, WorkflowValue],
+    *,
+    label: str,
+) -> WorkflowValue:
+    if not isinstance(binding, dict):
+        raise ValueError(f"{label} must be a literal or variable binding.")
+    source = str(binding.get("source") or "").strip()
+    if source == "literal" and "value" in binding:
+        return normalize_workflow_value(binding.get("value"), path=label)
+    if source == "variable":
+        variable = str(binding.get("variable") or "").strip()
+        if not variable or variable not in variables:
+            raise ValueError(
+                f"{label} references unavailable workflow variable '{variable}'."
+            )
+        return normalize_workflow_value(variables[variable], path=label)
+    raise ValueError(
+        f"{label} must use source=literal or source=variable."
+    )
+
+
+def resolve_data_table_filter(
+    value: object,
+    variables: dict[str, WorkflowValue],
+) -> dict[str, Any] | None:
+    if value is None or value == {}:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Agent Table filter must be an object.")
+    if "items" in value or "logic" in value:
+        items = value.get("items")
+        if not isinstance(items, list):
+            raise ValueError("Agent Table filter group items must be an array.")
+        return {
+            "logic": str(value.get("logic") or "").lower(),
+            "items": [
+                resolve_data_table_filter(item, variables) for item in items
+            ],
+        }
+    resolved = {
+        "field": str(value.get("field") or "").strip(),
+        "operator": str(value.get("operator") or "").strip().lower(),
+    }
+    if resolved["operator"] != "is_null":
+        resolved["value"] = resolve_data_table_value_binding(
+            value.get("value"),
+            variables,
+            label=f"filter.{resolved['field']}",
+        )
+    return resolved
+
+
+def resolve_data_table_values(
+    value: object,
+    variables: dict[str, WorkflowValue],
+) -> dict[str, WorkflowValue]:
+    if not isinstance(value, dict) or not value:
+        raise ValueError("Agent Table valueBindings cannot be empty.")
+    return {
+        str(field_name): resolve_data_table_value_binding(
+            binding,
+            variables,
+            label=f"valueBindings.{field_name}",
+        )
+        for field_name, binding in value.items()
+    }
 
 
 def parse_workflow_tool_policy_list(value: Any) -> set[str]:
@@ -4072,12 +4189,15 @@ class SafePythonValidator(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def render_python_code_template(template: str, variables: dict[str, str]) -> str:
+def render_python_code_template(
+    template: str,
+    variables: dict[str, WorkflowValue],
+) -> str:
     """Render {{var}} references as Python string literals, not raw code."""
 
     def replace(match: re.Match[str]) -> str:
         variable_name = match.group(1).strip()
-        return repr(variables.get(variable_name, ""))
+        return repr(workflow_value_to_text(variables.get(variable_name, "")))
 
     return re.sub(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}", replace, template)
 
@@ -4091,7 +4211,7 @@ def validate_safe_python_code(code: str) -> None:
 
 def run_python_code_sandbox(
     code: str,
-    variables: dict[str, str],
+    variables: dict[str, WorkflowValue],
     input_variable: str,
 ) -> str:
     """Run validated Python in an isolated child process with a short timeout."""
@@ -4127,7 +4247,9 @@ print(output, end="")
         "allowed_builtins": sorted(SAFE_PYTHON_BUILTINS),
         "code": code,
         "input_variable": input_variable,
-        "variables": variables,
+        "variables": {
+            key: workflow_value_to_text(value) for key, value in variables.items()
+        },
     }
     try:
         completed = subprocess.run(
@@ -4311,7 +4433,12 @@ def workflow_topological_order(
         node.id
         for node in nodes
         if workflow_node_kind(node)
-        in {"external_xpert", "knowledge_base", "toolset_resource"}
+        in {
+            "external_xpert",
+            "knowledge_base",
+            "toolset_resource",
+            "annotation",
+        }
     )
     node_ids = all_node_ids - bound_resource_node_ids
     indegree = {node_id: 0 for node_id in node_ids}
@@ -4346,10 +4473,13 @@ def workflow_topological_order(
     return order
 
 
-def run_safe_code_node(node: WorkflowNodePayload, variables: dict[str, str]) -> str:
+def run_safe_code_node(
+    node: WorkflowNodePayload,
+    variables: dict[str, WorkflowValue],
+) -> str:
     operation = str(node.data.get("codeOperation") or "upper")
     input_variable = str(node.data.get("codeInputVariable") or "llm_output")
-    source = variables.get(input_variable, "")
+    source = workflow_value_to_text(variables.get(input_variable, ""))
 
     if operation == "python":
         python_code = render_python_code_template(
@@ -5748,12 +5878,9 @@ async def _run_workflow_response(
     task_state: dict[str, Any] = {
         "task_id": task_id,
         "run_id": workflow_run.run_id,
-        "variables": {
-            str(key): str(value)
-            for key, value in (
-                resume_state.get("variables") or payload.inputs
-            ).items()
-        },
+        "variables": normalize_workflow_variables(
+            dict(resume_state.get("variables") or payload.inputs)
+        ),
         "queue": initial_queue,
         "queued": set(resume_state.get("queued") or initial_queue),
         "executed": set(resume_state.get("executed") or []),
@@ -5808,7 +5935,7 @@ async def _run_workflow_response(
         )
 
     async def workflow_stream_body():
-        variables: dict[str, str] = task_state["variables"]
+        variables: dict[str, WorkflowValue] = task_state["variables"]
         queue: deque[str] = task_state["queue"]
         queued: set[str] = task_state["queued"]
         executed: set[str] = task_state["executed"]
@@ -9202,6 +9329,9 @@ async def _run_workflow_response(
 
                 if node_id in executed:
                     continue
+                if kind == "annotation":
+                    executed.add(node_id)
+                    continue
                 await charge_execution_step("workflow_node")
 
                 yield sse_payload(
@@ -9222,7 +9352,7 @@ async def _run_workflow_response(
                         variable_name,
                         variables.get("user_input", ""),
                     )
-                    output = variables[variable_name]
+                    output = workflow_value_to_text(variables[variable_name])
 
                 elif kind == "llm":
                     model_id = str(node.data.get("modelId") or TEXT_FALLBACK_MODEL)
@@ -9260,7 +9390,7 @@ async def _run_workflow_response(
                     operator = str(node.data.get("conditionOperator") or "contains")
                     expected = str(node.data.get("conditionValue") or "")
                     actual = variables.get(variable_name, "")
-                    matched = actual == expected if operator == "equals" else expected in actual
+                    matched = workflow_condition_matches(actual, operator, expected)
                     chosen_handle = "true" if matched else "false"
                     output = f"{variable_name} {operator} {expected} -> {'是' if matched else '否'}"
 
@@ -9336,7 +9466,11 @@ async def _run_workflow_response(
                                     }
                                 )
                         body_variable = str(node.data.get("bodyVariable") or "").strip()
-                        body = variables.get(body_variable, "") if body_variable else None
+                        body = (
+                            workflow_value_to_text(variables.get(body_variable, ""))
+                            if body_variable
+                            else None
+                        )
                         if not WORKFLOW_ALLOW_HTTP_OUTBOUND:
                             output = (
                                 f"[http mock] method={method} url={url} "
@@ -9401,19 +9535,26 @@ async def _run_workflow_response(
                         output_variable = str(
                             node.data.get("outputVariable") or "list_output"
                         )
-                        items = split_workflow_list(variables.get(input_variable, ""))
+                        items, typed_input = workflow_list_items(
+                            variables.get(input_variable, "")
+                        )
                         if operator == "length":
-                            output = str(len(items))
+                            stored_output: WorkflowValue = (
+                                len(items) if typed_input else str(len(items))
+                            )
                         elif operator == "join":
                             separator = str(node.data.get("joinSeparator") or "")
-                            output = separator.join(items)
+                            stored_output = separator.join(
+                                workflow_value_to_text(item) for item in items
+                            )
                         elif operator == "first":
-                            output = items[0] if items else ""
+                            stored_output = items[0] if items else (None if typed_input else "")
                         elif operator == "last":
-                            output = items[-1] if items else ""
+                            stored_output = items[-1] if items else (None if typed_input else "")
                         else:
                             raise ValueError(f"列表操作不支持：{operator}")
-                        variables[output_variable] = output
+                        variables[output_variable] = stored_output
+                        output = workflow_value_to_text(stored_output)
                         yield sse_payload(
                             {
                                 "event": "node_delta",
@@ -9444,7 +9585,9 @@ async def _run_workflow_response(
                         output_variable = str(
                             node.data.get("outputVariable") or "iteration_output"
                         )
-                        items = split_workflow_list(variables.get(input_variable, ""))
+                        items, typed_input = workflow_list_items(
+                            variables.get(input_variable, "")
+                        )
                         if len(items) > WORKFLOW_MAX_ITERATION_ITEMS:
                             items = items[:WORKFLOW_MAX_ITERATION_ITEMS]
                             yield sse_payload(
@@ -9475,8 +9618,13 @@ async def _run_workflow_response(
                                     "variable": output_variable,
                                 }
                             )
-                        output = json.dumps(results, ensure_ascii=False)
-                        variables[output_variable] = output
+                        stored_output = (
+                            results
+                            if typed_input
+                            else json.dumps(results, ensure_ascii=False)
+                        )
+                        variables[output_variable] = stored_output
+                        output = workflow_value_to_text(stored_output)
                     except Exception as exc:
                         logger.warning("Workflow iteration node failed: %s", exc)
                         yield sse_payload(
@@ -9528,13 +9676,18 @@ async def _run_workflow_response(
                         if output_template:
                             output = "".join(
                                 output_template.replace("{name}", name).replace(
-                                    "{value}", value
+                                    "{value}", workflow_value_to_text(value)
                                 )
                                 for name, value in values.items()
                             )
+                            stored_output: WorkflowValue = output
                         else:
-                            output = json.dumps(values, ensure_ascii=False)
-                        variables[output_variable] = output
+                            if all(isinstance(value, str) for value in values.values()):
+                                stored_output = json.dumps(values, ensure_ascii=False)
+                            else:
+                                stored_output = normalize_workflow_variables(values)
+                            output = workflow_value_to_text(stored_output)
+                        variables[output_variable] = stored_output
                         yield sse_payload(
                             {
                                 "event": "node_delta",
@@ -9555,6 +9708,221 @@ async def _run_workflow_response(
                             }
                         )
 
+                elif kind in {
+                    "data_table_query",
+                    "data_table_insert",
+                    "data_table_update",
+                    "data_table_delete",
+                }:
+                    started_at = time.perf_counter()
+                    table_id = str(node.data.get("tableId") or "").strip()
+                    version_policy = str(
+                        node.data.get("versionPolicy") or "latest"
+                    ).strip()
+                    pinned_value = node.data.get("pinnedSchemaVersion")
+                    pinned_version = (
+                        int(pinned_value) if pinned_value not in {None, ""} else None
+                    )
+                    is_write = kind != "data_table_query"
+                    schema = agent_table_store.resolve_schema_version(
+                        table_id,
+                        version_policy=version_policy,
+                        pinned_version=pinned_version,
+                        write=is_write,
+                    )
+                    output_variable = str(
+                        node.data.get("outputVariable") or "table_result"
+                    )
+                    operation_id = "workflow_" + hashlib.sha256(
+                        f"{task_id}:{node.id}".encode("utf-8")
+                    ).hexdigest()
+                    filter_tree = resolve_data_table_filter(
+                        node.data.get("filter"), variables
+                    )
+                    result_count = 0
+                    affected_count = 0
+                    if kind == "data_table_query":
+                        fields = node.data.get("selectFields")
+                        selected_fields = (
+                            [str(value) for value in fields]
+                            if isinstance(fields, list)
+                            else None
+                        )
+                        sort = node.data.get("sort")
+                        records = agent_table_store.query_records(
+                            table_id,
+                            schema_version=schema.version,
+                            fields=selected_fields,
+                            filter_tree=filter_tree,
+                            sort=sort if isinstance(sort, list) else None,
+                            limit=int(node.data.get("limit") or 20),
+                        )
+                        result_count = len(records)
+                        if str(node.data.get("returnMode") or "list") == "first":
+                            stored_output: WorkflowValue = records[0] if records else None
+                        else:
+                            stored_output = records
+                        output = f"Agent Table query returned {result_count} record(s)."
+                        operation = "query"
+                    elif kind == "data_table_insert":
+                        values = resolve_data_table_values(
+                            node.data.get("valueBindings"), variables
+                        )
+                        stored_output = agent_table_store.create_record_for_schema(
+                            table_id,
+                            schema_version=schema.version,
+                            data=values,
+                            operation_id=operation_id,
+                        )
+                        result_count = 1
+                        affected_count = 1
+                        output = "Agent Table inserted 1 record."
+                        operation = "insert"
+                    elif kind == "data_table_update":
+                        if filter_tree is None:
+                            raise ValueError(
+                                "Agent Table update requires a non-empty filter."
+                            )
+                        values = resolve_data_table_values(
+                            node.data.get("valueBindings"), variables
+                        )
+                        stored_output = agent_table_store.update_records(
+                            table_id,
+                            schema_version=schema.version,
+                            filter_tree=filter_tree,
+                            data=values,
+                            operation_id=operation_id,
+                        )
+                        result_count = int(stored_output.get("matched") or 0)
+                        affected_count = int(stored_output.get("affected") or 0)
+                        output = (
+                            "Agent Table update matched "
+                            f"{result_count} and affected {affected_count} record(s)."
+                        )
+                        operation = "update"
+                    else:
+                        if filter_tree is None:
+                            raise ValueError(
+                                "Agent Table delete requires a non-empty filter."
+                            )
+                        stored_output = agent_table_store.delete_records(
+                            table_id,
+                            schema_version=schema.version,
+                            filter_tree=filter_tree,
+                            operation_id=operation_id,
+                        )
+                        result_count = int(stored_output.get("matched") or 0)
+                        affected_count = int(stored_output.get("affected") or 0)
+                        output = (
+                            "Agent Table delete matched "
+                            f"{result_count} and affected {affected_count} record(s)."
+                        )
+                        operation = "delete"
+                    variables[output_variable] = normalize_workflow_value(
+                        stored_output,
+                        path=f"$.{output_variable}",
+                    )
+                    duration_ms = round(
+                        (time.perf_counter() - started_at) * 1000,
+                        2,
+                    )
+                    await run_registry.record_checkpoint(
+                        workflow_run.run_id,
+                        event_type=f"workflow.data_table.{operation}",
+                        title=f"Agent Table {operation}",
+                        summary=(
+                            f"schema={schema.version}, matched={result_count}, "
+                            f"affected={affected_count}"
+                        ),
+                        metadata={
+                            "table_id": table_id,
+                            "schema_version": schema.version,
+                            "operation": operation,
+                            "matched_count": result_count,
+                            "affected_count": affected_count,
+                            "duration_ms": duration_ms,
+                        },
+                    )
+                    yield sse_payload(
+                        {
+                            "event": "node_delta",
+                            "node_id": node.id,
+                            "node_title": title,
+                            "node_type": kind,
+                            "output": output,
+                            "variable": output_variable,
+                        }
+                    )
+
+                elif kind == "json_serialize":
+                    try:
+                        input_variable = str(node.data.get("inputVariable") or "")
+                        output_variable = str(
+                            node.data.get("outputVariable") or "json_text"
+                        )
+                        if input_variable not in variables:
+                            raise ValueError(
+                                f"Workflow variable '{input_variable}' is not available."
+                            )
+                        pretty = str(node.data.get("format") or "compact") == "pretty"
+                        output = serialize_workflow_value(
+                            variables[input_variable],
+                            pretty=pretty,
+                        )
+                        variables[output_variable] = output
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                            }
+                        )
+                    except Exception as exc:
+                        logger.warning("Workflow json_serialize node failed: %s", exc)
+                        yield sse_payload(
+                            {
+                                "event": "error",
+                                "node_id": node.id,
+                                "message": str(exc),
+                            }
+                        )
+
+                elif kind == "json_deserialize":
+                    try:
+                        input_variable = str(node.data.get("inputVariable") or "")
+                        output_variable = str(
+                            node.data.get("outputVariable") or "json_value"
+                        )
+                        source = variables.get(input_variable)
+                        if not isinstance(source, str):
+                            raise ValueError("JSON deserialize input must be a string.")
+                        stored_output = deserialize_workflow_value(source)
+                        variables[output_variable] = stored_output
+                        output = workflow_value_to_text(stored_output)
+                        yield sse_payload(
+                            {
+                                "event": "node_delta",
+                                "node_id": node.id,
+                                "node_title": title,
+                                "node_type": kind,
+                                "output": output,
+                                "variable": output_variable,
+                            }
+                        )
+                    except Exception as exc:
+                        logger.warning("Workflow json_deserialize node failed: %s", exc)
+                        variables[output_variable] = None
+                        yield sse_payload(
+                            {
+                                "event": "error",
+                                "node_id": node.id,
+                                "message": str(exc),
+                            }
+                        )
+
                 elif kind == "parameter_extractor":
                     try:
                         output_variable = str(
@@ -9563,7 +9931,9 @@ async def _run_workflow_response(
                         input_variable = str(node.data.get("inputVariable") or "user_input")
                         schema = str(node.data.get("schema") or "")
                         model_id = str(node.data.get("modelId") or TEXT_FALLBACK_MODEL)
-                        input_text = variables.get(input_variable, "")
+                        input_text = workflow_value_to_text(
+                            variables.get(input_variable, "")
+                        )
                         if not get_llm_gateway_config()[0]:
                             output = "{}"
                             variables[output_variable] = output
@@ -9640,7 +10010,9 @@ async def _run_workflow_response(
                             node.data.get("outputVariable") or "rag_context"
                         )
                         query_variable = str(node.data.get("queryVariable") or "user_input")
-                        query_text = variables.get(query_variable, "")
+                        query_text = workflow_value_to_text(
+                            variables.get(query_variable, "")
+                        )
                         try:
                             top_k = int(str(node.data.get("top_k") or "3"))
                         except ValueError:
@@ -9706,7 +10078,9 @@ async def _run_workflow_response(
                         query_variable = str(
                             node.data.get("queryVariable") or "user_input"
                         ).strip()
-                        query_text = variables.get(query_variable, "")
+                        query_text = workflow_value_to_text(
+                            variables.get(query_variable, "")
+                        )
                         knowledge_base_id = str(
                             node.data.get("knowledgeBaseId") or ""
                         ).strip()
@@ -9901,7 +10275,7 @@ async def _run_workflow_response(
                                     "workflow_file_assets_disabled",
                                     "工作流文件资产当前未启用，请联系管理员开启后重试。",
                                 )
-                            asset_id = str(
+                            asset_id = workflow_value_to_text(
                                 variables.get(asset_id_variable, "")
                             ).strip()
                             if not asset_id:
@@ -9919,7 +10293,9 @@ async def _run_workflow_response(
                         elif legacy_path_variable:
                             # One-release read compatibility for existing graphs. The
                             # editor no longer creates or edits path-based nodes.
-                            raw_path = variables.get(legacy_path_variable, "")
+                            raw_path = workflow_value_to_text(
+                                variables.get(legacy_path_variable, "")
+                            )
                             output = await asyncio.to_thread(
                                 read_legacy_workflow_document, raw_path
                             )
@@ -10083,7 +10459,9 @@ async def _run_workflow_response(
                             == "true"
                         )
                         model_id = str(node.data.get("modelId") or "").strip()
-                        text = variables.get(input_variable, "")
+                        text = workflow_value_to_text(
+                            variables.get(input_variable, "")
+                        )
 
                         if not WORKFLOW_QUESTION_CLASSIFIER_ENABLED:
                             variables[output_variable] = default_category
@@ -10903,7 +11281,9 @@ async def _run_workflow_response(
                                     "knowledge_writer requires Runtime tool mode unless automatic proposal is enabled."
                                 )
                         if enable_file_understanding:
-                            file_context = variables.get("xpert_file_context", "").strip()
+                            file_context = workflow_value_to_text(
+                                variables.get("xpert_file_context", "")
+                            ).strip()
                             if file_context:
                                 task_input = (
                                     f"{task_input}\n\nSelected file context:\n{file_context}"
@@ -10914,12 +11294,16 @@ async def _run_workflow_response(
                             and file_memory_spec is None
                             and memory_read_scope in {"xpert", "both"}
                         ):
-                            value = variables.get("xpert_memory_context_xpert", "").strip()
+                            value = workflow_value_to_text(
+                                variables.get("xpert_memory_context_xpert", "")
+                            ).strip()
                             if value:
                                 recalled_sections.append(value)
                         if memory_read_enabled and memory_read_scope in {"conversation", "both"}:
-                            value = variables.get(
-                                "xpert_memory_context_conversation", ""
+                            value = workflow_value_to_text(
+                                variables.get(
+                                    "xpert_memory_context_conversation", ""
+                                )
                             ).strip()
                             if value:
                                 recalled_sections.append(value)
@@ -11119,7 +11503,9 @@ async def _run_workflow_response(
                             if compression_spec is not None
                             else []
                         )
-                        raw_history = str(variables.get("conversation_history") or "")
+                        raw_history = workflow_value_to_text(
+                            variables.get("conversation_history", "")
+                        )
                         if raw_history and history_messages and raw_history in task_input:
                             task_input = task_input.replace(
                                 raw_history,
@@ -12551,7 +12937,9 @@ async def _run_workflow_response(
                         if not reason_template.strip():
                             raise ValueError("agent_handoff node needs reason.")
 
-                        handoff_task_id = variables.get(task_id_variable, "").strip()
+                        handoff_task_id = workflow_value_to_text(
+                            variables.get(task_id_variable, "")
+                        ).strip()
                         if not handoff_task_id:
                             raise ValueError(
                                 f"agent_handoff could not read task id variable: {task_id_variable}"
@@ -12724,7 +13112,9 @@ async def _run_workflow_response(
                         if not reason_template.strip():
                             raise ValueError("handoff_router needs reasonTemplate.")
 
-                        source_value = str(variables.get(source_variable) or "")
+                        source_value = workflow_value_to_text(
+                            variables.get(source_variable, "")
+                        )
                         if not source_value.strip():
                             raise ValueError(
                                 f"handoff_router could not read source variable: {source_variable}"
@@ -13221,7 +13611,9 @@ async def _run_workflow_response(
 
                 elif kind == "output":
                     output_variable = str(node.data.get("outputVariable") or "llm_output")
-                    final_output = variables.get(output_variable, "")
+                    final_output = workflow_value_to_text(
+                        variables.get(output_variable, "")
+                    )
                     task_state["final_output"] = final_output
                     output = final_output
 
@@ -13326,7 +13718,9 @@ async def _run_workflow_response(
                             conversation_messages=list(
                                 run_metadata.get("conversation_messages") or []
                             ),
-                            user_message=str(variables.get("user_input") or ""),
+                            user_message=workflow_value_to_text(
+                                variables.get("user_input", "")
+                            ),
                             final_output=final_output,
                             generate_title=generate_title,
                             generate_suggestions=generate_suggestions,
@@ -13397,7 +13791,9 @@ async def _run_workflow_response(
                             run_metadata.get("memory_write_model_id")
                             or TEXT_FALLBACK_MODEL
                         ),
-                        user_message=variables.get("user_input", ""),
+                        user_message=workflow_value_to_text(
+                            variables.get("user_input", "")
+                        ),
                         final_output=final_output,
                         scope=str(
                             run_metadata.get("memory_write_target") or "xpert"
@@ -16468,7 +16864,13 @@ async def list_workflow_node_registry():
 
 @app.get("/api/workflow/resource-options", response_model=dict[str, Any])
 async def list_workflow_resource_options(
-    kind: Literal["external_xpert", "knowledge_base", "toolset", "plugin"],
+    kind: Literal[
+        "external_xpert",
+        "knowledge_base",
+        "toolset",
+        "plugin",
+        "data_table",
+    ],
 ):
     if kind == "external_xpert":
         items = await asyncio.to_thread(
@@ -16547,6 +16949,45 @@ async def list_workflow_resource_options(
                 for item in plugins
             ],
         }
+
+    if kind == "data_table":
+        tables = await asyncio.to_thread(
+            agent_table_store.list_tables,
+            status=None,
+            search="",
+            limit=200,
+        )
+        items: list[dict[str, Any]] = []
+        for table in tables:
+            fields: list[dict[str, Any]] = []
+            if table.active_schema_version is not None:
+                schema = await asyncio.to_thread(
+                    agent_table_store.get_schema_version,
+                    table.table_id,
+                    table.active_schema_version,
+                )
+                fields = [
+                    {
+                        "field_id": field.field_id,
+                        "name": field.name,
+                        "label": field.label,
+                        "description": field.description,
+                        "data_type": field.data_type,
+                        "required": field.required,
+                    }
+                    for field in schema.fields
+                ]
+            items.append(
+                {
+                    "id": table.table_id,
+                    "name": table.name,
+                    "description": table.description,
+                    "status": table.status,
+                    "active_schema_version": table.active_schema_version,
+                    "fields": fields,
+                }
+            )
+        return {"kind": kind, "items": items}
 
     knowledge_bases = await asyncio.to_thread(
         get_rag_service().list_knowledge_bases

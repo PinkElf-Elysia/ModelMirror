@@ -76,6 +76,20 @@ NODE_KIND_ALIASES = {
     "list-operation": "list_operation",
     "list-operator": "list_operation",
     "iteration": "iteration",
+    "json_serialize": "json_serialize",
+    "json-serialize": "json_serialize",
+    "json_deserialize": "json_deserialize",
+    "json-deserialize": "json_deserialize",
+    "data_table_query": "data_table_query",
+    "data-table-query": "data_table_query",
+    "data_table_insert": "data_table_insert",
+    "data-table-insert": "data_table_insert",
+    "data_table_update": "data_table_update",
+    "data-table-update": "data_table_update",
+    "data_table_delete": "data_table_delete",
+    "data-table-delete": "data_table_delete",
+    "annotation": "annotation",
+    "note": "annotation",
     "runtime_middleware": "runtime_middleware",
     "runtime-middleware": "runtime_middleware",
     "end": "output",
@@ -112,6 +126,13 @@ SUPPORTED_NODE_KINDS = {
     "http_request",
     "list_operation",
     "iteration",
+    "json_serialize",
+    "json_deserialize",
+    "data_table_query",
+    "data_table_insert",
+    "data_table_update",
+    "data_table_delete",
+    "annotation",
     "runtime_middleware",
     "output",
 }
@@ -133,6 +154,161 @@ def config_truthy(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+DATA_TABLE_NODE_KINDS = {
+    "data_table_query",
+    "data_table_insert",
+    "data_table_update",
+    "data_table_delete",
+}
+DATA_TABLE_FILTER_OPERATORS = {
+    "eq",
+    "ne",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "in",
+    "contains",
+    "is_null",
+}
+
+
+def validate_data_table_filter(
+    value: object,
+    *,
+    node_id: str,
+    required: bool,
+    depth: int = 0,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if value is None or value == {}:
+        if required:
+            issues.append(
+                ValidationIssue(
+                    code="missing_data_table_filter",
+                    message="Agent Table update and delete nodes require a non-empty filter.",
+                    node_id=node_id,
+                )
+            )
+        return issues
+    if not isinstance(value, dict) or depth > 4:
+        return [
+            ValidationIssue(
+                code="invalid_data_table_filter",
+                message="Agent Table filter must be an object with at most 5 levels.",
+                node_id=node_id,
+            )
+        ]
+    if "logic" in value or "items" in value:
+        logic = str(value.get("logic") or "").lower()
+        items = value.get("items")
+        if logic not in {"and", "or"} or not isinstance(items, list) or not 1 <= len(items) <= 20:
+            return [
+                ValidationIssue(
+                    code="invalid_data_table_filter_group",
+                    message="Filter groups need logic=and|or and 1 to 20 items.",
+                    node_id=node_id,
+                )
+            ]
+        for item in items:
+            issues.extend(
+                validate_data_table_filter(
+                    item,
+                    node_id=node_id,
+                    required=True,
+                    depth=depth + 1,
+                )
+            )
+        return issues
+    field = str(value.get("field") or "").strip()
+    operator = str(value.get("operator") or "").strip().lower()
+    if not field:
+        issues.append(
+            ValidationIssue(
+                code="missing_data_table_filter_field",
+                message="Agent Table filter leaves require a field.",
+                node_id=node_id,
+            )
+        )
+    if operator not in DATA_TABLE_FILTER_OPERATORS:
+        issues.append(
+            ValidationIssue(
+                code="invalid_data_table_filter_operator",
+                message="Agent Table filter operator is not supported.",
+                node_id=node_id,
+            )
+        )
+    elif operator != "is_null" and "value" not in value:
+        issues.append(
+            ValidationIssue(
+                code="missing_data_table_filter_value",
+                message=f"Agent Table filter operator {operator} requires a value binding.",
+                node_id=node_id,
+            )
+        )
+    elif operator != "is_null":
+        issues.extend(
+            validate_data_table_binding(
+                value.get("value"),
+                node_id=node_id,
+                label=f"Agent Table filter '{field or '<empty>'}'",
+            )
+        )
+    return issues
+
+
+def validate_data_table_binding(
+    value: object,
+    *,
+    node_id: str,
+    label: str,
+) -> list[ValidationIssue]:
+    if not isinstance(value, dict):
+        return [
+            ValidationIssue(
+                code="invalid_data_table_value_binding",
+                message=f"{label} must use a literal or variable value binding.",
+                node_id=node_id,
+            )
+        ]
+    source = str(value.get("source") or "").strip()
+    if source == "literal" and "value" in value:
+        return []
+    if source == "variable" and is_variable_name(str(value.get("variable") or "").strip()):
+        return []
+    return [
+        ValidationIssue(
+            code="invalid_data_table_value_binding",
+            message=f"{label} must use source=literal with value or source=variable with an identifier.",
+            node_id=node_id,
+        )
+    ]
+
+
+def iter_data_table_bindings(data: dict[str, Any]) -> list[dict[str, Any]]:
+    bindings: list[dict[str, Any]] = []
+    value_bindings = data.get("valueBindings")
+    if isinstance(value_bindings, dict):
+        bindings.extend(
+            value for value in value_bindings.values() if isinstance(value, dict)
+        )
+
+    def collect_filter(value: object) -> None:
+        if not isinstance(value, dict):
+            return
+        items = value.get("items")
+        if isinstance(items, list):
+            for item in items:
+                collect_filter(item)
+            return
+        binding = value.get("value")
+        if isinstance(binding, dict):
+            bindings.append(binding)
+
+    collect_filter(data.get("filter"))
+    return bindings
 
 
 def validate_handoff_execution_configuration(
@@ -493,6 +669,226 @@ def validate_node_configuration(
                 ValidationIssue(
                     code="invalid_aggregator_output_variable",
                     message="Variable aggregator outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+
+    if kind in {"json_serialize", "json_deserialize"}:
+        input_variable = str(data.get("inputVariable") or "").strip()
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if not input_variable:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{kind}_input_variable",
+                    message=f"{kind} node needs data.inputVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(input_variable):
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{kind}_input_variable",
+                    message=f"{kind} inputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        if not output_variable:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{kind}_output_variable",
+                    message=f"{kind} node needs data.outputVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(output_variable):
+            issues.append(
+                ValidationIssue(
+                    code=f"invalid_{kind}_output_variable",
+                    message=f"{kind} outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+        if kind == "json_serialize":
+            output_format = str(data.get("format") or "compact").strip()
+            if output_format not in {"compact", "pretty"}:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_json_serialize_format",
+                        message="json_serialize format must be compact or pretty.",
+                        node_id=node.id,
+                    )
+                )
+
+    if kind in DATA_TABLE_NODE_KINDS:
+        table_id = str(data.get("tableId") or "").strip()
+        if not table_id:
+            issues.append(
+                ValidationIssue(
+                    code="missing_data_table_id",
+                    message=f"{kind} needs data.tableId.",
+                    node_id=node.id,
+                )
+            )
+        version_policy = str(data.get("versionPolicy") or "latest").strip()
+        if version_policy not in {"latest", "pinned"}:
+            issues.append(
+                ValidationIssue(
+                    code="invalid_data_table_version_policy",
+                    message="Agent Table versionPolicy must be latest or pinned.",
+                    node_id=node.id,
+                )
+            )
+        if version_policy == "pinned":
+            try:
+                pinned_version = int(data.get("pinnedSchemaVersion") or 0)
+            except (TypeError, ValueError):
+                pinned_version = 0
+            if pinned_version < 1:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_data_table_schema_version",
+                        message="Pinned Agent Table nodes need a positive pinnedSchemaVersion.",
+                        node_id=node.id,
+                    )
+                )
+        output_variable = str(data.get("outputVariable") or "").strip()
+        if not output_variable:
+            issues.append(
+                ValidationIssue(
+                    code="missing_data_table_output_variable",
+                    message=f"{kind} needs data.outputVariable.",
+                    node_id=node.id,
+                )
+            )
+        elif not is_variable_name(output_variable):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_data_table_output_variable",
+                    message="Agent Table outputVariable must be an identifier.",
+                    node_id=node.id,
+                )
+            )
+
+        filter_required = kind in {"data_table_update", "data_table_delete"}
+        issues.extend(
+            validate_data_table_filter(
+                data.get("filter"),
+                node_id=node.id,
+                required=filter_required,
+            )
+        )
+
+        if kind == "data_table_query":
+            fields = data.get("selectFields")
+            if fields is not None and (
+                not isinstance(fields, list)
+                or len(fields) > 50
+                or any(not isinstance(value, str) or not value.strip() for value in fields)
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_data_table_select_fields",
+                        message="selectFields must contain at most 50 non-empty field names.",
+                        node_id=node.id,
+                    )
+                )
+            try:
+                limit = int(data.get("limit") or 20)
+            except (TypeError, ValueError):
+                limit = 0
+            if not 1 <= limit <= 200:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_data_table_limit",
+                        message="Agent Table query limit must be between 1 and 200.",
+                        node_id=node.id,
+                    )
+                )
+            if str(data.get("returnMode") or "list") not in {"list", "first"}:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_data_table_return_mode",
+                        message="Agent Table query returnMode must be list or first.",
+                        node_id=node.id,
+                    )
+                )
+            sort = data.get("sort") or []
+            if not isinstance(sort, list) or len(sort) > 5:
+                issues.append(
+                    ValidationIssue(
+                        code="invalid_data_table_sort",
+                        message="Agent Table query sort supports at most 5 entries.",
+                        node_id=node.id,
+                    )
+                )
+            else:
+                for item in sort:
+                    if (
+                        not isinstance(item, dict)
+                        or not str(item.get("field") or "").strip()
+                        or str(item.get("direction") or "asc").lower()
+                        not in {"asc", "desc"}
+                    ):
+                        issues.append(
+                            ValidationIssue(
+                                code="invalid_data_table_sort",
+                                message="Sort entries need a field and asc|desc direction.",
+                                node_id=node.id,
+                            )
+                        )
+                        break
+
+        if kind in {"data_table_insert", "data_table_update"}:
+            value_bindings = data.get("valueBindings")
+            if not isinstance(value_bindings, dict) or not value_bindings:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_data_table_value_bindings",
+                        message=f"{kind} needs at least one field value binding.",
+                        node_id=node.id,
+                    )
+                )
+            else:
+                if len(value_bindings) > 50:
+                    issues.append(
+                        ValidationIssue(
+                            code="too_many_data_table_value_bindings",
+                            message="Agent Table writes support at most 50 field bindings.",
+                            node_id=node.id,
+                        )
+                    )
+                for field_name, binding in value_bindings.items():
+                    if not isinstance(field_name, str) or not field_name.strip():
+                        issues.append(
+                            ValidationIssue(
+                                code="invalid_data_table_binding_field",
+                                message="Agent Table value binding field names cannot be empty.",
+                                node_id=node.id,
+                            )
+                        )
+                    issues.extend(
+                        validate_data_table_binding(
+                            binding,
+                            node_id=node.id,
+                            label=f"Agent Table field '{field_name}'",
+                        )
+                    )
+
+    if kind == "annotation":
+        content = data.get("content", "")
+        if not isinstance(content, str):
+            issues.append(
+                ValidationIssue(
+                    code="invalid_annotation_content",
+                    message="Annotation content must be a string.",
+                    node_id=node.id,
+                )
+            )
+        elif len(content) > 20_000:
+            issues.append(
+                ValidationIssue(
+                    code="annotation_content_too_long",
+                    message="Annotation content must not exceed 20,000 characters.",
                     node_id=node.id,
                 )
             )
@@ -2235,6 +2631,12 @@ def collect_declared_variables(
             "http_request",
             "list_operation",
             "iteration",
+            "json_serialize",
+            "json_deserialize",
+            "data_table_query",
+            "data_table_insert",
+            "data_table_update",
+            "data_table_delete",
         }:
             variable = str(data.get("outputVariable") or "").strip()
             if is_variable_name(variable):
@@ -2310,6 +2712,20 @@ def validate_variable_references(
                             )
                         )
 
+    if kind in DATA_TABLE_NODE_KINDS:
+        for binding in iter_data_table_bindings(data):
+            if str(binding.get("source") or "") != "variable":
+                continue
+            variable = str(binding.get("variable") or "").strip()
+            if variable and variable not in available_variables:
+                issues.append(
+                    ValidationIssue(
+                        code="missing_data_table_variable_reference",
+                        message=f"Agent Table binding references undefined variable '{variable}'.",
+                        node_id=node.id,
+                    )
+                )
+
     if kind == "variable_assign":
         template = str(data.get("template") or "")
         for variable in sorted(extract_template_variables(template)):
@@ -2365,6 +2781,17 @@ def validate_variable_references(
                         node_id=node.id,
                     )
                 )
+
+    if kind in {"json_serialize", "json_deserialize"}:
+        input_variable = str(data.get("inputVariable") or "").strip()
+        if input_variable and input_variable not in available_variables:
+            issues.append(
+                ValidationIssue(
+                    code=f"missing_{kind}_input_variable_reference",
+                    message=f"{kind} references undefined variable '{input_variable}'.",
+                    node_id=node.id,
+                )
+            )
 
     if kind == "parameter_extractor":
         input_variable = str(data.get("inputVariable") or "").strip()
@@ -2644,6 +3071,18 @@ def validate_edges(
                 ValidationIssue(
                     code="invalid_edge_reference",
                     message="Edge references a missing source or target node.",
+                    edge_id=edge.id,
+                )
+            )
+            continue
+        if (
+            kinds_by_id.get(edge.source) == "annotation"
+            or kinds_by_id.get(edge.target) == "annotation"
+        ):
+            issues.append(
+                ValidationIssue(
+                    code="annotation_edge_forbidden",
+                    message="Annotation nodes cannot connect to workflow edges.",
                     edge_id=edge.id,
                 )
             )
@@ -3384,7 +3823,9 @@ def topological_order(
         edge.source for edge in edges if is_non_control_binding_edge(edge)
     }
     node_ids = {
-        node.id for node in nodes if node.id not in bound_resource_ids
+        node.id
+        for node in nodes
+        if node.id not in bound_resource_ids and node_kind(node) != "annotation"
     }
     indegree = {node_id: 0 for node_id in node_ids}
     outgoing: dict[str, list[str]] = defaultdict(list)

@@ -33,6 +33,13 @@ NativeNodeKind = Literal[
     "http_request",
     "list_operation",
     "iteration",
+    "json_serialize",
+    "json_deserialize",
+    "data_table_query",
+    "data_table_insert",
+    "data_table_update",
+    "data_table_delete",
+    "annotation",
     "runtime_middleware",
     "output",
 ]

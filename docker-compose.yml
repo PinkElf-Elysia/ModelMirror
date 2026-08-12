@@ -596,6 +596,7 @@ services:
       AGENT_WORKSPACE_ROOT: /data/agent-workspace
       XPERT_STORAGE_DIR: /app/xperts/storage
       AGENT_TASK_STORAGE_DIR: /app/xpert_runtime/storage
+      AGENT_TABLE_STORAGE_DIR: /app/xpert_runtime/storage
       DATAX_STORAGE_DIR: /app/datax/storage
       TOOLSET_STORAGE_DIR: /app/toolsets/storage
       HANDOFF_EXECUTOR_ENABLED: "true"

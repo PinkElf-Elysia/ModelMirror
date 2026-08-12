@@ -29,8 +29,23 @@ export type WorkflowNodeKind =
   | "http_request"
   | "list_operation"
   | "iteration"
+  | "json_serialize"
+  | "json_deserialize"
+  | "data_table_query"
+  | "data_table_insert"
+  | "data_table_update"
+  | "data_table_delete"
+  | "annotation"
   | "runtime_middleware"
   | "output";
+
+export type WorkflowValue =
+  | null
+  | string
+  | number
+  | boolean
+  | WorkflowValue[]
+  | { [key: string]: WorkflowValue };
 
 export type ConditionOperator = "equals" | "contains";
 
@@ -69,6 +84,14 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   xpertId?: string;
   versionPolicy?: string;
   pinnedVersion?: string;
+  tableId?: string;
+  pinnedSchemaVersion?: number | string;
+  selectFields?: string[];
+  filter?: Record<string, unknown>;
+  sort?: Array<{ field: string; direction: "asc" | "desc" }>;
+  limit?: number | string;
+  returnMode?: "list" | "first";
+  valueBindings?: Record<string, unknown>;
   topK?: string;
   scoreThreshold?: string;
   top_k?: string;
@@ -133,6 +156,8 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   headersJson?: string;
   bodyVariable?: string;
   inputVariable?: string;
+  format?: "compact" | "pretty";
+  content?: string;
   operator?: ListOperationOperator;
   joinSeparator?: string;
   iterationVariable?: string;
@@ -202,7 +227,7 @@ export interface WorkflowRunEvent {
   output_variable?: string;
   variable?: string;
   final_output?: string;
-  variables?: Record<string, string>;
+  variables?: Record<string, WorkflowValue>;
   message?: string;
   at?: number;
   strategy?: "function_calling" | "react";

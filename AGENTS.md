@@ -17,7 +17,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 本文件是模镜仓库内 AI Agent、人类开发者和自动化任务的项目级操作说明。任何代码生成、重构、测试、提交和发布都必须优先遵守本文档。
 
-最后更新日期：2026-08-08
+最后更新日期：2026-08-11
 维护人：模镜团队
 
 ## 1. 项目边界
@@ -33,6 +33,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - 协作 Runtime：AgentTask、HandoffExecutor、Conversation Goal 与 RunRegistry 共同提供单进程文件型协作闭环。
 - RAG：`/rag` 是本地资料库、版本化 Knowledge Pipeline 与检索增强页面。
 - Data X：`/datax` 提供文件快照、语义模型、版本化指标、受限分析查询和指标提案审批。
+- Agent Table：`/data-tables` 提供本地类型化业务记录、Schema 版本和人工 CRUD；它不是 Data X 或外部 Database MCP。
 - 上下文：Xpert Chat 支持会话附件、文件理解、显式记忆和待确认记忆候选。
 - 运行观测：`/runtime` 聚合 MCP、Tool Registry、RunRegistry、Skill 和脱敏环境状态。
 - 设置：`/settings` 内嵌 newAPI 控制台。
@@ -53,6 +54,7 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - `/workflow-native`
 - `/rag`
 - `/datax`
+- `/data-tables`
 - `/mcps`
 - `/skills`
 - `/studio`
@@ -245,6 +247,26 @@ workflow-native 是实验线。经典工作流是 `/workflow` 默认入口。任
 - 每新增一类节点至少补一条合法样例和一条非法样例测试。
 - 工作流执行面板应按节点聚合 `node_delta`，不得把同一节点的流式片段无限堆成大量独立卡片。
 - React Flow Controls 在深色画布上必须保持图标可见；修改 `client/src/index.css` 后需在 `/workflow` 手动检查。
+
+### 7.1 Typed workflow value contract
+
+- Classic workflow inputs and runtime variables are JSON-safe values: `null`,
+  string, finite number, boolean, object, or array.
+- Text-only consumers must use the shared stable conversion: strings stay
+  unchanged and all other values become compact JSON. Do not add node-local
+  `str(...)` coercion for workflow values.
+- Continuations and durable execution snapshots must preserve value types across
+  pause, resume, and process restart.
+- `json_serialize` outputs JSON text; `json_deserialize` outputs a typed value and
+  must emit an error for invalid JSON instead of returning the source text.
+- `annotation` is snapshot-only metadata. It cannot connect to control edges and
+  must never enter topology, execution, RunRegistry, or SSE node events.
+- The SSE event vocabulary and string `final_output` contract remain stable;
+  only values inside the existing `variables` object may now be typed JSON.
+- Changes to this boundary must run
+  `server/tests/test_workflow_typed_values.py` and
+  `server/tests/test_workflow_run_contract.py` in addition to affected workflow
+  and Xpert regressions.
 
 ## 8. 元智能体规则
 
@@ -630,6 +652,21 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 - 公共 App 的 Data X 默认关闭。启用 `allow_datax_read` 后仍只允许固定 scope 内的已发布指标；提案、原始明细和文件导出永远禁止。
 - API、audit 和 checkpoint 不得保存上传数据、完整查询结果、DuckDB 路径、展开 SQL、密钥或未脱敏工具输出。
 - 修改 Data X 必须运行 `server/tests/test_datax.py`、workflow validate、Xpert App preflight、前端生产构建和容器重启持久化验收。
+
+### 21.1 Native Agent Table 高风险路径
+
+- `AgentTableStore` 必须保持 Backend-neutral；SQLite Backend 使用事务、WAL、外键和 revision，后续 Backend 不得改变 API 语义。
+- Agent Table 禁止接受任意 SQL。Schema 和记录值必须经过字段白名单、JSON-safe 类型和 256 KiB 正文上限校验。
+- 已发布 SchemaVersion 不可变。已有字段不得删除、改名、改类型或改变约束；新增必填字段必须带默认值。
+- 记录写入必须支持稳定 `operation_id`。相同请求重放返回原结果，不同请求复用同一 ID 必须冲突，防止恢复后重复写入。
+- API、审计和前端不得返回 SQLite 物理路径；SQLite、WAL、Runtime Store 和记录数据不得提交。
+- `/data-tables` 是本地业务记录入口；`/datax` 仍是分析入口，外部数据库仍走受控 MCP，三者不得合并 Store 或伪装语义。
+- `data_table_query/insert/update/delete` 只能通过固定字段、条件和排序 DSL 执行，禁止自定义 SQL。查询上限 200；更新和删除必须有非空条件且最多影响 100 行。
+- Classic Workflow 可在运行时解析 `latest`，Xpert 发布必须固定具体 SchemaVersion。字段或类型漂移必须 fail-closed，禁止回退到其他版本。
+- 工作流写节点使用由 `task_id + node_id` 派生的稳定 operation ID；HITL、断点恢复或请求重放不得重复写入。
+- 经典画布配置侧栏必须能选择已发布数据表和 SchemaVersion，并配置字段、条件树、排序、返回模式及类型化 literal/variable 绑定；不得退化为只有名称/说明或要求人工编辑 Workflow JSON。画布顶栏和节点侧栏均应保留 `/data-tables` 管理入口。
+- 当前公共 App 和 Evaluator 禁用全部 Agent Table 节点。Registry 必须保持 `planner_enabled=false`，直到独立的 Planner 数据编排闭环完成。
+- 修改 Agent Table 或工作流数据库节点必须运行 `server/tests/test_agent_tables.py`、`server/tests/test_workflow_data_table_nodes.py`、后端语法、前端生产构建和重启恢复验收。
 
 ## 22. Workflow 资源绑定与 EvoAgentX 复用规则
 
