@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from coding_worker.parity import (
+from server.coding_worker.parity import (
     ATTEMPTS_PER_ENGINE,
     EXPECTED_RUN_COUNT,
     ParityCertification,
@@ -16,7 +16,7 @@ from coding_worker.parity import (
     ParityRunOutcome,
     load_frozen_manifest,
 )
-from coding_worker.parity_runner import (
+from server.coding_worker.parity_runner import (
     ParityRunRequest,
     ParityRunnerError,
     SubprocessParityRunner,
